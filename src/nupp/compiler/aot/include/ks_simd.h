@@ -308,6 +308,13 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(k
 #define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
 
+/* The bits of `species:tail(active)`: its first `active` lanes, known without
+ * reading the mask back out of its register. */
+static inline __attribute__((unused)) uint64_t ks_exp_tail_bits(uint32_t active, uint32_t lanes) {
+    if (active >= lanes) return lanes >= 64u ? UINT64_MAX : (UINT64_C(1) << lanes) - UINT64_C(1);
+    return (UINT64_C(1) << active) - UINT64_C(1);
+}
+
 /* A mask a loop carries is kept in its vector register. Left to itself,
  * LLVM folds the loop's phi of sign-extended comparisons into a phi of
  * one-bit lanes and widens it again before every select and test, which

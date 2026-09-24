@@ -14,6 +14,11 @@
 
 typedef void (*map_fn)(double *, const double *, double, double, size_t, size_t);
 typedef void (*refine_fn)(double *, const double *, size_t, size_t);
+typedef double (*library_dot)(const double *, const double *, size_t, size_t);
+typedef double (*dot_fn)(const double *, const double *, size_t);
+double hand_ordered(const double *left, const double *right, size_t count);
+double hand_pairwise(const double *left, const double *right, size_t count);
+double hand_algebraic(const double *left, const double *right, size_t count);
 void hand_map(double *restrict output, const double *input, double scale, double bias, size_t count);
 void hand_refine(double *restrict output, const double *input, size_t count);
 void hand_refine_tuned(double *restrict output, const double *input, size_t count);
@@ -90,6 +95,52 @@ int main(int argc, char **argv) {
                 printf("%-7s %7zu %10.2fns %10.2fns %10.2fns %10.2fns %9.3fx\n", "refine", n, best[0], best[1], best[2], best[3], best[1] / hand);
             }
             free(in); free(out); free(want);
+        }
+    }
+    const char *names[3] = {"ordered", "pairwise", "algebraic"};
+    const char *scalars[3] = {"ks_ordered", "ks_pairwise", "ks_algebraic"};
+    const char *generated[3] = {"ks_explicit_ordered", "ks_explicit_pairwise", "ks_explicit_algebraic"};
+    dot_fn hands[3] = {hand_ordered, hand_pairwise, hand_algebraic};
+    for (int kernel = 0; kernel < 3; kernel++) {
+        library_dot scalar = (library_dot)dlsym(library, scalars[kernel]);
+        library_dot mine = (library_dot)dlsym(library, generated[kernel]);
+        if (!scalar || !mine) { fprintf(stderr, "the library lacks %s\n", names[kernel]); return 1; }
+        for (size_t s = 0; s < sizeof sizes / sizeof sizes[0]; s++) {
+            size_t n = sizes[s];
+            double *left = malloc(n * sizeof *left), *right = malloc(n * sizeof *right);
+            for (size_t i = 0; i < n; i++) {
+                left[i] = (double)(i % 97 + 1) * 0.125;
+                right[i] = (double)(i % 17 + 1) * 0.0625;
+            }
+            double want = scalar(left, right, n, n);
+            double got[2] = {mine(left, right, n, n), hands[kernel](left, right, n)};
+            for (int which = 0; which < 2; which++) {
+                double error = got[which] - want;
+                if (error < 0) error = -error;
+                double bound = kernel == 2 ? 1e-12 * (want < 0 ? -want : want) : 0.0;
+                if (error > bound) {
+                    fprintf(stderr, "%s %zu: %s answers %.17g, scalar C %.17g\n", names[kernel], n, which ? "hand" : "generated", got[which], want);
+                    return 1;
+                }
+            }
+            size_t calls = 4000000 / n + 1;
+            double best[3] = {1e30, 1e30, 1e30};
+            volatile double sink = 0.0;
+            for (int sample = 0; sample < 101; sample++) {
+                for (int step = 0; step < 3; step++) {
+                    int which = (sample & 1) ? 2 - step : step;
+                    double start = now();
+                    for (size_t c = 0; c < calls; c++) {
+                        sink = which == 0 ? scalar(left, right, n, n) : which == 1 ? mine(left, right, n, n) : hands[kernel](left, right, n);
+                        __asm__ volatile("" ::: "memory");
+                    }
+                    double each = (now() - start) / (double)calls * 1e9;
+                    if (each < best[which]) best[which] = each;
+                }
+            }
+            (void)sink;
+            printf("%-9s %7zu %10.2fns %10.2fns %10.2fns %12s %9.3fx\n", names[kernel], n, best[0], best[1], best[2], "", best[1] / best[2]);
+            free(left); free(right);
         }
     }
     return 0;

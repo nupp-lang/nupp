@@ -1599,7 +1599,10 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             then
                 return emit.rearrange(context, simd)
             elseif operation == "simd_mask_all" or operation == "simd_mask_count" then
-                local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(context, args[1]) .. ")"
+                local tailCount = tailPrefix(context, args[1])
+                local bits = tailCount ~= nil
+                    and "ks_exp_tail_bits(" .. tostring(tailCount) .. ", " .. tostring(lanes) .. "u)"
+                    or genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(context, args[1]) .. ")"
                 if operation == "simd_mask_count" then
                     return "((uint32_t)__builtin_popcountll(" .. bits .. "))"
                 end
@@ -2796,10 +2799,12 @@ end
 --- advances by `lanes` and cannot leave early, which is why a body holding a
 --- loop, `break` or `continue` is left alone. Copying a divergent inner loop
 --- would multiply the code and not the work anyway.
-local function wideUnroll(statement: scalarIR.While, lanesText: string?, byLanes: boolean): integer
-    local lanes = statement.condition.op == "le"
-        and ((statement.condition as scalarIR.Binary).left as scalarIR.Fixed).right
-        or nil
+local function wideUnroll(
+    statement: scalarIR.While,
+    lanes: scalarIR.Expr?,
+    lanesText: string?,
+    byLanes: boolean
+): integer
     if lanes ~= nil and lanes.op == "numeric_cast" then
         lanes = (lanes as scalarIR.Convert).value
     end
@@ -2834,39 +2839,67 @@ end
 --- compiler strength-reduce the addresses and unroll it; a `uint32` that might
 --- wrap it has to re-derive every iteration. Returns the cursor's C name and
 --- the guarded count, or nothing.
-local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Expr?, boolean)
+local function wideCursorLoop(statement: scalarIR.While): (string?, {scalarIR.Expr}, boolean, scalarIR.Expr?)
+    local none: {scalarIR.Expr} = {}
     if statement.conditionBody ~= nil then
-        return nil, nil, false
+        return nil, none, false, nil
     end
-    local condition = statement.condition
-    if condition.op ~= "le" and condition.op ~= "lt" then
-        return nil, nil, false
+    -- Every conjunct must bound the same cursor by the same lanes.
+    local guards: {scalarIR.Binary} = {}
+    local pending: {scalarIR.Expr} = {statement.condition}
+    while #pending > 0 do
+        local condition = table.remove(pending) as scalarIR.Expr
+        if condition.op == "and" then
+            pending[#pending + 1] = (condition as scalarIR.Binary).right
+            pending[#pending + 1] = (condition as scalarIR.Binary).left
+        elseif condition.op == "le" or condition.op == "lt" then
+            guards[#guards + 1] = condition as scalarIR.Binary
+        else
+            return nil, none, false, nil
+        end
     end
-    local comparison = condition as scalarIR.Binary
-    if comparison.right.op ~= "span_count" then
-        return nil, nil, false
-    end
-    local cursor: scalarIR.Expr? = nil
+    local cName: string? = nil
     local lanes: scalarIR.Expr? = nil
-    if condition.op == "lt" then
-        cursor = comparison.left
-    elseif comparison.left.op == "u64_add" then
-        local sum = comparison.left as scalarIR.Fixed
-        cursor = sum.left.op == "numeric_cast" and (sum.left as scalarIR.Convert).value or nil
-        lanes = sum.right
+    local counts: {scalarIR.Expr} = {}
+    for position, comparison in ipairs(guards) do
+        if comparison.right.op ~= "span_count" then
+            return nil, none, false, nil
+        end
+        local cursor: scalarIR.Expr? = nil
+        local width: scalarIR.Expr? = nil
+        if comparison.op == "lt" then
+            cursor = comparison.left
+        elseif comparison.left.op == "u64_add" then
+            local sum = comparison.left as scalarIR.Fixed
+            cursor = sum.left.op == "numeric_cast" and (sum.left as scalarIR.Convert).value or nil
+            width = sum.right
+        end
+        if cursor == nil or (cursor as scalarIR.Expr).op ~= "local" or (cursor as scalarIR.Expr).type ~= "u32" then
+            return nil, none, false, nil
+        end
+        local named = (cursor as scalarIR.Name).cName
+        if named == nil or position > 1 and named ~= cName then
+            return nil, none, false, nil
+        end
+        if position > 1
+            and (
+                (width == nil) ~= (lanes == nil)
+                or width ~= nil and not sameLanes(width as scalarIR.Expr, lanes as scalarIR.Expr)
+            )
+        then
+            return nil, none, false, nil
+        end
+        cName = named as string
+        lanes = width
+        counts[#counts + 1] = comparison.right
     end
-    if cursor == nil or (cursor as scalarIR.Expr).op ~= "local" or (cursor as scalarIR.Expr).type ~= "u32" then
-        return nil, nil, false
+    if cName == nil then
+        return nil, none, false, nil
     end
-    local named = (cursor as scalarIR.Name).cName
-    if named == nil then
-        return nil, nil, false
-    end
-    local cName = named as string
     local writes: {scalarIR.Assignment} = {}
-    assignmentsTo(statement.body, cName, writes, {})
+    assignmentsTo(statement.body, cName as string, writes, {})
     if #writes ~= 1 then
-        return nil, nil, false
+        return nil, none, false, nil
     end
     local topLevel = false
     for _, child in ipairs(statement.body) do
@@ -2879,18 +2912,18 @@ local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Exp
     end
     local step = writes[1].value
     if not topLevel or step.op ~= "u32_add" then
-        return nil, nil, false
+        return nil, none, false, nil
     end
     local sum = step as scalarIR.Fixed
     if sum.left.op ~= "local" or (sum.left as scalarIR.Name).cName ~= cName then
-        return nil, nil, false
+        return nil, none, false, nil
     end
     local one = sum.right.op == "constant_i32" and tostring((sum.right as scalarIR.IntConstant).value) == "1"
     if not one and (lanes == nil or not sameLanes(sum.right, lanes as scalarIR.Expr)) then
-        return nil, nil, false
+        return nil, none, false, nil
     end
 
-    return cName, comparison.right, not one
+    return cName, counts, not one, lanes
 end
 
 --- The C control structure is shared; each backend supplies its expressions
@@ -2984,9 +3017,12 @@ local function controlFlow(
         if body.headerControl ~= true and body.controlBreak == nil then
             if node.op == "while" then
                 local statement = node as scalarIR.While
-                local cursor, count, byLanes = nil, nil, false
+                local cursor: string? = nil
+                local counts: {scalarIR.Expr} = {}
+                local byLanes = false
+                local lanes: scalarIR.Expr? = nil
                 if body.forceScalar ~= true then
-                    cursor, count, byLanes = wideCursorLoop(statement)
+                    cursor, counts, byLanes, lanes = wideCursorLoop(statement)
                 end
                 if cursor ~= nil then
                     -- The same loop twice: with the cursor carried in 64 bits
@@ -2997,16 +3033,17 @@ local function controlFlow(
                     body.controlSerial = body.controlSerial + 1
                     local holder = "ks_wide_" .. tostring(body.controlSerial)
                     local inner = prefix .. "        "
-                    local rendered = expression(count as scalarIR.Expr)
-                    rendered = rendered:match("^%(%(double%)(.+)%)$") or rendered
-                    local lanes = statement.condition.op == "le"
-                        and ((statement.condition as scalarIR.Binary).left as scalarIR.Fixed).right
-                        or nil
-                    if lanes ~= nil and lanes.op == "numeric_cast" then
-                        lanes = (lanes as scalarIR.Convert).value
+                    local renderedCounts: {string} = {}
+                    for position, count in ipairs(counts) do
+                        local text = expression(count)
+                        renderedCounts[position] = text:match("^%(%(double%)(.+)%)$") or text
+                    end
+                    local rendered = renderedCounts[1]
+                    if lanes ~= nil and (lanes as scalarIR.Expr).op == "numeric_cast" then
+                        lanes = ((lanes as scalarIR.Expr) as scalarIR.Convert).value
                     end
                     local lanesText = lanes ~= nil and expression(lanes as scalarIR.Expr) or nil
-                    local unroll = wideUnroll(statement, lanesText, byLanes)
+                    local unroll = wideUnroll(statement, lanes, lanesText, byLanes)
                     lines[#lines + 1] = prefix .. "if ((uint64_t)(" .. rendered .. ") <= UINT32_MAX) {"
                     lines[#lines + 1] = prefix .. "    uint64_t " .. holder .. " = " .. tostring(cursor) .. ";"
                     lines[#lines + 1] = prefix .. "    {"
@@ -3016,13 +3053,21 @@ local function controlFlow(
                     ] = tonumber(tostring(lanesText):match("^%(*UINT32_C%((%d+)%)%)*$")) as integer?
                         or 1
                     if unroll > 1 then
-                        lines[
-                            #lines + 1
-                        ] = inner .. "while ((uint64_t)" .. tostring(
-                            cursor
-                        ) .. " + UINT64_C(" .. tostring(
-                            unroll
-                        ) .. ") * (uint64_t)" .. tostring(lanesText) .. " <= (uint64_t)(" .. rendered .. ")) {"
+                        local bounds: {string} = {}
+                        local seen: {[string]: boolean} = {}
+                        for _, text in ipairs(renderedCounts) do
+                            if not seen[text] then
+                                seen[text] = true
+                                bounds[
+                                    #bounds + 1
+                                ] = "(uint64_t)" .. tostring(
+                                    cursor
+                                ) .. " + UINT64_C(" .. tostring(
+                                    unroll
+                                ) .. ") * (uint64_t)" .. tostring(lanesText) .. " <= (uint64_t)(" .. text .. ")"
+                            end
+                        end
+                        lines[#lines + 1] = inner .. "while (" .. table.concat(bounds, " && ") .. ") {"
                         for _ = 1, unroll do
                             lines[#lines + 1] = inner .. "    {"
                             for _, line in ipairs(block(statement.body, depth + 4, body, nil)) do
@@ -3944,18 +3989,11 @@ function emit.block(
                 if right ~= nil then
                     lines[#lines + 1] = prefix .. "    " .. vectorC .. " simd_right_" .. serial .. " = " .. right .. ";"
                 end
-                lines[
-                    #lines + 1
-                ] = prefix
-                    .. "    uint64_t simd_bits_"
-                    .. serial
-                    .. " = "
-                    .. species.helper
-                    .. "bits_"
-                    .. species.suffix
-                    .. "("
-                    .. mask
-                    .. ");"
+                local tailCount = tailPrefix(context, contribution.mask)
+                local bits = tailCount ~= nil
+                    and "ks_exp_tail_bits(" .. tostring(tailCount) .. ", " .. tostring(species.lanes) .. "u)"
+                    or species.helper .. "bits_" .. species.suffix .. "(" .. mask .. ")"
+                lines[#lines + 1] = prefix .. "    uint64_t simd_bits_" .. serial .. " = " .. bits .. ";"
                 local stateful = reducerHelper(contribution.order, contribution.operation, contribution.element)
                 for index = 0, species.lanes - 1 do
                     local laneValue = genericLane(

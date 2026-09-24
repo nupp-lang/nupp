@@ -93,3 +93,78 @@ void hand_refine_tuned(double *restrict output, const double *input, size_t coun
         output[i] = value + rounds;
     }
 }
+
+/* The dot products. Each keeps the numerical contract its reducer names. */
+
+/* Products in source order, added one at a time: only the multiplies can run
+ * in lanes. */
+double hand_ordered(const double *left, const double *right, size_t count) {
+    double total = 0.0;
+    size_t i = 0;
+    for (; i + 4 <= count; i += 4) {
+        float64x2_t p0 = vmulq_f64(vld1q_f64(left + i), vld1q_f64(right + i));
+        float64x2_t p1 = vmulq_f64(vld1q_f64(left + i + 2), vld1q_f64(right + i + 2));
+        total = total + vgetq_lane_f64(p0, 0);
+        total = total + vgetq_lane_f64(p0, 1);
+        total = total + vgetq_lane_f64(p1, 0);
+        total = total + vgetq_lane_f64(p1, 1);
+    }
+    for (; i < count; i++) {
+        total = total + left[i] * right[i];
+    }
+    return total;
+}
+
+/* The adjacent-pair tree whose first leaf is the seed: a binary counter of
+ * completed blocks, merged left to right, then the partial blocks from the
+ * smallest up. Products are formed in lanes. */
+typedef struct { double sum[65]; unsigned char full[65]; } hand_pairwise_state;
+
+static inline void hand_pairwise_push(hand_pairwise_state *state, double leaf) {
+    unsigned level = 0;
+    while (state->full[level]) {
+        leaf = state->sum[level] + leaf;
+        state->full[level] = 0;
+        level++;
+    }
+    state->sum[level] = leaf;
+    state->full[level] = 1;
+}
+
+double hand_pairwise(const double *left, const double *right, size_t count) {
+    hand_pairwise_state state;
+    for (unsigned level = 0; level < 65; level++) state.full[level] = 0;
+    hand_pairwise_push(&state, 0.0);
+    size_t i = 0;
+    for (; i + 4 <= count; i += 4) {
+        float64x2_t p0 = vmulq_f64(vld1q_f64(left + i), vld1q_f64(right + i));
+        float64x2_t p1 = vmulq_f64(vld1q_f64(left + i + 2), vld1q_f64(right + i + 2));
+        hand_pairwise_push(&state, vgetq_lane_f64(p0, 0));
+        hand_pairwise_push(&state, vgetq_lane_f64(p0, 1));
+        hand_pairwise_push(&state, vgetq_lane_f64(p1, 0));
+        hand_pairwise_push(&state, vgetq_lane_f64(p1, 1));
+    }
+    for (; i < count; i++) hand_pairwise_push(&state, left[i] * right[i]);
+    double total = 0.0;
+    int started = 0;
+    for (unsigned level = 0; level < 65; level++) {
+        if (!state.full[level]) continue;
+        total = started ? state.sum[level] + total : state.sum[level];
+        started = 1;
+    }
+    return total;
+}
+
+/* Reassociation allowed: the kernel's shape, one four-lane accumulator and a
+ * horizontal sum at the end. */
+double hand_algebraic(const double *left, const double *right, size_t count) {
+    float64x2_t a0 = vdupq_n_f64(0.0), a1 = vdupq_n_f64(0.0);
+    size_t i = 0;
+    for (; i + 4 <= count; i += 4) {
+        a0 = vaddq_f64(a0, vmulq_f64(vld1q_f64(left + i), vld1q_f64(right + i)));
+        a1 = vaddq_f64(a1, vmulq_f64(vld1q_f64(left + i + 2), vld1q_f64(right + i + 2)));
+    }
+    double total = vaddvq_f64(vaddq_f64(a0, a1));
+    for (; i < count; i++) total = total + left[i] * right[i];
+    return total;
+}

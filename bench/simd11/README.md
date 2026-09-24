@@ -151,26 +151,45 @@ clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -D_POSIX_C_SOURCE=200809L \
 Refine has two hand versions. The plain one is what intrinsics code usually
 looks like; clang carries its live masks as one bit a lane and pays about 1.6x
 for it. The tuned one pins the masks in their registers, as the generated code
-does, and is the bar.
+does, and is the bar. The dot products keep their reducers' contracts: ordered
+adds products in source order, pairwise builds the seeded adjacent-pair tree
+through a binary counter, and algebraic keeps the kernel's one four-lane
+accumulator. Ordered and pairwise must match scalar C bit for bit; algebraic
+within the harness's 1e-12 relative bound.
 
 Apple M5 Pro, Apple clang 21, 2026-09-23; the fastest of 101 interleaved
 samples of about a millisecond each. These are working measurements on a
-shared machine, not a qualified protocol run.
+shared machine, not a qualified protocol run. The last column is generated
+time over the best hand-written time.
 
-| Kernel | n | Scalar C | Generated | Hand NEON | Generated / best hand |
+| Kernel | n | Scalar C | Generated | Hand NEON | Generated / hand |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| map | 63 | 4.61 ns | 5.31 ns | 4.61 ns | 1.15x |
-| map | 64 | 4.06 ns | 4.45 ns | 4.38 ns | 1.02x |
-| map | 1,024 | 64.8 ns | 69.4 ns | 67.3 ns | 1.03x |
-| map | 65,539 | 8.02 us | 7.94 us | 8.02 us | 0.99x |
-| refine | 63 | 39.8 ns | 41.3 ns | 39.7 ns (tuned) | 1.04x |
-| refine | 64 | 40.3 ns | 40.5 ns | 40.5 ns (tuned) | 1.00x |
-| refine | 1,024 | 870 ns | 844 ns | 844 ns (tuned) | 1.00x |
-| refine | 65,539 | 56.4 us | 54.9 us | 54.9 us (tuned) | 1.00x |
+| map | 63 | 4.49 ns | 5.20 ns | 4.61 ns | 1.13x |
+| map | 64 | 4.02 ns | 4.48 ns | 4.61 ns | 0.97x |
+| map | 1,024 | 65.0 ns | 70.1 ns | 67.3 ns | 1.04x |
+| map | 65,539 | 7.76 us | 7.73 us | 7.74 us | 1.00x |
+| refine | 63 | 38.4 ns | 40.9 ns | 39.1 ns (tuned) | 1.05x |
+| refine | 64 | 39.7 ns | 39.7 ns | 39.4 ns (tuned) | 1.01x |
+| refine | 1,024 | 854 ns | 818 ns | 844 ns (tuned) | 0.97x |
+| refine | 65,539 | 55.7 us | 54.0 us | 54.4 us (tuned) | 0.99x |
+| ordered | 63 | 32.5 ns | 12.5 ns | 11.3 ns | 1.10x |
+| ordered | 64 | 33.2 ns | 11.9 ns | 11.8 ns | 1.00x |
+| ordered | 1,024 | 680 ns | 452 ns | 449 ns | 1.01x |
+| ordered | 65,539 | 42.6 us | 33.5 us | 33.4 us | 1.00x |
+| pairwise | 63 | 52.8 ns | 36.4 ns | 44.7 ns | 0.81x |
+| pairwise | 64 | 53.3 ns | 36.3 ns | 45.3 ns | 0.80x |
+| pairwise | 1,024 | 669 ns | 341 ns | 602 ns | 0.57x |
+| pairwise | 65,539 | 42.0 us | 21.1 us | 39.4 us | 0.54x |
+| algebraic | 63 | 32.7 ns | 5.17 ns | 5.64 ns | 0.92x |
+| algebraic | 64 | 33.2 ns | 5.14 ns | 5.20 ns | 0.99x |
+| algebraic | 1,024 | 679 ns | 136 ns | 137 ns | 1.00x |
+| algebraic | 65,539 | 42.8 us | 9.77 us | 10.1 us | 0.97x |
 
 Map's scalar source is vectorized by clang, so all three map columns run the
-same vector loop. The generated map's remaining cost at 63 is its four-lane
-masked tail against the hand version's two-lane step and one scalar element.
+same vector loop. What remains behind is the 63-element tails, where a
+four-lane masked step costs a few cycles more than the hand versions' two-lane
+step and one scalar element, and map at 1,024, where the hand loop issues both
+loads of an iteration before its first store.
 
 ## Complete-function measurements
 
