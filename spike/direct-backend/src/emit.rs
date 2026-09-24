@@ -249,6 +249,48 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
                                 a.bind(skip);
                             }
                         }
+                        Op::TailLoad => {
+                            let (lo, hi, addr, n) = (r[0], r[1], r[2], r[3]);
+                            let (full, lt2, done) = (a.label(), a.label(), a.label());
+                            a.emit(asm::movi_2d_zero(lo));
+                            a.emit(asm::movi_2d_zero(hi));
+                            a.emit(asm::cmp_imm(true, n, 4));
+                            a.b_cond(asm::cond::HS, full);
+                            a.emit(asm::cmp_imm(true, n, 2));
+                            a.b_cond(asm::cond::LO, lt2);
+                            a.emit(asm::ldr_q_imm(lo, addr, 0));
+                            a.emit(asm::cmp_imm(true, n, 3));
+                            a.b_cond(asm::cond::LO, done);
+                            a.emit(asm::ldr_d_imm(hi, addr, 16));
+                            a.b(done);
+                            a.bind(lt2);
+                            a.cbz(n, done);
+                            a.emit(asm::ldr_d_imm(lo, addr, 0));
+                            a.b(done);
+                            a.bind(full);
+                            a.emit(asm::ldp_q(lo, hi, addr, 0));
+                            a.bind(done);
+                        }
+                        Op::TailStore => {
+                            let (lo, hi, addr, n) = (r[0], r[1], r[2], r[3]);
+                            let (full, lt2, done) = (a.label(), a.label(), a.label());
+                            a.emit(asm::cmp_imm(true, n, 4));
+                            a.b_cond(asm::cond::HS, full);
+                            a.emit(asm::cmp_imm(true, n, 2));
+                            a.b_cond(asm::cond::LO, lt2);
+                            a.emit(asm::str_q_imm(lo, addr, 0));
+                            a.emit(asm::cmp_imm(true, n, 3));
+                            a.b_cond(asm::cond::LO, done);
+                            a.emit(asm::str_d_imm(hi, addr, 16));
+                            a.b(done);
+                            a.bind(lt2);
+                            a.cbz(n, done);
+                            a.emit(asm::str_d_imm(lo, addr, 0));
+                            a.b(done);
+                            a.bind(full);
+                            a.emit(asm::stp_q(lo, hi, addr, 0));
+                            a.bind(done);
+                        }
                         Op::MaskedStore => {
                             let (lo, hi, addr, m0, m1) = (r[0], r[1], r[2], r[3], r[4]);
                             for k in 0..4u32 {

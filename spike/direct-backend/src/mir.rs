@@ -42,6 +42,9 @@ pub enum Op {
     Stp { off: i32 },
     MaskedLoad,
     MaskedStore,
+    /// Loads/stores the first `n` lanes: a mask known to be `simd_tail(n)`.
+    TailLoad,
+    TailStore,
     Jump,
     CmpBr { sf: bool, cond: u32 },
     FCmpBr { cond: u32 },

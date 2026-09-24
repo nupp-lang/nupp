@@ -118,6 +118,8 @@ pub struct Lower {
     consts: HashMap<(u8, [u8; 16]), VReg>,
     /// Pointer induction variables of the innermost loop being lowered.
     iv: Option<Iv>,
+    /// Masks made by `simd_tail(n)`, to the register holding `n`.
+    tails: HashMap<(VReg, VReg), VReg>,
 }
 
 /// A loop cursor's addresses carried as pointers: `ptrs[span]` is
@@ -366,6 +368,18 @@ impl Lower {
                     let addr = self.address(&a[1], e["span"].as_str().unwrap());
                     let m = self.expr(&a[2]);
                     let (m0, m1) = Self::pair(m);
+                    if let Some(n) = self.tails.get(&(m0, m1)).copied() {
+                        self.push(MInst::new(
+                            Op::TailLoad,
+                            vec![
+                                Operand::new(lo, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early),
+                                Operand::new(hi, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early),
+                                Operand::reg_use(addr),
+                                Operand::reg_use(n),
+                            ],
+                        ));
+                        return Val::V(lo, hi);
+                    }
                     self.push(MInst::new(
                         Op::MaskedLoad,
                         vec![
@@ -447,6 +461,7 @@ impl Lower {
                 let hi_idx = self.constant(Op::LitQ { bytes: lanes(2, 3) });
                 let lo = self.def1(Op::VCmHi, f_class(), &[nv, lo_idx]);
                 let hi = self.def1(Op::VCmHi, f_class(), &[nv, hi_idx]);
+                self.tails.insert((lo, hi), n);
                 Val::M(lo, hi)
             }
             "simd_horizontal" => {
@@ -724,6 +739,13 @@ impl Lower {
                     Some(m) => {
                         let addr = self.address(&a[1], s["span"].as_str().unwrap());
                         let (m0, m1) = Self::pair(m);
+                        if let Some(n) = self.tails.get(&(m0, m1)).copied() {
+                            self.push(MInst::new(
+                                Op::TailStore,
+                                [v0, v1, addr, n].iter().map(|r| Operand::reg_use(*r)).collect(),
+                            ));
+                            return;
+                        }
                         self.push(MInst::new(
                             Op::MaskedStore,
                             [v0, v1, addr, m0, m1].iter().map(|r| Operand::reg_use(*r)).collect(),
@@ -897,6 +919,7 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         loop_index: None,
         consts: HashMap::new(),
         iv: None,
+        tails: HashMap::new(),
     };
     let entry = l.block();
     l.switch(entry);
