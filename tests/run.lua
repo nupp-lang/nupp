@@ -1143,6 +1143,7 @@ end)
 local impactStamps = nil
 local impactGraph = nil
 local impactSuiteSliceSafe = nil
+local impactSuiteCatalogCurrent = nil
 local runnablePlan = nil
 if diffRequested then
     local requestedSuites = {}
@@ -1200,11 +1201,13 @@ if diffRequested then
 
     if impactGraph then
         impactSuiteSliceSafe = {}
+        impactSuiteCatalogCurrent = {}
         for suiteId, pathId in ipairs(impactGraph.suites or {}) do
             local name = suiteName(impactGraph.paths and impactGraph.paths[pathId])
             if name then
                 impactSuiteSliceSafe[name] = impactGraph.suiteSliceSafe[suiteId] == true
                     and #((impactGraph.suiteUncertainty and impactGraph.suiteUncertainty[suiteId]) or {}) == 0
+                impactSuiteCatalogCurrent[name] = true
             end
         end
         -- A positive fact describes the suite at the graph revision. A change to
@@ -1216,6 +1219,9 @@ if diffRequested then
                 local name = suiteName(reason.suite)
                 if name then
                     impactSuiteSliceSafe[name] = false
+                    if reason.code == "suite-source-changed" then
+                        impactSuiteCatalogCurrent[name] = false
+                    end
                 end
             end
         end
@@ -1330,7 +1336,9 @@ if diffRequested then
 
         local whole = wholeSuites[info.name] == true or (selected.completeScope == true and requestedCaseTotal == 0)
         local catalog = graphCatalog[info.name]
-        local catalogEqual = catalog ~= nil and #caseNames == catalog.count
+        local catalogEqual = catalog ~= nil
+            and impactSuiteCatalogCurrent[info.name] ~= false
+            and #caseNames == catalog.count
         if catalogEqual then
             for _, caseName in ipairs(caseNames) do
                 if not catalog.cases[caseName] then

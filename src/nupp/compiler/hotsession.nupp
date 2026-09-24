@@ -17,6 +17,7 @@ local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
 local fs = require("nupp.compiler.fs")
 local cheader = require("nupp.compiler.cheader")
+local projectfact = require("nupp.compiler.projectfact")
 
 local hotSession = {}
 local Session = {}
@@ -649,6 +650,22 @@ function Session:semanticSnapshot(path, checked, module)
     local snapshot = {modules = {}, declarations = {}, inputs = {}, unverifiedLibraries = {}}
     local visited = {}
 
+    local function declarationPaths(name, key)
+        local paths = {}
+        for _, dependencyPath in ipairs(self.inc.projectDependencyPaths(name, key)) do
+            if dependencyPath == projectfact.CATALOG_PATH
+                or dependencyPath:sub(1, 1) == "/"
+                or dependencyPath:match("^[A-Za-z]:/")
+            then
+                paths[#paths + 1] = dependencyPath
+            else
+                paths[#paths + 1] = fs.absolute(fs.join(self.inc.env.rootDir, dependencyPath))
+            end
+        end
+
+        return paths
+    end
+
     local function visit(currentPath, currentChecked, currentModule)
         if visited[currentPath] then
             return true
@@ -732,7 +749,7 @@ function Session:semanticSnapshot(path, checked, module)
                 fingerprint = dependency.fingerprint,
                 label = tostring(dependency.key),
                 query = dependency.name,
-                paths = self.inc.projectDependencyPaths(dependency.name, dependency.key),
+                paths = declarationPaths(dependency.name, dependency.key),
             }
         end
         for _, dependency in ipairs(self.inc.moduleDependencies(currentPath)) do

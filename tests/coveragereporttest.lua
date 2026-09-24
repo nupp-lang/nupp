@@ -8,6 +8,7 @@
 local test = require("assert")
 local json = require("testjson")
 local coverage = require("nupp.compiler.coverage")
+local cache = require("nupp.compiler.build.cache")
 
 local M = {}
 
@@ -30,31 +31,24 @@ local function run(hits)
     local dir = tempdir()
     local source = dir .. "/sample.nupp"
     write(source, "local function named()\n    return 1\nend\n\nlocal fn = function() end\n")
-    write(
-        dir .. "/state.json",
-        json.encode({
-            version = 5,
-            modules = {
-                [
-                    "sample"
-                ] = {
-                    output = dir .. "/sample.lua",
-                    coverage = {
-                        path = source,
-                        sites = {
-                            {id = 1, kind = "function", line = 1, endLine = 3, name = "named"},
-                            {id = 2, kind = "statement", line = 2},
-                            {id = 3, kind = "branch", line = 2},
-                            {id = 4, kind = "function", line = 5},
-                        },
-                    },
+    local state = cache.emptyState()
+    state.modules = {
+        [
+            "sample"
+        ] = {
+            output = dir .. "/sample.lua",
+            coverage = {
+                path = source,
+                sites = {
+                    {id = 1, kind = "function", line = 1, endLine = 3, name = "named"},
+                    {id = 2, kind = "statement", line = 2},
+                    {id = 3, kind = "branch", line = 2},
+                    {id = 4, kind = "function", line = 5},
                 },
             },
-            dependencies = {},
-            outputs = {},
-            targets = {},
-        })
-    )
+        },
+    }
+    write(dir .. "/state.json", json.encode(state))
     write(dir .. "/shard.json", json.encode({hits = {[source] = hits}}))
     local model = coverage.collect(dir .. "/state.json", dir .. "/shard.json")
     assert(os.execute("rm -rf " .. string.format("%q", dir)) == 0)

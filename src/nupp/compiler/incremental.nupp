@@ -1059,10 +1059,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 add(q:get("projectModulePath", module))
             end
         end
-        if gainsMembers or #paths == 0 then
-            add(projectfact.CATALOG_PATH)
-        end
         table.sort(paths)
+        if (gainsMembers or #paths == 0) and not seen[projectfact.CATALOG_PATH] then
+            paths[#paths + 1] = projectfact.CATALOG_PATH
+        end
 
         return paths
     end

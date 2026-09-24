@@ -35,17 +35,17 @@ function M.semanticQueriesRetainDiamondAndAliasSourcePaths()
     local inc = incremental.new(root)
     assertList(
         inc.projectDependencyPaths("projectEntries", "Shared"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp", "beta/leaf.nupp"},
+        {"alpha/leaf.nupp", "beta/leaf.nupp", projectfact.CATALOG_PATH},
         "diamond declaration paths"
     )
     assertList(
         inc.projectDependencyPaths("projectModuleBasenames", "leaf"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp", "beta/leaf.nupp"},
+        {"alpha/leaf.nupp", "beta/leaf.nupp", projectfact.CATALOG_PATH},
         "ambiguous module alias paths"
     )
     assertList(
         inc.projectDependencyPaths("projectModulePath", "alpha.leaf"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp"},
+        {"alpha/leaf.nupp", projectfact.CATALOG_PATH},
         "resolved module path"
     )
     assertList(
@@ -67,7 +67,7 @@ function M.positiveModuleResolutionAndGuaranteesKeepCatalogFact()
     assert(os.execute("mkdir -p '" .. root .. "/alpha/shared' '" .. root .. "/beta/shared'") == 0)
     write("alpha/shared/explicit.nupp", "module shared.explicit\nexport const value = 1\n")
     local inc = incremental.new(root, {config = {include = {"alpha", "beta"},},})
-    local expected = {projectfact.CATALOG_PATH, "alpha/shared/explicit.nupp"}
+    local expected = {"alpha/shared/explicit.nupp", projectfact.CATALOG_PATH}
     assertList(inc.projectDependencyPaths("projectModulePath", "shared.explicit"), expected, "module resolution")
     assertList(
         inc.projectDependencyPaths("moduleCallGuarantees", "shared.explicit\0value"),
@@ -84,7 +84,7 @@ function M.positiveModuleResolutionAndGuaranteesKeepCatalogFact()
     write("beta/shared/explicit.nupp", "module shared.explicit\nexport const value = 2\n")
     inc.diskChanged(duplicate, 1)
     local paths = inc.projectDependencyPaths("projectModulePath", "shared.explicit")
-    assert(paths[1] == projectfact.CATALOG_PATH, "duplicate explicit module still invalidates the prior resolution")
+    assert(paths[2] == projectfact.CATALOG_PATH, "duplicate explicit module still invalidates the prior resolution")
     assert(#paths == 2, "one resolved provider remains concrete beside the catalog fact")
 
     os.execute("rm -rf '" .. root .. "'")
@@ -96,12 +96,12 @@ function M.positiveQueriesKeepCatalogFactWhenMatchingSourcesJoin()
     local inc = incremental.new(root)
     assertList(
         inc.projectDependencyPaths("projectEntries", "Shared"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp"},
+        {"alpha/leaf.nupp", projectfact.CATALOG_PATH},
         "positive declaration query"
     )
     assertList(
         inc.projectDependencyPaths("projectModuleBasenames", "leaf"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp"},
+        {"alpha/leaf.nupp", projectfact.CATALOG_PATH},
         "positive alias query"
     )
 
@@ -110,12 +110,12 @@ function M.positiveQueriesKeepCatalogFactWhenMatchingSourcesJoin()
     inc.diskChanged(added, 1)
     assertList(
         inc.projectDependencyPaths("projectEntries", "Shared"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp", "beta/leaf.nupp"},
+        {"alpha/leaf.nupp", "beta/leaf.nupp", projectfact.CATALOG_PATH},
         "new matching declaration"
     )
     assertList(
         inc.projectDependencyPaths("projectModuleBasenames", "leaf"),
-        {projectfact.CATALOG_PATH, "alpha/leaf.nupp", "beta/leaf.nupp"},
+        {"alpha/leaf.nupp", "beta/leaf.nupp", projectfact.CATALOG_PATH},
         "new matching alias"
     )
 
@@ -136,7 +136,7 @@ function M.catalogFactTracksNewAndDeletedModules()
     inc.diskChanged(added, 1)
     assertList(
         inc.projectDependencyPaths("projectModulePath", "future"),
-        {projectfact.CATALOG_PATH, "future.nupp"},
+        {"future.nupp", projectfact.CATALOG_PATH},
         "new module source"
     )
 

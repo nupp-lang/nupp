@@ -220,6 +220,10 @@ return M
 local test = require("nupp.test")
 local M = {}
 
+local discovery = assert(io.open("build/plan-impact-discoveries", "ab"))
+discovery:write("loaded\n")
+discovery:close()
+
 function M.alpha(): nil
     local all = require("planall")
     local shared = require("planshared")
@@ -395,6 +399,7 @@ return {passes = function() assert(true) end}
     end
 
     seedPlanTimings()
+    local partialDiscoveries = lineCount(directory .. "/build/plan-impact-discoveries")
     write(directory .. "/src/planshared.nupp", "return {value = 2, changed = true}\n")
     local partialOutput, partialStatus, partialCommand = run(
         directory,
@@ -407,6 +412,7 @@ return {passes = function() assert(true) end}
     test.assert(contains(partial.selection.selectedCases, "planimpacttest/alpha"))
     test.assert(contains(partial.selection.selectedCases, "planimpacttest/beta"))
     test.equal(plannedPieces(partial, "planimpacttest"), 2, partialOutput)
+    test.equal(lineCount(directory .. "/build/plan-impact-discoveries") - partialDiscoveries, 2)
     shell(directory, "git checkout -q -- src/planshared.nupp")
 
     seedPlanTimings()
@@ -542,6 +548,47 @@ return {passes = function() assert(true) end}
     test.equal(manifestStatus, 0, manifestCommand .. " failed:\n" .. manifestListing)
     test.matches(manifestListing, "manifestimpacttest/successfulNestedBuildOwnsItsManifest")
     shell(directory, "git checkout -q -- successful-project/nupp.lua")
+
+    write(
+        directory .. "/tests/shapeshifttest.nupp",
+        [[
+local test = require("nupp.test")
+local M = {}
+
+function M.first(): nil
+    test.equal(20 + 22, 42)
+end
+
+function M.second(): nil
+    test.equal(6 * 7, 42)
+end
+
+function M.third(): nil
+    test.equal(40 + 2, 42)
+end
+
+return M
+]]
+    )
+    local staleCatalogOutput, staleCatalogStatus, staleCatalogCommand = run(
+        directory,
+        "--diff --case=shapeshifttest/first --case=shapeshifttest/second --jobs=2 --json",
+        true
+    )
+    test.equal(staleCatalogStatus, 0, staleCatalogCommand .. " failed:\n" .. staleCatalogOutput)
+    local staleCatalog = json.decode(staleCatalogOutput)
+    test.equal(staleCatalog.total, 2, staleCatalogOutput)
+    local staleCatalogIds = {}
+    for _, record in ipairs(staleCatalog.tests) do
+        staleCatalogIds[record.id] = true
+    end
+    test.assert(staleCatalogIds["shapeshifttest/first"])
+    test.assert(staleCatalogIds["shapeshifttest/second"])
+    test.assert(not staleCatalogIds["shapeshifttest/third"], staleCatalogOutput)
+    test.assert(contains(staleCatalog.selection.selectedCases, "shapeshifttest/first"))
+    test.assert(contains(staleCatalog.selection.selectedCases, "shapeshifttest/second"))
+    test.assert(not contains(staleCatalog.selection.selectedSuites, "shapeshifttest"))
+    shell(directory, "git checkout -q -- tests/shapeshifttest.nupp")
 
     write(
         directory .. "/tests/shapeshifttest.nupp",
@@ -718,6 +765,8 @@ return M
     test.equal(lanePlan.selection.selectedWorkMs, 4200)
     test.equal(lanePlan.selection.requestedWorkMs, 6700)
     test.equal(lanePlan.selection.predictedSavingsMs, 2500)
+    test.equal(plannedPieces(lanePlan, "planimpacttest"), 2, lanePlanOutput)
+    test.equal(plannedPieces(lanePlan, "hookimpacttest"), 1, lanePlanOutput)
     for _, reason in ipairs(lanePlan.selection.reasons) do
         test.assert(reason.suite ~= "leafimpacttest", lanePlanOutput)
     end
