@@ -256,7 +256,7 @@ local function returnStatement(ctx: context.Context, statement: scalarIR.Return)
             local address = builder.value(
                 ctx.f,
                 (
-                    "getelementptr inbounds %s, ptr %s, i32 0, i32 %d"
+                    "getelementptr inbounds nuw %s, ptr %s, i32 0, i32 %d"
                 ):format(tostring(ctx.resultStruct), tostring(ctx.resultBlock), position - 1)
             )
             builder.emit(ctx.f, ("store %s %s, ptr %s"):format(field, converted, address))

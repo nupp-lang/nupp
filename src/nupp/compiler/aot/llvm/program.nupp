@@ -241,7 +241,9 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
     end
     local result = #results ~= 1 and "void" or types.result(tostring(results[1]))
     local symbol = physical(program.symbol, tier)
-    local attrs = builder.attributes(module, "noinline " .. functionAttributes(selected, program))
+    -- A kernel frees nothing and synchronizes with nothing; what it reads and
+    -- writes is settled once the unit is complete (`llvmProgram.module`).
+    local attrs = builder.attributes(module, "noinline nofree nosync " .. functionAttributes(selected, program))
     local f = builder.func(
         module,
         ("define %s @%s(%s) %s {"):format(result, symbol, table.concat(parameters, ", "), attrs)
@@ -327,6 +329,7 @@ end
 --- @raises string when a program uses what this backend does not emit
 function llvmProgram.module(programs: {scalarIR.Program}, tier: string?, selected: profile.Profile): string
     local module = builder.module()
+    local kernels: {[integer]: boolean} = {}
     for _, program in ipairs(programs) do
         if program.executionTarget == "gpu" then
             -- Shader programs have their own artifacts.
@@ -336,9 +339,31 @@ function llvmProgram.module(programs: {scalarIR.Program}, tier: string?, selecte
             unsupported("explicit SIMD programs")
         else
             kernel(module, program, tier, selected)
+            kernels[#module.functions] = true
             for _, layout in ipairs(program.layouts or {}) do
                 layoutReporters(module, program, layout, physical(program.symbol, tier), selected)
             end
+        end
+    end
+
+    -- A kernel touches only memory its span arguments reach, unless the unit
+    -- calls something outside it: a libm function may set `errno` until the
+    -- runtime's math says otherwise.
+    -- Constant tables are globals, which a kernel may also read.
+    local opaque = false
+    local globals = false
+    for _, key in ipairs(module.order) do
+        local piece = module.pieces[key] as string
+        if piece:match("^declare ") ~= nil and piece:match("^declare [^@]*@llvm%.") == nil then
+            opaque = true
+        elseif piece:match("^@") ~= nil then
+            globals = true
+        end
+    end
+    if not opaque then
+        local reach = globals and "memory(argmem: readwrite, other: read)" or "memory(argmem: readwrite)"
+        for index in pairs(kernels) do
+            module.functions[index] = (module.functions[index]:gsub("^(define [^\n]-%)) #", "%1 " .. reach .. " #", 1))
         end
     end
 

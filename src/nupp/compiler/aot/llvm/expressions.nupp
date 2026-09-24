@@ -295,7 +295,9 @@ function expressions.index(ctx: context.Context, indexCName: string?, cursorCNam
     end
     local wide = expressions.convert(ctx, loaded, slot.type, "u64")
 
-    return emit(ctx, ("sub i64 %s, 1"):format(wide))
+    -- A proved index is at least 1.
+
+    return emit(ctx, ("sub nuw i64 %s, 1"):format(wide))
 end
 
 --- The address of element `index` of span `name`.
@@ -306,7 +308,10 @@ function expressions.element(ctx: context.Context, name: string, index: string, 
         error("no span " .. name, 0)
     end
 
-    return emit(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(storage, span.pointer, index))
+    -- The verifier proved the index inside the span, so the offset is
+    -- non-negative and the address stays in the span's object.
+
+    return emit(ctx, ("getelementptr inbounds nuw %s, ptr %s, i64 %s"):format(storage, span.pointer, index))
 end
 
 --- A loaded storage value widened to the IR value type it establishes.
@@ -396,7 +401,7 @@ function expressions.fieldAddress(
     local structType = expressions.layoutType(ctx, layoutName)
     local index, found = fieldIndex(ctx, layoutName, field)
 
-    return emit(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %d"):format(structType, object, index)), found
+    return emit(ctx, ("getelementptr inbounds nuw %s, ptr %s, i32 0, i32 %d"):format(structType, object, index)), found
 end
 
 local function binaryFloat(ctx: context.Context, instruction: string, t: string, a: string, b: string): string
