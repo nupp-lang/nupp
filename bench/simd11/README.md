@@ -133,6 +133,45 @@ acceptance evidence even when all executable rows pass; modeled layouts outside
 the provisioned runtime matrix are listed in
 [runtime boundaries](../../tests/simd/runtime-boundaries.json).
 
+## Against hand-written NEON
+
+Generated explicit SIMD is held to what a C programmer writes with intrinsics
+for the same algorithm, width and numerical contract, not only to scalar C.
+`handwritten/neon.c` holds those versions; `handwritten/compare.c` checks each
+bit for bit against the scalar entry, then times it beside the generated and
+scalar-source entries of the harness library:
+
+```sh
+python3 bench/simd11/measure.py --prepare
+clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -D_POSIX_C_SOURCE=200809L \
+    bench/simd11/handwritten/neon.c bench/simd11/handwritten/compare.c -o /tmp/compare
+/tmp/compare bench/simd11/build/native.dylib
+```
+
+Refine has two hand versions. The plain one is what intrinsics code usually
+looks like; clang carries its live masks as one bit a lane and pays about 1.6x
+for it. The tuned one pins the masks in their registers, as the generated code
+does, and is the bar.
+
+Apple M5 Pro, Apple clang 21, 2026-09-23; the fastest of 101 interleaved
+samples of about a millisecond each. These are working measurements on a
+shared machine, not a qualified protocol run.
+
+| Kernel | n | Scalar C | Generated | Hand NEON | Generated / best hand |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| map | 63 | 4.61 ns | 5.31 ns | 4.61 ns | 1.15x |
+| map | 64 | 4.06 ns | 4.45 ns | 4.38 ns | 1.02x |
+| map | 1,024 | 64.8 ns | 69.4 ns | 67.3 ns | 1.03x |
+| map | 65,539 | 8.02 us | 7.94 us | 8.02 us | 0.99x |
+| refine | 63 | 39.8 ns | 41.3 ns | 39.7 ns (tuned) | 1.04x |
+| refine | 64 | 40.3 ns | 40.5 ns | 40.5 ns (tuned) | 1.00x |
+| refine | 1,024 | 870 ns | 844 ns | 844 ns (tuned) | 1.00x |
+| refine | 65,539 | 56.4 us | 54.9 us | 54.9 us (tuned) | 1.00x |
+
+Map's scalar source is vectorized by clang, so all three map columns run the
+same vector loop. The generated map's remaining cost at 63 is its four-lane
+masked tail against the hand version's two-lane step and one scalar element.
+
 ## Complete-function measurements
 
 No qualified timing of the current kernels is recorded yet. Run `measure.py`

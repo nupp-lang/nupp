@@ -5198,9 +5198,10 @@ end
 function M.aGuardedCursorLoopCarriesItsCursorIn64Bits()
     -- Under `cursor + s.lanes <= #input` with one `cursor = cursor + s.lanes`,
     -- the cursor cannot wrap once `#input` fits in 32 bits, so that copy of
-    -- the loop carries it in 64 and unrolls to about 64 bytes an iteration.
-    -- A larger span runs the loop as written. A cursor written twice is not
-    -- versioned.
+    -- the loop carries it in 64, runs two iterations' bodies per pass (about
+    -- 64 bytes), and skips the wrap check on its accesses. A larger span runs
+    -- the loop as written. A cursor written twice is not versioned. The
+    -- guards make the two counts one, so the loop names only one of them.
     local dir = project{
         [
             "wide.nupp"
@@ -5239,22 +5240,31 @@ return {scale = scale, twice = twice}
     local c = decoded.c
     local scale = c:match("KS_API void ks_scale%(.-\n}\n")
     assert(scale, "the kernel is emitted:\n" .. c)
-    assert(scale:find("if ((uint64_t)(count_input) <= UINT32_MAX) {", 1, true), "the loop is versioned\n" .. scale)
+    assert(scale:find("if ((uint64_t)(count_output) <= UINT32_MAX) {", 1, true), "the loop is versioned\n" .. scale)
     assert(scale:find("uint64_t v2_cursor = ks_wide_", 1, true), "onto a 64-bit cursor\n" .. scale)
     assert(
         scale:find("uint64_t as1 = (uint64_t)v2_cursor + (uint64_t)UINT32_C(4);", 1, true),
         "whose increment is not truncated\n" .. scale
     )
-    assert(scale:find("KS_UNROLL_2\n", 1, true), "and a 32-byte vector unrolls twice\n" .. scale)
+    assert(
+        scale:find("while ((uint64_t)v2_cursor + UINT64_C(2) * (uint64_t)UINT32_C(4) <= (uint64_t)(count_output)) {", 1, true),
+        "and a 32-byte vector runs two bodies a pass\n" .. scale
+    )
+    assert(
+        scale:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true)
+        and not scale:match("uint64_t v2_cursor = ks_wide_1;\n%s*while[^\n]*\n%s*{\n%s*%(%(%(uint64_t%)v2_cursor"),
+        "with no wrap check on its accesses\n" .. scale
+    )
     assert(scale:find("} else {\n        while (", 1, true), "a larger span runs the loop as written\n" .. scale)
     assert(
-        scale:find("uint32_t as2 = ((uint32_t)(v2_cursor + UINT32_C(4)));", 1, true),
+        scale:match("uint32_t as%d+ = %(%(uint32_t%)%(v2_cursor %+ UINT32_C%(4%)%)%);"),
         "with its wrapping cursor\n" .. scale
     )
     local twice = c:match("KS_API void ks_twice%(.-\n}\n")
     assert(twice and not twice:find("ks_wide_", 1, true), "a cursor written twice is not versioned\n" .. c)
     local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("KS_UNROLL", 1, true), "the oracle is not unrolled\n" .. c)
+    assert(oracle and not oracle:find("ks_wide_", 1, true), "the oracle is not versioned\n" .. c)
+    assert(oracle:find("count_input", 1, true), "and checks each span against its own count\n" .. oracle)
 end
 
 function M.aLoopCarriedMaskStaysInItsRegister()

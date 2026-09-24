@@ -51,6 +51,9 @@ record emit.Context
 
     explicitScalar: boolean
 
+    --- The emitting body's 64-bit cursors; see `emit.Body.wideCursors`.
+    wideCursors: {[string]: integer}
+
     --- Mask locals bound once to `species:tail(n)`, by C name. Such a mask
     --- activates exactly the first `n` lanes, so an access it masks is a
     --- prefix access of `n` elements; its count is kept beside it.
@@ -58,6 +61,13 @@ record emit.Context
 
     independentSpanCounts: boolean
     countRoots: {[string]: string}
+
+    --- Spans the entry guards prove equally long, by name, to the one of them
+    --- whose count stands for all: the checked wrapper holds them equal before
+    --- the native entry runs, so bounds against either are one computation.
+    --- Empty in the scalar oracle, which checks each span against its own.
+    countAliases: {[string]: string}
+
     explicitFixedTypes: {[string]: boolean}
     reusableScratchName: string?
     builderEager: boolean
@@ -70,6 +80,64 @@ record emit.Context
     scalarHelperNames: {[string]: emit.HelperName}
 end
 
+--- Each span the program's relations hold at exactly another's length, mapped
+--- to the first of its class in parameter order. `left <= right + 0` both ways
+--- is equality; anything looser is not.
+local function equalCounts(program: scalarIR.Program, roots: {[string]: string}): {[string]: string}
+    local order: {[string]: integer} = {}
+    for position, param in ipairs(program.params) do
+        if (param.kind == "write_span" or param.kind == "read_span") and roots[param.name] == nil then
+            order[param.name] = position
+        end
+    end
+    local atMost: {[string]: boolean} = {}
+    for _, relation in ipairs(program.relations or {}) do
+        local left, right = relation.left, relation.right
+        if relation.offset == 0 and left.kind == "count" and right.kind == "count" then
+            atMost[tostring(left.name) .. " " .. tostring(right.name)] = true
+        end
+    end
+    local parent: {[string]: string} = {}
+
+    local function find(name: string): string
+        local next = parent[name]
+        while next ~= nil and next ~= name do
+            name = next as string
+            next = parent[name]
+        end
+
+        return name
+    end
+
+    for key in pairs(atMost) do
+        local left, right = key:match("^(%S+) (%S+)$")
+        if left ~= nil
+            and right ~= nil
+            and order[left] ~= nil
+            and order[right] ~= nil
+            and atMost[tostring(right) .. " " .. tostring(left)]
+        then
+            local a, b = find(left as string), find(right as string)
+            if a ~= b then
+                if order[a] < order[b] then
+                    parent[b] = a
+                else
+                    parent[a] = b
+                end
+            end
+        end
+    end
+    local aliases: {[string]: string} = {}
+    for name in pairs(order) do
+        local root = find(name)
+        if root ~= name then
+            aliases[name] = root
+        end
+    end
+
+    return aliases
+end
+
 --- Creates a context without changing its parent or the semantic IR.
 function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar: boolean?): emit.Context
     local context = new emit.Context(
@@ -78,8 +146,10 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         vectorCeiling = parent ~= nil and parent.vectorCeiling or 0,
         explicitScalar = scalar == true,
         tailMasks = parent ~= nil and parent.tailMasks or {},
+        wideCursors = parent ~= nil and parent.wideCursors or {},
         independentSpanCounts = parent == nil or parent.independentSpanCounts,
         countRoots = parent ~= nil and parent.countRoots or {},
+        countAliases = parent ~= nil and parent.countAliases or {},
         explicitFixedTypes = parent ~= nil and parent.explicitFixedTypes or {},
         reusableScratchName = parent ~= nil and parent.reusableScratchName or nil,
         builderEager = parent ~= nil and parent.builderEager,
@@ -115,6 +185,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
                 context.countRoots[param.name] = param.soa.view
             end
         end
+        context.countAliases = equalCounts(program, context.countRoots)
         context.reusableScratchName = program.reusableScratch
         context.builderEager = program.builderMode == "eager"
         context.fpTranscendentals = program.fpTranscendentals == true
@@ -126,7 +197,9 @@ end
 
 --- A row view contributes one count to the private ABI, shared by its columns.
 function emit.spanCount(context: emit.Context, name: string): string
-    return context.independentSpanCounts and "count_" .. (context.countRoots[name] or name) or "count"
+    return context.independentSpanCounts
+        and "count_" .. (context.countRoots[name] or context.countAliases[name] or name)
+        or "count"
 end
 
 --- One of the C headers under `aot/include`, as one text chunk.
@@ -415,6 +488,25 @@ local function keptMask(context: emit.Context, typeName: string, value: string):
     end
 
     return "ks_exp_keep_mask_" .. tostring(element) .. "x" .. tostring(lanes) .. "(" .. value .. ")"
+end
+
+--- An integer operand of a binary64 difference, as C text of a 64-bit integer:
+--- a 32-bit integer widened to binary64, which is exact, or a span count, which
+--- is exact below 2^53. The second result says it was a count.
+local function exactInteger(context: emit.Context, value: scalarIR.Expr): (string?, boolean)
+    if value.op == "int_to_f64" then
+        local widened = (value as scalarIR.Convert).value
+        if widened.type == "u32" then
+            return "(uint64_t)" .. emit.scalar(context, widened), false
+        elseif widened.type == "i32" then
+            return "(int64_t)" .. emit.scalar(context, widened), false
+        end
+    elseif value.op == "span_count" then
+        local rendered = emit.scalar(context, value)
+        return rendered:match("^%(%(double%)(.+)%)$") or nil, true
+    end
+
+    return nil, false
 end
 
 --- The C name holding the lane count of a tail mask an access is masked by,
@@ -783,6 +875,18 @@ function emit.cursorSafe(context: emit.Context, access: scalarIR.Simd): string
 end
 
 local function cursorChoice(context: emit.Context, access: scalarIR.Simd, unchecked: string, checked: string): string
+    -- In a loop carrying this cursor in 64 bits the guard holds `cursor +
+    -- lanes <= count <= UINT32_MAX` at every proved access, which comes
+    -- before the cursor moves: an access at `cursor + 1` no wider cannot wrap.
+    local guarded = access.cursorCName ~= nil and context.wideCursors[access.cursorCName as string] or nil
+    if guarded ~= nil then
+        local _, _, count = simdbounds.offset(access.args[2])
+        local _, _, lanes = explicitType(context, access.args[1].type)
+        if (count or 0) == 0 and lanes ~= nil and (lanes as integer) <= (guarded as integer) then
+            return unchecked
+        end
+    end
+
     return "(" .. emit.cursorSafe(context, access) .. " ? " .. unchecked .. " : " .. checked .. ")"
 end
 
@@ -1552,6 +1656,36 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             and ((widened.value as scalarIR.Expr).type == "i32" or (widened.value as scalarIR.Expr).type == "u32")
         then
             return "((" .. target .. ")" .. emit.scalar(context, widened.value as scalarIR.Expr) .. ")"
+        end
+        -- A difference of integers that binary64 holds exactly wraps to the
+        -- same bits as the integer difference, so `#span - cursor` on its way
+        -- into a lane count need not visit floating point. A 32-bit operand is
+        -- always exact; a span count is below 2^53, and a larger one keeps the
+        -- binary64 path it would have taken.
+        if (node.type == "u32" or node.type == "i32") and converted.op == "sub" then
+            local difference = converted as scalarIR.Binary
+            local left, leftCount = exactInteger(context, difference.left)
+            local right, rightCount = exactInteger(context, difference.right)
+            if left ~= nil and right ~= nil then
+                local integer = "((" .. target .. ")((uint64_t)(" .. tostring(
+                    left
+                ) .. ") - (uint64_t)(" .. tostring(right) .. ")))"
+                local counts: {string} = {}
+                if leftCount then
+                    counts[#counts + 1] = "(uint64_t)(" .. tostring(left) .. ") <= (UINT64_C(1) << 53)"
+                end
+                if rightCount then
+                    counts[#counts + 1] = "(uint64_t)(" .. tostring(right) .. ") <= (UINT64_C(1) << 53)"
+                end
+                if #counts == 0 then
+                    return integer
+                end
+                local wrap = node.type == "u32" and "nupp_wrap_u32(" or "nupp_wrap_i32("
+                return "((" .. table.concat(
+                    counts,
+                    " && "
+                ) .. ") ? " .. integer .. " : " .. wrap .. emit.scalar(context, converted) .. "))"
+            end
         end
         -- Between the two views of one thirty-two bit pattern a cast reinterprets
         -- and is exact. From any other binary64 it has to reduce first, because
@@ -2386,9 +2520,11 @@ end
 record emit.Body
     numericForRuntime: string?
 
-    --- Cursors a versioned loop is carrying in 64 bits, by C name: their one
-    --- increment cannot wrap there, so it is written without truncation.
-    wideCursors: {[string]: boolean} = {}
+    --- Cursors a versioned loop is carrying in 64 bits, by C name, with the
+    --- lane count its guard compares: their one increment cannot wrap there,
+    --- so it is written without truncation, and a proved access no wider than
+    --- the guard's lanes needs no wrap check. Shared with the context.
+    wideCursors: {[string]: integer} = {}
 
     --- Labels are emitted only when an edge names them.
     controlUsed: {[string]: boolean} = {}
@@ -2635,17 +2771,18 @@ local function assignmentsTo(node: any, cName: string, out: {scalarIR.Assignment
     end
 end
 
---- Whether a statement tree holds a loop anywhere.
-local function holdsLoop(node: any, seen: {[any]: boolean}): boolean
+--- Whether a statement tree holds a loop, or a `break` or `continue`, anywhere.
+local function holdsControl(node: any, seen: {[any]: boolean}): boolean
     if type(node) ~= "table" or seen[node] then
         return false
     end
     seen[node] = true
-    if node.op == "while" or node.op == "repeat" or node.op == "fornum" then
+    local op = node.op
+    if op == "while" or op == "repeat" or op == "fornum" or op == "break" or op == "continue" then
         return true
     end
     for _, child in pairs(node as {[any]: any}) do
-        if holdsLoop(child, seen) then
+        if holdsControl(child, seen) then
             return true
         end
     end
@@ -2653,17 +2790,25 @@ local function holdsLoop(node: any, seen: {[any]: boolean}): boolean
     return false
 end
 
---- How many times to unroll a versioned vector loop so one iteration moves
---- about 64 bytes, or 1. Only a leaf loop is unrolled: copying a body that
---- holds a divergent inner loop multiplies the code and not the work.
-local function wideUnroll(statement: scalarIR.While, lanesText: string?): integer
+--- How many copies of a versioned vector loop's body one iteration runs so it
+--- moves about 64 bytes, or 1. Under `cursor + n * lanes <= #span` each copy's
+--- own guard holds, so n copies are n iterations exactly -- provided the body
+--- advances by `lanes` and cannot leave early, which is why a body holding a
+--- loop, `break` or `continue` is left alone. Copying a divergent inner loop
+--- would multiply the code and not the work anyway.
+local function wideUnroll(statement: scalarIR.While, lanesText: string?, byLanes: boolean): integer
     local lanes = statement.condition.op == "le"
         and ((statement.condition as scalarIR.Binary).left as scalarIR.Fixed).right
         or nil
     if lanes ~= nil and lanes.op == "numeric_cast" then
         lanes = (lanes as scalarIR.Convert).value
     end
-    if lanes == nil or lanes.op ~= "simd_lanes_generic" or lanesText == nil or holdsLoop(statement.body, {}) then
+    if not byLanes
+        or lanes == nil
+        or lanes.op ~= "simd_lanes_generic"
+        or lanesText == nil
+        or holdsControl(statement.body, {})
+    then
         return 1
     end
     local count = tonumber((lanesText as string):match("^%(*UINT32_C%((%d+)%)%)*$"))
@@ -2689,17 +2834,17 @@ end
 --- compiler strength-reduce the addresses and unroll it; a `uint32` that might
 --- wrap it has to re-derive every iteration. Returns the cursor's C name and
 --- the guarded count, or nothing.
-local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Expr?)
+local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Expr?, boolean)
     if statement.conditionBody ~= nil then
-        return nil, nil
+        return nil, nil, false
     end
     local condition = statement.condition
     if condition.op ~= "le" and condition.op ~= "lt" then
-        return nil, nil
+        return nil, nil, false
     end
     local comparison = condition as scalarIR.Binary
     if comparison.right.op ~= "span_count" then
-        return nil, nil
+        return nil, nil, false
     end
     local cursor: scalarIR.Expr? = nil
     local lanes: scalarIR.Expr? = nil
@@ -2711,17 +2856,17 @@ local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Exp
         lanes = sum.right
     end
     if cursor == nil or (cursor as scalarIR.Expr).op ~= "local" or (cursor as scalarIR.Expr).type ~= "u32" then
-        return nil, nil
+        return nil, nil, false
     end
     local named = (cursor as scalarIR.Name).cName
     if named == nil then
-        return nil, nil
+        return nil, nil, false
     end
     local cName = named as string
     local writes: {scalarIR.Assignment} = {}
     assignmentsTo(statement.body, cName, writes, {})
     if #writes ~= 1 then
-        return nil, nil
+        return nil, nil, false
     end
     local topLevel = false
     for _, child in ipairs(statement.body) do
@@ -2734,18 +2879,18 @@ local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Exp
     end
     local step = writes[1].value
     if not topLevel or step.op ~= "u32_add" then
-        return nil, nil
+        return nil, nil, false
     end
     local sum = step as scalarIR.Fixed
     if sum.left.op ~= "local" or (sum.left as scalarIR.Name).cName ~= cName then
-        return nil, nil
+        return nil, nil, false
     end
     local one = sum.right.op == "constant_i32" and tostring((sum.right as scalarIR.IntConstant).value) == "1"
     if not one and (lanes == nil or not sameLanes(sum.right, lanes as scalarIR.Expr)) then
-        return nil, nil
+        return nil, nil, false
     end
 
-    return cName, comparison.right
+    return cName, comparison.right, not one
 end
 
 --- The C control structure is shared; each backend supplies its expressions
@@ -2839,36 +2984,55 @@ local function controlFlow(
         if body.headerControl ~= true and body.controlBreak == nil then
             if node.op == "while" then
                 local statement = node as scalarIR.While
-                local cursor, count = nil, nil
+                local cursor, count, byLanes = nil, nil, false
                 if body.forceScalar ~= true then
-                    cursor, count = wideCursorLoop(statement)
+                    cursor, count, byLanes = wideCursorLoop(statement)
                 end
                 if cursor ~= nil then
                     -- The same loop twice: with the cursor carried in 64 bits
                     -- when the guarded count fits in 32, where it cannot wrap,
                     -- and as written otherwise. The inner declaration shadows
-                    -- the `uint32_t` one, so the body renders unchanged.
+                    -- the `uint32_t` one, so the body renders unchanged. The
+                    -- wide copy runs whole groups of iterations first.
                     body.controlSerial = body.controlSerial + 1
                     local holder = "ks_wide_" .. tostring(body.controlSerial)
                     local inner = prefix .. "        "
                     local rendered = expression(count as scalarIR.Expr)
                     rendered = rendered:match("^%(%(double%)(.+)%)$") or rendered
-                    lines[#lines + 1] = prefix .. "if ((uint64_t)(" .. rendered .. ") <= UINT32_MAX) {"
-                    lines[#lines + 1] = prefix .. "    uint64_t " .. holder .. " = " .. tostring(cursor) .. ";"
-                    lines[#lines + 1] = prefix .. "    {"
-                    lines[#lines + 1] = inner .. "uint64_t " .. tostring(cursor) .. " = " .. holder .. ";"
                     local lanes = statement.condition.op == "le"
                         and ((statement.condition as scalarIR.Binary).left as scalarIR.Fixed).right
                         or nil
                     if lanes ~= nil and lanes.op == "numeric_cast" then
                         lanes = (lanes as scalarIR.Convert).value
                     end
-                    local unroll = wideUnroll(statement, lanes ~= nil and expression(lanes as scalarIR.Expr) or nil)
+                    local lanesText = lanes ~= nil and expression(lanes as scalarIR.Expr) or nil
+                    local unroll = wideUnroll(statement, lanesText, byLanes)
+                    lines[#lines + 1] = prefix .. "if ((uint64_t)(" .. rendered .. ") <= UINT32_MAX) {"
+                    lines[#lines + 1] = prefix .. "    uint64_t " .. holder .. " = " .. tostring(cursor) .. ";"
+                    lines[#lines + 1] = prefix .. "    {"
+                    lines[#lines + 1] = inner .. "uint64_t " .. tostring(cursor) .. " = " .. holder .. ";"
+                    body.wideCursors[
+                        cursor as string
+                    ] = tonumber(tostring(lanesText):match("^%(*UINT32_C%((%d+)%)%)*$")) as integer?
+                        or 1
                     if unroll > 1 then
-                        lines[#lines + 1] = inner .. "KS_UNROLL_" .. tostring(unroll)
+                        lines[
+                            #lines + 1
+                        ] = inner .. "while ((uint64_t)" .. tostring(
+                            cursor
+                        ) .. " + UINT64_C(" .. tostring(
+                            unroll
+                        ) .. ") * (uint64_t)" .. tostring(lanesText) .. " <= (uint64_t)(" .. rendered .. ")) {"
+                        for _ = 1, unroll do
+                            lines[#lines + 1] = inner .. "    {"
+                            for _, line in ipairs(block(statement.body, depth + 4, body, nil)) do
+                                lines[#lines + 1] = line
+                            end
+                            lines[#lines + 1] = inner .. "    }"
+                        end
+                        lines[#lines + 1] = inner .. "}"
                     end
                     lines[#lines + 1] = inner .. "while (" .. expression(statement.condition) .. ") {"
-                    body.wideCursors[cursor as string] = true
                     for _, line in ipairs(block(statement.body, depth + 3, body, nil)) do
                         lines[#lines + 1] = line
                     end
@@ -3678,7 +3842,7 @@ function emit.block(
                     body.temporarySerial = body.temporarySerial + 1
                     temps[position] = "as" .. tostring(body.temporarySerial)
                     local wide = entry.target.kind == "local"
-                        and body.wideCursors[tostring(entry.target.cName)] == true
+                        and body.wideCursors[tostring(entry.target.cName)] ~= nil
                         and entry.value.op == "u32_add"
                     if wide then
                         local step = entry.value as scalarIR.Fixed
@@ -4202,6 +4366,10 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             --- One C definition of the kernel.
             local function implementation(symbol: string, forced: boolean): nil
                 local context = emit.context(context, nil, forced and program.usesSimd == true)
+                context.wideCursors = body.wideCursors
+                if forced then
+                    context.countAliases = {}
+                end
                 if sourceFile ~= nil then
                     lines[#lines + 1] = '#line 1 "<nupp-generated>"'
                 end
