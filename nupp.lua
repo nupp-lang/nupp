@@ -241,7 +241,6 @@ local RESOURCES = {
     "src/nupp/compiler/decls/jit/*.d.nupp",
     {source = "src/nupp/test.nupp", output = "nupp/compiler/nupp/test.nupp"},
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
-    {source = "tests/runner/impact.lua", output = "nupp/compiler/nupp/test/impact.lua"},
     {source = "src/nupp/compiler/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
     {source = "src/nupp/compiler/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
     "src/nupp/compiler/aot/include/*.h",
@@ -474,13 +473,7 @@ return {
                 kind = "binary",
                 description = "Build the worker-hosted test runner",
                 outDir = "build/test-runner",
-                entries = {
-                    "main",
-                    "nupp.compiler.testimpact.diff",
-                    "nupp.compiler.testimpact.observe",
-                    "nupp.compiler.testimpact.selection",
-                    "nupp.compiler.testimpact.store",
-                },
+                entries = {"main"},
                 sources = {"tests/runner/main.g.nupp", "tests/runner/job.g.nupp"},
 
                 nativeFeatures = {workers = true, lpeg = true},

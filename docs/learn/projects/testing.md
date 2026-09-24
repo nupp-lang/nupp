@@ -192,47 +192,6 @@ which other tests a source edit can affect. A failed lifecycle hook or an
 unreported worker piece reruns its whole suite because neither is an ordinary
 case.
 
-### Selecting tests from a diff
-
-`--diff` selects the cases affected by staged, unstaged, and untracked changes
-against `HEAD`. `--diff=REF` also includes committed changes since the merge
-base of `REF` and `HEAD`:
-
-```bash
-nupp test --diff
-nupp test --diff=main --explain-selection
-nupp test --diff --list-cases
-nupp test --diff --shadow
-```
-
-Selection uses the dependency graph recorded by the last clean, complete,
-successful run of the bundled runner. That run publishes
-`build/.nupp-test-impact.buf`, a versioned binary cache tied to its exact Git
-revision, platform, runtime, suite catalog, and stable case identity format.
-The cache may be deleted at any time; the next qualifying full run replaces it.
-
-Case dependencies select stable case IDs. A lifecycle hook, uncertain child
-process, or other dependency that cannot be assigned safely to one case
-promotes the affected work to its whole suite. If the cache is absent or does
-not exactly match the requested base and runner identity, the runner executes
-the complete requested scope instead of narrowing from stale evidence.
-
-Suite names, groups, exclusions, and lane filters compose with `--diff`.
-`--list-suites` and `--list-cases` print the resulting selection without
-running it. `--explain-selection` prints changed paths, whole-suite promotions,
-and conservative fallbacks; `--json` records the same decision under
-`selection`, including the module reason for each selected owner, predicted
-work and savings, and query time.
-
-`--shadow` reports the same selection but runs the complete requested scope.
-Use it to compare predicted savings with a full run before relying on a new
-impact graph.
-
-Diff selection belongs to the bundled runner. A manifest with a custom
-`test.argv` receives these flags unchanged and must define their meaning. The
-repository's CI workflows do not use `--diff`, so this local selection does not
-narrow CI coverage.
-
 ### Immutable fixtures
 
 `test.fixture` produces an expensive artifact once for a complete content key.

@@ -10,8 +10,7 @@ export function run(
     progressFd: integer?,
     verbose: boolean,
     colorMode: string,
-    suiteCatalog: string,
-    impactRecordId: string?
+    suiteCatalog: string
 ): any
     rawset(_G, "__NUPP_TEST_EMBEDDED", true)
     rawset(_G, "__NUPP_TEST_PROGRESS_FD", progressFd)
@@ -48,9 +47,6 @@ export function run(
     arg = {[0] = "tests/run.lua", "--json", argument, "--color=" .. colorMode}
     if verbose then
         arg[#arg + 1] = "--verbose"
-    end
-    if impactRecordId then
-        arg[#arg + 1] = "--internal-impact-record=" .. impactRecordId
     end
 
     const execute = assert(loadfile(arg[0]))

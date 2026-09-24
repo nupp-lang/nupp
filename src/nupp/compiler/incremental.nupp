@@ -24,7 +24,6 @@ local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
 local storeMod = require("nupp.compiler.build.store")
 local T = require("nupp.compiler.types")
-local projectfact = require("nupp.compiler.projectfact")
 
 local incremental = {}
 local hostServices = require("nupp.compiler.hostservices")
@@ -1025,18 +1024,11 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local function projectDependencyPaths(name, key)
         local value = q:get(name, key)
         local paths, seen = {}, {}
-        local gainsMembers = name == "projectEntries"
-            or name == "projectAnnotations"
-            or name == "projectModuleBasenames"
-            or name == "projectModulePath"
-            or name == "moduleCallGuarantees"
-            or name == "moduleCallGuarantee"
 
         local function add(path)
-            local stablePath = projectfact.relative(rootDir, path)
-            if stablePath and not seen[stablePath] then
-                seen[stablePath] = true
-                paths[#paths + 1] = stablePath
+            if type(path) == "string" and not seen[path] then
+                seen[path] = true
+                paths[#paths + 1] = path
             end
         end
 
@@ -1060,9 +1052,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
         end
         table.sort(paths)
-        if (gainsMembers or #paths == 0) and not seen[projectfact.CATALOG_PATH] then
-            paths[#paths + 1] = projectfact.CATALOG_PATH
-        end
 
         return paths
     end

@@ -821,10 +821,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             opts.produced.outputs = cache.jsonArray({})
             opts.produced.timing = report:timing()
         end
-        local testImpact: any = rawget(_G, "__NUPP_TEST_IMPACT_OBSERVER")
-        if testImpact then
-            testImpact.recordBuildState(newState, root)
-        end
         return 0
     end
     for output in pairs(result.outputs) do
@@ -1198,10 +1194,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- reporting the build as a document reads it here rather than off the terminal.
     if opts.produced then
         opts.produced.timing = report:timing()
-    end
-    local testImpact: any = rawget(_G, "__NUPP_TEST_IMPACT_OBSERVER")
-    if testImpact then
-        testImpact.recordBuildState(newState, root)
     end
 
     return 0

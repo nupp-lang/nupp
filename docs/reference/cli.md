@@ -1497,14 +1497,14 @@ complete -F _nupp nupp
 ```text [nupp test --help]
 Build and run project tests.
 
-Coverage options belong to Nupp. Every other argument is preserved in order for the
-bundled runner or the project's configured test command. The bundled runner accepts
-suite names, `--json`, `--verbose`, `--jobs=N`, repeated `--group=NAME`,
-`--exclude=SUITE`, `--exclude-group=NAME`, one of `--lane=shared|shell|isolated`,
-`--list-suites`, `--list-cases`, `--list-groups`, `--case=SUITE/CASE`,
-`--rerun=REPORT`, `--diff[=REF]`, `--explain-selection`, `--shadow`, and
-`--timings[=N]`. Those remain forwarded arguments rather than fields of this command
-because a project may configure a different test executable.
+Coverage options belong to Nupp. Every other argument is preserved in
+order for the bundled runner or the project's configured test command.
+The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
+repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
+`--lane=shared|shell|isolated`, `--list-suites`, `--list-cases`,
+`--list-groups`, `--case=SUITE/CASE`, `--rerun=REPORT`, and
+`--timings[=N]`. Those remain forwarded arguments rather than fields of this
+command because a project may configure a different test executable.
 
 Coverage uses `build/coverage` without changing the ordinary build cache
 and writes under `build/reports/coverage` by default. `--report-json` reads
@@ -1515,7 +1515,6 @@ Examples:
     nupp test
     nupp test clitest doctest
     nupp test --group=docs --json
-    nupp test --diff --explain-selection
     nupp test --coverage clitest
 
 Usage:

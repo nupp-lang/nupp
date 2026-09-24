@@ -19,18 +19,10 @@ if package.config:sub(1, 1) == "\\" then
     _setmode(2, BINARY)
 end
 
-local impactModule = os.getenv("NUPP_TEST_IMPACT_RUN_ID") and require("nupp.compiler.testimpact.observe") or nil
-local impact = impactModule and impactModule.fromEnvironment(nil, arg) or nil
--- Before the compiler is required, because what it does decides how the rest
--- gets loaded. Impact observation starts first so this participating module is
--- not the one compiler dependency omitted from an attributed child.
+-- Before anything else is required, because what it does is decide how the rest
+-- of this compiler gets loaded. It is a cache and answers nothing when it has
+-- nothing to answer with, so a checkout without one, or with a stale one, simply
+-- loads the way it always did.
 require("nupp.compiler.bytecodecache").install()
 
-local status = require("nupp.compiler.cli").main(arg)
-if impact then
-    local written, problem = require("nupp.compiler.testimpact.observe").finishProcess(impact, status)
-    if not written then
-        io.stderr:write("nupp: cannot write test impact fragment: " .. tostring(problem) .. "\n")
-    end
-end
-os.exit(status)
+os.exit(require("nupp.compiler.cli").main(arg))
