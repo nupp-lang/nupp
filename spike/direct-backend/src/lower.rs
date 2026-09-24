@@ -137,6 +137,8 @@ pub struct Lower {
     lua_base: Option<VReg>,
     lua_locals: u32,
     builder_size: u32,
+    /// Vectors in their own register class; see `emit::machine_env_for`.
+    partitioned: bool,
 }
 
 /// An argument to an imported function.
@@ -175,6 +177,13 @@ impl Lower {
     }
     fn freg(&mut self) -> VReg {
         self.vreg(f_class())
+    }
+    fn vclass(&self) -> RegClass {
+        if self.partitioned { RegClass::Vector } else { f_class() }
+    }
+    fn qreg(&mut self) -> VReg {
+        let c = self.vclass();
+        self.vreg(c)
     }
     fn block(&mut self) -> usize {
         self.blocks.push(B { params: Vec::new(), insts: Vec::new() });
@@ -228,7 +237,7 @@ impl Lower {
                 b[..8].copy_from_slice(&bits.to_le_bytes());
                 (1, b, f_class())
             }
-            Op::LitQ { bytes } => (2, *bytes, f_class()),
+            Op::LitQ { bytes } => (2, *bytes, self.vclass()),
             other => panic!("not a constant: {other:?}"),
         };
         if let Some(v) = self.consts.get(&(kind, bytes)) {
@@ -276,14 +285,46 @@ impl Lower {
                 clobbers.add(PReg::new(r, RegClass::Int));
             }
         }
-        for r in 0..30 {
-            if !(ret == Some(f_class()) && r == 0) {
-                clobbers.add(PReg::new(r, f_class()));
+        if self.partitioned {
+            for r in 0..8 {
+                if !(ret == Some(f_class()) && r == 0) {
+                    clobbers.add(PReg::new(r, f_class()));
+                }
+            }
+            for r in 16..30 {
+                clobbers.add(PReg::new(r, RegClass::Vector));
+            }
+        } else {
+            for r in 0..30 {
+                if !(ret == Some(f_class()) && r == 0) {
+                    clobbers.add(PReg::new(r, f_class()));
+                }
             }
         }
         let mut inst = MInst::new(Op::Call { import }, ops);
         inst.clobbers = clobbers;
         self.push(inst);
+        result
+    }
+    /// `ks_lua_index`/`ks_lua_count` with the check inline: a double that
+    /// round-trips through a 32-bit signed conversion and is at least `lo` is
+    /// the answer; anything else takes the runtime call, which raises.
+    fn checked_int(&mut self, value: VReg, lo: u64, slow: &str, site: VReg) -> VReg {
+        use crate::asm::cond::*;
+        let l = self.lua();
+        let w = self.def1(Op::FcvtzsW, RegClass::Int, &[value]);
+        let back = self.def1(Op::ScvtfW, f_class(), &[w]);
+        let (range, slow_b, join) = (self.block(), self.block(), self.block());
+        let result = self.ireg();
+        self.blocks[join].params = vec![result];
+        self.branch(Op::FCmpBr { cond: EQ }, &[value, back], &(range, vec![]), &(slow_b, vec![]));
+        self.switch(range);
+        let min = self.imm(lo);
+        self.branch(Op::CmpBr { sf: false, cond: GE }, &[w, min], &(join, vec![w]), &(slow_b, vec![]));
+        self.switch(slow_b);
+        let r = self.call_i(slow, &[Arg::I(l), Arg::F(value), Arg::I(site)]);
+        self.jump(join, vec![r]);
+        self.switch(join);
         result
     }
     fn call_i(&mut self, name: &str, args: &[Arg]) -> VReg {
@@ -371,9 +412,9 @@ impl Lower {
         let arr = self.number(&e["arrayCapacity"]);
         let hash = self.number(&e["hashCapacity"]);
         let s1 = self.data(format!("array capacity at {}", site(e)).as_bytes());
-        let narr = self.call_i("ks_rt_count", &[Arg::I(l), Arg::F(arr), Arg::I(s1)]);
+        let narr = self.checked_int(arr, 0, "ks_rt_count", s1);
         let s2 = self.data(format!("hash capacity at {}", site(e)).as_bytes());
-        let nhash = self.call_i("ks_rt_count", &[Arg::I(l), Arg::F(hash), Arg::I(s2)]);
+        let nhash = self.checked_int(hash, 0, "ks_rt_count", s2);
         self.call("lua_createtable", &[Arg::I(l), Arg::I(narr), Arg::I(nhash)], None);
         let top = self.call_i("lua_gettop", &[Arg::I(l)]);
         for f in e["fields"].as_array().map(|a| a.clone()).unwrap_or_default() {
@@ -381,7 +422,7 @@ impl Lower {
                 self.push_value(&f["value"]);
                 let key = self.number(&f["key"]);
                 let sp = self.data(site(&f["value"]).as_bytes());
-                let idx = self.call_i("ks_rt_index", &[Arg::I(l), Arg::F(key), Arg::I(sp)]);
+                let idx = self.checked_int(key, 1, "ks_rt_index", sp);
                 self.call("lua_rawseti", &[Arg::I(l), Arg::I(top), Arg::I(idx)], None);
             } else {
                 self.push_value(&f["key"]);
@@ -554,7 +595,8 @@ impl Lower {
                 let x = self.as_f(x);
                 let name = match e["intrinsic"].as_str().unwrap() {
                     "exp" => "exp",
-                    "sin" => "ks_rt_sin",
+                    // libm `sin` already returns ±0 for ±0, which is all `nupp_sin` adds.
+                    "sin" => "sin",
                     other => panic!("math.{other}"),
                 };
                 Val::F(self.call(name, &[Arg::F(x)], Some(f_class())).unwrap())
@@ -572,12 +614,13 @@ impl Lower {
             "simd_splat" => {
                 let v = self.expr(&args(e)[0]);
                 let d = self.as_f(v);
-                let q = self.def1(Op::DupD, f_class(), &[d]);
+                let vc = self.vclass();
+                let q = self.def1(Op::DupD, vc, &[d]);
                 Val::V(q, q)
             }
             "simd_load" => {
                 let a = args(e);
-                let (lo, hi) = (self.freg(), self.freg());
+                let (lo, hi) = (self.qreg(), self.qreg());
                 if a.len() > 2 {
                     let addr = self.address(&a[1], e["span"].as_str().unwrap());
                     let m = self.expr(&a[2]);
@@ -626,8 +669,9 @@ impl Lower {
                     other => panic!("simd_binary {other}"),
                 };
                 let intrinsic = e["intrinsic"].as_str().unwrap();
-                let lo = self.def1(o(intrinsic), f_class(), &[l0, r0]);
-                let hi = if l0 == l1 && r0 == r1 { lo } else { self.def1(o(intrinsic), f_class(), &[l1, r1]) };
+                let vc = self.vclass();
+                let lo = self.def1(o(intrinsic), vc, &[l0, r0]);
+                let hi = if l0 == l1 && r0 == r1 { lo } else { self.def1(o(intrinsic), vc, &[l1, r1]) };
                 if mask { Val::M(lo, hi) } else { Val::V(lo, hi) }
             }
             "simd_compare" => {
@@ -640,8 +684,9 @@ impl Lower {
                     "lt" => (r0, r1, l0, l1),
                     other => panic!("simd_compare {other}"),
                 };
-                let lo = self.def1(Op::VFCmGt, f_class(), &[x0, y0]);
-                let hi = self.def1(Op::VFCmGt, f_class(), &[x1, y1]);
+                let vc = self.vclass();
+                let lo = self.def1(Op::VFCmGt, vc, &[x0, y0]);
+                let hi = self.def1(Op::VFCmGt, vc, &[x1, y1]);
                 Val::M(lo, hi)
             }
             "simd_select" => {
@@ -652,7 +697,7 @@ impl Lower {
                 let ((m0, m1), (t0, t1), (f0, f1)) = (Self::pair(m), Self::pair(t), Self::pair(f));
                 let mut halves = Vec::new();
                 for (m, t, f) in [(m0, t0, f0), (m1, t1, f1)] {
-                    let d = self.freg();
+                    let d = self.qreg();
                     self.push(MInst::new(
                         Op::Bsl,
                         vec![Operand::reg_reuse_def(d, 1), Operand::reg_use(m), Operand::reg_use(t), Operand::reg_use(f)],
@@ -664,7 +709,8 @@ impl Lower {
             "simd_tail" => {
                 let n = self.expr(&args(e)[0]);
                 let n = self.as_i(n);
-                let nv = self.def1(Op::DupX, f_class(), &[n]);
+                let vc = self.vclass();
+                let nv = self.def1(Op::DupX, vc, &[n]);
                 let lanes = |a: u64, b: u64| {
                     let mut bytes = [0u8; 16];
                     bytes[..8].copy_from_slice(&a.to_le_bytes());
@@ -673,8 +719,8 @@ impl Lower {
                 };
                 let lo_idx = self.constant(Op::LitQ { bytes: lanes(0, 1) });
                 let hi_idx = self.constant(Op::LitQ { bytes: lanes(2, 3) });
-                let lo = self.def1(Op::VCmHi, f_class(), &[nv, lo_idx]);
-                let hi = self.def1(Op::VCmHi, f_class(), &[nv, hi_idx]);
+                let lo = self.def1(Op::VCmHi, vc, &[nv, lo_idx]);
+                let hi = self.def1(Op::VCmHi, vc, &[nv, hi_idx]);
                 self.tails.insert((lo, hi), n);
                 Val::M(lo, hi)
             }
@@ -894,8 +940,8 @@ impl Lower {
         match v {
             Val::I(_) => Val::I(self.ireg()),
             Val::F(_) => Val::F(self.freg()),
-            Val::V(..) => Val::V(self.freg(), self.freg()),
-            Val::M(..) => Val::M(self.freg(), self.freg()),
+            Val::V(..) => Val::V(self.qreg(), self.qreg()),
+            Val::M(..) => Val::M(self.qreg(), self.qreg()),
             other => panic!("cannot carry {other:?}"),
         }
     }
@@ -1004,7 +1050,7 @@ impl Lower {
                 self.push_value(&s["value"]);
                 let key = self.number(&s["key"]);
                 let sp = self.data(site(s).as_bytes());
-                let idx = self.call_i("ks_rt_index", &[Arg::I(l), Arg::F(key), Arg::I(sp)]);
+                let idx = self.checked_int(key, 1, "ks_rt_index", sp);
                 self.call("lua_rawseti", &[Arg::I(l), Arg::I(t), Arg::I(idx)], None);
             }
             "lua_set_key" => {
@@ -1283,16 +1329,19 @@ fn fresh() -> Lower {
         lua_base: None,
         lua_locals: 0,
         builder_size: 0,
+        partitioned: false,
     }
 }
 
 fn finish(l: Lower) -> Func {
     let imports = l.imports.clone();
     let locals = l.locals;
+    let partitioned = l.partitioned;
     let blocks = l.blocks.into_iter().map(|b| (b.params, b.insts)).collect();
     let mut f = Func::build(&l.order, blocks, l.classes.len());
     f.imports = imports;
     f.locals = locals;
+    f.partitioned = partitioned;
     f
 }
 
@@ -1312,6 +1361,7 @@ fn count_lua_locals(v: &J) -> u32 {
 pub fn lower_builder(program: &J, builder_size: u32) -> Func {
     let mut l = fresh();
     l.builder_size = builder_size;
+    l.partitioned = true;
     let entry = l.block();
     l.switch(entry);
     let lua = l.ireg();
@@ -1360,6 +1410,7 @@ pub fn lower_builder(program: &J, builder_size: u32) -> Func {
 /// Lowers one program to machine IR.
 pub fn lower(program: &J, sig: &Signature) -> Func {
     let mut l = fresh();
+    l.partitioned = program.to_string().contains("\"op\":\"math\"") && std::env::var("NUPP_SPIKE_UNPARTITIONED").is_err();
     let entry = l.block();
     l.switch(entry);
 

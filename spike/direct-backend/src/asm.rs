@@ -190,6 +190,12 @@ pub fn ucvtf_d_x(rd: R, rn: R) -> u32 {
 pub fn fcvtzu_w_d(rd: R, rn: R) -> u32 {
     0x1E79_0000 | (rn << 5) | rd
 }
+pub fn fcvtzs_w_d(rd: R, rn: R) -> u32 {
+    0x1E78_0000 | (rn << 5) | rd
+}
+pub fn scvtf_d_w(rd: R, rn: R) -> u32 {
+    0x1E62_0000 | (rn << 5) | rd
+}
 pub fn fmov_x_d(rd: R, rn: R) -> u32 {
     0x9E66_0000 | (rn << 5) | rd
 }
@@ -509,6 +515,8 @@ mod tests {
             (ucvtf_d_x(1, 2), "ucvtf d1, x2"),
             (fcvtzu_w_d(1, 2), "fcvtzu w1, d2"),
             (fmov_x_d(1, 2), "fmov x1, d2"),
+            (fcvtzs_w_d(1, 2), "fcvtzs w1, d2"),
+            (scvtf_d_w(1, 2), "scvtf d1, w2"),
             (fadd_2d(1, 2, 3), "fadd v1.2d, v2.2d, v3.2d"),
             (fmul_2d(1, 2, 3), "fmul v1.2d, v2.2d, v3.2d"),
             (fcmgt_2d(1, 2, 3), "fcmgt v1.2d, v2.2d, v3.2d"),

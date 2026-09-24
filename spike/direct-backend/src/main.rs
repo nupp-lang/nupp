@@ -49,7 +49,7 @@ fn symbol(handle: *mut libc::c_void, name: &str) -> *const u8 {
 }
 
 /// Disassembles generated words through the system toolchain, for reading.
-fn disassemble(code: &[u8], dir: &std::path::Path, name: &str) -> String {
+pub fn disassemble(code: &[u8], dir: &std::path::Path, name: &str) -> String {
     let src = dir.join(format!("{name}.s"));
     let obj = dir.join(format!("{name}.o"));
     let words: String = code

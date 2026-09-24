@@ -147,7 +147,7 @@ fn lua_api() -> Lua {
 }
 
 fn compile(func: &crate::mir::Func) -> (emit::Emitted, f64) {
-    let env = emit::machine_env();
+    let env = emit::machine_env_for(func.partitioned);
     let started = Instant::now();
     let options = RegallocOptions { verbose_log: false, validate_ssa: true, algorithm: Algorithm::Ion };
     let output = regalloc2::run(func, &env, &options).unwrap_or_else(|e| panic!("regalloc: {e:?}"));
@@ -187,12 +187,29 @@ pub fn run(path: &str) {
         let sig = lower::signature(c, waves["symbol"].as_str().unwrap());
         let func = lower::lower(&waves["tree"], &sig);
         let (e, us) = compile(&func);
-        let addrs: Vec<usize> = func.imports.iter().map(|n| sym(n) as usize).collect();
+        extern "C" fn identity(x: f64) -> f64 {
+            x
+        }
+        let fake_only = std::env::var("NUPP_SPIKE_FAKE_MATH").ok();
+        let fake = fake_only.is_some();
+        let addrs: Vec<usize> = func
+            .imports
+            .iter()
+            .map(|n| match fake_only.as_deref() {
+                Some("1") => identity as usize,
+                Some(which) if n == which => identity as usize,
+                _ if n == "ks_rt_sin" && std::env::var("NUPP_SPIKE_DIRECT_SIN").is_ok() => sym("sin") as usize,
+                _ => sym(n) as usize,
+            })
+            .collect();
         let image = loader::Image::load_with(&e.layout, &addrs, None);
+        if std::env::var("NUPP_SPIKE_DUMP").as_deref() == Ok("waves") {
+            println!("{}", crate::disassemble(&e.layout.bytes[..e.layout.code_len], &dir, "waves"));
+        }
         type Waves = unsafe extern "C" fn(*mut f64, *const f64, f64, usize);
         let ours: Waves = unsafe { std::mem::transmute(image.entry()) };
         let theirs: Waves = unsafe { std::mem::transmute(sym(&sig.symbol)) };
-        for n in (0..10).chain([1000]) {
+        for n in (0..10).chain([1000]).filter(|_| !fake) {
             let input: Vec<f64> = (0..n).map(|i| (i as f64 - 400.0) * 0.0125).collect();
             let (mut a, mut b) = (vec![-7.0; n + 2], vec![-7.0; n + 2]);
             unsafe {

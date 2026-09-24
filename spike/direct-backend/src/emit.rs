@@ -12,6 +12,46 @@ use regalloc2::{Allocation, Block, Edit, Function, InstOrEdit, MachineEnv, Outpu
 const XS: u32 = 16;
 const VS: u32 = 30;
 
+/// With `partitioned`, used by functions that call out: doubles live in the
+/// Float class over v0-v14 (d8-d14 survive a call) and vectors in the Vector
+/// class over v16-v29 (nothing survives a call). Without it, every vector
+/// register is one Float class, which leaf kernels want.
+pub fn machine_env_for(partitioned: bool) -> MachineEnv {
+    if !partitioned {
+        return machine_env();
+    }
+    let mut int_pref = PRegSet::empty();
+    let mut int_non = PRegSet::empty();
+    let (mut f_pref, mut f_non, mut v_pref) = (PRegSet::empty(), PRegSet::empty(), PRegSet::empty());
+    for r in 0..16 {
+        int_pref.add(PReg::new(r, RegClass::Int));
+    }
+    for r in 19..29 {
+        int_non.add(PReg::new(r, RegClass::Int));
+    }
+    for r in 0..8 {
+        f_pref.add(PReg::new(r, RegClass::Float));
+    }
+    if std::env::var("NUPP_SPIKE_NO_D8").is_err() {
+        for r in 8..15 {
+            f_non.add(PReg::new(r, RegClass::Float));
+        }
+    }
+    for r in 16..30 {
+        v_pref.add(PReg::new(r, RegClass::Vector));
+    }
+    MachineEnv {
+        preferred_regs_by_class: [int_pref, f_pref, v_pref],
+        non_preferred_regs_by_class: [int_non, f_non, PRegSet::empty()],
+        scratch_by_class: [
+            Some(PReg::new(17, RegClass::Int)),
+            Some(PReg::new(15, RegClass::Float)),
+            Some(PReg::new(31, RegClass::Vector)),
+        ],
+        fixed_stack_slots: vec![],
+    }
+}
+
 pub fn machine_env() -> MachineEnv {
     let mut int_pref = PRegSet::empty();
     let mut int_non = PRegSet::empty();
@@ -188,7 +228,14 @@ pub fn emit_image(func: &Func, out: &Output) -> Emitted {
                 InstOrEdit::Edit(Edit::Move { from, to }) => {
                     let class = from.as_reg().map(|r| r.class()).or(to.as_reg().map(|r| r.class())).unwrap();
                     let float = class != RegClass::Int;
+                    // In a partitioned function the Float class holds only
+                    // doubles: move them as doubles, which also clears the
+                    // upper half of the destination.
+                    let scalar = func.partitioned && class == RegClass::Float;
                     match (from.as_reg(), to.as_reg()) {
+                        (Some(f), Some(t)) if scalar && std::env::var("NUPP_SPIKE_QMOVE").is_err() => {
+                            a.emit(asm::fmov_d(t.hw_enc() as u32, f.hw_enc() as u32))
+                        }
                         (Some(f), Some(t)) => a.emit(if float {
                             asm::mov_16b(t.hw_enc() as u32, f.hw_enc() as u32)
                         } else {
@@ -248,6 +295,8 @@ pub fn emit_image(func: &Func, out: &Output) -> Emitted {
                         Op::AddImm { sf, imm } => a.emit(asm::add_imm(*sf, r[0], r[1], *imm)),
                         Op::AddrIdx => a.emit(asm::add_reg(true, r[0], r[1], r[2], 3)),
                         Op::UcvtfW => a.emit(asm::ucvtf_d_w(r[0], r[1])),
+                        Op::ScvtfW => a.emit(asm::scvtf_d_w(r[0], r[1])),
+                        Op::FcvtzsW => a.emit(asm::fcvtzs_w_d(r[0], r[1])),
                         Op::UcvtfX => a.emit(asm::ucvtf_d_x(r[0], r[1])),
                         Op::FcvtzuW => a.emit(asm::fcvtzu_w_d(r[0], r[1])),
                         Op::FAdd => a.emit(asm::fadd_d(r[0], r[1], r[2])),

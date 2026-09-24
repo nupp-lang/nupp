@@ -20,6 +20,8 @@ pub enum Op {
     /// def = use0 + (use1 << 3)
     AddrIdx,
     UcvtfW,
+    ScvtfW,
+    FcvtzsW,
     UcvtfX,
     FcvtzuW,
     FAdd,
@@ -103,6 +105,8 @@ pub struct Func {
     pub imports: Vec<String>,
     /// Bytes of frame memory the body addresses (builder state, out-params).
     pub locals: u32,
+    /// Scalars and vectors in separate classes (see `emit::machine_env`).
+    pub partitioned: bool,
 }
 
 impl Func {
@@ -137,7 +141,7 @@ impl Func {
                 infos[s.index()].preds.push(Block::new(b));
             }
         }
-        Func { insts, blocks: infos, num_vregs, imports: Vec::new(), locals: 0 }
+        Func { insts, blocks: infos, num_vregs, imports: Vec::new(), locals: 0, partitioned: false }
     }
 }
 
