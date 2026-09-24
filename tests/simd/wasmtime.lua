@@ -84,7 +84,7 @@ function M.capabilities()
     capabilities.lua.os = jit.os
     capabilities.lua.arch = jit.arch
     if capabilities.emscripten.available then
-        local ok, signature = pcall(require("nupp.compiler.build.aot").toolSignature, compiler)
+        local ok, signature = pcall(require("nupp.tools.build.aot").toolSignature, compiler)
         capabilities.emscripten.signature = ok and signature or nil
         capabilities.emscripten.cache = os.getenv("EM_CACHE")
             or (

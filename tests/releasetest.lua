@@ -1,4 +1,4 @@
-local release = require("nupp.compiler.build.release")
+local release = require("nupp.tools.build.release")
 local json = require("testjson")
 
 local function write(path, text)
@@ -49,7 +49,7 @@ function M.theEmbeddedCatalogIsTheCommittedJsonArtifact()
       if name == "NUPP_STUB_CATALOG" then return nil end
       return getenv(name)
    end
-   local record, problem = require("nupp.compiler.build.stubs")
+   local record, problem = require("nupp.tools.build.stubs")
       .record("x86_64-unknown-linux-gnu")
    os.getenv = getenv
    assert(not record and problem:find("stub catalog development has no", 1, true),

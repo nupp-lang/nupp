@@ -1,6 +1,6 @@
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 
 local function assertEq(got, want, label)
     if got ~= want then

@@ -4,7 +4,7 @@ local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
 local optimize = require("nupp.compiler.optimize")
 local hot = require("nupp.runtime.hotreload")
-local hotSession = require("nupp.compiler.hotsession")
+local hotSession = require("nupp.tools.hotsession")
 
 -- One environment for the whole suite.
 --
@@ -743,7 +743,7 @@ end
 -- the build's: the session names the build's own function, and these are the
 -- two inputs the session's copy of it used to leave out.
 function M.interfaceFingerprintIsTheBuildsOwn()
-    local buildModules = require("nupp.compiler.build.modules")
+    local buildModules = require("nupp.tools.build.modules")
     local exports = {typeDefs = {Field = {}}, valueDefs = {}}
     local plain = buildModules.interfaceHash(nil, exports, nil)
     assertEq(buildModules.interfaceHash(nil, exports, nil), plain, "the digest is a function of its inputs")
@@ -1311,10 +1311,10 @@ function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     assert(isWatched(nestedPath), "new include joins the dynamic watch set")
 end
 
--- The host-driven surface: what `nupp.compiler.hostreload` answers is what the C
+-- The host-driven surface: what `nupp.tools.hostreload` answers is what the C
 -- functions behind it return, so these cases are the reload verdicts a host sees.
 
-local hostreloadModule = require("nupp.compiler.hostreload")
+local hostreloadModule = require("nupp.tools.hostreload")
 
 local function hostProject(source)
     hot.resetForTesting()

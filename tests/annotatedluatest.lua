@@ -1,7 +1,7 @@
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local annotated = require("nupp.compiler.annotatedlua")
-local migrate = require("nupp.compiler.migrate")
+local migrate = require("nupp.tools.migrate")
 local T = require("nupp.compiler.types")
 local envMod = require("nupp.compiler.env")
 

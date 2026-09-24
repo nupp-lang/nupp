@@ -5,15 +5,15 @@ What the compiler reads from a project's manifest before it checks a line: the
 target a command selected, and where the declarations the project's
 dependencies installed are.
 
-The build owns the manifest -- it validates it (`nupp.compiler.build.manifest`)
-and fetches and builds what it names (`nupp.compiler.build.deps`) -- and an
+The build owns the manifest -- it validates it (`nupp.tools.build.manifest`)
+and fetches and builds what it names (`nupp.tools.build.deps`) -- and an
 environment asks it only these read-only questions. None of them fetches,
 installs or builds anything: an editor has to be able to open a project whose
 dependencies nobody has built, and still type an already-installed rock.
 
 The manifest's shapes are the build's, and the compiler does not depend on the
 build, so they are `any` here; the build hands in tables it has already
-validated and types what comes back (`nupp.compiler.build.tasks`).
+validated and types what comes back (`nupp.tools.build.tasks`).
 ]]
 
 local fs = require("nupp.compiler.fs")

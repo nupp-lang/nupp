@@ -1,7 +1,7 @@
 #!/bin/sh
 # The nupp launcher.
 #
-# Runs build/nupp/compiler when it is there and no source is newer than it, and builds it
+# Runs build/nupp/tools when it is there and no source is newer than it, and builds it
 # first when it is not, so an edit to the compiler is picked up by the next
 # command rather than by the next person who remembers to build.
 #
@@ -15,9 +15,9 @@ LUA_ROOT="$ROOT"
 case "$(uname -s 2>/dev/null)" in
     MINGW*|MSYS*|CYGWIN*) LUA_ROOT="$(cygpath -m "$ROOT")" ;;
 esac
-BUILT="$ROOT/build/nupp/compiler/main.lua"
+BUILT="$ROOT/build/nupp/tools/main.lua"
 STAMP="$ROOT/build/.nupp-complete"
-LUA_BUILT="$LUA_ROOT/build/nupp/compiler/main.lua"
+LUA_BUILT="$LUA_ROOT/build/nupp/tools/main.lua"
 LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
 # Worked out once per process tree. The check is a `test` in a provisioned
@@ -251,7 +251,7 @@ select_luajit "$ROOT" || exit 1
 #
 # Every file under both trees, not just `*.nupp`: the compiler bundles plain
 # files alongside the ones it compiles -- theme.css and stub-catalog.json
-# under src/nupp/compiler, the project scaffolding under templates -- and a
+# under src/nupp/tools, the project scaffolding under templates -- and a
 # build copies them in the same pass that compiles everything else. Narrowing
 # this to source extensions once meant an edit to one of those was never seen:
 # the copy stayed old until something else forced a rebuild. `.DS_Store` is

@@ -10,12 +10,7 @@ local resource: any = {source = bundled.source,}
 function resource.list(prefix: string): {string}
     local embedded = package.preload["nupp.embedded"]
     if embedded then
-        local found = {}
-        for path in pairs(embedded()) do
-            if path:sub(1, #prefix + 1) == prefix .. "/" then
-                found[#found + 1] = path
-            end
-        end
+        local found = bundled.embeddedUnder(embedded(), prefix)
         -- Only when it answered. A table carrying some of what the compiler carries
         -- is not proof that it carries all of it: the test binary embeds the modules
         -- and not the templates, and reading "no entries under this prefix" as "there

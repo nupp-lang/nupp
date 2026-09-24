@@ -140,7 +140,7 @@ local function plantedTree(stage0Body)
     os.remove(dir)
     assert(
         os.execute(
-            ("mkdir -p '%s/bin' '%s/build/nupp/compiler' '%s/build/lib' '%s/toolchain'"):format(dir, dir, dir, dir)
+            ("mkdir -p '%s/bin' '%s/build/nupp/tools' '%s/build/lib' '%s/toolchain'"):format(dir, dir, dir, dir)
         ) == 0
     )
     assert(os.execute(("cp '%s/bin/nupp' '%s/bin/nupp'"):format(ROOT, dir)) == 0)
@@ -152,14 +152,15 @@ local function plantedTree(stage0Body)
         file:close()
     end
 
-    plant("build/nupp/compiler/main.lua", 'print("BUILT")\n')
+    plant("build/nupp/tools/main.lua", 'print("BUILT")\n')
 
     -- One planted stage zero, pinned to its own digest, cached where this tree's
     -- toolchain will look and nowhere a real checkout can see.
     local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
     -- It reports the name the launcher gave it as well as which compiler it is,
     -- because `theStageZeroIsNamedToWhatItRuns` asks for that and every other case
-    -- here reads only the first line.
+    -- here reads only the first line. The provider is named the way the pinned
+    -- release names it, which is what `scripts/stage0-runtime.lua` looks for.
     plant(
         "stage0.lua",
         'package.preload["nupp.compiler.build.native"] = function() error("provider body must not run") end\n' .. (
@@ -206,7 +207,7 @@ function M.aColdBuildPublishesSelfHostedRuntimeArtifacts()
     local dir, _, env = plantedTree(
         [=[
 print("BOOTSTRAP")
-local output = assert(io.open("build/nupp/compiler/main.lua", "wb"))
+local output = assert(io.open("build/nupp/tools/main.lua", "wb"))
 output:write([[assert(arg[1] == "build")
 assert(not os.getenv("NUPP_COMPILER_ROOT"):find("/stage0/", 1, true))
 print("SELF_HOSTED")
@@ -214,7 +215,7 @@ print("SELF_HOSTED")
 output:close()
 ]=]
     )
-    assert(os.remove(dir .. "/build/nupp/compiler/main.lua"))
+    assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
     local output = ran(dir, env, "build")
     local bootstrap = assert(output:find("BOOTSTRAP", 1, true), output)
     local selfHosted = assert(output:find("SELF_HOSTED", 1, true), output)
@@ -245,7 +246,7 @@ function M.aStamplessTreeStillRunsTheCompilerItHas()
     stamp:close()
     assert(ran(dir, env, "--help"):find("BUILT", 1, true), "and is the answer once the stamp is back")
 
-    assert(os.remove(dir .. "/build/nupp/compiler/main.lua"))
+    assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
     assert(
         ran(dir, env, "--help"):find("BOOTSTRAP", 1, true),
         "the stage zero is for a tree that has no compiler, not for one mid-build"
@@ -302,7 +303,7 @@ end
 -- build. The name is read here on every platform, where the export is the same.
 function M.theStageZeroIsNamedToWhatItRuns()
     local dir, _, env = plantedTree()
-    assert(os.remove(dir .. "/build/nupp/compiler/main.lua"))
+    assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
 
     -- `--help` reads no source, so this is the launcher's own environment and
     -- nothing a build put there.

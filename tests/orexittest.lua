@@ -7,7 +7,7 @@ local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local optimize = require("nupp.compiler.optimize")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

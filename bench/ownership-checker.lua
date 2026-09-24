@@ -16,8 +16,8 @@
 local parser = require("nupp.compiler.parser")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
-local modules = require("nupp.compiler.build.modules")
-local project = require("nupp.compiler.build.project")
+local modules = require("nupp.tools.build.modules")
+local project = require("nupp.tools.build.project")
 
 local ROUNDS = tonumber(arg[1]) or 15
 local WIDTH = tonumber(arg[2]) or 1000

@@ -996,7 +996,7 @@ local function loadSuite(suite)
 
     -- A Nupp suite is an ordinary module after compilation. Keep its runtime
     -- loader installed while its cases run so it may require project modules.
-    local compile = require("nupp.compiler.cli.compile")
+    local compile = require("nupp.tools.cli.compile")
     -- The runner is invoked from the project root, just as `nupp test` runs
     -- its configured command. Keep this root normalized for module lookup.
     local env = require("nupp.compiler.env").new(".")

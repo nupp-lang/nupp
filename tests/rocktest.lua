@@ -1,5 +1,5 @@
-local rock = require("nupp.compiler.rock")
-local template = require("nupp.compiler.template")
+local rock = require("nupp.tools.rock")
+local template = require("nupp.tools.template")
 
 local function assertEq(got, want, label)
    if got ~= want then

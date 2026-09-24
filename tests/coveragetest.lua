@@ -2,7 +2,7 @@
 -- command, and inspect the artifacts rather than reaching into its implementation.
 local test = require("assert")
 local json = require("testjson")
-local highlight = require("nupp.compiler.doc.highlight")
+local highlight = require("nupp.tools.doc.highlight")
 local M = {}
 
 local ROOT = debug.getinfo(1, "S").source:match("^@(.+)/tests/")

@@ -1,0 +1,254 @@
+module nupp.tools.cli.task
+
+--[[
+`nupp task`: list, inspect, or run what a project can be asked to do.
+
+The general case `test` is one fixed instance of: a task names an argv, an
+optional build target to build first, an optional working directory, and optional
+environment. Unlike
+`test`, which always means the project's test command, this takes which task
+by name, so a project can have any number of them -- a dev server, a release
+script, whatever it runs by hand often enough to want a name for it rather
+than a comment saying what to type.
+
+Like `test`, arguments past the task's name are not this command's to read:
+they are appended to the task's own argv and belong to whatever ends up
+running.
+]]
+
+local usageError = require("nupp.tools.cli.error").forCommand("task")
+local ansi = require("nupp.cli")
+local cliModule = require("nupp.cli")
+
+local REPORT_SCHEMA = {
+    description = "The task list, or one task's effective configuration when " .. "a name was given.",
+    type = "object",
+    properties = {
+        tasks = {
+            type = "array",
+            description = "Present when no name was given.",
+            items = {["$ref"] = "#/definitions/task"},
+        },
+    },
+    definitions = {
+        task = {
+            type = "object",
+            properties = {
+                name = {type = "string"},
+                ["default"] = {type = "boolean"},
+                description = {type = "string"},
+                kind = {type = "string"},
+                category = {type = "string"},
+                command = {type = "array", items = {type = "string"}},
+                outDir = {
+                    type = "string",
+                    description = "Where the target writes, including the "
+                    .. "default a docs target takes from the generator "
+                    .. "rather than from the manifest."
+                },
+                buildTarget = {type = "string"},
+                cwd = {type = "string", description = "Task working directory, relative to the project root."},
+                all = {
+                    type = "boolean",
+                    description = "Documentation: include declarations " .. "that are undocumented or local."
+                },
+                includePrivate = {
+                    type = "boolean",
+                    description = "Documentation: include `_` members and " .. "files below internal/."
+                },
+                entries = {type = "array", items = {type = "string"}},
+                sources = {type = "array", items = {type = "string"}},
+                resources = {type = "array", items = {type = "string"}},
+                dependencies = {type = "array", items = {type = "string"}},
+                nativeFeatures = {type = "object", additionalProperties = {type = "boolean"}},
+                dialect = {type = "string", enum = require("nupp.compiler.dialects").names()},
+                layoutTarget = {type = "string"},
+                platforms = {type = "array", items = {type = "string"}},
+                argv = {type = "array", items = {type = "string"}},
+            },
+            required = {"name"},
+        },
+    },
+}
+
+local function writeItems(out: {string}, style: any, label: string, items: {string})
+    out[#out + 1] = style.faint(label .. ":")
+    if #items == 0 then
+        out[#out + 1] = "  (none)"
+        return
+    end
+    for _, item in ipairs(items) do
+        out[#out + 1] = "  - " .. item
+    end
+end
+
+--- One task's configuration, field by field. Only the fields a task actually has are
+--- printed, so the shape of the output says what kind of task it is.
+local function writeTask(out: {string}, style: any, task: any)
+    local function field(label: string, value: any)
+        if value ~= nil then
+            out[#out + 1] = style.faint(label .. ":") .. " " .. tostring(value)
+        end
+    end
+
+    out[#out + 1] = style.faint("Name:") .. " " .. style.strong(task.name)
+    field("Default", task.default and "yes" or "no")
+    field("Description", task.description)
+    field("Kind", task.kind)
+    field("Category", task.category)
+    if task.command then
+        field("Command", table.concat(task.command, " "))
+    end
+    field("Output directory", task.outDir)
+    field("Build target", task.buildTarget)
+    field("Working directory", task.cwd)
+    field("Dialect", task.dialect)
+    field("Layout target", task.layoutTarget)
+    if task.platforms and #task.platforms > 0 then
+        writeItems(out, style, "Platforms", task.platforms)
+    end
+    field("Stage zero", task.bootstrap)
+    field("Title", task.title)
+    field("Format", task.format)
+    if task.all ~= nil then
+        field("Include undocumented", tostring(task.all))
+    end
+    if task.includePrivate ~= nil then
+        field("Include private", tostring(task.includePrivate))
+    end
+    if task.argv then
+        writeItems(out, style, "Arguments", task.argv)
+    end
+    if task.env then
+        local environment: {string} = {}
+        for name, value in pairs(task.env) do
+            environment[#environment + 1] = name .. "=" .. value
+        end
+        table.sort(environment)
+        writeItems(out, style, "Environment", environment)
+    end
+    if task.entries then
+        writeItems(out, style, "Entries", task.entries)
+    end
+    if task.sources and #task.sources > 0 then
+        writeItems(out, style, "Sources", task.sources)
+    end
+    if task.resources then
+        writeItems(out, style, "Resources", task.resources)
+    end
+    if task.dependencies then
+        writeItems(out, style, "Dependencies", task.dependencies)
+    end
+    if task.nativeFeatures then
+        local overrides: {string} = {}
+        for name, enabled in pairs(task.nativeFeatures) do
+            overrides[#overrides + 1] = (enabled and "+" or "-") .. name
+        end
+        table.sort(overrides)
+        writeItems(out, style, "Native feature overrides", overrides)
+    end
+end
+
+local function list(name: string?, format: string?): integer
+    local project = require("nupp.tools.build.project")
+    local info, err = project.describeTasks(".", name)
+    if not info then
+        io.stderr:write(tostring(err) .. "\n")
+        return 1
+    end
+    if format == "json" then
+        io.write(project.encode(info) .. "\n")
+        return 0
+    end
+    local style = ansi.style(io.stdout)
+    if name then
+        local out: {string} = {}
+        writeTask(out, style, info)
+        if #out > 0 then
+            io.write(table.concat(out, "\n"), "\n")
+        end
+
+        return 0
+    end
+    -- `kind` earns its column: the listing is build targets and configured actions
+    -- together, and which one a name is decides what running it does.
+    local rows: {{ansi.Cell}} = {}
+    for _, task in ipairs(info.tasks) do
+        local name: ansi.Cell
+        if task.default then
+            name = ansi.annotatedCell(task.name, " (default)", style.strong)
+        else
+            name = ansi.paintedCell(task.name, style.strong)
+        end
+        rows[
+            #rows + 1
+        ] = {name, ansi.paintedCell(tostring(task.kind or ""), style.faint), ansi.cell(task.description or ""),}
+    end
+    ansi.writeTable(
+        io.stdout,
+        {
+            columns = {{heading = "task"}, {heading = "kind"}, {heading = "description"}},
+            rows = rows,
+            style = style,
+        } as ansi.TableOptions
+    )
+
+    return 0
+end
+
+--- List, inspect, or run project tasks from nupp.lua.
+---
+--- With `--list`, lists build targets plus configured actions, or inspects NAME.
+--- Otherwise runs `tasks.<name>` from nupp.lua: builds `tasks.<name>.build` first when
+--- it names one, then executes `tasks.<name>.argv` from `tasks.<name>.cwd`
+--- (the project root by default) with every trailing argument appended.
+---
+--- Examples:
+---
+---     nupp task --list
+---     nupp task --list app
+---     nupp task serve --port 8080
+@cli(name = "task", stopAtFirstArgument = true)
+@derive(cliModule.Command)
+local record Task
+    --- List project tasks, or inspect NAME.
+    @cli(short = "l")
+    list: boolean = false
+
+    --- Select the list representation.
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    format: string?
+
+    --- Print the JSON Schema of list output and exit.
+    schema: boolean = false
+
+    --- Configured task to run, or inspect with --list.
+    @cli(positional = "NAME")
+    name: string?
+
+    --- Arguments appended to the configured command.
+    @cli(remainder = true, value = "ARG")
+    arguments: {string} = {}
+
+    function run(self): integer
+        if self.list then
+            if #self.arguments > 0 then
+                return usageError("only one task name may be queried")
+            end
+
+            return list(self.name, self.format)
+        elseif self.format ~= nil then
+            return usageError("--format, --json, and --text require --list")
+        elseif self.name == nil then
+            return usageError("a task name or --list is required")
+        end
+
+        return require("nupp.tools.build.project").runTask(".", self.name, self.arguments)
+    end
+end
+
+function Task.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Task}

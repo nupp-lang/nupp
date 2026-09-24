@@ -1,5 +1,5 @@
 -- Width-aware formatting, docblocks, and the safety invariant.
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local lexer = require("nupp.compiler.lexer")
 
@@ -433,7 +433,7 @@ function M.docblockRefillsTheParagraphRatherThanTheLine()
     -- The second line is one word too long. Breaking it alone left that word on a
     -- line by itself with the author's short third line still sitting under it.
     local src = lines(
-        "--- The target's own name, filled in by `nupp.compiler.build.tasks` when it",
+        "--- The target's own name, filled in by `nupp.tools.build.tasks` when it",
         "--- merges the build's keys with the target's own keys and then hands it back.",
         "--- A docs target takes `targetName` instead.",
         "local x = 1"

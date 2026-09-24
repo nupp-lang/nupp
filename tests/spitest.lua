@@ -1,7 +1,7 @@
 local fs = require("nupp.compiler.fs")
-local project = require("nupp.compiler.build.project")
+local project = require("nupp.tools.build.project")
 local process = require("nupp.compiler.process")
-local discovery = require("nupp.compiler.build.spi")
+local discovery = require("nupp.tools.build.spi")
 local M = {}
 
 local function fixture(files, body)

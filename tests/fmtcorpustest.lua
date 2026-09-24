@@ -18,7 +18,7 @@
 -- To add a case, write the input, run the suite once with NUPP_FMT_CORPUS_WRITE=1
 -- to record what the formatter does with it, and read the recorded output before
 -- committing it. A golden nobody read is a record of a bug as readily as of a rule.
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local lexer = require("nupp.compiler.lexer")
 local parser = require("nupp.compiler.parser")

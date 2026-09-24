@@ -115,7 +115,7 @@ end
 -- and the host's instructions say nothing about the aarch64 ones a test
 -- asserts on. An aarch64 host reads them with either.
 local function neonAsm(dir, file)
-    local chain = require("nupp.compiler.build.aot").toolchain()
+    local chain = require("nupp.tools.build.aot").toolchain()
     local host = require("nupp.compiler.aot.target").hostTriple()
     if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
         return nil
@@ -2532,7 +2532,7 @@ end
 return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
 ]]
     local dir = project{["dots.nupp"] = source}
-    local chain = require("nupp.compiler.build.aot").toolchain()
+    local chain = require("nupp.tools.build.aot").toolchain()
     local host = require("nupp.compiler.aot.target").hostTriple()
     if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
         test.skip("reading NEON instructions needs Clang or an aarch64 host")
@@ -3247,7 +3247,7 @@ end
 -- a C compiler, which is what produces them; a machine without one is missing a
 -- build dependency rather than failing.
 local function hasToolchain()
-    return (require("nupp.compiler.build.aot").toolchain()) ~= nil
+    return (require("nupp.tools.build.aot").toolchain()) ~= nil
 end
 
 -- Deliberately not `PINNED`. Instructions come from a real compilation, and

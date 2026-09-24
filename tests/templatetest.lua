@@ -5,7 +5,7 @@
 -- from rotting: they scaffold it and then hold the result to `check`, `build`,
 -- `test` and `run`, which is the promise `nupp init` makes and the one a reader
 -- tests first.
-local template = require("nupp.compiler.template")
+local template = require("nupp.tools.template")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -765,7 +765,7 @@ function M.aGameShapedManifestNeedsNoFieldsTheBuildDoesNotHave()
     -- spelling is wrong. `source = {git = ..., rev = ...}` is a `c` dependency
     -- key; a Cargo dependency names a local crate with `manifest`, and that
     -- crate's own Cargo.toml is what pins the engine.
-    local manifest = require("nupp.compiler.build.manifest")
+    local manifest = require("nupp.tools.build.manifest")
     local dir = templateDirectory({
         ["template.lua"] = [[return {description = "a game", raw = {"assets/**"}}]],
         [

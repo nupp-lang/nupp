@@ -135,7 +135,7 @@ function M.nativeCapability(options)
     local compiler = options.compiler
     local selectionProblem = nil
     if compiler == nil then
-        local selected, problem = require("nupp.compiler.build.aot").toolchain(nil, nil)
+        local selected, problem = require("nupp.tools.build.aot").toolchain(nil, nil)
         compiler = selected and selected.command or nil
         selectionProblem = problem
     end
@@ -156,9 +156,9 @@ function M.nativeCapability(options)
         else
             local versionText = M.read(versionLog)
             evidence.compilerVersion = (versionText:match("[^\r\n]+"))
-            local dialect = require("nupp.compiler.build.aot").identify(versionText)
+            local dialect = require("nupp.tools.build.aot").identify(versionText)
             evidence.compilerDialect = dialect or "unknown"
-            evidence.compilerSignature = require("nupp.compiler.build.aot").toolSignature(compiler)
+            evidence.compilerSignature = require("nupp.tools.build.aot").toolSignature(compiler)
             local built = execute(
                 M.quote(
                     compiler

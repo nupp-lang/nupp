@@ -74,7 +74,7 @@ export function updateLineNumberVisibility(view) {
 }
 
 // Keep these categories and colors aligned with the documentation highlighter
-// in src/nupp/compiler/doc/highlight.nupp.
+// in src/nupp/tools/doc/highlight.nupp.
 const highlightStyle = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--pg-syntax-keyword)" },
   { tag: tags.bool, color: "var(--pg-syntax-boolean)" },

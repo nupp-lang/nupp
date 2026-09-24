@@ -16,7 +16,7 @@ the history forever.
 
 ## What a release is
 
-`src/nupp/compiler/version.nupp` holds `version.VERSION`. Between releases it
+`src/nupp/tools/version.nupp` holds `version.VERSION`. Between releases it
 carries a `-dev` suffix, because a checkout is not the release it came after and
 is not yet the one it is heading for. A release is the commit that removes that
 suffix.
@@ -112,7 +112,7 @@ proves the new pin can still build the tree.
 
 | Failure | Cause |
 |---|---|
-| `tag vX ships nupp Y; bump nupp.compiler.version` | The version commit was missed, or the tag was cut at the wrong commit. |
+| `tag vX ships nupp Y; bump nupp.tools.version` | The version commit was missed, or the tag was cut at the wrong commit. |
 | `release vX already exists; immutable assets are not replaced` | That tag already published. Use a new number. |
 | A build job fails on a `.nupp` file under `scripts/` | Those sit outside the manifest's include roots. `tests/repositoryscriptstest.lua` covers them; run it before tagging. |
 

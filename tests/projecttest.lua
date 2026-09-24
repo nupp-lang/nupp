@@ -1,10 +1,10 @@
-local project = require("nupp.compiler.build.project")
-local deps = require("nupp.compiler.build.deps")
+local project = require("nupp.tools.build.project")
+local deps = require("nupp.tools.build.deps")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local store = require("nupp.compiler.store")
-local nativeStage = require("nupp.compiler.build.native")
-local buildPlatform = require("nupp.compiler.build.platform")
+local nativeStage = require("nupp.tools.build.native")
+local buildPlatform = require("nupp.tools.build.platform")
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.env")
 local json = require("testjson")
@@ -2554,7 +2554,7 @@ print(triangular(4))
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/app")
     )
-    if require("nupp.compiler.build.aot").toolchain() == nil then
+    if require("nupp.tools.build.aot").toolchain() == nil then
         remove(dir)
         return require("assert").skip("C compiler is unavailable")
     end
@@ -2589,7 +2589,7 @@ return {triangular = triangular}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.compiler.build.aot").toolchain() == nil then
+    if require("nupp.tools.build.aot").toolchain() == nil then
         remove(dir);
         return require("assert").skip("C compiler is unavailable")
     end
@@ -2615,7 +2615,7 @@ return {make = make}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.compiler.build.aot").toolchain() == nil then
+    if require("nupp.tools.build.aot").toolchain() == nil then
         remove(dir);
         return require("assert").skip("C compiler is unavailable")
     end
@@ -2660,7 +2660,7 @@ return {triangular = triangular}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.compiler.build.aot").toolchain() == nil then
+    if require("nupp.tools.build.aot").toolchain() == nil then
         remove(dir);
         return require("assert").skip("C compiler is unavailable")
     end

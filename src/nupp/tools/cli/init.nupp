@@ -1,0 +1,284 @@
+module nupp.tools.cli
+
+--[[
+The command line: which commands exist, and what happens to an argument list.
+
+Every public subcommand is a derived command record under `nupp/tools/cli`.
+The root command owns their order and each record owns its grammar and run method.
+
+What is here is the part they share: finding the command, parsing against its
+grammar, honouring `--help` and `--color` before either can matter, and turning
+a parse failure into the conventional status 2. A command therefore never sees a
+malformed argument list, and never has to remember to check for `--help`.
+
+Command files require heavier compiler code inside `run`, so building the tree
+loads only their small declarations.
+]]
+
+local ansi = require("nupp.cli")
+
+local cli = {}
+
+local root = require("nupp.tools.cli.root")
+
+local APPLICATION: any? = nil
+
+--- Builds the public derived command tree. Command modules remain small; their
+--- compiler dependencies are still required inside `run`.
+local function application(): any
+    if APPLICATION ~= nil then
+        return APPLICATION
+    end
+    APPLICATION = ansi.application(root.Root, {
+        name = "nupp",
+        version = require("nupp.tools.version").line(),
+        width = 79,
+        indent = "  ",
+        labelLimit = 20,
+    })
+
+    return APPLICATION
+end
+
+local function requestsSchema(subject: any, argv: {string}): boolean
+    if subject == nil then
+        return false
+    end
+    local schema = ansi.schema(subject)
+    if schema == nil then
+        return false
+    end
+    local arity: {[string]: ansi.ValueArity} = {}
+    local fields: {[string]: any} = {}
+    local patterns: {ansi.Pattern} = {}
+    for _, field in ipairs(schema.fields) do
+        if field.role == "option" then
+            for _, name in ipairs(field.names) do
+                fields[name] = field
+                arity[name] = field.constants[name] ~= nil and ansi.none or field.arity
+            end
+            if field.pattern ~= nil then
+                patterns[#patterns + 1] = {pattern = field.pattern, key = field.matchKey}
+            end
+        end
+    end
+    local stream = ansi.optParser(argv, {
+        arity = arity,
+        patterns = patterns,
+        stopAtFirstArgument = schema.stopAtFirstArgument,
+    })
+    while true do
+        local kind = stream:next()
+        if kind == nil then
+            return false
+        end
+        local option = kind == ansi.shortOption or kind == ansi.longOption
+        local field = option and not stream:pattern() and fields[stream:key()] or nil
+        if field ~= nil and field.field == "schema" and stream:value() == nil then
+            return true
+        end
+    end
+end
+
+local function child(parent: any, name: string?): any?
+    if name == nil or parent.subcommands == nil then
+        return nil
+    end
+    for _, subject in ipairs(parent.subcommands()) do
+        if subject.cliName() == name then
+            return subject
+        end
+        for _, alias in ipairs(subject.cliAliases()) do
+            if alias == name then
+                return subject
+            end
+        end
+    end
+
+    return nil
+end
+
+local function selectCommand(argv: {string}): any, integer
+    local subject: any = root.Root
+    local index: integer = 1
+    while index <= #argv do
+        local nextSubject = child(subject, argv[index])
+        if nextSubject == nil then
+            break
+        end
+        subject = nextSubject
+        index = index + 1
+    end
+
+    return subject, index
+end
+
+--- Writes a command's compiler report schema when it owns one.
+local function writeSchema(argv: {string}): integer?
+    local subject, argumentStart = selectCommand(argv)
+    if subject.cliName() == "lsp" and argv[argumentStart] == "--schema" then
+        return require(
+            "nupp.tools.cli.error"
+        ).forCommand("lsp")("--schema answers for one operation: nupp lsp <operation> --schema")
+    end
+    local schema = subject.reportSchema and subject.reportSchema() or nil
+    if schema == nil then
+        return nil
+    end
+    local arguments: {string} = {}
+    for index = argumentStart, #argv do
+        arguments[#arguments + 1] = argv[index]
+    end
+    if requestsSchema(subject, arguments) then
+        require("nupp.tools.cli.report").write(schema)
+        return 0
+    end
+
+    return nil
+end
+
+--- Warns when the compiler is checking against declarations its checkout has moved on
+--- from.
+---
+--- The declarations a build copies beside the compiled modules are what the checker
+--- resolves the prelude and bundled source against. Editing one in `src` does
+--- not reach that copy until a build copies it again, so until then every command
+--- describes today's source against yesterday's interface -- and it surfaces as an
+--- ordinary type error about a field that is plainly there in the file, or a contract
+--- that is plainly an interface. Neither error can mention the reason, because by the
+--- time it is raised the stale declaration is simply what the compiler knows.
+---
+--- The build that fails this way has already copied the new declarations before it
+--- reported anything, so running it again is the whole fix. Saying so is the point of
+--- this: the answer is one command, and nothing else in the output suggests it.
+local function warnStaleDeclarations(): nil
+    local stale = require("nupp.compiler.bundled").staleDeclarations()
+    if #stale == 0 then
+        return
+    end
+    local style = ansi.style(io.stderr)
+    local lines = {
+        ansi.severity(style, "warning")("nupp:") .. " the compiler is using declarations older than this checkout:",
+    }
+    for _, relative in ipairs(stale) do
+        lines[#lines + 1] = "  " .. relative
+    end
+    lines[#lines + 1] = "A diagnostic above may describe an interface src/ no longer has."
+    lines[#lines + 1] = "Run the build again; it has already refreshed them."
+    io.stderr:write(table.concat(lines, "\n") .. "\n")
+end
+
+--- Runs one command line and returns the process exit status.
+-- Commands that keep LuaJIT's own thresholds.
+--
+-- `lsp` is resident: its traces amortize across every edit of a session, so refusing
+-- side traces would give up what it spends the first file paying for. `run` and `task`
+-- execute a program that is not this one, and nothing here knows its shape.
+const JIT_DEFAULT_COMMANDS = {bench = true, lsp = true, run = true, task = true}
+
+-- Everything else is a compiler run: it walks a large program roughly once and exits.
+--
+-- LuaJIT compiles a side trace for every guard that fails often enough, and a compiler
+-- is branches -- node kinds, token kinds, type tags -- so the tail of that distribution
+-- never ends. Half of a cold self-build was the trace compiler rather than compiled
+-- code, and raising the exit threshold is what stops it chasing the tail:
+--
+--     default                    16.1s
+--     hotexit=200                 9.0s
+--     hotexit=200, hotloop=1000   9.1s
+--
+-- Both curves turn back up past their peak -- `hotexit=1000` gives back most of the
+-- win -- because eventually the refused traces are ones that would have paid. Re-run
+-- `bench/jit-thresholds.lua` on a quiet machine before moving these.
+--
+-- `NUPP_JIT_DEFAULT` turns it off and `NUPP_JIT_TUNE` replaces it with a
+-- comma-separated flag list, which is how `bench/jit-thresholds.lua` compares settings
+-- without rebuilding the compiler between them.
+local function tuneJitFor(name: string)
+    if JIT_DEFAULT_COMMANDS[name] or os.getenv("NUPP_JIT_DEFAULT") then
+        return
+    end
+    local override = os.getenv("NUPP_JIT_TUNE")
+    -- A LuaJIT built without the JIT, or a future one that renames a flag, is not a
+    -- reason to refuse to run.
+    if not override then
+        pcall(jit.opt.start, "hotexit=200", "hotloop=1000")
+
+        return
+    end
+    local flags: {string} = {}
+    for flag in override:gmatch("[^,]+") do
+        flags[#flags + 1] = flag
+    end
+    pcall(function()
+        jit.opt.start(unpack(flags))
+    end)
+end
+
+function cli.main(argv: {string}): integer
+    local name = argv[1]
+    -- The flag spelling of a command, rather than a second answer beside it: everything
+    -- past this point is the command, so `nupp --version --json` is the JSON the
+    -- command declares and there is nowhere for the two spellings to drift apart.
+    if name == "--version" then
+        local mapped = {"version"}
+        for index = 2, #argv do
+            mapped[#mapped + 1] = argv[index]
+        end
+        argv = mapped
+        name = "version"
+    end
+    if name == "__comptime-worker" then
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+
+        local worker = require("nupp.compiler.comptimeworker") as {main: function({string}): integer}
+
+        return worker.main(rest)
+    elseif name == "__comptime-worker-service" then
+        local worker = require("nupp.compiler.comptimeworker") as {serviceMain: function(): integer}
+
+        return worker.serviceMain()
+    elseif name == "__generator-worker" then
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+        local worker = require("nupp.compiler.generatorworker") as {main: function({string}): integer}
+
+        return worker.main(rest)
+    elseif name == "__lsp-reader" then
+        local server = require("nupp.tools.lsp") as {readerMain: function(): integer}
+
+        return server.readerMain()
+    end
+    local schemaStatus = writeSchema(argv)
+    if schemaStatus ~= nil then
+        return schemaStatus
+    end
+    tuneJitFor(name)
+    local status = application():main(argv)
+    warnStaleDeclarations()
+
+    return status
+end
+
+--- Every command's name, for the tests that check the list is complete.
+function cli.names(): {string}
+    local names: {string} = {}
+    for _, subject in ipairs(root.Root.subcommands()) do
+        local commandType: any = subject
+        names[#names + 1] = commandType.cliName()
+    end
+
+    return names
+end
+
+--- Completion text derived from the same public command tree used for dispatch.
+function cli.completion(shell: string): string
+    return application():completion(shell)
+end
+
+export = cli

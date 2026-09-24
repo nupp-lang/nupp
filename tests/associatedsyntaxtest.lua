@@ -4,7 +4,7 @@
 -- parser's to decide, so nothing here asserts it. These are the shapes only.
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")

@@ -6,7 +6,7 @@
 -- one, so a command added without a section fails here rather than going
 -- undocumented.
 
-local cli = require("nupp.compiler.cli")
+local cli = require("nupp.tools.cli")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

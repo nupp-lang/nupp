@@ -257,7 +257,7 @@ function M.explicitPureLuaBitLibraryRemainsAnOrdinaryDependency()
         write("nupp.lua", 'return {compat="lua51",include={"."}}')
         write("main.g.nupp", 'local bits = require("bits"); return bits.bor(1,2)')
         local options = {diagnostics = {}, produced = {}}
-        assert(require("nupp.compiler.build.project").check(root, options) == 0, errors(options.diagnostics))
+        assert(require("nupp.tools.build.project").check(root, options) == 0, errors(options.diagnostics))
     end)
 end
 
@@ -281,7 +281,7 @@ function M.projectCacheCannotReuseAnUnrestrictedVerdict()
     inProject(function(root, write)
         write("nupp.lua", 'return {include={"."}, build={kind="modules",outDir="build"}}')
         write("main.g.nupp", 'const value = 1; return value')
-        local project = require("nupp.compiler.build.project")
+        local project = require("nupp.tools.build.project")
         local ordinary = {diagnostics = {}, produced = {}}
         assert(project.check(root, ordinary) == 0, errors(ordinary.diagnostics))
         local constrained = {compat = "lua51", diagnostics = {}, produced = {}}

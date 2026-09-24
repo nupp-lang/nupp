@@ -1,6 +1,6 @@
 -- The derived command registry and shared terminal policy.
 local ansi = require("nupp.cli")
-local cli = require("nupp.compiler.cli")
+local cli = require("nupp.tools.cli")
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -289,7 +289,7 @@ local function captureStatusAt(directory, argv)
 end
 
 function M.everyPublicCommandHelpHasExamples()
-    local root = require("nupp.compiler.cli.root").Root
+    local root = require("nupp.tools.cli.root").Root
     local grammar = ansi.application(root, {name = "nupp"})
 
     local function requireExamples(argv, label)
@@ -597,7 +597,7 @@ end
 -- it, so the two cannot disagree, and what they print is one line: an install
 -- script and a packaging recipe both read it as one.
 function M.theVersionFlagAndTheCommandPrintOneAgreedLine()
-    local version = require("nupp.compiler.version")
+    local version = require("nupp.tools.version")
     local expected = "nupp " .. version.VERSION .. "\n"
     assert(capture("version") == expected, "the command prints the version: " .. capture("version"))
     assert(capture("--version") == expected, "and the flag prints the same: " .. capture("--version"))
@@ -646,10 +646,10 @@ function M.aCommandModuleDoesNotLoadTheCompilerItRuns()
         [[
 package.path = %q
 for _, name in ipairs({"aot", "lsp", "bc", "ast"}) do
-   require("nupp.compiler.cli." .. name)
+   require("nupp.tools.cli." .. name)
 end
-for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.compiler.lsp",
-      "nupp.compiler.tracebytecode", "nupp.compiler.lexer",
+for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.tools.lsp",
+      "nupp.tools.tracebytecode", "nupp.compiler.lexer",
       "nupp.compiler.check", "nupp.compiler.parser"}) do
    if package.loaded[heavy] then print("loaded " .. heavy) end
 end
@@ -671,7 +671,7 @@ end
 -- on the last line of a file, and one on the first, both have to land where the
 -- text form would put them.
 function M.jsonPositionsAreResolvedThroughALineIndex()
-    local report = require("nupp.compiler.cli.report")
+    local report = require("nupp.tools.cli.report")
     local path = os.tmpname()
     local file = assert(io.open(path, "wb"))
     file:write("first\nsecond line\n\nfourth\n")

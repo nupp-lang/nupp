@@ -101,19 +101,24 @@ local function toolFingerprint(contentDigest: (function(string): string)?): stri
         return toolFingerprintMemo
     end
     local digest = contentDigest or hash.digest
-    local dir = moduleDir()
+    -- The toolchain is two trees, the compiler and the tools built on it, and both
+    -- decide what a build writes: `nupp.tools.build` is where an artifact is put
+    -- together. Named from the directory holding both.
+    local dir = dirname(moduleDir())
     local files: {string} = {}
     if bundled() then
         files = {(debug.getinfo(1, "S").source:gsub("^@", ""))}
     else
-        for _, path in ipairs(listFiles(dir)) do
-            if path:match("%.lua$") then
-                files[#files + 1] = path
+        for _, tree in ipairs({"compiler", "tools"}) do
+            for _, path in ipairs(listFiles(join(dir, tree))) do
+                if path:match("%.lua$") then
+                    files[#files + 1] = path
+                end
             end
         end
     end
-    -- Named relative to the compiler's own directory, so the answer describes the
-    -- compiler rather than where it was found. `moduleDir` reports whatever
+    -- Named relative to that directory, so the answer describes the compiler rather
+    -- than where it was found. `moduleDir` reports whatever
     -- `package.path` was written as, and the launcher writes an absolute path where a
     -- test harness writes a relative one -- so hashing the paths as given made one
     -- compiler fingerprint two ways depending on how it was started, and anything keyed

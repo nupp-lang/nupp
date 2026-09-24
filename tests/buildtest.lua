@@ -73,7 +73,7 @@ function M.bundleResourcesPreserveEveryByte()
     for byte = 0, 255 do
         bytes[#bytes + 1] = string.char(byte)
     end
-    local packaging = require("nupp.compiler.build.package")
+    local packaging = require("nupp.tools.build.package")
     for _, payload in ipairs({"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}) do
         local dir = tempProject({
             ["data.bin"] = payload,
@@ -910,7 +910,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
 end
 
 function M.optimizerHeatJoinsOnlyTheMatchingFileAndSourceRange()
-    local compile = require("nupp.compiler.cli.compile")
+    local compile = require("nupp.tools.cli.compile")
     local settings = compile.settings({remarksOut = true})
     settings.collectedRemarks = {
         {
@@ -942,13 +942,13 @@ function M.optimizerHeatJoinsOnlyTheMatchingFileAndSourceRange()
     assertEq(settings.collectedRemarks[3].hotness, "unknown", "Lua sampling does not invent native heat")
     assertEq(settings.sampledHeat.attributedSamples, 116, "source samples remain accounted")
     assertEq(settings.sampledHeat.unattributedSamples, 4, "native and unavailable locations remain explicit")
-    local encoded = require("nupp.compiler.cli.report").diagnosticValues(settings.collectedRemarks)
+    local encoded = require("nupp.tools.cli.report").diagnosticValues(settings.collectedRemarks)
     assertEq(encoded[1].hotnessSamples, 8, "serialization retains measured count")
     assertEq(encoded[1].hotnessRange.endLine, 20, "serialization retains attribution range")
 end
 
 function M.optimizerHeatWithoutLuaLocationsStaysUnknown()
-    local compile = require("nupp.compiler.cli.compile")
+    local compile = require("nupp.tools.cli.compile")
     local settings = compile.settings({remarksOut = true})
     settings.collectedRemarks = {
         {filename = "work.nupp", line = 10, code = "OPT-2", status = "declined", hotness = "unknown"},

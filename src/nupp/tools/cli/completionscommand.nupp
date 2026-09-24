@@ -1,0 +1,28 @@
+module nupp.tools.cli.completionscommand
+
+-- `nupp completions`: print shell completion generated from the CLI schema.
+
+local cliModule = require("nupp.cli")
+
+--- Print a shell completion script.
+---
+--- Examples:
+---
+---     nupp completions bash
+---     nupp completions zsh
+---     nupp completions fish
+@cli("completions")
+@derive(cliModule.Command)
+local record Completions
+    --- Shell whose completion script to print.
+    @cli(positional = "SHELL")
+    shell: "bash" | "zsh" | "fish"
+
+    function run(self): integer
+        local compilerCLI = require("nupp.tools.cli") as {completion: function(string): string}
+        io.write(compilerCLI.completion(self.shell))
+        return 0
+    end
+end
+
+export = {commandType = Completions}

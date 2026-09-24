@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
 
 function M.hotReloadCommitsAnEditThroughTheCApi()
     local compilerModules = ROOT .. "/build"
-    local present = io.open(compilerModules .. "/nupp/compiler/hostreload.lua", "rb")
+    local present = io.open(compilerModules .. "/nupp/tools/hostreload.lua", "rb")
     if not present then
         test.skip("hot reload needs the compiler's Lua modules under build/")
     end
@@ -557,7 +557,7 @@ export = game
 
 function M.hotReloadAttachesToALoadedComponent()
     local compilerModules = ROOT .. "/build"
-    local present = io.open(compilerModules .. "/nupp/compiler/hostreload.lua", "rb")
+    local present = io.open(compilerModules .. "/nupp/tools/hostreload.lua", "rb")
     if not present then
         test.skip("hot reload needs the compiler's Lua modules under build/")
     end

@@ -1,4 +1,4 @@
-local project = require("nupp.compiler.build.project")
+local project = require("nupp.tools.build.project")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
 local json = require("testjson")

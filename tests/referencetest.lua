@@ -5,11 +5,11 @@
 -- strictly, every code it cites has to resolve, every lint has to appear, and
 -- every rendering has to describe the same compiler-owned sections.
 
-local reference = require("nupp.compiler.reference")
-local explain = require("nupp.compiler.explain")
+local reference = require("nupp.tools.reference")
+local explain = require("nupp.tools.explain")
 local lints = require("nupp.compiler.lints")
 local trace = require("nupp.profile.trace")
-local project = require("nupp.compiler.build.project")
+local project = require("nupp.tools.build.project")
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -285,7 +285,7 @@ end
 
 --- The loop a diagnostic half-closes: holding a code is enough to reach the prose.
 function M.aCodeReachesTheSectionsExplainingIt()
-    local reference = require("nupp.compiler.reference")
+    local reference = require("nupp.tools.reference")
     local checked = 0
     for _, chapter in ipairs(reference.chapters) do
         for _, section in ipairs(chapter.sections) do
@@ -302,7 +302,7 @@ end
 
 --- Guessing is what the catalogue is meant to stop, so it has to name the slices.
 function M.theCatalogueNamesEverySection()
-    local reference = require("nupp.compiler.reference")
+    local reference = require("nupp.tools.reference")
     local pipe = assert(io.popen(('%q reference'):format(NUPP)))
     local catalogue = pipe:read("*a")
     pipe:close()

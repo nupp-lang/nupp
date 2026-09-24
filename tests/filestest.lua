@@ -8,7 +8,7 @@
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
-local nativeStage = require("nupp.compiler.build.native")
+local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 

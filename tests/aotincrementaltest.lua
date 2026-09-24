@@ -344,7 +344,7 @@ end
 --- component can be varied without requiring several installed toolchains or
 --- dependency providers merely to observe a cache miss.
 function M.preEmissionInputsInvalidateIndependently()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
@@ -422,7 +422,7 @@ function M.preEmissionInputsInvalidateIndependently()
 end
 
 function M.replayRequiresTheCurrentlySelectedCompilerCommand()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local remembered = {command = "clang", signature = "signature", version = "clang 18", dialect = "clang"}
     assert(aot.replayCommandMatches("require", remembered, "clang"), "the remembered native command matches itself")
     assert(
@@ -437,7 +437,7 @@ function M.replayRequiresTheCurrentlySelectedCompilerCommand()
 end
 
 function M.preEmissionInputsIncludeTheWholeCompilerPackPolicy()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local semantic = {sources = "same", toolchain = nil,}
 
     local function key(pack)
@@ -536,7 +536,7 @@ export = {doubled = doubled, doubled3 = doubled3}
 end
 
 function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/aot'") == 0)
@@ -605,7 +605,7 @@ end
 --- of whatever differed installed on the machine. These are the dimensions the
 --- key claims to cover, checked directly.
 function M.numericLoopRuntimeIsPartOfTheArtifactKey()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local targets = require("nupp.compiler.aot.target")
     local original = targets.numericForRuntime
     local ok, failure = pcall(function()
@@ -627,7 +627,7 @@ function M.numericLoopRuntimeIsPartOfTheArtifactKey()
 end
 
 function M.wasmNumericLoopsUseTheLuaJitArtifactKey()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local targets = require("nupp.compiler.aot.target")
     local triple = "wasm32-unknown-emscripten"
     local source = "same verified Wasm source"
@@ -652,7 +652,7 @@ function M.wasmNumericLoopsUseTheLuaJitArtifactKey()
 end
 
 function M.objectKeysCoverWhatChangesTheirBytes()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local clang = {command = "cc", version = "clang 17", dialect = "clang"}
     local newer = {command = "cc", version = "clang 18", dialect = "clang"}
     local base = aot.objectKey("unit", "baseline", clang, {"-O3"})
@@ -671,7 +671,7 @@ end
 --- keyed on the recorded version text is only as good as this is. It names a
 --- path rather than running anything, so it can be asked about an ordinary file.
 function M.aToolSignatureFollowsTheFileItNames()
-    local aot = require("nupp.compiler.build.aot")
+    local aot = require("nupp.tools.build.aot")
     local path = os.tmpname()
     write(path, "one")
     local first = aot.toolSignature(path)

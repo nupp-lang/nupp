@@ -396,7 +396,7 @@ bytes, after environment initialization. Dumping the LuaJIT source bundle
 with the pinned toolchain reproduces the production bytecode byte for byte.
 The prelude image hydrates common type roots; it does not contain checked
 interfaces for the imported-library closure. `Session:environment` in
-`src/nupp/compiler/browser.nupp` selects `cache=false, memoryOnly=true`, while
+`src/nupp/tools/browser.nupp` selects `cache=false, memoryOnly=true`, while
 `loadBundled` and the bundled-module metatable in `src/nupp/compiler/env.nupp`
 parse, check and memoize each first dependency use. The first measured check
 therefore includes environment initialization and this lazy dependency work;

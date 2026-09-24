@@ -1,4 +1,4 @@
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local envMod = require("nupp.compiler.env")
 local parser = require("nupp.compiler.parser")
 local check = require("nupp.compiler.check")
@@ -110,7 +110,7 @@ function M.keepsModuleDocumentationAheadOfImports()
         'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn nupp.io.files.read("a")\nend\n'
     )
     assert(output:find('--[[A documented module.]]\nconst files', 1, true), output)
-    local documented = require("nupp.compiler.doc.extract").extract(output, "format.g.nupp", "format")
+    local documented = require("nupp.tools.doc.extract").extract(output, "format.g.nupp", "format")
     assert(documented.text == "A documented module.", documented.text)
 end
 

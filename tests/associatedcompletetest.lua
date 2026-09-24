@@ -1,7 +1,7 @@
 -- Completion over associated types: an associated name is a type member -- never a
 -- runtime one, since it is erased.
 local T = require("nupp.compiler.types")
-local complete = require("nupp.compiler.lsp.complete")
+local complete = require("nupp.tools.lsp.complete")
 
 local function assertEq(got, want, label)
    if got ~= want then

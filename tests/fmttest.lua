@@ -1,4 +1,4 @@
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local lexer = require("nupp.compiler.lexer")
 
@@ -505,9 +505,9 @@ local SELF_FORMAT = {
     {"lexer", "src/nupp/compiler/lexer.nupp"},
     {"cst", "src/nupp/compiler/cst.nupp"},
     {"parser", "src/nupp/compiler/parser.nupp"},
-    {"displaywidth", "src/nupp/compiler/fmt/displaywidth.nupp"},
-    {"formatter", "src/nupp/compiler/fmt/init.nupp"},
-    {"main", "src/nupp/compiler/main.nupp"},
+    {"displaywidth", "src/nupp/tools/fmt/displaywidth.nupp"},
+    {"formatter", "src/nupp/tools/fmt/init.nupp"},
+    {"main", "src/nupp/tools/main.nupp"},
 }
 
 for _, entry in ipairs(SELF_FORMAT) do

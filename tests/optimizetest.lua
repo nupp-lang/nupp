@@ -1344,7 +1344,7 @@ end
 --- never reaches it, which is how the portable compiler acquired the FFI arena.
 function M.inliningKeepsAComputedRequireComputed()
     local code = compile(
-        "local function private(name: string): any return require(\"nupp.compiler.build.\" .. name) end\n"
+        "local function private(name: string): any return require(\"nupp.tools.build.\" .. name) end\n"
         .. "local function packs(): any return private(\"compilerpacks\") end\nreturn packs"
     )
     assertTrue(

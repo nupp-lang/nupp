@@ -54,6 +54,16 @@ end
 
 local embedded: any = nil
 
+--- Where the compiler's carried files sit in a bundle whose entry is elsewhere in
+--- `nupp`: the packager keys a file outside the entry's directory from the directory
+--- of its namespace, and the command line's entry is `nupp.tools.main`.
+const NAMESPACE_KEY = "/compiler"
+
+--- The carried file `relative` names in a bundle's table, under either key.
+local function embeddedFile(files: any, relative: string): string?
+    return files[NAMESPACE_KEY .. relative] or files[relative]
+end
+
 --- The checkout these carried files were copied out of, when there is one.
 ---
 --- Nothing to compare against in the two cases that answer nil: a stamped binary
@@ -146,10 +156,11 @@ function bundled.source(relative: string): string?
         local preloaded = package.preload["nupp.embedded"]
         embedded = preloaded and preloaded() or false
     end
-    if embedded and embedded[relative] then
-        return embedded[relative]
+    local carried = embedded and embeddedFile(embedded, relative) or nil
+    if carried ~= nil then
+        return carried
     end
-    local carried = readFile(moduleDir() .. relative)
+    carried = readFile(moduleDir() .. relative)
     if carried ~= nil then
         noteStale(relative, carried)
     end
@@ -162,6 +173,29 @@ end
 --- @return the directory, without a trailing separator, or "." when there is none
 function bundled.moduleDir(): string
     return moduleDir()
+end
+
+--- The carried paths under `prefix` in a bundle's table of files, in the spelling
+--- `source` takes, whichever of the two keys the packager gave them.
+---
+--- @param files the table `nupp.embedded` answers with
+--- @param prefix the directory, beginning with a slash
+--- @return the paths, unsorted
+function bundled.embeddedUnder(files: {[string]: string}, prefix: string): {string}
+    local found: {string} = {}
+    local seen: {[string]: boolean} = {}
+    for path in pairs(files) do
+        local relative = path
+        if path:sub(1, #NAMESPACE_KEY + 1) == NAMESPACE_KEY .. "/" then
+            relative = path:sub(#NAMESPACE_KEY + 1)
+        end
+        if relative:sub(1, #prefix + 1) == prefix .. "/" and not seen[relative] then
+            seen[relative] = true
+            found[#found + 1] = relative
+        end
+    end
+
+    return found
 end
 
 export = bundled

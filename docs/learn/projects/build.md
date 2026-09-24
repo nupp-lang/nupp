@@ -1225,9 +1225,10 @@ they may only use language features the pinned release already understands, and
 a feature reaches them a release later.
 
 The build system's own implementation lives under the internal
-`nupp.compiler.build.*` namespace in `src/nupp/compiler/build/`: `project` owns
-orchestration, `hash` owns cache digests, and `process` owns argv-based
-subprocess execution.
+`nupp.tools.build.*` namespace in `src/nupp/tools/build/`, with `project`
+owning orchestration. What it shares with the compiler stays in
+`nupp.compiler`: `hash` owns cache digests, `fingerprint` the stamps they are
+kept under, and `process` argv-based subprocess execution.
 
 ## FAQ
 

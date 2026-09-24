@@ -1,0 +1,200 @@
+module nupp.tools.cli.importc
+
+--[[
+`nupp import-c`: a C header, as typed Nupp declarations.
+
+What comes out is a module rather than a declaration file: its cdef statements
+generate the ffi bindings at runtime, so the result is something a program
+requires, not something the checker merely reads.
+]]
+
+local usageError = require("nupp.tools.cli.error").forCommand("import-c")
+local cliModule = require("nupp.cli")
+
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        output = {
+            type = "string",
+            description = "Where the generated module was written. Absent " .. "when nothing was generated."
+        },
+        warnings = {
+            type = "array",
+            items = {type = "string"},
+            description = "What the header contained that the bindings "
+            .. "could not represent. Present whether or not it "
+            .. "succeeded; a warning is not a failure."
+        },
+        bridgeOutput = {type = "string"},
+        direct = {type = "integer"},
+        bridged = {type = "integer"},
+        skipped = {type = "integer"},
+        dispositions = {type = "array", items = {type = "object"}},
+    },
+    required = {"ok", "warnings"},
+}
+
+local function run(options: any): integer
+    local positional: {string} = {options.header}
+    local paths: {string} = positional
+    if #paths ~= 1 then
+        return usageError("exactly one C header is required")
+    end
+    local header = paths[1]
+    local asJson = options.format == "json"
+    local reportMod = require("nupp.tools.cli.report")
+    local importc = require("nupp.compiler.importc")
+    local out = options.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local config = require("nupp.tools.build.manifest").load(".")
+    local envMod = require("nupp.compiler.env")
+    local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
+    if not options.inspect and not moduleName then
+        return usageError("output must be a .nupp file beneath the project root or an include root")
+    end
+    local text, warnings, details = importc.import(header, {
+        module = moduleName,
+        lib = options.lib,
+        bridge = options.bridgeOut ~= nil,
+    })
+
+    local function fail(): integer
+        if asJson then
+            reportMod.write({ok = false, warnings = warnings})
+        else
+            for _, warning in ipairs(warnings) do
+                io.stderr:write("nupp: " .. warning .. "\n")
+            end
+        end
+
+        return 1
+    end
+
+    if not text then
+        return fail()
+    end
+    if not asJson then
+        for _, warning in ipairs(warnings) do
+            io.stderr:write("nupp: warning: " .. warning .. "\n")
+        end
+    end
+    if options.inspect then
+        if asJson then
+            reportMod.write({
+                ok = true,
+                warnings = warnings,
+                direct = details and details.direct or 0,
+                bridged = details and details.bridged or 0,
+                skipped = details and details.skipped or 0,
+                dispositions = details and details.dispositions or {},
+            })
+        else
+            io.write(
+                (
+                    "direct %d, bridged %d, skipped %d\n"
+                ):format(
+                    details and details.direct or 0,
+                    details and details.bridged or 0,
+                    details and details.skipped or 0
+                )
+            )
+        end
+
+        return 0
+    end
+
+    -- Written with the result checked, so a full disk is a failed command rather
+    -- than a truncated header reported as success. Text mode has already printed
+    -- the warnings above; routing a failure through fail() would print them all
+    -- again, restyled as errors.
+    local fs = require("nupp.compiler.fs")
+
+    local function write(path: string, content: string): integer?
+        local wrote, writeErr = fs.writeFile(path, content)
+        if wrote then
+            return nil
+        end
+        if asJson then
+            warnings[#warnings + 1] = tostring(writeErr)
+            return fail()
+        end
+        io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+
+        return 1
+    end
+
+    local bridgeOut = options.bridgeOut
+    if bridgeOut and details and details.bridgeSource then
+        local stopped = write(bridgeOut, details.bridgeSource)
+        if stopped then
+            return stopped
+        end
+    end
+    local stopped = write(out, text)
+    if stopped then
+        return stopped
+    end
+    if asJson then
+        reportMod.write({
+            ok = true,
+            output = out,
+            bridgeOutput = bridgeOut and details and details.bridgeSource and bridgeOut or nil,
+            warnings = warnings,
+            direct = details and details.direct or 0,
+            bridged = details and details.bridged or 0,
+            skipped = details and details.skipped or 0,
+            dispositions = details and details.dispositions or {},
+        })
+    else
+        io.write(out .. "\n")
+    end
+
+    return 0
+end
+
+--- Generate typed Nupp bindings from a C header.
+---
+--- Examples:
+---
+---     nupp import-c include/widget.h
+---     nupp import-c -l widget -o src/widget.d.nupp include/widget.h
+---     nupp import-c --inspect --json include/widget.h
+@cli("import-c")
+@derive(cliModule.Command)
+local record ImportC
+    --- Write the generated module to this file.
+    @cli(short = "o", value = "FILE")
+    out: string?
+
+    --- Name the native library loaded by the bindings.
+    @cli(short = "l", value = "NAME")
+    lib: string?
+
+    --- Emit C wrappers for eligible static inline functions.
+    @cli(value = "FILE")
+    bridgeOut: string?
+
+    --- Report declaration dispositions without writing output.
+    inspect: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- C header to import.
+    @cli(positional = "HEADER")
+    header: string
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+function ImportC.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = ImportC}

@@ -194,7 +194,7 @@ jobs:
           cat > build/current-compiler.lua <<'LUA'
           package.path = os.getenv("GITHUB_WORKSPACE") .. "/build/?.lua;"
              .. package.path
-          dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/compiler/main.lua")
+          dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/tools/main.lua")
           LUA
           NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE" \
             NUPP_NATIVE_LIBRARY="$native_library" \
@@ -277,7 +277,7 @@ jobs:
             printed="$("release/verify-${{ matrix.platform }}/nupp" --version)"
             expected="nupp ${GITHUB_REF_NAME#v}"
             if [ "$printed" != "$expected" ]; then
-              echo "tag $GITHUB_REF_NAME ships $printed; bump nupp.compiler.version" >&2
+              echo "tag $GITHUB_REF_NAME ships $printed; bump nupp.tools.version" >&2
               exit 1
             fi
           fi
@@ -444,7 +444,7 @@ jobs:
             $printed = & release/verify/nupp.exe --version
             $expected = "nupp " + ($env:GITHUB_REF_NAME -replace '^v', '')
             if ($printed -ne $expected) {
-              throw "tag $env:GITHUB_REF_NAME ships $printed; bump nupp.compiler.version"
+              throw "tag $env:GITHUB_REF_NAME ships $printed; bump nupp.tools.version"
             }
           }
 

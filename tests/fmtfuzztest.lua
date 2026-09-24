@@ -18,7 +18,7 @@
 -- NUPP_FMT_FUZZ_PROGRAMS to explore for longer. A failure is minimized to the
 -- fewest statements that still fail and printed as a whole file, ready to be
 -- checked into `tests/fmtcorpus/regressions/` as an ordinary case.
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")

@@ -253,7 +253,7 @@ end
 function M.versionOutputMatchesItsSchema()
     local decoded = agrees(nil, "version")
     assert(
-        decoded.version == require("nupp.compiler.version").VERSION,
+        decoded.version == require("nupp.tools.version").VERSION,
         "the version reported is the one the compiler carries"
     )
 end
@@ -287,7 +287,7 @@ local function requiredAreDescribed(schema, path)
 end
 
 function M.everySchemaDescribesWhatItRequires()
-    local cli = require("nupp.compiler.cli")
+    local cli = require("nupp.tools.cli")
     for _, name in ipairs(cli.names()) do
         if name ~= "help" and name ~= "lsp" then
             local help = capture(nil, "help " .. name)
@@ -307,7 +307,7 @@ end
 function M.everyCommandThatWritesJsonAlsoDescribesIt()
     -- The pairing is the point: a command that can be asked for JSON can always
     -- be asked what that JSON will look like.
-    local cli = require("nupp.compiler.cli")
+    local cli = require("nupp.tools.cli")
     for _, name in ipairs(cli.names()) do
         if name ~= "help" then
             local help = capture(nil, "help " .. name)

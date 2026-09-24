@@ -16,7 +16,7 @@ local type Release = {
     stampPayload: function(string, string, string, string): (boolean?, string?)
 }
 
-local internal = "nupp.compiler.build.release"
+local internal = "nupp.tools.build.release"
 local release = require(internal) as Release
 
 local arguments = {...} as {string}

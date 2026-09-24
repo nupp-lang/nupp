@@ -478,11 +478,12 @@ local function couldCarryPublicCapability(t): boolean
 end
 
 local function requirePublicCapabilityContracts(c: state.Checker): nil
-    -- Compiler implementation modules are the private mutually recursive bootstrap
-    -- graph, not the installed package surface. All ordinary and standard-library
-    -- module fields pass through this one boundary check regardless of declaration
-    -- spelling (`function M.f` or `M.f = function`).
-    if c.result.moduleName and c.result.moduleName:match("^nupp%.compiler") then
+    -- Compiler and tool implementation modules are the private mutually recursive
+    -- bootstrap graph, not the installed package surface. All ordinary and
+    -- standard-library module fields pass through this one boundary check regardless
+    -- of declaration spelling (`function M.f` or `M.f = function`).
+    local moduleName = c.result.moduleName
+    if moduleName and (moduleName:match("^nupp%.compiler") or moduleName:match("^nupp%.tools")) then
         return
     end
     for name, exported in pairs(c.moduleFields or {}) do

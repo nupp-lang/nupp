@@ -10,7 +10,7 @@
 -- for the suite, reached the way a generated program reaches it.
 local test = require("assert")
 local stdlib = require("nupp.compiler.stdlib")
-local nativeStage = require("nupp.compiler.build.native")
+local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 

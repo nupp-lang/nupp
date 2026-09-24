@@ -5,7 +5,7 @@
 
 local test = require("assert")
 local equivalenceMutation = require("tests.simd.equivalence-mutation")
-local aot = require("nupp.compiler.build.aot")
+local aot = require("nupp.tools.build.aot")
 local aotCompile = require("nupp.compiler.aot.compile")
 local aotEmitter = require("nupp.compiler.aot.emit")
 local compilerCheck = require("nupp.compiler.check")
@@ -2281,7 +2281,7 @@ end
 
 function M.wasmPoliciesAreIndependentOfTheSourceDialect()
     local dir = project("emit-wasm")
-    local config, problem = require("nupp.compiler.build.manifest").load(dir)
+    local config, problem = require("nupp.tools.build.manifest").load(dir)
     test.assert(config ~= nil, tostring(problem))
 end
 

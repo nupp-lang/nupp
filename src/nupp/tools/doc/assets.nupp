@@ -1,0 +1,354 @@
+module nupp.tools.doc.assets
+
+--[[
+The stylesheet, the script, and the icons the generated site ships.
+
+The script and the icons are data, not code, and stay here as string constants so
+the modules assembling a page read as the assembly rather than as one long string.
+The stylesheet is the one piece worth editing on its own -- plain CSS, in
+`theme.css` beside this module -- so it is carried like any other file the compiler
+carries (see `nupp.compiler.bundled`) instead of quoted into a string here.
+]]
+
+local bundled = require("nupp.compiler.bundled")
+
+local assets = {}
+local SCRIPT = [[
+(() => {
+    "use strict";
+    const root = document.documentElement;
+    const theme = document.querySelector("[data-theme-toggle]");
+    const storedTheme = localStorage.getItem("nupp-doc-theme");
+    if (storedTheme === "light" || storedTheme === "dark") {
+        root.dataset.theme = storedTheme;
+    }
+    theme?.addEventListener("click", () => {
+        const dark = root.dataset.theme === "dark" ||
+            (!root.dataset.theme && matchMedia("(prefers-color-scheme:dark)").matches);
+        root.dataset.theme = dark ? "light" : "dark";
+        localStorage.setItem("nupp-doc-theme", root.dataset.theme);
+    });
+
+    const shell = document.querySelector(".nuppdoc-shell");
+    for (const button of document.querySelectorAll("[data-panel-toggle]")) {
+        const panel = button.dataset.panelToggle;
+        const className = `is-${panel}-collapsed`;
+        const storageKey = `nupp-doc-${panel}-collapsed`;
+        const restore = localStorage.getItem(storageKey) === "true";
+        shell?.classList.toggle(className, restore);
+        button.setAttribute("aria-pressed", String(restore));
+        button.addEventListener("click", () => {
+            const collapsed = !shell?.classList.contains(className);
+            shell?.classList.toggle(className, collapsed);
+            button.setAttribute("aria-pressed", String(collapsed));
+            localStorage.setItem(storageKey, String(collapsed));
+        });
+    }
+
+    const sidebar = document.querySelector(".nuppdoc-sidebar");
+    const revealCurrentSidebarPage = () => {
+        const current = sidebar?.querySelector('a[aria-current="page"]');
+        if (!sidebar || !current) return;
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const currentRect = current.getBoundingClientRect();
+        const inset = 16;
+        if (currentRect.top < sidebarRect.top + inset ||
+            currentRect.bottom > sidebarRect.bottom - inset) {
+            sidebar.scrollTop += currentRect.top - sidebarRect.top
+                - (sidebar.clientHeight - currentRect.height) / 2;
+        }
+    };
+    requestAnimationFrame(revealCurrentSidebarPage);
+
+    const mobileToggle = document.querySelector("[data-mobile-nav-toggle]");
+    const mobileNavHistoryKey = "nuppMobileNavOpen";
+    const mobileViewport = matchMedia("(max-width: 760px)");
+    const setMobileNavOpen = (open) => {
+        document.body.classList.toggle("is-mobile-nav-open", open);
+        mobileToggle?.setAttribute("aria-expanded", String(open));
+        if (open) requestAnimationFrame(revealCurrentSidebarPage);
+    };
+    const restoreMobileNav = (state = history.state) => {
+        setMobileNavOpen(mobileViewport.matches && state?.[mobileNavHistoryKey] === true);
+    };
+    const closeMobileNav = () => {
+        if (!document.body.classList.contains("is-mobile-nav-open")) return;
+        if (history.state?.[mobileNavHistoryKey] === true) {
+            history.back();
+        } else {
+            setMobileNavOpen(false);
+        }
+    };
+    mobileToggle?.addEventListener("click", () => {
+        if (document.body.classList.contains("is-mobile-nav-open")) {
+            closeMobileNav();
+            return;
+        }
+        history.pushState(
+            {...history.state, [mobileNavHistoryKey]: true},
+            "",
+            location.href
+        );
+        setMobileNavOpen(true);
+    });
+    addEventListener("popstate", (event) => restoreMobileNav(event.state));
+    mobileViewport.addEventListener("change", () => restoreMobileNav());
+    restoreMobileNav();
+    document.querySelector("[data-mobile-nav-close]")
+        ?.addEventListener("click", closeMobileNav);
+
+    const outlinePanel = document.querySelector(".nuppdoc-outline");
+    const mobileOutlineToggle = document.querySelector("[data-mobile-outline-toggle]");
+    const closeMobileOutline = () => {
+        document.body.classList.remove("is-mobile-outline-open");
+        mobileOutlineToggle?.setAttribute("aria-expanded", "false");
+    };
+    mobileOutlineToggle?.addEventListener("click", () => {
+        const open = !document.body.classList.contains("is-mobile-outline-open");
+        closeMobileNav();
+        document.body.classList.toggle("is-mobile-outline-open", open);
+        mobileOutlineToggle.setAttribute("aria-expanded", String(open));
+    });
+    document.querySelector("[data-mobile-outline-close]")
+        ?.addEventListener("click", closeMobileOutline);
+    outlinePanel?.addEventListener("click", (event) => {
+        if (event.target.closest("a")) closeMobileOutline();
+    });
+    addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeMobileNav();
+            closeMobileOutline();
+        }
+    });
+
+    const searchDialog = document.querySelector(".nuppdoc-search-dialog");
+    const searchInput = searchDialog?.querySelector("input");
+    const searchResults = searchDialog?.querySelector(".nuppdoc-search-results");
+    const searchButtons = document.querySelectorAll("[data-nuppdoc-search]");
+    const maxSearchResults = 50;
+    let searchIndex = Array.isArray(window.NUPP_SEARCH_INDEX)
+        ? window.NUPP_SEARCH_INDEX : null;
+    let searchIndexPromise = null;
+
+    const openSearch = () => {
+        if (!searchDialog) return;
+        if (typeof searchDialog.showModal === "function") searchDialog.showModal();
+        else searchDialog.setAttribute("open", "");
+        searchInput.value = "";
+        renderSearch("");
+        loadSearchIndex().catch(() => {});
+        requestAnimationFrame(() => searchInput.focus());
+    };
+
+    const closeSearch = () => {
+        if (!searchDialog) return;
+        if (typeof searchDialog.close === "function") searchDialog.close();
+        else searchDialog.removeAttribute("open");
+    };
+
+    const scoreEntry = (entry, terms) => {
+        const title = entry.title.toLowerCase();
+        const text = entry.text.toLowerCase();
+        let score = 0;
+        for (const term of terms) {
+            if (!title.includes(term) && !text.includes(term)) return -1;
+            if (title === term) score += 100;
+            else if (title.startsWith(term)) score += 40;
+            else if (title.includes(term)) score += 20;
+            else score += 2;
+        }
+        return score;
+    };
+
+    const loadSearchIndex = () => {
+        if (searchIndex) return Promise.resolve(searchIndex);
+        if (searchIndexPromise) return searchIndexPromise;
+        const source = searchDialog?.dataset.nuppdocSearchIndex;
+        if (!source) return Promise.reject(new Error("Search index URL is missing."));
+        searchIndexPromise = new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = source;
+            script.async = true;
+            script.addEventListener("load", () => {
+                script.remove();
+                if (!Array.isArray(window.NUPP_SEARCH_INDEX)) {
+                    reject(new Error("Search index did not define an array."));
+                    return;
+                }
+                searchIndex = window.NUPP_SEARCH_INDEX;
+                resolve(searchIndex);
+            });
+            script.addEventListener("error", () => {
+                script.remove();
+                reject(new Error(`Could not load search index from ${source}.`));
+            });
+            document.head.append(script);
+        }).catch((error) => {
+            searchIndexPromise = null;
+            throw error;
+        });
+        return searchIndexPromise;
+    };
+
+    const resultUrl = (entry) => {
+        const source = searchDialog?.dataset.nuppdocSearchIndex;
+        return source ? new URL(entry.url, new URL(source, document.baseURI)).href
+            : entry.url;
+    };
+
+    const renderSearch = async (query) => {
+        if (!searchResults) return;
+        searchResults.replaceChildren();
+        const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+        if (!terms.length) {
+            const hint = document.createElement("p");
+            hint.className = "nuppdoc-search-empty";
+            hint.textContent = "Search pages, headings, functions, and types.";
+            searchResults.append(hint);
+            return;
+        }
+        const loading = document.createElement("p");
+        loading.className = "nuppdoc-search-empty";
+        loading.textContent = "Loading search index…";
+        searchResults.append(loading);
+        let entries;
+        try {
+            entries = await loadSearchIndex();
+        } catch {
+            if (searchInput?.value !== query) return;
+            loading.textContent = "Search index could not be loaded.";
+            return;
+        }
+        if (searchInput?.value !== query) return;
+        searchResults.replaceChildren();
+        const matches = entries
+            .map((entry) => ({entry, score: scoreEntry(entry, terms)}))
+            .filter((match) => match.score >= 0)
+            .sort((a, b) => b.score - a.score ||
+                a.entry.title.localeCompare(b.entry.title))
+            .slice(0, maxSearchResults);
+        if (!matches.length) {
+            const empty = document.createElement("p");
+            empty.className = "nuppdoc-search-empty";
+            empty.textContent = `No results for “${query}”.`;
+            searchResults.append(empty);
+            return;
+        }
+        for (const {entry} of matches) {
+            const link = document.createElement("a");
+            link.href = resultUrl(entry);
+            const title = document.createElement("strong");
+            title.textContent = entry.title;
+            const path = document.createElement("small");
+            path.textContent = entry.url.replace(/^\.\.\//, "");
+            link.append(title, path);
+            searchResults.append(link);
+        }
+    };
+
+    searchButtons.forEach((button) => button.addEventListener("click", openSearch));
+    searchInput?.addEventListener("input", () => renderSearch(searchInput.value));
+    searchDialog?.querySelector("[data-nuppdoc-search-close]")
+        ?.addEventListener("click", closeSearch);
+    searchDialog?.addEventListener("click", (event) => {
+        if (event.target === searchDialog) closeSearch();
+    });
+    addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && searchDialog?.hasAttribute("open")) {
+            event.preventDefault();
+            closeSearch();
+            return;
+        }
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+            event.preventDefault();
+            openSearch();
+        }
+    });
+
+    const outlineLinks = Array.from(document.querySelectorAll(
+        '.nuppdoc-outline a[href^="#"]'
+    ));
+    if (outlineLinks.length) {
+        const headings = outlineLinks.map((link) =>
+            document.getElementById(decodeURIComponent(link.hash.slice(1))))
+            .filter(Boolean);
+        const update = () => {
+            let current = headings[0];
+            const line = document.querySelector(".nuppdoc-header")
+                ?.getBoundingClientRect().bottom + 24;
+            for (const heading of headings) {
+                if (heading.getBoundingClientRect().top <= line) current = heading;
+                else break;
+            }
+            for (const link of outlineLinks) {
+                const active = link.hash === `#${current?.id}`;
+                link.toggleAttribute("aria-current", active);
+                // A declaration's members are folded away until the reader is
+                // inside them, so reaching one has to unfold it.
+                if (active) {
+                    for (let node = link.closest("details"); node;
+                        node = node.parentElement?.closest("details")) {
+                        node.open = true;
+                    }
+                }
+            }
+        };
+        addEventListener("scroll", update, {passive: true});
+        addEventListener("resize", update);
+        const settle = () => {
+            // Safari's native anchor jump can land a heading's top a hair
+            // above the outline's activation line, so `update` picks the
+            // prior heading. Nudge the scroll position past the boundary
+            // before recomputing.
+            scrollBy(0, 8);
+            update();
+        };
+        outlineLinks.forEach((link) =>
+            link.addEventListener("click", () => requestAnimationFrame(settle)));
+        if (location.hash) requestAnimationFrame(settle);
+        else update();
+    }
+
+    const showcaseFeatures = document.querySelectorAll(".nuppdoc-showcase-feature");
+    if (showcaseFeatures.length && typeof IntersectionObserver === "function" &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        root.classList.add("nuppdoc-motion-ready");
+        const reveal = new IntersectionObserver((entries, observer) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                entry.target.classList.add("is-visible");
+                observer.unobserve(entry.target);
+            }
+        }, {threshold: 0.16});
+        showcaseFeatures.forEach((feature) => reveal.observe(feature));
+    }
+})();
+]]
+
+local ICONS = {
+    github = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.23c-3.24.7-3.92-1.38-3.92-1.38-.53-1.35-1.29-1.71-1.29-1.71-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.79 2.73 1.27 3.4.97.1-.76.41-1.27.74-1.56-2.58-.29-5.3-1.29-5.3-5.7 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.48.11-3.07 0 0 .98-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.18-1.49 3.15-1.18 3.15-1.18.64 1.59.24 2.77.12 3.07.74.81 1.19 1.84 1.19 3.1 0 4.42-2.72 5.4-5.31 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>]],
+    markdown = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.5 5.25h19A2.5 2.5 0 0 1 24 7.75v8.5a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 0 16.25v-8.5a2.5 2.5 0 0 1 2.5-2.5Zm.5 3v7.5h2v-4l2 2 2-2v4h2v-7.5H9l-2 2-2-2H3Zm11 3.75h2.5v3.75h2V12H21l-3.5-3.5L14 12Z"/></svg>]],
+    panel = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" d="M4 4.5h16v15H4zM9 4.5v15"/></svg>]],
+    menu = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>]],
+    outline = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 6.5h12M8 12h12M8 17.5h12"/><circle cx="4" cy="6.5" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="17.5" r="1" fill="currentColor"/></svg>]],
+}
+
+--- The sidebar and page stylesheet the generated site ships, read from
+--- `theme.css` beside this module -- the one piece of `assets` meant to be
+--- edited directly, without touching compiler source.
+---
+--- @return the stylesheet text, or nil and an error when this compiler carries
+---     no such file
+function assets.theme(): string?, string?
+    local css = bundled.source("/doc/theme.css")
+    if not css then
+        return nil, "this compiler carries no /doc/theme.css"
+    end
+
+    return css
+end
+
+assets.SCRIPT = SCRIPT
+assets.ICONS = ICONS
+
+export = assets

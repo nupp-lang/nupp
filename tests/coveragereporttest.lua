@@ -7,8 +7,8 @@
 -- which is what an editor reads, and has to keep saying the same thing.
 local test = require("assert")
 local json = require("testjson")
-local coverage = require("nupp.compiler.coverage")
-local cache = require("nupp.compiler.build.cache")
+local coverage = require("nupp.tools.coverage")
+local cache = require("nupp.tools.build.cache")
 
 local M = {}
 

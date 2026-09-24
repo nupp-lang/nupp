@@ -4,7 +4,7 @@ local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local annotations = require("nupp.compiler.annotations")
-local fmt = require("nupp.compiler.fmt")
+local fmt = require("nupp.tools.fmt")
 local gen = require("nupp.compiler.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -93,8 +93,8 @@ end
 
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
     for _, source in ipairs({
-        "src/nupp/compiler/cli/annotation.g.nupp",
-        "/checkout/src/nupp/compiler/cli/annotation.g.nupp",
+        "src/nupp/tools/cli/annotation.g.nupp",
+        "/checkout/src/nupp/tools/cli/annotation.g.nupp",
         "C:\\checkout\\src\\nupp\\compiler\\cli\\annotation.g.nupp",
     }) do
         local registry = annotations.new()
@@ -836,7 +836,7 @@ end
 function M.expressionAnnotationsPreserveSemanticTokenKinds()
     local parsed = parser.parse("local unsafe = 1; local value = @unsafe new Box(value = unsafe)")
     assertEq(#parsed.errors, 0)
-    local kinds = require("nupp.compiler.lsp.semantic").syntaxKinds(parsed)
+    local kinds = require("nupp.tools.lsp.semantic").syntaxKinds(parsed)
     local decorators, keywords = 0, 0
     for _, token in ipairs(parsed.tokens) do
         if token.text == "unsafe" and kinds[token] == "decorator" then

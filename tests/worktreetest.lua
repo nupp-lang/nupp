@@ -48,7 +48,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(
         os.execute(
             (
-                "mkdir -p %s/scripts %s/src %s/build/cache " .. "%s/build/nupp/compiler %s/build/lib %s/.rocks"
+                "mkdir -p %s/scripts %s/src %s/build/cache " .. "%s/build/nupp/tools %s/build/lib %s/.rocks"
             ):format(quote(origin), quote(origin), quote(origin), quote(origin), quote(origin), quote(origin))
         ) == 0
     )
@@ -57,7 +57,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     write(origin .. "/src/main.nupp", "return true\n")
     write(origin .. "/build/cache/checks.buf", "compiler-cache\n")
     write(origin .. "/build/.nupp-test-times.json", '{"suites":{"slow":10}}\n')
-    write(origin .. "/build/nupp/compiler/main.lua", "return true\n")
+    write(origin .. "/build/nupp/tools/main.lua", "return true\n")
     write(origin .. "/build/nupp.lua", "return true\n")
     write(origin .. "/build/lib/native", "library\n")
     write(origin .. "/build/.nupp-state.json", "{}\n")
@@ -78,7 +78,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(read(task .. "/.rocks/sentinel") == "rocks\n", "the dependency link did not reach the origin")
     assert(read(task .. "/build/cache/checks.buf") == "compiler-cache\n", "the incremental cache was not seeded")
     assert(read(task .. "/build/.nupp-test-times.json"):find('"slow":10', 1, true), "test timings were not seeded")
-    assert(read(task .. "/build/nupp/compiler/main.lua") == "return true\n", "a current compiler was not seeded")
+    assert(read(task .. "/build/nupp/tools/main.lua") == "return true\n", "a current compiler was not seeded")
     assert(
         os.execute(("test ! %s/src/main.nupp -nt %s/build/.nupp-complete"):format(quote(task), quote(task))) == 0,
         "the copied completion stamp remained older than a fresh checkout"
@@ -94,7 +94,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
         read(dirtyTask .. "/build/cache/checks.buf") == "compiler-cache\n",
         "a dirty origin stopped the safe incremental cache seed"
     )
-    local dirtyCompiler = io.open(dirtyTask .. "/build/nupp/compiler/main.lua", "rb")
+    local dirtyCompiler = io.open(dirtyTask .. "/build/nupp/tools/main.lua", "rb")
     assert(not dirtyCompiler, "generated compiler output from dirty source was copied into a clean worktree")
 
     os.execute(("git -C %s worktree remove --force %s >/dev/null 2>&1"):format(quote(origin), quote(task)))

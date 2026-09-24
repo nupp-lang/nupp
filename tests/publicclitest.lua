@@ -67,7 +67,7 @@ assert(parser:key() == "flag")
 end
 
 function M.derivedMetadataNamesInterfacesStably()
-    local file = assert(io.open(ROOT .. "/build/nupp/compiler/cli/version.lua", "rb"))
+    local file = assert(io.open(ROOT .. "/build/nupp/tools/cli/version.lua", "rb"))
     local generated = file:read("*a")
     file:close()
     assert(generated:find('["interface"]="cliModule.Runnable"', 1, true), generated)

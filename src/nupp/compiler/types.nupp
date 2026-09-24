@@ -1081,7 +1081,7 @@ end
 --- Which means an `id` identifies and does not describe. Nothing may read structure
 --- back out of one, and nothing may keep one past the process that issued it: the
 --- number says only which thing this is, and only here. The build cache's structural
---- digest is `typeFingerprint` in `nupp.compiler.build.modules`, which is computed from
+--- digest is `typeFingerprint` in `nupp.tools.build.modules`, which is computed from
 --- the type itself and is the same in every process.
 local nextSerial: integer = 0
 

@@ -1,5 +1,5 @@
-local doc = require("nupp.compiler.doc")
-local highlight = require("nupp.compiler.doc.highlight")
+local doc = require("nupp.tools.doc")
+local highlight = require("nupp.tools.doc.highlight")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -230,7 +230,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     assert(members.build.isFunction and members.build.comptimeKind == "function")
     assert(not members.value.isFunction and members.value.comptimeKind == "type")
 
-    local api = require("nupp.compiler.doc.api")
+    local api = require("nupp.tools.doc.api")
     local summary = api.moduleSummary(module)
     assert(not summary:find("<h3>Constructors</h3>", 1, true), summary)
     assert(summary:find("nuppdoc-kind-comptime-function", 1, true), summary)
@@ -3199,7 +3199,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(script:find("addEventListener(\"popstate\"", 1, true), script)
     local css = readFile(dir .. "/site/assets/style.css")
     -- theme.css is a plain, hand-editable stylesheet now (see
-    -- nupp.compiler.doc.assets), so these check for the rules themselves rather
+    -- nupp.tools.doc.assets), so these check for the rules themselves rather
     -- than for one exact whitespace style: `compact` collapses the incidental
     -- spacing a formatter adds around punctuation, leaving selectors, properties,
     -- and values comparable to the minified strings below either way.
@@ -3236,7 +3236,7 @@ end
 -- outline and the search index beside the page were listing every declaration as its
 -- name followed by its kind.
 function M.headingKindsRenderAsBadgesAndStayOutOfTheOutline()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
 
     local rendered = html.markdownHtml("### `string.format` _function_", {})
     assert(rendered:find('<span class="nuppdoc-kind-badge nuppdoc-kind-function">function</span>', 1, true), rendered)
@@ -3267,7 +3267,7 @@ end
 -- Markdown is lunamark's now. These are the cases the pattern-based renderer
 -- it replaced got wrong, so they are the ones worth pinning.
 function M.markdownIsRenderedByLunamark()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local previousUtf8 = package.loaded["lua-utf8"]
     local cases = {
         {"**a *nested* b**", "<strong>a <em>nested</em> b</strong>"},
@@ -3306,7 +3306,7 @@ end
 -- Fenced regions are lifted out before lunamark sees them, which is what keeps
 -- the fence options working: an info string is not something markdown parses.
 function M.fencedBlocksKeepTheirOptions()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local labeled = html.markdownHtml("```lua [example.lua] :line-numbers=12\nprint(1)\n```", {})
     assert(labeled:find("nuppdoc-labeled-code", 1, true), labeled)
     assert(labeled:find("<figcaption>example.lua</figcaption>", 1, true), labeled)
@@ -3354,7 +3354,7 @@ end
 -- A group where only some fences carry captions still shows every fence: the
 -- uncaptioned ones tab under their language rather than silently vanishing.
 function M.aCodeGroupKeepsItsUncaptionedFences()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local group = html.markdownHtml(
         table.concat(
             {"::: code-group", "", "```lua [one]", "print(1)", "```", "", "```sh", "echo hi", "```", "", ":::",},
@@ -3373,7 +3373,7 @@ end
 -- next sibling; the theme has to pair each panel with the input at the same
 -- position, or a tabbed group renders its tabs above nothing at all.
 function M.themePairsCodeGroupPanelsWithTheirTabs()
-    local doc = require("nupp.compiler.doc")
+    local doc = require("nupp.tools.doc")
     assert(
         doc.theme:find(
             ".nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(1):checked)"
@@ -3394,7 +3394,7 @@ end
 -- recognized by exact `---` lines, and a stray carriage return must not cost a
 -- page its route, title, order, and redirects.
 function M.frontmatterSurvivesWindowsLineEndings()
-    local frontmatter = require("nupp.compiler.doc.frontmatter")
+    local frontmatter = require("nupp.tools.doc.frontmatter")
     local fields, body = frontmatter.parse("---\r\ntitle: Guide\r\nredirects: old/guide\r\n---\r\n\r\nBody\r\n")
     assert(fields.title == "Guide", tostring(fields.title))
     assert(fields.redirects == "old/guide", tostring(fields.redirects))
@@ -3403,7 +3403,7 @@ end
 
 -- The same endings must not cost a collection's document its title and status.
 function M.collectionFrontmatterSurvivesWindowsLineEndings()
-    local collection = require("nupp.compiler.doc.collection")
+    local collection = require("nupp.tools.doc.collection")
     local dir = tempProject({
         ["docs/adrs/0001-example.md"] = "---\r\ntitle: Example\r\nstatus: Draft\r\n" .. "---\r\n\r\n## Why\r\n",
     })
@@ -3419,7 +3419,7 @@ end
 -- A Nupp example is highlighted text until it asks for an editor, and a request to
 -- number an excerpt's lines outranks that ask.
 function M.nuppFencesBecomeInlinePlaygroundsOnRequest()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local editable = html.markdownHtml("```nupp:playground\nlocal answer: integer = 42\n```", {})
     assert(editable:find('class="nuppdoc-playground"', 1, true), editable)
     assert(editable:find("<nupp-playground", 1, true), editable)
@@ -3448,7 +3448,7 @@ end
 -- Lunamark does not parse `:::` containers itself. The container is lifted out,
 -- while its body goes through the same Lunamark parser as the surrounding page.
 function M.aDeepDiveAdmonitionRendersCollapsed()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local out = html.markdownHtml("::: deepdive\nBecause **of this**.\n:::", {})
     assert(out:find('<details class="nuppdoc-admonition nuppdoc-admonition-deepdive">', 1, true), out)
     assert(out:find('<summary class="nuppdoc-admonition-title">Dive deeper</summary>', 1, true), out)
@@ -3469,7 +3469,7 @@ function M.aDeepDiveAdmonitionRendersCollapsed()
 end
 
 function M.admonitionsKeepLunamarkMarkdown()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local out = html.markdownHtml(
         table.concat(
             {
@@ -3512,7 +3512,7 @@ end
 -- The id is Nupp's slug rather than lunamark's, and each heading keeps the
 -- anchor the stylesheet draws.
 function M.headingsKeepTheirAnchors()
-    local html = require("nupp.compiler.doc.html")
+    local html = require("nupp.tools.doc.html")
     local out = html.markdownHtml("# One `two`\n\nbody", {})
     assert(out:find('id="one-two"', 1, true), out)
     assert(out:find('class="nuppdoc-header-anchor"', 1, true), out)
@@ -3524,8 +3524,8 @@ end
 -- section for exactly the codes `nupp explain` can answer for and no manifest
 -- lists them.
 function M.diagnosticIndexCoversEveryDocumentedCode()
-    local diagnostics = require("nupp.compiler.doc.diagnostics")
-    local explain = require("nupp.compiler.explain")
+    local diagnostics = require("nupp.tools.doc.diagnostics")
+    local explain = require("nupp.tools.explain")
 
     assert(diagnostics.page(nil) == nil)
 
@@ -3549,7 +3549,7 @@ end
 -- the correction after it, as highlighted text rather than an editor: an index is
 -- searched, and text inside an editor frame is not findable.
 function M.diagnosticSectionsShowBothProgramsAsText()
-    local diagnostics = require("nupp.compiler.doc.diagnostics")
+    local diagnostics = require("nupp.tools.doc.diagnostics")
     local page = assert(diagnostics.page({path = "diagnostics"}, {["docs/reference/lints.md"] = true}))
 
     local at = assert(page.markdown:find("#### NUPP2107\n", 1, true))
@@ -3567,7 +3567,7 @@ end
 -- section is named rather than anchored, and so is a reference the site does not
 -- publish.
 function M.diagnosticIndexOnlyLinksWhatExists()
-    local diagnostics = require("nupp.compiler.doc.diagnostics")
+    local diagnostics = require("nupp.tools.doc.diagnostics")
     local page = assert(diagnostics.page({path = "diagnostics"}))
 
     assert(not page.markdown:find("](docs/", 1, true), "linked an unpublished page")
@@ -3587,7 +3587,7 @@ end
 -- loads, so it holds a section for every library the compiler carries without a
 -- manifest naming one of them.
 function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
-    local stdlib = require("nupp.compiler.doc.stdlib")
+    local stdlib = require("nupp.tools.doc.stdlib")
 
     assert(stdlib.page(nil) == nil)
 
@@ -3628,7 +3628,7 @@ end
 -- The page is an index, and an index is searched. An editor frame holds text the
 -- browser's own find cannot reach, so every fence on it is a plain code block.
 function M.stdlibIndexIsStaticThroughout()
-    local stdlib = require("nupp.compiler.doc.stdlib")
+    local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "luajit"}))
 
     assert(page.markdown:find("```nupp\n", 1, true), "no Nupp fence at all")
@@ -3639,7 +3639,7 @@ end
 -- so its graph sits apart from the types the signatures above merely name. Semantic
 -- reflection owns its graph under `nupp.reflect` instead of leaking ambient types.
 function M.stdlibIndexSectionsReflectionApartFromTypes()
-    local stdlib = require("nupp.compiler.doc.stdlib")
+    local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "luajit"}))
     local reflection = assert(page.markdown:find("\n## Reflection\n", 1, true))
     local types = assert(page.markdown:find("\n## Types\n", 1, true))
@@ -3653,7 +3653,7 @@ end
 -- A global's anchor is the name a program writes. `print` is not a member of the file
 -- that declares it, and `string.format` is not a member of the page's own name.
 function M.stdlibIndexAnchorsEveryNameTheWayItIsWritten()
-    local stdlib = require("nupp.compiler.doc.stdlib")
+    local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "luajit"}))
 
     assert(page.markdown:find('<a id="print"></a>', 1, true), "print anchored as a member")
@@ -3667,7 +3667,7 @@ end
 -- names one in the signature, because that is what the declaration says and a signature
 -- the checker does not enforce would be worse than an unfamiliar name.
 function M.stdlibIndexLeavesTheCompilersOwnDeclarationsOut()
-    local stdlib = require("nupp.compiler.doc.stdlib")
+    local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "luajit"}))
 
     assert(not page.markdown:find("### `__Nupp", 1, true), "documented private vocabulary")

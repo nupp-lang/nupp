@@ -157,7 +157,7 @@ test("documentation playgrounds check only after the reader engages", () => {
 
 test("playground codegen drops effects removed by optimization", () => {
   const browser = readFileSync(
-    new URL("../../../src/nupp/compiler/browser.nupp", import.meta.url),
+    new URL("../../../src/nupp/tools/browser.nupp", import.meta.url),
     "utf8",
   );
   assert.match(browser, /optimize\.run\(result,/);

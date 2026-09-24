@@ -211,7 +211,7 @@ const nuppHover = hoverTooltip(async (view, pos) => {
 // --- Source editor -----------------------------------------------------------
 
 // A program can arrive in the fragment: from a ```playground fence that inlined
-// one (see src/nupp/compiler/doc/html.nupp), from the embed's Open, or from a shared
+// one (see src/nupp/tools/doc/html.nupp), from the embed's Open, or from a shared
 // link. The fragment rather than a query means no server ever sees it.
 function fragmentParams() {
   const out = {};
@@ -577,7 +577,7 @@ function scheduleCheck() {
   // Short enough to feel responsive, long enough that a fast typist doesn't
   // queue up a check per keystroke — each one re-parses and re-checks the
   // whole buffer (see worker.js), the same as `nupp check` on the command
-  // line; there's no incremental rechecking here (that's nupp.compiler.lsp's own
+  // line; there's no incremental rechecking here (that's nupp.tools.lsp's own
   // incremental query engine, a lot more machinery than this playground
   // drives — see README.md).
   checkTimer = setTimeout(checkNow, 250);

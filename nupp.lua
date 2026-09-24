@@ -241,8 +241,10 @@ local RESOURCES = {
     "src/nupp/compiler/decls/jit/*.d.nupp",
     {source = "src/nupp/test.nupp", output = "nupp/compiler/nupp/test.nupp"},
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
-    {source = "src/nupp/compiler/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
-    {source = "src/nupp/compiler/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
+    -- The tools' own files, carried beside the compiler's so that
+    -- `nupp.compiler.bundled` is the one place anything carried is read from.
+    {source = "src/nupp/tools/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
+    {source = "src/nupp/tools/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
     "src/nupp/compiler/aot/include/*.h",
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/bench/init.nupp", output = "nupp/compiler/nupp/bench/init.nupp"},
@@ -464,7 +466,7 @@ return {
                 kind = "modules",
                 description = "Build the self-hosted compiler",
                 optimize = 2,
-                entries = {"nupp.compiler.main"},
+                entries = {"nupp.tools.main"},
 
                 nativeFeatures = {gpu = true, workers = false},
                 resources = RESOURCES,
@@ -484,7 +486,7 @@ return {
                 kind = "modules",
                 description = "Build the self-contained stage-zero compiler",
                 outDir = "build/bootstrap-compiler",
-                entries = {"nupp.compiler.main"},
+                entries = {"nupp.tools.main"},
 
                 nativeFeatures = COMPILER_NATIVE_FEATURES,
                 resources = RESOURCES,
@@ -495,8 +497,8 @@ return {
                 outDir = "build/browser-luajit/compiler",
                 output = "build/browser-luajit/nupp-compiler.lua",
                 dialect = "luajit",
-                entries = {"nupp.compiler.browserluajit"},
-                sources = {"src/nupp/compiler/browserluajit.nupp"},
+                entries = {"nupp.tools.browserluajit"},
+                sources = {"src/nupp/tools/browserluajit.nupp"},
                 resources = LUAJIT_BROWSER_RESOURCES,
             },
             browserLuaJITCompilerWithoutPrelude = {
@@ -505,8 +507,8 @@ return {
                 outDir = "build/browser-luajit/bootstrap",
                 output = "build/browser-luajit/bootstrap/nupp-compiler.lua",
                 dialect = "luajit",
-                entries = {"nupp.compiler.browserluajit"},
-                sources = {"src/nupp/compiler/browserluajit.nupp"},
+                entries = {"nupp.tools.browserluajit"},
+                sources = {"src/nupp/tools/browserluajit.nupp"},
                 resources = RESOURCES,
             },
             browserLuaJITApplicationRuntime = {
@@ -525,7 +527,7 @@ return {
             dist = {
                 kind = "binary",
                 description = "Stamp the compiler into a self-contained binary",
-                entries = {"nupp.compiler.main"},
+                entries = {"nupp.tools.main"},
                 -- Carried, not just installed: a binary is handed to someone who
                 -- has no rock tree, and `nupp doc` is one of the commands it
                 -- claims to have.

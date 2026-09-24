@@ -45,7 +45,7 @@ copy_if_absent "$ROOT/build/.nupp-test-times.json" "$TASK_ROOT/build/.nupp-test-
 ORIGIN_HEAD=$(git -C "$ROOT" rev-parse HEAD)
 TASK_HEAD=$(git -C "$TASK_ROOT" rev-parse HEAD)
 ORIGIN_STAMP="$ROOT/build/.nupp-complete"
-ORIGIN_BUILT="$ROOT/build/nupp/compiler/main.lua"
+ORIGIN_BUILT="$ROOT/build/nupp/tools/main.lua"
 NEWER_SOURCE=""
 if [ -f "$ORIGIN_STAMP" ]; then
     NEWER_SOURCE=$(find "$ROOT/src" -type f -newer "$ORIGIN_STAMP" -print -quit 2>/dev/null || true)

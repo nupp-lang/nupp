@@ -1,0 +1,322 @@
+module nupp.tools.doc.markdown
+
+--[[
+The markdown rendering of a module.
+
+This is the format the site also writes beside every page as `llms.txt`, so it
+has to read as prose on its own rather than as a degraded version of the HTML.
+]]
+const {type Links} = require("nupp.tools.doc.urls")
+const {type Item} = require("nupp.tools.doc.extract")
+const {type Module} = require("nupp.tools.doc.extract")
+
+local stringsMod = require("nupp.tools.doc.strings")
+local extractMod = require("nupp.tools.doc.extract")
+local urlsMod = require("nupp.tools.doc.urls")
+local apiMod = require("nupp.tools.doc.api")
+
+local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markdownCell
+local summaryText = stringsMod.summaryText
+local childModules = extractMod.children
+local symbolLinkIndex = urlsMod.symbolLinkIndex
+local rewriteSymbolLinks = urlsMod.rewriteSymbolLinks
+local itemGroups = apiMod.itemGroups
+local displayKind = apiMod.displayKind
+local displaySignature = apiMod.displaySignature
+local memberKind = apiMod.memberKind
+local memberSpelling = apiMod.memberSpelling
+
+local markdown = {}
+
+-- Where a name reaches what documents it, for the length of one render. `anchors` holds
+-- what this document renders, which is what a fragment can reach; `known` holds
+-- everything the run documented, so a name this document does not carry is still told
+-- apart from one nothing documents at all.
+local anchors: Links? = nil
+local known: Links? = nil
+
+-- Prose an author wrote, as opposed to a signature the parser produced. Only prose is
+-- searched for references: a signature is code, and `handlers[name](value)` in one is
+-- an
+-- index call rather than a link.
+local function prose(text: string?): string
+    local text = tostring(text or "")
+    -- Its own binding: `anchors` is reassigned by a later run, and the callback
+    -- would otherwise see it as whatever it may hold by then.
+    local links = anchors
+    if not links then
+        return text
+    end
+
+    return rewriteSymbolLinks(text, function(name: string): string?
+        return links[name] or known and known[name]
+    end)
+end
+
+-- A table cell holding prose, which is the only kind of cell a reference can appear in:
+-- the others hold a name or a type the parser read out of the source.
+local function cell(text: string?): string
+    return markdownCell(prose(text))
+end
+
+-- Markdown stops at `######`; a type nested deeply enough to reach it renders its own
+-- sections at the same depth as its members rather than past the edge.
+local function heading(level)
+    return ("#"):rep(math.min(level, 6))
+end
+
+-- What a declaration was annotated with, on its own line under the heading.
+local function markdownAnnotations(out, annotations)
+    if not annotations or #annotations == 0 then
+        return
+    end
+    local marks = {}
+    for index, annotation in ipairs(annotations) do
+        marks[index] = "`" .. markdownEscape(annotation) .. "`"
+    end
+    out[#out + 1] = table.concat(marks, " ")
+    out[#out + 1] = ""
+end
+
+local function markdownArguments(out, params, heading)
+    if #params == 0 then
+        return
+    end
+    out[#out + 1] = heading .. " Arguments"
+    out[#out + 1] = ""
+    out[#out + 1] = "| Name | Type | Description |"
+    out[#out + 1] = "| --- | --- | --- |"
+    for _, param in ipairs(params) do
+        -- `takes` and `borrows` decide whether the caller still owns the value
+        -- afterwards, which no other column says.
+        local spelled = (param.mode and (param.mode .. " ") or "") .. param.name
+        out[
+            #out + 1
+        ] = "| `" .. markdownEscape(
+            spelled
+        ) .. "` | `" .. markdownEscape(param.type) .. "` | " .. cell(param.text) .. " |"
+    end
+    out[#out + 1] = ""
+end
+
+local function markdownReturns(out, returns, heading)
+    if #returns == 0 then
+        return
+    end
+    out[#out + 1] = heading .. " Returns"
+    out[#out + 1] = ""
+    out[#out + 1] = "| Type | Description |"
+    out[#out + 1] = "| --- | --- |"
+    for _, value in ipairs(returns) do
+        out[#out + 1] = "| `" .. markdownEscape(value.type) .. "` | " .. cell(value.text) .. " |"
+    end
+    out[#out + 1] = ""
+end
+
+-- A raise names the type `error` is called with and says what brings it about, so it
+-- tabulates the way a result does: a reader comparing the ordinary exit with the
+-- exceptional one reads the two tables the same way.
+local function markdownRaises(out, raises, heading)
+    if #raises == 0 then
+        return
+    end
+    out[#out + 1] = heading .. " Raises"
+    out[#out + 1] = ""
+    out[#out + 1] = "| Type | Condition |"
+    out[#out + 1] = "| --- | --- |"
+    for _, raise in ipairs(raises) do
+        out[#out + 1] = "| `" .. markdownEscape(raise.type) .. "` | " .. cell(raise.text) .. " |"
+    end
+    out[#out + 1] = ""
+end
+
+-- The members of a declaration as one table above the sections documenting them. The
+-- signature fence elides the entries, so this is where a reader sees what the type
+-- holds without scrolling the whole of it, and the name links to the rest.
+local function markdownMemberSummary(out, members, heading)
+    if not members or #members == 0 then
+        return
+    end
+    out[#out + 1] = heading .. " Members"
+    out[#out + 1] = ""
+    out[#out + 1] = "| Name | Kind | Description |"
+    out[#out + 1] = "| --- | --- | --- |"
+    for _, member in ipairs(members) do
+        out[
+            #out + 1
+        ] = "| [`" .. markdownEscape(
+            member.name
+        ) .. "`](#" .. member.path .. ") | " .. memberKind(
+            member
+        ) .. " | " .. markdownCell(summaryText(member.text)) .. " |"
+    end
+    out[#out + 1] = ""
+end
+
+-- Every member of a declaration, in the order it was written, each under a sub-heading
+-- of its own naming what it is. A nested type recurses one level deeper, so a type
+-- nested arbitrarily deep still gets real sub-headings instead of losing its members to
+-- a flattened table.
+local function renderMarkdownMembers(out, members, level)
+    local hName, hSub = heading(level), heading(level + 1)
+    for _, member in ipairs(members or {}) do
+        out[#out + 1] = '<a id="' .. member.path .. '"></a>'
+        out[#out + 1] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_"
+        out[#out + 1] = ""
+        -- A nested type's kind already spells its declaration, and what it holds is its
+        -- own members below; only a field or a method has a type to show here.
+        if not member.isType then
+            out[#out + 1] = "```nupp"
+            out[#out + 1] = memberSpelling(member)
+            out[#out + 1] = "```"
+            out[#out + 1] = ""
+        end
+        markdownAnnotations(out, member.annotations)
+        if member.text ~= "" then
+            out[#out + 1] = prose(member.text)
+            out[#out + 1] = ""
+        end
+        markdownArguments(out, member.params, hSub)
+        markdownReturns(out, member.returns, hSub)
+        markdownRaises(out, member.raises, hSub)
+        if member.isType then
+            markdownMemberSummary(out, member.members, hSub)
+            renderMarkdownMembers(out, member.members, level + 1)
+        end
+    end
+end
+
+local function renderMarkdownItem(out, item, level)
+    level = level or 3
+    local h, hSub = heading(level), heading(level + 1)
+    out[#out + 1] = '<a id="' .. item.path .. '"></a>'
+    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_"
+    out[#out + 1] = ""
+    out[#out + 1] = "```nupp"
+    out[#out + 1] = displaySignature(item)
+    out[#out + 1] = "```"
+    out[#out + 1] = ""
+    markdownAnnotations(out, item.annotations)
+    if item.doc.text ~= "" then
+        out[#out + 1] = prose(item.doc.text);
+        out[#out + 1] = ""
+    end
+    if #item.typeargs > 0 then
+        out[#out + 1] = hSub .. " Type parameters"
+        out[#out + 1] = ""
+        out[#out + 1] = "| Name | Description |"
+        out[#out + 1] = "| --- | --- |"
+        for _, typearg in ipairs(item.typeargs) do
+            out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | " .. cell(typearg.text) .. " |"
+        end
+        out[#out + 1] = ""
+    end
+    markdownArguments(out, item.params, hSub)
+    markdownReturns(out, item.returns, hSub)
+    markdownRaises(out, item.raises, hSub)
+    markdownMemberSummary(out, item.members, hSub)
+    renderMarkdownMembers(out, item.members, level + 1)
+end
+
+--- Renders declarations as sections, for a page that writes its own headings around
+--- them.
+---
+--- A module's page gets its headings from the module; a generated page that gathers
+--- declarations from several files under headings of its own needs the same sections
+--- without them, which is what this is. `level` is the depth an item's own name is
+--- written at, so a page grouping under `##` passes 3.
+---
+--- @param items the declarations to render, in the order they should be read
+--- @param level the heading depth of an item's name, 3 by default
+--- @return the markdown, or the empty string when there is nothing to render
+function markdown.items(items: {Item}, level: integer?): string
+    local out = {}
+    for _, item in ipairs(items) do
+        renderMarkdownItem(out, item, level or 3)
+    end
+
+    return table.concat(out, "\n")
+end
+
+--- Renders modules as one markdown document.
+---
+--- `all` is every module the run documented. A page renders one module at a time but
+--- still has to name the ones nested under it, and only the whole set says which those
+--- are; rendering the whole set at once, as `nupp doc markdown` does, is the case where
+--- the two arguments are the same list.
+---
+--- `overview` is the handwritten prose a page opens with, which is why it only makes
+--- sense for a single module: it belongs to one page rather than to the set.
+function markdown.render(modules: {Module}, title: string?, all: {Module}?, overview: string?): string
+    local all = all or modules
+    anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
+        return "#" .. (path or module)
+    end)
+    known = symbolLinkIndex(all, function(): string
+        return ""
+    end)
+    local out = {}
+    if title and title ~= "" then
+        out[#out + 1] = "# " .. title;
+        out[#out + 1] = ""
+    end
+    for moduleIndex, module in ipairs(modules) do
+        out[#out + 1] = '<a id="' .. module.name .. '"></a>'
+        out[#out + 1] = "# `" .. module.name .. "`"
+        out[#out + 1] = ""
+        -- An overview is what the author wanted said here, so it replaces the line that
+        -- stands in for one rather than repeating the subject above it.
+        if overview and overview ~= "" then
+            out[#out + 1] = overview
+            out[#out + 1] = ""
+            if module.text ~= "" then
+                out[#out + 1] = prose(module.text)
+                out[#out + 1] = ""
+            end
+        elseif module.namespace then
+            out[#out + 1] = "Modules nested under `" .. module.name .. "`. Nothing is required by this name itself."
+            out[#out + 1] = ""
+        elseif module.text ~= "" then
+            out[#out + 1] = prose(module.text);
+            out[#out + 1] = ""
+        end
+        local children = childModules(all, module.name)
+        if #children > 0 then
+            out[#out + 1] = "## Submodules"
+            out[#out + 1] = ""
+            out[#out + 1] = "| Module | Description |"
+            out[#out + 1] = "| --- | --- |"
+            for _, child in ipairs(children) do
+                -- A child is linked only where this document also renders it. One
+                -- module's markdown names its children without holding them.
+                local label = "`" .. markdownEscape(child.name) .. "`"
+                local anchor = anchors and anchors[child.name]
+                local held = #childModules(all, child.name)
+                local description = child.namespace and held .. " module" .. (held == 1 and "" or "s")
+                    or markdownCell(summaryText(child.text))
+                out[
+                    #out + 1
+                ] = "| " .. (anchor and "[" .. label .. "](" .. anchor .. ")" or label) .. " | " .. description .. " |"
+            end
+            out[#out + 1] = ""
+        end
+        for _, group in ipairs(itemGroups(module.items)) do
+            if #group.items > 0 then
+                out[#out + 1] = "## " .. group.title
+                out[#out + 1] = ""
+                for _, item in ipairs(group.items) do
+                    renderMarkdownItem(out, item)
+                end
+            end
+        end
+        if moduleIndex < #modules then
+            out[#out + 1] = "---";
+            out[#out + 1] = ""
+        end
+    end
+    anchors, known = nil, nil
+
+    return table.concat(out, "\n") .. "\n"
+end
+
+export = markdown

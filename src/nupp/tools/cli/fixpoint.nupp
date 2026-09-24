@@ -1,0 +1,97 @@
+module nupp.tools.cli.fixpoint
+
+--[[
+`nupp fixpoint`: the claim that the compiler reproduces itself.
+
+Two claims, really. The default one is about the compiler: starting from the
+stage zero a checkout is pinned to, it compiles itself three times and the last
+two results must agree. `--binary` is about packaging: the stamped binary must
+stamp another identical to itself, which is what the payload format's
+determinism rests on.
+]]
+
+local usageError = require("nupp.tools.cli.error").forCommand("fixpoint")
+local cliModule = require("nupp.cli")
+
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean", description = "Whether the rebuild reproduced itself."},
+        kind = {
+            type = "string",
+            enum = {"compiler", "binary"},
+            description = "Which claim was checked: the compiler compiling "
+            .. "itself from stage zero, or the packaged binary stamping another."
+        },
+        target = {type = "string", description = "The manifest target that was verified."},
+        stage0 = {type = "string", description = "The stage-zero compiler the run started from."},
+        emittedStage0 = {type = "string", description = "Where the stage-zero bundle was written, if anywhere."},
+        bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
+        reason = {type = "string", description = "Why it failed. Absent when ok is true."},
+    },
+    required = {"ok", "kind"},
+}
+
+local function run(options: any): integer
+    local positional: {string} = {}
+    if #positional > 0 then
+        return usageError("unexpected argument " .. positional[1])
+    end
+    local values = options
+    if values.binary and values.emitStage0 then
+        return usageError("--binary verifies the packaged binary and composes no stage zero")
+    end
+    local asJson = values.format == "json"
+    local project = require("nupp.tools.build.project")
+    -- The collector doubles as the request to stay quiet: what it fills is what gets
+    -- said, so the human line does not land in front of the document.
+    local result: {[string]: any} = {}
+    local code: integer
+    if values.binary then
+        code = project.binaryFixpoint(".", {result = asJson and result or nil})
+    else
+        code = project.fixpoint(".", {emitStage0 = values.emitStage0, result = asJson and result or nil})
+    end
+    if asJson then
+        result.ok = code == 0
+        result.kind = values.binary and "binary" or "compiler"
+        require("nupp.tools.cli.report").write(result)
+    end
+
+    return code
+end
+
+--- Verify a byte-identical self-hosting rebuild.
+---
+--- Examples:
+---
+---     nupp fixpoint
+---     nupp fixpoint --binary
+---     nupp fixpoint --emit-stage0 build/stage0/nupp.lua
+@cli("fixpoint")
+@derive(cliModule.Command)
+local record Fixpoint
+    --- Write the verified stage-zero bundle here.
+    @cli(value = "PATH")
+    emitStage0: string?
+
+    --- Verify the packaged binary instead of the compiler.
+    binary: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+function Fixpoint.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Fixpoint}

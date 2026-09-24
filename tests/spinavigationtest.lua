@@ -1,6 +1,6 @@
 local fs = require("nupp.compiler.fs")
 local incremental = require("nupp.compiler.incremental")
-local navigation = require("nupp.compiler.lsp.spi")
+local navigation = require("nupp.tools.lsp.spi")
 local M = {}
 
 function M.metadataNavigationDoesNotLoadImplementations()

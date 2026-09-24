@@ -604,7 +604,7 @@ impl HostRuntime {
         }
         let open = self
             .lua()?
-            .module_member(c"nupp.compiler.hostreload", opener)
+            .module_member(c"nupp.tools.hostreload", opener)
             .map_err(HostError::Lua)?;
         let passed = arguments
             .iter()
@@ -1167,7 +1167,7 @@ return setmetatable({}, {__index=function() error('descriptor trap') end})"#,
     // compiling anything, so this stands in for the compiler's hostreload
     // module and keeps the test off the build tree.
     const STUB_SESSION: &[u8] = br#"
-package.preload["nupp.compiler.hostreload"] = function()
+package.preload["nupp.tools.hostreload"] = function()
   local function step() return "no-change", 0 end
   local session = {
     member = function() return nil end,

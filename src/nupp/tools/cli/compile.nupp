@@ -1,0 +1,389 @@
+module nupp.tools.cli.compile
+
+--[[
+Parse, check, optimize, generate: the sequence `build` and `run` both need.
+
+The compiler's own settings used to be four variables at the top of the command
+line that option parsing assigned to and compilation read back, which worked only
+because one command runs per process. Here they are a value, read out of a parse
+and passed down, so what a compile was asked for is visible at the call rather
+than in whatever the argument loop happened to leave behind.
+]]
+
+local diagnosticMod = require("nupp.compiler.diagnostics")
+local fs = require("nupp.compiler.fs")
+
+local compile = {}
+
+--- What the compiler was asked for.
+record compile.Settings
+    --- Whether strict checker rules are errors. Nil lets the manifest decide, which is
+    --- not the same as false.
+    strict: boolean?
+
+    --- The resolved source-lowering dialect.
+    dialect: string
+
+    compat: string?
+
+    --- 0 is the promise that -O0 rewrites nothing. Optimization is opt-in until a
+    --- benchmark says which passes have earned being on by default.
+    --- Absent when the command line said nothing, so a target's own level can win.
+    optLevel: integer?
+
+    --- Report what the optimizer did and what it declined to do.
+    remarks: boolean
+
+    --- Only show optimizer decisions for this source file.
+    remarksFile: string?
+
+    --- Passes turned off by -Zno-opt, keyed by their stable code.
+    disabled: {[string]: boolean}
+
+    --- Where diagnostics go when the caller is reporting them itself. Present for
+    --- `--json`, which has to put them in a document rather than let each one say
+    --- itself as it is found. Same favour `nupp.tools.build.project` already does.
+    diagnostics: {any}?
+
+    --- Public materialization observations collected while checking this command.
+    materializations: {any}?
+
+    --- Public derive recipe observations collected for JSON build output.
+    derives: {any}?
+
+    --- Private const bodies OPT-8 emitted, totalled across the files this command
+    --- reached. Nil when the caller does not report them.
+    specializedBodies: integer?
+
+    --- Whether generated code carries coverage probes. The compile command has no
+    --- option for it; `NUPP_COVERAGE=1` in the environment asks for it, which is how
+    --- `test --coverage` reaches the compiles it starts, and every other compile leaves
+    --- it off.
+    coverage: boolean
+
+    --- A command-only literal emitted between generated preamble and authored code.
+    --- Absent from ordinary builds and machine bytecode reports.
+    bytecodeBoundary: string?
+
+    --- Where to write the optimizer's account of this build, or nil for nowhere. The
+    --- path is fixed so a running program can consume the artifact without a second
+    --- option telling it where the first option put it.
+    ---
+    --- `--remarks` says what the optimizer did to the terminal; this says the same
+    --- thing to a file, so a program can read what was compiled into it. A benchmark
+    --- is the first caller: a record of a run is worth much more beside the
+    --- optimization level it ran at and the passes that declined.
+    remarksOut: string?
+
+    --- Remarks accumulated across the files this command reached. Present only when
+    --- an artifact or profiled terminal report needs the completed account.
+    collectedRemarks: {any}?
+
+    --- Measured source samples from a profiled run, absent from static builds.
+    sampledHeat: any?
+
+    --- Allocation sites the optimizer left standing, accumulated the same way and for
+    --- the same reason.
+    collectedAllocationSites: {any}?
+
+    --- Modules this command optimized, so an artifact is only written when something
+    --- was actually accounted for.
+    accountedModules: integer?
+end
+
+-- The level arrives as the digit the option captured. The grammar has already refused
+-- anything that is not one of these, so a lookup is both the conversion and the proof
+-- that it was in range.
+local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
+
+--- Reads the settings out of a parse. Every command that compiles takes the same
+--- options, so every one of them reads them the same way.
+function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
+    return new compile.Settings(
+        strict = values.strict,
+        compat = values.compat,
+        dialect = assert(require("nupp.compiler.dialects").resolve(values.dialect)),
+        optLevel = LEVELS[values.optLevel],
+        remarks = values.remarks and true or false,
+        remarksFile = values.remarksFile,
+        disabled = values.disabled or {},
+        diagnostics = collected,
+        coverage = os.getenv("NUPP_COVERAGE") == "1",
+        bytecodeBoundary = nil,
+        remarksOut = values.remarksOut and "build/remarks.json" or nil,
+        collectedRemarks = (values.remarksOut or values.profile and values.remarks) and {} or nil,
+        sampledHeat = nil,
+        collectedAllocationSites = values.remarksOut and {} or nil,
+        accountedModules = values.remarksOut and 0 or nil
+    )
+end
+
+function compile.selectRemarks(remarks: {any}, path: string?): {any}
+    if not path then
+        return remarks
+    end
+    local selected = {}
+    for _, entry in ipairs(remarks) do
+        if fs.absolute(entry.filename or "") == fs.absolute(path) then
+            selected[#selected + 1] = entry
+        end
+    end
+
+    return selected
+end
+
+--- Join sampled Lua locations to optimizer source ranges. Zero means no sample
+--- landed there, not proof that the region never ran. Native AOT work stays unknown.
+function compile.attachSamples(
+    settings: compile.Settings,
+    samples: {any},
+    totalSamples: integer,
+    intervalMs: integer
+): nil
+    local byFile = {}
+    local attributed = 0
+    for _, sample in ipairs(samples) do
+        local file = fs.absolute(sample.file)
+        local lines = byFile[file] or {}
+        byFile[file] = lines
+        lines[sample.line] = (lines[sample.line] or 0) + sample.samples
+        attributed = attributed + sample.samples
+    end
+    settings.sampledHeat = {
+        intervalMs = intervalMs,
+        totalSamples = totalSamples,
+        attributedSamples = attributed,
+        unattributedSamples = totalSamples - attributed,
+        sourceSamples = samples
+    }
+    for _, entry in ipairs(settings.collectedRemarks or {}) do
+        if entry.filename
+            and byFile[fs.absolute(entry.filename)]
+            and entry.line
+            and entry.line > 0
+            and entry.status ~= "unavailable"
+            and not (entry.code or ""):match("^AOT")
+        then
+            local last = math.max(entry.line, entry.sourceEndLine or entry.line)
+            local count = 0
+            for line, hits in pairs(byFile[fs.absolute(entry.filename)] or {}) do
+                if line >= entry.line and line <= last then
+                    count = count + hits
+                end
+            end
+            entry.hotness = "sampled"
+            entry.hotnessSamples = count
+            entry.hotnessRange = {startLine = entry.line, endLine = last}
+        end
+    end
+end
+
+--- Writes the optimizer's account of this command, when one was asked for.
+---
+--- The record carries the execution profile beside the remarks on purpose. A reader
+--- comparing two runs has to know whether they were measuring the same thing, and the
+--- optimization level and the excluded passes are what decide that: `-O0` and `-O1` are
+--- different questions rather than a regression of each other.
+---
+--- Reported rather than raised. Failing a build over a diagnostic artifact would make
+--- the artifact load-bearing, which it is not.
+---
+--- @param settings the settings the command compiled under
+--- @return whether anything was written
+function compile.writeRemarks(settings: compile.Settings): boolean
+    local out = settings.remarksOut
+    local collected = settings.collectedRemarks
+    if not out or not collected then
+        return false
+    end
+    -- A build that reached no module accounts for nothing, and an artifact saying so is
+    -- worse than none: a reader gating on allocation sites would see every site it knew
+    -- about disappear at once.
+    if (settings.accountedModules or 0) == 0 then
+        io.stderr:write("nupp: --remarks-out wrote nothing: this build accounted for no module\n")
+
+        return false
+    end
+    local report = require("nupp.tools.cli.report")
+    local codes: {string} = {}
+    for code in pairs(settings.disabled) do
+        codes[#codes + 1] = code
+    end
+    table.sort(codes)
+    local document = {
+        schema = 1,
+        executionProfile = {optLevel = settings.optLevel or 0, disabled = table.concat(codes, ","),},
+        compiler = {
+            version = require("nupp.tools.version").VERSION,
+            -- The version string alone cannot tell two commits apart, and telling them
+            -- apart is the point: a reader seeing a counter move needs to know whether
+            -- the compiler moved under it.
+            digest = require("nupp.tools.build.cache").moduleCompilerFingerprint(),
+        },
+        remarks = report.diagnosticValues(compile.selectRemarks(collected, settings.remarksFile)),
+        allocationSites = settings.collectedAllocationSites or {},
+        sampling = settings.sampledHeat,
+    }
+    local wrote, writeErr = require("nupp.compiler.fs").writeFile(out, report.encode(document) .. "\n")
+    if not wrote then
+        io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+
+        return false
+    end
+
+    return true
+end
+
+--- Reads, parses and checks one file, reporting every diagnostic the way the text
+--- form reports them. Returns the parse and the source it came from, or nil once
+--- what stopped it has been said: a command that inspects a checked tree rather than
+--- compiling it starts here, so that it sees the same tree a build would.
+function compile.check(path: string, env: table, opts: {[string]: any}?): (any?, string?)
+    local source, readErr = fs.readFile(path)
+    if not source then
+        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        return nil
+    end
+    local result = require("nupp.compiler.parser").parse(source, path)
+    if #result.errors > 0 then
+        diagnosticMod.report(result.errors)
+        return nil
+    end
+    local diags = require("nupp.compiler.check").check(result, path, env, opts)
+    if diagnosticMod.report(diags) then
+        return nil
+    end
+
+    return result, source
+end
+
+--- Compiles one file to Lua source. Returns the generated code, or nil and a short
+--- reason after having reported the diagnostics that stopped it.
+function compile.module(
+    path: string,
+    env: table,
+    settings: compile.Settings,
+    moduleName: string?,
+    sourceOverride: string?
+): string?, string?
+    local collected = settings.diagnostics
+
+    -- Says each diagnostic, or puts it by for the caller to say later, and either way
+    -- answers whether an error was among them.
+    local function say(values: {any}): boolean
+        if not collected then
+            return diagnosticMod.report(values)
+        end
+        local fatal = false
+        for _, diagnostic in ipairs(values) do
+            collected[#collected + 1] = diagnostic
+            if diagnosticMod.isFatal(diagnostic) then
+                fatal = true
+            end
+        end
+
+        return fatal
+    end
+
+    local source: string? = sourceOverride
+    local readErr: string? = nil
+    if source == nil then
+        source, readErr = fs.readFile(path)
+    end
+    if not source then
+        require(
+            "nupp.tools.cli.report"
+        ).fileFailure(path, readErr, "check that the path exists and is readable", collected)
+        return nil, readErr
+    end
+    local parser = require("nupp.compiler.parser")
+    local result = parser.parse(source, path)
+    if #result.errors > 0 then
+        say(result.errors)
+        return nil, "syntax errors"
+    end
+    local check = require("nupp.compiler.check")
+    local diags = check.check(result, path, env, {
+        strict = settings.strict,
+        dialect = settings.dialect,
+        compat = settings.compat,
+        moduleName = moduleName,
+    })
+    if settings.materializations then
+        local observations = require(
+            "nupp.compiler.materialize.observe"
+        ).public(require("nupp.compiler.materialize.observe").collect(result.root, path))
+        for _, observation in ipairs(observations) do
+            settings.materializations[#settings.materializations + 1] = observation
+        end
+    end
+    if settings.derives then
+        for _, observation in ipairs(result.deriveObservations or {}) do
+            settings.derives[#settings.derives + 1] = observation
+        end
+    end
+    if say(diags) then
+        return nil, "type errors"
+    end
+    local remarks, specializedBodies = require("nupp.compiler.optimize").run(result, {
+        level = settings.optLevel or 0,
+        filename = path,
+        disabled = settings.disabled
+    })
+    -- The file shape reaches its modules one at a time and has no module graph to
+    -- total, so the count is accumulated here the way materializations are.
+    if settings.specializedBodies ~= nil then
+        settings.specializedBodies = (settings.specializedBodies as integer) + specializedBodies
+    end
+    if (settings.remarks or settings.remarksOut or settings.collectedRemarks) and (settings.optLevel or 0) == 0 then
+        remarks[
+            #remarks + 1
+        ] = {
+            code = "OPT-0",
+            severity = "note",
+            status = "unavailable",
+            hotness = "unknown",
+            filename = path,
+            line = 1,
+            col = 1,
+            offset = 1,
+            length = 0,
+            msg = "optimizer unavailable at -O0; select -O1 or -O2 to request optimization"
+        }
+    end
+    if settings.collectedRemarks then
+        local collectedRemarks = settings.collectedRemarks
+        for _, entry in ipairs(remarks) do
+            collectedRemarks[#collectedRemarks + 1] = entry
+        end
+    end
+    if settings.accountedModules ~= nil then
+        settings.accountedModules = (settings.accountedModules as integer) + 1
+    end
+    if settings.collectedAllocationSites then
+        local collectedSites = settings.collectedAllocationSites
+        -- After the passes, so a constructor one of them removed is correctly absent.
+        for _, site in ipairs(require("nupp.compiler.optimize").allocationSites(result)) do
+            collectedSites[#collectedSites + 1] = {file = path, kind = site.kind, line = site.line, col = site.col,}
+        end
+    end
+    if settings.remarks then
+        say(compile.selectRemarks(remarks, settings.remarksFile))
+    end
+    local gen = require("nupp.compiler.gen")
+    local code, genDiags = gen.generate(
+        result,
+        path,
+        settings.coverage and {path = path} or nil,
+        nil,
+        settings.bytecodeBoundary
+    )
+    if #genDiags > 0 then
+        say(genDiags)
+        return nil, "code generation errors"
+    end
+
+    return code
+end
+
+export = compile

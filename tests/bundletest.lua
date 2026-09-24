@@ -10,7 +10,7 @@ if not HERE:match("^/") then
     p:close()
 end
 local NUPP = HERE .. "/../bin/nupp"
-local packaging = require("nupp.compiler.build.package")
+local packaging = require("nupp.tools.build.package")
 
 local function tempProject(files)
     local dir = os.tmpname()
@@ -433,7 +433,7 @@ end
 -- refused by one that does not match. A cross-stamped binary is run by a VM this
 -- machine never sees, so it carries the bundle itself, which any of them can read.
 function M.aPayloadForAnotherPlatformStaysSource()
-    local platform = require("nupp.compiler.build.platform")
+    local platform = require("nupp.tools.build.platform")
     local elsewhere
     for _, key in ipairs(platform.keys()) do
         if key ~= platform.hostKey() then

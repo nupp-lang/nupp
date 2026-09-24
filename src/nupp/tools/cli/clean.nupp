@@ -1,0 +1,95 @@
+module nupp.tools.cli.clean
+
+--[[
+`nupp clean`: remove what a build wrote.
+
+The refusal to delete anything outside the project, or the project root itself,
+lives in `nupp.tools.build.project` rather than here, being a property of cleaning,
+not of the command line, and a caller reaching it another way should meet it too.
+]]
+
+local usageError = require("nupp.tools.cli.error").forCommand("clean")
+local cliModule = require("nupp.cli")
+
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        removed = {
+            type = "array",
+            items = {type = "string"},
+            description = "The output paths, removed unless dryRun is set, "
+            .. "in which case these are the paths that would be."
+        },
+        dryRun = {type = "boolean"},
+        ok = {type = "boolean"},
+    },
+    required = {"ok", "removed", "dryRun"},
+}
+
+local function run(options: any): integer
+    local positional: {string} = {}
+    if #positional > 0 then
+        return usageError("unexpected argument " .. positional[1])
+    end
+    local values = options
+    local asJson = values.format == "json"
+    local dryRun = values.dryRun and true or false
+    if values.platform and not values.target then
+        return usageError("--platform requires --target")
+    end
+    local project = require("nupp.tools.build.project")
+    local removed: {string} = {}
+    local code = project.clean(".", {
+        target = values.target,
+        platform = values.platform,
+        dryRun = values.dryRun,
+        removed = asJson and removed or nil
+    })
+    if asJson then
+        require("nupp.tools.cli.report").write({ok = code == 0, removed = removed, dryRun = dryRun})
+    end
+
+    return code
+end
+
+--- Remove build outputs configured in nupp.lua.
+---
+--- With no target, cleans every configured target output. Paths outside the
+--- project and paths that resolve to the project root are always rejected.
+---
+--- Examples:
+---
+---     nupp clean --dry-run
+---     nupp clean
+---     nupp clean --target app
+@cli("clean")
+@derive(cliModule.Command)
+local record Clean
+    --- Clean only the named build target.
+    @cli(value = "NAME")
+    target: string?
+
+    --- Clean one configured binary platform, or all.
+    @cli(value = "NAME")
+    platform: string?
+
+    --- Print output paths without removing them.
+    dryRun: boolean = false
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+function Clean.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Clean}

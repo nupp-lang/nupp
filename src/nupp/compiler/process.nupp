@@ -115,7 +115,7 @@ local function isolatedArgs(argv: {string}): {string}
         local executable = tostring(argv[1]):gsub("\\", "/")
         local root = executable:match("^(.*)/bin/nupp$")
         if root then
-            local built = root .. "/build/nupp/compiler/main.lua"
+            local built = root .. "/build/nupp/tools/main.lua"
             local compiler = exists(built) and built or os.getenv("NUPP_STAGE0")
             if compiler then
                 local path = ("package.path=%q .. package.path"):format(root .. "/build/?.lua;")

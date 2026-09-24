@@ -5,7 +5,7 @@
 -- callers asking the same question. Getting either wrong costs no correctness -- a miss
 -- recomputes -- so nothing else in the suite notices, and the project quietly reparses
 -- itself on every command. These are the tests that notice.
-local cache = require("nupp.compiler.build.cache")
+local cache = require("nupp.tools.build.cache")
 local fingerprint = require("nupp.compiler.fingerprint")
 local envMod = require("nupp.compiler.env")
 
@@ -55,9 +55,9 @@ function M.eachSubsystemIsStampedWithItselfRatherThanTheWholeCompiler()
     local seen = {}
     for _, name in ipairs({
         "nupp.compiler.header",
-        "nupp.compiler.fmt",
+        "nupp.tools.fmt",
         "nupp.compiler.check",
-        "nupp.compiler.build.modules",
+        "nupp.tools.build.modules",
     }) do
         local stamp = fingerprint.subsystemFingerprint({name})
         assert(stamp ~= whole, ("%s is stamped with the whole compiler, so the graph could not be read"):format(name))
@@ -130,7 +130,7 @@ end
 -- build in the same process never wrote the store and every later command lexed the
 -- compiler again.
 function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
-    assert(fingerprint.subsystemFingerprint({"nupp.compiler.fmt"}), "computed with nowhere to keep it")
+    assert(fingerprint.subsystemFingerprint({"nupp.tools.fmt"}), "computed with nowhere to keep it")
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
@@ -178,7 +178,7 @@ function M.theModuleStampMovesWhenACarriedDeclarationChanges()
     )
     assert(
         cache.moduleCompilerFingerprint(nil, nil, list, before) ~= fingerprint.subsystemFingerprint({
-            "nupp.compiler.build.modules"
+            "nupp.tools.build.modules"
         }),
         "the module stamp is the code alone"
     )
@@ -253,7 +253,7 @@ end
 -- whole-project check believed all of them and reported the previous checker's
 -- messages, and deleting `checks.buf` by hand was the only way out.
 --
--- `checks/1` is `CHECK_STATE_STAMP` in nupp.compiler.build.project, where the store
+-- `checks/1` is `CHECK_STATE_STAMP` in nupp.tools.build.project, where the store
 -- is opened.
 function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
     local dir = tempProject({
@@ -320,7 +320,7 @@ end
 -- served out of it has to be the module that was on disk, named the way the file
 -- searcher would have named it, because the compiler locates its declarations and
 -- its native library by reading that name back off itself.
-local bytecodecache = require("nupp.compiler.bytecodecache")
+local bytecodecache = require("nupp.tools.bytecodecache")
 
 -- One tree with one module in it, compiled and cached, and the digest a build
 -- would have recorded for it.

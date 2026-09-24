@@ -1,0 +1,613 @@
+module nupp.tools.cli.aot
+
+--[[
+`nupp aot`: what an `@aot` function compiles to.
+
+An `@aot` body is compiled somewhere a reader cannot see, so `--emit ir` shows
+the verified IR, `--emit c` shows the generated C, `--emit spirv` writes the
+native WGPU module, `--emit wgsl` shows the browser WebGPU integer artifact,
+`--emit asm` shows the instructions that C became, and `--emit binding` shows
+the module that stands in front of it. Reading the C is how you tell a mask
+stack from a branch, and how you check that the loop you thought was
+register-resident is.
+
+`--emit asm` is where that stops being a guess. The C compiler is the last thing
+between a lowering decision and the machine, and until it was readable from here
+the only way to see what it did was to compile the emitted C by hand and run a
+disassembler over it -- four commands, typed differently every time, producing an
+answer that could not be compared with last week's. It takes `--function` and
+`--features`, so what is asked for is one body at one tier, and it counts the
+listing by kind so that two runs of the same kernel can be put side by side.
+
+With no `--emit`, one line per function reports scalar, explicit SIMD, or GPU
+execution.
+]]
+const {type Target} = require("nupp.compiler.aot.target")
+const {type Toolchain} = require("nupp.tools.build.aot")
+const {type Claim} = require("nupp.compiler.aot.instructions")
+const {type Listing} = require("nupp.compiler.aot.instructions")
+
+local usageError = require("nupp.tools.cli.error").forCommand("aot")
+local report = require("nupp.tools.cli.report")
+local cliModule = require("nupp.cli")
+
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "What every @aot function in one file lowered to.",
+    properties = {
+        file = {type = "string"},
+        target = {
+            type = "object",
+            description = "What the species were chosen for.",
+            properties = {triple = {type = "string"}, architecture = {type = "string"}, tier = {type = "string"},},
+        },
+        functions = {
+            type = "array",
+            description = "One entry per @aot function, in source order.",
+            items = {
+                type = "object",
+                properties = {
+                    name = {type = "string"},
+                    symbol = {type = "string"},
+                    entryMode = {type = "string", enum = {"kernel", "lua-builder"}},
+                    builderMode = {type = "string", enum = {"eager", "pull", "serde"}},
+                    runtimeAbi = {type = "string"},
+                    registrar = {type = "string"},
+                    gpu = {
+                        type = "object",
+                        description = "Shader identity shared with runtime GPU cost records.",
+                        properties = {
+                            artifactId = {type = "string"},
+                            sourceFile = {type = "string"},
+                            sourceLine = {type = "integer"},
+                            sourceColumn = {type = "integer"},
+                            entrypoint = {type = "string"},
+                            threads = {type = "integer"},
+                        },
+                    },
+                    optimization = {
+                        type = "object",
+                        description = "Verified scalar AOT optimizations.",
+                        properties = {
+                            beforeNodes = {type = "integer"},
+                            afterNodes = {type = "integer"},
+                            folds = {type = "integer"},
+                            propagatedConstants = {type = "integer"},
+                            specializedHelperCalls = {type = "integer"},
+                            unrolledLoops = {type = "integer"},
+                            unrolledIterations = {type = "integer"},
+                            removedStatements = {type = "integer"},
+                            iterations = {type = "integer"},
+                            ruleApplications = {
+                                type = "array",
+                                description = "Applied rules and pseudo-rules, sorted by stable ID; "
+                                .. "zero-count rules are omitted.",
+                                items = {
+                                    type = "object",
+                                    properties = {id = {type = "string"}, count = {type = "integer"},},
+                                },
+                            },
+                        },
+                    },
+                    loops = {
+                        type = "array",
+                        description = "One measured decision per loop, in source order.",
+                        items = {
+                            type = "object",
+                            properties = {
+                                id = {type = "integer"},
+                                kind = {type = "string", enum = {"map", "fornum", "while", "repeat"}},
+                                line = {type = "integer"},
+                                lastLine = {
+                                    type = "integer",
+                                    description = "Last authored position retained in the loop IR."
+                                },
+                                column = {type = "integer"},
+                                nodes = {type = "integer"},
+                                simdOperations = {type = "integer"},
+                                luaOperations = {type = "integer"},
+                                nativeReads = {type = "integer"},
+                                nativeWrites = {type = "integer"},
+                                mayRaise = {type = "boolean"},
+                                outcome = {type = "string", enum = {"explicit-simd", "scalar"},},
+                                reason = {type = "string"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        ir = {type = "string"},
+        c = {type = "string"},
+        spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
+        binding = {type = "string"},
+        asm = {
+            type = "object",
+            description = "The instructions the generated C compiled to. Present only for "
+            .. "--emit asm, because producing it runs a C compiler.",
+            properties = {
+                toolchain = {
+                    type = "object",
+                    description = "The compiler that produced them, which is part of the answer: "
+                    .. "two runs are comparable only when this is the same.",
+                    properties = {
+                        command = {type = "string"},
+                        version = {type = "string"},
+                        dialect = {type = "string"},
+                    },
+                },
+                flags = {
+                    type = "array",
+                    description = "Every flag it was given, in order. The same flags a build compiles "
+                    .. "this tier's translation unit with.",
+                    items = {type = "string"},
+                },
+                functions = {
+                    type = "array",
+                    description = "One entry per emitted symbol that has instructions, ordered "
+                    .. "by role and then by where the compiler wrote it.",
+                    items = {
+                        type = "object",
+                        properties = {
+                            symbol = {type = "string"},
+                            name = {type = "string"},
+                            role = {
+                                type = "string",
+                                description = "Which body this symbol is. Listings are reported " .. "in this order.",
+                                enum = {"kernel", "oracle", "wrapper", "registrar", "reporter", "helper"},
+                            },
+                            counts = {
+                                type = "object",
+                                description = "`total` is every instruction. The rest are the "
+                                .. "architecture's rules over the mnemonic and the operand shape.",
+                                properties = {
+                                    total = {type = "integer"},
+                                    vector = {type = "integer"},
+                                    loads = {type = "integer"},
+                                    stores = {type = "integer"},
+                                    branches = {type = "integer"},
+                                    calls = {type = "integer"},
+                                    stack = {type = "integer"},
+                                },
+                                required = {"total"},
+                            },
+                            instructions = {
+                                type = "array",
+                                items = {
+                                    type = "object",
+                                    properties = {
+                                        label = {
+                                            type = "string",
+                                            description = "The label this is the first instruction "
+                                            .. "under. Absent when none precedes it.",
+                                        },
+                                        loopIds = {
+                                            type = "array",
+                                            items = {type = "integer"},
+                                            description = "Loops whose authored ranges contain this location; nested loops can share an instruction."
+                                        },
+                                        sourceFile = {type = "string"},
+                                        sourceLine = {type = "integer"},
+                                        generatedColumn = {
+                                            type = "integer",
+                                            description = "Column in generated C; #line maps authored lines only."
+                                        },
+                                        text = {type = "string"},
+                                        mnemonic = {type = "string"},
+                                        operands = {type = "string"},
+                                        kinds = {type = "array", items = {type = "string"}},
+                                    },
+                                    required = {"text", "mnemonic", "kinds"},
+                                },
+                            },
+                        },
+                        required = {"symbol", "role", "counts", "instructions"},
+                    },
+                },
+            },
+        },
+    },
+}
+
+--- One line saying what happened, for a person.
+local function summarise(path: string, program: any, artifacts: any): string
+    local gpu = artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil
+    local what: string
+    if gpu then
+        what = "gpu, one iteration per GPU invocation"
+    elseif program.usesSimd == true then
+        what = "explicit simd"
+    elseif program.entryMode == "lua-builder" then
+        what = "scalar, lanes do not apply to a lua-builder entry"
+    else
+        what = "scalar"
+    end
+
+    return ("%s: %s, %s, %s"):format(path, program.name, program.entryMode, what)
+end
+
+--- Source annotations are inspection-only; production bytes remain unchanged.
+local function inspectionC(artifacts: any, sourceFile: string): string
+    local programs = {}
+    for _, program in ipairs(artifacts.programs) do
+        if program.executionTarget ~= "gpu" then
+            programs[#programs + 1] = program
+        end
+    end
+
+    return require("nupp.compiler.aot.emit").program(programs, nil, sourceFile)
+end
+
+--- What every symbol in the generated C compiled to.
+---
+--- Everything here is the build's: the toolchain it would have used, the flags
+--- it would have used for this tier, and the C it would have compiled. A
+--- listing produced any other way would answer a question about this command
+--- rather than about the artifact.
+---
+--- @param wanted one function, named as the source or the symbol spells it
+--- @return the report, or nothing and what stopped it
+local function assembly(artifacts: any, selected: Target, wanted: string?, sourceFile: string): (any?, string?)
+    local buildAot = require("nupp.tools.build.aot")
+    local instructionsMod = require("nupp.compiler.aot.instructions")
+    local targets = require("nupp.compiler.aot.target")
+    if not instructionsMod.reads(selected.architecture) then
+        return nil, (
+            "there are no instruction rules for %s; --emit asm reads %s"
+        ):format(selected.architecture, table.concat(instructionsMod.ARCHITECTURES, " and "))
+    end
+
+    local chain, chainErr = buildAot.toolchain()
+    if chain == nil then
+        return nil, tostring(chainErr)
+    end
+    local selectedChain = chain as Toolchain
+    local mapped = inspectionC(artifacts, sourceFile)
+    local debugFlags: {string} = {selectedChain.dialect == "clang" and "-gline-tables-only" or "-g"}
+    local text, assembleErr = buildAot.assemble(selectedChain, selected, mapped, debugFlags)
+    if text == nil then
+        return nil, tostring(assembleErr)
+    end
+
+    local listings = instructionsMod.parse(text as string, selected.architecture, targets.system(selected.triple))
+    -- Which body a symbol is, rather than only what it is called. The oracle is
+    -- the forced-scalar twin the lane body is diffed against, and reading a
+    -- listing without knowing which of the two is in front of you is how a
+    -- vectorised kernel gets mistaken for one that was not.
+    local claims: {[string]: Claim} = {}
+    for _, program in ipairs(artifacts.programs) do
+        claims[program.symbol] = new instructionsMod.Claim(name = program.name, role = "kernel")
+        claims[program.symbol .. "_forced_scalar"] = new instructionsMod.Claim(name = program.name, role = "oracle")
+        claims[program.symbol .. "_lua"] = new instructionsMod.Claim(name = program.name, role = "wrapper")
+        if program.registrar ~= nil then
+            claims[tostring(program.registrar)] = new instructionsMod.Claim(name = program.name, role = "registrar")
+        end
+    end
+    instructionsMod.claim(listings, claims)
+
+    for _, listing in ipairs(listings) do
+        for index, program in ipairs(artifacts.programs) do
+            if listing.name == program.name then
+                for _, instruction in ipairs(listing.instructions) do
+                    local file = instruction.sourceFile
+                    local line = instruction.sourceLine
+                    if file ~= nil and line ~= nil and file:sub(-#sourceFile) == sourceFile then
+                        local ids: {integer} = {}
+                        for _, loop in ipairs(artifacts.loops[index] or {}) do
+                            if line >= loop.line and line <= loop.lastLine then
+                                ids[#ids + 1] = loop.id
+                            end
+                        end
+                        instruction.loopIds = ids
+                    end
+                end
+            end
+        end
+    end
+    local shown = instructionsMod.order(listings)
+    if wanted ~= nil then
+        -- Narrowed from the ordered listings rather than the emitted ones, so
+        -- naming a function whose two bodies are both here shows them in the
+        -- same order asking for the whole file would have.
+        shown = instructionsMod.select(shown, wanted as string)
+        if #shown == 0 then
+            return nil, (
+                "no function named %s was compiled here; this file has %s"
+            ):format(wanted as string, table.concat(instructionsMod.names(listings), ", "))
+        end
+    end
+
+    return {
+        toolchain = {
+            command = selectedChain.command,
+            version = selectedChain.version,
+            dialect = selectedChain.dialect,
+        },
+        flags = buildAot.compileFlags(selected, selectedChain, debugFlags),
+        functions = shown,
+    }, nil
+end
+
+--- One symbol's listing, for a person.
+local function writeListing(listing: Listing): nil
+    local counts = listing.counts
+    io.write(
+        (
+            "-- %s%s, %s: %d instructions, %d vector, %d loads, %d stores, %d branches, %d calls, %d stack\n"
+        ):format(
+            listing.symbol,
+            listing.name ~= nil and (" (" .. tostring(listing.name) .. ")") or "",
+            listing.role,
+            counts.total,
+            counts.vector,
+            counts.loads,
+            counts.stores,
+            counts.branches,
+            counts.calls,
+            counts.stack
+        )
+    )
+    for _, one in ipairs(listing.instructions) do
+        if one.label ~= nil then
+            io.write(tostring(one.label) .. ":\n")
+        end
+        -- Padded only when there is something to pad away from, so a listing
+        -- carries no trailing space for a diff to trip over.
+        io.write(
+            one.operands ~= "" and ("      %-7s %s\n"):format(one.mnemonic, one.operands)
+            or ("      " .. one.mnemonic .. "\n")
+        )
+    end
+    io.write("\n")
+end
+
+local function run(options: any): integer
+    local positional: {string} = {options.file}
+    local aot = require("nupp.compiler.aot.compile")
+    local targets = require("nupp.compiler.aot.target")
+    local paths: {string} = positional
+    if #paths ~= 1 then
+        return usageError("exactly one source file is required")
+    end
+
+    local path = paths[1]
+    -- A placeholder rather than a guess: where the object lands is a build
+    -- decision this command does not make, and a binding printed for reading
+    -- says so rather than naming a path nobody will produce.
+    local selected, targetErr = targets.select(options.target, options.features, options.dialect)
+    if selected == nil then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+
+        return 1
+    end
+
+    -- Inspection lowers the same checked tree a production build does. Parsing
+    -- here would make `nupp aot` disagree with `nupp build` precisely on the
+    -- aliases, ownership modes, effects and resolved layouts it exists to show.
+    local envMod = require("nupp.compiler.env")
+    local fs = require("nupp.compiler.fs")
+    local root = fs.dirname(fs.absolute(path))
+    while not fs.exists(fs.join(root, "nupp.lua")) do
+        local parent = fs.dirname(root)
+        if parent == root then
+            root = "."
+            break
+        end
+        root = parent
+    end
+    local environment = envMod.new(root, {dialect = options.dialect})
+    -- The command is an inspection of AOT output even when the manifest's
+    -- build policy is off. Keep every other project setting and make only that
+    -- question explicit while checking target-specific operations.
+    environment.config._target = environment.config._target or {}
+    environment.config._target.aot = "emit-c"
+    local tree, source = require("nupp.tools.cli.compile").check(path, environment as {[string]: any}, {
+        dialect = options.dialect
+    })
+    if tree == nil then
+        return 1
+    end
+
+    local library = options.library or "<object>"
+    local artifacts, diagnostics = aot.artifacts(source as string, path, tree, library, selected as targets.Target)
+    if artifacts == nil then
+        for _, problem in ipairs(diagnostics) do
+            io.stderr:write(aot.renderDiagnostic(problem) .. "\n")
+        end
+
+        return 1
+    end
+
+    local emit = options.emit
+    local spirvParts: {string} = {}
+    local wgslParts: {string} = {}
+    for _, program in ipairs(artifacts.programs) do
+        local artifact = artifacts.gpu[program.symbol]
+        local selectedFunction = options.functionName
+        if artifact ~= nil
+            and (selectedFunction == nil or selectedFunction == program.name or selectedFunction == program.symbol)
+        then
+            spirvParts[#spirvParts + 1] = artifact.spirv
+            if artifact.wgsl ~= nil then
+                wgslParts[#wgslParts + 1] = artifact.wgsl as string
+            end
+        end
+    end
+    local wgsl = table.concat(wgslParts, "\n")
+    local spirvHex: string? = nil
+    if emit == "spirv" and #spirvParts == 1 and options.format == "json" then
+        local bytes: {string} = {}
+        for index = 1, #spirvParts[1] do
+            bytes[index] = ("%02x"):format(spirvParts[1]:byte(index))
+        end
+        spirvHex = table.concat(bytes)
+    end
+    if emit == "wgsl" and #wgslParts == 0 then
+        io.stderr:write("nupp: no GPU function matched --emit wgsl with the webgpu-int32 profile\n")
+        return 1
+    end
+    if emit == "spirv" and #spirvParts ~= 1 then
+        io.stderr:write(
+            #spirvParts == 0 and "nupp: no GPU function matched --emit spirv\n"
+            or "nupp: --emit spirv needs one GPU function; select it with --function\n"
+        )
+        return 1
+    end
+    -- Compiled once, before either branch prints: producing it runs a C
+    -- compiler, so it happens when it was asked for and never as a side effect
+    -- of choosing an output format.
+    local instructionReport: any = nil
+    if emit == "asm" then
+        local built, instructionErr = assembly(artifacts, selected as targets.Target, options.functionName, path)
+        if built == nil then
+            io.stderr:write("nupp: " .. tostring(instructionErr) .. "\n")
+
+            return 1
+        end
+        instructionReport = built
+    end
+    if options.format == "json" then
+        local functions: {any} = {}
+        for position, program in ipairs(artifacts.programs) do
+            local shader = artifacts.gpu[program.symbol]
+            local gpu = shader ~= nil
+                and {
+                    artifactId = shader.artifactId,
+                    sourceFile = shader.sourceFile,
+                    sourceLine = shader.sourceLine,
+                    sourceColumn = shader.sourceColumn,
+                    entrypoint = shader.entrypoint,
+                    threads = shader.threads,
+                }
+                or nil
+            functions[
+                position
+            ] = {
+                name = program.name,
+                gpu = gpu,
+                symbol = program.symbol,
+                entryMode = program.entryMode,
+                builderMode = program.builderMode,
+                runtimeAbi = program.runtimeAbi,
+                registrar = program.registrar,
+                optimization = artifacts.optimizations[position],
+                loops = artifacts.loops[position],
+            }
+        end
+        io.write(
+            report.encode({
+                file = path,
+                target = {
+                    triple = (selected as targets.Target).triple,
+                    architecture = (selected as targets.Target).architecture,
+                    tier = (selected as targets.Target).tier,
+                },
+                functions = functions,
+                ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
+                c = (emit == nil or emit == "c")
+                and (options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
+                or nil,
+                spirv = spirvHex,
+                wgsl = emit == "wgsl" and wgsl or nil,
+                binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
+                asm = instructionReport,
+            }) .. "\n"
+        )
+    elseif emit == "ir" then
+        io.write(artifacts.irText)
+    elseif emit == "c" then
+        io.write(options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
+    elseif emit == "spirv" then
+        io.write(spirvParts[1])
+    elseif emit == "wgsl" then
+        io.write(wgsl)
+    elseif emit == "asm" then
+        io.write(
+            (
+                "-- %s, %s, %s, %s\n"
+            ):format(
+                path,
+                (selected as targets.Target).triple,
+                (selected as targets.Target).tier,
+                instructionReport.toolchain.version
+            )
+        )
+        for _, listing in ipairs(instructionReport.functions) do
+            writeListing(listing)
+        end
+    elseif emit == "binding" then
+        io.write(artifacts.binding)
+    else
+        for _, program in ipairs(artifacts.programs) do
+            io.write(summarise(path, program, artifacts) .. "\n")
+        end
+    end
+
+    return 0
+end
+
+--- Show what the @aot functions in a file compile to.
+---
+--- With no artifact, reports whether each function uses scalar, explicit SIMD, or GPU
+--- execution. Select verified IR, generated C, native GPU SPIR-V, browser GPU WGSL,
+--- native assembly, or the generated Nupp binding with `--emit`.
+---
+--- Examples:
+---
+---     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
+---     nupp aot --emit ir src/kernel.nupp
+---     nupp aot --emit c src/kernel.nupp
+---     nupp aot --emit asm --function scale src/kernel.nupp
+---     nupp aot --emit wgsl --function transform src/gpu.nupp
+---     nupp aot --format json src/kernel.nupp
+@cli("aot")
+@derive(cliModule.Command)
+local record Aot
+    --- Artifact to print: ir, c, spirv, wgsl, asm, or binding.
+    @cli(value = "ARTIFACT", choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"})
+    emit: string?
+
+    --- Include authored #line locations in emitted C (assembly always carries them).
+    sourceLocations: boolean = false
+
+    --- Show only this function.
+    @cli(name = "function", value = "NAME")
+    functionName: string?
+
+    --- Target triple to compile for.
+    @cli(value = "TRIPLE")
+    target: string?
+
+    --- CPU feature tier to promise.
+    @cli(value = "TIER")
+    features: string?
+
+    --- Calling Lua VM and source-checking dialect.
+    @cli(value = "DIALECT", choices = {"luajit"})
+    dialect: string?
+
+    --- Compiled object path used by a generated binding.
+    @cli(value = "PATH")
+    library: string?
+
+    --- Select the report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Source file to inspect.
+    @cli(positional = "FILE")
+    file: string
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+function Aot.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Aot}

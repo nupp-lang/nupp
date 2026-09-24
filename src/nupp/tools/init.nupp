@@ -1,0 +1,17 @@
+@!internal
+module nupp.tools
+
+--[[
+The tools built on Nupp's compiler: the command line, the build system and project
+model, the language server, the formatter, documentation, and the rest of what
+`nupp` does beyond compiling.
+
+This namespace is not part of the language's public library surface. The leading
+inner annotation keeps this module and every `nupp.tools.*` descendant out of public
+API documentation while still allowing private documentation builds to inspect it.
+
+The dependency runs one way. A tool may use anything in `nupp.compiler`; no
+`nupp.compiler` module may reach back into here.
+]]
+
+export = {}

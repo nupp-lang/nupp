@@ -1,0 +1,152 @@
+module nupp.tools.cli.doc
+
+--[[
+`nupp doc`: the API documentation, generated from what the source already says.
+
+The format is a word rather than an option, as in `nupp doc markdown`, because it
+names what is being produced rather than modifying how. Everything else the
+manifest already configured; the options here override it for one run.
+]]
+const {type Config} = require("nupp.tools.build.manifest")
+const {type Target} = require("nupp.tools.build.manifest")
+
+local cliModule = require("nupp.cli")
+
+local FORMATS: {
+    [string]: string
+} = {site = "site", markdown = "markdown", md = "markdown", json = "json", both = "both",}
+
+local REPORT_SCHEMA = {
+    type = "object",
+    properties = {
+        ok = {type = "boolean"},
+        format = {type = "string", description = "The resolved format: site, markdown, json, or both."},
+        output = {type = "string", description = "The file or directory the run was pointed at."},
+        files = {
+            type = "array",
+            items = {type = "string"},
+            description = "Every path written. A file whose contents did "
+            .. "not change is not rewritten and is not listed."
+        },
+    },
+    required = {"ok", "format", "output", "files"},
+}
+
+local function run(options: any): integer
+    local positional: {string} = {}
+    if options.kind ~= nil then
+        positional[#positional + 1] = options.kind
+    end
+    for _, path in ipairs(options.paths) do
+        positional[#positional + 1] = path
+    end
+    local values = options
+    local doc = require("nupp.tools.doc")
+    local config, configErr = doc.loadConfig(".")
+    if not config then
+        io.stderr:write("nupp: " .. tostring(configErr) .. "\n")
+        return 1
+    end
+    local settings, settingsErr = doc.manifestSettings(config, values.target)
+    if not settings then
+        io.stderr:write("nupp: " .. tostring(settingsErr) .. "\n")
+        return 1
+    end
+    -- What the docs target depends on is what the renderer loads. A project that names
+    -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
+    -- renders rather than reporting a library nobody was told to install.
+    local deps = require("nupp.tools.build.deps")
+    local installed, depErr = deps.build(".", settings.outDir or "build", config as Config, {}, settings as Target)
+    if not installed then
+        io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
+        return 1
+    end
+    local opts: {[string]: any} = {output = values.output, title = values.title}
+    -- The format is the first word when it is one of the format names. Anything else in
+    -- that position is a path, which is what it would have been anyway.
+    local sources: {string} = {}
+    local first = positional[1]
+    local named = first and FORMATS[first] or nil
+    if named then
+        opts.format = named
+    end
+    for index = named and 2 or 1, #positional do
+        sources[#sources + 1] = positional[index]
+    end
+    if #sources > 0 then
+        opts.sources = sources
+    end
+    if values.all then
+        settings.all = true
+    end
+    local asJson = values.format == "json"
+    local written: {string} = {}
+    if asJson then
+        opts.written = written
+    end
+    local code, output, resolved = doc.build(".", config as Config, settings as Target, opts)
+    if asJson then
+        require("nupp.tools.cli.report").write({
+            ok = code == 0,
+            files = written,
+            output = output or "",
+            format = resolved or ""
+        })
+    end
+
+    return code
+end
+
+--- Generate API documentation from source comments.
+---
+--- The first argument may name the documentation format. Remaining arguments
+--- are source paths; with none, the manifest's configured sources are used.
+---
+--- Examples:
+---
+---     nupp doc
+---     nupp doc markdown -o docs/api.md
+---     nupp doc site --target library --output build/site
+@cli("doc")
+@derive(cliModule.Command)
+local record Doc
+    --- Output file or directory.
+    @cli(short = "o", value = "PATH")
+    output: string?
+
+    --- Document a named manifest target.
+    @cli(value = "NAME")
+    target: string?
+
+    --- Documentation title.
+    @cli(value = "TITLE")
+    title: string?
+
+    --- Include private declarations.
+    all: boolean = false
+
+    --- Select this command's report representation.
+    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Print the JSON Schema of JSON output and exit.
+    schema: boolean = false
+
+    --- Documentation output format.
+    @cli(positional = "KIND", choices = {"site", "markdown", "md", "json", "both"})
+    kind: string?
+
+    --- Source paths to document.
+    @cli(positional = "PATH")
+    paths: {string} = {}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+function Doc.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Doc}

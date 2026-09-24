@@ -6,7 +6,7 @@
 -- is made. The second half matters most: a build has been quiet on success for
 -- as long as there have been scripts reading its output, and the only reason
 -- that is still true is that nothing is written unless somebody is watching.
-local progress = require("nupp.compiler.build.progress")
+local progress = require("nupp.tools.build.progress")
 local ansi = require("nupp.cli")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

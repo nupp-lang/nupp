@@ -714,7 +714,7 @@ end
 -- both of those, because collapsing them would either gate on a timing-dependent abort
 -- or hide a compiler that stopped being deterministic.
 function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
-    local runner = require("nupp.compiler.benchrunner")
+    local runner = require("nupp.tools.benchrunner")
 
     local function fork(sites, aborts, allocated)
         return {
@@ -774,7 +774,7 @@ end
 -- arrive as tables, so a merge comparing them by identity would call every fork after
 -- the first nondeterministic and bury the real signal in noise.
 function M.identicalForksReportNoDisagreement()
-    local runner = require("nupp.compiler.benchrunner")
+    local runner = require("nupp.tools.benchrunner")
 
     local function fork()
         return {
@@ -791,7 +791,7 @@ end
 -- An interval needs enough processes to support it, and a process that never settled
 -- cannot contribute to one at all. Both refusals name themselves.
 function M.mergeWithholdsIntervalsItCannotSupport()
-    local runner = require("nupp.compiler.benchrunner")
+    local runner = require("nupp.tools.benchrunner")
 
     local function fork(median, trend)
         return {
@@ -924,7 +924,7 @@ end
 -- A scattered benchmark is reported by name with the number behind the judgement, so
 -- the reader can disagree with the threshold rather than only with the verdict.
 function M.mergeReportsAScatteredBenchmark()
-    local runner = require("nupp.compiler.benchrunner")
+    local runner = require("nupp.tools.benchrunner")
 
     local function fork(samples)
         return {

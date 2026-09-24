@@ -1,5 +1,5 @@
 local types = require("nupp.compiler.types")
-local modules = require("nupp.compiler.build.modules")
+local modules = require("nupp.tools.build.modules")
 
 local M = {}
 

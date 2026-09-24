@@ -13,7 +13,7 @@
 -- and is not obliged to use them.
 
 local json = require("testjson")
-local home = require("nupp.compiler.doc.home")
+local home = require("nupp.tools.doc.home")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

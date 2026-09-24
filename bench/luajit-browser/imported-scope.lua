@@ -3,7 +3,7 @@
 local bundle, sourcePath, dialect = ...
 assert(loadfile(bundle))()
 local json = require("nupp.runtime.provider.lunajson")
-local browser = require("nupp.compiler.browser").new()
+local browser = require("nupp.tools.browser").new()
 local input = assert(io.open(sourcePath, "rb"))
 local source = input:read("*a")
 input:close()

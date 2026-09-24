@@ -63,5 +63,5 @@ for _, setting in ipairs(SETTINGS) do
       :format(setting, b, t, 100 * (t - b) / b, wins, PAIRS))
 end
 
-io.write("\n the shipped setting is in src/nupp/compiler/cli/init.nupp; this is how\n")
+io.write("\n the shipped setting is in src/nupp/tools/cli/init.nupp; this is how\n")
 io.write(" to justify changing it\n\n")

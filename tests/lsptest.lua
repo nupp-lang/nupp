@@ -271,7 +271,7 @@ end
 -- and a test that has to be partway through a request cannot be on the far side
 -- of one.
 local function inProcessSession(rootDir, host)
-    local lsp = require("nupp.compiler.lsp")
+    local lsp = require("nupp.tools.lsp")
     local emitted = {}
     local session = lsp.newSession(
         rootDir,
@@ -338,7 +338,7 @@ local M = {}
 -- answer has to stay the one the scan gave, over every line and every width of
 -- character.
 function M.positionsAgreeWithAScanFromTheStart()
-    local text = require("nupp.compiler.lsp.text")
+    local text = require("nupp.tools.lsp.text")
     local source = "local a = 1\n-- \195\169t\195\169 \240\159\152\128 wide\n\nreturn a\n"
 
     local function scanned(offset)

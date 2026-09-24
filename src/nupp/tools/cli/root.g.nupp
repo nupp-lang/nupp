@@ -1,0 +1,68 @@
+module nupp.tools.cli.root
+
+local cliModule = require("nupp.cli")
+
+--- Nupp compiler and project tool.
+---
+--- Examples:
+---
+---     nupp check
+---     nupp build
+---     nupp run src/main.nupp
+@cli(name = "nupp", group = true)
+@derive(cliModule.Command)
+export record Root
+end
+
+--- Show general or command-specific help.
+---
+--- With no command, prints the command list.
+---
+--- Examples:
+---
+---     nupp help
+---     nupp help build
+---     nupp help lsp rename
+@cli("help")
+@derive(cliModule.Command)
+export record Help
+    --- Command path to describe.
+    @cli(remainder = true, value = "COMMAND")
+    command: {string} = {}
+
+    function run(self): integer
+        return 0
+    end
+end
+
+--- Returns Nupp's top-level commands in help order.
+function Root.subcommands(): {cliModule.CommandType}
+    return {
+        require("nupp.tools.cli.initcommand").commandType,
+        require("nupp.tools.cli.ast").commandType,
+        require("nupp.tools.cli.aot").commandType,
+        require("nupp.tools.cli.bc").commandType,
+        require("nupp.tools.cli.check").commandType,
+        require("nupp.tools.cli.fmt").commandType,
+        require("nupp.tools.cli.build").commandType,
+        require("nupp.tools.cli.clean").commandType,
+        require("nupp.tools.cli.bench").commandType,
+        require("nupp.tools.cli.lints").commandType,
+        require("nupp.tools.cli.ownershipaudit").commandType,
+        require("nupp.tools.cli.explain").commandType,
+        require("nupp.tools.cli.reference").commandType,
+        require("nupp.tools.cli.completionscommand").commandType,
+        require("nupp.tools.cli.test").commandType,
+        require("nupp.tools.cli.task").commandType,
+        require("nupp.tools.cli.doc").commandType,
+        require("nupp.tools.cli.fixpoint").commandType,
+        require("nupp.tools.cli.run").commandType,
+        require("nupp.tools.cli.importc").commandType,
+        require("nupp.tools.cli.migrate").commandType,
+        require("nupp.tools.cli.exportc").commandType,
+        require("nupp.tools.cli.rock").commandType,
+        require("nupp.tools.cli.lsp").commandType,
+        require("nupp.tools.cli.version").commandType,
+        Help,
+    }
+end

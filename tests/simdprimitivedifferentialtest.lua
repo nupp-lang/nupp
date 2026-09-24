@@ -225,7 +225,7 @@ for name, case in pairs(generatedCases) do
 end
 
 function M.nativeCapabilityUsesTheBuildsCompilerSelection()
-    local selected, problem = require("nupp.compiler.build.aot").toolchain(nil, nil)
+    local selected, problem = require("nupp.tools.build.aot").toolchain(nil, nil)
     local capability = runner.nativeCapability()
     if selected == nil then
         test.equal(capability.compilerVersion, nil, tostring(problem))

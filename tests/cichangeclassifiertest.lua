@@ -51,6 +51,19 @@ function M.compilerChangeSelectsEveryPlatformAndFixpoint()
     })
 end
 
+-- The tools moved out of `nupp.compiler` still ship in the compiler's binary and
+-- are verified by its suite, so a change to one has to select what a compiler
+-- change does, and nothing less.
+function M.toolChangeSelectsWhatACompilerChangeDoes()
+    local compiler = jobsFor("src/nupp/compiler/check/callexpr.nupp")
+    for _, path in ipairs({"src/nupp/tools/lsp/init.nupp", "src/nupp/tools/doc/theme.css", "src/nupp/tools/main.nupp"}) do
+        local jobs = jobsFor(path)
+        for name in pairs(compiler) do
+            test.assert(jobs[name], ("%s should select %s"):format(path, name))
+        end
+    end
+end
+
 function M.aotChangeSelectsAotAndFixpoint()
     selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
@@ -71,9 +84,9 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/codec/json/aot.nupp",
         "src/nupp/codec/json/internal/decoder/fused.nupp",
         "src/nupp/compiler/aot/emit.nupp",
-        "src/nupp/compiler/build/aot.nupp",
+        "src/nupp/tools/build/aot.nupp",
         "src/nupp/compiler/compilerpacks.nupp",
-        "src/nupp/compiler/build/project.nupp",
+        "src/nupp/tools/build/project.nupp",
         "src/nupp/compiler/check/aot.nupp",
         "src/nupp/compiler/constspecialize.nupp",
         "src/nupp/compiler/scalarintrinsics.nupp",
@@ -149,7 +162,7 @@ function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
         "windows-integration"
     })
     selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm"})
-    selects("src/nupp/compiler/build/aot.nupp", {"browser-wasm"})
+    selects("src/nupp/tools/build/aot.nupp", {"browser-wasm"})
     selects("src/nupp/simd.nupp", {"browser-wasm"})
     selects("tests/wasm-memory/run.sh", {"browser-wasm"})
 end
@@ -312,8 +325,8 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
         "bench/presize.bench.nupp",
         "src/nupp/bench/init.nupp",
         "src/nupp/bench/internal/statistics.nupp",
-        "src/nupp/compiler/benchrunner.nupp",
-        "src/nupp/compiler/cli/bench.nupp",
+        "src/nupp/tools/benchrunner.nupp",
+        "src/nupp/tools/cli/bench.nupp",
         "tests/benchrunnertest.lua",
     }) do
         test.assert(

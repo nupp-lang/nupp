@@ -195,7 +195,7 @@ function M.theQualifierReachesBothIdentityMechanisms()
     -- Unconditional on purpose. Guarding this behind "if the export exists" would let
     -- the assertion quietly stop running the day the export moves, which is the one
     -- circumstance under which it matters.
-    local modules = require("nupp.compiler.build.modules")
+    local modules = require("nupp.tools.build.modules")
     assertTrue(modules.typeFingerprint ~= nil, "build reuse hashes the boundary through this")
     assertTrue(
         modules.typeFingerprint(safe) ~= modules.typeFingerprint(any),

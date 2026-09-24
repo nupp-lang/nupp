@@ -801,7 +801,7 @@ compiler would brick a build tree over a typo until it was deleted.
 
 A lint that a build should refuse but an editor should not shout about, one
 whose fix is usually the next thing the author types, gets a row in
-`EDITOR_ADVICE` in `src/nupp/compiler/lsp/diagnostics.nupp`:
+`EDITOR_ADVICE` in `src/nupp/tools/lsp/diagnostics.nupp`:
 
 ```nupp
 local EDITOR_ADVICE = {["NUPP2120"] = "warning", -- a project module used without requiring it
