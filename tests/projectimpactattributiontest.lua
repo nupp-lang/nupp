@@ -333,4 +333,39 @@ function M.directDuplicateModulePathAndPriorResolutionSelectBothOwners()
     assert(#selected.fallbacks == 0, "direct path explanation does not suppress the catalog owner")
 end
 
+function M.repositoryCatalogChangesDoNotSelectExternalFixtureCatalogs()
+    local graph = {
+        complete = true,
+        base = "base",
+        modules = {
+            repositoryCatalog = {paths = {projectfact.CATALOG_PATH}, dependencies = {},},
+            repositoryApp = {paths = {"src/app.nupp"}, dependencies = {"repositoryCatalog"},},
+            fixtureCatalogA = {paths = {}, dependencies = {},},
+            fixtureCatalogB = {paths = {}, dependencies = {},},
+            fixtureAppA = {paths = {}, dependencies = {"fixtureCatalogA"},},
+            fixtureAppB = {paths = {}, dependencies = {"fixtureCatalogB"},},
+        },
+        suites = {["tests/exampletest.lua"] = {path = "tests/exampletest.lua", sliceSafe = true, unsafeCases = {},}},
+        impacts = {
+            repositoryApp = {{suite = "tests/exampletest.lua", caseId = "repository",},},
+            fixtureAppA = {{suite = "tests/exampletest.lua", caseId = "fixture-a",},},
+            fixtureAppB = {{suite = "tests/exampletest.lua", caseId = "fixture-b",},},
+        },
+        uncertainSuites = {},
+        uncertainCases = {},
+    }
+    local selected = selection.select(graph, {
+        available = true,
+        base = "base",
+        head = "head",
+        paths = {"src/nupp/codec/base64.nupp"},
+        changes = {{status = "modified", path = "src/nupp/codec/base64.nupp",},},
+    })
+
+    assert(#selected.selectedSuites == 0)
+    assert(#selected.selectedCases == 1)
+    assert(selected.selectedCases[1].caseId == "repository")
+    assert(#selected.fallbacks == 0, "the repository catalog explains the source change")
+end
+
 return M

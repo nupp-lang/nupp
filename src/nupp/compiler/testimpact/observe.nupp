@@ -772,7 +772,10 @@ function observation.new(metadata: any): any
             manifest,
             fs.exists(manifest) and "compiler-manifest" or "compiler-negative-manifest"
         )
-        local fixtureBuild = projectRoot ~= nil and not samePath(buildRoot, projectRoot)
+        -- A tracked subproject still belongs to the repository diff, while a
+        -- temporary project cannot. Keep repository catalog facts reachable by
+        -- the shared sentinel and give external fixtures owner-local facts.
+        local fixtureBuild = projectRoot ~= nil and not pathWithin(projectRoot, buildRoot)
 
         local function rebasedPath(path: any): string?
             if type(path) ~= "string" or path == "" then
@@ -889,16 +892,15 @@ function observation.new(metadata: any): any
                         for _, path in ipairs(paths) do
                             if type(path) == "string" and path ~= "" then
                                 local rebased = rebasedPath(path)
-                                local stablePath = rebased == "@project/catalog" and rebased
-                                    or cleanRelative(projectRoot, rebased)
-                                local synthetic = "@project/"
-                                    .. dependency.name
-                                    .. "/"
-                                    .. dependency.key
-                                    .. "/"
-                                    .. tostring(
-                                        #(stablePath or "")
-                                    ) .. ":" .. (stablePath or "external")
+                                local catalog = rebased == "@project/catalog"
+                                local stablePath = catalog and not fixtureBuild and rebased
+                                    or not catalog and cleanRelative(projectRoot, rebased)
+                                    or nil
+                                local synthetic = (
+                                    fixtureBuild and fixturePrefix or ""
+                                ) .. "@project/" .. dependency.name .. "/" .. dependency.key .. "/" .. tostring(
+                                    #(stablePath or "")
+                                ) .. ":" .. (stablePath or "external")
                                 addDependency(identity, synthetic, "semantic-project", stablePath)
                             else
                                 addUncertainty(

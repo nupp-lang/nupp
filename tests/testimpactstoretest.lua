@@ -187,10 +187,19 @@ function M.corruptTruncatedAndWrongVersionFilesAreMisses()
     versioned.save()
     test.equal(impact.load(versionPath, stamps()), nil)
 
+    graph = assert(impact.canonical(wrong))
+    graph.builder = "test-impact-graph/1"
+    local builderPath = temporary("-builder.buf")
+    local previousBuilder = binaryStore.openValue(builderPath, assert(impact.cacheStamp(stamps())))
+    previousBuilder.set(graph)
+    previousBuilder.save()
+    test.equal(impact.load(builderPath, stamps()), nil)
+
     os.remove(corrupt)
     os.remove(full)
     os.remove(truncated)
     os.remove(versionPath)
+    os.remove(builderPath)
 end
 
 function M.incompleteFailedAndFilteredRunsDoNotReplaceTheGraph()

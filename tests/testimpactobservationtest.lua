@@ -221,6 +221,46 @@ function M.fixtureModulesCannotCollideWithSameNamedRepositoryModules()
     assert(appDependencies[3].module == "nupp.io.path")
 end
 
+function M.externalFixtureCatalogsRemainOwnerScopedAndPathless()
+    local observed = newObservation()
+    observed.beginSuite("tests/buildtest.lua")
+    local semantic = {}
+    for index, caseId in ipairs({"first-fixture", "second-fixture"}) do
+        observed.beginCase(caseId)
+        observed.recordBuildState(
+            {
+                modules = {
+                    app = {
+                        sourcePath = "src/app.nupp",
+                        dependencies = {},
+                        runtimeModules = {},
+                        projectDependencies = {
+                            {name = "projectModulePath", key = "missing", paths = {"@project/catalog"},}
+                        },
+                    },
+                },
+            },
+            "/private/tmp/fixture-" .. tostring(index)
+        )
+        observed.finishCase()
+    end
+    observed.finishSuite()
+
+    local fragment = observed.fragment(true)
+    for _, record in ipairs(fragment.dependencies) do
+        if record.module:match("^@fixture/") and record.module:match("/app$") then
+            assert(#record.dependencies == 1)
+            local edge = record.dependencies[1]
+            assert(edge.module:match("^@fixture/"), "fixture semantic fact is owner scoped")
+            assert(edge.module:match("/@project/projectModulePath/missing/0:external$"))
+            assert(edge.path == nil, "fixture catalog does not carry the repository catalog path")
+            semantic[#semantic + 1] = edge.module
+        end
+    end
+    assert(#semantic == 2, "both fixture catalogs were observed")
+    assert(semantic[1] ~= semantic[2], "same-key fixture catalogs cannot merge")
+end
+
 function M.compilerRuntimeStagingPathsCanonicalizeToRepositorySources()
     local projectRoot = fs.absolute(".")
     local observed = observation.new({

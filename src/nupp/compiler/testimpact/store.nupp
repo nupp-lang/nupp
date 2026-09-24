@@ -28,7 +28,7 @@ local impact = {}
 local FORMAT: integer = 1
 
 --- Identifies the code which derives edges, separately from their shape.
-local BUILDER: string = "test-impact-graph/1"
+local BUILDER: string = "test-impact-graph/2"
 
 --- Lists the exact identity fields in their encoded order.
 local STAMP_FIELDS = {
