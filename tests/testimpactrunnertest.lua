@@ -128,7 +128,16 @@ function M.completeRunPublishesAndDiffSelectsCasesConservatively()
     write(directory .. "/process-impact-mode", "failing\n")
     write(
         directory .. "/src/nested.g.nupp",
-        ("assert(os.execute(%q) == 0)\nreturn true\n"):format(("%q check src/main.nupp"):format(NUPP))
+        (
+            [=[
+local command = %q
+if package.config:sub(1, 1) == "\\" then
+    command = '"' .. command .. '"'
+end
+assert(os.execute(command) == 0)
+return true
+]=]
+        ):format(("%q check src/main.nupp"):format(NUPP))
     )
     write(
         directory .. "/tests/leafimpacttest.nupp",
