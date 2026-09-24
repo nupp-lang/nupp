@@ -1,6 +1,6 @@
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -502,9 +502,9 @@ end
 -- cases but never one case. Apart they spread across shards, and a failure names the
 -- file in the case rather than only in the message.
 local SELF_FORMAT = {
-    {"lexer", "src/nupp/compiler/lexer.nupp"},
-    {"cst", "src/nupp/compiler/cst.nupp"},
-    {"parser", "src/nupp/compiler/parser.nupp"},
+    {"lexer", "src/nupp/compiler/syntax/lexer.nupp"},
+    {"cst", "src/nupp/compiler/syntax/cst.nupp"},
+    {"parser", "src/nupp/compiler/syntax/parser.nupp"},
     {"displaywidth", "src/nupp/tools/fmt/displaywidth.nupp"},
     {"formatter", "src/nupp/tools/fmt/init.nupp"},
     {"main", "src/nupp/tools/main.nupp"},
@@ -513,7 +513,7 @@ local SELF_FORMAT = {
 for _, entry in ipairs(SELF_FORMAT) do
     local label, rel = entry[1], entry[2]
     M["selfFormatStable_" .. label] = function()
-        local parser = require("nupp.compiler.parser")
+        local parser = require("nupp.compiler.syntax.parser")
         local f = assert(io.open(ROOT .. "/" .. rel))
         local src = f:read("*a")
         f:close()

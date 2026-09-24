@@ -1,5 +1,5 @@
-local parser = require("nupp.compiler.parser")
-local cst = require("nupp.compiler.cst")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -690,9 +690,9 @@ end
 
 function M.selfParseClean()
     for _, rel in ipairs({
-        "src/nupp/compiler/lexer.nupp",
-        "src/nupp/compiler/cst.nupp",
-        "src/nupp/compiler/parser.nupp",
+        "src/nupp/compiler/syntax/lexer.nupp",
+        "src/nupp/compiler/syntax/cst.nupp",
+        "src/nupp/compiler/syntax/parser.nupp",
         "tests/lexertest.lua",
         "tests/parsertest.lua",
         "tests/run.lua",
@@ -898,7 +898,7 @@ end
     local ownership = wrapper.stat.body.stats
     assertEq(ownership[1].exprs[1].kind, 'call')
     assertEq(ownership[2].exprs[1].kind, 'call')
-    assertEq(require('nupp.compiler.cst').textOf(accepted.root), fixed)
+    assertEq(require('nupp.compiler.syntax.cst').textOf(accepted.root), fixed)
     for _, legacy in ipairs({'local raw = @unsafe release owner', 'local owner = @unsafe adopt raw as Owner',}) do
         local parsed = parser.parse(legacy)
         assertEq(parsed.errors[1] and parsed.errors[1].code, 'NUPP1005')

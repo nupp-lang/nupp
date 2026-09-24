@@ -3,12 +3,12 @@
 -- The cases run each admitted program through the LuaJIT generator and execute
 -- the resulting straight-line control flow.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
-local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.project.env")
+local gen = require("nupp.compiler.lua.gen")
 local fmt = require("nupp.tools.fmt")
-local optimize = require("nupp.compiler.optimize")
+local optimize = require("nupp.compiler.lua.optimize")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local FILE = "or-exit.g.nupp"

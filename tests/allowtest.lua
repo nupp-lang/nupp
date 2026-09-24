@@ -1,10 +1,10 @@
 -- @allow: saying that a lint is understood and unwanted here. It reaches any
 -- lint, at any level, because a lint is a judgement a project may disagree
 -- with. It does not reach a type error, which is not a judgement.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local compilerCheck = require("nupp.compiler.check")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

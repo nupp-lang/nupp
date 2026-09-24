@@ -12,8 +12,8 @@ See `docs/learn/runtime/ownership/borrowing.md`.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
 local ownership = {}

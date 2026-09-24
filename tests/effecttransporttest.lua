@@ -5,11 +5,11 @@
 -- because boundary finalization qualifies each exported callable from its own
 -- definition: interning collapses two same-signature exports into one type, and the
 -- module shape alone has already lost which of them yields.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
+local relations = require("nupp.compiler.types.relations")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -62,7 +62,7 @@ end
 -- The type a local binding ended up with, found by name in the checked tree.
 local function localType(result, name)
     local found
-    local cst = require("nupp.compiler.cst")
+    local cst = require("nupp.compiler.syntax.cst")
 
     local function walk(node)
         if not node or cst.isToken(node) or found then
@@ -303,7 +303,7 @@ function M.overloadedNominalMethodsKeepTheRightGuarantee()
     local overload = codec and codec.byname and codec.byname.decode
     assertTrue(overload ~= nil and overload.tag == "intersection", "the overload set is exported")
 
-    local generics = require("nupp.compiler.generics")
+    local generics = require("nupp.compiler.types.generics")
     local found = {}
     for _, member in ipairs(overload.members) do
         local callable = generics.dropSelf(member)
@@ -449,7 +449,7 @@ function M.genericSubstitutionKeepsTheQualifier()
     -- Substitution rewrites what a function takes and answers, never whether calling it
     -- may suspend. A generic call site that lost the bit would be may-yield for no
     -- reason a reader could see.
-    local generics = require("nupp.compiler.generics")
+    local generics = require("nupp.compiler.types.generics")
     local tv = T.typeVar and T.typeVar("T") or nil
     if not tv then
         return
@@ -464,8 +464,8 @@ end
 -- does not. What separates them is the effect, not the signature: both versions of
 -- `waiter` are `function(): nil`.
 local function withProject(depSource, run)
-    local query = require("nupp.compiler.query")
-    local incremental = require("nupp.compiler.incremental")
+    local query = require("nupp.compiler.project.query")
+    local incremental = require("nupp.compiler.project.incremental")
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
@@ -525,8 +525,8 @@ function M.aBodyEditThatKeepsTheEffectDoesNot()
 end
 
 function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
-    local query = require("nupp.compiler.query")
-    local incremental = require("nupp.compiler.incremental")
+    local query = require("nupp.compiler.project.query")
+    local incremental = require("nupp.compiler.project.incremental")
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")

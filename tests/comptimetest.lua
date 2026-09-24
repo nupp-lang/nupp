@@ -5,13 +5,13 @@
 -- code and compare it against the same answer reached another way. The rest are the
 -- guard rails, which are worth more here than usual: a block that quietly read the clock
 -- or quietly shared a table would produce a program that builds differently tomorrow.
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local T = require("nupp.compiler.types")
 local comptime = require("nupp.compiler.comptime")
-local typeblueprint = require("nupp.compiler.typeblueprint")
+local typeblueprint = require("nupp.compiler.types.typeblueprint")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -671,7 +671,7 @@ function M.recoversWhenTheWorkerCrashes()
    launcher:write("#!/bin/sh\nkill -9 $$\n")
    launcher:close()
    assertEq(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
-   local worker = require("nupp.compiler.comptimeworker")
+   local worker = require("nupp.compiler.comptime.worker")
    local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
    os.execute(("rm -rf %q"):format(root))
    assertTrue(failure and failure.message:find("crashed", 1, true),
@@ -686,7 +686,7 @@ end
 --- crosses back as data the parent decodes, and a checked project whose pattern
 --- is that one crosses out as a type-function argument.
 function M.theWorkerProtocolCarriesBytesNoEncodingWouldRead()
-   local worker = require("nupp.compiler.comptimeworker")
+   local worker = require("nupp.compiler.comptime.worker")
    local bytes = string.char(0, 31, 128, 255)
    local quoted, failure = worker.evaluate(
       ("comptime do return string.char(%d, %d, %d, %d) end"):format(bytes:byte(1, 4)),
@@ -719,7 +719,7 @@ function M.aTypeFunctionArgumentCarriesBytesNoEncodingWouldRead()
 end
 
 function M.workerCancellationStopsIsolatedEvaluation()
-   local worker = require("nupp.compiler.comptimeworker")
+   local worker = require("nupp.compiler.comptime.worker")
    local pumped = 0
    local _, failure = worker.evaluate(
       "comptime do while true do end end",
@@ -931,7 +931,7 @@ end
 end
 
 function M.fingerprintsEquivalentOpaqueGraphsIdentically()
-   local worker = require("nupp.compiler.comptimeworker")
+   local worker = require("nupp.compiler.comptime.worker")
    local executable = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/bin/nupp"
    local first = [[comptime do
        const a = nupp.__materializationTest.node(1)

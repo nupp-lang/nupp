@@ -1,8 +1,8 @@
 local fmt = require("nupp.tools.fmt")
-local envMod = require("nupp.compiler.env")
-local parser = require("nupp.compiler.parser")
+local envMod = require("nupp.compiler.project.env")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local gen = require("nupp.compiler.gen")
+local gen = require("nupp.compiler.lua.gen")
 
 local M = {}
 local sharedEnv = nil

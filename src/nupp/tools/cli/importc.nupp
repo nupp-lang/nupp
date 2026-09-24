@@ -44,10 +44,10 @@ local function run(options: any): integer
     local header = paths[1]
     local asJson = options.format == "json"
     local reportMod = require("nupp.tools.cli.report")
-    local importc = require("nupp.compiler.importc")
+    local importc = require("nupp.compiler.cinterop.importc")
     local out = options.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
     local config = require("nupp.tools.build.manifest").load(".")
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
     if not options.inspect and not moduleName then
         return usageError("output must be a .nupp file beneath the project root or an include root")

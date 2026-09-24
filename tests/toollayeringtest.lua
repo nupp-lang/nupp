@@ -10,7 +10,7 @@
 --
 -- It is a reading of the source rather than of a run. A dependency that only a rarely
 -- taken branch reaches is a dependency all the same, and a run would not find it.
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 local fs = require("nupp.compiler.fs")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -22,8 +22,8 @@ local M = {}
 -- the compiler's: a module a generator was declared with, and one a stored prelude
 -- image recorded. Each names code the compiler was handed, never code it is built on.
 local REFLECTIVE = {
-    ["src/nupp/compiler/generatorworker.nupp"] = "a generator's provider entry, named by the project",
-    ["src/nupp/compiler/preludecache.nupp"] = "a module a stored prelude image recorded",
+    ["src/nupp/compiler/comptime/generatorworker.nupp"] = "a generator's provider entry, named by the project",
+    ["src/nupp/compiler/project/preludecache.nupp"] = "a module a stored prelude image recorded",
 }
 
 local function names(value)

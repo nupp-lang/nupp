@@ -1,8 +1,8 @@
 -- Record and struct members, and multi-value return expansion.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

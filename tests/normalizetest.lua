@@ -5,7 +5,7 @@
 -- point: a constructor that reduced one hop looks like normalization and is not,
 -- which is how an earlier attempt shipped a projection that went gradual.
 local T = require("nupp.compiler.types")
-local generics = require("nupp.compiler.generics")
+local generics = require("nupp.compiler.types.generics")
 
 local function assertEq(got, want, label)
    if got ~= want then

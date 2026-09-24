@@ -1,4 +1,4 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local annotations = require("nupp.compiler.annotations")
 

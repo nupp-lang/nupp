@@ -16,8 +16,8 @@ it. The walk itself is in nupp.compiler.check.
 const {type AssociatedLookup} = require("nupp.compiler.types")
 
 local T = require("nupp.compiler.types")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local state = {}
 
@@ -29,18 +29,15 @@ local type Node = cst.Node
 
 --- The parse one run is checking, plus the places it writes back what it learned: the
 --- symbols an editor reads, the module's name and the local it returns, and the
---- interface it publishes. Open rather than declared, because `nupp.compiler.parser`
---- owns
---- the
---- shape it produced and a run adds to it rather than replacing it.
+--- interface it publishes. Open rather than declared, because
+--- `nupp.compiler.syntax.parser` owns the shape it produced and a run adds to it rather
+--- than replacing it.
 type state.Parse = {[string]: any}
 
 --- The project environment: the globals and their types, the string library's shape,
 --- and the functions that resolve a name into another file's declarations. Open for the
---- same reason: `nupp.compiler.env` fills it in a piece at a time, across several
---- passes,
---- and a
---- run reads whichever pieces are there.
+--- same reason: `nupp.compiler.project.env` fills it in a piece at a time, across
+--- several passes, and a run reads whichever pieces are there.
 type state.Env = {[string]: any}
 
 --- What a caller may ask of one run: strict checking, the module's name, an annotation

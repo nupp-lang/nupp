@@ -24,8 +24,8 @@ const {type Target as Target2} = require("nupp.compiler.tracesource")
 const {type Checker as Checker2} = require("nupp.compiler.tracesource")
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local consteval = require("nupp.compiler.consteval")
+local relations = require("nupp.compiler.types.relations")
+local consteval = require("nupp.compiler.types.consteval")
 local lints = require("nupp.compiler.lints")
 local fixits = require("nupp.compiler.check.fixits")
 local annotate = require("nupp.compiler.check.annotate")
@@ -53,7 +53,7 @@ local cdef = require("nupp.compiler.check.cdef")
 local pragma = require("nupp.compiler.check.pragma")
 local derive = require("nupp.compiler.check.derive")
 local metatable = require("nupp.compiler.check.metatable")
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local annotationMod = require("nupp.compiler.annotations")
 local state = require("nupp.compiler.check.state")
 local capabilities = require("nupp.compiler.capabilities")
@@ -62,10 +62,10 @@ local getenv = hostOs and hostOs.getenv or function(): nil
     return nil
 end
 
-local generics = require("nupp.compiler.generics")
-local methodslots = require("nupp.compiler.methodslots")
+local generics = require("nupp.compiler.types.generics")
+local methodslots = require("nupp.compiler.lua.methodslots")
 local comptime = require("nupp.compiler.comptime")
-local typeblueprint = require("nupp.compiler.typeblueprint")
+local typeblueprint = require("nupp.compiler.types.typeblueprint")
 local reflection = require("nupp.compiler.reflection")
 local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
@@ -142,7 +142,7 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     -- pointer does not ask about its pointee, and a projection inside either is
     -- reached exactly where the representation depends on it.
     if t.tag == "projection" then
-        local reduced = require("nupp.compiler.generics").normalize(t)
+        local reduced = require("nupp.compiler.types.generics").normalize(t)
         if reduced.cycle then
             -- The cycle is the fault and NUPP2131 owns it. Reporting no
             -- representation as well would be a second complaint about one mistake.
@@ -3345,7 +3345,7 @@ function checkMod.check(
             failed = failed or diagnostic.severity == "error"
         end
         if not failed then
-            local _, generated = require("nupp.compiler.gen").generate(result as any, filename)
+            local _, generated = require("nupp.compiler.lua.gen").generate(result as any, filename)
             for _, diagnostic in ipairs(generated) do
                 diagnostic.severity = diagnostic.severity or "error"
                 c.diags[#c.diags + 1] = diagnostic

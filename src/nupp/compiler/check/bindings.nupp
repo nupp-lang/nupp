@@ -13,12 +13,12 @@ the module's own table, what publishes a member of it.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local narrowing = require("nupp.compiler.narrowing")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local narrowing = require("nupp.compiler.types.narrowing")
+local cst = require("nupp.compiler.syntax.cst")
 local mutation = require("nupp.compiler.check.mutation")
-local fixedWidth = require("nupp.compiler.fixedwidth")
-local indexedViews = require("nupp.compiler.indexedviews")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
+local indexedViews = require("nupp.compiler.types.indexedviews")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA

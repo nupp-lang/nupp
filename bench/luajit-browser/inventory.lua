@@ -1,7 +1,7 @@
 -- Run after a normal compiler build. The effect sets and cleanup helpers come
 -- from that build, not from an approximation of require reachability.
 local json = require("nupp.runtime.provider.lunajson")
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local compat = require("nupp.compiler.compat")
 local native = require("nupp.compiler.native")
 

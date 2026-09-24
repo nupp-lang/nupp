@@ -5,7 +5,7 @@
 -- rule has to sit in the subtyping relation -- enforcing it only in generic call
 -- checking would let `local x: I = value` accept a value that answers nothing.
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
+local relations = require("nupp.compiler.types.relations")
 
 local function assertEq(got, want, label)
    if got ~= want then

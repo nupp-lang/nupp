@@ -377,7 +377,7 @@ local function run(options: any): integer
         io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
         return finish(1, {})
     end
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local env = envMod.new(".", {compat = values.compat})
     settings.compat = env.compat
     settings.materializations = materializations
@@ -393,7 +393,7 @@ local function run(options: any): integer
     local outputs: {string} = {}
     local runtimeNames: {[string]: boolean} = {}
     local runtimeDone: {[string]: boolean} = {}
-    local gen = require("nupp.compiler.gen")
+    local gen = require("nupp.compiler.lua.gen")
     local carried = require("nupp.compiler.bundled")
 
     -- Positionals arrive spelled however the caller typed them, while `env.loaded`

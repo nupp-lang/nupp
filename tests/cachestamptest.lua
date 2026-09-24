@@ -6,8 +6,8 @@
 -- recomputes -- so nothing else in the suite notices, and the project quietly reparses
 -- itself on every command. These are the tests that notice.
 local cache = require("nupp.tools.build.cache")
-local fingerprint = require("nupp.compiler.fingerprint")
-local envMod = require("nupp.compiler.env")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -54,7 +54,7 @@ function M.eachSubsystemIsStampedWithItselfRatherThanTheWholeCompiler()
     local whole = fingerprint.toolFingerprint()
     local seen = {}
     for _, name in ipairs({
-        "nupp.compiler.header",
+        "nupp.compiler.project.header",
         "nupp.tools.fmt",
         "nupp.compiler.check",
         "nupp.tools.build.modules",
@@ -69,11 +69,11 @@ end
 -- The generated SPI index is data. Its dependency declarations connect the lazy
 -- loader to the implementation code, and a qualified global require still counts.
 function M.spiIndexDependenciesRetainNarrowImplementationStamps()
-    local source = assert(io.open(ROOT .. "/build/nupp/compiler/fingerprint.lua", "rb"))
+    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
     local cacheCode = source:read("*a")
     source:close()
     local dir = tempProject({
-        ["nupp/compiler/fingerprint.lua"] = cacheCode,
+        ["nupp/compiler/project/fingerprint.lua"] = cacheCode,
         ["nupp/compiler/entry.lua"] = 'return _G.require("nupp.spi")',
         [
             "nupp/spi.lua"
@@ -92,14 +92,14 @@ return {["example.spi.Provider"] = {"nupp.fixture"}}
     })
 
     local function stamp()
-        local prior = package.loaded["nupp.compiler.fingerprint"]
+        local prior = package.loaded["nupp.compiler.project.fingerprint"]
         local ok, result = pcall(function()
-            local isolated = dofile(dir .. "/nupp/compiler/fingerprint.lua")
+            local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
             local narrow = isolated.subsystemFingerprint({"nupp.compiler.entry"})
             assert(narrow ~= isolated.toolFingerprint(), "SPI discovery made the graph incomplete")
             return narrow
         end)
-        package.loaded["nupp.compiler.fingerprint"] = prior
+        package.loaded["nupp.compiler.project.fingerprint"] = prior
         assert(ok, result)
 
         return result
@@ -134,7 +134,7 @@ function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
-    fingerprint.subsystemFingerprint({"nupp.compiler.fingerprint", "nupp.compiler.stable"}, dir)
+    fingerprint.subsystemFingerprint({"nupp.compiler.project.fingerprint", "nupp.compiler.stable"}, dir)
     assert(
         exists(dir .. "/modulegraph.buf"),
         "the store handed to a later caller receives the graph the earlier one computed"
@@ -269,7 +269,7 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
         return passed, output
     end
 
-    local store = require("nupp.compiler.store")
+    local store = require("nupp.compiler.project.store")
     local path = dir .. "/build/cache/checks.buf"
 
     local function stored()

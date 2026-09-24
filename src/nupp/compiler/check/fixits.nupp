@@ -13,7 +13,7 @@ None of this reads the checker's scopes, only the parse and the project index,
 so it is built once per file and asked, rather than threaded through the walk.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
 local fixits = {}
@@ -185,7 +185,7 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
     end
 
     function self.refinementFix(expr: any, target: any): {any}?
-        local fixedWidth = require("nupp.compiler.fixedwidth")
+        local fixedWidth = require("nupp.compiler.types.fixedwidth")
         local first, last = cst.firstToken(expr), cst.lastToken(expr)
         local path = target and fixedWidth.conversionPath(target) or nil
         if not first or not last or not path then

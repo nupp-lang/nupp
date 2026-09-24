@@ -150,9 +150,9 @@ function M.malformedMessagesAreRefusedRatherThanDecoded()
 end
 
 function M.providersUseTheCanonicalScopeContract()
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local fragment = require("fragment")
-    local env = require("nupp.compiler.env").new(os.tmpname(), {cache = false})
+    local env = require("nupp.compiler.project.env").new(os.tmpname(), {cache = false})
     local parsed = parser.parse(
         [[
 const spi = require("nupp.spi")

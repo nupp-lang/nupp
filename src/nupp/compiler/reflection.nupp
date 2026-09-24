@@ -4,7 +4,7 @@ module nupp.compiler.reflection
 
 local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
-local members = require("nupp.compiler.members")
+local members = require("nupp.compiler.types.members")
 local T = require("nupp.compiler.types")
 
 local record reflection

@@ -3,7 +3,7 @@
 local test = require("nupp.test")
 local runner = require("tests.simd.runner")
 local hash = require("nupp.compiler.hash")
-local fingerprint = require("nupp.compiler.fingerprint")
+local fingerprint = require("nupp.compiler.project.fingerprint")
 local M = {}
 
 local ROOT = runner.root()

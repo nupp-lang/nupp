@@ -5,9 +5,9 @@ package.path = root .. "/build/?.lua;" .. package.path
 
 local aot = require("nupp.compiler.aot.compile")
 local target = require("nupp.compiler.aot.target")
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local env = require("nupp.compiler.env")
+local env = require("nupp.compiler.project.env")
 
 local input = assert(arg[1], "usage: compile.lua INPUT.nupp OUTPUT_DIR")
 local output = assert(arg[2], "usage: compile.lua INPUT.nupp OUTPUT_DIR")

@@ -10,7 +10,7 @@ owners and must not be conflated.
 const {type Config} = require("nupp.tools.build.manifest")
 const {type Target} = require("nupp.tools.build.manifest")
 
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local native = require("nupp.compiler.native")
 local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.process")

@@ -56,9 +56,9 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
     })
     local ok, why = pcall(function()
         -- An editor opens the manifest directly, without build's private _target.
-        local environment = require("nupp.compiler.env").new(dir, {cache = false})
+        local environment = require("nupp.compiler.project.env").new(dir, {cache = false})
         local path = dir .. "/src/main.g.nupp"
-        local parsed = require("nupp.compiler.parser").parse(source, path)
+        local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
         assert(#parsed.errors == 0)
         local diagnostics = require("fragment").check(parsed, path, environment)
         for _, diagnostic in ipairs(diagnostics) do

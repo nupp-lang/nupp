@@ -1,7 +1,7 @@
 -- Width-aware formatting, docblocks, and the safety invariant.
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local function assertEq(got, want, label)
     if got ~= want then

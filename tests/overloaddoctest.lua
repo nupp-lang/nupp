@@ -1,8 +1,8 @@
 -- Every Nupp fence in the overload guide is a complete checked program. Invalid
 -- examples name their intended diagnostic in a leading `-- reports:` comment.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."

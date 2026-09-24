@@ -1,4 +1,4 @@
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local function kindsOf(src)
    local tokens = select(1, lexer.lex(src))
@@ -56,8 +56,8 @@ local M = {}
 
 function M.triviaArenaProvidersShareOneContract()
    local providers = {
-      require("nupp.compiler.triviaarena.ffi"),
-      require("nupp.compiler.triviaarena.table"),
+      require("nupp.compiler.syntax.triviaarena.ffi"),
+      require("nupp.compiler.syntax.triviaarena.table"),
    }
    for _, provider in ipairs(providers) do
       local arena = provider.new("  -- note\nvalue")

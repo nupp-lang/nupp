@@ -1,6 +1,6 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local environment = envMod.new(HERE .. "/..")
 local M = {}
@@ -87,7 +87,7 @@ end
 
 function M.bundledAliasesShareStagedNominalTypes()
     local fs = require("nupp.compiler.fs")
-    local incremental = require("nupp.compiler.incremental")
+    local incremental = require("nupp.compiler.project.incremental")
     local dir = os.tmpname()
     os.remove(dir)
     assert(fs.mkdir(dir .. "/src/nupp/text/internal"))
@@ -134,7 +134,7 @@ end
 
 function M.providerIdentityAndGenericsSurviveModuleCaches()
     local fs = require("nupp.compiler.fs")
-    local incremental = require("nupp.compiler.incremental")
+    local incremental = require("nupp.compiler.project.incremental")
     local dir = os.tmpname()
     os.remove(dir)
     assert(fs.mkdir(dir))

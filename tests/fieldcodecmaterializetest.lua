@@ -1,8 +1,8 @@
 -- Semantic type reflection and the non-PEG materialization provider.
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

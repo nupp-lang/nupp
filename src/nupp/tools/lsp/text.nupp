@@ -9,7 +9,7 @@ be needed. Incremental edits arrive as replaced ranges, and a reply that says
 what changed needs the smallest run of lines that differ.
 ]]
 
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local text = {}
 

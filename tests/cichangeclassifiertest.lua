@@ -88,7 +88,7 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/compiler/compilerpacks.nupp",
         "src/nupp/tools/build/project.nupp",
         "src/nupp/compiler/check/aot.nupp",
-        "src/nupp/compiler/constspecialize.nupp",
+        "src/nupp/compiler/lua/constspecialize.nupp",
         "src/nupp/compiler/scalarintrinsics.nupp",
         "src/nupp/compiler/targetlayout.nupp",
         "src/nupp/compiler/targetprofile.nupp",
@@ -344,7 +344,7 @@ end
 function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     local surfacesOf = classifier().surfacesOf
     test.assert(
-        not surfacesOf("src/nupp/compiler/gen.nupp").measurement,
+        not surfacesOf("src/nupp/compiler/lua/gen.nupp").measurement,
         "an ordinary compiler change should not pay for the runner suite"
     )
 

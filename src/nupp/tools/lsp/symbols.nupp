@@ -6,7 +6,7 @@ The outline of a file, and what folds.
 Both are read from the tree rather than from the checker: an outline has to be
 there while the code is being written, which is exactly when it does not check.
 ]]
-const {type Funcname} = require("nupp.compiler.cst")
+const {type Funcname} = require("nupp.compiler.syntax.cst")
 
 local wire = require("nupp.tools.lsp.wire")
 local tree = require("nupp.tools.lsp.tree")

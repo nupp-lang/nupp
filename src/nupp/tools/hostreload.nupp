@@ -152,7 +152,7 @@ function hostreload.open(entry: string, root: string?, strict: boolean?): (hostr
         return nil, "a hot reload session is already open in this process"
     end
     local fs = require("nupp.compiler.fs")
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local compile = require("nupp.tools.cli.compile")
     local watch = require("nupp.tools.cli.watch")
     local projectRoot = root or "."

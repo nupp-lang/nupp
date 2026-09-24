@@ -1,5 +1,5 @@
 local fs = require("nupp.compiler.fs")
-local incremental = require("nupp.compiler.incremental")
+local incremental = require("nupp.compiler.project.incremental")
 local navigation = require("nupp.tools.lsp.spi")
 local M = {}
 

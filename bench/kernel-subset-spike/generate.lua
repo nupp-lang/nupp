@@ -3,9 +3,9 @@
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local root = here .. "../.."
 local compiler = dofile(here .. "kernel_compiler.lua")
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local env = require("nupp.compiler.env")
+local env = require("nupp.compiler.project.env")
 local input = assert(arg[1], "usage: generate.lua INPUT.nupp OUTPUT_DIR")
 local output = assert(arg[2], "usage: generate.lua INPUT.nupp OUTPUT_DIR")
 

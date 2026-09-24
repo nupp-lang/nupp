@@ -1,7 +1,7 @@
 module nupp.tools.browserluajit
 
 local Browser = require("nupp.tools.browser")
-local cheader = require("nupp.compiler.cheader")
+local cheader = require("nupp.compiler.cinterop.cheader")
 
 local function unavailable(): (nil, string)
     return nil, "the browser compiler cannot read C headers or invoke a preprocessor; declare C types inline"

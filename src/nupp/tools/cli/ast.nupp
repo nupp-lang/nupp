@@ -78,7 +78,7 @@ local function syntaxTreeValue(cst: any, value: any): any
     if cst.isToken(value) then
         local trivia: {any} = {}
         for index = 1, value.triviaCount do
-            trivia[#trivia + 1] = require("nupp.compiler.lexer").triviaRecord(value, index)
+            trivia[#trivia + 1] = require("nupp.compiler.syntax.lexer").triviaRecord(value, index)
         end
         return {
             tag = "token",
@@ -112,8 +112,8 @@ local function run(options: any): integer
         io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
         return 1
     end
-    local parser = require("nupp.compiler.parser")
-    local cst = require("nupp.compiler.cst")
+    local parser = require("nupp.compiler.syntax.parser")
+    local cst = require("nupp.compiler.syntax.cst")
     local result = parser.parse(source, path)
     local errors: {any} = {}
     for _, err in ipairs(result.errors) do

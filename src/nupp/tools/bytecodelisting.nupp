@@ -6,7 +6,7 @@ The human listing `nupp bc` prints, and where each of its lines came from.
 The listing is a rendering rather than a lowering: one source line appears once
 as an echo and then again as however many instructions it produced, and the
 generated runtime preamble collapses into a single summary line. So unlike
-generated Lua -- which `nupp.compiler.gen` holds to the source's own line
+generated Lua -- which `nupp.compiler.lua.gen` holds to the source's own line
 numbering -- a bytecode listing needs its correspondence written down, and this
 module is the one place that writes it.
 

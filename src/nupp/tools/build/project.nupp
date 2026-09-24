@@ -10,12 +10,12 @@ in the build cache, not by timestamps.
 ]]
 const {type Stats} = require("nupp.tools.build.modules")
 
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.tools.build.cache")
-local fingerprint = require("nupp.compiler.fingerprint")
+local fingerprint = require("nupp.compiler.project.fingerprint")
 local manifest = require("nupp.tools.build.manifest")
 local tasks = require("nupp.tools.build.tasks")
 local deps = require("nupp.tools.build.deps")
@@ -24,10 +24,10 @@ local spi = require("nupp.tools.build.spi")
 local modules = require("nupp.tools.build.modules")
 local packaging = require("nupp.tools.build.package")
 local buildPlatform = require("nupp.tools.build.platform")
-local storeMod = require("nupp.compiler.store")
+local storeMod = require("nupp.compiler.project.store")
 local native = require("nupp.tools.build.native")
 local nativeFeatures = require("nupp.compiler.native")
-local materializeObserve = require("nupp.compiler.materialize.observe")
+local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progressMod = require("nupp.tools.build.progress")
 
 local project = {}

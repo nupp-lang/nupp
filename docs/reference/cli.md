@@ -729,16 +729,16 @@ far through the source set it is, on one line it rewrites in place, and finishes
 with how long it took and where that time went:
 
 ```text
-  [ 62%] [251/405] checking src/nupp/compiler/gen.nupp
+  [ 62%] [251/405] checking src/nupp/compiler/lua/gen.nupp
 ```
 
 ```text
 checked compiler in 44.3s: 405 compiled, 0 reused
   check 41.8s  scan 1.9s
   slowest
-    nupp.compiler.gen        2.7s
-    nupp.compiler.parser     1.6s
-    nupp.compiler.aot.lower  1.3s
+    nupp.compiler.lua.gen          2.7s
+    nupp.compiler.syntax.parser    1.6s
+    nupp.compiler.aot.lower        1.3s
 ```
 
 The count is what to compare between runs and the percentage is what says at a
@@ -967,7 +967,7 @@ to, and the modules that cost the most of it:
 built compiler in 18.9s: 164 compiled, 0 reused
   check 16.1s  generate 952ms
   slowest
-    nupp.compiler.gen            1.9s
+    nupp.compiler.lua.gen        1.9s
     nupp.mem.heap                699ms
     nupp.compiler.check.calls    664ms
 ```

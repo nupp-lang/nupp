@@ -13,17 +13,17 @@ answer of nil rather than a diagnostic -- so they are the same handler.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
-local fixedWidth = require("nupp.compiler.fixedwidth")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local native = require("nupp.compiler.native")
-local indexedViews = require("nupp.compiler.indexedviews")
-local members = require("nupp.compiler.members")
+local indexedViews = require("nupp.compiler.types.indexedviews")
+local members = require("nupp.compiler.types.members")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 local standardSurface = require("nupp.compiler.standardsurface")
-local narrowing = require("nupp.compiler.narrowing")
+local narrowing = require("nupp.compiler.types.narrowing")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -829,7 +829,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             if root then
                 local member = key.kind == "string"
                     and key.token
-                    and require("nupp.compiler.lexer").stringValue(key.token.text)
+                    and require("nupp.compiler.syntax.lexer").stringValue(key.token.text)
                     or nil
                 if member then
                     runtimeSurface.requireIdentity(c, root, member, key)

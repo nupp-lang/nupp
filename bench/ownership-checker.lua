@@ -13,9 +13,9 @@
 -- the same machine; plans 047-050 permit 5% warm-check, 10% cold/full-check, summary,
 -- and peak-memory regressions.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local modules = require("nupp.tools.build.modules")
 local project = require("nupp.tools.build.project")
 

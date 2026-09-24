@@ -39,7 +39,7 @@ const {type Links} = require("nupp.tools.doc.urls")
 local stringsMod = require("nupp.tools.doc.strings")
 local highlightMod = require("nupp.tools.doc.highlight")
 local urlsMod = require("nupp.tools.doc.urls")
-local syntax = require("nupp.compiler.docsyntax")
+local syntax = require("nupp.compiler.syntax.docsyntax")
 local utf8 = require("nupp.text.utf8")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape

@@ -2,10 +2,10 @@
 -- larger than unit recipes: compiler configuration, manifest-cache
 -- JSON corpora, and the external Tecs MCP request shape.
 
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -76,7 +76,7 @@ local corpora = {
     new ModuleCache(
         sourceHash = "source-a",
         interfaceHash = "interface-a",
-        dependencies = {"nupp.compiler.types", "nupp.compiler.env"},
+        dependencies = {"nupp.compiler.types", "nupp.compiler.project.env"},
         effects = {"stdlib.derives"},
         external = false
     ),
@@ -112,7 +112,7 @@ return {bytes = bytes, accepted = accepted, rejected = rejected, failure = failu
         result.bytes[
             1
         ] == '{"sourceHash":"source-a","interfaceHash":"interface-a",'
-        .. '"dependencies":["nupp.compiler.types","nupp.compiler.env"],'
+        .. '"dependencies":["nupp.compiler.types","nupp.compiler.project.env"],'
         .. '"effects":["stdlib.derives"],"external":false}',
         "derived manifest bytes differ from the pinned ordering"
     )

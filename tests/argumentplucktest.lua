@@ -1,6 +1,6 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
+local gen = require("nupp.compiler.lua.gen")
 local fmt = require("nupp.tools.fmt")
 
 local function assertEq(got, want, label)
@@ -48,7 +48,7 @@ local M = {}
 function M.syntaxRoundTripsAndRecordsArgumentKinds()
     local source = vector .. "\ndraw({x} = position, {y} = position, color = 'red')"
     local result = parsed(source)
-    assertEq(require("nupp.compiler.cst").textOf(result.root), source)
+    assertEq(require("nupp.compiler.syntax.cst").textOf(result.root), source)
     local call = result.root.blocks[1].stats[2].expr
     assertEq(call.args.exprs[1].kind, "pluckArg")
     assertEq(#call.args.exprs[1].names, 1)

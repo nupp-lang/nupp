@@ -3,14 +3,14 @@ module nupp.compiler.check.derive
 -- Declaration derives share one closed provider and recipe pipeline.
 
 local T = require("nupp.compiler.types")
-local cst = require("nupp.compiler.cst")
-local relations = require("nupp.compiler.relations")
-local generics = require("nupp.compiler.generics")
+local cst = require("nupp.compiler.syntax.cst")
+local relations = require("nupp.compiler.types.relations")
+local generics = require("nupp.compiler.types.generics")
 local hash = require("nupp.compiler.hash")
-local docblock = require("nupp.compiler.docblock")
-local recipeCodec = require("nupp.compiler.materialize.codec")
+local docblock = require("nupp.compiler.syntax.docblock")
+local recipeCodec = require("nupp.compiler.comptime.materialize.codec")
 local reflection = require("nupp.compiler.reflection")
-local typeblueprint = require("nupp.compiler.typeblueprint")
+local typeblueprint = require("nupp.compiler.types.typeblueprint")
 local comptime = require(
     "nupp.compiler.comptime"
 ) as {evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)}
@@ -117,7 +117,7 @@ local function providerFilePaths(program)
     for name, descriptor in pairs(program and program.serializedHelpers or {}) do
         if type(descriptor) == "table" and type(descriptor.source) == "string" then
             local parsed = require(
-                "nupp.compiler.parser"
+                "nupp.compiler.syntax.parser"
             ).parse(descriptor.source, "=provider-input-" .. tostring(name))
             if #(parsed.errors or {}) == 0 then
                 visit(parsed.root)
@@ -555,8 +555,8 @@ function derive.install(c: state.Checker): derive.Ops
             -- closed; handing it the supertype list would let a recipe enumerate
             -- contracts nobody named to it. It still has to reach the fingerprint,
             -- because a memoized answer stays right only while the interfaces behind it
-            -- do. The accessor in nupp.compiler.materialize.derive is what enforces the
-            -- first half, and the loop below feeds the second.
+            -- do. The accessor in nupp.compiler.comptime.materialize.derive is what
+            -- enforces the first half, and the loop below feeds the second.
             local claimSource = fieldType and fieldType.tag == "nominal" and (fieldType.origin or fieldType) or nil
             if claimSource and claimSource.deriveDeclaration and not claimSource.deriveClaimsComplete then
                 claim(claimSource.deriveDeclaration, claimSource)

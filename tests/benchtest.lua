@@ -14,11 +14,11 @@
 -- that matter are that an optimization level keys a baseline -- `-O0` and `-O1` were
 -- never comparable -- and that a compiler digest never does, because a compiler change
 -- moving a counter is the regression this is for rather than a reason to stop looking.
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
-local optimize = require("nupp.compiler.optimize")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
+local optimize = require("nupp.compiler.lua.optimize")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local json = require("testjson")
 local files = require("nupp.io.files")
 

@@ -15,8 +15,8 @@ declaration can start, and a bare name is a type, a call or a binding depending
 on what the semantic layer made of it.
 ]]
 
-local lexer = require("nupp.compiler.lexer")
-local parser = require("nupp.compiler.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
+local parser = require("nupp.compiler.syntax.parser")
 local semantic = require("nupp.tools.lsp.semantic")
 local types = require("nupp.compiler.types")
 

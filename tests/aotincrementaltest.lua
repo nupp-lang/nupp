@@ -399,7 +399,7 @@ function M.preEmissionInputsInvalidateIndependently()
     )
 
     write(dir .. "/src/interface.d.nupp", "module interface\nexport type Value = number\n")
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local declared = envMod.listSourceFilesFor({memoryOnly = false}, dir, {"src"}, dir .. "/build", true)
     local declarationBase = aot.inputFingerprint(declared, semantic)
     write(dir .. "/src/interface.d.nupp", "module interface\nexport type Value = string\n")

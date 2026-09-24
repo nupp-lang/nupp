@@ -1,9 +1,9 @@
 -- `@raises`, and the lint that asks a documented function to write one.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
-local docblock = require("nupp.compiler.docblock")
+local envMod = require("nupp.compiler.project.env")
+local docblock = require("nupp.compiler.syntax.docblock")
 
 -- One environment for the whole suite.
 --

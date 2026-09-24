@@ -5,10 +5,10 @@
 -- command happened to require the module first -- and once, only under a coverage build,
 -- because that instruments the largest function in the compiler and tips it over.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

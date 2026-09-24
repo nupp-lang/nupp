@@ -20,8 +20,8 @@
 -- committing it. A golden nobody read is a record of a bug as readily as of a rule.
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
-local lexer = require("nupp.compiler.lexer")
-local parser = require("nupp.compiler.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
+local parser = require("nupp.compiler.syntax.parser")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local CORPUS = HERE .. "/fmtcorpus"

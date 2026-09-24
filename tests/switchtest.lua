@@ -1,6 +1,6 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
+local gen = require("nupp.compiler.lua.gen")
 
 local function assertEq(got, want, label)
     if got ~= want then

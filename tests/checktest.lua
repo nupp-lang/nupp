@@ -1,7 +1,7 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
+local relations = require("nupp.compiler.types.relations")
 
 local function assertEq(got, want, label)
     if got ~= want then
@@ -355,7 +355,7 @@ function M.mutableArraysPreserveTheirElementType()
     assertEq(diagsOf(decl .. "local nums: {number} = ints\nnums[1] = 1.5"), "NUPP2001:2")
     assertEq(diagsOf(decl .. "local function fill(xs: {number}): nil xs[1] = 1.5 end\nfill(ints)"), "NUPP2006:3")
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-    local env = require("nupp.compiler.env").new(here .. "/..")
+    local env = require("nupp.compiler.project.env").new(here .. "/..")
     assertEq(checkedDiags(decl .. "table.insert(ints, 1.5)", env), "NUPP2125:2")
     assertEq(checkedDiags(decl .. "table.insert(ints, 1, 1.5)", env), "NUPP2125:2")
     assertEq(checkedDiags(decl .. "table.insert(ints, 3)\ntable.insert(ints, 1, 4)", env), "")
@@ -585,7 +585,7 @@ end
 
 function M.assertRemovesFalseFromItsResult()
     -- the prelude's assert, which is the one that narrows
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local result = parser.parse(
         table.concat({"local impossible: never = assert(false)", "return impossible",}, "\n"),
@@ -1875,7 +1875,7 @@ end
 -- A bare field is a truthiness test, as the refinements page says, so it lowers
 -- to the access itself: `false` fails it, where `~= nil` would have let it through.
 function M.aBareFieldRefinementIsATruthinessTest()
-    local predicate = require("nupp.compiler.predicate")
+    local predicate = require("nupp.compiler.types.predicate")
     assertEq(predicate.render({op = "truthy", path = {"enabled"}}, "v"), "v.enabled")
     assertEq(predicate.render({op = "truthy", path = {"a", "b"}}, "v"), "v.a?.b")
     assertEq(predicate.render({op = "not", a = {op = "truthy", path = {"off"}}}, "v"), "not (v.off)")
@@ -1885,7 +1885,7 @@ end
 -- an integer, allocates nothing and calls nothing, so it keeps the properties that
 -- let `is` be written anywhere. It reads the same either way round.
 function M.aLengthRefinementIsAdmittedAndNormalised()
-    local predicate = require("nupp.compiler.predicate")
+    local predicate = require("nupp.compiler.types.predicate")
     assertClean(
         table.concat(
             {
@@ -1913,7 +1913,7 @@ end
 -- Three-valued against a value, the way `satisfiedBy` is against declared fields:
 -- proved, refuted, or undecided because the refinement reads what is not there.
 function M.satisfiedByValueAnswersThreeWays()
-    local predicate = require("nupp.compiler.predicate")
+    local predicate = require("nupp.compiler.types.predicate")
     local inRange = {
         op = "and",
         a = {op = "cmp", cmp = ">=", path = {}, literal = "0", constant = 0},

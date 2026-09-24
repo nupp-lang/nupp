@@ -479,7 +479,7 @@ function M.bundledRunnerRecoversStaleFixtureLeasesAndKeepsFreshOnes()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
-    local digest = require("nupp.compiler.fingerprint").contentDigest(true)
+    local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
 
     local function fixtureSlot(key)
         return dir .. "/build/test-fixtures/fixture-" .. digest("nupp-test-fixture\0" .. key)

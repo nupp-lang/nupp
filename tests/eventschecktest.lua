@@ -4,9 +4,9 @@
 -- named pack, and the derive's refusals. The end-to-end fixtures run the compiler
 -- so the derive worker and the generated initializer are exercised as shipped.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local process = require("nupp.compiler.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

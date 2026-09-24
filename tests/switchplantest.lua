@@ -1,6 +1,6 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local switchplan = require("nupp.compiler.switchplan")
+local switchplan = require("nupp.compiler.lua.switchplan")
 
 local M = {}
 

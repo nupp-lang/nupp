@@ -3,9 +3,9 @@
 -- The guarantee that another isolated Lua state can reproduce a callable. Asserted
 -- here: module members, contextual literals, effectively-final captures, capture
 -- copyability, and the ordinary function relation.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 

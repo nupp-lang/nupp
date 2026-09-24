@@ -1,10 +1,10 @@
 -- Whole-plan acceptance with native compilation absent: one ordinary system-shaped
 -- source exercises every independent foundation and keeps the same answer under both
 -- LuaJIT execution modes.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
-local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.project.env")
+local gen = require("nupp.compiler.lua.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."

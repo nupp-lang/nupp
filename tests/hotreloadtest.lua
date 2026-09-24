@@ -1,8 +1,8 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local envMod = require("nupp.compiler.env")
-local gen = require("nupp.compiler.gen")
-local optimize = require("nupp.compiler.optimize")
+local envMod = require("nupp.compiler.project.env")
+local gen = require("nupp.compiler.lua.gen")
+local optimize = require("nupp.compiler.lua.optimize")
 local hot = require("nupp.runtime.hotreload")
 local hotSession = require("nupp.tools.hotsession")
 

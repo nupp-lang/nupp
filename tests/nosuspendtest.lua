@@ -3,10 +3,10 @@
 -- Lexical, static, and erased. What is asserted here is the verdict and the erasure:
 -- a call that may suspend is refused, one that provably cannot is silent, and the
 -- generated code is the same either way because the region has no run-time component.
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -463,7 +463,7 @@ end
 
 function M.theModifierSurvivesGenericSubstitution()
     local T = require("nupp.compiler.types")
-    local generics = require("nupp.compiler.generics")
+    local generics = require("nupp.compiler.types.generics")
     local tv = T.typevar("T")
     local safe = T.withYields(T.func({tv}, {tv}), false)
     local concrete = generics.materialize(safe, {[tv] = T.string})

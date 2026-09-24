@@ -1,9 +1,9 @@
 -- prefer-comptime: a bounded comptime trial proves that meaningful work in one
 -- no-input runtime function can be replaced by a scalar literal.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
 
 local sharedEnv = envMod.new(".")
 

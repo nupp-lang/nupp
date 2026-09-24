@@ -1,5 +1,5 @@
-local ir = require("nupp.compiler.materialize.ir")
-local providers = require("nupp.compiler.materialize.providers")
+local ir = require("nupp.compiler.comptime.materialize.ir")
+local providers = require("nupp.compiler.comptime.materialize.providers")
 
 local function assertEq(got, want, label)
    if got ~= want then

@@ -418,7 +418,7 @@ for index, resource in ipairs(RESOURCES) do
 end
 LUAJIT_BROWSER_RESOURCES[
     #LUAJIT_BROWSER_RESOURCES + 1
-] = {source = "build/browser-luajit/preludeimage.bin", output = "nupp/compiler/preludeimage.bin",}
+] = {source = "build/browser-luajit/preludeimage.bin", output = "nupp/compiler/project/preludeimage.bin",}
 for _, relative in ipairs(TEMPLATE_FILES) do
     RESOURCES[#RESOURCES + 1] = {source = "templates/" .. relative, output = "nupp/compiler/templates/" .. relative,}
 end

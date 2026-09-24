@@ -999,7 +999,7 @@ local function loadSuite(suite)
     local compile = require("nupp.tools.cli.compile")
     -- The runner is invoked from the project root, just as `nupp test` runs
     -- its configured command. Keep this root normalized for module lookup.
-    local env = require("nupp.compiler.env").new(".")
+    local env = require("nupp.compiler.project.env").new(".")
     local settings = compile.settings({})
     local code, compileErr = compile.module(path, env, settings)
     if not code then
@@ -1150,7 +1150,7 @@ end
 local fixtureRoot = buildRoot .. "/test-fixtures"
 local fixtureSerial = 0
 local FIXTURE_LEASE_SECONDS = 15 * 60
-local fixtureDigest = require("nupp.compiler.fingerprint").contentDigest(true)
+local fixtureDigest = require("nupp.compiler.project.fingerprint").contentDigest(true)
 
 local function readJson(path)
     local file = io.open(path, "rb")

@@ -1,11 +1,11 @@
 -- Compiler-owned declaration derives: semantic members, factory projection, and
 -- the closed runtime recipes for Debug and JSON.
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local derive = require("nupp.compiler.check.derive")
-local recipeCodec = require("nupp.compiler.materialize.codec")
+local recipeCodec = require("nupp.compiler.comptime.materialize.codec")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

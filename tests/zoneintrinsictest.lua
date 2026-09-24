@@ -2,10 +2,10 @@
 -- statically known to be the module nupp.profile.zone returns is generated inline against
 -- its private fields rather than called. pop additionally needs its popped name
 -- discarded, since a captured value has nowhere to go but an ordinary call.
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local zone = require("nupp.profile.zone")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

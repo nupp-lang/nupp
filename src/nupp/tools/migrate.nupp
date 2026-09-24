@@ -3,9 +3,9 @@ module nupp.tools.migrate
 -- Shared source migration planner. The CLI and editor adapter consume these exact
 -- edits so they cannot grow separate interpretations of annotated Lua.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local annotated = require("nupp.compiler.annotatedlua")
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 
 local migrate = {}
 

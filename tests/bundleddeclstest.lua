@@ -8,10 +8,10 @@
 -- it: `put` takes `...: any`, which strict reports on an exported function. The
 -- module then resolved to `unknown`, every use of it was silently untyped, and
 -- nothing was reported about any of it.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
-local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.project.env")
+local gen = require("nupp.compiler.lua.gen")
 local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -71,7 +71,7 @@ end
 local M = {}
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
-    local relations = require("nupp.compiler.relations")
+    local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
     local uuid = assert(env.resolveModule(env, "nupp.util"))
     local provider = assert(env.resolveModule(env, "nupp.runtime.uuid"))

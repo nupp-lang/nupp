@@ -1,0 +1,186 @@
+@!internal
+
+module nupp.compiler.project.preludeimage
+
+--[[
+Hydrates the browser compiler's checked prelude graph.
+
+The image is data generated from the ordinary declaration checker. This module is the
+only implementation of its format: the generated resource contains no Lua source or
+executable fallback.
+
+Restoring the graph means restoring its identity. The checker compares types with `==`
+and answers from the arenas `nupp.compiler.types` keeps, so a type put back as an
+anonymous copy is equal to nothing: the checker asks for `lit(string:#)` when it reads
+`select("#", ...)`, finds a key the image never filled, and builds a second literal --
+two different objects for a type that is meant to be one. Every interned table is
+therefore written down with its arena and key and put back there, along with the counters
+that number what comes next. `nupp.compiler.project.preludecache` keeps the same contract for the
+native compiler's own prelude cache.
+]]
+
+local T = require("nupp.compiler.types")
+local bundled = require("nupp.compiler.bundled")
+local image = {schema = 1,}
+
+local ROOT_NAMES = {
+    "annotationsByName",
+    "featureEffects",
+    "globalTypeDefs",
+    "globalTypes",
+    "globals",
+    "preludeComptimeFunctions",
+    "stringLib",
+}
+
+function image.new(): any
+    local data = assert(bundled.source("/preludeimage.bin"), "portable prelude image is absent")
+    local magic = "NUPP-PRELUDE-3\n"
+    assert(data:sub(1, #magic) == magic, "portable prelude image has an unsupported format")
+    local cursor: integer = #magic + 1
+
+    local function readInteger(): integer
+        local result: number = 0
+        local scale: number = 1
+        for _ = 1, 8 do
+            local byte = assert(data:byte(cursor), "portable prelude image is truncated inside an integer")
+            cursor = cursor + 1
+            result = result + (byte % 128) * scale
+            assert(result <= 9007199254740991, "portable prelude image integer is too large")
+            if byte < 128 then
+                return result as integer
+            end
+            scale = scale * 128
+        end
+        error("portable prelude image integer is too large", 0)
+    end
+
+    local function stringValue(): string
+        local length = readInteger()
+        local result = data:sub(cursor, cursor + length - 1)
+        assert(#result == length, "portable prelude image is truncated inside a string")
+        cursor = cursor + length
+
+        return result
+    end
+
+    local tableCount = readInteger()
+    local dictionaryCount = readInteger()
+    assert(tableCount <= #data and dictionaryCount <= #data, "portable prelude image has invalid counts")
+    local dictionary: {string} = {}
+    for index = 1, dictionaryCount do
+        dictionary[index] = stringValue()
+    end
+    local tables = {}
+
+    local function value(): any
+        local tag = data:sub(cursor, cursor)
+        cursor = cursor + 1
+        if tag == "z" then
+            return nil
+        elseif tag == "f" then
+            return false
+        elseif tag == "t" then
+            return true
+        elseif tag == "r" then
+            return assert(tables[readInteger()], "portable prelude image has an invalid table reference")
+        elseif tag == "d" then
+            return assert(dictionary[readInteger()], "portable prelude image has an invalid string reference")
+        elseif tag == "i" then
+            return readInteger()
+        elseif tag == "j" then
+            return -readInteger()
+        elseif tag == "n" then
+            local encoded = stringValue()
+            if encoded == "nan" then
+                return 0 / 0
+            elseif encoded == "inf" then
+                return math.huge
+            elseif encoded == "-inf" then
+                return -math.huge
+            end
+
+            return assert(tonumber(encoded), "portable prelude image has an invalid number")
+        elseif tag == "s" then
+            return stringValue()
+        end
+        error("portable prelude image has an unknown value tag", 0)
+    end
+
+    -- Which arena each interned table belongs in, read before any body is: whether
+    -- an id names a table of this image's own or one the process already has
+    -- decides what filling it in would mean.
+    local internedAs: {[integer]: {string}} = {}
+    local internedCount = readInteger()
+    assert(internedCount <= tableCount, "portable prelude image has an invalid interned count")
+    for _ = 1, internedCount do
+        local id = readInteger()
+        assert(
+            id >= 1 and id <= tableCount and internedAs[id] == nil,
+            "portable prelude image has an invalid interned id"
+        )
+        local bucket: any = value()
+        local key: any = value()
+        assert(type(bucket) == "string" and type(key) == "string", "portable prelude image has an invalid interned key")
+        internedAs[id] = {bucket as string, key as string}
+    end
+    local identity = {serial = readInteger(), capability = readInteger(), nominal = readInteger(),}
+
+    -- A key this process already interned answers with the type it is already
+    -- using, and that type is left exactly as it stands. Writing the image's
+    -- members onto it would be a rewiring rather than a refresh: every reference
+    -- already pointing at it would come away pointing into this graph's copies of
+    -- everything that is not interned.
+    local mine: {[integer]: boolean} = {}
+    local adopting: {integer} = {}
+    for index = 1, tableCount do
+        local where = internedAs[index]
+        local live = where ~= nil and T.interned(where[1], where[2]) or nil
+        if where ~= nil and live == nil then
+            adopting[#adopting + 1] = index
+        end
+        tables[index] = live or {}
+        mine[index] = live == nil
+    end
+
+    local metatables: {integer} = {}
+    for index = 1, tableCount do
+        local memberCount = readInteger()
+        local target = mine[index] and tables[index] or nil
+        for _ = 1, memberCount do
+            local key: any = value()
+            local member: any = value()
+            if target ~= nil then
+                target[key] = member
+            end
+        end
+        local metatableIndex = readInteger()
+        assert(metatableIndex <= tableCount, "portable prelude image has an invalid metatable")
+        metatables[index] = metatableIndex
+    end
+    for index, metatableIndex in ipairs(metatables) do
+        if metatableIndex ~= 0 and mine[index] then
+            setmetatable(tables[index], tables[metatableIndex])
+        end
+    end
+
+    -- Interned last, so a type only enters an arena once it is complete, and the
+    -- counters after them, or the next type this process interns is stamped with a
+    -- serial one of these already carries.
+    for _, index in ipairs(adopting) do
+        local where = assert(internedAs[index])
+        T.adopt(where[1], where[2], tables[index])
+    end
+    T.resumeIdentity(identity)
+
+    local roots: any = {}
+    for _, name in ipairs(ROOT_NAMES) do
+        roots[name] = value()
+    end
+    roots.preludeRuntime = value()
+    assert(cursor == #data + 1, "portable prelude image has trailing bytes")
+
+    return roots
+end
+
+export = image

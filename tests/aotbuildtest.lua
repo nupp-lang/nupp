@@ -10,8 +10,8 @@ local aotCompile = require("nupp.compiler.aot.compile")
 local aotEmitter = require("nupp.compiler.aot.emit")
 local compilerCheck = require("nupp.compiler.check")
 local diagnosticMod = require("nupp.compiler.diagnostics")
-local envMod = require("nupp.compiler.env")
-local parser = require("nupp.compiler.parser")
+local envMod = require("nupp.compiler.project.env")
+local parser = require("nupp.compiler.syntax.parser")
 local targets = require("nupp.compiler.aot.target")
 local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 
@@ -2378,7 +2378,7 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, mea
     ) do
         assert(not diagnosticMod.isFatal(problem), (problem.msg or problem.message) .. "\n" .. rewritten)
     end
-    local lua, errors = require("nupp.compiler.gen").generate(generated, "wasmconst.nupp")
+    local lua, errors = require("nupp.compiler.lua.gen").generate(generated, "wasmconst.nupp")
     test.equal(#errors, 0)
     local registered, completed = {}, {}
     for _, program in ipairs(artifacts.programs) do

@@ -12,13 +12,13 @@ the difference is only what the callee turns out to be.
 ]]
 
 local T = require("nupp.compiler.types")
-local lexer = require("nupp.compiler.lexer")
-local members = require("nupp.compiler.members")
-local relations = require("nupp.compiler.relations")
-local generics = require("nupp.compiler.generics")
-local fixedWidth = require("nupp.compiler.fixedwidth")
-local indexedViews = require("nupp.compiler.indexedviews")
-local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+local members = require("nupp.compiler.types.members")
+local relations = require("nupp.compiler.types.relations")
+local generics = require("nupp.compiler.types.generics")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
+local indexedViews = require("nupp.compiler.types.indexedviews")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
 local calls = {}
@@ -655,7 +655,7 @@ function calls.install(c: state.Checker): calls.Ops
             if found.type ~= t then
                 return c.fieldType(found.type, name)
             end
-            local associated = require("nupp.compiler.associated")
+            local associated = require("nupp.compiler.types.associated")
             local bound = associated.lookup((t as T.Projection).of, (t as T.Projection).name).bound
             if not bound then
                 return nil
@@ -726,7 +726,7 @@ function calls.install(c: state.Checker): calls.Ops
             if found.type ~= t then
                 return c.fieldWriteType(found.type, name)
             end
-            local associated = require("nupp.compiler.associated")
+            local associated = require("nupp.compiler.types.associated")
             local bound = associated.lookup((t as T.Projection).of, (t as T.Projection).name).bound
             if not bound then
                 return nil

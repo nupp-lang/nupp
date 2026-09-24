@@ -5,10 +5,10 @@ module nupp.tools.fmt.imports
 -- only to authored name tokens, then the ordinary formatter reparses the result
 -- and verifies its layout against that new token stream.
 
-local parser = require("nupp.compiler.parser")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
-local envMod = require("nupp.compiler.env")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+local envMod = require("nupp.compiler.project.env")
 local check = require("nupp.compiler.check")
 local hash = require("nupp.compiler.hash")
 

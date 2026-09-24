@@ -1,5 +1,5 @@
 local T = require("nupp.compiler.types")
-local members = require("nupp.compiler.members")
+local members = require("nupp.compiler.types.members")
 
 local function assertEq(got, want, label)
    if got ~= want then

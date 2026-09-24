@@ -1,8 +1,8 @@
 -- The scalar child mapper is the optimizer's single structural authority.
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local effects = require("nupp.compiler.aot.effects")
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local visit = require("nupp.compiler.aot.visit")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

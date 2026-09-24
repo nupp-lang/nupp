@@ -9,8 +9,8 @@
 local aotCompile = require("nupp.compiler.aot.compile")
 local compilerCheck = require("nupp.compiler.check")
 local diagnosticMod = require("nupp.compiler.diagnostics")
-local envMod = require("nupp.compiler.env")
-local parser = require("nupp.compiler.parser")
+local envMod = require("nupp.compiler.project.env")
+local parser = require("nupp.compiler.syntax.parser")
 local verify = require("nupp.compiler.aot.verify")
 local equivalenceMutation = require("tests.simd.equivalence-mutation")
 

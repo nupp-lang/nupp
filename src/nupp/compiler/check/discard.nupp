@@ -45,7 +45,7 @@ in scope, and the sweep runs after the fixpoint. See `docs/reference/lints.md`.
 ]]
 
 local T = require("nupp.compiler.types")
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
 local discard = {}

@@ -57,11 +57,11 @@ end
 local function run(options: any): integer
     local positional: {string} = options.files
     local fs = require("nupp.compiler.fs")
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local check: any = require("nupp.compiler.check")
-    local env = require("nupp.compiler.env").new(".")
+    local env = require("nupp.compiler.project.env").new(".")
     local T = require("nupp.compiler.types")
-    local cst = require("nupp.compiler.cst")
+    local cst = require("nupp.compiler.syntax.cst")
     local foreign: {any} = {}
     local unsafeSites: {any} = {}
     local regions: {any} = {}

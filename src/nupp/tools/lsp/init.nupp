@@ -12,13 +12,13 @@ This module is the session, the handlers, and the loop. What each handler answer
 with is next door.
 ]]
 
-local incremental = require("nupp.compiler.incremental")
+local incremental = require("nupp.compiler.project.incremental")
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local fs = require("nupp.compiler.fs")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local fmt = require("nupp.tools.fmt")
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 local T = require("nupp.compiler.types")
 local annotationMod = require("nupp.compiler.annotations")
 
@@ -890,8 +890,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         if not t or t.tag ~= "projection" then
             return nil
         end
-        local generics = require("nupp.compiler.generics")
-        local associated = require("nupp.compiler.associated")
+        local generics = require("nupp.compiler.types.generics")
+        local associated = require("nupp.compiler.types.associated")
         local reduced = generics.normalize(t)
         if reduced.cycle then
             return "cyclic: " .. table.concat(reduced.cycle, " -> ")

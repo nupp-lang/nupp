@@ -1,9 +1,9 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
-local header = require("nupp.compiler.header")
-local incremental = require("nupp.compiler.incremental")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
+local header = require("nupp.compiler.project.header")
+local incremental = require("nupp.compiler.project.incremental")
 local runtime = require("nupp.compiler.runtime")
 
 local function assertEq(got, want, label)
@@ -577,7 +577,7 @@ end
 function M.shippedImplementationModulesAreNotApplicationImports()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
         for _, name in ipairs({
-            "nupp.compiler.lexer",
+            "nupp.compiler.syntax.lexer",
             "nupp.runtime.browser.effects",
             "nupp.codec.json.provider",
             "nupp.codec.json.aot",

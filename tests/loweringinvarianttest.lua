@@ -11,10 +11,10 @@
 -- body writes a local of its own site and therefore cannot be declared once for the
 -- module -- not a licence, and not something to add without deciding to.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -61,7 +61,7 @@ local EXPECTED_REASONS = {
 }
 
 function M.theInventoryOfReasonsIsExactlyWhatIsExpected()
-    local path = HERE .. "/../src/nupp/compiler/gen.nupp"
+    local path = HERE .. "/../src/nupp/compiler/lua/gen.nupp"
     local handle = assert(io.open(path, "rb"), "gen.nupp is missing")
     local source = handle:read("*a")
     handle:close()

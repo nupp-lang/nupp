@@ -150,7 +150,7 @@ local function run(options: any): integer
     end
 
     local compile = require("nupp.tools.cli.compile")
-    local env = require("nupp.compiler.env").new(".")
+    local env = require("nupp.compiler.project.env").new(".")
     local settings = compile.settings(options)
     local folding = (options.format or "text") == "text" and not options.prologue
     local boundary = folding and listing.BOUNDARY or nil

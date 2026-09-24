@@ -233,7 +233,7 @@ function M.fixtureKey(pack, generated, capabilities, host)
     extra[#extra + 1] = capabilities.lua.os
     extra[#extra + 1] = capabilities.lua.arch
     extra[#extra + 1] = host.key
-    extra[#extra + 1] = require("nupp.compiler.fingerprint").toolFingerprint()
+    extra[#extra + 1] = require("nupp.compiler.project.fingerprint").toolFingerprint()
 
     return "simd-wasmtime-pack-" .. digestFiles("simd-wasmtime-pack-v2", paths, extra)
 end

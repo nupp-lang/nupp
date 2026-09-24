@@ -62,11 +62,11 @@ iterate computing indents and breaking one over-long line until that reaches a
 fixpoint; render.
 ]]
 
-local parser = require("nupp.compiler.parser")
-local lexer = require("nupp.compiler.lexer")
-local cst = require("nupp.compiler.cst")
+local parser = require("nupp.compiler.syntax.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
+local cst = require("nupp.compiler.syntax.cst")
 local displayWidth = require("nupp.tools.fmt.displaywidth").displayWidth
-local docSyntax = require("nupp.compiler.docsyntax")
+local docSyntax = require("nupp.compiler.syntax.docsyntax")
 
 local imports = require("nupp.tools.fmt.imports")
 

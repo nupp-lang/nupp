@@ -132,7 +132,7 @@ local function run(options: any): integer
     if sampledRemarks then
         settings.remarks = false
     end
-    local projectEnv = require("nupp.compiler.env").new(".")
+    local projectEnv = require("nupp.compiler.project.env").new(".")
     local chunk, err
     local watch: Session? = nil
     if watching then

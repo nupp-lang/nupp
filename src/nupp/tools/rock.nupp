@@ -110,7 +110,7 @@ local function declarationModules(root): {string}?, string?
 end
 
 local function validateDeclarations(root, modules): boolean?, string?
-    local incremental = require("nupp.compiler.incremental")
+    local incremental = require("nupp.compiler.project.incremental")
     local inc = incremental.new(join(root, ".nupp-rock-check"), {
         cache = false,
         config = {include = {}},

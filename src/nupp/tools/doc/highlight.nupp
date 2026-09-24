@@ -31,8 +31,8 @@ it looks a lexer up by asking `loadfile` for it and reading the answer.
 const {type Links} = require("nupp.tools.doc.urls")
 const files = require("nupp.io.files")
 
-local lexer = require("nupp.compiler.lexer")
-local parser = require("nupp.compiler.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
+local parser = require("nupp.compiler.syntax.parser")
 local semantic = require("nupp.tools.lsp.semantic")
 local syntaxstyle = require("nupp.tools.syntaxstyle")
 local stringsMod = require("nupp.tools.doc.strings")

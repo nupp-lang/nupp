@@ -1,11 +1,11 @@
 -- Statement annotations are an extensible, checked language surface. The
 -- parser accepts their general shape; the registry decides what exists.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local annotations = require("nupp.compiler.annotations")
 local fmt = require("nupp.tools.fmt")
-local gen = require("nupp.compiler.gen")
+local gen = require("nupp.compiler.lua.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -1054,7 +1054,7 @@ return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
             local fresh = parser.parse(source, "test.g.nupp")
             local diagnostics = check.check(fresh, "test.g.nupp", env, {dialect = dialect})
             assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-            require("nupp.compiler.optimize").run(fresh, {level = level, dialect = dialect, filename = "test.g.nupp"})
+            require("nupp.compiler.lua.optimize").run(fresh, {level = level, dialect = dialect, filename = "test.g.nupp"})
             local output, errors = gen.generate(fresh, "test.g.nupp")
             assertEq(#errors, 0, errors[1] and errors[1].msg)
             assert(not output:find("@unsafe", 1, true), output)

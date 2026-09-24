@@ -1,7 +1,7 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -7376,7 +7376,7 @@ return answer, returned, log
         for _, level in ipairs({0, 1, 2}) do
             local result, diags = checked(source, {dialect = dialect})
             assertEq(#diags, 0, diags[1] and diags[1].msg)
-            require("nupp.compiler.optimize").run(result, {level = level, dialect = dialect, filename = 'test.g.nupp'})
+            require("nupp.compiler.lua.optimize").run(result, {level = level, dialect = dialect, filename = 'test.g.nupp'})
             local code, errors = gen.generate(result, "test.g.nupp")
             assertEq(#errors, 0, errors[1] and errors[1].msg)
             local chunk = assert(loadstring(code))

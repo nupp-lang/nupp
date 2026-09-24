@@ -1,5 +1,5 @@
 local T = require("nupp.compiler.types")
-local generics = require("nupp.compiler.generics")
+local generics = require("nupp.compiler.types.generics")
 local reflection = require("nupp.compiler.reflection")
 local json = require("testjson")
 

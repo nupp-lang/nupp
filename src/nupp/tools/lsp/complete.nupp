@@ -161,8 +161,8 @@ function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complet
         -- carries that type's members, and one that stays opaque carries its bound's
         -- -- read as the projection, so a member returning `self` shows `T.Item` and
         -- not the contract a reader never wrote.
-        local generics = require("nupp.compiler.generics")
-        local associated = require("nupp.compiler.associated")
+        local generics = require("nupp.compiler.types.generics")
+        local associated = require("nupp.compiler.types.associated")
         local subject = t as T.Type
         local reduced = generics.normalize(subject).type
         if reduced ~= subject then

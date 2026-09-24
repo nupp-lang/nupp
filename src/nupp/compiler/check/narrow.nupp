@@ -5,7 +5,7 @@ What a condition proves, and where it holds.
 
 Testing a value says something about it, and that something holds until the scope
 it was proved in closes or the value is written to. Reading the condition is
-this; computing the residue is `nupp.compiler.narrowing`, which needs only the types. The
+this; computing the residue is `nupp.compiler.types.narrowing`, which needs only the types. The
 two are separate because only this half needs to know where the walk currently
 is.
 
@@ -15,11 +15,11 @@ tell two evaluations of it apart.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local narrowing = require("nupp.compiler.narrowing")
+local relations = require("nupp.compiler.types.relations")
+local narrowing = require("nupp.compiler.types.narrowing")
 local mutation = require("nupp.compiler.check.mutation")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
 
 local narrow = {}

@@ -4,9 +4,9 @@
 -- guessed at: a write, a call it could not follow, a raise, or nothing returned
 -- at all is each a reason the statement might have been worth writing.
 
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local function assertEq(got, want, label)
    if got ~= want then

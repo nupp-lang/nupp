@@ -11,9 +11,9 @@ assert(
 assert(loadfile(bundle))()
 local roots
 if mode == "image" then
-    roots = require("nupp.compiler.preludeimage").new()
+    roots = require("nupp.compiler.project.preludeimage").new()
 else
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local env = envMod.new(".", {
         cache = false,
         memoryOnly = true,
@@ -40,7 +40,7 @@ end
 -- and builds a second literal under a key the image never filled, so the two
 -- `'#'`s in one program are different objects. Every interned table therefore
 -- goes out with the arena and key it was interned under, and the reader puts it
--- back there. See `nupp.compiler.preludecache`, which keeps the same contract
+-- back there. See `nupp.compiler.project.preludecache`, which keeps the same contract
 -- for the native compiler's own prelude cache.
 local types = require("nupp.compiler.types")
 local identity = types.identity()

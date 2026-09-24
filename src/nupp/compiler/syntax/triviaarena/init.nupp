@@ -1,0 +1,67 @@
+@!internal
+
+module nupp.compiler.syntax.triviaarena
+
+--[[
+The compiler-private storage contract for lexer trivia.
+
+The selected provider is installed by an alternate compiler entry before the lexer
+creates an arena. Ordinary native compiler entry points need no setup and resolve the
+LuaJIT provider lazily. Selection therefore costs one branch per parsed file and no
+branch per token or trivia record.
+]]
+
+local triviaarena = {}
+
+export interface Arena
+    @readonly
+    source: string
+    @readonly
+    count: integer
+    append: function(self: Arena, kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
+
+    --- @raises string when `index` is outside `1..count`
+    record: function(self: Arena, index: integer): (integer, integer, integer, integer, integer)
+end
+
+export interface Provider
+    -- Read only, so a provider whose `new` is inferred not to suspend still fits.
+    @readonly
+    new: function(source: string): Arena
+end
+
+local selected: Provider?
+
+--- Selects a provider before the first arena is constructed.
+--- @raises string when a different provider was already selected
+function triviaarena.install(provider: Provider): nil
+    if selected ~= nil and selected ~= provider then
+        error("nupp: compiler trivia arena provider is already selected", 2)
+    end
+    selected = provider
+end
+
+-- The name is a parameter so closure discovery treats the require as computed, the way
+-- `nupp.compiler.project.env` reaches its own host services. Concatenating two literals
+-- at the call read as computed only until something folded them back into one: the
+-- generated Lua then said `require("nupp.compiler.syntax.triviaarena.ffi")` outright,
+-- changing the embedded compiler's source closure.
+local function load(name: string): Provider
+    return require("nupp.compiler.syntax.triviaarena." .. name) as Provider
+end
+
+local function provider(): Provider
+    if selected == nil then
+        -- Embedded hosts may install another provider before reaching this path;
+        -- normal compiler entry points default to the FFI one here.
+        selected = load("ffi")
+    end
+
+    return selected as Provider
+end
+
+function triviaarena.new(source: string): Arena
+    return provider().new(source)
+end
+
+export = triviaarena

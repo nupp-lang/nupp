@@ -1,9 +1,9 @@
 -- private-export-type: a valid unnameable nominal in a declared module's public
 -- surface is suspicious, while transparent aliases and intentionally private fields
 -- are not.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 -- One environment for the whole suite: every case checks against one built
 -- exactly this way, and building one means checking the prelude from source.

@@ -35,7 +35,7 @@ tables inside a function that cannot be there at all is noise.
 See `docs/learn/performance/ahead-of-time/index.md`.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
 local aot = {}

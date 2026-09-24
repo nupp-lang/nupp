@@ -21,7 +21,7 @@ local REPORT_SCHEMA = {
 -- than captured. That is what lets the visitor be written once above the loop over the
 -- files: a function built inside a loop is one LuaJIT never compiles.
 local function walk(node: any, visit: function(any, any): nil, context: any)
-    if not node or require("nupp.compiler.cst").isToken(node) then
+    if not node or require("nupp.compiler.syntax.cst").isToken(node) then
         return
     end
     visit(node, context)
@@ -83,9 +83,9 @@ local function run(options: any): integer
         return 1
     end
 
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local env = envMod.new(".", {config = config})
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local checker = require("nupp.compiler.check")
     local allDiagnostics: {any} = {}
     local types, functions, sites = {}, {}, {}
@@ -130,7 +130,7 @@ local function run(options: any): integer
             failed = true
         end
     end
-    local cabi = require("nupp.compiler.cabi")
+    local cabi = require("nupp.compiler.cinterop.cabi")
     local aggregateDescriptions, functionSignatures = {}, {}
     local described = {}
 

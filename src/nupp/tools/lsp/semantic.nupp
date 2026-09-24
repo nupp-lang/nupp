@@ -7,11 +7,11 @@ The checker marks what it resolved; everything else is read from the token
 stream, so a file that does not check is still highlighted.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local tree = require("nupp.tools.lsp.tree")
 local text = require("nupp.tools.lsp.text")
 local wire = require("nupp.tools.lsp.wire")
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 local T = require("nupp.compiler.types")
 
 local semantic = {}

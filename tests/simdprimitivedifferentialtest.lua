@@ -29,7 +29,7 @@ local function fixtureKey(pack, generated, capability)
         capability.compilerSignature,
         jit.os,
         jit.arch,
-        require("nupp.compiler.fingerprint").toolFingerprint(),
+        require("nupp.compiler.project.fingerprint").toolFingerprint(),
     }
     local paths = {}
     for path in pairs(generated.files) do
@@ -237,9 +237,9 @@ function M.nativeCapabilityUsesTheBuildsCompilerSelection()
 end
 
 function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local check = require("nupp.compiler.check")
-    local env = require("nupp.compiler.env").new(HERE .. "/..")
+    local env = require("nupp.compiler.project.env").new(HERE .. "/..")
     local compile = require("nupp.compiler.aot.compile")
     local diagnostic = require("nupp.compiler.diagnostics")
     local target = assert(require("nupp.compiler.aot.target").select("aarch64-apple-darwin", "neon"))

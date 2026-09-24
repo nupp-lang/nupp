@@ -20,9 +20,9 @@
 -- checked into `tests/fmtcorpus/regressions/` as an ordinary case.
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
-local parser = require("nupp.compiler.parser")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+local parser = require("nupp.compiler.syntax.parser")
 
 local SEED = tonumber(os.getenv("NUPP_FMT_FUZZ_SEED") or "") or 20260814
 local PROGRAMS = tonumber(os.getenv("NUPP_FMT_FUZZ_PROGRAMS") or "") or 200

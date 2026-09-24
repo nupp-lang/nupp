@@ -1,8 +1,8 @@
 module nupp.tools.lsp.spi
 
-local parser = require("nupp.compiler.parser")
-local lexer = require("nupp.compiler.lexer")
-local cst = require("nupp.compiler.cst")
+local parser = require("nupp.compiler.syntax.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
+local cst = require("nupp.compiler.syntax.cst")
 local text = require("nupp.tools.lsp.text")
 local wire = require("nupp.tools.lsp.wire")
 local tree = require("nupp.tools.lsp.tree")

@@ -1,8 +1,8 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
+local gen = require("nupp.compiler.lua.gen")
 local fmt = require("nupp.tools.fmt")
-local optimize = require("nupp.compiler.optimize")
+local optimize = require("nupp.compiler.lua.optimize")
 
 local function checked(source, dialect)
     local tree = parser.parse(source, "do-expression.g.nupp")

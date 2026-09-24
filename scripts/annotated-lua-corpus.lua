@@ -3,7 +3,7 @@
 -- both are counted. An importer crash or a comment that vanishes is a failure.
 
 local root = assert(arg[1], "usage: annotated-lua-corpus.lua TREE")
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local annotated = require("nupp.compiler.annotatedlua")
 local check = require("nupp.compiler.check")
 

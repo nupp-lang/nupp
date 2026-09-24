@@ -13,7 +13,7 @@ local json = require("nupp.codec.json")
 local cache = require("nupp.tools.build.cache")
 local manifest = require("nupp.tools.build.manifest")
 local dialects = require("nupp.compiler.dialects")
-local projectconfig = require("nupp.compiler.projectconfig")
+local projectconfig = require("nupp.compiler.project.projectconfig")
 
 local jsonArray = cache.jsonArray
 

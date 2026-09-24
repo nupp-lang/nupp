@@ -23,7 +23,7 @@ body -- what table promotion needs -- is a different question and nothing here
 computes it. See docs/learn/performance/index.md.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 const {type Cleanup} = require("nupp.compiler.types")
 
 local analysis = {}

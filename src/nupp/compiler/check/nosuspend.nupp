@@ -28,7 +28,7 @@ a foreign one has no summary here.
 See `docs/learn/runtime/concurrency/suspension.md`.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 local T = require("nupp.compiler.types")
 

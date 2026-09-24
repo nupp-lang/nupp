@@ -9,9 +9,9 @@ returns) without adding them to the CST's ordered children. The checker therefor
 sees them while formatting and code generation continue to reproduce the Lua source.
 ]]
 
-local parser = require("nupp.compiler.parser")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local annotated = {}
 

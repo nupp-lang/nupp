@@ -788,7 +788,7 @@ A build run from a terminal names the module it is working on and how far
 through the source set it is, on one line it rewrites in place:
 
 ```text
-  [ 74%] [122/164] checking src/nupp/compiler/gen.nupp
+  [ 74%] [122/164] checking src/nupp/compiler/lua/gen.nupp
 ```
 
 It finishes with how long it took, where that time went, and which modules cost
@@ -798,7 +798,7 @@ the most of it:
 built compiler in 18.9s: 164 compiled, 0 reused
   check 16.1s  generate 952ms
   slowest
-    nupp.compiler.gen            1.9s
+    nupp.compiler.lua.gen        1.9s
     nupp.mem.heap                699ms
     nupp.compiler.check.calls    664ms
 ```

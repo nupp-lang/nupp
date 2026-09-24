@@ -1,7 +1,7 @@
-local parser = require("nupp.compiler.parser")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local env = require("nupp.compiler.env").new(".")
+local env = require("nupp.compiler.project.env").new(".")
 
 local function compile(source, dialect, optimized)
     local parsed = parser.parse(source, "indexedassignment.g.nupp")
@@ -11,7 +11,7 @@ local function compile(source, dialect, optimized)
         assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
     end
     if optimized then
-        require("nupp.compiler.optimize").run(parsed, {level = 1})
+        require("nupp.compiler.lua.optimize").run(parsed, {level = 1})
     end
     local code, generated = gen.generate(parsed, "indexedassignment")
     assert(#generated == 0, generated[1] and generated[1].msg)

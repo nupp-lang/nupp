@@ -161,7 +161,7 @@ local function run(options: any): integer
         return code
     end
     local fs = require("nupp.compiler.fs")
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local check = require("nupp.compiler.check")
     local diagnosticMod = require("nupp.compiler.diagnostics")
     local failed = false
@@ -223,7 +223,7 @@ local function run(options: any): integer
         config = loaded
     end
     if config then
-        local envMod = require("nupp.compiler.env")
+        local envMod = require("nupp.compiler.project.env")
         local roots = envMod.projectRoots(".", config as {[string]: any})
         local mine: {string} = {}
         for _, path in ipairs(readable) do
@@ -279,7 +279,7 @@ local function run(options: any): integer
         return failed and 1 or 0
     end
 
-    local env = require("nupp.compiler.env").new(".", {compat = values.compat})
+    local env = require("nupp.compiler.project.env").new(".", {compat = values.compat})
     effectiveCompat = env.compat or effectiveCompat
     for _, path in ipairs(remaining) do
         timing.compiledModules = timing.compiledModules + 1
@@ -322,7 +322,7 @@ local function run(options: any): integer
     -- Checking one named file still needs the project's declaration index, which is a
     -- header for every file in the project. Whatever this run had to work out for
     -- itself, the next one should not.
-    require("nupp.compiler.env").persist(env)
+    require("nupp.compiler.project.env").persist(env)
     if asJson then
         writeJson(not failed)
     end

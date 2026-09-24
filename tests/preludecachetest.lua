@@ -9,8 +9,8 @@
 -- So the two are compared directly: an environment that was forbidden the cache
 -- against one that used it, root by root.
 local test = require("assert")
-local envMod = require("nupp.compiler.env")
-local parser = require("nupp.compiler.parser")
+local envMod = require("nupp.compiler.project.env")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -253,7 +253,7 @@ local function imageFixture()
 end
 
 local function writeImageFixture(roots, identity)
-    local image = require("nupp.compiler.preludeimage")
+    local image = require("nupp.compiler.project.preludeimage")
     local types = require("nupp.compiler.types")
     local oldNew, oldIdentity = image.new, types.identity
     local bundle, output = os.tmpname(), os.tmpname()
@@ -284,7 +284,7 @@ local function writeImageFixture(roots, identity)
 end
 
 local function readImageFixture(data, operation)
-    local image = require("nupp.compiler.preludeimage")
+    local image = require("nupp.compiler.project.preludeimage")
     local bundled = require("nupp.compiler.bundled")
     local original = bundled.source
     bundled.source = function(path)

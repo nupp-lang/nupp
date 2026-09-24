@@ -8,9 +8,9 @@
 -- construct the AOT IR has no representation for.
 --
 -- See docs/learn/performance/ahead-of-time/index.md.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 

@@ -14,7 +14,7 @@ client may ask it per function on every viewport. `$/nupp/artifact` resolves one
 and lowers the buffer to do it, so a client asks it when somebody opened
 something.
 
-Generated Lua needs no mapping: `nupp.compiler.gen` holds the lowering to the
+Generated Lua needs no mapping: `nupp.compiler.lua.gen` holds the lowering to the
 source's own line numbering so that stack traces need no sourcemap, and this
 module reports that as a mapping kind rather than a table of entries, which is
 both smaller and the only honest way to say "every line, exactly". A bytecode
@@ -102,7 +102,7 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     local function lower(doc: any, path: string, optLevel: integer, boundary: string?): (string?, {any})
         local collected: {any} = {}
         local compile = require("nupp.tools.cli.compile")
-        local env = require("nupp.compiler.env").new(s.currentRoot or ".")
+        local env = require("nupp.compiler.project.env").new(s.currentRoot or ".")
         local settings = compile.settings({optLevel = tostring(optLevel)}, collected)
         settings.bytecodeBoundary = boundary
         local code = compile.module(path, env, settings, nil, doc.text)

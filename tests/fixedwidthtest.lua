@@ -1,6 +1,6 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local stdlib = require("nupp.compiler.stdlib")
 local ffi = require("ffi")
 local test = require("assert")
@@ -550,7 +550,7 @@ checkedTree = function(source)
 end
 
 local function callsIn(result)
-    local cst = require("nupp.compiler.cst")
+    local cst = require("nupp.compiler.syntax.cst")
     local calls = {}
 
     local function walk(node)
@@ -590,7 +590,7 @@ end
 
 function M.integerIntrinsicsConstantFoldByCanonicalIdentity()
     local result = checkedTree("local value = nupp.math.u32.mul(0xffffffff, 3)\nreturn value")
-    require("nupp.compiler.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
+    require("nupp.compiler.lua.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
     local call = callsIn(result)[1]
     assertEq(call.scalarIntrinsic, "u32.mul", "canonical operation")
     assertEq(call.folded, "4294967293", "fold uses wrapping multiplication")
@@ -947,7 +947,7 @@ function M.arithmeticBetweenOneFixedWidthWrapsAndEstablishes()
     local result = parser.parse(source, "fixed-arithmetic.nupp")
     assertEq(#result.errors, 0, "arithmetic source parses")
     assertEq(#check.check(result, "fixed-arithmetic.nupp", sharedEnv), 0, "arithmetic source checks")
-    local gen = require("nupp.compiler.gen")
+    local gen = require("nupp.compiler.lua.gen")
     local code, loweringDiags = gen.generate(result, "fixed-arithmetic.nupp")
     assertEq(#loweringDiags, 0, "arithmetic source lowers")
     local wrapAdd, wrapSub, signedMul, plain = assert(loadstring(code, "@fixed-arithmetic"))()
@@ -972,7 +972,7 @@ local function bits(a: uint32, b: uint32): (uint32, uint32, uint32, uint32, uint
 end
 return bits
 ]]
-    local gen = require("nupp.compiler.gen")
+    local gen = require("nupp.compiler.lua.gen")
     local result = parser.parse(source, "unsigned-bits.nupp")
     assertEq(#result.errors, 0)
     assertEq(#check.check(result, "unsigned-bits.nupp", sharedEnv, {dialect = "luajit"}), 0)

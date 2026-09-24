@@ -384,7 +384,7 @@ local function run(options: any): integer
     -- Inspection lowers the same checked tree a production build does. Parsing
     -- here would make `nupp aot` disagree with `nupp build` precisely on the
     -- aliases, ownership modes, effects and resolved layouts it exists to show.
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local fs = require("nupp.compiler.fs")
     local root = fs.dirname(fs.absolute(path))
     while not fs.exists(fs.join(root, "nupp.lua")) do

@@ -198,7 +198,8 @@ function watch.open(path: string, strict: boolean?, root: string?): (watch.Sessi
     local driver: watch.Driver? = nil
 
     local function compileLoaded(modulePath: string, env: any): string?, string?
-        local module = require("nupp.compiler.env").moduleNameForPath(watchSession.inc.env, modulePath) or modulePath
+        local module = require("nupp.compiler.project.env").moduleNameForPath(watchSession.inc.env, modulePath)
+            or modulePath
         local built, failure = watchSession:compile(modulePath, "initial", module)
         if not built then
             require("nupp.compiler.diagnostics").report(failure.diagnostics or {})

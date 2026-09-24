@@ -1,5 +1,5 @@
-local parser = require("nupp.compiler.parser")
-local cst = require("nupp.compiler.cst")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 local fmt = require("nupp.tools.fmt")
 
 local function assertEq(got, want, label)

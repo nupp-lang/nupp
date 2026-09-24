@@ -11,7 +11,7 @@ environment. It is opt-in and first applies cheap shape filters: only no-input
 functions containing real work reach evaluation.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local lints = require("nupp.compiler.lints")
 local state = require("nupp.compiler.check.state")
 

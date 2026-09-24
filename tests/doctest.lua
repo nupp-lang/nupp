@@ -122,7 +122,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
 end
 
 function M.tildeDocFencesSuspendTagParsingUntilTheirMatchingCloser()
-    local parsed = require("nupp.compiler.docblock").parse({
+    local parsed = require("nupp.compiler.syntax.docblock").parse({
         "Example:",
         "~~~~nupp",
         "@raises string shown, not declared",
@@ -1998,7 +1998,7 @@ end
 function M.internalInitHidesItsDocumentationTree()
     local dir = tempProject({
         ["src/nupp/compiler/init.nupp"] = "@!internal\nreturn {}\n",
-        ["src/nupp/compiler/parser.nupp"] = "function parse(): number return 1 end\n",
+        ["src/nupp/compiler/syntax/parser.nupp"] = "function parse(): number return 1 end\n",
         ["src/public.nupp"] = "function visible(): number return 2 end\n",
     })
     local config = {include = {"src"}}
@@ -2006,7 +2006,7 @@ function M.internalInitHidesItsDocumentationTree()
     local public = readFile(dir .. "/public.md")
     assert(public:find("# `public`", 1, true), public)
     assert(not public:find("# `nupp.compiler`", 1, true), public)
-    assert(not public:find("# `nupp.compiler.parser`", 1, true), public)
+    assert(not public:find("# `nupp.compiler.syntax.parser`", 1, true), public)
 
     assert(
         doc.build(dir, config, {sources = {"src"}, includePrivate = true}, {
@@ -2016,7 +2016,7 @@ function M.internalInitHidesItsDocumentationTree()
     )
     local complete = readFile(dir .. "/complete.md")
     assert(complete:find("# `nupp.compiler`", 1, true), complete)
-    assert(complete:find("# `nupp.compiler.parser`", 1, true), complete)
+    assert(complete:find("# `nupp.compiler.syntax.parser`", 1, true), complete)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

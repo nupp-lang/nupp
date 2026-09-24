@@ -241,7 +241,7 @@ function surface.identity(node: any): string?
         local root = surface.identity(node.obj)
         local key = node.expr
         local member = node.kind == "dotIndex" and node.name and node.name.text
-            or key and key.kind == "string" and require("nupp.compiler.lexer").stringValue(key.token.text)
+            or key and key.kind == "string" and require("nupp.compiler.syntax.lexer").stringValue(key.token.text)
         if root and member then
             return root == "_G" and member or root .. "." .. member
         end
@@ -254,7 +254,8 @@ function surface.identity(node: any): string?
         local args = node.args and node.args.exprs
         if root == "rawget" and args and surface.identity(args[1]) == "_G" then
             local key = args[2]
-            return key and key.kind == "string" and require("nupp.compiler.lexer").stringValue(key.token.text) or nil
+            return key and key.kind == "string" and require("nupp.compiler.syntax.lexer").stringValue(key.token.text)
+                or nil
         end
     end
 

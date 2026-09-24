@@ -14,23 +14,23 @@ argument, which is all `:` means.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local generics = require("nupp.compiler.generics")
-local lexer = require("nupp.compiler.lexer")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local generics = require("nupp.compiler.types.generics")
+local lexer = require("nupp.compiler.syntax.lexer")
+local cst = require("nupp.compiler.syntax.cst")
 local ffiMod = require("nupp.compiler.check.ffi")
-local methodslots = require("nupp.compiler.methodslots")
+local methodslots = require("nupp.compiler.lua.methodslots")
 local native = require("nupp.compiler.native")
-local luaFormat = require("nupp.compiler.luaformat") as {analyze: function(string): (any, string?)}
+local luaFormat = require("nupp.compiler.lua.luaformat") as {analyze: function(string): (any, string?)}
 local reflection = require("nupp.compiler.reflection")
-local narrowing = require("nupp.compiler.narrowing")
-local predicate = require("nupp.compiler.predicate")
+local narrowing = require("nupp.compiler.types.narrowing")
+local predicate = require("nupp.compiler.types.predicate")
 local targetLayout = require("nupp.compiler.targetlayout")
-local fixedWidth = require("nupp.compiler.fixedwidth")
-local indexedViews = require("nupp.compiler.indexedviews")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
+local indexedViews = require("nupp.compiler.types.indexedviews")
 local state = require("nupp.compiler.check.state")
 local pegTyping = require(
-    "nupp.compiler.materialize.peg"
+    "nupp.compiler.comptime.materialize.peg"
 ) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 

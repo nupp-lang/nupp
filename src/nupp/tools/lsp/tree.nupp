@@ -9,8 +9,8 @@ server asks and the checker has no reason to. They read a parse and nothing else
 so they answer without a session.
 ]]
 
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local tree = {}
 

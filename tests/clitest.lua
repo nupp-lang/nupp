@@ -649,8 +649,8 @@ for _, name in ipairs({"aot", "lsp", "bc", "ast"}) do
    require("nupp.tools.cli." .. name)
 end
 for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.tools.lsp",
-      "nupp.tools.tracebytecode", "nupp.compiler.lexer",
-      "nupp.compiler.check", "nupp.compiler.parser"}) do
+      "nupp.tools.tracebytecode", "nupp.compiler.syntax.lexer",
+      "nupp.compiler.check", "nupp.compiler.syntax.parser"}) do
    if package.loaded[heavy] then print("loaded " .. heavy) end
 end
 print("done")

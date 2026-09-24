@@ -15,13 +15,13 @@ exists but is not visible here.
 ]]
 
 local T = require("nupp.compiler.types")
-local generics = require("nupp.compiler.generics")
-local consteval = require("nupp.compiler.consteval")
-local constrain = require("nupp.compiler.constrain")
-local relations = require("nupp.compiler.relations")
-local fixedWidth = require("nupp.compiler.fixedwidth")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local generics = require("nupp.compiler.types.generics")
+local consteval = require("nupp.compiler.types.consteval")
+local constrain = require("nupp.compiler.types.constrain")
+local relations = require("nupp.compiler.types.relations")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
 local capabilities = require("nupp.compiler.capabilities")
 
@@ -691,7 +691,7 @@ function resolve.install(c: state.Checker): nil
     --- @param head what the projection is reached through
     --- @param name the associated member
     c.associatedDefinitions = function(head: Type, name: string): {any}
-        local associated = require("nupp.compiler.associated")
+        local associated = require("nupp.compiler.types.associated")
         local found = associated.lookup(head, name)
         local out: {any} = {}
         local seen: {[any]: boolean} = {}
@@ -1191,7 +1191,7 @@ function resolve.install(c: state.Checker): nil
                 -- to answer, not something to assume from the head being a binder.
                 local head = names[1] and c.lookupType(names[1]) or nil
                 if head and (head.tag == "typevar" or head.tag == "projection") then
-                    local associated = require("nupp.compiler.associated")
+                    local associated = require("nupp.compiler.types.associated")
                     local step = head
                     local reported = false
                     for j = 2, #names do
@@ -1227,7 +1227,7 @@ function resolve.install(c: state.Checker): nil
                     -- the spelling would throw away which declaration the reader asked
                     -- about -- and `Lines.Item` and `string` are not the same question.
                     local written = T.projection(step, typeName)
-                    local projected = require("nupp.compiler.generics").normalize(written).type
+                    local projected = require("nupp.compiler.types.generics").normalize(written).type
                     local sites = c.associatedDefinitions(step, typeName)
                     c.markToken(lastTok, sites[1], written, "type")
                     lastTok.additionalDefinitions = #sites > 1 and sites or nil
@@ -1284,14 +1284,14 @@ function resolve.install(c: state.Checker): nil
                 if lexical == nil and #names >= 1 then
                     local owner = c.lookupType(table.concat(names, "."))
                     if owner and owner.tag == "nominal" then
-                        local associated = require("nupp.compiler.associated")
+                        local associated = require("nupp.compiler.types.associated")
                         local found = associated.lookup(owner, typeName)
                         if #found.requirements > 0 then
                             -- Same two answers as the binder path: the reduced type to
                             -- the checker, the written projection and its deciding
                             -- declaration to tooling.
                             local written = T.projection(owner, typeName)
-                            local projected = require("nupp.compiler.generics").normalize(written).type
+                            local projected = require("nupp.compiler.types.generics").normalize(written).type
                             local sites = c.associatedDefinitions(owner, typeName)
                             c.markToken(lastTok, sites[1], written, "type")
                             lastTok.additionalDefinitions = #sites > 1 and sites or nil

@@ -10,12 +10,12 @@ checker would add work without improving the rendered API.
 A long comment at the very top of a file, this one included, is that file's module
 documentation, and is rendered as markdown.
 ]]
-const {type LexError} = require("nupp.compiler.lexer")
+const {type LexError} = require("nupp.compiler.syntax.lexer")
 const {type Module} = require("nupp.tools.doc.extract")
 const {type Page as Page2} = require("nupp.tools.doc.urls")
 const {type Param} = require("nupp.tools.doc.extract")
 const {type Result} = require("nupp.tools.doc.extract")
-const {type Raise} = require("nupp.compiler.docblock")
+const {type Raise} = require("nupp.compiler.syntax.docblock")
 const {type Member} = require("nupp.tools.doc.extract")
 const {type Links} = require("nupp.tools.doc.urls")
 const files = require("nupp.io.files")

@@ -1,11 +1,11 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local standardsurface = require("nupp.compiler.standardsurface")
-local optimize = require("nupp.compiler.optimize")
-local gen = require("nupp.compiler.gen")
+local optimize = require("nupp.compiler.lua.optimize")
+local gen = require("nupp.compiler.lua.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local JSON_PROVIDER = "nupp.codec.json.provider"
@@ -995,7 +995,7 @@ function M.bitsetsReachTheCheckedModule()
 end
 
 function M.openFilesAreOwnersOverTheSharedReaderContract()
-    local gen = require("nupp.compiler.gen")
+    local gen = require("nupp.compiler.lua.gen")
 
     assertClean(
         table.concat(

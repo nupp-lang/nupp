@@ -14,8 +14,8 @@ so it has no declaration site of its own until the module that defines it is
 found and asked.
 ]]
 
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local T = require("nupp.compiler.types")
 local text = require("nupp.tools.lsp.text")
 local tree = require("nupp.tools.lsp.tree")

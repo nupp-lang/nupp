@@ -7,7 +7,7 @@ A build decides what to redo by content, not by clock: every input is digested
 and the digests are written beside the artifacts, so a checkout with fresh
 timestamps rebuilds nothing and a file edited back to what it was rebuilds
 nothing either. What those digests are stamped with -- the compiler that
-computed them -- is `nupp.compiler.fingerprint`.
+computed them -- is `nupp.compiler.project.fingerprint`.
 
 Content-addressing only works if the same inputs always serialize the same way,
 which is what the canonical encoding here is for: a table's keys are visited in
@@ -18,7 +18,7 @@ the digest.
 local hash = require("nupp.compiler.hash")
 local json = require("nupp.codec.json")
 local fs = require("nupp.compiler.fs")
-local fingerprint = require("nupp.compiler.fingerprint")
+local fingerprint = require("nupp.compiler.project.fingerprint")
 
 local readFile, writeFile = fs.readFile, fs.writeFile
 

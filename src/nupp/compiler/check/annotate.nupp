@@ -13,9 +13,9 @@ See `docs/reference/annotations.md`.
 ]]
 
 local T = require("nupp.compiler.types")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
-local relations = require("nupp.compiler.relations")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+local relations = require("nupp.compiler.types.relations")
 local state = require("nupp.compiler.check.state")
 local annotationMod = require("nupp.compiler.annotations")
 

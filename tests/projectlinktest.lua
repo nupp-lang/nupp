@@ -1,6 +1,6 @@
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local fmt = require("nupp.tools.fmt")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -991,7 +991,7 @@ return 0
             local diags = check.check(parsed, path, env)
             assertEq(#diags, 0, "the consumer checks: " .. (diags[1] and diags[1].msg or ""))
 
-            local gen = require("nupp.compiler.gen")
+            local gen = require("nupp.compiler.lua.gen")
             local code = gen.generate(parsed, path)
             assert(
                 code:find("model%s*%.%s*Account%s*%.__nuppCtor"),
@@ -1055,7 +1055,7 @@ return Person
             local diags = check.check(parsed, path, env)
             assertEq(#diags, 0, "the implementor checks: " .. (diags[1] and diags[1].msg or ""))
 
-            local gen = require("nupp.compiler.gen")
+            local gen = require("nupp.compiler.lua.gen")
             local code = gen.generate(parsed, path)
             assert(
                 code:find('require("greet").Greeter.hello', 1, true),
@@ -1082,7 +1082,7 @@ return shape
             local path = dir .. "/src/shape.g.nupp"
             local parsed = parser.parse(readFile(path), path)
             check.check(parsed, path, projectEnv(dir))
-            local gen = require("nupp.compiler.gen")
+            local gen = require("nupp.compiler.lua.gen")
             local code = gen.generate(parsed, path)
             assert(not code:find("Named", 1, true), "an interface with no defaults emits nothing: " .. code)
         end

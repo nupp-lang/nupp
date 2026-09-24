@@ -1261,6 +1261,8 @@ function M.theStageZeroIsProducedByTheGeneralBundler()
         stage0:find('package.preload["nupp.embedded"]', 1, true),
         "it carries its resources the way every bundle does"
     )
+    -- The fetched stage zero is the pinned release, so the module is named the way
+    -- that release names it.
     assert(
         stage0:find("package.preload[\"nupp.compiler.cst\"]", 1, true),
         "and preloads its modules the way every bundle does"

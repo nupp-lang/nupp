@@ -16,7 +16,7 @@
 -- spread a suite across shards case by case. One case asking about the whole tree was
 -- the floor of the whole test run whenever the formatter changed; four each ask about
 -- their quarter and can run at once. Every file is in exactly one part.
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

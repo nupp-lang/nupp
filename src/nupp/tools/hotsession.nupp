@@ -8,15 +8,15 @@ baseline only after the host acknowledges a runtime commit. Modules join that
 baseline lazily after their initial chunk has completed successfully.
 ]]
 
-local incremental = require("nupp.compiler.incremental")
+local incremental = require("nupp.compiler.project.incremental")
 local diagnostics = require("nupp.compiler.diagnostics")
 local buildModules = require("nupp.tools.build.modules")
 local hash = require("nupp.compiler.hash")
-local cst = require("nupp.compiler.cst")
-local envMod = require("nupp.compiler.env")
-local gen = require("nupp.compiler.gen")
+local cst = require("nupp.compiler.syntax.cst")
+local envMod = require("nupp.compiler.project.env")
+local gen = require("nupp.compiler.lua.gen")
 local fs = require("nupp.compiler.fs")
-local cheader = require("nupp.compiler.cheader")
+local cheader = require("nupp.compiler.cinterop.cheader")
 
 local hotSession = {}
 local Session = {}

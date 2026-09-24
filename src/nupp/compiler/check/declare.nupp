@@ -14,13 +14,13 @@ C memory, which is what makes them reifiable.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local generics = require("nupp.compiler.generics")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local relations = require("nupp.compiler.types.relations")
+local generics = require("nupp.compiler.types.generics")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local operators = require("nupp.compiler.check.operators")
-local predicate = require("nupp.compiler.predicate")
-local methodslots = require("nupp.compiler.methodslots")
+local predicate = require("nupp.compiler.types.predicate")
+local methodslots = require("nupp.compiler.lua.methodslots")
 local state = require("nupp.compiler.check.state")
 
 local declare = {}
@@ -882,7 +882,7 @@ function declare.install(
     --- A default that survives is copied down, entry and all, so the binder, the site
     --- and the fact that it arrived as a default travel with it.
     local function checkAssociatedConformance(c: any, stat: any, n: any, declared: {[string]: any})
-        local associated = require("nupp.compiler.associated")
+        local associated = require("nupp.compiler.types.associated")
         local owed = associated.requirementNames(n)
         local owedSet: {[string]: boolean} = {}
         for _, name in ipairs(owed) do
@@ -2818,7 +2818,7 @@ function declare.install(
             -- answers exactly it -- so a contract that fixes all of them may carry a
             -- refinement, and one that leaves any defaulted or bare may not.
             if n.predicate then
-                local associatedMod = require("nupp.compiler.associated")
+                local associatedMod = require("nupp.compiler.types.associated")
                 for _, owed in ipairs(associatedMod.requirementNames(n)) do
                     local settled = relations.associatedLookup(n, owed)
                     -- Settled means resolved, acyclic, and not gradual. `== any` is

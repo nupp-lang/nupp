@@ -18,8 +18,8 @@ metatable stays gradual, which is what the documentation has always said.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local cst = require("nupp.compiler.syntax.cst")
 local operators = require("nupp.compiler.check.operators")
 local state = require("nupp.compiler.check.state")
 

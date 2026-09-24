@@ -14,11 +14,11 @@ with are read the same way, so existing code types without being rewritten.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local narrowing = require("nupp.compiler.narrowing")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local narrowing = require("nupp.compiler.types.narrowing")
+local cst = require("nupp.compiler.syntax.cst")
 local mutationSummaries = require("nupp.compiler.check.mutation")
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 local operators = require("nupp.compiler.check.operators")
 local index = require("nupp.compiler.check.index")
 local state = require("nupp.compiler.check.state")
@@ -26,18 +26,18 @@ local callexpr = require("nupp.compiler.check.callexpr") as {install: function(s
 local comptime = require(
     "nupp.compiler.comptime"
 ) as {evaluate: function(any, any, any, any, any, any?, any?): (string?, any, any, any)}
-local materializeProviders = require("nupp.compiler.materialize.providers") as {
+local materializeProviders = require("nupp.compiler.comptime.materialize.providers") as {
     ABI: integer,
     lower: function(any, any, any): (any, any, any, any)
 }
-local materializeIR = require("nupp.compiler.materialize.ir") as {
+local materializeIR = require("nupp.compiler.comptime.materialize.ir") as {
     ABI: integer,
     render: function(any): (string?, any)
 }
 local stable = require("nupp.compiler.stable")
-local fixedWidth = require("nupp.compiler.fixedwidth")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
-local predicate = require("nupp.compiler.predicate")
+local predicate = require("nupp.compiler.types.predicate")
 
 local expr = {}
 
@@ -1678,7 +1678,7 @@ function expr.install(c: state.Checker): nil
                 if expected then
                     local expectedFunc = rawType(expected)
                     if expectedFunc.tag == "func" then
-                        local generics = require("nupp.compiler.generics")
+                        local generics = require("nupp.compiler.types.generics")
                         expectedParams = generics.expectedParameters(expectedFunc, c.reductionControl)
                         expectedModes = generics.expectedParameterModes(expectedFunc, c.reductionControl)
                     end

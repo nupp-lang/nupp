@@ -797,7 +797,7 @@ end
 --- prelude. Used for bundled rock modules, which are not project source files and
 --- therefore do not pass through the project's incremental checker.
 function native.sourceEffects(source: string, filename: string, env: {[string]: any}?): {[string]: any}
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local parsed: any = parser.parse(source, filename)
     if #parsed.errors > 0 then
         return {}

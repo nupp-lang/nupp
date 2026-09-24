@@ -234,11 +234,11 @@ function cli.main(argv: {string}): integer
             rest[#rest + 1] = argv[index]
         end
 
-        local worker = require("nupp.compiler.comptimeworker") as {main: function({string}): integer}
+        local worker = require("nupp.compiler.comptime.worker") as {main: function({string}): integer}
 
         return worker.main(rest)
     elseif name == "__comptime-worker-service" then
-        local worker = require("nupp.compiler.comptimeworker") as {serviceMain: function(): integer}
+        local worker = require("nupp.compiler.comptime.worker") as {serviceMain: function(): integer}
 
         return worker.serviceMain()
     elseif name == "__generator-worker" then
@@ -246,7 +246,7 @@ function cli.main(argv: {string}): integer
         for index = 2, #argv do
             rest[#rest + 1] = argv[index]
         end
-        local worker = require("nupp.compiler.generatorworker") as {main: function({string}): integer}
+        local worker = require("nupp.compiler.comptime.generatorworker") as {main: function({string}): integer}
 
         return worker.main(rest)
     elseif name == "__lsp-reader" then

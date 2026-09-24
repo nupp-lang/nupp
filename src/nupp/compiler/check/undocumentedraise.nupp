@@ -40,8 +40,8 @@ through, because a raise may name a declaration written below the function that
 raises it.
 ]]
 
-local cst = require("nupp.compiler.cst")
-local docblock = require("nupp.compiler.docblock")
+local cst = require("nupp.compiler.syntax.cst")
+local docblock = require("nupp.compiler.syntax.docblock")
 local state = require("nupp.compiler.check.state")
 
 local undocumentedraise = {}

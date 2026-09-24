@@ -48,10 +48,10 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     assert(index:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
     assert(index:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
     assert(
-        index:find("href='files/src/nupp/compiler/gen.nupp/index.html'", 1, true),
+        index:find("href='files/src/nupp/compiler/lua/gen.nupp/index.html'", 1, true),
         "coverage index links to a file page"
     )
-    local genPage = read(out .. "/files/src/nupp/compiler/gen.nupp/index.html")
+    local genPage = read(out .. "/files/src/nupp/compiler/lua/gen.nupp/index.html")
     test.matches(genPage, "Nupp source")
     test.matches(genPage, "Generated Lua")
     assert(genPage:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true), "coverage pages have breadcrumbs")
@@ -74,7 +74,7 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     )
     local compilerPage = read(out .. "/directories/src/nupp/compiler/index.html")
     assert(
-        compilerPage:find("href='../../../../files/src/nupp/compiler/gen.nupp/index.html'", 1, true),
+        compilerPage:find("href='../../../../files/src/nupp/compiler/lua/gen.nupp/index.html'", 1, true),
         "directory summaries link to file pages"
     )
     local query = assert(

@@ -10,11 +10,11 @@
 --
 -- This is the acceptance question for `layoutof`: can that be written against the
 -- language instead of against hand-maintained constants.
-local parser = require("nupp.compiler.parser")
-local optimize = require("nupp.compiler.optimize")
-local gen = require("nupp.compiler.gen")
+local parser = require("nupp.compiler.syntax.parser")
+local optimize = require("nupp.compiler.lua.optimize")
+local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local ffi = require("ffi")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

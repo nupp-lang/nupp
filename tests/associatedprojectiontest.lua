@@ -3,9 +3,9 @@
 -- A projection that answers concretely is that type. One that stays opaque reads its
 -- effective bound's members, and reads them as itself: a `self`-returning member of
 -- the bound answers the projection, not the contract.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

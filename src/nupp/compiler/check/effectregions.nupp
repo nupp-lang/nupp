@@ -9,7 +9,7 @@ through an exact exported-definition sidecar observation. There is deliberately 
 function-type qualifier and no second effect inference here.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
 local effectregions = {}

@@ -65,7 +65,7 @@ local function run(options: any): integer
     end
     local fs = require("nupp.compiler.fs")
     local fmt = require("nupp.tools.fmt")
-    local envMod = require("nupp.compiler.env")
+    local envMod = require("nupp.compiler.project.env")
     local diagnosticMod = require("nupp.compiler.diagnostics")
     local reportMod = require("nupp.tools.cli.report")
     local asJson = values.format == "json"

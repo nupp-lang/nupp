@@ -5,7 +5,7 @@
 -- an answer written in terms of the declaration's own parameters has to follow the
 -- instantiation instead. Both, without special casing either.
 local T = require("nupp.compiler.types")
-local generics = require("nupp.compiler.generics")
+local generics = require("nupp.compiler.types.generics")
 
 local function assertEq(got, want, label)
    if got ~= want then

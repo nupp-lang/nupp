@@ -15,9 +15,9 @@ return, and `cheader` reaches LuaJIT's own C parser to find out.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local narrowing = require("nupp.compiler.narrowing")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local narrowing = require("nupp.compiler.types.narrowing")
+local cst = require("nupp.compiler.syntax.cst")
 local operators = require("nupp.compiler.check.operators")
 local state = require("nupp.compiler.check.state")
 local capabilities = require("nupp.compiler.capabilities")

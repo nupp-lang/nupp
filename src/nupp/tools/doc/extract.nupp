@@ -7,12 +7,12 @@ Every question this asks is answered by the parse alone: what a declaration is
 called, what it is spelled like, which `---` run belongs to it. That is why
 documentation never invokes the checker.
 ]]
-const {type LexError} = require("nupp.compiler.lexer")
+const {type LexError} = require("nupp.compiler.syntax.lexer")
 
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
-local parser = require("nupp.compiler.parser")
-local docblock = require("nupp.compiler.docblock")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+local parser = require("nupp.compiler.syntax.parser")
+local docblock = require("nupp.compiler.syntax.docblock")
 local stringsMod = require("nupp.tools.doc.strings")
 local filesMod = require("nupp.tools.doc.files")
 
@@ -188,10 +188,8 @@ local function dedent(text: string): string
     return (text:gsub("\n" .. margin, "\n"))
 end
 
--- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
--- reads
--- the
--- same run to ask whether a function that raises documented it.
+-- The `---` run and its tags are read by nupp.compiler.syntax.docblock, because the
+-- checker reads the same run to ask whether a function that raises documented it.
 local docLines, parseDoc = docblock.linesOf, docblock.parse
 
 -- Where a record entry's `---` run actually sits. An annotation is parsed before the

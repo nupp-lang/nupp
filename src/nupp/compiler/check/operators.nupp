@@ -103,14 +103,14 @@ operators.runtimeMetamethod = {
 } as Set
 
 local T = require("nupp.compiler.types")
-local generics = require("nupp.compiler.generics")
-local relations = require("nupp.compiler.relations")
-local narrowing = require("nupp.compiler.narrowing")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local generics = require("nupp.compiler.types.generics")
+local relations = require("nupp.compiler.types.relations")
+local narrowing = require("nupp.compiler.types.narrowing")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
-local fixedWidth = require("nupp.compiler.fixedwidth")
-local indexedViews = require("nupp.compiler.indexedviews")
+local fixedWidth = require("nupp.compiler.types.fixedwidth")
+local indexedViews = require("nupp.compiler.types.indexedviews")
 local capabilities = require("nupp.compiler.capabilities")
 
 local isA = relations.isA

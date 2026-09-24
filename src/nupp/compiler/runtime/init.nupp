@@ -11,7 +11,7 @@ cannot resolve, most often a C module, continues through Lua's normal loader
 chain untouched.
 ]]
 
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local runtime = {}
 

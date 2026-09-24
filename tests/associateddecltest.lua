@@ -4,9 +4,9 @@
 -- before anything resolves, and conformance runs once every member is known. That is
 -- what makes a body order-independent -- both for a member naming one, and for a
 -- collision, which has to report the same either way round.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

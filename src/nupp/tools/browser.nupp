@@ -5,19 +5,19 @@ The in-memory compiler API used by the browser Worker. It selects compiler-priva
 providers directly and leaves JSON at the outer ABI boundary.
 ]]
 
-local triviaArena = require("nupp.compiler.triviaarena")
-triviaArena.install(require("nupp.compiler.triviaarena.table"))
+local triviaArena = require("nupp.compiler.syntax.triviaarena")
+triviaArena.install(require("nupp.compiler.syntax.triviaarena.table"))
 
 local json = require("nupp.runtime.provider.lunajson")
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local envMod = require("nupp.compiler.env")
-local optimize = require("nupp.compiler.optimize")
-local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.project.env")
+local optimize = require("nupp.compiler.lua.optimize")
+local gen = require("nupp.compiler.lua.gen")
 local tree = require("nupp.tools.lsp.tree")
 local T = require("nupp.compiler.types")
 local capabilities = require("nupp.compiler.capabilities")
-local preludeImage = require("nupp.compiler.preludeimage")
+local preludeImage = require("nupp.compiler.project.preludeimage")
 
 local type BrowserOptions = {
     strict: boolean?,

@@ -1,10 +1,10 @@
 -- The type-system features the compiler needed in order to describe itself. Each of
--- these came out of typing nupp.compiler.cst and nupp.compiler.lexer: what the CST and
+-- these came out of typing nupp.compiler.syntax.cst and nupp.compiler.syntax.lexer: what the CST and
 -- the token stream actually are could not be said without them.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.gen")
-local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -397,7 +397,7 @@ end
 function M.aModuleAliasResolvesTypes()
     local src = table.concat(
         {
-            'local L = require("nupp.compiler.lexer")',
+            'local L = require("nupp.compiler.syntax.lexer")',
             "local function kindOf(t: L.Token): string",
             "    return t.kind",
             "end",
@@ -1150,7 +1150,7 @@ end
 -- that dispatches on `kind` is checked against the vocabulary rather than
 -- trusted with it: reading a field belonging to another kind is an error.
 function M.perKindNodesAreADiscriminatedUnion()
-    local cstModule = "local cst = require('nupp.compiler.cst')\n"
+    local cstModule = "local cst = require('nupp.compiler.syntax.cst')\n"
     assertEq(
         diagsOf(
             cstModule .. table.concat(

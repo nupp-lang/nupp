@@ -1,9 +1,9 @@
 -- Table-driven capability laundering matrix. Each row is a language transport, not a
 -- diagnostic spelling: accepted rows must keep the obligation usable exactly once;
 -- rejected rows must stop weakening at the first unsafe boundary.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

@@ -11,11 +11,11 @@ so the ownership questions are asked here too.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local narrowing = require("nupp.compiler.narrowing")
-local generics = require("nupp.compiler.generics")
-local cst = require("nupp.compiler.cst")
-local lexer = require("nupp.compiler.lexer")
+local relations = require("nupp.compiler.types.relations")
+local narrowing = require("nupp.compiler.types.narrowing")
+local generics = require("nupp.compiler.types.generics")
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA

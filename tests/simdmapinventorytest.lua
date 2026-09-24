@@ -64,9 +64,9 @@ function M.mathMapCorpusCoversEveryAdmittedIdentityAndVariadicForms()
 end
 
 function M.portableMathTargetRefusalsRemainPositionedAndNativeAccepted()
-    local parser = require("nupp.compiler.parser")
+    local parser = require("nupp.compiler.syntax.parser")
     local check = require("fragment")
-    local env = require("nupp.compiler.env").new("tests")
+    local env = require("nupp.compiler.project.env").new("tests")
     local source = "local functions = {\n    math.sinh,\n    math.cosh,\n    math.tanh,\n    math.atan2,\n}\nreturn functions"
     for _, dialect in ipairs({"luajit"}) do
         local parsed = parser.parse(source, "maps-target.g.nupp")

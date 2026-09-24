@@ -4,8 +4,8 @@
 -- twice through a diamond" from "two contracts that chose the same name", and those
 -- differ in whether one answer is owed or two, and in what it has to satisfy.
 local T = require("nupp.compiler.types")
-local associated = require("nupp.compiler.associated")
-local generics = require("nupp.compiler.generics")
+local associated = require("nupp.compiler.types.associated")
+local generics = require("nupp.compiler.types.generics")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -108,7 +108,7 @@ end
 -- `relations` can consume it, and `relations.associatedLookup` is where the verdict
 -- comes back with `unfit` filled in.
 function M.anAnswerIsCheckedAgainstEveryBound()
-   local relations = require("nupp.compiler.relations")
+   local relations = require("nupp.compiler.types.relations")
    local a = decl("A2", {requires = {{"Item", NAMED}}})
    local b = decl("B2", {requires = {{"Item", COUNTED}}})
    local both = T.intersection({NAMED, COUNTED})
@@ -275,7 +275,7 @@ function M.boundsFollowGenericInstantiation()
    good.supertypes = {ofNamed}
    good.associatedAnswers = {Item = {type = NAMED}}
    assertEq(associated.lookup(good, "Item").reason, nil)
-   local relations = require("nupp.compiler.relations")
+   local relations = require("nupp.compiler.types.relations")
    local bad = T.nominal("Bad2", "record")
    bad.supertypes = {ofNamed}
    bad.associatedAnswers = {Item = {type = T.string}}

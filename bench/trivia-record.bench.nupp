@@ -6,7 +6,7 @@ const {type Invocation} = require("nupp.bench")
 -- The benchmark is outside the compiler package but intentionally measures its
 -- private lexer surface, so keep this one import dynamic.
 local loadModule: function(string): any = require
-local lexer = loadModule("nupp.compiler.lexer")
+local lexer = loadModule("nupp.compiler.syntax.lexer")
 
 local parts: {string} = {}
 for index = 1, 256 do

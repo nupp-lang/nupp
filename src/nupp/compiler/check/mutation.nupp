@@ -24,7 +24,7 @@ anything beneath may have changed, and `*` alone for `s[k] = v`. The empty path
 is the binding itself, which only a captured name can be rebound by.
 ]]
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 
 local mutation = {}
 

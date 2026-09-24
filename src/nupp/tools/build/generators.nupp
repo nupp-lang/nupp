@@ -3,7 +3,7 @@ module nupp.tools.build.generators
 const files2 = require("nupp.io.files")
 
 local capabilities = require("nupp.tools.build.capabilities")
-local fingerprint = require("nupp.compiler.fingerprint")
+local fingerprint = require("nupp.compiler.project.fingerprint")
 local stable = require("nupp.compiler.stable")
 local deps = require("nupp.tools.build.deps")
 local fs = require("nupp.compiler.fs")

@@ -2,7 +2,7 @@ module nupp.compiler.compat
 
 -- Compatibility constrains ordinary emission; it never selects a lowerer.
 local compat = {}
-local lexer = require("nupp.compiler.lexer")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 compat.VERSION = "lua51-source-1"
 
@@ -231,7 +231,7 @@ end
 
 --- This guard uses the shared parser and checks its extensions, including in browsers.
 function compat.generated(code: string, filename: string?, sourceTokens: {any}?): {any}
-    local parsed = require("nupp.compiler.parser").parse(code, (filename or "generated") .. ".lua")
+    local parsed = require("nupp.compiler.syntax.parser").parse(code, (filename or "generated") .. ".lua")
     local diags = {}
 
     local function report(at, reason)
@@ -460,7 +460,7 @@ function compat.dependencies(checker: any)
                             local key = path or name
                             if not audited[key] then
                                 audited[key] = {}
-                                local parsed = require("nupp.compiler.parser").parse(loaded.source, key)
+                                local parsed = require("nupp.compiler.syntax.parser").parse(loaded.source, key)
                                 if #parsed.errors > 0 then
                                     audited[key] = parsed.errors
                                 else
@@ -508,7 +508,7 @@ function compat.dependencies(checker: any)
                     reject(node, 'compat = "lua51" requires bounded literal Lua source for loadstring')
                 else
                     local name = (checker.filename or "source") .. ":loadstring.lua"
-                    local parsed = require("nupp.compiler.parser").parse(source, name)
+                    local parsed = require("nupp.compiler.syntax.parser").parse(source, name)
                     local diagnostics: any = parsed.errors
                     if #diagnostics == 0 then
                         diagnostics = require("nupp.compiler.check").check(parsed, name, env, {

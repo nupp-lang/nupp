@@ -4,9 +4,9 @@
 -- needs the projection reduced first, an answer may itself be a computed type, a
 -- cycle may run through a neutral operation, and a projection erased to `any` may
 -- then be consumed by one.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

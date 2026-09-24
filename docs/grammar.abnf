@@ -1,5 +1,5 @@
 ; Nupp formal grammar: the normative reference for
-; src/nupp/compiler/parser.nupp.
+; src/nupp/compiler/syntax/parser.nupp.
 ;
 ; Notation: ABNF per RFC 5234 with RFC 7405 case-sensitivity. Every quoted
 ; terminal here is CASE-SENSITIVE (read "if" as %s"if"). Rule layering encodes

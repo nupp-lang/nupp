@@ -2,7 +2,7 @@ module nupp.compiler.tracesource
 
 -- Checked-source trace facts and the direct-call fixed point used by @jit and editors.
 
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 local trace = require("nupp.compiler.tracecatalog")
 local analysisMod = require("nupp.compiler.analysis")
 

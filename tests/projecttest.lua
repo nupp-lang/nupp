@@ -2,11 +2,11 @@ local project = require("nupp.tools.build.project")
 local deps = require("nupp.tools.build.deps")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
-local store = require("nupp.compiler.store")
+local store = require("nupp.compiler.project.store")
 local nativeStage = require("nupp.tools.build.native")
 local buildPlatform = require("nupp.tools.build.platform")
 local fs = require("nupp.compiler.fs")
-local compilerEnv = require("nupp.compiler.env")
+local compilerEnv = require("nupp.compiler.project.env")
 local json = require("testjson")
 local buildSyntax = require("nupp.compiler.shellsyntax")
 
@@ -244,7 +244,7 @@ end
 function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
     local function fingerprintUnder(prefix)
         local script = (
-            "package.path=%q..package.path " .. "print(require('nupp.compiler.fingerprint').toolFingerprint())"
+            "package.path=%q..package.path " .. "print(require('nupp.compiler.project.fingerprint').toolFingerprint())"
         ):format(prefix .. "build/?.lua;")
         local code, out = process.capture({"luajit", "-e", script})
 

@@ -2,11 +2,11 @@
 -- the passes that ask. A pass declining is not evidence about which question said no,
 -- and the whole reason these moved out of the provers is so that one answer serves
 -- several callers -- which is only worth anything if the answer itself is pinned.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local envMod = require("nupp.compiler.env")
+local envMod = require("nupp.compiler.project.env")
 local analysis = require("nupp.compiler.analysis")
-local cst = require("nupp.compiler.cst")
+local cst = require("nupp.compiler.syntax.cst")
 
 -- One environment for the whole suite.
 --

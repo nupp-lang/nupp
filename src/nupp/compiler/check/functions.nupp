@@ -11,8 +11,8 @@ method.
 ]]
 
 local T = require("nupp.compiler.types")
-local relations = require("nupp.compiler.relations")
-local cst = require("nupp.compiler.cst")
+local relations = require("nupp.compiler.types.relations")
+local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 local comptimeFunction = require("nupp.compiler.check.comptimefunction")
 local preferComptime = require("nupp.compiler.check.prefercomptime")
@@ -338,7 +338,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                     end
                     local resultType = resultTypes[result]
                     if resultType and resultType.tag == "neutral" then
-                        resultType = require("nupp.compiler.generics").normalize(resultType).type
+                        resultType = require("nupp.compiler.types.generics").normalize(resultType).type
                     end
                     if report and resultType and not T.preservationPath(resultType, paramTypes[source]) then
                         c.diag(
@@ -796,7 +796,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         if expected then
             local expectedFunc = rawType(expected)
             if expectedFunc.tag == "func" then
-                local generics = require("nupp.compiler.generics")
+                local generics = require("nupp.compiler.types.generics")
                 expectedParams = generics.expectedParameters(expectedFunc, c.reductionControl)
                 expectedModes = generics.expectedParameterModes(expectedFunc, c.reductionControl)
             end
@@ -1866,7 +1866,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             local declaredMember = owner.byname[member] or not fname.method and owner.staticByname[member] or nil
             if declaredMember and declaredMember.tag == "func" then
                 local supplied = fname.method
-                    and require("nupp.compiler.generics").addSelf(ft, selfType, body.receiverMode)
+                    and require("nupp.compiler.types.generics").addSelf(ft, selfType, body.receiverMode)
                     or ft
                 -- Past the receiver, however it was written. `function R:m()` and
                 -- `function R.m(self: R)` both name one, and what it is the owner

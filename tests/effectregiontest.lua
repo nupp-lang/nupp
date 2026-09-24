@@ -1,8 +1,8 @@
 -- Allocation- and raising-free checked regions and their observed module sidecars.
-local parser = require("nupp.compiler.parser")
+local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local envMod = require("nupp.compiler.env")
-local incremental = require("nupp.compiler.incremental")
+local envMod = require("nupp.compiler.project.env")
+local incremental = require("nupp.compiler.project.incremental")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -49,7 +49,7 @@ end
 function M.directOperationsAreCheckedAndRegionsErase()
     local found, parsed = refusals("@noalloc do local t = {} end")
     assertEq(#found, 1, "table construction is an allocation")
-    local generated = require("nupp.compiler.gen").generate(parsed, "effect-region.g.nupp")
+    local generated = require("nupp.compiler.lua.gen").generate(parsed, "effect-region.g.nupp")
     assert(generated:find("do", 1, true), "region emits a block")
     assert(not generated:find("noalloc", 1, true), "no runtime guard remains")
 end

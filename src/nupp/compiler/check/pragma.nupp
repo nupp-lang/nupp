@@ -13,9 +13,9 @@ Nesting is allowed, so a statement may carry several, and the walk recurs
 through the chain to reach the declaration underneath.
 ]]
 
-local cst = require("nupp.compiler.cst")
-local generics = require("nupp.compiler.generics")
-local indexedViews = require("nupp.compiler.indexedviews")
+local cst = require("nupp.compiler.syntax.cst")
+local generics = require("nupp.compiler.types.generics")
+local indexedViews = require("nupp.compiler.types.indexedviews")
 local lints = require("nupp.compiler.lints")
 local state = require("nupp.compiler.check.state")
 local T = require("nupp.compiler.types")
