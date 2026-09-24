@@ -874,4 +874,101 @@ function M.declinedSpecializationChangesNothing()
    assert(stats.iterations == 1, "a declined proposal marks nothing changed")
 end
 
+local VECTOR = "simd_vector_f64_fixed4"
+
+local function simd(op, intrinsic, valueType, ...)
+   return {op = op, intrinsic = intrinsic, args = {...}, type = valueType}
+end
+
+local function uniform(name)
+   return {op = "uniform", name = name, cName = name, type = "f64"}
+end
+
+-- A vector loop that adds `splat(scale)` to a carried accumulator, once in its
+-- body and once more in a nested branch, and bounds itself by a carried count.
+local function splatLoop(extra)
+   local body = {
+      assignTo("acc", VECTOR, simd("simd_binary", "add", VECTOR,
+         named("acc", VECTOR), simd("simd_splat", "splat", VECTOR, uniform("scale")))),
+      {
+         op = "if",
+         clauses = {{condition = named("stop", "bool"), body = {
+            assignTo("acc", VECTOR, simd("simd_binary", "mul", VECTOR,
+               named("acc", VECTOR), simd("simd_splat", "splat", VECTOR, uniform("scale")))),
+         }}},
+      },
+      assignTo("iteration", "i32", {
+         op = "i32_add", left = named("iteration", "i32"), right = integer(1, "i32"), type = "i32",
+      }),
+   }
+   for _, statement in ipairs(extra or {}) do
+      body[#body + 1] = statement
+   end
+   return program({
+      {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
+      {
+         op = "let", name = "acc", cName = "acc", type = VECTOR, assigned = true,
+         value = simd("simd_splat", "splat", VECTOR, constant(0)),
+      },
+      {
+         op = "while",
+         condition = {op = "lt", left = named("iteration", "i32"), right = integer(8, "i32"), type = "bool"},
+         body = body,
+         carried = {
+            {name = "acc", cName = "acc", type = VECTOR},
+            {name = "iteration", cName = "iteration", type = "i32"},
+         },
+      },
+      {op = "return", values = {simd("simd_horizontal", "sum", "f64", named("acc", VECTOR))}},
+   })
+end
+
+function M.hoistsAnInvariantSplatOutOfItsLoopOnce()
+   local ir = splatLoop()
+   local stats = optimize.program(ir)
+   assert(ruleCount(stats, "hoist.loop-invariant") == 1, "two spellings of one value share a binding")
+   assert(stats.folds == 0, "a hoist is not counted as a fold")
+
+   local hoisted = ir.body[3]
+   assert(hoisted.op == "let" and hoisted.assigned == nil)
+   assert(hoisted.type == VECTOR and hoisted.value.op == "simd_splat")
+   assert(hoisted.value.args[1].op == "uniform")
+   assert(hoisted.name ~= "acc" and hoisted.cName ~= "acc" and hoisted.cName ~= "iteration")
+
+   local loop = ir.body[4]
+   assert(loop.op == "while")
+   local added = loop.body[1].values[1].value.args[2]
+   assert(added.op == "local" and added.cName == hoisted.cName and added.type == VECTOR)
+   local multiplied = loop.body[2].clauses[1].body[1].values[1].value.args[2]
+   assert(multiplied.op == "local" and multiplied.cName == hoisted.cName, "a nested branch reads the same binding")
+   assert(ir.body[2].value.op == "simd_splat", "a declaration outside every loop stays where it is")
+end
+
+function M.hoistingLeavesVariantAndShapeReadOperandsAlone()
+   local ir = splatLoop({
+      -- Depends on the carried count, so it changes every iteration.
+      assignTo("acc", VECTOR, simd("simd_binary", "add", VECTOR, named("acc", VECTOR),
+         simd("simd_splat", "splat", VECTOR, {op = "int_to_f64", value = named("iteration", "i32"), type = "f64"}))),
+      -- The emitter answers `any(x > splat(c))` without forming the mask only
+      -- while the bound is still a literal splat.
+      {op = "if", clauses = {{
+         condition = simd("simd_mask_any", "any", "bool", simd("simd_compare", "gt", "simd_mask_f64_fixed4",
+            named("acc", VECTOR), simd("simd_splat", "splat", VECTOR, constant(3)))),
+         body = {{op = "break"}},
+      }}},
+      -- A scatter's uniqueness proof reads its literal `iota`.
+      simd("simd_store", "scatter", "lua_effect", named("species", "simd_species_f64_fixed4"), constant(1),
+         simd("simd_iota", "iota", "simd_vector_i32_fixed4", integer(0, "i32"), integer(2, "i32")),
+         named("acc", VECTOR)),
+   })
+   local stats = optimize.program(ir)
+   assert(ruleCount(stats, "hoist.loop-invariant") == 1, "only the uniform splat moves")
+
+   local loop = ir.body[4]
+   assert(loop.body[4].values[1].value.args[2].op == "simd_splat", "an iteration-dependent splat stays in the loop")
+   local compared = loop.body[5].clauses[1].condition.args[1].args[2]
+   assert(compared.op == "simd_splat", "an any-compare bound stays a literal splat")
+   assert(loop.body[6].args[3].op == "simd_iota", "a scatter index stays a literal iota")
+end
+
 return M

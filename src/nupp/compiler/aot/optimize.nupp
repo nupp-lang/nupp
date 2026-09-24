@@ -7,9 +7,10 @@ The IR is structured and name based, so this pass stays structured and name
 based. Every expression and statement is first admitted by the closed effect
 vocabulary. Rewrites are intentionally local: constant folding under the
 binary64 contract, dead pure declarations, statically selected branches,
-derivation of proven break-result flags, small literal loop expansion, and
-unreachable statement tails. A bounded repeat exposes declarations made dead
-by an earlier removal without turning this into an open-ended fixpoint.
+derivation of proven break-result flags, small literal loop expansion,
+unreachable statement tails, and hoisting of loop-invariant SIMD values. A
+bounded repeat exposes declarations made dead by an earlier removal without
+turning this into an open-ended fixpoint.
 
 Expression rewriting is one fused walk -- root propagation, child descent,
 fold saturation, then helper specialization -- scheduled here and answered by
@@ -1036,6 +1037,324 @@ local function removeUnusedHelpers(program: scalarIR.Program, helpers: {[string]
     program.helpers = kept
 end
 
+--- The loop-invariant values one loop's body computes, bound before the loop.
+record optimize.Hoisting
+    lets: {scalarIR.Let}
+
+    --- The hoisted bindings in scope, by `shapeKey`, so a value computed twice
+    --- -- in one body, or by two loops in one block -- is bound once.
+    byShape: {[string]: scalarIR.Let}
+
+    --- Every name and C name the program uses, so a new binding takes neither.
+    taken: {[string]: boolean}
+
+    serial: integer
+end
+
+--- What hoisting moves: a SIMD value, vector or mask. Materializing one is
+--- real work -- a splat, a constant table, a conversion -- where a scalar
+--- invariant is one instruction any backend keeps in a register. Leaving
+--- scalars in place also keeps every cursor, count and lanes expression where
+--- the verifier's bounds proofs and the emitter's loop versioning look for it.
+local function hoistableType(type: scalarIR.Type): boolean
+    local name = tostring(type)
+
+    return name:match("^simd_vector_") ~= nil or name:match("^simd_mask_") ~= nil
+end
+
+--- Whether a value is the same on every iteration of a loop entered with
+--- `outer` in scope. Only a `let` declared before the loop and never assigned
+--- is known not to change, which is why the test is membership rather than
+--- the loop's carried set: a body's own declarations are fresh every time.
+--- The effect test is `repeatable`'s: hoisting evaluates the value even when
+--- the loop runs no iterations, so it must not be able to raise or read
+--- memory, and a helper's root classification is not a proof about its body.
+local function loopInvariant(value: scalarIR.Expr, outer: {[string]: boolean}): boolean
+    if value.op == "helper_call" or value.op == "simd_call" or value.op == "loop_index" then
+        return false
+    end
+    if value.op == "local" then
+        return outer[localIdentity(value)] == true
+    end
+    local root = effects.expression(tostring(value.op))
+    if root.observable
+        or root.mayRaise
+        or root.readsNative
+        or root.writesNative
+        or root.usesLua
+        or root.allocatesLua
+    then
+        return false
+    end
+
+    local invariant = true
+    visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
+        if invariant and not loopInvariant(child, outer) then
+            invariant = false
+        end
+        return child
+    end)
+
+    return invariant
+end
+
+--- A structural identity for one value: every field but its source position,
+--- keys sorted, so two spellings of the same computation share one binding.
+local function shapeKey(value: any): string
+    if type(value) ~= "table" then
+        return type(value) .. ":" .. tostring(value)
+    end
+    local keys: {any} = {}
+    for key in pairs(value) do
+        if key ~= "source" then
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys, function(left: any, right: any): boolean
+        return type(left) .. tostring(left) < type(right) .. tostring(right)
+    end)
+    local parts: {string} = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = tostring(key) .. "=" .. shapeKey(value[key])
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function collectNames(value: any, taken: {[string]: boolean}): nil
+    if type(value) ~= "table" then
+        return nil
+    end
+    for key, child in pairs(value) do
+        if (key == "name" or key == "cName") and type(child) == "string" then
+            taken[child as string] = true
+        elseif key ~= "source" then
+            collectNames(child, taken)
+        end
+    end
+
+    return nil
+end
+
+--- A read of the binding that holds `value`, declaring it on first use.
+local function hoist(value: scalarIR.Expr, hoisting: optimize.Hoisting, state: optimize.State): scalarIR.Expr
+    local key = shapeKey(value)
+    local binding = hoisting.byShape[key]
+    if binding == nil then
+        local name: string
+        local cName: string
+        repeat
+            hoisting.serial = hoisting.serial + 1
+            name = "hoisted_" .. tostring(hoisting.serial)
+            cName = scalarIR.cIdentifier("ks", name)
+        until not hoisting.taken[name] and not hoisting.taken[cName]
+        hoisting.taken[name] = true
+        hoisting.taken[cName] = true
+        binding = new scalarIR.Let(
+            op = "let",
+            name = name,
+            cName = cName,
+            value = value,
+            type = value.type,
+            source = value.source
+        )
+        hoisting.byShape[key] = binding
+        hoisting.lets[#hoisting.lets + 1] = binding as scalarIR.Let
+        countRule(state, "hoist.loop-invariant")
+    end
+    local bound = binding as scalarIR.Let
+
+    return new scalarIR.Name(
+        op = "local",
+        name = bound.name,
+        cName = bound.cName,
+        type = bound.type,
+        source = value.source
+    )
+end
+
+--- Operations whose operands are read by shape rather than by value, so an
+--- operand stays spelled where it is. Memory operations carry their index and
+--- mask into bounds and scatter-uniqueness proofs (`simdindices.unique` wants
+--- the literal `iota`); `any_compare` stands for a comparison directly under
+--- `any()`, which the emitter answers without forming a mask only when the
+--- bound is still a literal splat.
+local PINNED_OPERANDS: {
+    [string]: boolean
+} = {simd_load = true, simd_store = true, simd_field_load = true, simd_field_store = true, any_compare = true,}
+
+local hoistWithin: function(
+    scalarIR.Expr,
+    string,
+    {[string]: boolean},
+    optimize.Hoisting,
+    optimize.State
+): scalarIR.Expr
+
+--- Replaces the largest invariant SIMD values under `value`, whose parent is
+--- `parent`. A bare read is already as cheap as the binding that would
+--- replace it, and a tail mask is a bounds fact the emitter recognises by its
+--- `let`.
+hoistWithin = function(
+    value: scalarIR.Expr,
+    parent: string,
+    outer: {[string]: boolean},
+    hoisting: optimize.Hoisting,
+    state: optimize.State
+): scalarIR.Expr
+    if not PINNED_OPERANDS[parent]
+        and value.op ~= "local"
+        and value.op ~= "uniform"
+        and value.op ~= "simd_tail"
+        and hoistableType(value.type)
+        and loopInvariant(value, outer)
+    then
+        return hoist(value, hoisting, state)
+    end
+    local role = value.op == "simd_compare" and parent == "simd_mask_any" and "any_compare" or tostring(value.op)
+    visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
+        return hoistWithin(child, role, outer, hoisting, state)
+    end)
+
+    return value
+end
+
+--- The statement lists nested directly in one statement.
+local function nestedBlocks(statement: scalarIR.Statement): {{scalarIR.Statement}}
+    local value = statement as any
+    local blocks: {{scalarIR.Statement}} = {}
+    if statement.op == "if" then
+        for _, clause in ipairs((statement as scalarIR.If).clauses) do
+            blocks[#blocks + 1] = clause.body
+        end
+        if value.elseBody ~= nil then
+            blocks[#blocks + 1] = value.elseBody as {scalarIR.Statement}
+        end
+    elseif statement.op == "while"
+        or statement.op == "repeat"
+        or statement.op == "fornum"
+        or statement.op == "block"
+        or statement.op == "reducer_region"
+    then
+        if value.conditionBody ~= nil then
+            blocks[#blocks + 1] = value.conditionBody as {scalarIR.Statement}
+        end
+        blocks[#blocks + 1] = value.body as {scalarIR.Statement}
+    end
+
+    return blocks
+end
+
+--- Rewrites every expression in a loop body, however deeply nested. The loop's
+--- own condition is not visited: it is evaluated on entry anyway, and it is
+--- the shape the bounds proofs and loop versioning are read from.
+local hoistFromBody: function({scalarIR.Statement}, {[string]: boolean}, optimize.Hoisting, optimize.State): nil
+
+hoistFromBody = function(
+    statements: {scalarIR.Statement},
+    outer: {[string]: boolean},
+    hoisting: optimize.Hoisting,
+    state: optimize.State
+): nil
+    -- A statement's operands answer to the statement's op, so a store written
+    -- as a statement pins its index exactly as the expression form does.
+    local parent = ""
+
+    local function rewrite(child: scalarIR.Expr): scalarIR.Expr
+        return hoistWithin(child, parent, outer, hoisting, state)
+    end
+
+    for _, statement in ipairs(statements) do
+        parent = tostring(statement.op)
+        visit.statementExpressions(statement, rewrite)
+        for _, nested in ipairs(nestedBlocks(statement)) do
+            hoistFromBody(nested, outer, hoisting, state)
+        end
+    end
+end
+
+--- Binds each loop's invariant SIMD values once, immediately before the loop.
+---
+--- `outer` holds the values in scope that never change: unassigned `let`s,
+--- by C name. A splat of a parameter inside a vector loop is the case this is
+--- for; a C compiler hoists it at -O2, but a backend that lowers this IR
+--- directly would otherwise rebuild it on every iteration. Loops are handled
+--- outermost first, so a value invariant in both an outer and an inner loop
+--- leaves both, and an inner loop then takes what depends only on its outer
+--- body's own values.
+local hoistBlock: function(
+    {scalarIR.Statement},
+    {[string]: boolean},
+    {[string]: scalarIR.Let},
+    {[string]: boolean},
+    optimize.State
+): {scalarIR.Statement}
+
+hoistBlock = function(
+    statements: {scalarIR.Statement},
+    inherited: {[string]: boolean},
+    inheritedBindings: {[string]: scalarIR.Let},
+    taken: {[string]: boolean},
+    state: optimize.State
+): {scalarIR.Statement}
+    local outer: {[string]: boolean} = {}
+    for name in pairs(inherited) do
+        outer[name] = true
+    end
+    -- Bindings an earlier loop in scope already made, so a later loop reads
+    -- the same value rather than binding it again.
+    local bindings: {[string]: scalarIR.Let} = {}
+    for key, binding in pairs(inheritedBindings) do
+        bindings[key] = binding
+    end
+    local rewritten: {scalarIR.Statement} = {}
+    for _, statement in ipairs(statements) do
+        local value = statement as any
+        if statement.op == "while" or statement.op == "repeat" or statement.op == "fornum" then
+            local hoisting = new optimize.Hoisting(lets = {}, byShape = bindings, taken = taken, serial = 0)
+            if value.conditionBody ~= nil then
+                hoistFromBody(value.conditionBody as {scalarIR.Statement}, outer, hoisting, state)
+            end
+            hoistFromBody(value.body as {scalarIR.Statement}, outer, hoisting, state)
+            for _, binding in ipairs(hoisting.lets) do
+                rewritten[#rewritten + 1] = binding
+                outer[binding.cName] = true
+                state.changed = true
+            end
+        end
+        if statement.op == "if" then
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                clause.body = hoistBlock(clause.body, outer, bindings, taken, state)
+            end
+            if value.elseBody ~= nil then
+                value.elseBody = hoistBlock(value.elseBody as {scalarIR.Statement}, outer, bindings, taken, state)
+            end
+        elseif statement.op == "while"
+            or statement.op == "repeat"
+            or statement.op == "fornum"
+            or statement.op == "block"
+            or statement.op == "reducer_region"
+        then
+            if value.conditionBody ~= nil then
+                value.conditionBody = hoistBlock(
+                    value.conditionBody as {scalarIR.Statement},
+                    outer,
+                    bindings,
+                    taken,
+                    state
+                )
+            end
+            value.body = hoistBlock(value.body as {scalarIR.Statement}, outer, bindings, taken, state)
+        end
+        rewritten[#rewritten + 1] = statement
+        if statement.op == "let" and (statement as scalarIR.Let).assigned ~= true then
+            outer[(statement as scalarIR.Let).cName] = true
+        end
+    end
+
+    return rewritten
+end
+
 --- Optimises one verified program in place.
 --- @return counters describing the actual rewrite
 --- @raises string when an IR opcode has no effect classification
@@ -1097,13 +1416,24 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         end
     until not state.changed or iterations == 4
 
+    -- After the fixpoint rather than inside it: nothing above rewrites a
+    -- hoisted binding, and each loop's values are final once folding stops.
+    local taken: {[string]: boolean} = {}
+    collectNames(program, taken)
+    if program.loop ~= nil then
+        local loop = program.loop as scalarIR.Loop
+        loop.statements = hoistBlock(loop.statements, {}, {}, taken, state)
+    elseif program.workgroup == nil then
+        program.body = hoistBlock(program.body or {}, {}, {}, taken, state)
+    end
+
     removeUnusedHelpers(program, helpers)
 
     local applications: {optimize.RuleApplication} = {}
     local expressionFolds: integer = 0
     for id, count in pairs(state.ruleApplications) do
         applications[#applications + 1] = new optimize.RuleApplication(id = id, count = count)
-        if id ~= "propagate.local-constant" and id ~= "specialize.helper-constant" then
+        if id ~= "propagate.local-constant" and id ~= "specialize.helper-constant" and id ~= "hoist.loop-invariant" then
             expressionFolds = expressionFolds + count
         end
     end
