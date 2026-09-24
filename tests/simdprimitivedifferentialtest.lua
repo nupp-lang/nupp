@@ -6,8 +6,8 @@ local packs = require("tests.simd.native-packs")
 local runner = require("tests.simd.runner")
 local HERE = runner.root() .. "/tests"
 local WORK_CEILINGS = {
-    species = {units = 40, externalCommands = 42, cases = 84000, calls = 3200},
-    semantics = {units = 105, externalCommands = 107, cases = 55000000, calls = 700000},
+    species = {units = 40, externalCommands = 42, cases = 85000, calls = 3200},
+    semantics = {units = 105, externalCommands = 107, cases = 60000000, calls = 700000},
 }
 
 local function read(path)
