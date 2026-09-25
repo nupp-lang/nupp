@@ -2376,6 +2376,20 @@ function aot.writeArchiveProbe(
     local fingerprint = aot.archiveFingerprint(emitted)
     local unit = emitter.archiveProbe(symbol, fingerprint)
     local output = outDir .. "/aot/archive.c"
+    -- Through LLVM when every other unit went that way, so the archive needs
+    -- no C compiler for its one function either.
+    local backend: string? = nil
+    local viaLlvm = #emitted > 0
+    for _, one in ipairs(emitted) do
+        if one.backend ~= aotllvm.BACKEND then
+            viaLlvm = false
+        end
+    end
+    if viaLlvm and aotllvm.selected() == true then
+        unit = ("define i64 @%s() {\n  ret i64 %d\n}\n"):format(symbol, fingerprint)
+        output = outDir .. "/aot/archive.ll"
+        backend = aotllvm.BACKEND
+    end
     if fs.readFile(output) ~= unit then
         local ok, err = fs.writeFile(output, unit)
         if not ok then
@@ -2396,7 +2410,8 @@ function aot.writeArchiveProbe(
             })
         ),
         detector = true,
-        role = "archive-probe"
+        role = "archive-probe",
+        backend = backend
     ), new bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
 end
 

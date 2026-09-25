@@ -2567,6 +2567,67 @@ print(triangular(4))
     remove(dir)
 end
 
+--- Through LLVM, a standalone program with AOT code links from a link kit
+--- with lld in process: no C compiler, system linker or SDK is run, and the
+--- program carries no LLVM of its own.
+function M.standaloneAotLinksFromAKitWithoutACToolchain()
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" or jit.os ~= "OSX" then
+        return
+    end
+    local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
+    local code, answer = process.capture({root .. "/scripts/toolchain", "kit", ""})
+    assertEq(code, 0, answer)
+    local kit = answer:match("([^\r\n]+)%s*$")
+    local dir = tempProject({
+        [
+            "src/main.nupp"
+        ] = [[
+@aot
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do
+      result = result + index
+   end
+   return result
+end
+
+print(triangular(4))
+]],
+    })
+    write(
+        dir .. "/nupp.lua",
+        (
+            [=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]
+        ):format(dir .. "/out", dir .. "/out/app")
+    )
+    -- Every tool a C link would reach for fails, and says so.
+    local fake = dir .. "/fakebin"
+    assert(os.execute("mkdir -p '" .. fake .. "'") == 0)
+    for _, tool in ipairs({"cc", "clang", "gcc", "ld", "xcrun", "c++", "clang++", "ar", "ranlib", "libtool"}) do
+        write(fake .. "/" .. tool, "#!/bin/sh\necho \"$0\" >> '" .. dir .. "/invoked'\nexit 99\n")
+        assert(os.execute("chmod +x '" .. fake .. "/" .. tool .. "'") == 0)
+    end
+    local ffi = require("ffi")
+    pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
+    local path = os.getenv("PATH") or ""
+    ffi.C.setenv("PATH", fake .. ":" .. path, 1)
+    ffi.C.setenv("NUPP_KIT_DIR", kit, 1)
+    local ok, built = pcall(project.build, dir)
+    ffi.C.setenv("PATH", path, 1)
+    ffi.C.unsetenv("NUPP_KIT_DIR")
+    assert(ok, built)
+    assertEq(built, 0)
+    assert(not exists(dir .. "/invoked"), "no C toolchain was run")
+    local ran, text = process.capture({dir .. "/out/app"})
+    assertEq(ran, 0, text)
+    assertEq(text:match("[^\r\n]+"), "10", "the program runs its AOT entry")
+    local _, symbols = process.capture({"nm", dir .. "/out/app"})
+    assert(not symbols:find("__ZN4llvm", 1, true), "the program carries no LLVM")
+    remove(dir)
+end
+
 function M.staticAotComponentProducesAnArchiveAndDefaultNamespaceBinding()
     local dir = tempProject({
         [
@@ -2676,12 +2737,22 @@ return {triangular = triangular}
     assert(#link.symbols.kernels > 0, "so is every kernel")
     assert(#link.retain.forceLoad > 0, "a desktop linker extracts nothing from an archive nothing references")
 
-    local c = assert(read(dir .. "/out/aot/archive.c"))
-    assert(c:find("uint64_t " .. probe .. "(void)", 1, true), c)
-    assert(
-        c:find("return UINT64_C(" .. ("%d"):format(link.fingerprint.value) .. ");", 1, true),
-        "the probe returns exactly what the manifest says it does"
-    )
+    -- The probe is C, or LLVM IR when the LLVM route took every unit.
+    if exists(dir .. "/out/aot/archive.ll") then
+        local ir = read(dir .. "/out/aot/archive.ll")
+        assert(ir:find("define i64 @" .. probe .. "()", 1, true), ir)
+        assert(
+            ir:find("ret i64 " .. ("%d"):format(link.fingerprint.value), 1, true),
+            "the probe returns exactly what the manifest says it does"
+        )
+    else
+        local c = assert(read(dir .. "/out/aot/archive.c"))
+        assert(c:find("uint64_t " .. probe .. "(void)", 1, true), c)
+        assert(
+            c:find("return UINT64_C(" .. ("%d"):format(link.fingerprint.value) .. ");", 1, true),
+            "the probe returns exactly what the manifest says it does"
+        )
+    end
 
     -- The check stands ahead of every declaration in the module, because a
     -- kernel `cdef` binds eagerly too and would raise LuaJIT's own message first.

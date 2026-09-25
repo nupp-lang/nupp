@@ -138,6 +138,28 @@ function stage.linkHost(
         return nil, "standalone native linking needs compiler source or an installed compiler pack"
     end
     local featureNames = native.hostFeatureNames(effects)
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    if aotllvm.selected() and (selected == nil or selected == host) and host:match("darwin") ~= nil then
+        -- Through LLVM, the link is lld's, from a link kit: the runtime and
+        -- stubs for the system libraries, and no C toolchain or SDK.
+        local kit = os.getenv("NUPP_KIT_DIR")
+        if kit == nil then
+            if not compilerRoot then
+                return nil, "standalone native linking needs a link kit; name one with NUPP_KIT_DIR"
+            end
+            local built, problem = driven(compilerRoot as string, "kit", featureNames)
+            if not built then
+                return nil, "cannot build the link kit:\n" .. problem
+            end
+            kit = built
+        end
+        local linkErr = aotllvm.linkStandalone(kit as string, output, archives, flags)
+        if linkErr ~= nil then
+            return nil, linkErr
+        end
+
+        return output, nil
+    end
     local driver = pack and (pack as any).linkHost or join(compilerRoot as string, "scripts/toolchain")
     if driver == nil then
         return nil, "compiler pack for " .. tostring(selected or host) .. " has no standalone host linker"

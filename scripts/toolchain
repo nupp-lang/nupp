@@ -1427,6 +1427,97 @@ EOF
     native_path "$output"
 }
 
+# --- Link kits ----------------------------------------------------------------
+
+# What AOT objects may reference from the C library beyond what the runtime
+# does: the libm functions the backend emits, and the memory functions LLVM
+# lowers copies to. A kit's C-library stubs carry them whether or not the
+# runtime itself uses them.
+KIT_AOT_SYMBOLS="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma fmaf
+floor ceil trunc round sqrt memcpy memmove memset bzero memcmp bcmp memchr strtod"
+
+# Stages the link kit for one host feature set: the runtime archive, stubs for
+# every system library it and AOT code bind to, and kit.json naming them, so
+# `nupp` links a standalone program with lld and nothing else. The stubs name
+# symbols and install names only, taken from a probe link against this
+# machine's SDK; no SDK file is copied.
+build_kit() {
+    features=${1:-}
+    build_host stub "$features"
+    host_out=$HOST_OUT
+    digest=$(printf 'kit-2|%s' "$(basename "$host_out")" | sha256_stdin | cut -c1-16)
+    out="$PREFIX/kits/$digest"
+    KIT_OUT=$out
+    take_lock "kit-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    [ "$PLATFORM" = darwin ] || die "link kits are built on macOS so far"
+    note "staging the link kit"
+    rm -rf "$out"
+    mkdir -p "$out/sdk"
+    cp "$host_out/libnupp-host.a" "$out/libnupp-runtime.a"
+
+    probe="$out/probe"
+    {
+        for name in $KIT_AOT_SYMBOLS; do printf 'extern char %s[];\n' "$name"; done
+        printf 'void *nupp_kit_probe[] = {\n'
+        for name in $KIT_AOT_SYMBOLS; do printf '    %s,\n' "$name"; done
+        printf '};\n'
+    } > "$probe-aot.c"
+    "$CC" -c -w -fno-builtin -o "$probe-aot.o" "$probe-aot.c"
+    set -- "$CC" -o "$probe" "-Wl,-force_load,$out/libnupp-runtime.a" "-Wl,-force_load,$probe-aot.o"
+    host_system_flags "$features" > "$probe-flags"
+    while IFS= read -r flag; do
+        [ -z "$flag" ] || set -- "$@" "$flag"
+    done < "$probe-flags"
+    set -- "$@" -Wl,-export_dynamic
+    "$@" >&2
+
+    # Which library each symbol binds to, and what each library is.
+    nm -m "$probe" | sed -n 's/^ *(undefined) [a-z ]*external \([^ ]*\) (from \([^)]*\)).*/\2 \1/p' \
+        | sort -u > "$out/binds"
+    otool -L "$probe" | sed -n '2,$p' > "$out/libraries"
+    : > "$out/flags"
+    while read -r path rest; do
+        name=$(basename "$path")
+        case "$path" in
+            */Frameworks/*.framework/*)
+                short=$name
+                stub="$out/sdk/System/Library/Frameworks/$name.framework/$name.tbd"
+                printf '%s\n' "-framework" "$name" >> "$out/flags"
+                ;;
+            *)
+                short=$(printf '%s' "$name" | sed 's/\.dylib$//; s/\.[A-Z]$//')
+                stub="$out/sdk/usr/lib/$short.tbd"
+                printf '%s\n' "-l${short#lib}" >> "$out/flags"
+                ;;
+        esac
+        compatibility=$(printf '%s' "$rest" | sed -n 's/.*compatibility version \([0-9.]*\).*/\1/p')
+        current=$(printf '%s' "$rest" | sed -n 's/.*current version \([0-9.]*\).*/\1/p')
+        mkdir -p "$(dirname "$stub")"
+        {
+            printf -- '--- !tapi-tbd\ntbd-version: 4\ntargets: [ arm64-macos, x86_64-macos ]\n'
+            printf "install-name: '%s'\n" "$path"
+            printf 'current-version: %s\ncompatibility-version: %s\n' "$current" "$compatibility"
+            printf 'exports:\n  - targets: [ arm64-macos, x86_64-macos ]\n    symbols: [ '
+            awk -v lib="$short" '$1 == lib { printf "%s\x27%s\x27", (n++ ? ", " : ""), $2 }' "$out/binds"
+            # The lazy-binding helper a linker binds itself, never named.
+            [ "$short" != libSystem ] || printf ", 'dyld_stub_binder'"
+            printf ' ]\n...\n'
+        } > "$stub"
+    done < "$out/libraries"
+
+    {
+        printf '{\n  "schemaVersion": 1,\n  "platform": "macos",\n  "minimum": "11.0",\n'
+        printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n  "syslibroot": "sdk",\n' "$features"
+        printf '  "libraries": ['
+        awk '{ printf "%s\"%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/flags"
+        printf ']\n}\n'
+    } > "$out/kit.json"
+    rm -f "$probe" "$probe-aot.c" "$probe-aot.o" "$probe-flags" "$out/binds" "$out/libraries" "$out/flags"
+    printf 'ok\n' > "$out/.complete"
+    release_lock
+}
+
 # --- LLVM ---------------------------------------------------------------------
 
 # The configuration of the pinned LLVM. Every line decides what the libraries
@@ -1607,6 +1698,11 @@ case "$1" in
         host_link_output=${3:-}
         shift 3
         link_host "$host_link_features" "$host_link_output" "$@"
+        exit 0
+        ;;
+    kit)
+        build_kit "${2:-}"
+        native_path "$KIT_OUT"
         exit 0
         ;;
     browser-sources|browser-emulator|browser-guest)

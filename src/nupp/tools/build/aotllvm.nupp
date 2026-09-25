@@ -399,4 +399,64 @@ function aotllvm.linkWasm(object: string, output: string, exports: {string}, lib
     return nil
 end
 
+--- Links a standalone program `output` from the link kit at `kit`: its
+--- runtime and `archives` loaded whole (a program reaches native code by
+--- name, which no archive scan sees), against the kit's stubs for the system
+--- libraries, with lld in process.
+--- @return nil, or what went wrong
+function aotllvm.linkStandalone(kit: string, output: string, archives: {string}, flags: {string}): string?
+    local text = fs.readFile(kit .. "/kit.json")
+    if text == nil then
+        return "the link kit at " .. kit .. " has no kit.json"
+    end
+    local json = require("nupp.codec.json")
+    local ok, manifest = pcall(json.decode, text as string, json.NULL)
+    if not ok or type(manifest) ~= "table" or manifest.schemaVersion ~= 1 then
+        return "the link kit at " .. kit .. " has an unreadable kit.json"
+    end
+    if manifest.platform ~= "macos" then
+        return "this nupp links standalone programs from macOS kits only so far"
+    end
+    local host = require("nupp.tools.build.platform").hostKey()
+    local architecture = host:match("^x86_64") ~= nil and "x86_64" or "arm64"
+    local minimum = tostring(manifest.minimum)
+    local argv: {
+        string
+    } = {
+        "ld64.lld",
+        "-arch",
+        architecture,
+        "-platform_version",
+        "macos",
+        minimum,
+        minimum,
+        "-syslibroot",
+        kit .. "/" .. tostring(manifest.syslibroot),
+        "-o",
+        output,
+        "-force_load",
+        kit .. "/" .. tostring(manifest.runtime),
+    }
+    for _, archive in ipairs(archives) do
+        argv[#argv + 1] = "-force_load"
+        argv[#argv + 1] = archive
+    end
+    for _, library in ipairs(manifest.libraries) do
+        argv[#argv + 1] = tostring(library)
+    end
+    for _, flag in ipairs(flags) do
+        argv[#argv + 1] = flag
+    end
+    -- The program's native code finds the runtime's entry points by name.
+    argv[#argv + 1] = "-export_dynamic"
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the standalone program failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
 export = aotllvm
