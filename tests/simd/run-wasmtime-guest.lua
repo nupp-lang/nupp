@@ -125,6 +125,10 @@ local scalarTypes = {
 local registrations, callCounts = {}, {}
 
 local function kernel(unit, symbol, descriptor)
+    -- Wasmtime runs SIMD128, so the widest of a tier list is the one taken.
+    if type(unit) == "table" then
+        unit = unit[1]
+    end
     local params, results = descriptor.params, descriptor.results
     local countCount = 1
     if descriptor.independentCounts then

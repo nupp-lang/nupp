@@ -946,7 +946,7 @@ function aot.wasmDispatch(
     source: string,
     programs: {scalarIR.Program},
     sites: {compile.Site},
-    unit: string,
+    units: {string},
     gpuArtifacts: {[string]: any},
     constFamilies: {any}?,
     independent: boolean?
@@ -956,14 +956,14 @@ function aot.wasmDispatch(
     for _, family in ipairs(constFamilies or {}) do
         replacements[
             #replacements + 1
-        ] = {site = family.site, text = wasmBinding.familyReplacement(family, unit, independent)}
+        ] = {site = family.site, text = wasmBinding.familyReplacement(family, units, independent)}
     end
     for position, program in ipairs(programs) do
         local site = sites[position]
         if site ~= nil then
             local replacement = program.executionTarget == "gpu"
                 and gpuBinding.replacement(program, gpuArtifacts[program.symbol], true)
-                or wasmBinding.replacement(program, unit, independent)
+                or wasmBinding.replacement(program, units, independent)
             replacements[#replacements + 1] = {site = site, text = replacement}
         end
     end
@@ -2025,7 +2025,12 @@ function aot.emitC(
 
     -- One compiler-owned baseline unit asks which optional x86-64 state the
     -- destination enabled. It exists only when there is something to select.
-    if #emitted > 0 and #(selected as {targets.Target}) > 1 then
+    -- Wasm has no such state to ask about: the host validates each tier's
+    -- module instead.
+    if #emitted > 0
+        and #(selected as {targets.Target}) > 1
+        and (selected as {targets.Target})[1].architecture ~= "wasm32"
+    then
         local triple = (selected as {targets.Target})[1].triple
         local detector = emitter.featureDetector()
         local output = outDir .. "/aot/features.c"
@@ -2776,17 +2781,34 @@ function aot.apply(
         end
         local dispatch: {[string]: string} = {}
         if policy == "require-wasm" then
+            -- Every tier of a source is a candidate, widest first: the host
+            -- takes the first it could compile, so a browser without SIMD128
+            -- falls back to the scalar unit rather than failing the app.
+            -- Emission is narrowest first.
+            local candidates: {[string]: {string}} = {}
+            local order: {string} = {}
             for _, one in ipairs(emitted as {aot.Emitted}) do
-                local artifacts = produced[one.source]
-                local source = fs.readFile(one.source)
-                if one.detector ~= true and artifacts ~= nil and source ~= nil then
+                if one.detector ~= true and one.unit ~= nil then
+                    local list = candidates[one.source]
+                    if list == nil then
+                        list = {}
+                        candidates[one.source] = list
+                        order[#order + 1] = one.source
+                    end
+                    table.insert(list as {string}, 1, one.unit as string)
+                end
+            end
+            for _, sourcePath in ipairs(order) do
+                local artifacts = produced[sourcePath]
+                local source = fs.readFile(sourcePath)
+                if artifacts ~= nil and source ~= nil then
                     dispatch[
-                        one.source
+                        sourcePath
                     ] = aot.wasmDispatch(
                         source as string,
                         (artifacts as compile.Artifacts).programs,
                         (artifacts as compile.Artifacts).sites,
-                        one.unit as string,
+                        candidates[sourcePath] as {string},
                         (artifacts as compile.Artifacts).gpu,
                         (artifacts as compile.Artifacts).constFamilies,
                         independent
@@ -2804,7 +2826,7 @@ function aot.apply(
                             source as string,
                             (artifacts as compile.Artifacts).programs,
                             (artifacts as compile.Artifacts).sites,
-                            "",
+                            {},
                             (artifacts as compile.Artifacts).gpu,
                             (artifacts as compile.Artifacts).constFamilies,
                             independent

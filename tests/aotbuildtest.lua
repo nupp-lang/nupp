@@ -2397,6 +2397,93 @@ console.log(JSON.stringify({imports: imports.length, total: view().getFloat64(r,
     assert(answer:find('"memory":4194304', 1, true), "memory starts at 4 MiB: " .. answer)
 end
 
+--- A Wasm tier range packages every tier and names them all, widest first, at
+--- each call site; an engine that cannot validate SIMD128 runs the scalar unit
+--- rather than failing the application. Wasm asks no CPU questions, so no
+--- feature detector is built beside them.
+function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
+        return
+    end
+    local probe = io.popen("node --version 2>/dev/null")
+    local node = probe and probe:read("*a") or ""
+    if probe then
+        probe:close()
+    end
+    if not node:match("^v%d") then
+        return
+    end
+    local dir = project(nil)
+    withKeys(
+        dir,
+        'dialect = "luajit", host = "browser", aot = "require-wasm", '
+        .. 'aotFeatures = {minimum = "scalar", maximum = "simd128"},'
+    )
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local units = read(dir .. "/build/native/aot/units.json")
+    assert(not units:find("feature-detector", 1, true), "Wasm builds no feature detector: " .. units)
+    local pipe = assert(io.popen(("grep -rhoE 'kernel ?\\( ?\\{[^}]*\\}' %q"):format(dir .. "/build/native")))
+    local call = pipe:read("*l") or ""
+    pipe:close()
+    local candidates = {}
+    for unit in call:gmatch('\\?"(u%x+)\\?"') do
+        candidates[#candidates + 1] = '"' .. unit .. '"'
+    end
+    test.equal(#candidates, 2, "both tiers are named at the call site: " .. call)
+    local script = dir .. "/fallback.mjs"
+    local handle = assert(io.open(script, "wb"))
+    handle:write(([=[
+import fs from 'fs';
+import {createKernels} from %q;
+const root = process.argv[2] + '/build/native/aot/';
+const candidates = [%s];
+const units = JSON.parse(fs.readFileSync(root + 'units.json')).units.filter(u => u.wasm);
+const records = units.map(u => ({file: u.wasm, unit: u.unit, tier: u.tier, ...u.bridge}));
+const tierOf = new Map(units.map(u => [u.unit, u.tier]));
+async function run(simd) {
+  const vector = new Set();
+  // An engine without SIMD128 neither validates nor compiles those modules.
+  const validate = WebAssembly.validate, compile = WebAssembly.compile;
+  const refused = bytes => simd === false && vector.has(bytes);
+  WebAssembly.validate = bytes => !refused(bytes) && validate(bytes);
+  WebAssembly.compile = bytes => refused(bytes) ? Promise.reject(new WebAssembly.CompileError('simd128')) : compile(bytes);
+  const perform = await createKernels(records, async file => {
+    const bytes = fs.readFileSync(root + file);
+    if (units.find(u => u.wasm === file).tier === 'simd128') vector.add(bytes);
+    return bytes;
+  });
+  WebAssembly.validate = validate;
+  WebAssembly.compile = compile;
+  const leases = new Map([[1, new Uint8Array(32)], [2, new Uint8Array(24)],
+    [3, Uint8Array.from([1, 2, 3])], [4, Uint8Array.from([10, 20])]]);
+  const counts = new DataView(leases.get(1).buffer);
+  counts.setUint32(16, 3, true);
+  counts.setUint32(24, 2, true);
+  const symbol = records[0].entries.find(e => e.symbol.endsWith('_sum_bytes')).symbol;
+  await perform({unit: candidates, symbol, lease: 1, resultLease: 2,
+    spans: [{lease: 3, stride: 1}, {lease: 4, stride: 1}]},
+    {transfers: {lease: (id, bytes) => ({view: leases.get(id).subarray(0, bytes), bytes}), release() {}}});
+  const results = new DataView(leases.get(2).buffer);
+  return {total: results.getFloat64(0, true), first: results.getUint32(8, true), second: results.getUint32(16, true)};
+}
+console.log(JSON.stringify({widest: tierOf.get(candidates[0]), simd: await run(true), scalar: await run(false)}));
+]=]):format(HERE .. "/../runtime/luajit/aot.mjs", table.concat(candidates, ", ")))
+    handle:close()
+    local run = assert(io.popen(("node %q %q 2>&1"):format(script, dir)))
+    local answer = run:read("*a")
+    run:close()
+    assert(answer:find('"widest":"simd128"', 1, true), "the widest tier is named first: " .. answer)
+    assert(
+        answer:find('"simd":{"total":36,"first":3,"second":2}', 1, true),
+        "an engine with SIMD128 runs the kernel: " .. answer
+    )
+    assert(
+        answer:find('"scalar":{"total":36,"first":3,"second":2}', 1, true),
+        "an engine without it falls back to scalar: " .. answer
+    )
+end
+
 function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
@@ -2555,7 +2642,7 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, mea
         source,
         artifacts.programs,
         artifacts.sites,
-        "unit",
+        {"unit"},
         artifacts.gpu,
         artifacts.constFamilies
     )
@@ -2626,7 +2713,7 @@ function M.wasmReplacementRecordsItsCompiledClosure()
             layouts = {},
             resultSourceTypes = {},
         },
-        "unit"
+        {"unit"}
     )
     assert(source:find('rawget(_G, "__nuppAotCompiled")', 1, true), source)
     assert(source:find("entries[copy] = true", 1, true), source)

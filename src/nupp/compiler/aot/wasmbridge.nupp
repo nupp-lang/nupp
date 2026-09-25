@@ -138,7 +138,14 @@ function bridge.registrar(programs: {scalar.Program}, tier: string): string
     return table.concat(lines, "\n") .. "\n"
 end
 
-function bridge.binding(program: scalar.Program, unit: string): string
+--- One unit is named as a string; several, one per tier, as a list the host
+--- takes the first loaded of.
+function bridge.binding(program: scalar.Program, units: {string}): string
+    local quoted: {string} = {}
+    for _, unit in ipairs(units) do
+        quoted[#quoted + 1] = string.format("%q", unit)
+    end
+    local unit = #quoted == 1 and quoted[1] or "{" .. table.concat(quoted, ", ") .. "}"
     local params: {string} = {}
     for _, param in ipairs(program.params) do
         local layout = param.type:match("^struct:(.+)$")
@@ -160,19 +167,19 @@ function bridge.binding(program: scalar.Program, unit: string): string
         results[#results + 1] = string.format("%q", kind)
     end
 
-    return "assert(rawget(_G, \"__nuppBrowser\"), \"LuaJIT browser host is not installed\").kernel(" .. string.format(
-        "%q",
-        unit
-    ) .. ", " .. string.format(
-        "%q",
-        program.symbol
-    ) .. ", {params = {" .. table.concat(
-        params,
-        ", "
-    ) .. "}, results = {" .. table.concat(
-        results,
-        ", "
-    ) .. "}, independentCounts = " .. tostring(program.body ~= nil) .. "})"
+    return "assert(rawget(_G, \"__nuppBrowser\"), \"LuaJIT browser host is not installed\").kernel("
+        .. unit
+        .. ", "
+        .. string.format(
+            "%q",
+            program.symbol
+        ) .. ", {params = {" .. table.concat(
+            params,
+            ", "
+        ) .. "}, results = {" .. table.concat(
+            results,
+            ", "
+        ) .. "}, independentCounts = " .. tostring(program.body ~= nil) .. "})"
 end
 
 export = bridge

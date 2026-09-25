@@ -11,7 +11,11 @@ export async function createKernels(records, verified) {
   const units = new Map();
   for (const record of records || []) {
     if (record.abi !== 1 || units.has(record.unit)) throw new Error('Invalid independent Wasm unit');
-    const module = await WebAssembly.compile(await verified(record.file));
+    const bytes = await verified(record.file);
+    // A tier above scalar the engine cannot validate (SIMD128 on an engine
+    // without it) is left out; its sources name the scalar unit as well.
+    if (record.tier && record.tier !== 'scalar' && !WebAssembly.validate(bytes)) continue;
+    const module = await WebAssembly.compile(bytes);
     // Pure kernels need no Lua, filesystem, clocks, or operating-system imports.
     const imports = WebAssembly.Module.imports(module);
     if (imports.some(x => x.kind !== 'function' || !(x.module === 'wasi_snapshot_preview1' && x.name === 'proc_exit' || x.module === 'env' && x.name === 'emscripten_notify_memory_growth')))
@@ -37,7 +41,8 @@ export async function createKernels(records, verified) {
     units.set(record.unit, {api, entries});
   }
   return async function perform(effect, options) {
-    const unit = units.get(effect.unit), entry = unit?.entries.get(effect.symbol);
+    const candidates = Array.isArray(effect.unit) ? effect.unit : [effect.unit];
+    const unit = units.get(candidates.find(id => units.has(id))), entry = unit?.entries.get(effect.symbol);
     if (!entry) throw new Error('Wasm kernel is not in the verified application');
     const {api} = unit, allocated = [], spans = [], leases = [];
     const allocate = size => {

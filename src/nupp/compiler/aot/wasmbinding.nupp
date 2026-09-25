@@ -43,8 +43,14 @@ local function cast(value: string, named: string): string
 end
 
 --- Replaces one source declaration with a call into its pre-registered side module.
-function wasmbinding.replacement(program: scalarIR.Program, unit: string, independent: boolean?): string
+--- `units` holds each tier's unit, widest first; the first one loaded serves.
+function wasmbinding.replacement(program: scalarIR.Program, units: {string}, independent: boolean?): string
     local prefix = "__nuppWasm_" .. program.symbol
+    local lookups: {string} = {}
+    for _, unit in ipairs(units) do
+        lookups[#lookups + 1] = prefix .. "Registry[\"" .. unit .. "\"]"
+    end
+    local named = table.concat(units, " or ")
     local entry = program.entryMode == "lua-builder" and "builder" or "kernel"
     local lines: {
         string
@@ -52,15 +58,10 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string, indepe
         "local "
         .. prefix
         .. "Registry: any = assert(rawget(_G, \"__nuppWasmAot\"), \"Wasm AOT registry is not installed\")",
-        "local "
-        .. prefix
-        .. "Unit: any = assert("
-        .. prefix
-        .. "Registry[\""
-        .. unit
-        .. "\"], \"Wasm AOT unit "
-        .. unit
-        .. " is not loaded\")",
+        "local " .. prefix .. "Unit: any = assert(" .. table.concat(
+            lookups,
+            " or "
+        ) .. ", \"Wasm AOT unit " .. named .. " is not loaded\")",
         "local "
         .. prefix
         .. "Native: any = assert("
@@ -77,7 +78,7 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string, indepe
         lines = binding.numericForGuard(program)
         lines[
             #lines + 1
-        ] = "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, unit)
+        ] = "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, units)
     else
         for _, layout in ipairs(program.layouts or {}) do
             local variable = prefix .. "Layout" .. layout.name
@@ -214,10 +215,10 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string, indepe
 end
 
 --- Replaces a const declaration with checked wrappers for each emitted Wasm body.
-function wasmbinding.familyReplacement(family: any, unit: string, independent: boolean?): string
+function wasmbinding.familyReplacement(family: any, units: {string}, independent: boolean?): string
     local lines: {string} = {}
     for _, program in ipairs(family.programs) do
-        lines[#lines + 1] = wasmbinding.replacement(program, unit, independent)
+        lines[#lines + 1] = wasmbinding.replacement(program, units, independent)
     end
     lines[#lines + 1] = binding.familyDispatch(family)
 

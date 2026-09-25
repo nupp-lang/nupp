@@ -202,6 +202,10 @@ local scalarTypes = {
 
 local function kernel(unit, symbol, descriptor)
     local params, results = descriptor.params, descriptor.results
+    -- One unit per tier, widest first; the host runs the first it compiled.
+    if type(unit) == "table" then
+        unit[0] = #unit
+    end
     local countCount = 1
     if descriptor.independentCounts then
         countCount = 0
