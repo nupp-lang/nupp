@@ -11,9 +11,11 @@ on:
     branches-ignore: [main]
   workflow_dispatch:
 
+# Queued rather than cancelled: a cancelled cold run never saves the LLVM it
+# spent an hour building. GitHub keeps only the newest pending run.
 concurrency:
   group: llvm-backend-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   llvm:
