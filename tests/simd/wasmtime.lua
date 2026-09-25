@@ -238,6 +238,7 @@ function M.fixtureKey(pack, generated, capabilities, host)
         root .. "/tests/simd/wasmtime.lua",
         root .. "/tests/simd/run-wasmtime-guest.lua",
         root .. "/tests/simd/prepare-wasm-scalar.mjs",
+        root .. "/tests/simd/prepare-wasm-reference.lua",
         root .. "/tests/simd/native-packs.lua",
     }
     local extra = generatedSources(generated)
@@ -310,51 +311,6 @@ function M.execute(capabilities, hostLibrary, project, route, log)
     return runner.json(project .. "/result.json")
 end
 
-local function sha256(path)
-    local pipe = assert(io.popen("(shasum -a 256 " .. runner.quote(path) .. " || sha256sum " .. runner.quote(path) .. ") 2>/dev/null"))
-    local digest = pipe:read("*a"):match("^(%x+)")
-    pipe:close()
-
-    return assert(digest, "no digest for " .. path)
-end
-
---- The scalar reference through LLVM: the same project rebuilt with every
---- Wasm entry calling its kernel's unoptimized twin, and the selection record
---- the C route's adapter writes.
-local function llvmScalar(generated, simdDirectory, scalarDirectory, simd)
-    runner.wasm(generated, {directory = scalarDirectory, environment = "NUPP_AOT_WASM_ORACLE=1 "})
-    local original = runner.json(simdDirectory .. "/dist/aot/units.json")
-    local rebuilt = runner.json(scalarDirectory .. "/dist/aot/units.json")
-    -- By source: the reference build's unit keys carry its switch, so its
-    -- unit names differ; its own app.lua names them consistently.
-    local bySource = {}
-    for _, unit in ipairs(original.units) do
-        bySource[unit.source] = unit
-    end
-    local referenceText = runner.read(simdDirectory .. "/result.json")
-    local selection = {
-        executionPath = "scalar-c",
-        originalProject = simdDirectory,
-        referenceExecutionSha256 = hash.digest(referenceText),
-        referenceCases = simd.cases,
-        referenceCalls = simd.nativeCalls,
-        referenceProbes = simd.probes,
-        units = {},
-    }
-    for _, unit in ipairs(rebuilt.units) do
-        if unit.wasm then
-            local before = assert(bySource[unit.source], "the reference build has a unit the SIMD build does not")
-            selection.units[#selection.units + 1] = {
-                unit = unit.unit,
-                wasm = unit.wasm,
-                originalWasmSha256 = sha256(simdDirectory .. "/dist/aot/" .. before.wasm),
-                wasmSha256 = sha256(scalarDirectory .. "/dist/aot/" .. unit.wasm),
-            }
-        end
-    end
-    runner.writeJson(scalarDirectory .. "/scalar-selection.json", selection)
-end
-
 function M.produce(pack, generated, capabilities, hostLibrary, directory)
     local simdDirectory = directory .. "/simd"
     runner.wasm(generated, {
@@ -366,7 +322,11 @@ function M.produce(pack, generated, capabilities, hostLibrary, directory)
     local simd = M.execute(capabilities, hostLibrary, simdDirectory, "simd", directory .. "/simd-execution.log")
     local scalarDirectory = directory .. "/scalar-c"
     if capabilities.llvm then
-        llvmScalar(generated, simdDirectory, scalarDirectory, simd)
+        runner.command(
+            runner.quote(capabilities.lua.command) .. " " .. runner.quote(root .. "/tests/simd/prepare-wasm-reference.lua")
+                .. " " .. runner.quote(simdDirectory) .. " " .. runner.quote(scalarDirectory),
+            directory .. "/scalar-build.log"
+        )
     else
     runner.command(
         M.compilerEnvironment(

@@ -57,7 +57,8 @@ function M.countedRuntimeRoutesReachChromium()
     test.requireCapability("fleet.browser-smoke", requested, {requested = requested})
     local node, compiler = command("node"), command(os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc")
     test.requireCapability("runtime.node", node ~= nil, {command = node})
-    test.requireCapability("compiler.emscripten", compiler ~= nil, {command = compiler})
+    local llvm = os.getenv("NUPP_AOT_BACKEND") == "llvm"
+    test.requireCapability("compiler.wasm", llvm or compiler ~= nil, {command = llvm and "nupp" or compiler})
     local playwright = ROOT .. "/editors/playground/node_modules/playwright/index.mjs"
     test.requireCapability("runtime.playwright", exists(playwright), {path = playwright})
     local guest = browserGuest()

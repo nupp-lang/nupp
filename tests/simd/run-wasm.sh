@@ -32,7 +32,7 @@ for family in "${families[@]}"; do
     NUPP_WASM_CC="$emcc_command" NUPP_SIMD_TYPES="$element" \
       luajit tests/simd/run.lua wasm "$family" "$directory" > "$directory/driver.log" 2>&1
     node tests/simd/run-browser-guest.mjs "$directory" "$guest" "$directory/browser" simd > "$directory/execution.log" 2>&1
-    NUPP_WASM_CC="$emcc_command" node tests/simd/prepare-wasm-scalar.mjs "$directory" "$directory/scalar-c" > "$directory/scalar-build.log" 2>&1
+    NUPP_WASM_CC="$emcc_command" luajit tests/simd/prepare-wasm-reference.lua "$directory" "$directory/scalar-c" > "$directory/scalar-build.log" 2>&1
     node tests/simd/run-browser-guest.mjs "$directory/scalar-c" "$guest" "$directory/scalar-c/browser" scalar-c > "$directory/scalar-execution.log" 2>&1
     echo "Wasm SIMD128 and scalar C / $family / $element passed"
   done
@@ -45,7 +45,7 @@ NUPP_WASM_CC="$emcc_command" NUPP_SIMD_COUNTED_OUTPUT="$counted" \
   luajit -e 'require("tests.simd.runner").wasm(require("tests.simd.counted").generate(), {directory=os.getenv("NUPP_SIMD_COUNTED_OUTPUT")})' \
   > "$output/counted-build.log" 2>&1
 node tests/simd/run-browser-guest.mjs "$counted" "$guest" "$counted/browser" simd > "$counted/execution.log" 2>&1
-NUPP_WASM_CC="$emcc_command" node tests/simd/prepare-wasm-scalar.mjs "$counted" "$counted/scalar-c" > "$counted/scalar-build.log" 2>&1
+NUPP_WASM_CC="$emcc_command" luajit tests/simd/prepare-wasm-reference.lua "$counted" "$counted/scalar-c" > "$counted/scalar-build.log" 2>&1
 node tests/simd/run-browser-guest.mjs "$counted/scalar-c" "$guest" "$counted/scalar-c/browser" scalar-c > "$counted/scalar-execution.log" 2>&1
 echo "Wasm counted-loop runtime semantics and scalar C passed"
 
