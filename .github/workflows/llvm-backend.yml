@@ -1,0 +1,135 @@
+name: LLVM backend
+
+# The AOT suites through the LLVM backend (`NUPP_AOT_BACKEND=llvm`), which the
+# compiler matrix does not select until the C lowering is gone. The pinned LLVM
+# is built from source once per pin and platform (about an hour) and kept in its
+# own cache, pruned to what linking the code generator needs: the build tree's
+# libraries and tools, and the source tree's LLVM and lld headers.
+
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: llvm-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  llvm:
+    name: ${{ matrix.name }} / LLVM route
+    runs-on: ${{ matrix.os }}
+    # A cold runner builds LLVM before any suite runs.
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+          - name: Linux x64
+            os: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # After the toolchain, so this cache's LLVM wins over whatever an older
+      # toolchain entry carried.
+      - name: Restore the pinned LLVM
+        id: llvm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .nupp-cache/toolchain/llvm
+            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+          key: >-
+            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}-v1
+
+      - name: Install the LLVM build tools
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install ninja
+          else
+            sudo apt-get update && sudo apt-get install -y ninja-build
+          fi
+
+      - name: Provision the pinned toolchain
+        run: ./scripts/toolchain --all
+
+      - name: Build the pinned LLVM
+        run: ./scripts/toolchain llvm
+
+      # Only the libraries, the tools the build reads (llvm-config) and the
+      # headers the code generator's glue includes are needed afterwards.
+      - name: Prune the LLVM tree
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        run: |
+          find .nupp-cache/toolchain/llvm -name '*.o' -delete
+          for tree in .nupp-cache/toolchain/sources/llvm-project-*; do
+            find "$tree" -mindepth 1 -maxdepth 1 ! -name llvm ! -name lld -exec rm -rf {} +
+            find "$tree/llvm" "$tree/lld" -mindepth 1 -maxdepth 1 ! -name include -exec rm -rf {} +
+          done
+
+      - name: Save the pinned LLVM
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .nupp-cache/toolchain/llvm
+            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+          key: >-
+            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}-v1
+
+      - name: Bootstrap the compiler
+        run: ./bin/nupp build
+
+      - name: Install the development rocks
+        run: ./bin/nupp build --target bootstrapCompiler
+
+      - name: Run the AOT suites through LLVM
+        env:
+          NUPP_AOT_BACKEND: llvm
+        run: ./bin/nupp test --group=aot
+
+      - name: Run the standalone and static suites through LLVM
+        env:
+          NUPP_AOT_BACKEND: llvm
+        run: ./bin/nupp test projecttest hostembeddingtest aotincrementaltest
+
+      - name: Run the SIMD differentials through LLVM
+        env:
+          NUPP_AOT_BACKEND: llvm
+        run: >-
+          ./bin/nupp test simdprimitivedifferentialtest simdnativealgorithmdifferentialtest
+          simdreducerdifferentialtest
+
+      # Wasm through nupp alone: no Emscripten on this runner is asked for.
+      - name: Run the Wasm SIMD suites through LLVM
+        env:
+          NUPP_AOT_BACKEND: llvm
+        run: ./bin/nupp test simdwasmtimeconformancetest simdwasmalgorithmdifferentialtest
