@@ -73,14 +73,16 @@ local function loop(ctx: context.Context, breakLabel: string, continueLabel: str
     ctx.loops[#ctx.loops] = nil
 end
 
---- A numeric `for` from 1 to a span's count: the verifier's `boundSpan`.
+--- A numeric `for` from a constant integer to a span's count: the lowering's
+--- `boundSpan`, which it records for any constant start of at least 1.
 --- Its values are exact integers, so it counts in i64, which LLVM can reason
 --- about, and binds each value as the binary64 it equals.
 local function spanFor(ctx: context.Context, statement: scalarIR.Fornum): nil
     local f = ctx.f
     local count = context.count(ctx, statement.boundSpan as string)
+    local start = math.floor(tonumber((statement.from as scalarIR.IntConstant).value) or 1)
     local counter = builder.alloca(f, "i64", 8)
-    builder.emit(f, ("store i64 1, ptr %s"):format(counter))
+    builder.emit(f, ("store i64 %d, ptr %s"):format(start, counter))
     local head = builder.label(f, "for.head")
     local bodyLabel = builder.label(f, "for.body")
     local latch = builder.label(f, "for.next")
@@ -112,7 +114,10 @@ local function spanFor(ctx: context.Context, statement: scalarIR.Fornum): nil
 end
 
 local function fornum(ctx: context.Context, statement: scalarIR.Fornum): nil
-    if statement.boundSpan ~= nil and ctx.counts[statement.boundSpan as string] ~= nil then
+    if statement.boundSpan ~= nil
+        and statement.from.op == "constant_i32"
+        and ctx.counts[statement.boundSpan as string] ~= nil
+    then
         spanFor(ctx, statement)
         return
     end

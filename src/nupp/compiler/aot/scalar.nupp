@@ -1238,8 +1238,9 @@ record scalarIR.Fornum
     carried: {scalarIR.Carried}
 
     --- The span whose count is this loop's inclusive upper bound. Present only
-    --- when `from` is one and `to` is that span's checked count; it is the proof
-    --- that accesses through this induction variable are in bounds.
+    --- when `from` is a constant integer of at least one and `to` is that
+    --- span's checked count; it is the proof that accesses through this
+    --- induction variable are in bounds.
     boundSpan: string?
 
     source: scalarIR.Source?
