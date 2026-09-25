@@ -32,6 +32,12 @@ local target = require("nupp.compiler.aot.target")
 
 local binding = {}
 
+--- Whether a builder loader hands its registrar the AOT runtime's table, as
+--- the LLVM backend's registrars take it. Set by the build for the route it
+--- selected; a C registrar ignores the argument. Carried in generated Lua, so
+--- the module the table comes from is a dependency a build can see.
+binding.passRuntime = false
+
 --- How a storage type is spelled in Nupp source.
 const binding.SOURCE_TYPE = {
     ["f64"] = "number",
@@ -548,7 +554,8 @@ function binding.builderLoader(
         "            local loadlib = rawget(package, \"loadlib\")",
         "            local open, why = loadlib(path, " .. prefix .. "Registrar)",
         "            if not open then error(\"cannot register AOT builder: \" .. tostring(why), 0) end",
-        "            registered = open()",
+        binding.passRuntime and '            registered = open(require("nupp.runtime.aotruntime").table())'
+        or "            registered = open()",
         "            if type(registered) ~= \"table\" or type(registered[\""
         .. program.name
         .. "\"]) ~= \"function\" then error(\"malformed AOT builder registration\", 0) end",

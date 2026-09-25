@@ -137,6 +137,28 @@ jobs:
         shell: bash
         run: ./bin/nupp test --group=aot
 
+      # A crash in an isolated piece reports no case. Rerun the suite a case at
+      # a time under gdb so the one that crashes is named, with its backtrace.
+      - name: Name the AOT case that crashed
+        if: failure() && runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_AOT_BACKEND: llvm
+        run: |
+          sudo apt-get install -y gdb > /dev/null
+          . ./scripts/luajit.sh
+          select_luajit "$PWD"
+          for name in $(sed -n 's/^function M\.\([A-Za-z0-9_]*\)(.*/\1/p' tests/aotbuildtest.lua); do
+            if ! timeout 600 luajit tests/run.lua --case="aotbuildtest/$name" > /tmp/case.log 2>&1; then
+              if grep -q 'Segmentation\|exit 139\|core dumped' /tmp/case.log || [ "$?" -ge 128 ]; then
+                echo "::group::crash in $name"
+                tail -20 /tmp/case.log
+                gdb -batch -ex run -ex bt --args luajit tests/run.lua --case="aotbuildtest/$name" 2>&1 | tail -40
+                echo "::endgroup::"
+              fi
+            fi
+          done
+
       - name: Run the standalone and static suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm

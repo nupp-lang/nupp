@@ -257,7 +257,21 @@ function entry.registrar(
         builder.once(module, "global @ks_rt_table", "@ks_rt_table = external hidden constant [1 x ptr]")
         table = "@ks_rt_table"
     else
-        -- require("nupp.runtime.native").aotRuntime()
+        -- The loader passes the table as its argument. A host that calls the
+        -- registrar with none (a static archive's) is answered by
+        -- require("nupp.runtime.native").aotRuntime(). Either way two values
+        -- sit above the argument, the table's bytes on top.
+        local given = runtime.api(ctx, "lua_type", {state, "i32 1"}) as string
+        local isString = e(ctx, ("icmp eq i32 %s, 4"):format(given))
+        local fromArgument = builder.label(f, "runtime.argument")
+        local fromLookup = builder.label(f, "runtime.lookup")
+        local found = builder.label(f, "runtime.found")
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(isString, fromArgument, fromLookup))
+        builder.start(f, fromArgument)
+        runtime.api(ctx, "lua_pushnil", {state})
+        runtime.api(ctx, "lua_pushvalue", {state, "i32 1"})
+        builder.jump(f, found)
+        builder.start(f, fromLookup)
         runtime.api(ctx, "lua_getfield", {
             state,
             "i32 " .. tostring(GLOBALS),
@@ -272,6 +286,8 @@ function entry.registrar(
         runtime.api(ctx, "lua_call", {state, "i32 1", "i32 1"})
         runtime.api(ctx, "lua_getfield", {state, "i32 -1", "ptr " .. runtime.cString(ctx, "aotRuntime")})
         runtime.api(ctx, "lua_call", {state, "i32 0", "i32 1"})
+        builder.jump(f, found)
+        builder.start(f, found)
         local length = builder.alloca(f, size, size == "i64" and 8 or 4)
         builder.emit(f, ("store %s 0, ptr %s"):format(size, length))
         local bytes = runtime.api(ctx, "lua_tolstring", {state, "i32 -1", "ptr " .. length}) as string

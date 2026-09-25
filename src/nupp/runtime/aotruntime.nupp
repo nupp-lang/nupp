@@ -1,0 +1,25 @@
+@!internal
+
+module nupp.runtime.aotruntime
+
+--[[
+The AOT runtime an LLVM-compiled Lua-builder module's registrar is handed.
+
+A module of its own so that a program whose compiled builders need the runtime
+declares that need where a build can see it: this module's native feature
+stages the provider the table lives in, which a registrar's own lookup, being
+native code, never could.
+]]
+
+local native = require("nupp.runtime.native")
+
+local aotruntime = {}
+
+--- The runtime's table address, as pointer-width native-endian bytes.
+--- @export
+--- @raises string when the provider was built without the runtime
+function aotruntime.table(): string
+    return native.aotRuntime()
+end
+
+export = aotruntime

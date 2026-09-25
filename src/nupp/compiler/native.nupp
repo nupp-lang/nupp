@@ -312,6 +312,22 @@ local FEATURES: {[string]: native.Feature} = {
         binary = true,
         requires = {"runtime.native", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},
     },
+    -- The runtime LLVM-compiled Lua builders call, which every provider built
+    -- for a platform that has it carries; a loader reaching this module is
+    -- what stages one beside the program.
+    [
+        "native.aot_runtime"
+    ] = {
+        name = "aot_runtime",
+        modules = {"nupp.runtime.aotruntime"},
+        runtimeModule = "nupp.runtime.aotruntime",
+        provider = "nupp_native",
+        providerDriver = "native-rust",
+        providerFeature = "base",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.native"},
+    },
     -- The AOT code generator: LLVM and lld, which the compiler reaches and a
     -- program built by it never does, so a standalone program carries no LLVM.
     -- Built in only where the pinned LLVM is (scripts/toolchain decides).
