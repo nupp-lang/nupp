@@ -38,6 +38,10 @@ int32_t nuppCodegenImportLibrary(
     const char *dll, size_t dllLength,
     const char *path, size_t pathLength,
     const char *names, size_t namesLength);
+int32_t nuppCodegenArchive(
+    const char *path, size_t pathLength,
+    const char *members, size_t membersLength,
+    int32_t kind);
 ]]
 end
 
@@ -173,6 +177,26 @@ function codegen.importLibrary(dll: string, path: string, names: {{string}}): st
         end
         local joined = table.concat(entries, "\0") .. "\0"
         native.succeeded(C.nuppCodegenImportLibrary(dll, #dll, path, #path, joined, #joined), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+--- The archive formats `codegen.archive` writes.
+const ARCHIVE: {[string]: integer} = {gnu = 0, bsd = 1, darwin = 2, coff = 3}
+
+--- Writes the indexed static archive `path` of `members` in `format`:
+--- `gnu`, `bsd`, `darwin` or `coff`.
+--- @return nil, or why it could not be written
+function codegen.archive(path: string, members: {string}, format: string): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        local joined = table.concat(members, "\0") .. "\0"
+        native.succeeded(C.nuppCodegenArchive(path, #path, joined, #joined, ARCHIVE[format] or 0), 2)
     end)
     if not ok then
         return tostring(err)

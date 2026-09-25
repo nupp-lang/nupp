@@ -22,6 +22,13 @@ unsafe extern "C" {
         n: c_int,
         error: *mut *mut c_char,
     ) -> c_int;
+    fn nupp_codegen_archive(
+        path: *const c_char,
+        members: *const *const c_char,
+        n: c_int,
+        kind: c_int,
+        error: *mut *mut c_char,
+    ) -> c_int;
     fn nupp_codegen_free(p: *mut c_char);
 }
 
@@ -283,6 +290,25 @@ pub fn import_library(dll: &str, path: &str, names: &[(String, String)]) -> Resu
         t
     };
     Err(format!("import library {path}: {text}"))
+}
+
+pub fn archive(path: &str, members: &[String], kind: i32) -> Result<(), String> {
+    let m: Vec<CString> = members.iter().map(|member| cs(member)).collect();
+    let mp: Vec<*const c_char> = m.iter().map(|s| s.as_ptr()).collect();
+    let p = cs(path);
+    let mut error = std::ptr::null_mut();
+    let code = unsafe { nupp_codegen_archive(p.as_ptr(), mp.as_ptr(), mp.len() as c_int, kind, &mut error) };
+    if code == 0 {
+        return Ok(());
+    }
+    let text = if error.is_null() {
+        String::new()
+    } else {
+        let t = unsafe { CStr::from_ptr(error) }.to_string_lossy().into_owned();
+        unsafe { nupp_codegen_free(error) };
+        t
+    };
+    Err(format!("archive {path}: {text}"))
 }
 
 #[cfg(test)]

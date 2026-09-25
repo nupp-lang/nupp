@@ -121,3 +121,27 @@ pub unsafe extern "C" fn nuppCodegenImportLibrary(
         codegen::import_library(dll, path, &names).map_err(|e| super::failed(Status::InvalidArgument, &e))
     })())
 }
+
+#[unsafe(no_mangle)]
+/// Writes a static archive. `members` is NUL-separated object paths; `kind`
+/// is 0 GNU, 1 BSD, 2 Darwin, 3 COFF.
+///
+/// # Safety
+/// Each input range must be readable for its length.
+pub unsafe extern "C" fn nuppCodegenArchive(
+    path: *const u8,
+    path_length: usize,
+    members: *const u8,
+    members_length: usize,
+    kind: i32,
+) -> i32 {
+    status((|| {
+        let path = text(path, path_length, "archive path")?;
+        let members: Vec<String> = text(members, members_length, "archive members")?
+            .split('\0')
+            .filter(|m| !m.is_empty())
+            .map(str::to_string)
+            .collect();
+        codegen::archive(path, &members, kind).map_err(|e| super::failed(Status::InvalidArgument, &e))
+    })())
+}

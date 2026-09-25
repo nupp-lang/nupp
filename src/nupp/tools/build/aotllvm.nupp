@@ -243,4 +243,29 @@ function aotllvm.link(triple: string, objects: {string}, output: string): string
     return nil
 end
 
+--- Archives `objects` into the static library `output`, indexed, in the
+--- format the target's linkers read.
+--- @return nil, or what went wrong
+function aotllvm.archive(triple: string, objects: {string}, output: string): string?
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return profileErr
+    end
+    local staged = output .. ".tmp"
+    os.remove(staged)
+    local format = (selected as llvmProfile.Profile).format == "macho" and "darwin" or "gnu"
+    local err = codegen.archive(staged, objects, format)
+    if err ~= nil then
+        os.remove(staged)
+
+        return "archiving the LLVM objects failed: " .. tostring(err)
+    end
+    local installed, installErr = fs.installStaged(staged, output)
+    if not installed then
+        return tostring(installErr)
+    end
+
+    return nil
+end
+
 export = aotllvm

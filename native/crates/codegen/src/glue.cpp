@@ -1,6 +1,7 @@
 // What the LLVM C API cannot reach: strict floating-point fusion on a target
-// machine, lld's drivers in process, and COFF import libraries.
+// machine, lld's drivers in process, COFF import libraries and archives.
 #include "lld/Common/Driver.h"
+#include "llvm/Object/ArchiveWriter.h"
 #include "llvm/Object/COFFImportFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -48,6 +49,32 @@ extern "C" int nupp_codegen_import_library(const char *dll, const char *path, co
         exports.push_back(e);
     }
     if (auto err = llvm::object::writeImportLibrary(dll, path, exports, llvm::COFF::IMAGE_FILE_MACHINE_AMD64, true)) {
+        *error = strdup(llvm::toString(std::move(err)).c_str());
+        return 1;
+    }
+    *error = nullptr;
+    return 0;
+}
+
+// A static archive of `members` at `path`, with a symbol index, in the format
+// `kind` names: 0 GNU, 1 BSD, 2 Darwin, 3 COFF. Deterministic: no times,
+// owners or modes, so equal members give equal bytes.
+extern "C" int nupp_codegen_archive(const char *path, const char **members, int n, int kind, char **error) {
+    std::vector<llvm::NewArchiveMember> entries;
+    for (int i = 0; i < n; i++) {
+        auto member = llvm::NewArchiveMember::getFile(members[i], /*Deterministic=*/true);
+        if (!member) {
+            *error = strdup(llvm::toString(member.takeError()).c_str());
+            return 1;
+        }
+        entries.push_back(std::move(*member));
+    }
+    llvm::object::Archive::Kind format = kind == 1   ? llvm::object::Archive::K_BSD
+                                         : kind == 2 ? llvm::object::Archive::K_DARWIN
+                                         : kind == 3 ? llvm::object::Archive::K_COFF
+                                                     : llvm::object::Archive::K_GNU;
+    if (auto err = llvm::writeArchive(path, entries, llvm::SymtabWritingMode::NormalSymtab, format,
+                                      /*Deterministic=*/true, /*Thin=*/false)) {
         *error = strdup(llvm::toString(std::move(err)).c_str());
         return 1;
     }

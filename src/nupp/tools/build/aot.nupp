@@ -1497,7 +1497,12 @@ function aot.link(
     report:at("aot:link")
     if chain.dialect == "llvm" then
         if static then
-            return "the LLVM backend does not write static archives yet", nil
+            local archiveErr = aotllvm.archive(selected.triple, objects, output)
+            if archiveErr ~= nil then
+                return archiveErr, nil
+            end
+
+            return nil, outcome
         end
         local linkErr = aotllvm.link(selected.triple, objects, output)
         if linkErr ~= nil then
@@ -1862,9 +1867,8 @@ function aot.emitC(
                     local content = artifacts.c
                     local backend: string? = nil
                     -- The LLVM route while both exist: a unit it cannot emit
-                    -- yet keeps its C, and a static archive stays C until the
-                    -- code generator writes archives.
-                    if useLlvm == true and not staticLinkage then
+                    -- yet keeps its C.
+                    if useLlvm == true then
                         -- Line tables into the authored file, so a debugger
                         -- or profiler names the Nupp line a frame is at.
                         local ir, why = aotllvm.emit(
@@ -1928,7 +1932,7 @@ function aot.emitC(
         local detector = emitter.featureDetector()
         local output = outDir .. "/aot/features.c"
         local backend: string? = nil
-        local llvmDetector = useLlvm == true and not staticLinkage and aotllvm.detector(triple) or nil
+        local llvmDetector = useLlvm == true and aotllvm.detector(triple) or nil
         if llvmDetector ~= nil then
             detector = llvmDetector as string
             output = outDir .. "/aot/features.ll"

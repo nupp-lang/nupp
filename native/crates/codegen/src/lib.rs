@@ -164,3 +164,17 @@ pub fn import_library(dll: &str, path: &str, names: &[(String, String)]) -> Resu
         Err(UNAVAILABLE.into())
     }
 }
+
+/// Writes the static archive `path` of `members`, indexed, in format `kind`:
+/// 0 GNU, 1 BSD, 2 Darwin, 3 COFF.
+pub fn archive(path: &str, members: &[String], kind: i32) -> Result<(), String> {
+    #[cfg(nupp_llvm)]
+    {
+        llvm::archive(path, members, kind)
+    }
+    #[cfg(not(nupp_llvm))]
+    {
+        let _ = (path, members, kind);
+        Err(UNAVAILABLE.into())
+    }
+}
