@@ -1450,7 +1450,11 @@ build_kit() {
     KIT_OUT=$out
     take_lock "kit-$digest" "$out/.complete" || return 0
     [ -f "$out/.complete" ] && { release_lock; return 0; }
-    [ "$PLATFORM" = darwin ] || die "link kits are built on macOS so far"
+    case "$PLATFORM" in
+        darwin) ;;
+        linux) build_kit_linux "$features" "$host_out" "$out"; release_lock; return 0 ;;
+        *) die "link kits are built on macOS and Linux so far" ;;
+    esac
     note "staging the link kit"
     rm -rf "$out"
     mkdir -p "$out/sdk"
@@ -1516,6 +1520,98 @@ build_kit() {
     rm -f "$probe" "$probe-aot.c" "$probe-aot.o" "$probe-flags" "$out/binds" "$out/libraries" "$out/flags"
     printf 'ok\n' > "$out/.complete"
     release_lock
+}
+
+# The Linux (glibc) kit: the runtime, the C runtime's startup objects and
+# libgcc, and a stub for every shared library the probe link needs -- same
+# SONAME, each symbol at the version the probe bound it to, data objects at
+# their real size -- so lld links against glibc's ABI without glibc's files.
+build_kit_linux() {
+    features=$1
+    host_out=$2
+    out=$3
+    note "staging the link kit"
+    rm -rf "$out"
+    mkdir -p "$out/lib" "$out/stubs"
+    cp "$host_out/libnupp-host.a" "$out/libnupp-runtime.a"
+    for object in Scrt1.o crti.o crtbeginS.o crtendS.o crtn.o; do
+        found=$("$CC" -print-file-name="$object")
+        [ -f "$found" ] || die "the C compiler has no $object"
+        cp "$found" "$out/lib/$object"
+    done
+    cp "$("$CC" -print-libgcc-file-name)" "$out/lib/libgcc.a"
+
+    probe="$out/probe"
+    {
+        for name in $KIT_AOT_SYMBOLS; do printf 'extern char %s[];\n' "$name"; done
+        printf 'void *nupp_kit_probe[] = {\n'
+        for name in $KIT_AOT_SYMBOLS; do printf '    %s,\n' "$name"; done
+        printf '};\n'
+    } > "$probe-aot.c"
+    "$CC" -c -w -fno-builtin -fPIC -o "$probe-aot.o" "$probe-aot.c"
+    set -- "$CC" -pie -o "$probe" -Wl,--whole-archive "$out/libnupp-runtime.a" "$probe-aot.o" -Wl,--no-whole-archive
+    host_system_flags "$features" > "$probe-flags"
+    while IFS= read -r flag; do
+        [ -z "$flag" ] || set -- "$@" "$flag"
+    done < "$probe-flags"
+    set -- "$@" -Wl,-E
+    "$@" >&2
+
+    # NEEDED libraries, the dynamic linker, and each undefined symbol with
+    # its version and type.
+    readelf -d "$probe" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' > "$out/needed"
+    interpreter=$(readelf -l "$probe" | sed -n 's/.*Requesting program interpreter: \(.*\)]/\1/p')
+    readelf -V -W "$probe" | awk '
+        /File: / { for (i = 1; i <= NF; i++) if ($i == "File:") file = $(i + 1) }
+        /Name: / && file != "" { for (i = 1; i <= NF; i++) if ($i == "Name:") print $(i + 1), file }
+    ' | sort -u > "$out/versions"
+    readelf --dyn-syms -W "$probe" | awk '$7 == "UND" && $8 != "" { print $4, $8 }' | sort -u > "$out/undefined"
+    : > "$out/flags"
+    while IFS= read -r soname; do
+        # Where the real library is, for data symbols' sizes.
+        real=$("$CC" -print-file-name="$soname")
+        [ -f "$real" ] || real=$(ldconfig -p 2>/dev/null | awk -v n="$soname" '$1 == n { print $NF; exit }')
+        stub="$out/stubs/$soname"
+        : > "$stub.c"
+        : > "$stub.map"
+        awk -v lib="$soname" '$2 == lib { print $1 }' "$out/versions" | while IFS= read -r version; do
+            printf '%s {\n' "$version" >> "$stub.map"
+            awk -v v="$version" '{ split($2, parts, "@"); if (parts[2] == v) print $1, parts[1] }' "$out/undefined" \
+                | while read -r kind symbol; do
+                    printf '  %s;\n' "$symbol" >> "$stub.map"
+                    if [ "$kind" = OBJECT ] || [ "$kind" = TLS ]; then
+                        size=$(readelf --dyn-syms -W "$real" 2>/dev/null \
+                            | awk -v s="$symbol@@$version" -v t="$symbol@$version" '$8 == s || $8 == t { print $3; exit }')
+                        [ -n "$size" ] || size=8
+                        if [ "$kind" = TLS ]; then
+                            printf '__thread char %s[%s];\n' "$symbol" "$size" >> "$stub.c"
+                        else
+                            printf 'char %s[%s];\n' "$symbol" "$size" >> "$stub.c"
+                        fi
+                    else
+                        printf 'void %s(void) {}\n' "$symbol" >> "$stub.c"
+                    fi
+                done
+            printf '};\n' >> "$stub.map"
+        done
+        "$CC" -shared -nostdlib -fPIC -w -fno-builtin -o "$out/lib/$soname" "$stub.c" \
+            -Wl,--version-script="$stub.map" -Wl,-soname,"$soname"
+        printf '%s\n' "$soname" >> "$out/flags"
+    done < "$out/needed"
+
+    {
+        printf '{\n  "schemaVersion": 1,\n  "platform": "linux",\n'
+        printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n' "$features"
+        printf '  "interpreter": "%s",\n' "$interpreter"
+        printf '  "startup": ["lib/Scrt1.o", "lib/crti.o", "lib/crtbeginS.o"],\n'
+        printf '  "finish": ["lib/libgcc.a", "lib/crtendS.o", "lib/crtn.o"],\n'
+        printf '  "libraries": ['
+        awk '{ printf "%s\"lib/%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/flags"
+        printf ']\n}\n'
+    } > "$out/kit.json"
+    rm -rf "$probe" "$probe-aot.c" "$probe-aot.o" "$probe-flags" "$out/needed" "$out/versions" \
+        "$out/undefined" "$out/flags" "$out/stubs"
+    printf 'ok\n' > "$out/.complete"
 }
 
 # --- LLVM ---------------------------------------------------------------------

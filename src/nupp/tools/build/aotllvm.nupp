@@ -414,6 +414,64 @@ function aotllvm.linkWasm(object: string, output: string, exports: {string}, lib
     return nil
 end
 
+--- The ELF half of `linkStandalone`: a position-independent executable from
+--- the kit's startup objects, the runtime and `archives` whole, the kit's
+--- library stubs, and libgcc, bound to the dynamic linker the kit names.
+local function linkLinux(
+    kit: string,
+    manifest: any,
+    host: string,
+    output: string,
+    archives: {string},
+    flags: {string}
+): string?
+    local argv: {
+        string
+    } = {
+        "ld.lld",
+        "-m",
+        host:match("^aarch64") ~= nil and "aarch64linux" or "elf_x86_64",
+        "-pie",
+        "--eh-frame-hdr",
+        "-z",
+        "noexecstack",
+        "--hash-style=gnu",
+        "--build-id",
+        "-dynamic-linker",
+        tostring(manifest.interpreter),
+        "-o",
+        output,
+    }
+    for _, object in ipairs(manifest.startup) do
+        argv[#argv + 1] = kit .. "/" .. tostring(object)
+    end
+    argv[#argv + 1] = "--whole-archive"
+    argv[#argv + 1] = kit .. "/" .. tostring(manifest.runtime)
+    for _, archive in ipairs(archives) do
+        argv[#argv + 1] = archive
+    end
+    argv[#argv + 1] = "--no-whole-archive"
+    for _, library in ipairs(manifest.libraries) do
+        argv[#argv + 1] = kit .. "/" .. tostring(library)
+    end
+    for _, flag in ipairs(flags) do
+        argv[#argv + 1] = flag
+    end
+    for _, object in ipairs(manifest.finish) do
+        argv[#argv + 1] = kit .. "/" .. tostring(object)
+    end
+    -- The program's native code finds the runtime's entry points by name.
+    argv[#argv + 1] = "--export-dynamic"
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the standalone program failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
 --- Links a standalone program `output` from the link kit at `kit`: its
 --- runtime and `archives` loaded whole (a program reaches native code by
 --- name, which no archive scan sees), against the kit's stubs for the system
@@ -429,10 +487,12 @@ function aotllvm.linkStandalone(kit: string, output: string, archives: {string},
     if not ok or type(manifest) ~= "table" or manifest.schemaVersion ~= 1 then
         return "the link kit at " .. kit .. " has an unreadable kit.json"
     end
-    if manifest.platform ~= "macos" then
-        return "this nupp links standalone programs from macOS kits only so far"
-    end
     local host = require("nupp.tools.build.platform").hostKey()
+    if manifest.platform == "linux" then
+        return linkLinux(kit, manifest, tostring(host), output, archives, flags)
+    elseif manifest.platform ~= "macos" then
+        return "this nupp links standalone programs from macOS and Linux kits only so far"
+    end
     local architecture = host:match("^x86_64") ~= nil and "x86_64" or "arm64"
     local minimum = tostring(manifest.minimum)
     local argv: {

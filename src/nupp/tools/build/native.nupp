@@ -139,7 +139,10 @@ function stage.linkHost(
     end
     local featureNames = native.hostFeatureNames(effects)
     local aotllvm = require("nupp.tools.build.aotllvm")
-    if aotllvm.selected() and (selected == nil or selected == host) and host:match("darwin") ~= nil then
+    if aotllvm.selected()
+        and (selected == nil or selected == host)
+        and (host:match("darwin") ~= nil or host:match("linux") ~= nil)
+    then
         -- Through LLVM, the link is lld's, from a link kit: the runtime and
         -- stubs for the system libraries, and no C toolchain or SDK.
         local kit = os.getenv("NUPP_KIT_DIR")

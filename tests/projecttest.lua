@@ -2571,7 +2571,7 @@ end
 --- with lld in process: no C compiler, system linker or SDK is run, and the
 --- program carries no LLVM of its own.
 function M.standaloneAotLinksFromAKitWithoutACToolchain()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" or jit.os ~= "OSX" then
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" or (jit.os ~= "OSX" and jit.os ~= "Linux") then
         return
     end
     local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
@@ -2605,7 +2605,7 @@ print(triangular(4))
     -- Every tool a C link would reach for fails, and says so.
     local fake = dir .. "/fakebin"
     assert(os.execute("mkdir -p '" .. fake .. "'") == 0)
-    for _, tool in ipairs({"cc", "clang", "gcc", "ld", "xcrun", "c++", "clang++", "ar", "ranlib", "libtool"}) do
+    for _, tool in ipairs({"cc", "clang", "gcc", "ld", "ld.lld", "xcrun", "c++", "clang++", "ar", "ranlib", "libtool"}) do
         write(fake .. "/" .. tool, "#!/bin/sh\necho \"$0\" >> '" .. dir .. "/invoked'\nexit 99\n")
         assert(os.execute("chmod +x '" .. fake .. "/" .. tool .. "'") == 0)
     end
@@ -2624,7 +2624,7 @@ print(triangular(4))
     assertEq(ran, 0, text)
     assertEq(text:match("[^\r\n]+"), "10", "the program runs its AOT entry")
     local _, symbols = process.capture({"nm", dir .. "/out/app"})
-    assert(not symbols:find("__ZN4llvm", 1, true), "the program carries no LLVM")
+    assert(not symbols:find("ZN4llvm", 1, true), "the program carries no LLVM")
     remove(dir)
 end
 
