@@ -100,6 +100,14 @@ pub enum Read {
     Failed(String),
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum ReadInto {
+    Data(usize),
+    Pending,
+    Eof,
+    Failed(String),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Write {
     Accepted(usize),
@@ -111,6 +119,7 @@ pub enum Write {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamSnapshot {
     pub buffered_read: usize,
+    pub read_ready: bool,
     pub pending_write: usize,
     pub read_eof: bool,
     pub write_closed: bool,
@@ -123,6 +132,8 @@ pub struct StreamSnapshot {
 
 struct StreamState {
     bytes: VecDeque<u8>,
+    direct_read: bool,
+    read_ready: bool,
     pending_write: usize,
     read_eof: bool,
     write_closed: bool,
@@ -138,7 +149,9 @@ struct StreamShared {
     local: Option<SocketAddr>,
     peer: Option<SocketAddr>,
     state: Mutex<StreamState>,
+    read_io: Mutex<()>,
     read_space: Notify,
+    read_consumed: Notify,
     cancel: CancellationToken,
 }
 
@@ -228,6 +241,8 @@ impl Stream {
             peer,
             state: Mutex::new(StreamState {
                 bytes: VecDeque::with_capacity(READ_CHUNK),
+                direct_read: false,
+                read_ready: false,
                 pending_write: 0,
                 read_eof: false,
                 write_closed: false,
@@ -237,7 +252,9 @@ impl Stream {
                 write_error: None,
                 writer: Some(writer),
             }),
+            read_io: Mutex::new(()),
             read_space: Notify::new(),
+            read_consumed: Notify::new(),
             cancel: CancellationToken::new(),
         });
         let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
@@ -266,6 +283,19 @@ impl Stream {
             self.shared.read_space.notify_one();
             return Read::Data(bytes);
         }
+        if state.direct_read {
+            drop(state);
+            let mut bytes = vec![0_u8; maximum];
+            return match self.try_receive_into(&mut bytes) {
+                ReadInto::Data(count) => {
+                    bytes.truncate(count);
+                    Read::Data(bytes)
+                }
+                ReadInto::Pending => Read::Pending,
+                ReadInto::Eof => Read::Eof,
+                ReadInto::Failed(error) => Read::Failed(error),
+            };
+        }
         if let Some(error) = &state.read_error {
             return Read::Failed(error.clone());
         }
@@ -273,6 +303,132 @@ impl Stream {
             Read::Eof
         } else {
             Read::Pending
+        }
+    }
+
+    /// Drains prefetched network bytes directly into caller-owned storage.
+    ///
+    /// This preserves read-ahead for string-oriented callers such as TLS. A
+    /// caller that can lend its destination to the socket should instead use
+    /// [`Self::try_receive_into`].
+    pub fn try_read_into(&self, output: &mut [u8]) -> ReadInto {
+        if output.is_empty() {
+            return ReadInto::Failed("a network read needs room for at least one byte".to_owned());
+        }
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.closed {
+            return ReadInto::Failed("the network stream is closed".to_owned());
+        }
+        let count = output.len().min(state.bytes.len());
+        if count != 0 {
+            copy_from_queue(&mut state.bytes, &mut output[..count]);
+            drop(state);
+            self.shared.read_space.notify_one();
+            return ReadInto::Data(count);
+        }
+        if state.direct_read {
+            drop(state);
+            return self.try_receive_into(output);
+        }
+        if let Some(error) = &state.read_error {
+            return ReadInto::Failed(error.clone());
+        }
+        if state.read_eof {
+            ReadInto::Eof
+        } else {
+            ReadInto::Pending
+        }
+    }
+
+    /// Receives network bytes directly into caller-owned storage.
+    ///
+    /// The first call drains any prefetched bytes, then permanently switches
+    /// this stream to direct receives. The storage is borrowed only for this
+    /// synchronous call; no executor task retains the foreign pointer.
+    pub fn try_receive_into(&self, output: &mut [u8]) -> ReadInto {
+        if output.is_empty() {
+            return ReadInto::Failed("a network read needs room for at least one byte".to_owned());
+        }
+        let _read = self
+            .shared
+            .read_io
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.closed {
+            return ReadInto::Failed("the network stream is closed".to_owned());
+        }
+        state.direct_read = true;
+        let count = output.len().min(state.bytes.len());
+        if count != 0 {
+            copy_from_queue(&mut state.bytes, &mut output[..count]);
+            state.read_ready = !state.bytes.is_empty();
+            drop(state);
+            self.shared.read_space.notify_one();
+            return ReadInto::Data(count);
+        }
+        if let Some(error) = &state.read_error {
+            return ReadInto::Failed(error.clone());
+        }
+        if state.read_eof {
+            return ReadInto::Eof;
+        }
+        drop(state);
+        self.shared.read_space.notify_one();
+        let socket = self
+            .shared
+            .socket
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let Some(socket) = socket else {
+            return ReadInto::Failed("the network stream is closed".to_owned());
+        };
+        match socket.try_read(output) {
+            Ok(0) => {
+                finish_read(&self.shared, None, true);
+                self.shared.read_consumed.notify_one();
+                ReadInto::Eof
+            }
+            Ok(count) => {
+                let mut state = self
+                    .shared
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if state.closed {
+                    return ReadInto::Failed("the network stream is closed".to_owned());
+                }
+                state.read_ready = false;
+                drop(state);
+                self.shared.read_consumed.notify_one();
+                ReadInto::Data(count)
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                let mut state = self
+                    .shared
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                state.read_ready = false;
+                drop(state);
+                self.shared.read_consumed.notify_one();
+                ReadInto::Pending
+            }
+            Err(error) => {
+                let message = error.to_string();
+                finish_read(&self.shared, Some(message.clone()), false);
+                self.shared.read_consumed.notify_one();
+                ReadInto::Failed(message)
+            }
         }
     }
 
@@ -339,6 +495,7 @@ impl Stream {
             .unwrap_or_else(|error| error.into_inner());
         StreamSnapshot {
             buffered_read: state.bytes.len(),
+            read_ready: state.read_ready,
             pending_write: state.pending_write,
             read_eof: state.read_eof && state.bytes.is_empty(),
             write_closed: state.write_closed,
@@ -453,6 +610,7 @@ impl Stream {
         drop(state);
         self.shared.cancel.cancel();
         self.shared.read_space.notify_waiters();
+        self.shared.read_consumed.notify_waiters();
         self.shared
             .socket
             .lock()
@@ -499,6 +657,18 @@ impl Drop for Stream {
     }
 }
 
+fn copy_from_queue(bytes: &mut VecDeque<u8>, output: &mut [u8]) {
+    let count = output.len();
+    let (first, second) = bytes.as_slices();
+    let first_count = count.min(first.len());
+    output[..first_count].copy_from_slice(&first[..first_count]);
+    let second_count = count - first_count;
+    if second_count != 0 {
+        output[first_count..].copy_from_slice(&second[..second_count]);
+    }
+    bytes.drain(..count);
+}
+
 async fn read_stream(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
     let mut scratch = vec![0_u8; READ_CHUNK];
     loop {
@@ -510,6 +680,9 @@ async fn read_stream(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
             if state.closed || state.read_eof || state.read_error.is_some() {
                 return;
             }
+            if state.direct_read {
+                break;
+            }
             RECEIVE_HIGH_WATER.saturating_sub(state.bytes.len())
         };
         if allowance == 0 {
@@ -520,11 +693,32 @@ async fn read_stream(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
         }
         let ready = tokio::select! {
             ready = socket.readable() => ready,
+            _ = shared.read_space.notified() => continue,
             _ = shared.cancel.cancelled() => return,
         };
         if let Err(error) = ready {
             finish_read(&shared, Some(error.to_string()), false);
             return;
+        }
+        let _read = shared
+            .read_io
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let allowance = {
+            let state = shared
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if state.closed || state.read_eof || state.read_error.is_some() {
+                return;
+            }
+            if state.direct_read {
+                break;
+            }
+            RECEIVE_HIGH_WATER.saturating_sub(state.bytes.len())
+        };
+        if allowance == 0 {
+            continue;
         }
         match socket.try_read(&mut scratch[..allowance.min(READ_CHUNK)]) {
             Ok(0) => {
@@ -551,6 +745,44 @@ async fn read_stream(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
             }
         }
     }
+    watch_readable(socket, shared).await;
+}
+
+async fn watch_readable(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
+    loop {
+        {
+            let state = shared
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if state.closed || state.read_eof || state.read_error.is_some() {
+                return;
+            }
+        }
+        let ready = tokio::select! {
+            ready = socket.readable() => ready,
+            _ = shared.cancel.cancelled() => return,
+        };
+        if let Err(error) = ready {
+            finish_read(&shared, Some(error.to_string()), false);
+            return;
+        }
+        {
+            let mut state = shared
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if state.closed || state.read_eof || state.read_error.is_some() {
+                return;
+            }
+            state.read_ready = true;
+        }
+        activity().notify();
+        tokio::select! {
+            _ = shared.read_consumed.notified() => {}
+            _ = shared.cancel.cancelled() => return,
+        }
+    }
 }
 
 fn finish_read(shared: &StreamShared, error: Option<String>, eof: bool) {
@@ -560,6 +792,7 @@ fn finish_read(shared: &StreamShared, error: Option<String>, eof: bool) {
         .unwrap_or_else(|poison| poison.into_inner());
     if !state.closed {
         state.read_eof = eof;
+        state.read_ready = eof || error.is_some();
         if state.read_error.is_none() {
             state.read_error = error;
         }
@@ -1823,6 +2056,35 @@ mod tests {
         );
         wait_until(|| server.snapshot().buffered_read == RECEIVE_HIGH_WATER);
         assert_eq!(server.snapshot().buffered_read, RECEIVE_HIGH_WATER);
+    }
+
+    #[test]
+    fn direct_receive_drains_prefetch_then_stops_it() {
+        let _network = exclusive_network();
+        let (client, server) = connected_pair();
+        let payload = vec![0x5a; READ_CHUNK];
+        assert_eq!(client.try_write(&payload), Write::Accepted(payload.len()));
+        wait_until(|| server.snapshot().buffered_read == payload.len());
+        let mut output = vec![0_u8; payload.len()];
+        assert_eq!(
+            server.try_receive_into(&mut output),
+            ReadInto::Data(payload.len())
+        );
+        assert_eq!(output, payload);
+        assert_eq!(server.snapshot().buffered_read, 0);
+
+        assert_eq!(client.try_write(&payload), Write::Accepted(payload.len()));
+        wait_until(|| server.snapshot().read_ready);
+        assert_eq!(server.snapshot().buffered_read, 0);
+        let count = loop {
+            match server.try_receive_into(&mut output) {
+                ReadInto::Data(count) => break count,
+                ReadInto::Pending => wait_activity(Duration::from_millis(20)),
+                other => panic!("unexpected direct read: {other:?}"),
+            };
+        };
+        assert_eq!(&output[..count], &payload[..count]);
+        assert_eq!(server.snapshot().buffered_read, 0);
     }
 
     #[test]

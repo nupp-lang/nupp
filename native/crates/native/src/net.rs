@@ -4,6 +4,7 @@ use nupp_native_abi::{Arena, Handle, Status, set_last_error};
 use nupp_native_net as transport;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ptr;
+use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, ThreadId};
 use std::time::Duration;
@@ -30,6 +31,7 @@ const STREAM_CLOSED: u32 = 1 << 2;
 const STREAM_SHUTTING_DOWN: u32 = 1 << 3;
 const STREAM_READ_FAILED: u32 = 1 << 4;
 const STREAM_WRITE_FAILED: u32 = 1 << 5;
+const STREAM_READ_READY: u32 = 1 << 6;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -652,6 +654,37 @@ pub unsafe extern "C" fn nuppNativeNetStreamRead(
     state: *mut u32,
     length: *mut usize,
 ) -> i32 {
+    // SAFETY: forwarded from this function's ABI contract.
+    unsafe { stream_read_into(raw, output, capacity, state, length, false) }
+}
+
+#[unsafe(no_mangle)]
+/// Receives network bytes directly into caller-owned storage.
+///
+/// The first call switches the stream from read-ahead to direct receives.
+///
+/// # Safety
+/// `state` and `length` must be writable and `output` must be writable for
+/// `capacity` bytes.
+pub unsafe extern "C" fn nuppNativeNetStreamReceive(
+    raw: u64,
+    output: *mut u8,
+    capacity: usize,
+    state: *mut u32,
+    length: *mut usize,
+) -> i32 {
+    // SAFETY: forwarded from this function's ABI contract.
+    unsafe { stream_read_into(raw, output, capacity, state, length, true) }
+}
+
+unsafe fn stream_read_into(
+    raw: u64,
+    output: *mut u8,
+    capacity: usize,
+    state: *mut u32,
+    length: *mut usize,
+    direct: bool,
+) -> i32 {
     if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
         return super::failed(Status::InvalidArgument, "network read output is invalid");
     }
@@ -659,23 +692,26 @@ pub unsafe extern "C" fn nuppNativeNetStreamRead(
         Ok(value) => value,
         Err(status) => return status,
     };
-    let (kind, bytes) = match stream.try_read(capacity) {
-        transport::Read::Data(bytes) => (READ_DATA, bytes),
-        transport::Read::Pending => (PENDING, Vec::new()),
-        transport::Read::Eof => (READ_EOF, Vec::new()),
-        transport::Read::Failed(error) => {
+    // SAFETY: the ABI requires output to be writable for capacity bytes and
+    // both were checked above. The slice is used only during this call.
+    let output = unsafe { slice::from_raw_parts_mut(output, capacity) };
+    let read = if direct {
+        stream.try_receive_into(output)
+    } else {
+        stream.try_read_into(output)
+    };
+    let (kind, count) = match read {
+        transport::ReadInto::Data(count) => (READ_DATA, count),
+        transport::ReadInto::Pending => (PENDING, 0),
+        transport::ReadInto::Eof => (READ_EOF, 0),
+        transport::ReadInto::Failed(error) => {
             return stream_failed(&stream, &error);
         }
     };
-    if !bytes.is_empty() {
-        debug_assert!(bytes.len() <= capacity);
-        // SAFETY: output has capacity writable bytes and the core respected it.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
     // SAFETY: scalar outputs were checked above.
     unsafe {
         state.write(kind);
-        length.write(bytes.len());
+        length.write(count);
     }
     Status::Ok.code()
 }
@@ -774,6 +810,14 @@ pub unsafe extern "C" fn nuppNativeNetStreamState(raw: u64, output: *mut u32) ->
     }
     if snapshot.write_failed {
         flags |= STREAM_WRITE_FAILED;
+    }
+    if snapshot.buffered_read != 0
+        || snapshot.read_ready
+        || snapshot.read_eof
+        || snapshot.read_failed
+        || snapshot.closed
+    {
+        flags |= STREAM_READ_READY;
     }
     // SAFETY: output was checked above.
     unsafe { output.write(flags) };

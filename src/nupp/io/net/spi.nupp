@@ -65,6 +65,19 @@ export interface Provider
     @readonly
     read: function(self: Provider, stream: any, wanted: integer): (string?, string?)
 
+    --- Optionally reads into caller-owned native storage without retaining its
+    --- pointer after the call. A zero count has the same pending-or-EOF meaning
+    --- as an empty string from `read`.
+    @readonly
+    readInto: (
+        function(self: Provider, stream: any, borrows destination: uint8[?], wanted: integer): (integer?, string?)
+    )?
+
+    --- Optionally reports whether a direct read will produce data, EOF, or an
+    --- error instead of pending. Supplied together with readInto.
+    @readonly
+    readable: (function(self: Provider, stream: any): boolean)?
+
     --- Reports that no further read bytes will arrive.
     @readonly
     ended: function(self: Provider, stream: any): boolean
@@ -73,6 +86,20 @@ export interface Provider
     --- Accepted bytes may remain queued; pending reports their outstanding count.
     @readonly
     write: function(self: Provider, stream: any, bytes: string): (integer?, string?)
+
+    --- Optionally accepts bytes directly from caller-owned native storage.
+    --- The pointer is borrowed for this call only; offset and count have already
+    --- been checked against the source span by the facade.
+    @readonly
+    writeFrom: (
+        function(
+            self: Provider,
+            stream: any,
+            borrows source: const uint8[?],
+            offset: integer,
+            count: integer
+        ): (integer?, string?)
+    )?
 
     --- Returns bytes accepted for writing that have not yet drained.
     @readonly

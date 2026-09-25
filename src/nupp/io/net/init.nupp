@@ -305,6 +305,59 @@ local function writeAll(chosen: contract.Provider, handle: any, highWater: integ
     return true
 end
 
+--- Writes from a rooted pointer while the caller keeps its source alive.
+---
+--- The provider may copy accepted bytes into an asynchronous queue, but it may
+--- not retain this pointer. Offsets were checked by the span or string that
+--- supplied it before the pointer crossed this internal boundary.
+local function writeAllFrom(
+    chosen: contract.Provider,
+    handle: any,
+    highWater: integer,
+    borrows source: const uint8[?],
+    length: integer
+): (boolean, string?)
+    const writeFrom = chosen.writeFrom as function(
+        self: contract.Provider,
+        handle: any,
+        borrows source: const uint8[?],
+        offset: integer,
+        count: integer
+    ): (integer?, string?)
+    local waitingBelow = highWater
+    const hasRoom = function(): boolean
+        return chosen:pending(handle) < waitingBelow
+    end
+    local at: integer = 0
+    while at < length do
+        local room = highWater - chosen:pending(handle)
+        if room < 1 then
+            waitingBelow = highWater
+            await("nupp.io.net write", hasRoom)
+            room = highWater - chosen:pending(handle)
+            if room < 1 then
+                room = 1
+            end
+        end
+        const taking = math.min(room, length - at) as integer
+        const took, why = writeFrom(chosen, handle, source, at, taking)
+        if took == nil then
+            return false, why
+        end
+        if took < 1 then
+            waitingBelow = chosen:pending(handle)
+            if waitingBelow < 1 then
+                return false, "the network writer accepted no bytes without applying backpressure"
+            end
+            await("nupp.io.net write", hasRoom)
+        else
+            at = at + took
+        end
+    end
+
+    return true
+end
+
 --- Waits until nothing accepted is still held by the platform.
 ---
 --- An empty queue is not by itself success: a write that failed leaves nothing
@@ -459,7 +512,35 @@ record net.Stream is Reader, Writer
     --- @return why it could not read, when unsuccessful
     --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        const wanted = positive(#destination, "net.Stream readSpan destination length", 2)
+        local wanted: integer
+        do
+            const _, count = destination:ref()
+            wanted = positive(count, "net.Stream readSpan destination length", 2)
+        end
+        const direct = rawget(
+            self._provider as table,
+            "readInto"
+        ) as(function(contract.Provider, any, borrows destination: uint8[?], integer): (integer?, string?))?
+        const readable = rawget(self._provider as table, "readable") as(function(contract.Provider, any): boolean)?
+        if direct ~= nil and readable ~= nil then
+            const output = destination:ref()
+            const chosen, handle = self._provider, self._handle
+            while true do
+                const got, why = direct(chosen, handle, output, wanted)
+                if got == nil then
+                    return nil, why or "the connection failed"
+                end
+                if got > 0 then
+                    return got
+                end
+                if chosen:ended(handle) then
+                    return 0
+                end
+                await("nupp.io.net read", function(): boolean
+                    return readable(chosen, handle)
+                end)
+            end
+        end
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
@@ -482,23 +563,18 @@ record net.Stream is Reader, Writer
     --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
+        const lease = destination:reserveWrite(offset or 0, wanted)
+        local landed: integer?
+        local why: string?
+        do
+            const output = lease:span()
+            landed, why = self:readSpan(output)
+            nupp.drop(output)
+        end
+        if landed == nil then
             return nil, why
         end
-        const landed = #chunk as integer
-        if landed > 0 then
-            const input = span.fromString(chunk)
-            const lease = destination:reserveWrite(offset or 0, landed)
-            do
-                const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
-                nupp.drop(output)
-            end
-            lease:commit(landed)
-        end
+        lease:commit(landed)
 
         return landed
     end
@@ -543,6 +619,18 @@ record net.Stream is Reader, Writer
             return false, "the sending half is closed"
         end
 
+        if rawget(self._provider as table, "writeFrom") ~= nil then
+            const wrote, why = writeAllFrom(
+                self._provider,
+                self._handle,
+                self._highWater,
+                physical.borrowString(bytes),
+                #bytes
+            )
+
+            return wrote, why
+        end
+
         return writeAll(self._provider, self._handle, self._highWater, bytes)
     end
 
@@ -552,8 +640,22 @@ record net.Stream is Reader, Writer
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
     function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the connection is closed"
+        end
+        if self._shutdown then
+            return nil, "the sending half is closed"
+        end
+        if rawget(self._provider as table, "writeFrom") ~= nil then
+            const wrote, why = writeAllFrom(self._provider, self._handle, self._highWater, source:ref(), #source)
+            if not wrote then
+                return nil, why
+            end
+
+            return #source as integer
+        end
         const bytes = spanString(source)
-        const wrote, why = self:write(bytes)
+        const wrote, why = writeAll(self._provider, self._handle, self._highWater, bytes)
         if not wrote then
             return nil, why
         end

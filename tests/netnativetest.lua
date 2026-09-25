@@ -42,6 +42,30 @@ function M.bytesCrossALoopbackConnection()
    listener:close()
 end
 
+function M.spansCrossALoopbackConnectionWithoutChangingTheBytes()
+   local listener, client, served = pair()
+   local source = io_.newBuffer("through a span")
+   do
+      local input = source:readSpan()
+      assertEq(assert(client:writeSpan(input)), 14, "the span is written whole")
+   end
+
+   local destination = io_.newBuffer()
+   assertEq(assert(served:readInto(destination, 0, 64)), 14,
+      "the buffer read receives the span byte count")
+   assertEq(destination:getString(), "through a span", "the buffer receives the span bytes")
+
+   assertTrue(client:write("into a buffer"), "the string fast path writes")
+   local buffered = io_.newBuffer()
+   assertEq(assert(served:readInto(buffered, 0, 64)), 13,
+      "the buffer read receives the byte count")
+   assertEq(buffered:getString(), "into a buffer", "and commits exactly those bytes")
+
+   served:close()
+   client:close()
+   listener:close()
+end
+
 function M.aHalfCloseIsTheEndInOneDirectionOnly()
    -- The three-state read, against a real peer: after the client half-closes the
    -- server reads empty, and the server can still write back.

@@ -78,6 +78,7 @@ int32_t nuppNativeNetPathConnectCreate(const NuppNativeNetPathConnectOptions *, 
 int32_t nuppNativeNetConnectPoll(uint64_t, uint32_t *, uint64_t *);
 int32_t nuppNativeNetConnectRelease(uint64_t);
 int32_t nuppNativeNetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeNetStreamReceive(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
 int32_t nuppNativeNetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
 int32_t nuppNativeNetStreamPendingWrite(uint64_t, size_t *);
 int32_t nuppNativeNetStreamState(uint64_t, uint32_t *);
@@ -118,6 +119,22 @@ const STREAM_READ_EOF = 1
 const STREAM_SHUTTING_DOWN = 8
 const STREAM_READ_FAILED = 16
 const STREAM_WRITE_FAILED = 32
+const STREAM_READ_READY = 64
+
+local nativeStreamReceive: function(
+    any,
+    borrows destination: uint8[?],
+    integer,
+    any,
+    any
+): integer = C.nuppNativeNetStreamReceive as any
+local nativeStreamWrite: function(
+    any,
+    borrows source: const uint8*,
+    integer,
+    any,
+    any
+): integer = C.nuppNativeNetStreamWrite as any
 
 local scratch: any = nil
 
@@ -297,12 +314,50 @@ local function create(): contract.Provider
             return ffiString(into, tonumber(count[0]) as integer)
         end,
 
+        readInto = function(
+            self: contract.Provider,
+            stream: any,
+            borrows destination: uint8[?],
+            wanted: integer
+        ): (integer?, string?)
+            if nativeStreamReceive(stream, destination, wanted, state, count) ~= 0 then
+                return nil, reason("nupp: could not read")
+            end
+            if state[0] == PENDING or state[0] == READ_EOF then
+                return 0
+            end
+
+            return tonumber(count[0]) as integer
+        end,
+
+        readable = function(self: contract.Provider, stream: any): boolean
+            return streamFlags(stream) & STREAM_READ_READY ~= 0
+        end,
+
         ended = function(self: contract.Provider, stream: any): boolean
             return streamFlags(stream) & STREAM_READ_EOF ~= 0
         end,
 
         write = function(self: contract.Provider, stream: any, bytes: string): (integer?, string?)
             if C.nuppNativeNetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
+                return nil, reason("nupp: could not write")
+            end
+            if state[0] == 2 then
+                return nil, "nupp: could not write: the connection is closed"
+            end
+
+            return tonumber(count[0]) as integer
+        end,
+
+        writeFrom = function(
+            self: contract.Provider,
+            stream: any,
+            borrows source: const uint8[?],
+            offset: integer,
+            length: integer
+        ): (integer?, string?)
+            const input = @unsafe((source as const uint8*) + offset)
+            if nativeStreamWrite(stream, input, length, state, count) ~= 0 then
                 return nil, reason("nupp: could not write")
             end
             if state[0] == 2 then
