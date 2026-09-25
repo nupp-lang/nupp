@@ -295,6 +295,51 @@ local function linkedRuntime(selected: llvmProfile.Profile, directory: string): 
     return object, nil
 end
 
+--- What a Windows DLL links beside its units (`nupp.compiler.aot.llvm.coff`):
+--- the binding object and the import libraries, made once per code generator
+--- into `directory`.
+--- @return the files to link, or nil and why not
+local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({string}?, string?)
+    local coff = require("nupp.compiler.aot.llvm.coff")
+    local names = require("nupp.compiler.aot.llvm.lua.runtime").apiNames()
+    local ir = coff.binding(selected.llvmTriple, names)
+    local digest = require(
+        "nupp.compiler.hash"
+    ).digest(ir .. "\0" .. table.concat(coff.CRT, ",") .. "\0" .. aotllvm.version())
+        :sub(1, 16)
+    local object = directory .. "/luabind." .. digest .. ".o"
+    local crt = directory .. "/msvcrt." .. digest .. ".a"
+    local kernel32 = directory .. "/kernel32." .. digest .. ".a"
+    if not fs.exists(object) then
+        local source = directory .. "/luabind." .. digest .. ".ll"
+        local wrote, writeErr = fs.writeFile(source, ir)
+        if not wrote then
+            return nil, tostring(writeErr)
+        end
+        local err = aotllvm.compileMany({
+            new aotllvm.Unit(ir = source, triple = selected.public, tier = "baseline", object = object)
+        })
+        os.remove(source)
+        if err ~= nil then
+            return nil, err
+        end
+    end
+    for _, library in ipairs({{"msvcrt.dll", crt, coff.CRT}, {"kernel32.dll", kernel32, coff.KERNEL32}}) do
+        if not fs.exists(library[2] as string) then
+            local entries: {{string}} = {}
+            for _, name in ipairs(library[3] as {string}) do
+                entries[#entries + 1] = {name}
+            end
+            local err = codegen.importLibrary(library[1] as string, library[2] as string, entries)
+            if err ~= nil then
+                return nil, "cannot write the import library for " .. tostring(library[1]) .. ": " .. err
+            end
+        end
+    end
+
+    return {object, crt, kernel32}, nil
+end
+
 --- Links `objects` into the shared library `output` with lld.
 --- @return nil, or what went wrong
 function aotllvm.link(triple: string, objects: {string}, output: string): string?
@@ -316,6 +361,20 @@ function aotllvm.link(triple: string, objects: {string}, output: string): string
         linked[#linked + 1] = runtimeObject as string
     end
     local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, linked, fs.basename(output))
+    if (selected as llvmProfile.Profile).format == "coff" then
+        local glue, glueErr = windowsGlue(selected as llvmProfile.Profile, fs.dirname(objects[1] or output))
+        if glue == nil then
+            return glueErr
+        end
+        for position, argument in ipairs(argv) do
+            if argument == "/noentry" then
+                argv[position] = "/entry:" .. require("nupp.compiler.aot.llvm.coff").ENTRY
+            end
+        end
+        for _, file in ipairs(glue as {string}) do
+            argv[#argv + 1] = file
+        end
+    end
     local _, err = codegen.link(argv)
     if err ~= nil then
         os.remove(staged)

@@ -150,13 +150,19 @@ pub extern "C" fn nuppNativeFeatures() -> u64 {
 #[cfg(nupp_aot_runtime)]
 unsafe extern "C" {
     static ks_rt_table: [*const std::ffi::c_void; 1];
+    fn ks_rt_bind() -> std::ffi::c_int;
 }
 
 /// The AOT runtime's table (`c/ks_rt.c`): what an LLVM-compiled Lua-builder
-/// module's registrar is handed, and calls the runtime through.
+/// module's registrar is handed, and calls the runtime through. Null when the
+/// runtime cannot find the Lua API in this process (Windows binds it here).
 #[cfg(nupp_aot_runtime)]
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppAotRuntime() -> *const std::ffi::c_void {
+    // SAFETY: binding only reads the loaded modules' export tables.
+    if unsafe { ks_rt_bind() } == 0 {
+        return std::ptr::null();
+    }
     std::ptr::addr_of!(ks_rt_table).cast()
 }
 

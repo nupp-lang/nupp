@@ -162,7 +162,11 @@ function native.aotRuntime(): string
     end
     native.requireFeature(AOT_RUNTIME_FEATURE, "the AOT runtime")
     ffi.cdef("const void *nuppAotRuntime(void);")
-    local cell = ffi.new("const void *[1]", native.C.nuppAotRuntime())
+    local address = native.C.nuppAotRuntime()
+    if address == nil then
+        error("the AOT runtime found no Lua API in this process", 2)
+    end
+    local cell = ffi.new("const void *[1]", address)
     local bytes = ffi.string(cell, ffi.sizeof("void *"))
     aotRuntime = bytes
 

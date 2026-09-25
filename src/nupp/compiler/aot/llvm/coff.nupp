@@ -1,0 +1,152 @@
+module nupp.compiler.aot.llvm.coff
+
+--[[
+What a Windows DLL of AOT code needs beyond its units.
+
+Windows binds every import at link time to a named module. The Lua C API lives
+in whichever module carries the VM -- the program itself when LuaJIT is linked
+into it, `lua51.dll` beside the interpreter otherwise -- and a library built
+once is loaded by both. So a DLL carries a jump for each API function through a
+slot of its own, and its entry point fills the slots from whichever loaded
+module exports the API, refusing to load when none does.
+
+The rest are the system's: the C runtime's math and memory functions, imported
+from `msvcrt.dll` (the C runtime the Rust `windows-gnu` host itself uses), the
+two `kernel32.dll` functions the entry point calls, and `___chkstk_ms`, the
+stack probe a large frame calls, which MinGW's libgcc would otherwise supply.
+]]
+
+local coff = {}
+
+--- The entry point the binding defines.
+const coff.ENTRY = "ks_dll_main"
+
+--- The C runtime functions a unit may call, imported from `msvcrt.dll`. A
+--- name nothing calls costs nothing: an import library member is linked only
+--- when referenced.
+const CRT: {
+    string
+} = {
+    "acos",
+    "asin",
+    "atan",
+    "atan2",
+    "ceil",
+    "cos",
+    "cosh",
+    "exp",
+    "floor",
+    "fmod",
+    "frexp",
+    "ldexp",
+    "log",
+    "log10",
+    "memchr",
+    "memcmp",
+    "memcpy",
+    "memmove",
+    "memset",
+    "modf",
+    "pow",
+    "sin",
+    "sinh",
+    "sqrt",
+    "strlen",
+    "tan",
+    "tanh",
+}
+
+--- What the binding's entry point imports from `kernel32.dll`.
+const KERNEL32: {string} = {"GetModuleHandleA", "GetProcAddress"}
+
+coff.CRT = CRT
+coff.KERNEL32 = KERNEL32
+
+local function cString(name: string): string
+    return ("private unnamed_addr constant [%d x i8] c\"%s\\00\""):format(#name + 1, name)
+end
+
+--- The binding module's IR for `triple`: a jump through a slot for each of
+--- `names`, and the entry point that fills the slots.
+function coff.binding(triple: string, names: {string}): string
+    local lines: {string} = {
+        "; The Lua C API for a Windows DLL of AOT code, bound when it loads.",
+        "target triple = \"" .. triple .. "\"",
+        "",
+        "module asm \".text\"",
+        -- libgcc's stack probe: touch each page between the stack pointer and
+        -- the frame about to be allocated, whose size is in %rax.
+        "module asm \".globl ___chkstk_ms\"",
+        "module asm \"___chkstk_ms:\"",
+        "module asm \"    pushq %rcx\"",
+        "module asm \"    pushq %rax\"",
+        "module asm \"    cmpq $0x1000, %rax\"",
+        "module asm \"    leaq 24(%rsp), %rcx\"",
+        "module asm \"    jb 1f\"",
+        "module asm \"2:  subq $0x1000, %rcx\"",
+        "module asm \"    testq %rcx, (%rcx)\"",
+        "module asm \"    subq $0x1000, %rax\"",
+        "module asm \"    cmpq $0x1000, %rax\"",
+        "module asm \"    ja 2b\"",
+        "module asm \"1:  subq %rax, %rcx\"",
+        "module asm \"    testq %rcx, (%rcx)\"",
+        "module asm \"    popq %rax\"",
+        "module asm \"    popq %rcx\"",
+        "module asm \"    retq\"",
+    }
+    for _, name in ipairs(names) do
+        lines[#lines + 1] = "module asm \".globl " .. name .. "\""
+        lines[#lines + 1] = "module asm \"" .. name .. ":\""
+        lines[#lines + 1] = "module asm \"    jmpq *ks_lua_slot_" .. name .. "(%rip)\""
+    end
+    lines[#lines + 1] = ""
+    for _, name in ipairs(names) do
+        lines[#lines + 1] = "@ks_lua_slot_" .. name .. " = hidden global ptr null"
+        lines[#lines + 1] = "@ks_lua_name_" .. name .. " = " .. cString(name)
+    end
+    lines[#lines + 1] = "@ks_lua_module = " .. cString("lua51.dll")
+    lines[#lines + 1] = "@ks_lua_probe = " .. cString("lua_gettop")
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "declare dllimport ptr @GetModuleHandleA(ptr)"
+    lines[#lines + 1] = "declare dllimport ptr @GetProcAddress(ptr, ptr)"
+    lines[#lines + 1] = ""
+    -- The program's own exports come first: a program that links LuaJIT in
+    -- exports its API, and may have loaded some lua51.dll besides.
+    lines[#lines + 1] = "define dso_local i32 @" .. coff.ENTRY .. "(ptr %instance, i32 %reason, ptr %reserved) {"
+    lines[#lines + 1] = "entry:"
+    lines[#lines + 1] = "  %attach = icmp eq i32 %reason, 1"
+    lines[#lines + 1] = "  br i1 %attach, label %bind, label %done"
+    lines[#lines + 1] = "bind:"
+    lines[#lines + 1] = "  %self = call ptr @GetModuleHandleA(ptr null)"
+    lines[#lines + 1] = "  %probe = call ptr @GetProcAddress(ptr %self, ptr @ks_lua_probe)"
+    lines[#lines + 1] = "  %exports = icmp ne ptr %probe, null"
+    lines[#lines + 1] = "  br i1 %exports, label %found, label %library"
+    lines[#lines + 1] = "library:"
+    lines[#lines + 1] = "  %lua = call ptr @GetModuleHandleA(ptr @ks_lua_module)"
+    lines[#lines + 1] = "  br label %found"
+    lines[#lines + 1] = "found:"
+    lines[#lines + 1] = "  %module = phi ptr [ %self, %bind ], [ %lua, %library ]"
+    lines[#lines + 1] = "  %none = icmp eq ptr %module, null"
+    lines[#lines + 1] = "  br i1 %none, label %fail, label %fill"
+    lines[#lines + 1] = "fill:"
+    local ok = "true"
+    for position, name in ipairs(names) do
+        lines[
+            #lines + 1
+        ] = ("  %%f%d = call ptr @GetProcAddress(ptr %%module, ptr @ks_lua_name_%s)"):format(position, name)
+        lines[#lines + 1] = ("  store ptr %%f%d, ptr @ks_lua_slot_%s"):format(position, name)
+        lines[#lines + 1] = ("  %%has%d = icmp ne ptr %%f%d, null"):format(position, position)
+        lines[#lines + 1] = ("  %%ok%d = and i1 %s, %%has%d"):format(position, ok, position)
+        ok = "%ok" .. tostring(position)
+    end
+    lines[#lines + 1] = "  br i1 " .. ok .. ", label %done, label %fail"
+    lines[#lines + 1] = "fail:"
+    lines[#lines + 1] = "  ret i32 0"
+    lines[#lines + 1] = "done:"
+    lines[#lines + 1] = "  ret i32 1"
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+export = coff

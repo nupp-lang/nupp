@@ -2528,6 +2528,59 @@ function M.aCWasmBuildNeverAsksForTheCodeGenerator()
     assert(not tostring(err):find("code generator", 1, true), tostring(err))
 end
 
+--- A Windows DLL of builder entries names no Lua module: the Lua API is
+--- reached through slots its entry point fills from whichever loaded module
+--- exports it, and the C runtime's math comes from msvcrt. Linked here from
+--- any host, which is all it takes to show nothing is left unresolved.
+function M.aWindowsBuilderDllBindsLuaWhenItLoads()
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
+        return
+    end
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    source:write([[
+@aot
+local function rows(count: integer): {number}
+    local result = table.new(count, 0)
+    for index = 1, count do
+        result[index] = math.sin(index * 2)
+    end
+    return result
+end
+
+return {rows = rows}
+]])
+    source:close()
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write([[return {include = {"src"}, build = {targets = {native = {kind = "modules",
+   entries = {"kernel"}, outDir = "build/native", aot = "require", aotTarget = "x86_64-pc-windows-msvc"}}}}]])
+    manifest:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local library = assert(read(dir .. "/build/native/lib/native_aot.dll"), "the DLL is linked")
+    test.equal(library:sub(1, 2), "MZ", "a PE image")
+    assert(library:find("msvcrt.dll", 1, true), "the C runtime's math is imported")
+    assert(library:find("ks_dll_main", 1, true), "the entry point binds the Lua API")
+end
+
+--- On Windows the runtime reaches the Lua API through pointers, one per
+--- function `ks_lua.h` declares; a declaration without its pointer would call
+--- an import no Windows provider can resolve.
+function M.theWindowsRuntimeRedirectsEveryLuaFunction()
+    local header = assert(read(HERE .. "/../src/nupp/compiler/aot/include/ks_lua.h"))
+    local runtime = assert(read(HERE .. "/../native/crates/native/c/ks_rt.c"))
+    local redirected = {}
+    for name in runtime:gmatch("#define (luaL?_[%w_]+) %(%*ks_win_") do
+        redirected[name] = true
+    end
+    for name in header:gmatch("\nextern [^;(]-(luaL?_[%w_]+)%(") do
+        assert(redirected[name], "ks_rt.c does not redirect " .. name .. " on Windows")
+    end
+    assert(redirected.luaL_addvalue, "nor the runtime's own luaL_addvalue")
+end
+
 function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')

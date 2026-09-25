@@ -21,12 +21,134 @@
  * same slots, and a test holds the two lists to one another. */
 #define KS_JSON_WIDE 1
 #include <stddef.h>
+
+/* Windows binds each import at link time to a named module, and the Lua API
+ * lives in whichever module carries the VM: the program itself when LuaJIT is
+ * linked in, lua51.dll beside the interpreter otherwise. So there the runtime
+ * calls the API through pointers, filled from whichever module exports it the
+ * first time the table is asked for. Each name below turns the header's
+ * declaration of that function into one of a pointer to it. */
+#if defined(_WIN32)
+#define luaL_addlstring (*ks_win_luaL_addlstring)
+#define luaL_addvalue (*ks_win_luaL_addvalue)
+#define luaL_buffinit (*ks_win_luaL_buffinit)
+#define luaL_checklstring (*ks_win_luaL_checklstring)
+#define luaL_checknumber (*ks_win_luaL_checknumber)
+#define luaL_error (*ks_win_luaL_error)
+#define luaL_pushresult (*ks_win_luaL_pushresult)
+#define lua_call (*ks_win_lua_call)
+#define lua_checkstack (*ks_win_lua_checkstack)
+#define lua_concat (*ks_win_lua_concat)
+#define lua_createtable (*ks_win_lua_createtable)
+#define lua_equal (*ks_win_lua_equal)
+#define lua_getfield (*ks_win_lua_getfield)
+#define lua_getmetatable (*ks_win_lua_getmetatable)
+#define lua_gettop (*ks_win_lua_gettop)
+#define lua_insert (*ks_win_lua_insert)
+#define lua_newuserdata (*ks_win_lua_newuserdata)
+#define lua_next (*ks_win_lua_next)
+#define lua_objlen (*ks_win_lua_objlen)
+#define lua_pushboolean (*ks_win_lua_pushboolean)
+#define lua_pushcclosure (*ks_win_lua_pushcclosure)
+#define lua_pushlightuserdata (*ks_win_lua_pushlightuserdata)
+#define lua_pushlstring (*ks_win_lua_pushlstring)
+#define lua_pushnil (*ks_win_lua_pushnil)
+#define lua_pushnumber (*ks_win_lua_pushnumber)
+#define lua_pushvalue (*ks_win_lua_pushvalue)
+#define lua_rawequal (*ks_win_lua_rawequal)
+#define lua_rawget (*ks_win_lua_rawget)
+#define lua_rawgeti (*ks_win_lua_rawgeti)
+#define lua_rawset (*ks_win_lua_rawset)
+#define lua_rawseti (*ks_win_lua_rawseti)
+#define lua_remove (*ks_win_lua_remove)
+#define lua_replace (*ks_win_lua_replace)
+#define lua_setmetatable (*ks_win_lua_setmetatable)
+#define lua_settop (*ks_win_lua_settop)
+#define lua_toboolean (*ks_win_lua_toboolean)
+#define lua_tolstring (*ks_win_lua_tolstring)
+#define lua_tonumber (*ks_win_lua_tonumber)
+#define lua_topointer (*ks_win_lua_topointer)
+#define lua_touserdata (*ks_win_lua_touserdata)
+#define lua_type (*ks_win_lua_type)
+#endif
+
 #include "ks_prelude.h"
 #include "ks_lua.h"
 
 #define KS_RT_ABI_VERSION 1u
 
 extern void luaL_addvalue(KsLuaStringBuffer *buffer);
+
+#if defined(_WIN32)
+#define KS_RT_LUA_API(X) \
+    X(luaL_addlstring) \
+    X(luaL_addvalue) \
+    X(luaL_buffinit) \
+    X(luaL_checklstring) \
+    X(luaL_checknumber) \
+    X(luaL_error) \
+    X(luaL_pushresult) \
+    X(lua_call) \
+    X(lua_checkstack) \
+    X(lua_concat) \
+    X(lua_createtable) \
+    X(lua_equal) \
+    X(lua_getfield) \
+    X(lua_getmetatable) \
+    X(lua_gettop) \
+    X(lua_insert) \
+    X(lua_newuserdata) \
+    X(lua_next) \
+    X(lua_objlen) \
+    X(lua_pushboolean) \
+    X(lua_pushcclosure) \
+    X(lua_pushlightuserdata) \
+    X(lua_pushlstring) \
+    X(lua_pushnil) \
+    X(lua_pushnumber) \
+    X(lua_pushvalue) \
+    X(lua_rawequal) \
+    X(lua_rawget) \
+    X(lua_rawgeti) \
+    X(lua_rawset) \
+    X(lua_rawseti) \
+    X(lua_remove) \
+    X(lua_replace) \
+    X(lua_setmetatable) \
+    X(lua_settop) \
+    X(lua_toboolean) \
+    X(lua_tolstring) \
+    X(lua_tonumber) \
+    X(lua_topointer) \
+    X(lua_touserdata) \
+    X(lua_type)
+
+#define KS_RT_POINTER(name) __typeof__(ks_win_##name) ks_win_##name;
+KS_RT_LUA_API(KS_RT_POINTER)
+#undef KS_RT_POINTER
+
+__declspec(dllimport) void *__stdcall GetModuleHandleA(const char *name);
+__declspec(dllimport) void *__stdcall GetProcAddress(void *module, const char *name);
+
+/* 1 once every pointer is filled, 0 when no loaded module exports the API. */
+int ks_rt_bind(void) {
+    static int bound;
+    void *module;
+    if (bound) return 1;
+    module = GetModuleHandleA(NULL);
+    if (!module || !GetProcAddress(module, "lua_gettop")) module = GetModuleHandleA("lua51.dll");
+    if (!module) return 0;
+#define KS_RT_RESOLVE(name) \
+    ks_win_##name = (__typeof__(ks_win_##name))GetProcAddress(module, #name); \
+    if (!ks_win_##name) return 0;
+    KS_RT_LUA_API(KS_RT_RESOLVE)
+#undef KS_RT_RESOLVE
+    bound = 1;
+    return 1;
+}
+#else
+int ks_rt_bind(void) { return 1; }
+#endif
 
 #if defined(__GNUC__) || defined(__clang__)
 #define KS_RT_NORETURN __attribute__((noreturn, noinline, cold))

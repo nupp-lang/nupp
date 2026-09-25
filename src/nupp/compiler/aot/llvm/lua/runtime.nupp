@@ -186,6 +186,17 @@ const API: {
     luaL_error = {"i32", "ptr, ptr, ..."},
 }
 
+--- The Lua C API functions generated code may call, sorted.
+function runtime.apiNames(): {string}
+    local names: {string} = {}
+    for name in pairs(API) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
 local function sized(params: string, size: string): string
     return (params:gsub("SIZE", size))
 end
