@@ -906,7 +906,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             end
         end
         table.sort(runtimeModules)
-        local requiredHostFeatures = nativeFeatures.hostFeatureNames(resolvedEffects)
+        local requiredHostFeatures = nativeFeatures.requiredHostFeatureNames(resolvedEffects)
         local text, bundleErr, unreachable = bundleText(
             root,
             config,

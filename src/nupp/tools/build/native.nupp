@@ -86,7 +86,7 @@ function stage.hostStub(root: string, outDir: string, target: Target, effects: {
         return target.stub
     end
     if target.platforms then
-        local required = native.hostFeatureNames(effects)
+        local required = native.requiredHostFeatureNames(effects)
         local stubs = require("nupp.tools.build.stubs")
         local record, recordErr = target._stubRecord, nil
         if not record then
@@ -124,21 +124,9 @@ function stage.linkHost(
 ): (string?, string?)
     local selected = target.layoutTarget
     local host = require("nupp.tools.build.platform").hostKey()
-    local pack, packErr = require("nupp.compiler.compilerpacks").resolve(selected or host)
-    if packErr ~= nil then
-        return nil, packErr
-    end
-    local compilerRoot = envMod.compilerRoot()
-    if pack == nil and selected ~= nil and selected ~= host then
-        return nil, "standalone native linking for " .. tostring(
-            selected
-        ) .. " requires a compiler pack for that target"
-    end
-    if not compilerRoot and (pack == nil or (pack as any).linkHost == nil) then
-        return nil, "standalone native linking needs compiler source or an installed compiler pack"
-    end
-    local featureNames = native.hostFeatureNames(effects)
     local aotllvm = require("nupp.tools.build.aotllvm")
+    local compilerRoot = envMod.compilerRoot()
+    local featureNames = native.hostFeatureNames(effects)
     if aotllvm.selected()
         and (selected == nil or selected == host)
         and (host:match("darwin") ~= nil or host:match("linux") ~= nil)
@@ -162,6 +150,18 @@ function stage.linkHost(
         end
 
         return output, nil
+    end
+    local pack, packErr = require("nupp.compiler.compilerpacks").resolve(selected or host)
+    if packErr ~= nil then
+        return nil, packErr
+    end
+    if pack == nil and selected ~= nil and selected ~= host then
+        return nil, "standalone native linking for " .. tostring(
+            selected
+        ) .. " requires a compiler pack for that target"
+    end
+    if not compilerRoot and (pack == nil or (pack as any).linkHost == nil) then
+        return nil, "standalone native linking needs compiler source or an installed compiler pack"
     end
     local driver = pack and (pack as any).linkHost or join(compilerRoot as string, "scripts/toolchain")
     if driver == nil then

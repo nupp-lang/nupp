@@ -312,6 +312,24 @@ local FEATURES: {[string]: native.Feature} = {
         binary = true,
         requires = {"runtime.native", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},
     },
+    -- The AOT code generator: LLVM and lld, which the compiler reaches and a
+    -- program built by it never does, so a standalone program carries no LLVM.
+    -- Built in only where the pinned LLVM is (scripts/toolchain decides).
+    ["native.codegen"] = {
+        name = "codegen",
+        modules = {"nupp.compiler.aot.llvm.codegen"},
+        runtimeModule = "nupp.compiler.aot.llvm.codegen",
+        provider = "nupp_native",
+        providerDriver = "native-rust",
+        providerFeature = "codegen",
+        host = "native-codegen",
+        library = "nupp_native",
+        binary = true,
+        -- Asked for, never required: a host built where no LLVM is still runs
+        -- the compiler, whose `@aot` then says what is missing.
+        optional = true,
+        requires = {"runtime.native"},
+    },
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
     ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.text.utf8"},},
@@ -829,6 +847,21 @@ function native.hostFeatureNames(effects: {[string]: any}?): {string}
     local names, included = {}, {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.host and not included[feature.host] then
+            names[#names + 1] = feature.host
+            included[feature.host] = true
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- The host features a payload cannot run without: `hostFeatureNames` less
+--- the ones a host may lack (the code generator).
+function native.requiredHostFeatureNames(effects: {[string]: any}?): {string}
+    local names, included = {}, {}
+    for _, feature in ipairs(native.features(effects)) do
+        if feature.host and not (feature as any).optional and not included[feature.host] then
             names[#names + 1] = feature.host
             included[feature.host] = true
         end
