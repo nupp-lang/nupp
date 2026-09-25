@@ -13,11 +13,13 @@ compare: a fact that changes a result is a bug in its proof.
 - `bounds`: `inbounds nuw` addressing and `nuw` index arithmetic.
 - `relations`: the guard relations the wrapper checks before every call, as
   `llvm.assume` at entry, and span counts' range (at most 2^53).
+- `extents`: each span readable for its count's elements and aligned to its
+  element, as `dereferenceable` and `align` assumptions at entry.
 ]]
 
 local facts = {}
 
-const facts.FAMILIES = {"alias", "access", "effects", "bounds", "relations"}
+const facts.FAMILIES = {"alias", "access", "effects", "bounds", "relations", "extents"}
 
 --- The set of families stated.
 record facts.Facts
@@ -26,14 +28,22 @@ record facts.Facts
     effects: boolean
     bounds: boolean
     relations: boolean
+    extents: boolean
 end
 
 function facts.all(): facts.Facts
-    return new facts.Facts(alias = true, access = true, effects = true, bounds = true, relations = true)
+    return new facts.Facts(alias = true, access = true, effects = true, bounds = true, relations = true, extents = true)
 end
 
 function facts.none(): facts.Facts
-    return new facts.Facts(alias = false, access = false, effects = false, bounds = false, relations = false)
+    return new facts.Facts(
+        alias = false,
+        access = false,
+        effects = false,
+        bounds = false,
+        relations = false,
+        extents = false
+    )
 end
 
 --- `all`, `none`, or a comma-separated list of families, or nil and why not.
@@ -55,6 +65,8 @@ function facts.parse(text: string): (facts.Facts?, string?)
             selected.bounds = true
         elseif name == "relations" then
             selected.relations = true
+        elseif name == "extents" then
+            selected.extents = true
         else
             return nil, "unknown AOT fact family " .. name .. "; the families are " .. table.concat(
                 facts.FAMILIES,

@@ -398,6 +398,32 @@ local function assumeRelations(ctx: context.Context, program: scalarIR.Program):
     end
 end
 
+--- Each span's extent, as its caller made it: readable (and, written,
+--- writable) for `count` elements, aligned to one. The element loads
+--- already take the alignment; this lets LLVM speculate within the extent.
+local function assumeExtents(ctx: context.Context, program: scalarIR.Program): nil
+    for _, param in ipairs(program.params) do
+        local span = ctx.spans[param.name]
+        local count = ctx.counts[param.name]
+        if span ~= nil and count ~= nil then
+            local elementType = tostring(param.type)
+            local layout = elementType:match("^struct:(.+)$")
+            local storage = layout ~= nil and expressions.layoutType(ctx, layout as string)
+                or types.storage(elementType, param.sourceType)
+            local width = ("ptrtoint (ptr getelementptr (%s, ptr null, i32 1) to i64)"):format(storage)
+            local bytes = builder.value(ctx.f, ("mul nuw i64 %s, %s"):format(count as string, width))
+            local bundles = ('"dereferenceable"(ptr %s, i64 %s)'):format((span as context.Span).pointer, bytes)
+            if layout == nil then
+                bundles = bundles .. (
+                    ', "align"(ptr %s, i64 %d)'
+                ):format((span as context.Span).pointer, types.storageBytes(elementType, param.sourceType))
+            end
+            builder.declare(ctx.module, "@llvm.assume", "declare void @llvm.assume(i1)")
+            builder.emit(ctx.f, ("call void @llvm.assume(i1 true) [ %s ]"):format(bundles))
+        end
+    end
+end
+
 --- One kernel entry.
 local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle: boolean): nil
     local module = unit.module
@@ -511,6 +537,9 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     helpers(unit, ctx, program)
     if unit.facts.relations then
         assumeRelations(ctx, program)
+    end
+    if unit.facts.extents then
+        assumeExtents(ctx, program)
     end
 
     if program.body ~= nil then
