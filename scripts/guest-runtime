@@ -15,10 +15,10 @@
 # beside it. Its major version must be the pinned LLVM's.
 set -eu
 
-MUSL_VERSION=1.2.5
-MUSL_SHA256=a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4
-
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# The browser guest's musl: its LuaJIT is the reference this must match.
+MUSL_VERSION=$(sed -n 's/^BROWSER_MUSL_VERSION=//p' "$ROOT/scripts/toolchain.pins")
+MUSL_SHA256=$(sed -n 's/^BROWSER_MUSL_SHA256=//p' "$ROOT/scripts/toolchain.pins")
 OUTPUT="$ROOT/src/nupp/compiler/aot/llvm/lua/runtime-i686.ll"
 CLANG=${CLANG:-clang}
 BIN=$(dirname "$(command -v "$CLANG")")
