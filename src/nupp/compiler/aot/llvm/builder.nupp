@@ -162,8 +162,19 @@ end
 --- The whole module's text.
 function builder.render(module: builder.Module): string
     local lines: {string} = {}
+    -- A function the module defines is not declared as well: a call reached
+    -- before its callee's definition declared it, and IR refuses both.
+    local defined: {[string]: boolean} = {}
+    for _, definition in ipairs(module.functions) do
+        local name = definition:match("^define [^@]*(@[%w_.$]+)%(")
+        if name ~= nil then
+            defined[name as string] = true
+        end
+    end
     for _, key in ipairs(module.order) do
-        lines[#lines + 1] = module.pieces[key] as string
+        if key:sub(1, 8) ~= "declare " or not defined[key:sub(9)] then
+            lines[#lines + 1] = module.pieces[key] as string
+        end
     end
     for _, definition in ipairs(module.functions) do
         lines[#lines + 1] = ""

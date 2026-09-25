@@ -182,7 +182,10 @@ end
 local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: scalarIR.Program): nil
     local module = unit.module
     for _, helper in ipairs(program.helpers or {}) do
-        local name = "@" .. helper.cName
+        -- A native call reaches another entry of this file, which this unit
+        -- defines for its tier: a call LLVM can inline, with the callee's own
+        -- attributes in view.
+        local name = "@" .. (helper.native == true and physical(helper.cName, unit.tier) or helper.cName)
         local params: {string} = {}
         local paramTypes: {string} = {}
         for _, param in ipairs(helper.params) do

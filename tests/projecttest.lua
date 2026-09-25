@@ -2717,6 +2717,62 @@ print(triangular(5))
     remove(dir)
 end
 
+--- One `@aot` entry calling another of the same file reaches that entry's own
+--- symbol, qualified by its file and spelled for the tier being built. The
+--- call used to name an unqualified symbol nothing defined, so the program
+--- failed to link.
+function M.anAotEntryCallsAnotherEntryOfItsFile()
+    local llvm = os.getenv("NUPP_AOT_BACKEND") == "llvm"
+    if llvm and jit.os == "Windows" or not llvm and require("nupp.tools.build.aot").toolchain() == nil then
+        return
+    end
+    local dir = tempProject({
+        [
+            "src/main.nupp"
+        ] = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+
+@aot
+local function curve(x: number): number
+   return x * x + 1
+end
+
+@aot
+local function total(borrows values: span.Span<float>): number
+   local sum = 0.0
+   for index = 1, #values do
+      sum = sum + curve(values[index])
+   end
+   return sum
+end
+
+local values = array.scalar(array.float, 4)
+do
+   local writable = values:write()
+   for index = 1, 4 do
+      writable[index] = index
+   end
+   nupp.drop(writable)
+end
+print(curve(3), total(values:read()))
+]],
+    })
+    write(
+        dir .. "/nupp.lua",
+        (
+            [=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]
+        ):format(dir .. "/out", dir .. "/out/app")
+    )
+    assertEq(project.build(dir), 0)
+    local ran, text = process.capture({dir .. "/out/app" .. (jit.os == "Windows" and ".exe" or "")})
+    assertEq(ran, 0, text)
+    assertEq(text:match("[^\r\n]+"), "10\t34", "the calling entry reached the called one")
+    remove(dir)
+end
+
 function M.staticAotComponentProducesAnArchiveAndDefaultNamespaceBinding()
     local dir = tempProject({
         [

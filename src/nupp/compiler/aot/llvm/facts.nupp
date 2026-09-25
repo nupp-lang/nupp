@@ -15,6 +15,17 @@ compare: a fact that changes a result is a bug in its proof.
   `llvm.assume` at entry, and span counts' range (at most 2^53).
 - `extents`: each span readable for its count's elements and aligned to its
   element, as `dereferenceable` and `align` assumptions at entry.
+
+Two facts are stated without a family, because nothing about them can be
+wrong in a way a differential would catch:
+
+- Per-access `!alias.scope` and `!noalias` would restate `noalias`. Every pair
+  of regions that involves a written span is disjoint by construction, so every
+  span parameter already carries `noalias`, and LLVM's inliner turns those
+  into scopes on the accesses it inlines.
+- A call from one entry to another of its file reaches the callee's own
+  definition in the same module, so LLVM sees the callee's attributes, and can
+  inline it, rather than a bare declaration.
 ]]
 
 local facts = {}

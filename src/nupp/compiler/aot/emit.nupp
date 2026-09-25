@@ -2475,8 +2475,10 @@ local function helperHasGenericSimd(helper: scalarIR.Helper): boolean
 end
 
 --- The C symbol and optional result struct for one helper rendering.
-local function helperNames(helper: scalarIR.Helper, scalar: boolean): (string, string?)
-    local name = helper.cName .. (scalar and "_forced_scalar" or "")
+local function helperNames(helper: scalarIR.Helper, scalar: boolean, tier: string?): (string, string?)
+    -- A native call names another entry of this file, as this tier spells it.
+    local name = helper.native == true and physicalSymbol(helper.cName, tier)
+        or helper.cName .. (scalar and "_forced_scalar" or "")
 
     return name, #helper.resultTypes > 1 and name .. "_result" or nil
 end
@@ -2493,14 +2495,14 @@ end
 
 --- Result structs, then prototypes, then definitions. Each inline helper's
 --- physical signature is selected once and never written onto the semantic IR.
-function emit.helpers(context: emit.Context, helpers: {scalarIR.Helper}): {string}
+function emit.helpers(context: emit.Context, helpers: {scalarIR.Helper}, tier: string?): {string}
     local variants: {emit.HelperVariant} = {}
     for _, helper in ipairs(helpers) do
         local generic = helperHasGenericSimd(helper)
         local modes = (helper.native == true or not generic) and {false} or {false, true}
         for _, scalar in ipairs(modes) do
             local selected = emit.context(context, nil, scalar)
-            local name, resultName = helperNames(helper, scalar)
+            local name, resultName = helperNames(helper, scalar, tier)
             variants[
                 #variants + 1
             ] = new emit.HelperVariant(
@@ -4499,7 +4501,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
         end
 
         local helpers = program.helpers or {}
-        for _, line in ipairs(emit.helpers(context, helpers)) do
+        for _, line in ipairs(emit.helpers(context, helpers, tier)) do
             lines[#lines + 1] = line
         end
 

@@ -99,8 +99,15 @@ local REFUSED = {}
 local function qualifySymbols(programs: {scalarIR.Program}, filename: string): nil
     local identity = hash.digest(filename):sub(1, 16)
     local registrars: {[string]: string} = {}
+    local prefix = "ks_" .. identity .. "_"
     for _, program in ipairs(programs) do
-        program.symbol = "ks_" .. identity .. "_" .. program.symbol:sub(4)
+        program.symbol = prefix .. program.symbol:sub(4)
+        -- A call to another entry of this file names that entry's symbol.
+        for _, helper in ipairs(program.helpers or {}) do
+            if helper.native == true and helper.cName:sub(1, #prefix) ~= prefix then
+                helper.cName = prefix .. helper.cName:sub(4)
+            end
+        end
         if program.registrar ~= nil then
             local registrar = program.registrar as string
             local qualified = registrars[registrar]
