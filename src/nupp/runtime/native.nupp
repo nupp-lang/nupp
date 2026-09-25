@@ -142,4 +142,31 @@ function native.bytes(handle: any): string
     return ffi.string(buffer, count)
 end
 
+const AOT_RUNTIME_FEATURE = 4096
+
+local aotRuntime: string? = nil
+
+--- The AOT runtime's table address, as pointer-width native-endian bytes.
+---
+--- An LLVM-compiled Lua-builder module reaches the runtime its entries call
+--- through this table rather than through symbols, and its registrar calls
+--- this to find it: that keeps the module free of anything a loader would
+--- have to resolve, and it is how the C lowering's loaders and the host's
+--- archive registration keep working unchanged.
+--- @export
+--- @raises string when the provider was built without the runtime
+function native.aotRuntime(): string
+    local cached = aotRuntime
+    if cached ~= nil then
+        return cached
+    end
+    native.requireFeature(AOT_RUNTIME_FEATURE, "the AOT runtime")
+    ffi.cdef("const void *nuppAotRuntime(void);")
+    local cell = ffi.new("const void *[1]", native.C.nuppAotRuntime())
+    local bytes = ffi.string(cell, ffi.sizeof("void *"))
+    aotRuntime = bytes
+
+    return bytes
+end
+
 export = native

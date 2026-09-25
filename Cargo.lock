@@ -962,6 +962,7 @@ dependencies = [
 name = "nupp-native"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "nupp-native-abi",
  "nupp-native-codegen",
  "nupp-native-compression",
