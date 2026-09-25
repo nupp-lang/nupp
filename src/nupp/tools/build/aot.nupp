@@ -1103,16 +1103,24 @@ function aot.compileWasm(
 ): (aot.WasmOutcome?, string?)
     local report = reporter or progress.new("never")
     -- Units LLVM emitted are compiled and linked in process; Emscripten is
-    -- asked for only when some unit is still C.
-    local allLlvm = true
+    -- asked for only when some unit is still C. A C build never asks for the
+    -- code generator, which a provider built without LLVM does not have.
+    local anyC, anyLlvm = false, false
     for _, one in ipairs(emitted) do
-        if one.detector ~= true and one.backend ~= aotllvm.BACKEND then
-            allLlvm = false
+        if one.detector ~= true then
+            if one.backend == aotllvm.BACKEND then
+                anyLlvm = true
+            else
+                anyC = true
+            end
         end
     end
+    local allLlvm = not anyC and (anyLlvm or aotllvm.selected() == true)
     local command: string? = nil
-    local version: string? = aotllvm.version()
-    if not allLlvm then
+    local version: string? = nil
+    if allLlvm then
+        version = aotllvm.version()
+    else
         command, version = aot.wasmToolchain(memo)
         if command == nil then
             return nil, version
@@ -2947,7 +2955,7 @@ function aot.apply(
     report:at("aot:reuse")
     -- Every unit through LLVM needs no C compiler at all; otherwise the C
     -- toolchain compiles the C units and links, LLVM objects included.
-    local allLlvm = true
+    local allLlvm = #(emitted as {aot.Emitted}) > 0 or aotllvm.selected() == true
     for _, one in ipairs(emitted as {aot.Emitted}) do
         if one.backend ~= aotllvm.BACKEND then
             allLlvm = false

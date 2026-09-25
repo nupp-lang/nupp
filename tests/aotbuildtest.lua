@@ -2513,6 +2513,21 @@ function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
     test.equal(app:find("nupp.runtime.aotruntime", 1, true), nil, "the loader passes no runtime table")
 end
 
+--- A Wasm build of C units never asks for the code generator: a nupp built
+--- without LLVM has none, and asking raised before Emscripten was reached.
+function M.aCWasmBuildNeverAsksForTheCodeGenerator()
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local aot = require("nupp.tools.build.aot")
+    local version = aotllvm.version
+    aotllvm.version = function()
+        error("this nupp was built without the LLVM code generator", 0)
+    end
+    local ok, result, err = pcall(aot.compileWasm, {{source = "missing.scalar.c", tier = "scalar"}}, {})
+    aotllvm.version = version
+    assert(ok, "the C route raised: " .. tostring(result))
+    assert(not tostring(err):find("code generator", 1, true), tostring(err))
+end
+
 function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
