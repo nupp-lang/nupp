@@ -6,6 +6,7 @@
 -- would be asserting that the test's own idea of TLS matches itself.
 local net = require("nupp.io.net")
 local tls = require("nupp.io.tls")
+local buffers = require("nupp.io")
 
 local function assertEq(got, want, label)
     if got ~= want then
@@ -300,6 +301,51 @@ function M.aVerifiedHandshakeCarriesBytesBothWays()
     assertTrue(server:write("ack"), "the server answers")
     assertEq(assert(client:read(64)), "ack", "and the client reads that")
 
+    client:close()
+    server:close()
+    serverSock:close()
+    clientSock:close()
+    listener:close()
+end
+
+function M.aDirectPlaintextReadCanTransitionToTls()
+    local listener, clientSock, serverSock = sockets()
+    assertTrue(serverSock:write("starttls"), "the server sends the plaintext prelude")
+    assertTrue(serverSock:flush(), "the plaintext prelude drains")
+    local prelude = buffers.newBuffer()
+    assertEq(assert(clientSock:readInto(prelude, 0, 8)), 8, "the client reads directly before TLS")
+    assertEq(prelude:getString(), "starttls", "the plaintext prelude arrives")
+
+    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+    assertTrue(clientDone, "the client transitions to TLS: " .. tostring(clientWhy))
+    assertTrue(serverDone, "the server transitions to TLS: " .. tostring(serverWhy))
+    assertTrue(client:write("encrypted"), "the upgraded connection writes")
+    assertEq(assert(server:read(32)), "encrypted", "the upgraded connection reads")
+
+    prelude:close()
+    client:close()
+    server:close()
+    serverSock:close()
+    clientSock:close()
+    listener:close()
+end
+
+function M.checkedSpansAndBuffersCrossTlsWithoutStringAdapters()
+    local listener, clientSock, serverSock = sockets()
+    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    assertTrue((shake(client, server)), "the client handshake completes")
+
+    local source = buffers.newBuffer("span payload")
+    assertEq(assert(client:writeSpan(source:readSpan())), 12, "the checked span is written")
+    local destination = buffers.newBuffer("head:")
+    assertEq(assert(server:readInto(destination, 5, 12)), 12, "plaintext fills the caller's buffer")
+    assertEq(destination:getString(), "head:span payload", "the destination receives the plaintext")
+
+    source:close()
+    destination:close()
     client:close()
     server:close()
     serverSock:close()

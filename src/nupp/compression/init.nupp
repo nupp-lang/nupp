@@ -191,6 +191,25 @@ local function decoderOptions(settings: ReaderOptions, name: string): provider.F
     return options
 end
 
+local function readerConfiguration(
+    options: ReaderOptions?,
+    name: string
+): (integer, integer?, number?, provider.FormatOptions?)
+    local settings = options or {}
+    local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
+    if settings.unbounded and settings.maxOutputBytes ~= nil then
+        error("nupp: compression ReaderOptions cannot set both unbounded and maxOutputBytes", 3)
+    end
+    local maximum: integer? = settings.unbounded and nil
+        or positive(settings.maxOutputBytes, DEFAULT_MAX_OUTPUT, "compression maxOutputBytes")
+    local ratio = settings.maxExpansionRatio
+    if ratio ~= nil and (ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
+        error("nupp: compression maxExpansionRatio must be positive and finite", 3)
+    end
+
+    return capacity, maximum, ratio, decoderOptions(settings, name)
+end
+
 local interface OwnedPair is nupp.Closeable
     state: affine(provider.Encoder)
     destination: affine(io.Writer)
@@ -601,18 +620,7 @@ export record Format
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match
     function newReader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
-        local settings = options or {}
-        local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
-        if settings.unbounded and settings.maxOutputBytes ~= nil then
-            error("nupp: compression ReaderOptions cannot set both unbounded and maxOutputBytes", 2)
-        end
-        local maximum: integer? = settings.unbounded and nil
-            or positive(settings.maxOutputBytes, DEFAULT_MAX_OUTPUT, "compression maxOutputBytes")
-        local ratio = settings.maxExpansionRatio
-        if ratio ~= nil and (ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
-            error("nupp: compression maxExpansionRatio must be positive and finite", 2)
-        end
-        local formatSettings = decoderOptions(settings, self.name)
+        local capacity, maximum, ratio, formatSettings = readerConfiguration(options, self.name)
 
         return new Reader(
             state = self.implementation:createDecoder(formatSettings),
@@ -624,7 +632,7 @@ export record Format
             inputTotal = 0,
             outputTotal = 0,
             maxOutputBytes = maximum,
-            maxExpansionRatio = settings.maxExpansionRatio,
+            maxExpansionRatio = ratio,
             streamFinished = false,
             ended = false
         )
@@ -692,14 +700,76 @@ export record Format
         exclusive destination: io.Buffer,
         options: ReaderOptions?
     ): nil
-        local source = io.newStringReader(storage.string(bytes:ref(), #bytes))
-        local reader = self:newReader(source, options)
-        local writer = destination:newWriter()
-        local _, reason = reader:transferTo(writer)
-        reader:close()
-        writer:close()
-        if reason ~= nil then
-            error(reason, 2)
+        local capacity, maximum, ratio, formatSettings = readerConfiguration(options, self.name)
+        with state = self.implementation:createDecoder(formatSettings) do
+            destination:clear()
+            local inputAt: integer = 1
+            local inputTotal: integer = 0
+            local outputTotal: integer = 0
+            local finished = false
+            while not finished do
+                local lease = destination:reserveWrite(outputTotal, capacity)
+                local consumed: integer = 0
+                local consumedResult: integer?
+                local available: integer = 0
+                local endingInput = inputAt > #bytes
+                local written: integer?
+                local status: integer?
+                local reason: string?
+                do
+                    local output = lease:span()
+                    if not endingInput then
+                        local input = bytes:slice(inputAt, #bytes)
+                        available = #input
+                        consumedResult, written, status, reason = state:read(input, output)
+                    else
+                        written, status, reason = state:finishInput(output)
+                    end
+                    nupp.drop(output)
+                end
+                if (not endingInput and consumedResult == nil) or written == nil or status == nil then
+                    nupp.drop(lease)
+                    error(reason or "compression failed", 2)
+                end
+                consumed = consumedResult or 0
+                if consumed < 0 or consumed > available then
+                    nupp.drop(lease)
+                    error("compression provider reported invalid progress", 2)
+                end
+                if written < 0 or written > capacity then
+                    nupp.drop(lease)
+                    error("compression provider reported invalid progress", 2)
+                end
+                if endingInput and status ~= provider.FINISHED then
+                    nupp.drop(lease)
+                    error("compressed stream ended before its trailer", 2)
+                end
+
+                inputAt = inputAt + consumed
+                inputTotal = inputTotal + consumed
+                local nextOutput = outputTotal + written
+                if maximum ~= nil and nextOutput > maximum then
+                    nupp.drop(lease)
+                    error("decompressed output exceeds maxOutputBytes", 2)
+                end
+                local ratioInput = math.max(inputTotal, RATIO_ALLOWANCE)
+                if ratio ~= nil and nextOutput > ratioInput * ratio then
+                    nupp.drop(lease)
+                    error("decompressed output exceeds maxExpansionRatio", 2)
+                end
+                if status == provider.FINISHED and inputAt <= #bytes then
+                    nupp.drop(lease)
+                    error("compressed stream has trailing bytes", 2)
+                end
+                if consumed == 0 and written == 0 and status ~= provider.FINISHED then
+                    nupp.drop(lease)
+                    error("compression provider made no progress", 2)
+                end
+
+                lease:commit(written)
+                outputTotal = nextOutput
+                finished = status == provider.FINISHED
+            end
         end
     end
 

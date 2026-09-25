@@ -361,6 +361,8 @@ record http.Body is io.Reader
 
     @private
     _next: function(self: http.Body, count: integer): (string?, string?)
+    @private
+    _nextInto: function(self: http.Body, borrows destination: uint8[?], count: integer): (integer?, string?)
 
     --- Reads up to `count` bytes, suspending until some arrive.
     ---
@@ -378,16 +380,7 @@ record http.Body is io.Reader
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = whole(#destination, "body destination length", 1)
-        local chunk, reason = self:_next(wanted)
-        if chunk == nil then
-            return nil, reason
-        end
-        local input = span.fromString(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
-
-        return #chunk
+        return self:_nextInto(destination:ref(), wanted)
     end
 
     --- Reads into a buffer, suspending until some bytes arrive.
@@ -406,25 +399,20 @@ record http.Body is io.Reader
     function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
         local wanted = whole(count or READ_SIZE, "body read count", 1)
-        local chunk, reason = self:_next(wanted)
-        if chunk == nil then
-            return nil, reason
-        end
-        if #chunk == 0 then
-            return 0
-        end
-        local input = span.fromString(chunk)
         local lease = destination:reserveWrite(at, wanted)
+        local landed: integer?
+        local reason: string?
         do
             local output = lease:span()
-            for index = 1, #chunk do
-                output[index] = input[index]
-            end
+            landed, reason = self:_nextInto(output:ref(), wanted)
             nupp.drop(output)
         end
-        lease:commit(#chunk)
+        if landed == nil then
+            return nil, reason
+        end
+        lease:commit(landed)
 
-        return #chunk
+        return landed
     end
 
     --- Writes the whole body to a writer, suspending as often as it has to.
@@ -438,14 +426,16 @@ record http.Body is io.Reader
     function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
+        local scratch = io.newBuffer(READ_SIZE)
         while true do
-            local chunk, failure = self:read(READ_SIZE)
-            if chunk == nil then
+            scratch:clear()
+            local got, failure = self:readInto(scratch, 0, READ_SIZE)
+            if got == nil then
                 return nil, failure
-            elseif chunk == "" then
+            elseif got == 0 then
                 return total
             end
-            local source = span.fromString(chunk)
+            local source = scratch:readSpan()
             local at: integer = 1
             while at <= #source do
                 local remaining = source:slice(at)
@@ -503,6 +493,33 @@ function http.Body._next(self: http.Body, count: integer): (string?, string?)
             return ""
         elseif state == "failed" or state == "closed" then
             self._reading = false
+            return nil, reason
+        end
+        local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
+        if not ok then
+            self._reading = false
+            error(problem, 0)
+        end
+    end
+end
+
+function http.Body._nextInto(self: http.Body, borrows destination: uint8[?], count: integer): (integer?, string?)
+    if self._closed then
+        return nil, "the body is closed"
+    end
+    if self._reading then
+        error("nupp: an HTTP response body may only have one reader", 3)
+    end
+    self._reading = true
+    while true do
+        local state, value, reason = self._transfer:bodyReadInto(destination, count)
+        if state == "data" or state == "eof" then
+            self._reading = false
+
+            return value or 0
+        elseif state == "failed" or state == "closed" then
+            self._reading = false
+
             return nil, reason
         end
         local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
@@ -954,6 +971,11 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
         else
             error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
         end
+        if bodyKind == BODY_INLINE then
+            -- A Buffer's immutable request snapshot is taken once. Redirect replay
+            -- reuses this string instead of snapshotting the mutable source again.
+            requestBody = body
+        end
     end
     local manualRedirects = self._options.manualRedirects
     local byLower, merged, packed
@@ -1015,7 +1037,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     local head, problem
     if reader ~= nil then
         local scratch = io.newBuffer(UPLOAD_SIZE)
-        local uploadTransfer = transfer
+        local uploadTransfer = transfer as NativeTransfer
 
         local function uploadAndWait(): any takes (scratch)
             local transferred: integer = 0
@@ -1046,15 +1068,18 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 end
                 local offered = scratch:length()
                 if offered > 0 then
-                    local source = scratch:getString()
-                    while true do
-                        local accepted = uploadTransfer:offer(source, offered)
-                        if accepted == "accepted" then
-                            break
-                        elseif accepted == "closed" then
-                            return waitHead(self, transfer, false)
+                    do
+                        local source = scratch:readSpan()
+                        local pointer = source:ref()
+                        while true do
+                            local accepted = uploadTransfer:offerFrom(pointer, offered)
+                            if accepted == "accepted" then
+                                break
+                            elseif accepted == "closed" then
+                                return waitHead(self, transfer, false)
+                            end
+                            appendWaiter(self, transfer, "upload space", false)
                         end
-                        appendWaiter(self, transfer, "upload space", false)
                     end
                     transferred = transferred + offered
                 end

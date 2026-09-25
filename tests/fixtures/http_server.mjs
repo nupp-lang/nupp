@@ -112,6 +112,12 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/redirect-upload") {
+    req.resume();
+    req.on("end", () => send(res, 307, undefined, { Location: "/echo" }));
+    return;
+  }
+
   if (req.method === "POST") {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));

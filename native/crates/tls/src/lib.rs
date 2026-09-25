@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use nupp_native_net::{Read as NetRead, Stream, Write as NetWrite};
+use nupp_native_net::{ReadInto as NetReadInto, Stream, Write as NetWrite};
 use ring::digest::{Context as Digest, SHA256};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, WebPkiSupportedAlgorithms};
@@ -16,13 +16,12 @@ use rustls::{
     RootCertStore, ServerConfig, ServerConnection, SignatureScheme,
 };
 use std::collections::VecDeque;
-use std::io::{self, Cursor, Read as _, Write as _};
+use std::io::{self, Read as _, Write as _};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 const CLIENT_CONFIGS_MAX: usize = 128;
 const SERVER_CONFIGS_MAX: usize = 32;
-const TLS_READ_CHUNK: usize = 64 * 1024;
 
 /// Client policy copied into a Rustls configuration before this call returns.
 pub struct ClientOptions<'a> {
@@ -40,9 +39,18 @@ pub struct ServerOptions<'a> {
     pub protocols: &'a [Vec<u8>],
 }
 
+#[cfg(test)]
 #[derive(Debug, Eq, PartialEq)]
 pub enum Read {
     Data(Vec<u8>),
+    Pending,
+    Eof,
+    Failed(String),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ReadInto {
+    Data(usize),
     Pending,
     Eof,
     Failed(String),
@@ -359,17 +367,48 @@ fn server_config(options: &ServerOptions<'_>) -> Result<Arc<ServerConfig>, Strin
 
 struct State {
     connection: Connection,
-    pending_tls: VecDeque<u8>,
-    /// Transport bytes rustls has not taken yet. `read_tls` takes at most one
-    /// record buffer per call and none while decrypted plaintext waits to be
-    /// read, so what one transport read returned outlives one call to it.
-    inbound: VecDeque<u8>,
     failed: Option<String>,
     closed: bool,
     verified: bool,
     require_alpn: bool,
     close_notify_sent: bool,
     transport_eof: bool,
+}
+
+struct TransportReader<'a> {
+    stream: &'a Stream,
+    eof: bool,
+}
+
+impl io::Read for TransportReader<'_> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        match self.stream.try_receive_into(output) {
+            NetReadInto::Data(count) => Ok(count),
+            NetReadInto::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            NetReadInto::Eof => {
+                self.eof = true;
+                Ok(0)
+            }
+            NetReadInto::Failed(error) => Err(io::Error::other(error)),
+        }
+    }
+}
+
+struct TransportWriter<'a>(&'a Stream);
+
+impl io::Write for TransportWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        match self.0.try_write(bytes) {
+            NetWrite::Accepted(count) => Ok(count),
+            NetWrite::Pending => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            NetWrite::Closed => Err(io::Error::from(io::ErrorKind::BrokenPipe)),
+            NetWrite::Failed(error) => Err(io::Error::other(error)),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// One TLS session with exclusive access to its underlying network stream.
@@ -398,8 +437,6 @@ impl Session {
             stream,
             state: Mutex::new(State {
                 connection: Connection::Client(connection),
-                pending_tls: VecDeque::new(),
-                inbound: VecDeque::new(),
                 failed: None,
                 closed: false,
                 verified: options.verify,
@@ -419,8 +456,6 @@ impl Session {
             stream,
             state: Mutex::new(State {
                 connection: Connection::Server(connection),
-                pending_tls: VecDeque::new(),
-                inbound: VecDeque::new(),
                 failed: None,
                 closed: false,
                 verified: false,
@@ -448,28 +483,41 @@ impl Session {
         Ok(complete)
     }
 
-    pub fn try_read(&self, maximum: usize) -> Read {
+    #[cfg(test)]
+    fn try_read(&self, maximum: usize) -> Read {
         if maximum == 0 {
             return Read::Failed("a TLS read needs room for at least one byte".to_owned());
         }
-        let mut state = match self.lock() {
-            Ok(state) => state,
-            Err(error) => return Read::Failed(error),
-        };
-        if state.connection.is_handshaking() {
-            return Read::Failed("the TLS handshake has not finished".to_owned());
-        }
-        if let Err(error) = state.drive(&self.stream) {
-            return Read::Failed(error);
-        }
         let mut output = vec![0; maximum];
-        match state.connection.reader().read(&mut output) {
-            Ok(0) => Read::Eof,
-            Ok(length) => {
+        match self.try_read_into(&mut output) {
+            ReadInto::Data(length) => {
                 output.truncate(length);
                 Read::Data(output)
             }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Read::Pending,
+            ReadInto::Pending => Read::Pending,
+            ReadInto::Eof => Read::Eof,
+            ReadInto::Failed(error) => Read::Failed(error),
+        }
+    }
+
+    pub fn try_read_into(&self, output: &mut [u8]) -> ReadInto {
+        if output.is_empty() {
+            return ReadInto::Failed("a TLS read needs room for at least one byte".to_owned());
+        }
+        let mut state = match self.lock() {
+            Ok(state) => state,
+            Err(error) => return ReadInto::Failed(error),
+        };
+        if state.connection.is_handshaking() {
+            return ReadInto::Failed("the TLS handshake has not finished".to_owned());
+        }
+        if let Err(error) = state.drive(&self.stream) {
+            return ReadInto::Failed(error);
+        }
+        match state.connection.reader().read(output) {
+            Ok(0) => ReadInto::Eof,
+            Ok(length) => ReadInto::Data(length),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => ReadInto::Pending,
             Err(error) => {
                 let error = if error.kind() == io::ErrorKind::UnexpectedEof {
                     "the peer closed the connection without close_notify".to_owned()
@@ -477,7 +525,7 @@ impl Session {
                     format!("could not read TLS plaintext: {error}")
                 };
                 state.fail(error.clone());
-                Read::Failed(error)
+                ReadInto::Failed(error)
             }
         }
     }
@@ -531,18 +579,14 @@ impl Session {
             state.close_notify_sent = true;
         }
         state.drive(&self.stream)?;
-        Ok(!state.connection.wants_write()
-            && state.pending_tls.is_empty()
-            && self.stream.pending_write() == 0)
+        Ok(!state.connection.wants_write() && self.stream.pending_write() == 0)
     }
 
     /// Whether all encrypted output has reached the operating-system socket.
     pub fn flushed(&self) -> Result<bool, String> {
         let mut state = self.lock()?;
         state.drive(&self.stream)?;
-        Ok(!state.connection.wants_write()
-            && state.pending_tls.is_empty()
-            && self.stream.pending_write() == 0)
+        Ok(!state.connection.wants_write() && self.stream.pending_write() == 0)
     }
 
     pub fn close(&self) {
@@ -596,7 +640,7 @@ impl Session {
         let Ok(state) = self.state.lock() else {
             return 0;
         };
-        state.pending_tls.len() + self.stream.pending_write()
+        self.stream.pending_write() + usize::from(state.connection.wants_write())
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, State>, String> {
@@ -631,28 +675,24 @@ impl State {
     fn drive(&mut self, stream: &Stream) -> Result<(), String> {
         for _ in 0..64 {
             let mut progressed = self.flush_tls(stream)?;
-            // rustls stops wanting transport bytes while plaintext it already
-            // decrypted waits to be read. That is backpressure on the peer,
-            // not a failure, so the transport is left alone until it wants
-            // more, and bytes it has not taken stay buffered here.
-            if self.connection.wants_read() {
-                if self.inbound.is_empty() && !self.transport_eof {
-                    match stream.try_read(TLS_READ_CHUNK) {
-                        NetRead::Data(bytes) => self.inbound.extend(bytes),
-                        NetRead::Pending => {}
-                        NetRead::Eof => {
-                            let mut input = Cursor::new(&[]);
-                            self.connection.read_tls(&mut input).map_err(|error| {
-                                self.failed(format!("could not finish TLS input: {error}"))
-                            })?;
-                            self.transport_eof = true;
-                        }
-                        NetRead::Failed(error) => {
-                            return Err(self.failed(format!("the TLS transport failed: {error}")));
-                        }
+            // Rustls supplies the encrypted-record destination. The socket
+            // fills it synchronously and never retains the borrowed storage.
+            if self.connection.wants_read() && !self.transport_eof {
+                let mut input = TransportReader { stream, eof: false };
+                match self.connection.read_tls(&mut input) {
+                    Ok(0) if input.eof => self.transport_eof = true,
+                    Ok(0) => {}
+                    Ok(_) => {
+                        self.connection.process_new_packets().map_err(|error| {
+                            self.failed(format!("could not process TLS records: {error}"))
+                        })?;
+                        progressed = true;
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(error) => {
+                        return Err(self.failed(format!("could not read TLS records: {error}")));
                     }
                 }
-                progressed |= self.consume_inbound()?;
             }
             progressed |= self.flush_tls(stream)?;
             if !progressed {
@@ -662,62 +702,16 @@ impl State {
         Ok(())
     }
 
-    /// Feeds buffered transport bytes to rustls until it takes no more, which
-    /// is when the buffer is empty or decrypted plaintext is waiting.
-    fn consume_inbound(&mut self) -> Result<bool, String> {
-        let mut progressed = false;
-        while !self.inbound.is_empty() && self.connection.wants_read() {
-            let taken = {
-                let mut input = Cursor::new(&*self.inbound.make_contiguous());
-                self.connection.read_tls(&mut input)
-            };
-            let taken = match taken {
-                Ok(count) => count,
-                // The received-plaintext buffer is full: a reader will make room.
-                Err(error) if error.kind() == io::ErrorKind::Other => break,
-                Err(error) => {
-                    return Err(self.failed(format!("could not read TLS records: {error}")));
-                }
-            };
-            if taken == 0 {
-                break;
-            }
-            self.inbound.drain(..taken);
-            self.connection
-                .process_new_packets()
-                .map_err(|error| self.failed(format!("could not process TLS records: {error}")))?;
-            progressed = true;
-        }
-        Ok(progressed)
-    }
-
     fn flush_tls(&mut self, stream: &Stream) -> Result<bool, String> {
-        let mut progressed = false;
-        if !self.pending_tls.is_empty() {
-            let pending = self.pending_tls.make_contiguous();
-            match stream.try_write(pending) {
-                NetWrite::Accepted(count) => {
-                    self.pending_tls.drain(..count);
-                    progressed = count != 0;
-                }
-                NetWrite::Pending => return Ok(false),
-                NetWrite::Closed => {
-                    return Err(self.failed("the TLS transport is closed".to_owned()));
-                }
-                NetWrite::Failed(error) => {
-                    return Err(self.failed(format!("could not write TLS records: {error}")));
-                }
-            }
+        if !self.connection.wants_write() {
+            return Ok(false);
         }
-        if self.pending_tls.is_empty() && self.connection.wants_write() {
-            let mut output = Vec::new();
-            self.connection
-                .write_tls(&mut output)
-                .map_err(|error| self.failed(format!("could not encode TLS records: {error}")))?;
-            self.pending_tls.extend(output);
-            progressed = true;
+        let mut output = TransportWriter(stream);
+        match self.connection.write_tls(&mut output) {
+            Ok(count) => Ok(count != 0),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(false),
+            Err(error) => Err(self.failed(format!("could not write TLS records: {error}"))),
         }
-        Ok(progressed)
     }
 
     fn failed(&mut self, error: String) -> String {
@@ -1109,7 +1103,7 @@ mod tests {
         );
         assert!(!server.handshake().unwrap());
         wait_until(
-            || client.stream.snapshot().buffered_read != 0,
+            || client.stream.snapshot().read_ready,
             "the server handshake flight",
         );
         assert!(client.handshake().unwrap());

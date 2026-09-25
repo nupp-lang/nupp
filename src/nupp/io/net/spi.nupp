@@ -169,6 +169,18 @@ export interface Provider
     @readonly
     receive: function(self: Provider, socket: any, maximum: integer): (string?, string?, integer?, boolean?, string?)
 
+    --- Optionally drains one queued datagram directly into caller storage. A nil
+    --- length without an error means no datagram is ready.
+    @readonly
+    receiveInto: (
+        function(
+            self: Provider,
+            socket: any,
+            borrows destination: uint8[?],
+            maximum: integer
+        ): (integer?, string?, integer?, boolean?, string?)
+    )?
+
     --- Sends one datagram to the destination or reports an error.
     @readonly
     sendTo: function(self: Provider, socket: any, host: string, port: integer, bytes: string): (boolean, string?)

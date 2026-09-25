@@ -135,6 +135,15 @@ local nativeStreamWrite: function(
     any,
     any
 ): integer = C.nuppNativeNetStreamWrite as any
+local nativeDatagramReceive: function(
+    any,
+    borrows destination: uint8[?],
+    integer,
+    any,
+    any,
+    any,
+    any
+): integer = C.nuppNativeNetDatagramReceive as any
 
 local scratch: any = nil
 
@@ -181,7 +190,9 @@ local function create(): contract.Provider
 
     local function streamFlags(stream: any): integer
         if C.nuppNativeNetStreamState(stream, flags) ~= 0 then
-            return STREAM_READ_FAILED | STREAM_WRITE_FAILED
+            -- A failed state query is itself readiness: callers must retry the
+            -- operation so it can report the concrete stale-handle failure.
+            return STREAM_READ_READY | STREAM_READ_FAILED | STREAM_WRITE_FAILED
         end
 
         return tonumber(flags[0]) as integer
@@ -522,6 +533,28 @@ local function create(): contract.Provider
             end
 
             return ffiString(into, landed), host, port, scalar[0] ~= 0
+        end,
+
+        receiveInto = function(
+            self: contract.Provider,
+            socket: any,
+            borrows destination: uint8[?],
+            maximum: integer
+        ): (integer?, string?, integer?, boolean?, string?)
+            const taking = maximum < READ_SIZE and maximum or READ_SIZE
+            if nativeDatagramReceive(socket, destination, taking, state, count, addressOutput, scalar) ~= 0 then
+                return nil, nil, nil, nil, reason("nupp: could not receive")
+            end
+            if state[0] ~= DATAGRAM_MESSAGE then
+                return nil
+            end
+            const landed = tonumber(count[0]) as integer
+            const host, port = textAddress(addressOutput)
+            if host == nil or port == nil then
+                return nil, nil, nil, nil, "nupp: could not read the datagram peer"
+            end
+
+            return landed, host, port, scalar[0] ~= 0
         end,
 
         sendTo = function(

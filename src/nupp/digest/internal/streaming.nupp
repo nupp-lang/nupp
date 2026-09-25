@@ -29,12 +29,16 @@ are private implementation details of their consuming provider contexts.
 ]]
 
 local span = require("nupp.mem.span")
+local storage = require("nupp.runtime.storage")
 local hash = {}
 
 --- A mutable incremental digest. Final reads snapshot the current state.
 interface hash.Hasher
     --- Adds one chunk and returns this same hasher for chaining.
     update: function(self: Hasher, bytes: string): Hasher
+
+    --- Adds one borrowed chunk without retaining it.
+    updateSpan: function(self: Hasher, borrows bytes: span.ByteSpan): Hasher
 
     --- Returns the current raw 32-byte digest without changing the hasher.
     digest: function(self: Hasher): string
@@ -193,10 +197,13 @@ local record Sha256 is hash.Hasher
     end
 
     update: function(self: Sha256, bytes: string): hash.Hasher
+    updateSpan: function(self: Sha256, borrows bytes: span.ByteSpan): hash.Hasher
     digest: function(self: Sha256): string
     hex: function(self: Sha256): string
     writeDigest: function(self: Sha256, exclusive destination: span.ByteWriteSpan): nil
 end
+
+local finishCompress: function(self: Sha256, words: {int32}): nil
 
 local function compress(self: Sha256, source: string, offset: integer): nil
     local words = self.schedule
@@ -205,6 +212,22 @@ local function compress(self: Sha256, source: string, offset: integer): nil
         words[index] = i32(((a * 256 + b) * 256 + c) * 256 + d)
         offset = offset + 4
     end
+
+    finishCompress(self, words)
+end
+
+local function compressSpan(self: Sha256, borrows source: span.ByteSpan, offset: integer): nil
+    local words = self.schedule
+    for index = 1, 16 do
+        local a, b, c, d = source[offset], source[offset + 1], source[offset + 2], source[offset + 3]
+        words[index] = i32(((a * 256 + b) * 256 + c) * 256 + d)
+        offset = offset + 4
+    end
+
+    finishCompress(self, words)
+end
+
+finishCompress = function(self: Sha256, words: {int32}): nil
     for index = 17, 64 do
         words[
             index
@@ -245,6 +268,13 @@ local function compress(self: Sha256, source: string, offset: integer): nil
     state[8] = add(wordAt(state, 8), h)
 end
 
+local function spanText(borrows bytes: span.ByteSpan, first: integer, count: integer): string
+    const part = bytes:slice(first, first + count - 1)
+    const pointer, length = part:ref()
+
+    return storage.string(pointer, length)
+end
+
 local function addLength(self: Sha256, count: integer): nil
     local before = unsignedWordAt(self.length, 1)
     local after = nupp.math.u32.add(before, nupp.math.u32.wrap(count))
@@ -273,6 +303,34 @@ function Sha256:update(bytes: string): hash.Hasher
     end
     if offset <= #bytes then
         self.tail = bytes:sub(offset)
+    end
+
+    return self
+end
+
+function Sha256:updateSpan(borrows bytes: span.ByteSpan): hash.Hasher
+    addLength(self, #bytes)
+    local offset: integer = 1
+    if #self.tail > 0 then
+        local needed = 64 - #self.tail
+        if #bytes < needed then
+            if #bytes > 0 then
+                self.tail = self.tail .. spanText(bytes, 1, #bytes)
+            end
+
+            return self
+        end
+        self.tail = self.tail .. spanText(bytes, 1, needed)
+        compress(self, self.tail, 1)
+        self.tail = ""
+        offset = needed + 1
+    end
+    while offset + 63 <= #bytes do
+        compressSpan(self, bytes, offset)
+        offset = offset + 64
+    end
+    if offset <= #bytes then
+        self.tail = spanText(bytes, offset, #bytes - offset + 1)
     end
 
     return self
@@ -394,6 +452,7 @@ local record Hmac is hash.Hasher
     end
 
     update: function(self: Hmac, bytes: string): hash.Hasher
+    updateSpan: function(self: Hmac, borrows bytes: span.ByteSpan): hash.Hasher
     digest: function(self: Hmac): string
     hex: function(self: Hmac): string
     writeDigest: function(self: Hmac, exclusive destination: span.ByteWriteSpan): nil
@@ -401,6 +460,11 @@ end
 
 function Hmac:update(bytes: string): hash.Hasher
     self.inner:update(bytes)
+    return self
+end
+
+function Hmac:updateSpan(borrows bytes: span.ByteSpan): hash.Hasher
+    self.inner:updateSpan(bytes)
     return self
 end
 

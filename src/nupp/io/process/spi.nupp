@@ -44,10 +44,30 @@ export interface Provider
     @readonly
     read: function(Provider, any, integer): (string?)
 
+    --- Optionally reads directly into caller-owned native storage. Zero bytes with
+    --- false means pending; zero bytes with true means EOF.
+    @readonly
+    readInto: (
+        function(self: Provider, stream: any, borrows destination: uint8[?], wanted: integer): (integer, boolean)
+    )?
+
     --- Returns accepted bytes and whether the pipe is gone.
     --- Zero bytes with false means backpressure; true means the pipe is closed.
     @readonly
     write: function(Provider, any, string): (integer, boolean)
+
+    --- Optionally accepts bytes directly from caller-owned native storage. The
+    --- provider may use the pointer only for the duration of this call.
+    @readonly
+    writeFrom: (
+        function(
+            self: Provider,
+            stream: any,
+            borrows source: const uint8[?],
+            offset: integer,
+            count: integer
+        ): (integer, boolean)
+    )?
 
     --- Releases one pipe handle; repeated release must be harmless.
     @readonly

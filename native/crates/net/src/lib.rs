@@ -346,9 +346,10 @@ impl Stream {
 
     /// Receives network bytes directly into caller-owned storage.
     ///
-    /// The first call drains any prefetched bytes, then permanently switches
-    /// this stream to direct receives. The storage is borrowed only for this
-    /// synchronous call; no executor task retains the foreign pointer.
+    /// The first call drains any prefetched bytes, then switches this stream to
+    /// direct receives. An owning protocol layer can continue through this same
+    /// interface. The storage is borrowed only for this synchronous call; no
+    /// executor task retains the foreign pointer.
     pub fn try_receive_into(&self, output: &mut [u8]) -> ReadInto {
         if output.is_empty() {
             return ReadInto::Failed("a network read needs room for at least one byte".to_owned());
@@ -1520,6 +1521,17 @@ pub enum DatagramRead {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DatagramReadInto {
+    Message {
+        length: usize,
+        address: SocketAddr,
+        truncated: bool,
+    },
+    Pending,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DatagramWrite {
     Sent(usize),
     Pending,
@@ -1587,28 +1599,54 @@ impl Datagram {
                 "a datagram receive needs room for at least one byte".to_owned(),
             );
         }
+        let mut output = vec![0_u8; maximum];
+        match self.try_receive_into(&mut output) {
+            DatagramReadInto::Message {
+                length,
+                address,
+                truncated,
+            } => {
+                output.truncate(length);
+                DatagramRead::Message(DatagramMessage {
+                    bytes: output,
+                    address,
+                    truncated,
+                })
+            }
+            DatagramReadInto::Pending => DatagramRead::Pending,
+            DatagramReadInto::Failed(error) => DatagramRead::Failed(error),
+        }
+    }
+
+    pub fn try_receive_into(&self, output: &mut [u8]) -> DatagramReadInto {
+        if output.is_empty() {
+            return DatagramReadInto::Failed(
+                "a datagram receive needs room for at least one byte".to_owned(),
+            );
+        }
         let mut state = self
             .shared
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         if state.closed {
-            return DatagramRead::Failed("the datagram socket is closed".to_owned());
+            return DatagramReadInto::Failed("the datagram socket is closed".to_owned());
         }
         if let Some(message) = state.queue.pop() {
             drop(state);
             self.shared.queue_space.notify_one();
-            let taking = maximum.min(message.bytes.len());
-            return DatagramRead::Message(DatagramMessage {
-                bytes: message.bytes[..taking].to_vec(),
+            let taking = output.len().min(message.bytes.len());
+            output[..taking].copy_from_slice(&message.bytes[..taking]);
+            return DatagramReadInto::Message {
+                length: taking,
                 address: message.address,
                 truncated: taking < message.bytes.len(),
-            });
+            };
         }
         if let Some(error) = &state.error {
-            DatagramRead::Failed(error.clone())
+            DatagramReadInto::Failed(error.clone())
         } else {
-            DatagramRead::Pending
+            DatagramReadInto::Pending
         }
     }
 

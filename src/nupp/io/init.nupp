@@ -180,9 +180,9 @@ half of it untested.
 
 ### Scalar sources
 
-`newScalarReader` takes whatever holds the bytes. A string, a `ByteView` or a
-`Buffer` is read from a copy taken there and then, so `remaining()` knows the
-count:
+`newScalarReader` takes whatever holds the bytes. A string or `ByteView` keeps
+its immutable backing; a `Buffer` is read in place while borrowed. In all three
+cases, `remaining()` knows the count:
 
 ```nupp
 local reader = nupp.io.newScalarReader("\1\2\3\4")
@@ -379,9 +379,9 @@ export const newQueueReader = bytes.newQueueReader
 
 --- Opens a cursor for sized integer and float reads.
 ---
---- A string, snapshot or buffer is read from a copy of its bytes taken here, and
---- reports its `remaining` count. A reader or a queue is consumed in place: the reader
---- answers no count, the queue answers what it still holds.
+--- A string or snapshot keeps its immutable backing. A buffer is read in place while
+--- borrowed. All three report their `remaining` count. A reader or a queue is consumed
+--- in place: the reader answers no count, the queue answers what it still holds.
 ---
 --- What the source is decides what happens to it. A snapshot or a buffer is
 --- borrowed and outlives the cursor; a reader is taken, and closing the cursor

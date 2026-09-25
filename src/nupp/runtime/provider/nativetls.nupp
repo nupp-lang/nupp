@@ -64,6 +64,20 @@ int32_t nuppNativeTlsRelease(uint64_t);
 
 local ffi = native.ffi
 const C = native.C
+local nativeTlsRead: function(
+    any,
+    borrows destination: uint8[?],
+    integer,
+    any,
+    any
+): integer = C.nuppNativeTlsRead as any
+local nativeTlsWrite: function(
+    any,
+    borrows source: const uint8*,
+    integer,
+    any,
+    any
+): integer = C.nuppNativeTlsWrite as any
 const TLS_FEATURE = 512
 const TLS_READY = 1
 const TLS_READ_PENDING = 1
@@ -181,9 +195,50 @@ local function create(): contract.Provider
 
             return ffiString(into, tonumber(length[0]) as integer)
         end,
+        readInto = function(
+            self: contract.Provider,
+            session: any,
+            borrows destination: uint8[?],
+            wanted: integer
+        ): (integer?, string?)
+            const taking = wanted < READ_SIZE and wanted or READ_SIZE
+            const status = nativeTlsRead(session, destination, taking, state, length)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not read")
+            end
+            if state[0] == TLS_READ_PENDING then
+                return nil
+            end
+            if state[0] == TLS_READ_EOF then
+                return 0
+            end
+
+            return tonumber(length[0]) as integer
+        end,
 
         write = function(self: contract.Provider, session: any, bytes: string): (integer?, string?)
             const status = C.nuppNativeTlsWrite(session, bytes, #bytes, state, length)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not write")
+            end
+            if state[0] == TLS_WRITE_PENDING then
+                return nil
+            end
+            if state[0] == TLS_WRITE_CLOSED then
+                return nil, "nupp: could not write: the connection is closed"
+            end
+
+            return tonumber(length[0]) as integer
+        end,
+        writeFrom = function(
+            self: contract.Provider,
+            session: any,
+            borrows source: const uint8[?],
+            offset: integer,
+            count: integer
+        ): (integer?, string?)
+            const input = @unsafe((source as const uint8*) + offset)
+            const status = nativeTlsWrite(session, input, count, state, length)
             if status ~= 0 then
                 return nil, lastError("nupp: could not write")
             end

@@ -210,8 +210,15 @@ impl ProcessStream {
             return Err("this process stream has been closed".to_owned());
         }
         let count = output_bytes.len().min(state.bytes.len());
-        for destination in &mut output_bytes[..count] {
-            *destination = state.bytes.pop_front().expect("count fits buffered bytes");
+        if count != 0 {
+            let (first, second) = state.bytes.as_slices();
+            let first_count = count.min(first.len());
+            output_bytes[..first_count].copy_from_slice(&first[..first_count]);
+            let second_count = count - first_count;
+            if second_count != 0 {
+                output_bytes[first_count..count].copy_from_slice(&second[..second_count]);
+            }
+            state.bytes.drain(..count);
         }
         if count != 0 {
             drop(state);

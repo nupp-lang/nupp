@@ -191,6 +191,21 @@ function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     client:close()
 end
 
+function M.aBufferUploadReplaysItsSingleSnapshotAcrossARedirect()
+    local client = ready()
+    local payload = string.rep("redirected-", 4096)
+    local buffer = buffers.newBuffer(payload)
+    local response, reason = client:send({url = endpoint("/redirect-upload"), method = "POST", body = buffer,})
+    assert(response, reason)
+    local echoed = readAll(response.body, 32768)
+    test.equal(echoed:getString(), payload)
+
+    echoed:close()
+    response:close()
+    buffer:close()
+    client:close()
+end
+
 function M.selectivelyInsecureClientsRerouteEveryRedirect()
     if unavailable then
         test.skip("the HTTP provider is unavailable: " .. unavailable)

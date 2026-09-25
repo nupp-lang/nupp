@@ -55,6 +55,7 @@ local suspension = require("nupp.suspension")
 local span = require("nupp.mem.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
+local copyStringTo = require("nupp.io.internal.bytes").copyStringTo
 
 const contract = require("nupp.io.tls.spi")
 local provider: contract.Provider = do
@@ -155,6 +156,94 @@ local function await(operation: string, ready: function(): boolean): nil
             source:release()
         end
     end)
+end
+
+--- Suspends for one reactor pass when progress can only be learned by retrying
+--- an operation that borrows caller storage.
+local function awaitTick(operation: string): nil
+    if not suspension.handled() then
+        net.pump(1)
+
+        return
+    end
+    suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
+        const source = context:source(
+            "nupp.io.tls.tick",
+            50,
+            function(): integer
+                net.pump(0)
+                resume(true)
+
+                return 1
+            end,
+            function(waitMs: integer): integer
+                net.pump(waitMs)
+
+                return 0
+            end
+        )
+
+        return function(): nil
+            source:release()
+        end
+    end)
+end
+
+--- Writes from rooted storage while the caller keeps its source alive.
+local function writeAllFrom(
+    backend: contract.Provider,
+    session: any,
+    borrows source: const uint8[?],
+    count: integer
+): (boolean, string?)
+    const writeFrom = backend.writeFrom as function(
+        provider: contract.Provider,
+        handle: any,
+        borrows input: const uint8[?],
+        offset: integer,
+        length: integer
+    ): (integer?, string?)
+    local at: integer = 0
+    while at < count do
+        const moved, why = writeFrom(backend, session, source, at, count - at)
+        if why ~= nil then
+            return false, why
+        end
+        if moved == nil then
+            awaitTick("nupp.io.tls write")
+        elseif moved == 0 then
+            return false, "nupp: the TLS writer accepted no bytes without becoming pending"
+        else
+            at = at + moved
+        end
+    end
+
+    return true
+end
+
+--- Reads into rooted storage while the caller keeps its destination alive.
+local function readIntoStorage(
+    backend: contract.Provider,
+    session: any,
+    borrows output: uint8[?],
+    wanted: integer
+): (integer?, string?)
+    const readInto = backend.readInto as function(
+        provider: contract.Provider,
+        handle: any,
+        borrows destination: uint8[?],
+        count: integer
+    ): (integer?, string?)
+    while true do
+        const got, why = readInto(backend, session, output, wanted)
+        if why ~= nil then
+            return nil, why
+        end
+        if got ~= nil then
+            return got
+        end
+        awaitTick("nupp.io.tls read")
+    end
 end
 
 --- An encrypted connection.
@@ -356,14 +445,30 @@ record tls.Session is Reader, Writer
     --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "tls.Session readSpan destination length", 2)
+        const direct = rawget(
+            self._provider as table,
+            "readInto"
+        ) as(
+            function(
+                backend: contract.Provider,
+                session: any,
+                borrows output: uint8[?],
+                wanted: integer
+            ): (integer?, string?)
+        )?
+        if direct ~= nil then
+            const got, why = readIntoStorage(self._provider, self._session, destination:ref(), wanted)
+            if got == 0 then
+                self._ended = true
+            end
+
+            return got, why
+        end
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
         end
-        const input = span.fromString(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
+        copyStringTo(destination, chunk, 0, #chunk)
 
         return #chunk as integer
     end
@@ -372,19 +477,34 @@ record tls.Session is Reader, Writer
     --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "tls.Session readInto count", 2)
+        if rawget(self._provider as table, "readInto") ~= nil then
+            const lease = destination:reserveWrite(offset or 0, wanted)
+            local landed: integer?
+            local why: string?
+            do
+                const output = lease:span()
+                landed, why = readIntoStorage(self._provider, self._session, output:ref(), wanted)
+                nupp.drop(output)
+            end
+            if landed == nil then
+                return nil, why
+            elseif landed == 0 then
+                self._ended = true
+            end
+            lease:commit(landed)
+
+            return landed
+        end
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
         end
         const landed = #chunk as integer
         if landed > 0 then
-            const input = span.fromString(chunk)
             const lease = destination:reserveWrite(offset or 0, landed)
             do
                 const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
+                copyStringTo(output, chunk, 0, landed)
                 nupp.drop(output)
             end
             lease:commit(landed)
@@ -427,6 +547,9 @@ record tls.Session is Reader, Writer
         if not self._ready then
             return false, "the handshake has not finished"
         end
+        if rawget(self._provider as table, "writeFrom") ~= nil then
+            return writeAllFrom(self._provider, self._session, physical.borrowString(bytes), #bytes)
+        end
         -- The wait's callback is kept by the reactor until the write lands, so it
         -- holds the backend and the session rather than the exclusive receiver.
         const backend, session = self._provider, self._session
@@ -460,6 +583,23 @@ record tls.Session is Reader, Writer
 
     --- Appends bytes from a checked shared span.
     function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if not self:isConnected() then
+            return nil, "the connection underneath was closed first"
+        end
+        if not self._ready then
+            return nil, "the handshake has not finished"
+        end
+        if rawget(self._provider as table, "writeFrom") ~= nil then
+            const wrote, why = writeAllFrom(self._provider, self._session, source:ref(), #source)
+            if not wrote then
+                return nil, why
+            end
+
+            return #source as integer
+        end
         const bytes = spanStringValue(source:ref(), #source)
         const wrote, why = self:write(bytes)
         if not wrote then

@@ -5,6 +5,7 @@ package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
 local ffi = require("ffi")
 local standard = require("nupp.io")
 local span = require("nupp.mem.span")
+local utf8 = require("nupp.text.utf8")
 local transferred = {
     ["write-span"] = 4096,
     ["read-into"] = 4096,
@@ -30,6 +31,44 @@ local scenarios = {
 
             return total
         end
+    },
+    {
+        "byteview-slice",
+        function(n)
+            local buffer = standard.newBuffer(payload)
+            local parent = buffer:view()
+            local total = 0
+            for index = 1, n do
+                local child = parent:view(index % 4000, 6)
+                total = total + child:length()
+                child:drop()
+            end
+            parent:drop()
+            buffer:drop()
+
+            return total
+        end
+    },
+    {
+        "byteview-utf8",
+        function(n)
+            local buffer = standard.newBuffer(payload)
+            local view = buffer:view()
+            local total = 0
+            for _ = 1, n do
+                local at = 1
+                while at <= view:length() do
+                    local codepoint, nextAt = utf8.decodeAt(view, at)
+                    total = total + codepoint
+                    at = nextAt
+                end
+            end
+            view:drop()
+            buffer:drop()
+
+            return total
+        end,
+        100
     },
     {
         "scalar-read-u32",

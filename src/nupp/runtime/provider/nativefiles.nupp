@@ -566,6 +566,16 @@ local function readBytes(handle: any, into: any, count: integer): (string?, stri
     return ffi.string(into, got), nil
 end
 
+local function readIntoStorage(handle: any, borrows destination: uint8[?], count: integer): (integer?, string?)
+    local output = ffi.new("size_t[1]")
+    local status = fileRead(handle, destination, count, output)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeLastError())
+    end
+
+    return tonumber(output[0]) as integer, nil
+end
+
 ----------------------------------------------------------------------------
 -- Open files
 ----------------------------------------------------------------------------
@@ -763,14 +773,8 @@ export record FileReader is io.Reader
             return nil, reason
         end
         local wanted = positive(#destination, "FileReader:readSpan destination length", 2)
-        local pointer = destination:ref()
-        local output = ffi.new("size_t[1]")
-        local status = fileRead((file as File)._handle, pointer, wanted, output)
-        if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeLastError())
-        end
 
-        return tonumber(output[0]) as integer, nil
+        return readIntoStorage((file as File)._handle, destination:ref(), wanted)
     end
 
     --- Reads into a buffer.
@@ -789,22 +793,16 @@ export record FileReader is io.Reader
         end
         local from = counted(offset or 0, "FileReader:readInto offset", 2)
         local wanted = positive(count or READ_SIZE, "FileReader:readInto count", 2)
-        local chunk, failure = self:read(wanted)
-        if chunk == nil then
-            return nil, failure
-        end
-        local taking = #(chunk as string)
-        if taking == 0 then
-            return 0, nil
-        end
-        local input = span.fromString(chunk as string)
         local lease = destination:reserveWrite(from, wanted)
+        local taking: integer?
+        local failure: string?
         do
             local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
+            taking, failure = readIntoStorage((file as File)._handle, output:ref(), wanted)
             nupp.drop(output)
+        end
+        if taking == nil then
+            return nil, failure
         end
         lease:commit(taking)
 

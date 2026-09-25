@@ -82,6 +82,20 @@ size_t nuppNativeProcessAbandonedTotal(void);
 ]]
 
 const C = native.C
+local nativeProcessRead: function(
+    any,
+    borrows destination: uint8[?],
+    integer,
+    any,
+    any
+): integer = C.nuppNativeProcessStreamRead as any
+local nativeProcessWrite: function(
+    any,
+    borrows source: const uint8*,
+    integer,
+    any,
+    any
+): integer = C.nuppNativeProcessStreamWrite as any
 const PROCESS_FEATURE = 32
 const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
 const READ_DATA = 0
@@ -246,6 +260,32 @@ local function create(): contract.Provider
             end
             error("nupp: Rust process provider returned an invalid read state", 0)
         end,
+        readInto = function(
+            self: contract.Provider,
+            stream: any,
+            borrows destination: uint8[?],
+            limit: integer
+        ): (integer, boolean)
+            local wanted = whole(limit)
+            if wanted < 1 then
+                wanted = 1
+            elseif wanted > READ_SIZE then
+                wanted = READ_SIZE
+            end
+            local state = native.ffi.new("uint32_t[1]")
+            local length = native.ffi.new("size_t[1]")
+            configured(nativeProcessRead(stream.handle, destination, wanted, state, length), "read process stream")
+            if state[0] == READ_DATA then
+                return tonumber(length[0]) as integer, false
+            end
+            if state[0] == READ_PENDING then
+                return 0, false
+            end
+            if state[0] == READ_EOF then
+                return 0, true
+            end
+            error("nupp: Rust process provider returned an invalid read state", 0)
+        end,
         write = function(self: contract.Provider, stream: any, bytes: string): (integer, boolean)
             local state = native.ffi.new("uint32_t[1]")
             local length = native.ffi.new("size_t[1]")
@@ -253,6 +293,28 @@ local function create(): contract.Provider
                 C.nuppNativeProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
                 "write process stream"
             )
+            if state[0] == WRITE_ACCEPTED then
+                return tonumber(length[0]) as integer, false
+            end
+            if state[0] == WRITE_PENDING then
+                return 0, false
+            end
+            if state[0] == WRITE_GONE then
+                return 0, true
+            end
+            error("nupp: Rust process provider returned an invalid write state", 0)
+        end,
+        writeFrom = function(
+            self: contract.Provider,
+            stream: any,
+            borrows source: const uint8[?],
+            offset: integer,
+            count: integer
+        ): (integer, boolean)
+            local state = native.ffi.new("uint32_t[1]")
+            local length = native.ffi.new("size_t[1]")
+            const input = @unsafe((source as const uint8*) + offset)
+            configured(nativeProcessWrite(stream.handle, input, count, state, length), "write process stream")
             if state[0] == WRITE_ACCEPTED then
                 return tonumber(length[0]) as integer, false
             end

@@ -1001,5 +1001,6 @@ end
 
 export const validatePositive = positive
 export const validateInteger = integer_
+export const copyStringTo = copyString
 
 export type OwnedBuffer = affine(Buffer, destroyOwner)

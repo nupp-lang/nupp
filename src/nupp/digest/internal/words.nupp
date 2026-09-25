@@ -13,6 +13,7 @@ and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses
 
 const bit = require("nupp.runtime.bitops")
 const span = require("nupp.mem.span")
+const storage = require("nupp.runtime.storage")
 const hex = require("nupp.codec.hex")
 const streaming = require("nupp.digest.internal.streaming")
 const constants = require("nupp.digest.internal.constants")
@@ -69,6 +70,7 @@ local record Engine is streaming.Hasher
     @private
     high: integer
     update: function(self: Engine, bytes: string): streaming.Hasher
+    updateSpan: function(self: Engine, borrows bytes: span.ByteSpan): streaming.Hasher
     digest: function(self: Engine): string
     hex: function(self: Engine): string
     writeDigest: function(self: Engine, exclusive destination: span.ByteWriteSpan): nil
@@ -76,6 +78,15 @@ end
 
 local function readWord(bytes: string, at: integer, little: boolean): integer
     local a, b, c, d = bytes:byte(at, at + 3)
+    if little then
+        a, b, c, d = d, c, b, a
+    end
+
+    return bit.tobit(((a * 256 + b) * 256 + c) * 256 + d)
+end
+
+local function readWordSpan(borrows bytes: span.ByteSpan, at: integer, little: boolean): integer
+    local a, b, c, d = bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]
     if little then
         a, b, c, d = d, c, b, a
     end
@@ -177,11 +188,27 @@ local function sha512(self: Engine): nil
     s[15], s[16] = add64(s[15], s[16], hh, hl)
 end
 
+local finishCompress: function(self: Engine): nil
+
 local function compress(self: Engine, bytes: string, offset: integer): nil
     local count = self.name == "sha512" and 32 or 16
     for i = 1, count do
         self.schedule[i] = readWord(bytes, offset + (i - 1) * 4, self.name == "md5")
     end
+
+    finishCompress(self)
+end
+
+local function compressSpan(self: Engine, borrows bytes: span.ByteSpan, offset: integer): nil
+    local count = self.name == "sha512" and 32 or 16
+    for i = 1, count do
+        self.schedule[i] = readWordSpan(bytes, offset + (i - 1) * 4, self.name == "md5")
+    end
+
+    finishCompress(self)
+end
+
+finishCompress = function(self: Engine): nil
     if self.name == "md5" then
         md5(self)
     elseif self.name == "sha1" then
@@ -189,6 +216,13 @@ local function compress(self: Engine, bytes: string, offset: integer): nil
     else
         sha512(self)
     end
+end
+
+local function spanText(borrows bytes: span.ByteSpan, first: integer, count: integer): string
+    const part = bytes:slice(first, first + count - 1)
+    const pointer, length = part:ref()
+
+    return storage.string(pointer, length)
 end
 
 function Engine.update(self: Engine, bytes: string): streaming.Hasher
@@ -213,6 +247,37 @@ function Engine.update(self: Engine, bytes: string): streaming.Hasher
     end
     if offset <= #bytes then
         self.tail = bytes:sub(offset)
+    end
+
+    return self
+end
+
+function Engine.updateSpan(self: Engine, borrows bytes: span.ByteSpan): streaming.Hasher
+    local block = self.name == "sha512" and 128 or 64
+    local length = self.low + #bytes
+    self.low = length % 4294967296
+    self.high = (self.high + math.floor(length / 4294967296)) % 4294967296
+    local offset: integer = 1
+    if #self.tail > 0 then
+        local needed = block - #self.tail
+        if #bytes < needed then
+            if #bytes > 0 then
+                self.tail = self.tail .. spanText(bytes, 1, #bytes)
+            end
+
+            return self
+        end
+        self.tail = self.tail .. spanText(bytes, 1, needed)
+        compress(self, self.tail, 1)
+        self.tail = ""
+        offset = needed + 1
+    end
+    while offset + block - 1 <= #bytes do
+        compressSpan(self, bytes, offset)
+        offset = offset + block
+    end
+    if offset <= #bytes then
+        self.tail = spanText(bytes, offset, #bytes - offset + 1)
     end
 
     return self

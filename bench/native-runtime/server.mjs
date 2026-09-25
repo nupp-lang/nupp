@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
+import { createServer as createTlsServer } from "node:tls";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 const small = Buffer.alloc(64, 0x61);
@@ -10,6 +12,16 @@ const slowBytes = 256 * 1024 * 1024;
 const slowWriterChunk = Buffer.alloc(1024, 0x64);
 const slowWriterBytes = 8 * 1024 * 1024;
 const netSlowWriterChunk = Buffer.alloc(1024, 0x65);
+const generated = new Map();
+
+function bytes(count) {
+  let value = generated.get(count);
+  if (value === undefined) {
+    value = Buffer.alloc(count, 0x66);
+    generated.set(count, value);
+  }
+  return value;
+}
 
 async function sendSlow(res) {
   res.writeHead(200, {
@@ -62,6 +74,19 @@ const server = createServer((req, res) => {
     res.end(large);
     return;
   }
+  const sized = /^\/bytes\/(\d+)$/.exec(req.url ?? "");
+  if (sized !== null) {
+    const count = Number(sized[1]);
+    if (!Number.isSafeInteger(count) || count < 0 || count > 16 * 1024 * 1024) {
+      res.writeHead(400, { "Content-Length": 0 });
+      res.end();
+      return;
+    }
+    const body = bytes(count);
+    res.writeHead(200, { "Content-Length": body.length });
+    res.end(body);
+    return;
+  }
   if (req.url === "/slow-reader") {
     void sendSlow(res);
     return;
@@ -77,11 +102,12 @@ const server = createServer((req, res) => {
 server.on("clientError", (_error, socket) => socket.destroy());
 let httpPort;
 let tcpPort;
+let tlsPort;
 let ready = false;
 function reportReady() {
-  if (!ready && httpPort !== undefined && tcpPort !== undefined) {
+  if (!ready && httpPort !== undefined && tcpPort !== undefined && tlsPort !== undefined) {
     ready = true;
-    process.stdout.write(`READY ${httpPort} ${tcpPort}\n`);
+    process.stdout.write(`READY ${httpPort} ${tcpPort} ${tlsPort}\n`);
   }
 }
 
@@ -89,6 +115,7 @@ function listenFailed(kind, error) {
   console.error(`native runtime peer: ${kind} listen failed: ${error.stack ?? error}`);
   if (server.listening) server.close();
   if (tcpServer.listening) tcpServer.close();
+  if (tlsServer.listening) tlsServer.close();
   process.exitCode = 1;
 }
 
@@ -115,9 +142,30 @@ const tcpServer = createTcpServer((socket) => {
   })();
 });
 
+const tlsServer = createTlsServer(
+  {
+    key: readFileSync(new URL("../../tests/data/localhost-key.pem", import.meta.url)),
+    cert: readFileSync(new URL("../../tests/data/localhost-cert.pem", import.meta.url)),
+  },
+  (socket) => {
+    socket.on("error", () => socket.destroy());
+    socket.on("data", (chunk) => {
+      if (!socket.write(chunk)) socket.pause();
+    });
+    socket.on("drain", () => socket.resume());
+  },
+);
+
 tcpServer.once("error", (error) => listenFailed("TCP", error));
 tcpServer.listen(0, "127.0.0.1", () => {
   const address = tcpServer.address();
   tcpPort = address.port;
+  reportReady();
+});
+
+tlsServer.once("error", (error) => listenFailed("TLS", error));
+tlsServer.listen(0, "127.0.0.1", () => {
+  const address = tlsServer.address();
+  tlsPort = address.port;
   reportReady();
 });

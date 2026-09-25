@@ -1125,27 +1125,26 @@ pub unsafe extern "C" fn nuppNativeNetDatagramReceive(
         Ok(value) => value,
         Err(status) => return status,
     };
-    let message = match datagram.try_receive(capacity) {
-        transport::DatagramRead::Message(message) => Some(message),
-        transport::DatagramRead::Pending => None,
-        transport::DatagramRead::Failed(error) => {
+    // SAFETY: the caller supplies capacity writable bytes.
+    let output_bytes = unsafe { slice::from_raw_parts_mut(output, capacity) };
+    let message = match datagram.try_receive_into(output_bytes) {
+        transport::DatagramReadInto::Message {
+            length,
+            address,
+            truncated,
+        } => Some((length, address, truncated)),
+        transport::DatagramReadInto::Pending => None,
+        transport::DatagramReadInto::Failed(error) => {
             return super::failed(Status::Internal, &error);
         }
     };
-    if let Some(message) = message {
-        if !message.bytes.is_empty() {
-            debug_assert!(message.bytes.len() <= capacity);
-            // SAFETY: output has capacity bytes and the core respected it.
-            unsafe {
-                ptr::copy_nonoverlapping(message.bytes.as_ptr(), output, message.bytes.len())
-            };
-        }
+    if let Some((count, peer, was_truncated)) = message {
         // SAFETY: scalar outputs were checked above.
         unsafe {
             state.write(DATAGRAM_MESSAGE);
-            length.write(message.bytes.len());
-            address.write(net_address(message.address));
-            truncated.write(i32::from(message.truncated));
+            length.write(count);
+            address.write(net_address(peer));
+            truncated.write(i32::from(was_truncated));
         }
     } else {
         // SAFETY: scalar outputs were checked above.

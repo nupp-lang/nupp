@@ -16,5 +16,6 @@ if ! start_native_benchmark_peer "$NUPP_BENCH_TEMP"; then
    exit 1
 fi
 
-export NUPP_BENCH_HTTP_PORT NUPP_BENCH_NET_PORT
+export NUPP_BENCH_HTTP_PORT NUPP_BENCH_NET_PORT NUPP_BENCH_TLS_PORT
+export NUPP_BENCH_EXECUTABLE="$PWD/build/native-runtime-benchmark"
 ./build/native-runtime-benchmark "$@"

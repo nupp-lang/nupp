@@ -236,20 +236,18 @@ pub unsafe extern "C" fn nuppNativeTlsRead(
         Ok(value) => value,
         Err(status) => return status,
     };
-    let (kind, bytes) = match session.try_read(capacity) {
-        transport::Read::Data(bytes) => (READ_DATA, bytes),
-        transport::Read::Pending => (READ_PENDING, Vec::new()),
-        transport::Read::Eof => (READ_EOF, Vec::new()),
-        transport::Read::Failed(error) => return super::failed(Status::Internal, &error),
+    // SAFETY: the caller supplies capacity writable bytes.
+    let output_bytes = unsafe { std::slice::from_raw_parts_mut(output, capacity) };
+    let (kind, count) = match session.try_read_into(output_bytes) {
+        transport::ReadInto::Data(count) => (READ_DATA, count),
+        transport::ReadInto::Pending => (READ_PENDING, 0),
+        transport::ReadInto::Eof => (READ_EOF, 0),
+        transport::ReadInto::Failed(error) => return super::failed(Status::Internal, &error),
     };
-    if !bytes.is_empty() {
-        // SAFETY: output has capacity bytes and the core respected that bound.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
     // SAFETY: scalar outputs were checked above.
     unsafe {
         state.write(kind);
-        length.write(bytes.len());
+        length.write(count);
     }
     Status::Ok.code()
 }

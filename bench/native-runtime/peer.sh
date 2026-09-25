@@ -22,19 +22,24 @@ start_native_benchmark_peer() {
       if [ -s "$peer_ready" ]; then
          peer_record=$(tr -d '\r\n' < "$peer_ready")
          set -- $peer_record
-         if [ "$#" -eq 3 ] && [ "$1" = READY ]; then
+         if [ "$#" -eq 4 ] && [ "$1" = READY ]; then
             case "$2" in
                ''|*[!0-9]*) ;;
                *) case "$3" in
                   ''|*[!0-9]*) ;;
-                  *)
+                  *) case "$4" in
+                     ''|*[!0-9]*) ;;
+                     *)
                      if [ "$2" -ge 1 ] && [ "$2" -le 65535 ] \
-                        && [ "$3" -ge 1 ] && [ "$3" -le 65535 ]; then
+                        && [ "$3" -ge 1 ] && [ "$3" -le 65535 ] \
+                        && [ "$4" -ge 1 ] && [ "$4" -le 65535 ]; then
                         NUPP_BENCH_HTTP_PORT=$2
                         NUPP_BENCH_NET_PORT=$3
+                        NUPP_BENCH_TLS_PORT=$4
                         return 0
                      fi
                      ;;
+                  esac ;;
                esac ;;
             esac
          fi
@@ -56,7 +61,7 @@ start_native_benchmark_peer() {
       SERVER_PID=
       peer_state="exited with status $peer_status"
    fi
-   printf 'native runtime benchmark: HTTP/TCP peer %s (%s)\n' \
+   printf 'native runtime benchmark: HTTP/TCP/TLS peer %s (%s)\n' \
       "$peer_reason" "$peer_state" >&2
    if [ -s "$peer_ready" ]; then
       printf 'peer readiness: ' >&2

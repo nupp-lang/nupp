@@ -1,17 +1,50 @@
-# Native network and HTTP benchmark
+# Native I/O benchmark
 
 This is the public-boundary performance and bounded-resource fixture for the
-Rust-native network and HTTP providers. It measures `nupp.io.net` streams and a
-persistent `nupp.io.http.Client`; it does not compare those wrappers with raw
-Tokio, Reqwest, or operating-system sockets.
+Rust-native network, HTTP, TLS and process providers. It measures public Nupp
+streams, clients, sessions and child pipes; it does not compare those wrappers
+with raw Tokio, Reqwest, rustls or operating-system handles.
 
-The benchmark uses one loopback Node HTTP peer outside the measured request
-intervals. Nine measured samples follow two warmups, and the reported value is
-their median. Run the steady-state measurements with:
+The benchmark uses loopback Node HTTP, TCP and TLS peers outside the measured
+request intervals. Nine measured samples follow two warmups, and the reported
+value is their median. Run the steady-state measurements with:
 
 ```sh
 bench/native-runtime/run.sh
 ```
+
+The ordinary run keeps the established string API cases. Compare those with
+the direct `readSpan`, `readInto`, `writeSpan`, split-stream and HTTP body paths
+at 64 B, 1 KiB, 64 KiB, 1 MiB and 16 MiB with:
+
+```sh
+bench/native-runtime/run.sh copy-reduction
+```
+
+Each line is the median of five samples after one warmup. The string and direct
+cases run in the same executable against the same loopback peer; compare whole
+revisions in independent processes when deciding whether a change is retained.
+
+Older revisions without every direct API can run the compatible subset:
+
+```sh
+bench/native-runtime/run.sh copy-reduction-compatible
+```
+
+The narrower modes isolate allocation accounting and the datagram, process,
+and TLS paths:
+
+```sh
+bench/native-runtime/run.sh copy-allocation
+bench/native-runtime/run.sh copy-datagram
+bench/native-runtime/run.sh copy-process
+bench/native-runtime/run.sh copy-tls
+```
+
+`copy-allocation` reports Lua allocation deltas. Native allocation attribution
+requires feature-gated counters in the relevant Rust provider; process-wide
+allocator totals include LuaJIT and the host and are not treated as proof of a
+specific provider allocation.
 
 Run the bounded-resource RSS probes with:
 

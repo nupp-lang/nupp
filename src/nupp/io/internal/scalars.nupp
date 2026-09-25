@@ -152,6 +152,14 @@ local record Scalars is ScalarReader
     @private
     _pending: string
     @private
+    _pendingAt: integer
+    @private
+    _spanSource: any
+    @private
+    _spanAt: integer
+    @private
+    _spanLength: integer
+    @private
     _reader: any
     @private
     _queue: any
@@ -167,10 +175,13 @@ local record Scalars is ScalarReader
             return nil
         end
         if self._queue then
-            return #self._pending + storage.queueLength(self._queue as ByteQueue)
+            return #self._pending - self._pendingAt + 1 + storage.queueLength(self._queue as ByteQueue)
+        end
+        if self._spanSource then
+            return self._spanLength - self._spanAt
         end
 
-        return #self._pending
+        return #self._pending - self._pendingAt + 1
     end
 
     function atEnd(self): boolean
@@ -186,7 +197,20 @@ local record Scalars is ScalarReader
     end
 
     function skip(self, count: integer): ScalarReader
-        taken(self, integer_(count, "io.ScalarReader count", 2))
+        local need = integer_(count, "io.ScalarReader count", 2)
+        local have, failure = fill(self, need)
+        if failure then
+            error("nupp: io.ScalarReader source failed: " .. tostring(failure), 2)
+        end
+        if have < need then
+            error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need, have), 2)
+        end
+        local state = self as any
+        if state._spanSource then
+            state._spanAt = (state._spanAt as integer) + need
+        else
+            state._pendingAt = (state._pendingAt as integer) + need
+        end
 
         return self
     end
@@ -270,7 +294,9 @@ local record Scalars is ScalarReader
         local reader = state._reader
         state._reader = nil
         state._queue = nil
+        state._spanSource = nil
         state._pending = ""
+        state._pendingAt = 1
         state._closed = true
         if reader then
             reader:close()
@@ -505,28 +531,44 @@ end
 -- fill; the caller decides whether that is fatal.
 fill = function(self: ScalarReader, need: integer): (integer, string?)
     local state = self as any
+    if state._spanSource then
+        return (state._spanLength as integer) - (state._spanAt as integer), nil
+    end
     local failure: string? = nil
+    local have = #(state._pending as string) - (state._pendingAt as integer) + 1
     if state._reader then
-        while #(state._pending as string) < need do
-            local chunk, reason = state._reader:read(need - #(state._pending as string))
+        while have < need do
+            local chunk, reason = state._reader:read(need - have)
             if chunk == nil then
                 failure = reason
                 break
             elseif chunk == "" then
                 break
             end
-            state._pending = (state._pending as string) .. (chunk as string)
+            if have == 0 then
+                state._pending = chunk
+            else
+                state._pending = (state._pending as string):sub(state._pendingAt as integer) .. (chunk as string)
+            end
+            state._pendingAt = 1
+            have = #(state._pending as string)
         end
     elseif state._queue then
-        local want = need - #(state._pending as string)
+        local want = need - have
         local queue = state._queue as ByteQueue
-        local have = want > 0 and storage.queueLength(queue) or 0
-        if have > 0 then
-            state._pending = (state._pending as string) .. queue:get(math.min(want, have))
+        local queued = want > 0 and storage.queueLength(queue) or 0
+        if queued > 0 then
+            local chunk = queue:get(math.min(want, queued))
+            if #(state._pending as string) - (state._pendingAt as integer) + 1 == 0 then
+                state._pending = chunk
+            else
+                state._pending = (state._pending as string):sub(state._pendingAt as integer) .. chunk
+            end
+            state._pendingAt = 1
         end
     end
 
-    return #(state._pending as string), failure
+    return #(state._pending as string) - (state._pendingAt as integer) + 1, failure
 end
 
 --- @raises string when the reader is closed, its source failed, or it is short
@@ -542,8 +584,18 @@ taken = function(self: ScalarReader, need: integer): string
     if have < need then
         error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need, have), 3)
     end
-    local out = (state._pending as string):sub(1, need)
-    state._pending = (state._pending as string):sub(need + 1)
+    if state._spanSource then
+        local source = state._spanSource as Buffer
+        local all = source:readSpan()
+        local part = all:slice((state._spanAt as integer) + 1, (state._spanAt as integer) + need)
+        local pointer, count = part:ref()
+        state._spanAt = (state._spanAt as integer) + need
+
+        return physical.string(pointer, count)
+    end
+    local first = state._pendingAt as integer
+    local out = (state._pending as string):sub(first, first + need - 1)
+    state._pendingAt = first + need
 
     return out
 end
@@ -590,13 +642,25 @@ end
 -- One parameter cannot say three things, so the surface is an intersection of three
 -- signatures over one body.
 local function openScalarReader(source: any): ScalarReader
-    local self = new Scalars(_pending = "", _reader = nil, _queue = nil, _closed = false)
+    local self = new Scalars(
+        _pending = "",
+        _pendingAt = 1,
+        _spanSource = nil,
+        _spanAt = 0,
+        _spanLength = 0,
+        _reader = nil,
+        _queue = nil,
+        _closed = false
+    )
     local state = self as any
     local kind = type(source)
     if kind == "string" then
         state._pending = source
     elseif kind == "table" and source.read ~= nil then
         state._reader = source
+    elseif kind == "table" and source.reserveWrite ~= nil and source.readSpan ~= nil then
+        state._spanSource = source
+        state._spanLength = source:length()
     elseif kind == "table" and source.getString ~= nil then
         state._pending = source:getString()
     elseif queueLike(source) then
@@ -629,9 +693,9 @@ end
 
 --- Opens a cursor for sized integer and float reads.
 ---
---- A string, snapshot or buffer is read from a copy of its bytes taken here, and
---- reports its `remaining` count. A reader or a queue is consumed in place: the reader
---- answers no count, the queue answers what it still holds.
+--- A string or snapshot keeps its immutable backing. A buffer is read in place while
+--- borrowed. All three report their `remaining` count. A reader or a queue is consumed
+--- in place: the reader answers no count, the queue answers what it still holds.
 ---
 --- What the source is decides what happens to it. A snapshot or a buffer is
 --- borrowed and outlives the cursor; a reader is taken, and closing the cursor

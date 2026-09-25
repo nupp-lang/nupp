@@ -1,0 +1,121 @@
+-- Specialized span consumers from the copy-reduction plan. Run paired with:
+-- ./bin/nupp bench --file bench/copy-reduction.bench.nupp --against BASELINE/bin/nupp
+
+local bench = require("nupp.bench")
+const {type Invocation} = require("nupp.bench")
+local compression = require("nupp.compression")
+local digest = require("nupp.digest")
+local io = require("nupp.io")
+local span = require("nupp.mem.span")
+
+local DIGEST_TARGET_BYTES = 8 * 1024 * 1024
+-- Highly compressible fixtures decode quickly enough that shorter invocations
+-- straddle collector cycles instead of measuring a stable rate.
+local DECOMPRESS_TARGET_BYTES = 128 * 1024 * 1024
+
+local function digestIterations(bytes: string): integer
+    return math.max(1, math.min(4096, math.floor(DIGEST_TARGET_BYTES / #bytes)))
+end
+
+local function decompressIterations(bytes: string): integer
+    return math.max(1, math.min(256, math.floor(DECOMPRESS_TARGET_BYTES / #bytes)))
+end
+
+local function digestString(_: any, invocation: Invocation): string
+    local bytes = invocation.data as string
+    local answer = ""
+    for _ = 1, digestIterations(bytes) do
+        answer = digest.hexDigest("sha256", bytes)
+    end
+
+    return answer
+end
+
+local function digestSpan(_: any, invocation: Invocation): string
+    local bytes = invocation.data as string
+    local input = span.fromString(bytes)
+    local answer = ""
+    for _ = 1, digestIterations(bytes) do
+        local running = digest.create("sha256")
+        running:updateSpan(input)
+        answer = running:hexDigest()
+    end
+
+    return answer
+end
+
+local record CompressionCase
+    plain: string
+    compressed: string
+end
+
+local gzip = compression.format("gzip")
+
+local function decompressString(_: any, invocation: Invocation): integer
+    local data = invocation.data as CompressionCase
+    local answer = ""
+    for _ = 1, decompressIterations(data.plain) do
+        answer = gzip:decompress(data.compressed)
+    end
+
+    return #answer as integer
+end
+
+local function decompressSpan(_: any, invocation: Invocation): integer
+    local data = invocation.data as CompressionCase
+    local input = span.fromString(data.compressed)
+    local destination = io.newBuffer(#data.plain)
+    for _ = 1, decompressIterations(data.plain) do
+        gzip:decompress(input, destination)
+    end
+    local answer = destination:length()
+    destination:close()
+
+    return answer
+end
+
+local digestCases = {}
+local compressionCases = {}
+for _, size in ipairs({64, 1024, 64 * 1024, 1024 * 1024}) do
+    local payload = ("abcdefgh"):rep(math.ceil(size / 8)):sub(1, size)
+    digestCases[
+        #digestCases + 1
+    ] = {name = tostring(size) .. "-bytes", data = payload, operations = size * digestIterations(payload),}
+    compressionCases[
+        #compressionCases + 1
+    ] = {
+        name = tostring(size) .. "-bytes",
+        data = new CompressionCase(plain = payload, compressed = gzip:compress(payload)),
+        operations = size * decompressIterations(payload),
+    }
+end
+
+bench.suite(
+    {
+        name = "copy-reduction-digest",
+        baselineVariant = "string",
+        variants = {{name = "string", run = digestString}, {name = "span", run = digestSpan},},
+        cases = digestCases,
+        warmupIterations = 2,
+        minSamples = 5,
+        minDurationSec = 0.01,
+        maxSamples = 20,
+        maxDurationSec = 2,
+    } as bench.SuiteOptions
+)
+
+bench.suite(
+    {
+        name = "copy-reduction-decompress",
+        baselineVariant = "string",
+        variants = {{name = "string", run = decompressString}, {name = "span-buffer", run = decompressSpan},},
+        cases = compressionCases,
+        warmupIterations = 2,
+        minSamples = 5,
+        minDurationSec = 0.01,
+        maxSamples = 20,
+        maxDurationSec = 2,
+    } as bench.SuiteOptions
+)
+
+bench.report()

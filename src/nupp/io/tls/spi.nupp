@@ -55,9 +55,29 @@ export interface Provider
     @readonly
     read: function(self: Provider, session: any, wanted: integer): (string?, string?)
 
+    --- Optionally reads plaintext directly into caller-owned native storage.
+    --- Nil without an error means pending; zero means authenticated EOF.
+    @readonly
+    readInto: (
+        function(self: Provider, session: any, borrows destination: uint8[?], wanted: integer): (integer?, string?)
+    )?
+
     --- Returns bytes accepted, nil while pending, or nil and an error.
     @readonly
     write: function(self: Provider, session: any, bytes: string): (integer?, string?)
+
+    --- Optionally writes plaintext directly from caller-owned native storage. The
+    --- provider may use the pointer only for the duration of this call.
+    @readonly
+    writeFrom: (
+        function(
+            self: Provider,
+            session: any,
+            borrows source: const uint8[?],
+            offset: integer,
+            count: integer
+        ): (integer?, string?)
+    )?
 
     --- Returns true when encrypted output has drained, false while pending,
     --- or false with an error on failure.

@@ -28,6 +28,8 @@ local suspension = require("nupp.suspension")
 local physical = require("nupp.runtime.storage")
 local span = require("nupp.mem.span")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
+local pointerStringValue: function(borrows source: const uint8*, count: integer): string = physical.string as any
+local copyStringTo = require("nupp.io.internal.bytes").copyStringTo
 
 const contract = require("nupp.io.process.spi")
 local provider: contract.Provider = do
@@ -104,7 +106,12 @@ end
 local progressed, releasePump, await, pumpOnce
 -- Typed where it is declared, because `communicate` hands it a local function that
 -- borrows the child's streams, and a borrow may not cross an untyped call.
-local awaitTick: function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
+local awaitTick: function(
+    self: any,
+    operation: string,
+    scoped interest: function(): shared.Interest,
+    stopAt: number?
+): nil
 local validateOptions: function(options: process.Options): nil
 
 --- One of a child's readable streams.
@@ -295,14 +302,48 @@ record process.Reader is Reader2
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = positive(#destination, "process reader destination length", 2)
+        const direct = rawget(
+            self.owner.backend as table,
+            "readInto"
+        ) as(
+            function(
+                backend: contract.Provider,
+                handle: any,
+                borrows destination: uint8[?],
+                wanted: integer
+            ): (integer, boolean)
+        )?
+        if direct ~= nil then
+            const output = destination:ref()
+            local stopAt = self.owner.backend:now() + self.timeoutMs
+
+            local function interest(): shared.Interest
+                return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+            end
+
+            while not self.closed and not self.eof do
+                local got, eof = direct(self.owner.backend, self.handle, output, wanted)
+                if eof then
+                    self.eof = true
+
+                    return 0
+                end
+                if got > 0 then
+                    return got
+                end
+                if self.owner.backend:now() >= stopAt then
+                    return nil, "the process read timed out"
+                end
+                awaitTick(self.owner, "process stream read", interest, stopAt)
+            end
+
+            return 0
+        end
         local chunk, reason = self:read(wanted)
         if chunk == nil then
             return nil, reason
         end
-        local input = span.fromString(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
+        copyStringTo(destination, chunk, 0, #chunk)
 
         return #chunk
     end
@@ -313,25 +354,71 @@ record process.Reader is Reader2
             error("nupp: process reader destination offset must be a non-negative integer", 2)
         end
         local wanted = positive(count or READ_LIMIT, "process reader count", 2)
-        local chunk, reason = self:read(wanted)
-        if chunk == nil then
-            return nil, reason
+        const direct = rawget(
+            self.owner.backend as table,
+            "readInto"
+        ) as(
+            function(
+                backend: contract.Provider,
+                handle: any,
+                borrows destination: uint8[?],
+                wanted: integer
+            ): (integer, boolean)
+        )?
+        if direct == nil then
+            local chunk, reason = self:read(wanted)
+            if chunk == nil then
+                return nil, reason
+            elseif #chunk == 0 then
+                return 0
+            end
+            local lease = destination:reserveWrite(at, #chunk)
+            do
+                local output = lease:span()
+                copyStringTo(output, chunk, 0, #chunk)
+                nupp.drop(output)
+            end
+            lease:commit(#chunk)
+
+            return #chunk
         end
-        if #chunk == 0 then
-            return 0
-        end
-        local input = span.fromString(chunk)
         local lease = destination:reserveWrite(at, wanted)
+        local landed: integer = 0
+        local reason: string?
         do
             local output = lease:span()
-            for index = 1, #chunk do
-                output[index] = input[index]
+            do
+                const pointer, available = output:ref()
+                assert(available >= wanted)
+                local stopAt = self.owner.backend:now() + self.timeoutMs
+
+                local function interest(): shared.Interest
+                    return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+                end
+
+                while not self.closed and not self.eof do
+                    local got, eof = direct(self.owner.backend, self.handle, pointer, wanted)
+                    if eof then
+                        self.eof = true
+                        break
+                    elseif got > 0 then
+                        landed = got
+                        break
+                    elseif self.owner.backend:now() >= stopAt then
+                        reason = "the process read timed out"
+                        break
+                    end
+                    awaitTick(self.owner, "process stream read", interest, stopAt)
+                end
             end
             nupp.drop(output)
         end
-        lease:commit(#chunk)
+        if reason ~= nil then
+            return nil, reason
+        end
+        lease:commit(landed)
 
-        return #chunk
+        return landed
     end
 
     function transferTo(self, exclusive destination: Writer2): (integer?, string?)
@@ -401,67 +488,33 @@ record process.Writer is Writer2
     @private
     release: function(self: process.Writer): nil
 
+    @private
+    offerFrom: function(
+        borrows self: process.Writer,
+        borrows source: const uint8[?],
+        offset: integer,
+        count: integer
+    ): integer
+
+    @private
+    sendFrom: function(
+        borrows self: process.Writer,
+        borrows source: const uint8[?],
+        count: integer,
+        stopAt: number?,
+        stallFor: integer?
+    ): integer
+
     --- Writes what the pipe will take without waiting. Answers how many bytes went,
     --- which may be none and may be fewer than offered.
     function offer(self, data: string): integer
-        if self.closed or self.gone or #data == 0 then
-            return 0
-        end
-        local sent, gone = self.owner.backend:write(self.handle, data)
-        if gone then
-            -- Nobody is reading and nobody will. Recording it is what stops a writer
-            -- waiting on room that will never come; the bytes that did go still count,
-            -- and this stream is still open and still ours to close.
-            self.gone = true
-        end
-
-        return sent
+        return self:offerFrom(physical.borrowString(data), 0, #data)
     end
 
     --- Writes every byte, suspending as often as the pipe makes it. Answers how many
     --- went, which is all of them unless the far end went away first.
     function send(self, data: string, stopAt: number?, stallFor: integer?): integer
-        if self.closed or self.gone then
-            return 0
-        end
-        local sent = 0
-        local before = 0
-
-        local function interest(): shared.Interest
-            -- Room in this pipe, and the child: a child that exits makes every
-            -- remaining write impossible, which is an answer too.
-            return new shared.Interest(child = self.owner.handle, read = {}, write = {self.handle})
-        end
-
-        -- Both of these are written above the loop rather than in it, so the loop holds
-        -- no function to build. A loop that builds one is a loop LuaJIT never compiles.
-        -- What the pass they belong to varies by is `sent` and `before`, and a name
-        -- declared out here is the same cell every pass.
-        local function offered(): boolean
-            if self.closed or self.gone then
-                return true
-            end
-            sent = sent + self:offer(data:sub(sent + 1))
-
-            -- Return after each piece, not only after the whole value. A timeout
-            -- bounds one period with no progress; a child that keeps taking bytes
-            -- may keep the write alive beyond that interval.
-
-            return sent > before
-        end
-
-        while sent < #data and not self.closed and not self.gone do
-            before = sent
-            local completed = await(self.owner, "process stream write", offered, interest, stopAt)
-            if not completed then
-                break
-            end
-            if sent > before and stallFor ~= nil then
-                stopAt = self.owner.backend:now() + stallFor
-            end
-        end
-
-        return sent as integer
+        return self:sendFrom(physical.borrowString(data), #data, stopAt, stallFor)
     end
 
     --- Bounds the next completion-oriented write.
@@ -499,6 +552,31 @@ record process.Writer is Writer2
 
     function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         local count = #source
+        if self.closed then
+            return nil, "the process writer is closed"
+        end
+        if self.gone then
+            return nil, "the child is no longer reading this stream"
+        end
+        if rawget(self.owner.backend as table, "writeFrom") ~= nil then
+            local stopAt = self.owner.backend:now() + self.timeoutMs
+            local ok, sent = pcall(function(): integer
+                return self:sendFrom(source:ref(), count, stopAt, self.timeoutMs)
+            end)
+            if not ok then
+                return nil, tostring(sent)
+            end
+            if sent ~= count then
+                if self.gone then
+                    return nil, "the child stopped reading before every byte was written"
+                end
+
+                return nil, "the process write timed out"
+            end
+
+            return count
+        end
+
         local wrote, reason = self:write(spanString(source))
         if not wrote then
             return nil, reason
@@ -521,6 +599,77 @@ record process.Writer is Writer2
     function close(takes self): nil
         self:release()
     end
+end
+
+function process.Writer.offerFrom(
+    borrows self: process.Writer,
+    borrows source: const uint8[?],
+    offset: integer,
+    count: integer
+): integer
+    if self.closed or self.gone or count == 0 then
+        return 0
+    end
+    local sent: integer
+    local gone: boolean
+    const direct = rawget(
+        self.owner.backend as table,
+        "writeFrom"
+    ) as(
+        function(
+            backend: contract.Provider,
+            handle: any,
+            borrows input: const uint8[?],
+            offset: integer,
+            count: integer
+        ): (integer, boolean)
+    )?
+    if direct ~= nil then
+        sent, gone = direct(self.owner.backend, self.handle, source, offset, count)
+    else
+        const input = @unsafe((source as const uint8*) + offset)
+        sent, gone = self.owner.backend:write(self.handle, pointerStringValue(input, count))
+    end
+    if gone then
+        -- Nobody is reading and nobody will. Recording it is what stops a writer
+        -- waiting on room that will never come; this stream is still ours to close.
+        self.gone = true
+    end
+
+    return sent
+end
+
+function process.Writer.sendFrom(
+    borrows self: process.Writer,
+    borrows source: const uint8[?],
+    count: integer,
+    stopAt: number?,
+    stallFor: integer?
+): integer
+    if self.closed or self.gone then
+        return 0
+    end
+    local sent: integer = 0
+
+    local function interest(): shared.Interest
+        return new shared.Interest(child = self.owner.handle, read = {}, write = {self.handle})
+    end
+
+    while sent < count and not self.closed and not self.gone do
+        local moved = self:offerFrom(source, sent, count - sent)
+        if moved > 0 then
+            sent = sent + moved
+            if stallFor ~= nil then
+                stopAt = self.owner.backend:now() + stallFor
+            end
+        elseif stopAt ~= nil and self.owner.backend:now() >= stopAt then
+            break
+        else
+            awaitTick(self.owner, "process stream write", interest, stopAt)
+        end
+    end
+
+    return sent as integer
 end
 
 function process.Reader.release(self: process.Reader): nil
@@ -784,6 +933,7 @@ record process.Process
             local given = options or {}
             local input = given.input
             local pending = input == nil and "" or type(input) == "string" and input as string or input:getString()
+            local pendingPointer = physical.borrowString(pending)
             local maximum = given.maxOutputBytes or 268435456
             if maximum < 0 then
                 error("nupp: process maximum output must not be negative", 2)
@@ -791,7 +941,7 @@ record process.Process
             local stdin = nupp.borrow(self.stdin)
             local stdout = nupp.borrow(self.stdout)
             local stderr = nupp.borrow(self.stderr)
-            local sent = 0
+            local sent: integer = 0
             local out, err = {}, {}
             local outputBytes = 0
 
@@ -851,7 +1001,7 @@ record process.Process
                 local moved = false
                 if stdin ~= nil and not stdin.closed then
                     if sent < #pending then
-                        local wrote = stdin:offer(pending:sub(sent + 1))
+                        local wrote = stdin:offerFrom(pendingPointer, sent, #pending - sent)
                         if wrote > 0 then
                             sent = sent + wrote
                             moved = true
@@ -901,7 +1051,7 @@ record process.Process
                     if idle() then
                         break
                     end
-                    awaitTick(self, "process communicate", interest)
+                    awaitTick(self, "process communicate", interest, nil)
                 end
             end
 
@@ -1211,9 +1361,9 @@ local function blockOnce(self: any, interest: shared.Interest, stopAt: number?):
     pumpOnce(self)
 end
 
-awaitTick = function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
+awaitTick = function(self: any, operation: string, scoped interest: function(): shared.Interest, stopAt: number?): nil
     if not suspension.handled() then
-        blockOnce(self, interest())
+        blockOnce(self, interest(), stopAt)
 
         return
     end

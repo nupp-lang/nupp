@@ -87,6 +87,15 @@ function M.chunkingAndBinaryInput(): nil
                 rolling:update(input:sub(index, index + 6))
             end
             assert(rolling:hexDigest() == digest.hexDigest(name, input), name .. " length " .. length)
+
+            local spanning = digest.create(name)
+            local source = span.fromString(input)
+            for index = 1, #source, 13 do
+                local last = math.min(index + 12, #source)
+                local chunk = source:slice(index, last)
+                spanning:updateSpan(chunk)
+            end
+            assert(spanning:hexDigest() == digest.hexDigest(name, input), name .. " span length " .. length)
         end
     end
 end

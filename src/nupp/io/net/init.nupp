@@ -33,6 +33,7 @@ local suspension = require("nupp.suspension")
 local span = require("nupp.mem.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
+local copyStringTo = require("nupp.io.internal.bytes").copyStringTo
 
 --- The bytes a shared span addresses, without copying them twice.
 local function spanString(borrows source: span.ByteSpan): string
@@ -230,6 +231,38 @@ local function await(operation: string, ready: function(): boolean): nil
     end)
 end
 
+--- Suspends for one reactor pass when readiness can only be learned by
+--- retrying an operation that borrows caller storage.
+local function awaitTick(operation: string): nil
+    const chosen = provider
+    if not suspension.handled() then
+        chosen:run(1)
+
+        return
+    end
+    suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
+        const source = context:source(
+            "nupp.io.net.tick",
+            50,
+            function(): integer
+                chosen:run(0)
+                resume(true)
+
+                return 1
+            end,
+            function(waitMs: integer): integer
+                chosen:run(waitMs)
+
+                return 0
+            end
+        )
+
+        return function(): nil
+            source:release()
+        end
+    end)
+end
+
 --- Reads once from a handle, suspending while nothing has arrived.
 ---
 --- The three states live here, and both faces of a connection share them: bytes,
@@ -258,6 +291,62 @@ local function readOnce(chosen: contract.Provider, handle: any, wanted: integer)
     end
 
     return chunk or ""
+end
+
+--- Waits until a direct read can report data, EOF, or failure. The callback is
+--- built once so a pending loop remains traceable.
+local function directReadReady(chosen: contract.Provider, handle: any): boolean
+    const readable = rawget(
+        chosen as table,
+        "readable"
+    ) as(function(provider: contract.Provider, stream: any): boolean)?
+    if readable == nil or rawget(chosen as table, "readInto") == nil then
+        return false
+    end
+    const ready = function(): boolean
+        return readable(chosen, handle)
+    end
+    if not ready() then
+        await("nupp.io.net read", ready)
+    end
+
+    return true
+end
+
+--- Reads synchronously into caller storage, suspending only between attempts.
+local function directRead(
+    chosen: contract.Provider,
+    handle: any,
+    borrows output: uint8[?],
+    wanted: integer
+): (integer?, string?, boolean)
+    const readInto = rawget(
+        chosen as table,
+        "readInto"
+    ) as(
+        function(
+            provider: contract.Provider,
+            stream: any,
+            borrows destination: uint8[?],
+            count: integer
+        ): (integer?, string?)
+    )?
+    const readable = rawget(
+        chosen as table,
+        "readable"
+    ) as(function(provider: contract.Provider, stream: any): boolean)?
+    if readInto == nil or readable == nil then
+        return nil, nil, false
+    end
+    while true do
+        const got, why = readInto(chosen, handle, output, wanted)
+        if got == nil then
+            return nil, why or "the connection failed", true
+        elseif got > 0 or chosen:ended(handle) then
+            return got, nil, true
+        end
+        awaitTick("nupp.io.net read")
+    end
 end
 
 --- Writes everything, in pieces that fit beneath the send bound.
@@ -512,43 +601,23 @@ record net.Stream is Reader, Writer
     --- @return why it could not read, when unsuccessful
     --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        if self._closed then
+            return nil, "the connection is closed"
+        end
         local wanted: integer
         do
             const _, count = destination:ref()
             wanted = positive(count, "net.Stream readSpan destination length", 2)
         end
-        const direct = rawget(
-            self._provider as table,
-            "readInto"
-        ) as(function(contract.Provider, any, borrows destination: uint8[?], integer): (integer?, string?))?
-        const readable = rawget(self._provider as table, "readable") as(function(contract.Provider, any): boolean)?
-        if direct ~= nil and readable ~= nil then
-            const output = destination:ref()
-            const chosen, handle = self._provider, self._handle
-            while true do
-                const got, why = direct(chosen, handle, output, wanted)
-                if got == nil then
-                    return nil, why or "the connection failed"
-                end
-                if got > 0 then
-                    return got
-                end
-                if chosen:ended(handle) then
-                    return 0
-                end
-                await("nupp.io.net read", function(): boolean
-                    return readable(chosen, handle)
-                end)
-            end
+        const got, directWhy, used = directRead(self._provider, self._handle, destination:ref(), wanted)
+        if used then
+            return got, directWhy
         end
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
         end
-        const input = span.fromString(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
+        copyStringTo(destination, chunk, 0, #chunk)
 
         return #chunk as integer
     end
@@ -562,19 +631,45 @@ record net.Stream is Reader, Writer
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
-        const lease = destination:reserveWrite(offset or 0, wanted)
-        local landed: integer?
-        local why: string?
-        do
-            const output = lease:span()
-            landed, why = self:readSpan(output)
-            nupp.drop(output)
+        if self._closed then
+            return nil, "the connection is closed"
         end
-        if landed == nil then
+        const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
+        if directReadReady(self._provider, self._handle) then
+            if self._provider:ended(self._handle) then
+                return 0
+            end
+            const lease = destination:reserveWrite(offset or 0, wanted)
+            local landed: integer?
+            local why: string?
+            do
+                const output = lease:span()
+                local used: boolean
+                landed, why, used = directRead(self._provider, self._handle, output:ref(), wanted)
+                assert(used)
+                nupp.drop(output)
+            end
+            if landed == nil then
+                return nil, why
+            end
+            lease:commit(landed)
+
+            return landed
+        end
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
             return nil, why
         end
-        lease:commit(landed)
+        const landed = #chunk as integer
+        if landed > 0 then
+            const lease = destination:reserveWrite(offset or 0, landed)
+            do
+                const output = lease:span()
+                copyStringTo(output, chunk, 0, landed)
+                nupp.drop(output)
+            end
+            lease:commit(landed)
+        end
 
         return landed
     end
@@ -763,35 +858,60 @@ record net.DirectionView is Reader, Writer
 
     --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        if self._ended then
+            return nil, "the reader is closed"
+        end
         const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
+        const got, directWhy, used = directRead(self._provider, self._handle, destination:ref(), wanted)
+        if used then
+            return got, directWhy
+        end
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
         end
-        const input = span.fromString(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
+        copyStringTo(destination, chunk, 0, #chunk)
 
         return #chunk as integer
     end
 
     --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+        if self._ended then
+            return nil, "the reader is closed"
+        end
         const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
+        if directReadReady(self._provider, self._handle) then
+            if self._provider:ended(self._handle) then
+                return 0
+            end
+            const lease = destination:reserveWrite(offset or 0, wanted)
+            local landed: integer?
+            local why: string?
+            do
+                const output = lease:span()
+                local used: boolean
+                landed, why, used = directRead(self._provider, self._handle, output:ref(), wanted)
+                assert(used)
+                nupp.drop(output)
+            end
+            if landed == nil then
+                return nil, why
+            end
+            lease:commit(landed)
+
+            return landed
+        end
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
         end
         const landed = #chunk as integer
         if landed > 0 then
-            const input = span.fromString(chunk)
             const lease = destination:reserveWrite(offset or 0, landed)
             do
                 const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
+                copyStringTo(output, chunk, 0, landed)
                 nupp.drop(output)
             end
             lease:commit(landed)
@@ -822,11 +942,25 @@ record net.DirectionView is Reader, Writer
         if self._ended then
             return false, "the writer is closed"
         end
+        if rawget(self._provider as table, "writeFrom") ~= nil then
+            return writeAllFrom(self._provider, self._handle, self._highWater, physical.borrowString(bytes), #bytes)
+        end
 
         return writeAll(self._provider, self._handle, self._highWater, bytes)
     end
 
     function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._ended then
+            return nil, "the writer is closed"
+        end
+        if rawget(self._provider as table, "writeFrom") ~= nil then
+            const wrote, why = writeAllFrom(self._provider, self._handle, self._highWater, source:ref(), #source)
+            if not wrote then
+                return nil, why
+            end
+
+            return #source as integer
+        end
         const bytes = spanString(source)
         const wrote, why = self:write(bytes)
         if not wrote then
@@ -1033,6 +1167,48 @@ record net.Datagram is nupp.Closeable
             return nil, "the datagram socket is closed"
         end
         const wanted = positive(maximum, "net.Datagram receiveFrom maximum", 2)
+        const direct = rawget(
+            self._provider as table,
+            "receiveInto"
+        ) as(
+            function(
+                backend: contract.Provider,
+                socket: any,
+                borrows output: uint8[?],
+                count: integer
+            ): (integer?, string?, integer?, boolean?, string?)
+        )?
+        if direct ~= nil then
+            const lease = destination:reserveWrite(0, wanted)
+            local landed: integer?
+            local host: string?
+            local peerPort: integer?
+            local cut: boolean?
+            local failure: string?
+            do
+                const output = lease:span()
+                do
+                    const pointer = output:ref()
+                    while landed == nil and failure == nil do
+                        landed, host, peerPort, cut, failure = direct(self._provider, self._handle, pointer, wanted)
+                        if landed == nil and failure == nil then
+                            awaitTick("nupp.io.net receive")
+                        end
+                    end
+                end
+                nupp.drop(output)
+            end
+            if landed == nil then
+                return nil, failure
+            end
+            lease:commit(landed)
+
+            return new net.Message(
+                length = landed,
+                address = {host = host or "", port = peerPort or 0} as net.Address,
+                truncated = cut or false
+            )
+        end
         local bytes: string? = nil
         local host: string? = nil
         local peerPort: integer? = nil
@@ -1060,13 +1236,10 @@ record net.Datagram is nupp.Closeable
         end
         const landed = #(bytes or "") as integer
         if landed > 0 then
-            const input = span.fromString(bytes or "")
             const lease = destination:reserveWrite(0, landed)
             do
                 const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
+                copyStringTo(output, bytes or "", 0, landed)
                 nupp.drop(output)
             end
             lease:commit(landed)

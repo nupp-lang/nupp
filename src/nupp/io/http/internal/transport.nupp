@@ -14,9 +14,15 @@ export interface NativeTransfer
     cancel: @nosuspend function(self: NativeTransfer): nil
     close: @nosuspend function(self: NativeTransfer): nil
     offer: function(self: NativeTransfer, value: any, count: integer?): string
+    offerFrom: function(self: NativeTransfer, borrows source: const uint8[?], count: integer): string
     finishUpload: function(self: NativeTransfer): string
     takeBody: function(self: NativeTransfer): (boolean?, string?)
     bodyRead: function(self: NativeTransfer, count: integer): (string, any?, string?)
+    bodyReadInto: function(
+        self: NativeTransfer,
+        borrows destination: uint8[?],
+        count: integer
+    ): (string, integer?, string?)
 end
 
 export interface NativeClient
@@ -95,6 +101,20 @@ int32_t nuppNativeHttpClientWait(
 
 local ffi = native.ffi
 const C = native.C
+local nativeOffer: function(
+    any,
+    borrows source: const uint8[?],
+    integer,
+    integer,
+    any
+): integer = C.nuppNativeHttpTransferOffer as any
+local nativeBodyRead: function(
+    any,
+    borrows destination: uint8[?],
+    integer,
+    any,
+    any
+): integer = C.nuppNativeHttpBodyRead as any
 
 -- Immediate ABI status used by query/copy calls and admission.
 const ABI_CAPACITY = 2
@@ -381,6 +401,25 @@ local record Transfer is NativeTransfer
         return "closed"
     end
 
+    function offerFrom(self: Transfer, borrows source: const uint8[?], count: integer): string
+        if count < 0 then
+            error("nupp: HTTP upload offer count must not be negative", 2)
+        end
+        local answer = ffi.new<int32[1]>()
+        local status = nativeOffer(raw(self._handle), source, count, 0, answer)
+        if status ~= 0 then
+            return "closed"
+        end
+        if answer[0] == UPLOAD_ACCEPTED then
+            return "accepted"
+        end
+        if answer[0] == UPLOAD_BACKPRESSURE then
+            return "backpressure"
+        end
+
+        return "closed"
+    end
+
     function finishUpload(self: Transfer): string
         local answer = ffi.new<int32[1]>()
         local status = C.nuppNativeHttpTransferOffer(raw(self._handle), nil, 0, 1, answer)
@@ -430,6 +469,30 @@ local record Transfer is NativeTransfer
         local bytes = ffi.string(data, length[0])
 
         return "data", bytes, nil
+    end
+
+    function bodyReadInto(self: Transfer, borrows destination: uint8[?], count: integer): (string, integer?, string?)
+        local capacity = math.min(count, BODY_READ_BYTES)
+        local length = ffi.new("size_t[1]")
+        local state = ffi.new<uint32[1]>()
+        if nativeBodyRead(raw(self._body), destination, capacity, state, length) ~= 0 then
+            return "failed", nil, lastError()
+        end
+        local kind = tonumber(state[0])
+        if kind == BODY_PENDING then
+            return "pending", nil, nil
+        end
+        if kind == BODY_EOF then
+            return "eof", 0, nil
+        end
+        if kind == BODY_FAILED then
+            return "failed", nil, copiedError(C.nuppNativeHttpBodyError, self._body, "HTTP response body failed")
+        end
+        if kind == BODY_CLOSED then
+            return "closed", nil, "the body is closed"
+        end
+
+        return "data", tonumber(length[0]) as integer, nil
     end
 
     function cancel(self: Transfer): nil

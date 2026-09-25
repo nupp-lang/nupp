@@ -7,7 +7,7 @@ return {
             kind = "binary",
             stub = "nupp",
             entries = {"main"},
-            nativeFeatures = {http = true, net = true, time = true, uri = true},
+            nativeFeatures = {http = true, net = true, process = true, time = true, tls = true, uri = true},
             outDir = "build",
          },
       },

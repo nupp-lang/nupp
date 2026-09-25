@@ -176,8 +176,7 @@ function M.creationFailureIsRaisedByTheConstructor()
     assert(child:close())
 end
 
--- A pipe accepts the same checked span contract as every other writer, copying into
--- the backend's string boundary internally.
+-- A pipe accepts the same checked span contract as every other writer.
 function M.aProcessWriterTakesCheckedSpans()
     ready()
     local child = assert(startProcess({args = shell("cat > /dev/null")}))
@@ -188,6 +187,33 @@ function M.aProcessWriterTakesCheckedSpans()
     child.stdin:close()
     assert(child:wait():succeeded())
     assert(child:close())
+end
+
+function M.aProcessReaderFillsBuffersDirectly()
+    ready()
+    local child = assert(startProcess({args = shell("printf payload"), stdin = "null", stderr = "null"}))
+    local destination = buffers.newBuffer("head")
+    local read, reason = child.stdout:readInto(destination, 4, 7)
+    assert(read, reason)
+    test.equal(read, 7)
+    test.equal(destination:getString(), "headpayload")
+    assert(child.stdout:read(1) == "")
+    assert(child:wait():succeeded())
+    assert(child:close())
+    assert(destination:close())
+
+    local empty = buffers.newBuffer(7)
+    local direct = assert(startProcess({args = shell("printf payload"), stdin = "null", stderr = "null"}))
+    local directRead, directReason = direct.stdout:readInto(empty, 0, 7)
+    assert(directRead, directReason)
+    test.equal(directRead, 7)
+    test.equal(empty:getString(), "payload")
+    empty:clear()
+    test.equal(assert(direct.stdout:readInto(empty, 0, 7)), 0)
+    test.equal(empty:length(), 0)
+    assert(direct:wait():succeeded())
+    assert(direct:close())
+    assert(empty:close())
 end
 
 function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()

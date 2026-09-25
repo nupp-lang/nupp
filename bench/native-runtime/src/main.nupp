@@ -1,6 +1,11 @@
 const http = require("nupp.io.http")
+const bytesIO = require("nupp.io")
+const array = require("nupp.mem.array")
 const net = require("nupp.io.net")
+const processes = require("nupp.io.process")
+const span = require("nupp.mem.span")
 const time = require("nupp.time")
+const tls = require("nupp.io.tls")
 const uri = require("nupp.io.uri")
 
 const SAMPLES = 9
@@ -11,6 +16,9 @@ const HTTP_LATENCY_REQUESTS = 300
 const HTTP_THROUGHPUT_REQUESTS = 8
 const CHUNK_BYTES = 64 * 1024
 const LARGE_HTTP_BYTES = 4 * 1024 * 1024
+const COPY_SAMPLES = 5
+const COPY_WARMUPS = 1
+local COPY_BYTES: {integer} = {64, 1024, 64 * 1024, 1024 * 1024, 16 * 1024 * 1024}
 
 -- The operating-system PID, not the process identity assigned by a shell or
 -- C runtime. Under MSYS, `_getpid` returns an MSYS identity while Get-Process
@@ -52,7 +60,7 @@ local function median(values: {number}): number
     return values[math.ceil(#values / 2)] as number
 end
 
-local function readExactly(exclusive stream: net.Stream, wanted: integer): nil
+local function readExactly(exclusive stream: bytesIO.Reader, wanted: integer): nil
     local received: integer = 0
     while received < wanted do
         const chunk, why = stream:read(wanted - received)
@@ -64,6 +72,36 @@ local function readExactly(exclusive stream: net.Stream, wanted: integer): nil
         end
         received = received + (#chunk as integer)
     end
+end
+
+local function readExactlyInto(exclusive stream: bytesIO.Reader, exclusive output: bytesIO.Buffer, wanted: integer): nil
+    output:clear()
+    local received: integer = 0
+    while received < wanted do
+        const count, why = stream:readInto(output, received, wanted - received)
+        if count == nil then
+            error(why or "network readInto failed")
+        elseif count == 0 then
+            error("network peer ended before the expected bytes arrived")
+        end
+        received = received + count
+    end
+end
+
+local function readExactlySpan(exclusive stream: bytesIO.Reader, wanted: integer): nil
+    local bytes = array.bytes(wanted)
+    local output = bytes:write()
+    local received: integer = 0
+    while received < wanted do
+        const count, why = stream:readSpan(output)
+        if count == nil then
+            error(why or "network readSpan failed")
+        elseif count == 0 then
+            error("network peer ended before the expected bytes arrived")
+        end
+        received = received + count
+    end
+    nupp.drop(output)
 end
 
 local function networkLatency(): number
@@ -118,6 +156,143 @@ local function networkThroughput(): number
     return median(samples)
 end
 
+local function networkCopyThroughput(path: string, payloadBytes: integer): number
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = CHUNK_BYTES}))
+    local served = assert(listener:accept())
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    const payload = ("abcdefgh"):rep(CHUNK_BYTES / 8)
+    const chunkPayload = payload:sub(1, math.min(payloadBytes, CHUNK_BYTES))
+    const input = span.fromString(chunkPayload)
+    local samples: {number} = {}
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        local remaining = payloadBytes
+        const started = time.now()
+        while remaining > 0 do
+            local taking = math.min(remaining, CHUNK_BYTES)
+            if path == "string" then
+                assert(client:write(chunkPayload))
+                readExactly(served, taking)
+            else
+                local chunk = input:slice(1, taking)
+                assert(client:writeSpan(chunk) == taking)
+                if path == "span" then
+                    readExactlySpan(served, taking)
+                else
+                    readExactlyInto(served, output, taking)
+                end
+            end
+            remaining = remaining - taking
+        end
+        const elapsed = time.now() - started
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes / elapsed / 1048.576
+        end
+    end
+    output:close()
+    served:close()
+    client:close()
+    listener:close()
+
+    return median(samples)
+end
+
+local function networkSplitThroughput(payloadBytes: integer): number
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = CHUNK_BYTES}))
+    local served = assert(listener:accept())
+    local writer = net.asWriter(client)
+    local reader = net.asReader(served)
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    const payload = ("abcdefgh"):rep(CHUNK_BYTES / 8)
+    const input = span.fromString(payload)
+    local samples: {number} = {}
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        local remaining = payloadBytes
+        const started = time.now()
+        while remaining > 0 do
+            local taking = math.min(remaining, CHUNK_BYTES)
+            local chunk = input:slice(1, taking)
+            assert(writer:writeSpan(chunk) == taking)
+            readExactlyInto(reader, output, taking)
+            remaining = remaining - taking
+        end
+        const elapsed = time.now() - started
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes / elapsed / 1048.576
+        end
+    end
+    writer:close()
+    reader:close()
+    output:close()
+    served:close()
+    client:close()
+    listener:close()
+
+    return median(samples)
+end
+
+local function datagramThroughput(payloadBytes: integer): number
+    local sender = assert(net.bind({host = "127.0.0.1", port = 0}))
+    local receiver = assert(net.bind({host = "127.0.0.1", port = 0}))
+    local destination = {host = "127.0.0.1", port = receiver:port()} as net.Address
+    const payload = ("d"):rep(payloadBytes)
+    local output = bytesIO.newBuffer(payloadBytes)
+    local samples: {number} = {}
+    const messages = 2000
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        const started = time.now()
+        for _ = 1, messages do
+            assert(sender:sendTo(destination, payload))
+            const message = assert(receiver:receiveFrom(output, payloadBytes))
+            if message.length ~= payloadBytes or message.truncated then
+                error("datagram benchmark received the wrong message")
+            end
+        end
+        const elapsed = time.now() - started
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes * messages / elapsed / 1048.576
+        end
+    end
+    output:close()
+    receiver:close()
+    sender:close()
+
+    return median(samples)
+end
+
+local function networkCopyAllocation(direct: boolean): number
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = CHUNK_BYTES}))
+    local served = assert(listener:accept())
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    const payload = ("abcdefgh"):rep(CHUNK_BYTES / 8)
+    const input = span.fromString(payload)
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count") as number
+    local remaining = 16 * 1024 * 1024
+    while remaining > 0 do
+        if direct then
+            assert(client:writeSpan(input) == CHUNK_BYTES)
+            readExactlyInto(served, output, CHUNK_BYTES)
+        else
+            assert(client:write(payload))
+            readExactly(served, CHUNK_BYTES)
+        end
+        remaining = remaining - CHUNK_BYTES
+    end
+    local answer = (collectgarbage("count") as number) - before
+    collectgarbage("restart")
+    collectgarbage("collect")
+    output:close()
+    served:close()
+    client:close()
+    listener:close()
+
+    return answer
+end
+
 local function httpPort(): integer
     const port = tonumber(os.getenv("NUPP_BENCH_HTTP_PORT") or "")
     if port == nil then
@@ -134,6 +309,58 @@ local function netPort(): integer
     end
 
     return port as integer
+end
+
+local function tlsPort(): integer
+    const port = tonumber(os.getenv("NUPP_BENCH_TLS_PORT") or "")
+    if port == nil then
+        error("NUPP_BENCH_TLS_PORT is required")
+    end
+
+    return port as integer
+end
+
+local function tlsAuthority(): string
+    local source = assert(io.open("../../tests/data/localhost-cert.pem", "rb"))
+    local authority = assert(source:read("*a"))
+    source:close()
+
+    return authority
+end
+
+local function tlsThroughput(port: integer, direct: boolean): number
+    local stream = assert(net.connect({host = "127.0.0.1", port = port, sendHighWater = CHUNK_BYTES}))
+    local session = assert(
+        tls.client(stream, {hostname = "localhost", authority = tlsAuthority()} as tls.ClientOptions)
+    )
+    assert(session:handshake())
+    const payload = ("t"):rep(CHUNK_BYTES)
+    const input = span.fromString(payload)
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    local samples: {number} = {}
+    const payloadBytes = 4 * 1024 * 1024
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        local remaining = payloadBytes
+        const started = time.now()
+        while remaining > 0 do
+            if direct then
+                assert(session:writeSpan(input) == CHUNK_BYTES)
+                readExactlyInto(session, output, CHUNK_BYTES)
+            else
+                assert(session:write(payload))
+                readExactly(session, CHUNK_BYTES)
+            end
+            remaining = remaining - CHUNK_BYTES
+        end
+        const elapsed = time.now() - started
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes * 2 / elapsed / 1048.576
+        end
+    end
+    output:close()
+    session:close()
+
+    return median(samples)
 end
 
 local function httpLatency(port: integer): number
@@ -205,6 +432,189 @@ local function httpThroughput(port: integer): number
     return median(samples)
 end
 
+local function httpCopyThroughput(port: integer, direct: boolean, payloadBytes: integer): number
+    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    const target = assert(uri.newURI(("http://127.0.0.1:%d/bytes/%d"):format(port, payloadBytes)))
+    local samples: {number} = {}
+    local requests = math.max(2, math.min(1000, math.floor((32 * 1024 * 1024) / payloadBytes)))
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        const started = time.now()
+        for _ = 1, requests do
+            local request = new http.Request(url = target)
+            local response = assert(client:send(request))
+            local received: integer = 0
+            while true do
+                local count: integer?
+                local why: string?
+                if direct then
+                    output:clear()
+                    count, why = response.body:readInto(output, 0, CHUNK_BYTES)
+                else
+                    local chunk: string?
+                    chunk, why = response.body:read(CHUNK_BYTES)
+                    count = chunk ~= nil and #chunk as integer or nil
+                end
+                if count == nil then
+                    error(why or "HTTP body read failed")
+                elseif count == 0 then
+                    break
+                end
+                received = received + count
+            end
+            if received ~= payloadBytes then
+                error("HTTP response had the wrong length")
+            end
+            response:close()
+        end
+        const elapsed = time.now() - started
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes * requests / elapsed / 1048.576
+        end
+    end
+    output:close()
+    client:close()
+
+    return median(samples)
+end
+
+local function httpCopyAllocation(port: integer, direct: boolean): number
+    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    const target = assert(uri.newURI(("http://127.0.0.1:%d/bytes/%d"):format(port, 16 * 1024 * 1024)))
+    local request = new http.Request(url = target)
+    local response = assert(client:send(request))
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count") as number
+    while true do
+        local count: integer?
+        if direct then
+            output:clear()
+            count = assert(response.body:readInto(output, 0, CHUNK_BYTES))
+        else
+            const chunk = assert(response.body:read(CHUNK_BYTES))
+            count = #chunk as integer
+        end
+        if count == 0 then
+            break
+        end
+    end
+    local answer = (collectgarbage("count") as number) - before
+    collectgarbage("restart")
+    collectgarbage("collect")
+    output:close()
+    response:close()
+    client:close()
+
+    return answer
+end
+
+local function copyAllocations(port: integer): nil
+    print("copy-reduction Lua allocation: one 16 MiB payload with the collector stopped")
+    print(("network string %12.2f KiB"):format(networkCopyAllocation(false)))
+    print(("network buffer %12.2f KiB"):format(networkCopyAllocation(true)))
+    print(("HTTP string    %12.2f KiB"):format(httpCopyAllocation(port, false)))
+    print(("HTTP buffer    %12.2f KiB"):format(httpCopyAllocation(port, true)))
+end
+
+local function processEcho(): nil
+    while true do
+        local chunk = io.stdin:read(CHUNK_BYTES)
+        if chunk == nil then
+            return
+        end
+        io.write(chunk)
+        io.stdout:flush()
+    end
+end
+
+local function processOutput(payloadBytes: integer): nil
+    const chunk = ("p"):rep(CHUNK_BYTES)
+    local remaining = payloadBytes
+    while remaining > 0 do
+        io.write(chunk:sub(1, math.min(remaining, CHUNK_BYTES)))
+        remaining = remaining - CHUNK_BYTES
+    end
+end
+
+local function processCommunicateThroughput(payloadBytes: integer): number
+    const input = ("p"):rep(payloadBytes)
+    const executable = assert(os.getenv("NUPP_BENCH_EXECUTABLE"))
+    local samples: {number} = {}
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        local child = new processes.Process({args = {executable, "process-peer"}, stderr = "null"} as processes.Options)
+        const started = time.now()
+        const result = assert(child:communicate({input = input, maxOutputBytes = payloadBytes + CHUNK_BYTES}))
+        const elapsed = time.now() - started
+        if #result.output ~= payloadBytes then
+            error("process echo returned the wrong byte count")
+        end
+        assert(child:close())
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes * 2 / elapsed / 1048.576
+        end
+    end
+
+    return median(samples)
+end
+
+local function processReadIntoThroughput(payloadBytes: integer): number
+    local samples: {number} = {}
+    local output = bytesIO.newBuffer(CHUNK_BYTES)
+    const executable = assert(os.getenv("NUPP_BENCH_EXECUTABLE"))
+    for sample = 1, COPY_SAMPLES + COPY_WARMUPS do
+        local child = new processes.Process(
+            {
+                args = {executable, "process-output", tostring(payloadBytes)},
+                stdin = "null",
+                stderr = "null",
+            } as processes.Options
+        )
+        assert(child.stdout ~= nil)
+        local received: integer = 0
+        const started = time.now()
+        while true do
+            output:clear()
+            const count, why = child.stdout:readInto(output, 0, CHUNK_BYTES)
+            if count == nil then
+                error(why or "process output read failed")
+            elseif count == 0 then
+                break
+            end
+            received = received + count
+        end
+        const elapsed = time.now() - started
+        if received ~= payloadBytes or not child:wait():succeeded() then
+            error("process output returned the wrong byte count")
+        end
+        assert(child:close())
+        if sample > COPY_WARMUPS then
+            samples[#samples + 1] = payloadBytes / elapsed / 1048.576
+        end
+    end
+    output:close()
+
+    return median(samples)
+end
+
+local function copyReduction(port: integer, includeReadSpan: boolean): nil
+    print(("copy-reduction benchmark: median of %d samples after %d warmup"):format(COPY_SAMPLES, COPY_WARMUPS))
+    for _, bytes in ipairs(COPY_BYTES) do
+        print(("network string %8d B  %9.2f MiB/s"):format(bytes, networkCopyThroughput("string", bytes)))
+        if includeReadSpan then
+            print(("network span   %8d B  %9.2f MiB/s"):format(bytes, networkCopyThroughput("span", bytes)))
+        end
+        print(("network buffer %8d B  %9.2f MiB/s"):format(bytes, networkCopyThroughput("buffer", bytes)))
+        print(("HTTP string    %8d B  %9.2f MiB/s"):format(bytes, httpCopyThroughput(port, false, bytes)))
+        print(("HTTP buffer    %8d B  %9.2f MiB/s"):format(bytes, httpCopyThroughput(port, true, bytes)))
+    end
+    print(("network split  %8d B  %9.2f MiB/s"):format(16 * 1024 * 1024, networkSplitThroughput(16 * 1024 * 1024)))
+    for _, bytes in ipairs({1200, 1472, 2048}) do
+        print(("datagram        %8d B  %9.2f MiB/s"):format(bytes, datagramThroughput(bytes)))
+    end
+end
+
 local function netSlowReader(): never
     io.stdout:setvbuf("no")
     local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
@@ -270,11 +680,19 @@ local function httpSlowWriter(port: integer): nil
     client:close()
 end
 
-io.stdout:setvbuf("no")
-print(("NUPP_BENCH_PID %d"):format(nativeProcessId()))
-
 const mode = arg[1] or "benchmark"
-if mode == "net-slow-reader" then
+if mode == "process-peer" then
+    processEcho()
+elseif mode == "process-output" then
+    processOutput(assert(tonumber(arg[2])) as integer)
+else
+    io.stdout:setvbuf("no")
+    print(("NUPP_BENCH_PID %d"):format(nativeProcessId()))
+end
+
+if mode == "process-peer" or mode == "process-output" then
+    -- Child modes finish above without loading a network peer.
+elseif mode == "net-slow-reader" then
     netSlowReader()
 elseif mode == "net-slow-writer" then
     netSlowWriter(netPort())
@@ -282,6 +700,24 @@ elseif mode == "http-slow-reader" then
     httpSlowReader(httpPort())
 elseif mode == "http-slow-writer" then
     httpSlowWriter(httpPort())
+elseif mode == "copy-reduction" then
+    copyReduction(httpPort(), true)
+elseif mode == "copy-reduction-compatible" then
+    copyReduction(httpPort(), false)
+elseif mode == "copy-allocation" then
+    copyAllocations(httpPort())
+elseif mode == "copy-datagram" then
+    for _, bytes in ipairs({1200, 1472, 2048}) do
+        print(("datagram        %8d B  %9.2f MiB/s"):format(bytes, datagramThroughput(bytes)))
+    end
+elseif mode == "copy-process" then
+    const bytes = (tonumber(arg[2]) or 4 * 1024 * 1024) as integer
+    print(("process communicate %8d B  %9.2f MiB/s"):format(bytes, processCommunicateThroughput(bytes)))
+    print(("process readInto    %8d B  %9.2f MiB/s"):format(bytes, processReadIntoThroughput(bytes)))
+elseif mode == "copy-tls" then
+    const port = tlsPort()
+    print(("TLS string  %9.2f MiB/s  4 MiB echo"):format(tlsThroughput(port, false)))
+    print(("TLS buffer  %9.2f MiB/s  4 MiB echo"):format(tlsThroughput(port, true)))
 elseif mode == "benchmark" then
     const port = httpPort()
     print(("native runtime benchmark: median of %d samples after %d warmups"):format(SAMPLES, WARMUPS))
