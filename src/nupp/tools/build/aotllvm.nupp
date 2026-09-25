@@ -17,6 +17,7 @@ local llvmDetector = require("nupp.compiler.aot.llvm.detector")
 local llvmProgram = require("nupp.compiler.aot.llvm.program")
 local llvmProfile = require("nupp.compiler.aot.llvm.profile")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local toolruns = require("nupp.tools.build.toolruns")
 
 local aotllvm = {}
 
@@ -192,38 +193,53 @@ function aotllvm.assembly(
     return compiled.assembly as string, nil
 end
 
---- Compiles one emitted unit's IR file into `object`.
---- @return nil, or what went wrong
-function aotllvm.compile(irPath: string, triple: string, tier: string, object: string): string?
-    local selected, profileErr = llvmProfile.of(triple)
-    if selected == nil then
-        return profileErr
+--- One emitted unit to compile: its IR file, and the object to install.
+record aotllvm.Unit
+    ir: string
+    triple: string
+    tier: string
+    object: string
+end
+
+--- Compiles `units` side by side, each isolated so that LLVM ending on an
+--- internal error fails that unit rather than the build's process.
+--- @return nil, or the first unit's failure
+function aotllvm.compileMany(units: {aotllvm.Unit}): string?
+    local jobs: {codegen.Job} = {}
+    for position, unit in ipairs(units) do
+        local selected, profileErr = llvmProfile.of(unit.triple)
+        if selected == nil then
+            return profileErr
+        end
+        jobs[
+            position
+        ] = new codegen.Job(
+            ir = unit.ir,
+            object = unit.object .. ".tmp",
+            options = llvmProfile.options(selected as llvmProfile.Profile, unit.tier)
+        )
     end
-    local ir = fs.readFile(irPath)
-    if ir == nil then
-        return "could not read " .. irPath
+    local outcomes, err = codegen.compileFiles(jobs, toolruns.width(#jobs))
+    if outcomes == nil then
+        return "compiling the LLVM units failed: " .. tostring(err)
     end
-    local compiled, err = codegen.compile(
-        ir as string,
-        irPath,
-        llvmProfile.options(selected as llvmProfile.Profile, tier)
-    )
-    if compiled == nil then
-        return "compiling " .. irPath .. " with LLVM failed: " .. tostring(err)
-    end
-    local timings = ((compiled as codegen.Compiled).report:match("^(.-)object%-bytes") or ""):gsub("\n", " ")
-    aotllvm.note(("compile\t%s\t%s\t%d bytes of IR"):format(irPath, timings, #(ir as string)))
-    local staged = object .. ".tmp"
-    local ok, writeErr = fs.writeFile(staged, compiled.object)
-    if not ok then
-        return tostring(writeErr)
-    end
-    local installed, installErr = fs.installStaged(staged, object)
-    if not installed then
-        return tostring(installErr)
+    local failure: string? = nil
+    for position, outcome in ipairs(outcomes as {codegen.Outcome}) do
+        local unit = units[position]
+        if outcome.error ~= nil then
+            os.remove(jobs[position].object)
+            failure = failure or "compiling " .. unit.ir .. " with LLVM failed: " .. tostring(outcome.error)
+        else
+            local timings = (tostring(outcome.report):match("^(.-)object%-bytes") or ""):gsub("\n", " ")
+            aotllvm.note(("compile\t%s\t%s"):format(unit.ir, timings))
+            local installed, installErr = fs.installStaged(jobs[position].object, unit.object)
+            if not installed then
+                failure = failure or tostring(installErr)
+            end
+        end
     end
 
-    return nil
+    return failure
 end
 
 --- Links `objects` into the shared library `output` with lld.

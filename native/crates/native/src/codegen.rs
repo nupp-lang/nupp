@@ -145,3 +145,35 @@ pub unsafe extern "C" fn nuppCodegenArchive(
         codegen::archive(path, &members, kind).map_err(|e| super::failed(Status::InvalidArgument, &e))
     })())
 }
+
+#[unsafe(no_mangle)]
+/// Compiles IR files to objects, `width` at a time, each isolated from this
+/// process where the platform can fork. `jobs` is NUL-separated records of
+/// `irPath \x1f objectPath \x1f options`; `results` receives one record per
+/// job, in order, of `ok \x1f report` or `error \x1f message`, NUL-separated.
+///
+/// # Safety
+/// `jobs` must be readable for `length` bytes; `results` writable for one u64.
+pub unsafe extern "C" fn nuppCodegenCompileFiles(jobs: *const u8, length: usize, width: u32, results: *mut u64) -> i32 {
+    status((|| {
+        let mut parsed = Vec::new();
+        for record in text(jobs, length, "compile jobs")?.split('\0').filter(|r| !r.is_empty()) {
+            let mut fields = record.splitn(3, '\u{1f}');
+            let (Some(ir), Some(object), Some(options)) = (fields.next(), fields.next(), fields.next()) else {
+                return Err(super::failed(Status::InvalidArgument, "a compile job needs an IR path, an object path and options"));
+            };
+            let options = codegen::CompileOptions::parse(options).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+            parsed.push(codegen::Job { ir: ir.into(), object: object.into(), options });
+        }
+        let answers = codegen::compile_files(&parsed, width as usize);
+        let mut out = String::new();
+        for answer in answers {
+            match answer {
+                Ok(report) => out.push_str(&format!("ok\u{1f}{report}")),
+                Err(error) => out.push_str(&format!("error\u{1f}{error}")),
+            }
+            out.push('\0');
+        }
+        output(results, Some(out.into_bytes()))
+    })())
+}

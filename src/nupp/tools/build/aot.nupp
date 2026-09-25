@@ -1194,28 +1194,7 @@ function aot.compileWasm(
             digests[position] = (record as aot.WasmModule).digest
         elseif one.backend == aotllvm.BACKEND then
             local stagedPath = one.output:gsub("%.ll$", ".tmp.wasm")
-            local object = one.output:gsub("%.ll$", ".o")
             os.remove(stagedPath)
-            report:at("aot:compile")
-            local compileErr = aotllvm.compile(one.output, WASM_TRIPLE, one.tier, object)
-            if compileErr ~= nil then
-                return nil, compileErr
-            end
-            local exports: {string} = {}
-            for _, entry in ipairs((one.bridge as any).entries) do
-                exports[#exports + 1] = entry.call
-                for _, layout in ipairs(entry.layouts) do
-                    exports[#exports + 1] = layout.prefix .. "_size"
-                    for _, field in ipairs(layout.fields) do
-                        exports[#exports + 1] = layout.prefix .. "_offset_" .. field
-                        exports[#exports + 1] = layout.prefix .. "_size_" .. field
-                    end
-                end
-            end
-            local linkErr = aotllvm.linkWasm(object, stagedPath, exports)
-            if linkErr ~= nil then
-                return nil, linkErr
-            end
             llvmDirty[#llvmDirty + 1] = position
             llvmStaged[#llvmStaged + 1] = stagedPath
         else
@@ -1295,6 +1274,44 @@ function aot.compileWasm(
             end
 
             return nil, failure
+        end
+    end
+    if #llvmDirty > 0 then
+        -- Every LLVM unit compiles side by side, then each links alone.
+        report:at("aot:compile")
+        local compiled: {aotllvm.Unit} = {}
+        for _, index in ipairs(llvmDirty) do
+            local one = units[index] as aot.Emitted
+            compiled[
+                #compiled + 1
+            ] = new aotllvm.Unit(
+                ir = one.output,
+                triple = WASM_TRIPLE,
+                tier = one.tier,
+                object = (one.output:gsub("%.ll$", ".o"))
+            )
+        end
+        local compileErr = aotllvm.compileMany(compiled)
+        if compileErr ~= nil then
+            return nil, compileErr
+        end
+        for position, index in ipairs(llvmDirty) do
+            local one = units[index] as aot.Emitted
+            local exports: {string} = {}
+            for _, entry in ipairs((one.bridge as any).entries) do
+                exports[#exports + 1] = entry.call
+                for _, layout in ipairs(entry.layouts) do
+                    exports[#exports + 1] = layout.prefix .. "_size"
+                    for _, field in ipairs(layout.fields) do
+                        exports[#exports + 1] = layout.prefix .. "_offset_" .. field
+                        exports[#exports + 1] = layout.prefix .. "_size_" .. field
+                    end
+                end
+            end
+            local linkErr = aotllvm.linkWasm(compiled[position].object, llvmStaged[position] as string, exports)
+            if linkErr ~= nil then
+                return nil, linkErr
+            end
         end
     end
     -- Both routes' staged modules are named the same way: by their digest.
@@ -1543,12 +1560,21 @@ function aot.link(
     end
     if #llvmDirty > 0 then
         report:at("aot:compile")
+        local units: {aotllvm.Unit} = {}
         for _, index in ipairs(llvmDirty) do
             local one = emitted[index] as aot.Emitted
-            local compileErr = aotllvm.compile(one.output, selected.triple, one.tier, one.object as string)
-            if compileErr ~= nil then
-                return compileErr, nil
-            end
+            units[
+                #units + 1
+            ] = new aotllvm.Unit(
+                ir = one.output,
+                triple = selected.triple,
+                tier = one.tier,
+                object = one.object as string
+            )
+        end
+        local compileErr = aotllvm.compileMany(units)
+        if compileErr ~= nil then
+            return compileErr, nil
         end
     end
     table.sort(objects)

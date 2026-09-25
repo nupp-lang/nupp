@@ -38,6 +38,7 @@ int32_t nuppCodegenImportLibrary(
     const char *dll, size_t dllLength,
     const char *path, size_t pathLength,
     const char *names, size_t namesLength);
+int32_t nuppCodegenCompileFiles(const char *jobs, size_t length, uint32_t width, uint64_t *results);
 int32_t nuppCodegenArchive(
     const char *path, size_t pathLength,
     const char *members, size_t membersLength,
@@ -141,6 +142,52 @@ function codegen.compile(ir: string, name: string, options: {[string]: string}):
     end
 
     return result as codegen.Compiled, nil
+end
+
+--- One module `codegen.compileFiles` compiles.
+record codegen.Job
+    ir: string
+    object: string
+    options: {[string]: string}
+end
+
+--- One job's outcome: its report, or why it failed.
+record codegen.Outcome
+    report: string?
+    error: string?
+end
+
+--- Compiles IR files to objects, `width` at a time, each where LLVM's
+--- ending the process on an internal error ends only that job: a job that
+--- crashes is an outcome with an error, and the build goes on to report it.
+--- @return one outcome per job, in order, or nil and why none ran
+function codegen.compileFiles(jobs: {codegen.Job}, width: integer): ({codegen.Outcome}?, string?)
+    local ok, result = pcall(function(): {codegen.Outcome}
+        declare()
+        local ffi: any = native.ffi
+        local C: any = native.C
+        local records: {string} = {}
+        for position, job in ipairs(jobs) do
+            records[position] = job.ir .. "\31" .. job.object .. "\31" .. optionText(job.options)
+        end
+        local joined = table.concat(records, "\0") .. "\0"
+        local handle = ffi.new("uint64_t[1]")
+        native.succeeded(C.nuppCodegenCompileFiles(joined, #joined, width, handle), 2)
+        local text = take(handle[0]) or ""
+        local outcomes: {codegen.Outcome} = {}
+        for record in text:gmatch("([^%z]*)%z") do
+            local kind, body = record:match("^(%a+)\31(.*)$")
+            outcomes[#outcomes + 1] = kind == "ok" and new codegen.Outcome(report = body, error = nil)
+                or new codegen.Outcome(report = nil, error = body or record)
+        end
+
+        return outcomes
+    end)
+    if not ok then
+        return nil, tostring(result)
+    end
+
+    return result as {codegen.Outcome}, nil
 end
 
 --- Runs lld in process. `argv[1]` picks the flavor: `ld64.lld`, `ld.lld`,

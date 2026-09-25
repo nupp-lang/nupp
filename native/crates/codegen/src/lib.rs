@@ -10,6 +10,8 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 mod contract;
+mod isolated;
+pub use isolated::{Job, compile_files};
 #[cfg(nupp_llvm)]
 mod llvm;
 
