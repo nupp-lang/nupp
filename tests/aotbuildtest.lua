@@ -2177,8 +2177,10 @@ function M.aTierWithoutVectorsAcceptsScalarLoops()
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = "scalar",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local c = assert(read(tieredC(dir, "scalar")))
-    assert(not c:find("ks_exp_f64x", 1, true), "scalar loops do not require SIMD")
+    local path = tieredUnit(dir, "scalar")
+    local unit = assert(read(path))
+    local vector = path:match("%.ll$") and " x double>" or "ks_exp_f64x"
+    assert(not unit:find(vector, 1, true), "scalar loops do not require SIMD")
 end
 
 -- A condition block remains ordinary scalar control flow.
@@ -2212,13 +2214,69 @@ export = run
     test.equal(code, 0, out)
 end
 
+--- Through LLVM, an independent Wasm module is linked in process and carries
+--- everything it runs on: it imports nothing, and a bridge entry computes what
+--- the kernel says, results and counts laid out as the loaders read them.
+function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
+    -- The C route builds Wasm through Emscripten, which this case is not about.
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
+        return
+    end
+    local probe = io.popen("node --version 2>/dev/null")
+    local node = probe and probe:read("*a") or ""
+    if probe then
+        probe:close()
+    end
+    if not node:match("^v%d") then
+        return
+    end
+    local dir = project(nil)
+    withKeys(dir, 'dialect = "luajit", host = "browser", aot = "require-wasm", aotFeatures = "simd128",')
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    if not tieredUnit(dir, "simd128"):match("%.ll$") then
+        return
+    end
+    local script = dir .. "/run.mjs"
+    local handle = assert(io.open(script, "wb"))
+    handle:write([=[
+import fs from 'fs';
+const root = process.argv[2] + '/build/native/aot/';
+const unit = JSON.parse(fs.readFileSync(root + 'units.json')).units.find(u => u.wasm);
+const module = await WebAssembly.compile(fs.readFileSync(root + unit.wasm));
+const imports = WebAssembly.Module.imports(module);
+const api = (await WebAssembly.instantiate(module, {})).exports;
+const entry = unit.bridge.entries.find(e => e.symbol.endsWith('_sum_bytes'));
+const bytes = [[1, 2, 3], [10, 20]];
+const a = api.malloc(32), r = api.malloc(24);
+const view = () => new DataView(api.memory.buffer);
+bytes.forEach((values, k) => {
+  const p = api.malloc(values.length);
+  new Uint8Array(api.memory.buffer, p, values.length).set(values);
+  view().setUint32(a + k * 8, p, true);
+  view().setUint32(a + (2 + k) * 8, values.length, true);
+});
+api[entry.call](a, r);
+console.log(JSON.stringify({imports: imports.length, total: view().getFloat64(r, true),
+  first: view().getUint32(r + 8, true), second: view().getUint32(r + 16, true),
+  memory: api.memory.buffer.byteLength}));
+]=])
+    handle:close()
+    local pipe = assert(io.popen(("node %q %q 2>&1"):format(script, dir)))
+    local answer = pipe:read("*a")
+    pipe:close()
+    assert(answer:find('"imports":0', 1, true), "the module imports nothing: " .. answer)
+    assert(answer:find('"total":36,"first":3,"second":2', 1, true), "the bridge runs the kernel: " .. answer)
+    assert(answer:find('"memory":4194304', 1, true), "memory starts at 4 MiB: " .. answer)
+end
+
 function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    assert(read(tieredC(dir, "simd128")), "the required tier travels")
-    test.equal(read(tieredC(dir, "scalar")), nil, "and the excluded tier does not")
+    assert(read(tieredUnit(dir, "simd128")), "the required tier travels")
+    test.equal(read(tieredUnit(dir, "scalar")), nil, "and the excluded tier does not")
 end
 
 function M.aFeatureRangeRejectsUnknownKeys()
@@ -5874,14 +5932,14 @@ function M.aTargetLowersWhatItBundlesAndNothingElse()
         ("and so cannot refuse its tier (fixture at %s): %s"):format(dir, out)
     )
     assert(
-        read(dir .. "/build/native/aot/src/reached.scalar.c"),
+        read(tieredUnit(dir, "scalar", "reached")),
         (
             "a module reached through require is still compiled: narrowing to the entry file would lose it "
             .. "(fixture at %s): %s"
         ):format(dir, out)
     )
     test.equal(
-        read(dir .. "/build/native/aot/src/unreached.scalar.c"),
+        read(tieredUnit(dir, "scalar", "unreached")),
         nil,
         ("and nothing is written for the module outside the deliverable (fixture at %s)"):format(dir)
     )

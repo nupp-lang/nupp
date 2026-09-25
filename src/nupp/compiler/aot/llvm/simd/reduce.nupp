@@ -185,7 +185,12 @@ local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, st
         end
     end
     local wide = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
-    local laneWide = (query == "simd_mask_any" or query == "simd_mask_all") and ctx.tier ~= "avx512f"
+    -- Only where a register test is tuned for: elsewhere (Wasm) the `<N x i1>`
+    -- reduction is what `any_true`/`all_true` take, and LLVM 23's wasm type
+    -- legalization aborts on the widened form of a four-lane double mask.
+    local laneWide = (query == "simd_mask_any" or query == "simd_mask_all")
+        and ctx.tier ~= "avx512f"
+        and ctx.vectorRegister ~= ""
     -- A mask local a loop carries is already lane-wide in its slot: read that
     -- register itself rather than compare it back to i1 and widen it again.
     local carried: string? = nil

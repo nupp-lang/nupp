@@ -103,6 +103,18 @@ local PROFILES: {[string]: profile.Profile} = {
         machine = "elf_i386",
         sizeType = "i32"
     ),
+    ["wasm32-unknown-emscripten"] = new profile.Profile(
+        public = "wasm32-unknown-emscripten",
+        -- An independent module: nothing Emscripten's name promised is used,
+        -- and the module imports nothing.
+        llvmTriple = "wasm32-unknown-unknown",
+        cpu = "generic",
+        baseFeatures = "+bulk-memory,+nontrapping-fptoint,+sign-ext,+mutable-globals",
+        format = "wasm",
+        functionAttributes = "",
+        machine = "wasm32",
+        sizeType = "i32"
+    ),
     ["x86_64-pc-windows-msvc"] = new profile.Profile(
         public = "x86_64-pc-windows-msvc",
         llvmTriple = "x86_64-w64-windows-gnu",

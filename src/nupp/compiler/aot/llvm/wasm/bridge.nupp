@@ -1,0 +1,132 @@
+module nupp.compiler.aot.llvm.wasm.bridge
+
+--[[
+The exported entries of an independent Wasm module: `nupp_bridge_<i>`.
+
+A host outside the module cannot pass a pointer into it, so every entry is
+called the same way: `(argsPointer, resultPointer)`, both addresses in the
+module's own memory, which the host filled after allocating them through the
+module's `malloc`. The args block is one 8-byte little-endian slot per
+parameter and then per count: a span's slot holds the u32 address of its
+copied elements, a scalar's its value in its own width (a bool one byte); the
+counts follow as u32s, one per span for a body entry and one shared for a map
+entry. The result block is one 8-byte slot per result.
+
+This is `wasmbridge.registrar`'s ABI, with its one defect left out: a map
+entry whose kernel takes a count per span is handed the shared count for
+each, where the C passed only one.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local types = require("nupp.compiler.aot.llvm.types")
+
+local bridge = {}
+
+--- The narrow storage a scalar slot holds, by source type.
+const NARROW: {[string]: string} = {uint8 = "i8", int8 = "i8", uint16 = "i16", int16 = "i16"}
+
+local function isSpan(param: scalarIR.Param): boolean
+    return param.kind == "write_span" or param.kind == "read_span"
+end
+
+--- Defines `nupp_bridge_<index>` calling `kernel`, the physical symbol of
+--- `program`'s entry in this module, with attribute group `attrs`.
+function bridge.define(
+    module: builder.Module,
+    program: scalarIR.Program,
+    index: integer,
+    kernel: string,
+    attrs: string
+): nil
+    local f = builder.func(module, ("define void @nupp_bridge_%d(ptr %%a, ptr %%r) %s {"):format(index, attrs))
+
+    local function slot(position: integer): string
+        return builder.value(f, ("getelementptr inbounds i8, ptr %%a, i32 %d"):format(position * 8))
+    end
+
+    local arguments: {string} = {}
+    local wire: {string} = {}
+    local countPosition = #program.params
+    for position, param in ipairs(program.params) do
+        local address = slot(position - 1)
+        if isSpan(param) then
+            local raw = builder.value(f, ("load i32, ptr %s, align 1"):format(address))
+            arguments[#arguments + 1] = "ptr " .. builder.value(f, ("inttoptr i32 %s to ptr"):format(raw))
+            wire[#wire + 1] = builder.value(f, ("load i32, ptr %s, align 1"):format(slot(countPosition)))
+            if program.body ~= nil then
+                countPosition = countPosition + 1
+            end
+        else
+            local typeName = tostring(param.type)
+            local wanted = types.require(typeName)
+            local narrow = param.sourceType ~= nil and NARROW[param.sourceType as string] or nil
+            local value: string
+            if wanted == "i1" then
+                local byte = builder.value(f, ("load i8, ptr %s, align 1"):format(address))
+                value = builder.value(f, ("icmp ne i8 %s, 0"):format(byte))
+            elseif narrow ~= nil then
+                local loaded = builder.value(f, ("load %s, ptr %s, align 1"):format(narrow as string, address))
+                local extend = types.storageSigned(param.sourceType) and "sext" or "zext"
+                value = builder.value(f, ("%s %s %s to %s"):format(extend, narrow as string, loaded, wanted))
+            else
+                value = builder.value(f, ("load %s, ptr %s, align 1"):format(wanted, address))
+            end
+            arguments[#arguments + 1] = types.parameter(typeName) .. " " .. value
+        end
+    end
+    -- The kernel's own counts: one per span it counts separately, else one.
+    local shared = wire[1] or "0"
+    if scalarIR.independentCounts(program) then
+        local spanIndex: integer = 0
+        for _, param in ipairs(program.params) do
+            if isSpan(param) then
+                spanIndex = spanIndex + 1
+                if param.soa == nil or param.soa.ordinal == 1 then
+                    local count = program.body ~= nil and wire[spanIndex] or shared
+                    arguments[#arguments + 1] = "i32 " .. tostring(count)
+                end
+            end
+        end
+    else
+        arguments[#arguments + 1] = "i32 " .. shared
+    end
+
+    local results = program.resultTypes or {}
+    if #results > 1 then
+        local fields: {string} = {}
+        for position, resultType in ipairs(results) do
+            fields[position] = types.field(tostring(resultType))
+        end
+        local struct = "{ " .. table.concat(fields, ", ") .. " }"
+        local block = builder.alloca(f, struct, 8)
+        arguments[#arguments + 1] = "ptr " .. block
+        builder.emit(f, ("call void @%s(%s)"):format(kernel, table.concat(arguments, ", ")))
+        for position, field in ipairs(fields) do
+            local from = builder.value(
+                f,
+                ("getelementptr inbounds %s, ptr %s, i32 0, i32 %d"):format(struct, block, position - 1)
+            )
+            local value = builder.value(f, ("load %s, ptr %s"):format(field, from))
+            local to = builder.value(f, ("getelementptr inbounds i8, ptr %%r, i32 %d"):format((position - 1) * 8))
+            builder.emit(f, ("store %s %s, ptr %s, align 1"):format(field, value, to))
+        end
+    elseif #results == 1 then
+        local resultType = tostring(results[1])
+        local returned = builder.value(
+            f,
+            ("call %s @%s(%s)"):format(types.result(resultType), kernel, table.concat(arguments, ", "))
+        )
+        if types.require(resultType) == "i1" then
+            local byte = builder.value(f, ("zext i1 %s to i8"):format(returned))
+            builder.emit(f, ("store i8 %s, ptr %%r, align 1"):format(byte))
+        else
+            builder.emit(f, ("store %s %s, ptr %%r, align 1"):format(types.require(resultType), returned))
+        end
+    else
+        builder.emit(f, ("call void @%s(%s)"):format(kernel, table.concat(arguments, ", ")))
+    end
+    builder.finish(f, "ret void")
+end
+
+export = bridge

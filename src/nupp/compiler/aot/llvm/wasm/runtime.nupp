@@ -1,0 +1,123 @@
+module nupp.compiler.aot.llvm.wasm.runtime
+
+--[[
+What an independent Wasm module carries so that it imports nothing.
+
+`malloc` and `free` are the host's way into the module's memory: it allocates
+an entry's argument, result and span blocks, calls the entry, and frees them
+all before the next call. A bump allocator that returns to the heap's base
+once nothing is live serves that exactly, growing memory as a call needs it up
+to the module's maximum and answering 0 past it, which the host reports.
+
+`__multi3` is the one compiler-rt builtin wasm32 code generation reaches for,
+when a 64-bit multiply-high (an unsigned division by a constant) has no
+instruction. Memory copies and fills are bulk-memory instructions, and libm is
+not here: a unit that needs it is not compiled for Wasm by this backend yet.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+
+local runtime = {}
+
+local ALLOCATOR = [[
+@nupp.heap.next = internal global i32 0
+@nupp.heap.live = internal global i32 0
+@__heap_base = external global i8
+
+declare i32 @llvm.wasm.memory.size.i32(i32)
+declare i32 @llvm.wasm.memory.grow.i32(i32, i32)
+
+define ptr @malloc(i32 %size) {
+entry:
+  %base = ptrtoint ptr @__heap_base to i32
+  %stored = load i32, ptr @nupp.heap.next
+  %fresh = icmp eq i32 %stored, 0
+  %next = select i1 %fresh, i32 %base, i32 %stored
+  %padded = add i32 %next, 15
+  %start = and i32 %padded, -16
+  %nonzero = icmp eq i32 %size, 0
+  %bytes = select i1 %nonzero, i32 1, i32 %size
+  %end = add i32 %start, %bytes
+  %wrapped = icmp ult i32 %end, %start
+  br i1 %wrapped, label %fail, label %room
+room:
+  %pages = call i32 @llvm.wasm.memory.size.i32(i32 0)
+  %limit = shl i32 %pages, 16
+  %fits = icmp ule i32 %end, %limit
+  br i1 %fits, label %take, label %grow
+grow:
+  %short = sub i32 %end, %limit
+  %rounded = add i32 %short, 65535
+  %more = lshr i32 %rounded, 16
+  %old = call i32 @llvm.wasm.memory.grow.i32(i32 0, i32 %more)
+  %refused = icmp eq i32 %old, -1
+  br i1 %refused, label %fail, label %take
+take:
+  store i32 %end, ptr @nupp.heap.next
+  %live = load i32, ptr @nupp.heap.live
+  %live1 = add i32 %live, 1
+  store i32 %live1, ptr @nupp.heap.live
+  %pointer = inttoptr i32 %start to ptr
+  ret ptr %pointer
+fail:
+  ret ptr null
+}
+
+define void @free(ptr %pointer) {
+entry:
+  %none = icmp eq ptr %pointer, null
+  br i1 %none, label %done, label %release
+release:
+  %live = load i32, ptr @nupp.heap.live
+  %live1 = sub i32 %live, 1
+  store i32 %live1, ptr @nupp.heap.live
+  %empty = icmp eq i32 %live1, 0
+  br i1 %empty, label %reset, label %done
+reset:
+  store i32 0, ptr @nupp.heap.next
+  br label %done
+done:
+  ret void
+}
+
+define hidden void @__multi3(ptr sret(i128) align 16 %out, i64 %aLow, i64 %aHigh, i64 %bLow, i64 %bHigh) {
+entry:
+  %a0 = and i64 %aLow, 4294967295
+  %a1 = lshr i64 %aLow, 32
+  %b0 = and i64 %bLow, 4294967295
+  %b1 = lshr i64 %bLow, 32
+  %p00 = mul i64 %a0, %b0
+  %p01 = mul i64 %a0, %b1
+  %p10 = mul i64 %a1, %b0
+  %p11 = mul i64 %a1, %b1
+  %p00high = lshr i64 %p00, 32
+  %p01low = and i64 %p01, 4294967295
+  %p10low = and i64 %p10, 4294967295
+  %mid0 = add i64 %p00high, %p01low
+  %mid = add i64 %mid0, %p10low
+  %p00low = and i64 %p00, 4294967295
+  %midShifted = shl i64 %mid, 32
+  %low = or i64 %p00low, %midShifted
+  %p01high = lshr i64 %p01, 32
+  %p10high = lshr i64 %p10, 32
+  %midHigh = lshr i64 %mid, 32
+  %h0 = add i64 %p11, %p01high
+  %h1 = add i64 %h0, %p10high
+  %h2 = add i64 %h1, %midHigh
+  %cross0 = mul i64 %aLow, %bHigh
+  %cross1 = mul i64 %aHigh, %bLow
+  %h3 = add i64 %h2, %cross0
+  %high = add i64 %h3, %cross1
+  store i64 %low, ptr %out, align 16
+  %highAt = getelementptr inbounds i8, ptr %out, i32 8
+  store i64 %high, ptr %highAt, align 8
+  ret void
+}
+]]
+
+--- Adds the allocator and builtins to `module`, once.
+function runtime.install(module: builder.Module): nil
+    builder.once(module, "wasm runtime", ALLOCATOR)
+end
+
+export = runtime

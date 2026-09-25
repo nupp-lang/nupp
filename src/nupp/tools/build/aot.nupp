@@ -1056,6 +1056,10 @@ record aot.WasmOutcome
 
     reused: integer
     compiled: integer
+
+    --- Whether every unit was compiled in process by LLVM, so no external
+    --- compiler was involved.
+    llvm: boolean
 end
 
 --- The key one Wasm side module was compiled under.
@@ -1085,6 +1089,9 @@ end
 ---
 --- @param previous what the last build recorded, per unit
 --- @param memo what the last build recorded about Emscripten itself
+--- The public target every Wasm unit is built for.
+const WASM_TRIPLE = "wasm32-unknown-emscripten"
+
 function aot.compileWasm(
     emitted: {aot.Emitted},
     produced: {[string]: compile.Artifacts},
@@ -1095,9 +1102,21 @@ function aot.compileWasm(
     independent: boolean?
 ): (aot.WasmOutcome?, string?)
     local report = reporter or progress.new("never")
-    local command, version = aot.wasmToolchain(memo)
-    if command == nil then
-        return nil, version
+    -- Units LLVM emitted are compiled and linked in process; Emscripten is
+    -- asked for only when some unit is still C.
+    local allLlvm = true
+    for _, one in ipairs(emitted) do
+        if one.detector ~= true and one.backend ~= aotllvm.BACKEND then
+            allLlvm = false
+        end
+    end
+    local command: string? = nil
+    local version: string? = aotllvm.version()
+    if not allLlvm then
+        command, version = aot.wasmToolchain(memo)
+        if command == nil then
+            return nil, version
+        end
     end
     local known = previous or {}
     local outputs: {string} = {}
@@ -1111,6 +1130,8 @@ function aot.compileWasm(
     local staged: {string} = {}
     local digests: {string} = {}
     local reused: integer = 0
+    local llvmDirty: {integer} = {}
+    local llvmStaged: {string} = {}
 
     report:at("aot:emit")
     for _, one in ipairs(emitted) do
@@ -1125,14 +1146,16 @@ function aot.compileWasm(
                 return nil, validation
             end
             local unit = "u" .. one.key:sub(1, 16)
-            local source = one.output:gsub("%.c$", ".side.c")
-            local bytes = (
-                artifacts as compile.Artifacts
-            ).c .. (
-                independent and wasmBridge.registrar((artifacts as compile.Artifacts).programs, one.tier)
-                or wasmEmitter.registrar((artifacts as compile.Artifacts).programs, unit, one.tier)
-            )
-            if fs.readFile(source) ~= bytes then
+            local viaLlvm = one.backend == aotllvm.BACKEND
+            local source = viaLlvm and one.output or one.output:gsub("%.c$", ".side.c")
+            local bytes = viaLlvm and (fs.readFile(one.output) or "")
+                or (
+                    artifacts as compile.Artifacts
+                ).c .. (
+                    independent and wasmBridge.registrar((artifacts as compile.Artifacts).programs, one.tier)
+                    or wasmEmitter.registrar((artifacts as compile.Artifacts).programs, unit, one.tier)
+                )
+            if not viaLlvm and fs.readFile(source) ~= bytes then
                 local wrote, writeErr = fs.writeFile(source, bytes)
                 if not wrote then
                     return nil, tostring(writeErr)
@@ -1148,7 +1171,8 @@ function aot.compileWasm(
                 #moduleKeys + 1
             ] = aot.wasmModuleKey(
                 bytes,
-                (version as string) .. (independent and ":independent-v2" or ""),
+                viaLlvm and aotllvm.version() .. ":independent-llvm"
+                or tostring(version) .. (independent and ":independent-v2" or ""),
                 one.tier,
                 extra
             )
@@ -1168,6 +1192,32 @@ function aot.compileWasm(
             reused = reused + 1
             one.wasm = (record as aot.WasmModule).output
             digests[position] = (record as aot.WasmModule).digest
+        elseif one.backend == aotllvm.BACKEND then
+            local stagedPath = one.output:gsub("%.ll$", ".tmp.wasm")
+            local object = one.output:gsub("%.ll$", ".o")
+            os.remove(stagedPath)
+            report:at("aot:compile")
+            local compileErr = aotllvm.compile(one.output, WASM_TRIPLE, one.tier, object)
+            if compileErr ~= nil then
+                return nil, compileErr
+            end
+            local exports: {string} = {}
+            for _, entry in ipairs((one.bridge as any).entries) do
+                exports[#exports + 1] = entry.call
+                for _, layout in ipairs(entry.layouts) do
+                    exports[#exports + 1] = layout.prefix .. "_size"
+                    for _, field in ipairs(layout.fields) do
+                        exports[#exports + 1] = layout.prefix .. "_offset_" .. field
+                        exports[#exports + 1] = layout.prefix .. "_size_" .. field
+                    end
+                end
+            end
+            local linkErr = aotllvm.linkWasm(object, stagedPath, exports)
+            if linkErr ~= nil then
+                return nil, linkErr
+            end
+            llvmDirty[#llvmDirty + 1] = position
+            llvmStaged[#llvmStaged + 1] = stagedPath
         else
             dirty[#dirty + 1] = position
             local argv: {
@@ -1246,17 +1296,31 @@ function aot.compileWasm(
 
             return nil, failure
         end
+    end
+    -- Both routes' staged modules are named the same way: by their digest.
+    local finished: {integer} = {}
+    local finishedStaged: {string} = {}
+    for position, index in ipairs(dirty) do
+        finished[#finished + 1] = index
+        finishedStaged[#finishedStaged + 1] = staged[position] as string
+    end
+    for position, index in ipairs(llvmDirty) do
+        finished[#finished + 1] = index
+        finishedStaged[#finishedStaged + 1] = llvmStaged[position] as string
+    end
+    do
         report:at("aot:emit")
-        for position, index in ipairs(dirty) do
+        for position, index in ipairs(finished) do
             local one = units[index] as aot.Emitted
-            local stagedPath = staged[position] as string
+            local stagedPath = finishedStaged[position] as string
             local wasm, readErr = fs.readFile(stagedPath)
             os.remove(stagedPath)
             if wasm == nil then
                 return nil, tostring(readErr)
             end
             local wasmDigest = hash.digest(wasm as string)
-            local output = one.output:gsub("%.c$", "." .. wasmDigest:sub(1, 16) .. ".wasm")
+            local stem = one.output:gsub("%.ll$", ""):gsub("%.c$", "")
+            local output = stem .. "." .. wasmDigest:sub(1, 16) .. ".wasm"
             if fs.readFile(output) ~= wasm then
                 local wrote, writeErr = fs.writeFile(output, wasm as string)
                 if not wrote then
@@ -1286,7 +1350,8 @@ function aot.compileWasm(
         toolchain = version as string,
         modules = modules,
         reused = reused,
-        compiled = #argvs
+        compiled = #argvs + #llvmDirty,
+        llvm = allLlvm
     ), nil
 end
 
@@ -2714,7 +2779,9 @@ function aot.apply(
             specializedBodies = specializedBodies,
             constSelection = constSelection,
             modules = sideModules.modules,
-            remembered = new aot.Remembered(
+            remembered = sideModules.llvm
+            and new aot.Remembered(command = "<llvm>", signature = "", version = aotllvm.version(), dialect = "llvm")
+            or new aot.Remembered(
                 command = aot.wasmCommand(),
                 signature = aot.toolSignature(aot.wasmCommand()),
                 version = sideModules.toolchain,

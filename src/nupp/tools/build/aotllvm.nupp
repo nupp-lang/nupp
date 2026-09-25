@@ -112,6 +112,12 @@ function aotllvm.emit(
             cpu[#cpu + 1] = program
         end
     end
+    -- A Wasm module's entries are numbered by position among all of the
+    -- unit's programs, as the bridge metadata the loaders read numbers them.
+    local bridges: {[string]: integer} = {}
+    for position, program in ipairs(programs) do
+        bridges[program.symbol] = position
+    end
     local ok, module = pcall(
         llvmProgram.module,
         cpu,
@@ -119,7 +125,8 @@ function aotllvm.emit(
         selected as llvmProfile.Profile,
         (aotllvm.facts()),
         sourceFile,
-        logical
+        logical,
+        bridges
     )
     if not ok then
         if llvmProgram.isUnsupported(module) then
@@ -263,6 +270,37 @@ function aotllvm.archive(triple: string, objects: {string}, output: string): str
     local installed, installErr = fs.installStaged(staged, output)
     if not installed then
         return tostring(installErr)
+    end
+
+    return nil
+end
+
+--- Links one Wasm object into the independent module `output` with lld:
+--- no entry point, exactly `exports` plus the allocator exported, and the
+--- memory the loaders expect -- 4 MiB to start, growable to 64 MiB.
+--- @return nil, or what went wrong
+function aotllvm.linkWasm(object: string, output: string, exports: {string}): string?
+    local argv: {
+        string
+    } = {
+        "wasm-ld",
+        "--no-entry",
+        "--initial-memory=4194304",
+        "--max-memory=67108864",
+        "--export=malloc",
+        "--export=free",
+    }
+    for _, name in ipairs(exports) do
+        argv[#argv + 1] = "--export=" .. name
+    end
+    argv[#argv + 1] = "-o"
+    argv[#argv + 1] = output
+    argv[#argv + 1] = object
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the Wasm module failed: " .. tostring(err)
     end
 
     return nil
