@@ -1,0 +1,113 @@
+name: Pinned LLVM
+description: >-
+  The pinned LLVM build (libraries, llvm-config, and the LLVM and lld headers
+  the code generator includes), exported as NUPP_LLVM_PREFIX. Taken from the
+  Actions cache, else from the artifact a previous run stored, else built from
+  source and stored as that artifact. The cache is a fast path that eviction
+  under the repository's 10 GB cap can empty; the artifact is kept for 90 days
+  whatever else is cached, so LLVM is built once per pin and platform, not once
+  per eviction.
+
+inputs:
+  build:
+    description: Build LLVM from source when neither the cache nor an artifact has it.
+    default: 'true'
+
+outputs:
+  available:
+    description: Whether the pinned LLVM is in place.
+    value: ${{ steps.prefix.outputs.available }}
+
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: |
+        echo "name=nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/toolchain.pins') }}-v2" \
+          >> "$GITHUB_OUTPUT"
+
+    - id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          .nupp-cache/toolchain/llvm
+          .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+          .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+        key: ${{ steps.key.outputs.name }}
+
+    - id: artifact
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=${{ steps.key.outputs.name }}&per_page=20" \
+          --jq '[.artifacts[] | select(.expired == false)][0].id // empty')
+        if [ -n "$id" ]; then
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/llvm.zip"
+          mkdir -p .nupp-cache/toolchain
+          unzip -q -o "$RUNNER_TEMP/llvm.zip" -d .nupp-cache/toolchain
+          rm -f "$RUNNER_TEMP/llvm.zip"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - id: built
+      if: >-
+        steps.cache.outputs.cache-hit != 'true' && steps.artifact.outputs.found != 'true'
+        && inputs.build == 'true'
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = macOS ]; then
+          brew install ninja
+        elif [ "$RUNNER_OS" = Windows ]; then
+          command -v ninja || choco install ninja --no-progress
+        else
+          sudo apt-get update && sudo apt-get install -y ninja-build
+        fi
+        ./scripts/toolchain llvm
+        # Only the libraries, llvm-config, and the headers the glue includes
+        # are needed afterwards.
+        find .nupp-cache/toolchain/llvm -name '*.o' -delete
+        for tree in .nupp-cache/toolchain/sources/llvm-project-*; do
+          find "$tree" -mindepth 1 -maxdepth 1 ! -name llvm ! -name lld -exec rm -rf {} +
+          find "$tree/llvm" "$tree/lld" -mindepth 1 -maxdepth 1 ! -name include -exec rm -rf {} +
+        done
+        echo "done=true" >> "$GITHUB_OUTPUT"
+
+    - if: steps.built.outputs.done == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.key.outputs.name }}
+        retention-days: 90
+        path: |
+          .nupp-cache/toolchain/llvm
+          .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+          .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+
+    - if: steps.built.outputs.done == 'true' || steps.artifact.outputs.found == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          .nupp-cache/toolchain/llvm
+          .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+          .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+        key: ${{ steps.key.outputs.name }}
+
+    # The tree is used as it is, whatever its directory's key: that key
+    # includes the C compiler's version, and a runner image update would
+    # otherwise rebuild an LLVM nothing about has changed.
+    - id: prefix
+      shell: bash
+      run: |
+        tree=$(ls -d .nupp-cache/toolchain/llvm/*/ 2>/dev/null | head -n 1)
+        if [ -z "$tree" ] || [ ! -f "$tree/.complete" ]; then
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # An artifact's zip keeps no permissions.
+        chmod +x "$tree"bin/* 2>/dev/null || true
+        prefix=$(cd "$tree" && pwd)
+        if command -v cygpath >/dev/null 2>&1; then prefix=$(cygpath -m "$prefix"); fi
+        echo "NUPP_LLVM_PREFIX=$prefix" >> "$GITHUB_ENV"
+        echo "available=true" >> "$GITHUB_OUTPUT"

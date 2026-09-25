@@ -6,6 +6,10 @@ name: LLVM gate B
 # `[llvm ci]`, and writes its tables to the job summary; a regression is
 # judged across runs, not from one. AVX-512 is measured only where the runner
 # has it, and a runner without it fails that job rather than passing it.
+permissions:
+  contents: read
+  actions: read
+
 on:
   workflow_dispatch:
   push:
@@ -54,17 +58,8 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Restore the pinned LLVM
-        uses: actions/cache/restore@v4
-        with:
-          fail-on-cache-miss: true
-          path: |
-            .nupp-cache/toolchain/llvm
-            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
-            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
-          key: >-
-            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}-v1
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
 
       - name: Provision and bootstrap
         shell: bash

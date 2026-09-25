@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build-luajit-browser-runtime:
@@ -162,29 +163,9 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      # The nupp binary links the pinned LLVM (the AOT code generator). The LLVM
-      # backend workflow keeps this cache warm on main; a miss builds it here.
-      - name: Restore the pinned LLVM
-        id: llvm-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .nupp-cache/toolchain/llvm
-            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
-            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
-          key: >-
-            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}-v1
-
-      - name: Install the LLVM build tools
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = macOS ]; then
-            brew install ninja
-          else
-            sudo apt-get update && sudo apt-get install -y ninja-build
-          fi
+      # The nupp binary links the pinned LLVM (the AOT code generator).
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
 
       # Compiling Nupp evaluates `@comptime` code, and the compiler evaluates that by
       # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
@@ -261,10 +242,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s \
             -k "$keychain_password" "$keychain"
           security list-keychain -d user -s "$keychain" login.keychain-db
-
-      - name: Build the pinned LLVM
-        shell: bash
-        run: ./scripts/toolchain llvm
 
       - name: Build Nupp
         env:

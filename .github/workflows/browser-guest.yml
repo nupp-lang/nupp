@@ -22,6 +22,7 @@ on:
   workflow_call:
 permissions:
   contents: read
+  actions: read
 jobs:
   guest:
     runs-on: ubuntu-24.04
@@ -59,20 +60,14 @@ jobs:
             !.nupp-cache/toolchain/sources/llvm-project-*
           key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
           restore-keys: browser-guest-${{ runner.os }}-
-      # Built by the LLVM backend workflow. With it the compiler links the code
-      # generator, and the packaged applications are built a second time
-      # through LLVM below.
-      - name: Restore the pinned LLVM
-        id: llvm-cache
-        uses: actions/cache/restore@v4
+      # Stored by the LLVM backend workflow; never built here. With it the
+      # compiler links the code generator, and the packaged applications are
+      # built a second time through LLVM below.
+      - name: Fetch the pinned LLVM
+        id: llvm
+        uses: ./.github/actions/pinned-llvm
         with:
-          path: |
-            .nupp-cache/toolchain/llvm
-            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
-            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
-          key: >-
-            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}-v1
+          build: 'false'
       - name: Build the pinned guest and matching sources
         run: |
           guest=$(./scripts/toolchain browser-guest)
@@ -80,7 +75,7 @@ jobs:
           cp -R "$guest/." build/browser-guest/
       - name: Build the LuaJIT compiler and native response oracle
         env:
-          NUPP_REQUIRE_CODEGEN: ${{ steps.llvm-cache.outputs.cache-hit == 'true' && '1' || '' }}
+          NUPP_REQUIRE_CODEGEN: ${{ steps.llvm.outputs.available == 'true' && '1' || '' }}
         run: |
           ./scripts/toolchain --all
           ./bin/nupp build
@@ -129,7 +124,7 @@ jobs:
       # the guest's i686 AOT linked with its own runtime. Emscripten and the C
       # compiler are replaced by commands that fail, so reaching either fails.
       - name: Verify packaged AOT through LLVM with no Emscripten or C compiler
-        if: steps.llvm-cache.outputs.cache-hit == 'true'
+        if: steps.llvm.outputs.available == 'true'
         env:
           NUPP_AOT_BACKEND: llvm
           NUPP_WASM_CC: 'false'
@@ -146,7 +141,7 @@ jobs:
           trap 'kill "$server"' EXIT
           node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8114/ "$consumer/browser-matrix.json"
       - name: Say the LLVM route was not exercised
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        if: steps.llvm.outputs.available != 'true'
         run: echo "::warning::No pinned LLVM is cached for this branch yet; the LLVM packaging step did not run"
       - uses: actions/upload-artifact@v4
         if: always()

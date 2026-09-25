@@ -2,9 +2,8 @@ name: LLVM backend
 
 # The AOT suites through the LLVM backend (`NUPP_AOT_BACKEND=llvm`), which the
 # compiler matrix does not select until the C lowering is gone. The pinned LLVM
-# is built from source once per pin and platform (about an hour) and kept in its
-# own cache, pruned to what linking the code generator needs: the build tree's
-# libraries and tools, and the source tree's LLVM and lld headers.
+# comes from .github/actions/pinned-llvm, which builds it once per pin and
+# platform and keeps it.
 
 # Each run costs hours of runner time, most of it building LLVM when its cache
 # was evicted, so a push runs it only when its commit message says
@@ -12,6 +11,11 @@ name: LLVM backend
 on:
   push:
   workflow_dispatch:
+
+# Reading and storing the pinned LLVM artifact.
+permissions:
+  contents: read
+  actions: read
 
 # Queued rather than cancelled: a cancelled cold run never saves the LLVM it
 # spent an hour building. GitHub keeps only the newest pending run.
@@ -108,32 +112,6 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      # After the toolchain, so this cache's LLVM wins over whatever an older
-      # toolchain entry carried.
-      - name: Restore the pinned LLVM
-        id: llvm-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .nupp-cache/toolchain/llvm
-            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
-            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
-          key: >-
-            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}-v1
-
-      - name: Install the LLVM build tools
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = macOS ]; then
-            brew install ninja
-          elif [ "$RUNNER_OS" = Windows ]; then
-            command -v ninja || choco install ninja --no-progress
-          else
-            sudo apt-get update && sudo apt-get install -y ninja-build
-          fi
-
       - name: Install the ABI-compatible Windows Rust toolchain
         if: runner.os == 'Windows'
         shell: bash
@@ -141,37 +119,14 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
+      # After the toolchain, so this LLVM wins over whatever an older
+      # toolchain cache entry carried.
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
+
       - name: Provision the pinned toolchain
         shell: bash
         run: ./scripts/toolchain --all
-
-      - name: Build the pinned LLVM
-        shell: bash
-        run: ./scripts/toolchain llvm
-
-      # Only the libraries, the tools the build reads (llvm-config) and the
-      # headers the code generator's glue includes are needed afterwards.
-      - name: Prune the LLVM tree
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          find .nupp-cache/toolchain/llvm -name '*.o' -delete
-          for tree in .nupp-cache/toolchain/sources/llvm-project-*; do
-            find "$tree" -mindepth 1 -maxdepth 1 ! -name llvm ! -name lld -exec rm -rf {} +
-            find "$tree/llvm" "$tree/lld" -mindepth 1 -maxdepth 1 ! -name include -exec rm -rf {} +
-          done
-
-      - name: Save the pinned LLVM
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            .nupp-cache/toolchain/llvm
-            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
-            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
-          key: >-
-            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}-v1
 
       - name: Bootstrap the compiler
         shell: bash
