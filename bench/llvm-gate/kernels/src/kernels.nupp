@@ -1,0 +1,230 @@
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+local array = require("nupp.mem.array")
+
+@aot
+local function map(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    scale: number,
+    bias: number
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for i = 1, #input do
+        output[i] = input[i] * scale + bias
+    end
+end
+
+@aot
+local function explicitMap(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    scale: number,
+    bias: number
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    local species = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        species:store(output, cursor + 1, species:load(input, cursor + 1) * scale + bias)
+        cursor = cursor + species.lanes
+    end
+    if cursor < #input then
+        local active = species:tail(#input - cursor)
+        species:store(output, cursor + 1, species:load(input, cursor + 1, active) * scale + bias, active)
+    end
+end
+
+@aot
+local function refine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for i = 1, #input do
+        local value = input[i]
+        local rounds = 0
+        while value > 1 and rounds < 32 do
+            value = value * 0.5
+            rounds = rounds + 1
+        end
+        output[i] = value + rounds
+    end
+end
+
+@aot
+local function explicitRefine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    local species = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        local value = species:load(input, cursor + 1)
+        local rounds = species:splat(0.0)
+        local live = value > 1
+        while live:any() do
+            value = live:select(value * 0.5, value)
+            rounds = live:select(rounds + 1, rounds)
+            live = (value > 1) & (rounds < 32)
+        end
+        species:store(output, cursor + 1, value + rounds)
+        cursor = cursor + species.lanes
+    end
+    if cursor < #input then
+        local active = species:tail(#input - cursor)
+        local value = species:load(input, cursor + 1, active)
+        local rounds = species:splat(0.0)
+        local live = active & (value > 1)
+        while live:any() do
+            value = live:select(value * 0.5, value)
+            rounds = live:select(rounds + 1, rounds)
+            live = active & (value > 1) & (rounds < 32)
+        end
+        species:store(output, cursor + 1, value + rounds, active)
+    end
+end
+
+@aot
+local function ordered(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local result = simd.reducer.orderedDot(0.0)
+    for i = 1, #left do
+        result:add(left[i], right[i])
+    end
+
+    return result:value()
+end
+
+@aot
+local function explicitOrdered(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local species = assert(simd.species(array.number, 4))
+    local result = simd.reducer.orderedDot(0.0)
+    do
+        local cursor: uint32 = 0
+        while cursor + species.lanes <= #left and cursor + species.lanes <= #right do
+            result:add(species:load(left, cursor + 1), species:load(right, cursor + 1), species:mask(true))
+            cursor = cursor + species.lanes
+        end
+        if cursor < #left then
+            local active = species:tail(#left - cursor)
+            result:add(species:load(left, cursor + 1, active), species:load(right, cursor + 1, active), active)
+        end
+    end
+
+    return result:value()
+end
+
+@aot
+local function pairwise(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local result = simd.reducer.pairwiseDot(0.0)
+    for i = 1, #left do
+        result:add(left[i], right[i])
+    end
+
+    return result:value()
+end
+
+@aot
+local function explicitPairwise(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local species = assert(simd.species(array.number, 4))
+    local result = simd.reducer.pairwiseDot(0.0)
+    do
+        local cursor: uint32 = 0
+        while cursor + species.lanes <= #left and cursor + species.lanes <= #right do
+            result:add(species:load(left, cursor + 1), species:load(right, cursor + 1), species:mask(true))
+            cursor = cursor + species.lanes
+        end
+        if cursor < #left then
+            local active = species:tail(#left - cursor)
+            result:add(species:load(left, cursor + 1, active), species:load(right, cursor + 1, active), active)
+        end
+    end
+
+    return result:value()
+end
+
+@aot
+local function algebraic(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local result = simd.reducer.algebraicDot(0.0)
+    for i = 1, #left do
+        result:add(left[i], right[i])
+    end
+
+    return result:value()
+end
+
+@aot
+local function explicitAlgebraic(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local species = assert(simd.species(array.number, 4))
+    local accumulator = species:splat(0.0)
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #left and cursor + species.lanes <= #right do
+        accumulator = accumulator + species:load(left, cursor + 1) * species:load(right, cursor + 1)
+        cursor = cursor + species.lanes
+    end
+    if cursor < #left then
+        local active = species:tail(#left - cursor)
+        accumulator = accumulator + species:load(left, cursor + 1, active) * species:load(right, cursor + 1, active)
+    end
+
+    return simd.horizontal.algebraicSum(accumulator)
+end
+
+@aot
+local function crossLane(exclusive output: span.WriteSpan<int32>, borrows input: span.Span<int32>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    local s = assert(simd.species(array.int32))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local value = s:load(input, cursor + 1):reverse():prefixSumOrdered()
+        s:store(output, cursor + 1, value:compress(value > 0))
+        cursor = cursor + s.lanes
+    end
+    local rest = s:tail(#input - cursor)
+    local value = s:load(input, cursor + 1, rest):reverse():prefixSumOrdered()
+    s:store(output, cursor + 1, value:compress(value > 0), rest)
+end
+
+@aot
+local function crossWidth(): uint32
+    local s = assert(simd.species(array.int32))
+    return s.lanes
+end
+
+return {
+    map = map,
+    explicitMap = explicitMap,
+    refine = refine,
+    explicitRefine = explicitRefine,
+    ordered = ordered,
+    explicitOrdered = explicitOrdered,
+    pairwise = pairwise,
+    explicitPairwise = explicitPairwise,
+    algebraic = algebraic,
+    explicitAlgebraic = explicitAlgebraic,
+    crossLane = crossLane,
+    crossWidth = crossWidth
+}

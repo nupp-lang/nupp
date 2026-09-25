@@ -1,0 +1,87 @@
+name: LLVM gate B
+
+# Gate B: the LLVM backend against the C lowering on x86-64 hardware, through
+# both gcc and clang, tier by tier. Timings are noisy on shared runners, so this
+# runs on request and writes its tables to the job summary; a regression is
+# judged across runs, not from one. AVX-512 is measured only where the runner
+# has it, and a runner without it fails that job rather than passing it.
+on:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    name: x86-64 ${{ matrix.tiers }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        tiers: ['baseline avx2', 'avx512f']
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Require AVX-512
+        if: matrix.tiers == 'avx512f'
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          grep -qw avx512f /proc/cpuinfo || { echo "::error::this runner has no AVX-512"; exit 1; }
+
+      - name: Restore the pinned build tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the pinned LLVM
+        uses: actions/cache/restore@v4
+        with:
+          fail-on-cache-miss: true
+          path: |
+            .nupp-cache/toolchain/llvm
+            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+          key: >-
+            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}-v1
+
+      - name: Provision and bootstrap
+        shell: bash
+        run: |
+          ./scripts/toolchain --all
+          ./bin/nupp build
+          ./bin/nupp build --target bootstrapCompiler
+
+      - name: Compare the kernels
+        shell: bash
+        run: |
+          set -o pipefail
+          export PATH="$(./scripts/toolchain luajit)/bin:$PATH"
+          grep -m1 'model name' /proc/cpuinfo | tee -a "$GITHUB_STEP_SUMMARY"
+          {
+            echo '```'
+            bench/llvm-gate/kernels.sh "${{ matrix.tiers }}" "gcc clang" 15
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare the builders
+        if: matrix.tiers != 'avx512f'
+        shell: bash
+        run: |
+          set -o pipefail
+          export PATH="$(./scripts/toolchain luajit)/bin:$PATH"
+          { echo '```'; bench/llvm-gate/builders.sh 3; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
