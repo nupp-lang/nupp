@@ -3313,12 +3313,21 @@ function M.asmJsonCountsWhatItLists()
     local asm = decoded.asm
     assert(asm.toolchain.version ~= "" and asm.toolchain.command ~= "", "the compiler that answered is named: " .. out)
     local flags = table.concat(asm.flags, " ")
-    assert(flags:find("-O3", 1, true), "the flags are the ones an artifact is built with: " .. flags)
-    -- The two that make every exact floating differential mean anything. Losing
-    -- either one is visible as a low bit that moved in some other suite, a long
-    -- way from the line that caused it, so it is named here as well.
-    for _, flag in ipairs({"-ffp-contract=off", "-fno-fast-math"}) do
-        assert(flags:find(flag, 1, true), "the numeric contract is on the command line: " .. flags)
+    if asm.toolchain.command == "<llvm>" then
+        -- The LLVM route's options are the code generator's, and its numeric
+        -- contract is in the IR -- no instruction carries a fast-math flag the
+        -- source did not relax -- so none of them may loosen it.
+        assert(flags:find("opt=3", 1, true), "the flags are the ones an artifact is built with: " .. flags)
+        assert(not flags:lower():find("fast", 1, true), "no option relaxes the numeric contract: " .. flags)
+    else
+        assert(flags:find("-O3", 1, true), "the flags are the ones an artifact is built with: " .. flags)
+        -- The two that make every exact floating differential mean anything.
+        -- Losing either one is visible as a low bit that moved in some other
+        -- suite, a long way from the line that caused it, so it is named here
+        -- as well.
+        for _, flag in ipairs({"-ffp-contract=off", "-fno-fast-math"}) do
+            assert(flags:find(flag, 1, true), "the numeric contract is on the command line: " .. flags)
+        end
     end
 
     local kernel = nil
