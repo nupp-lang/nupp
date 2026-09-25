@@ -291,11 +291,15 @@ function builder.start(f: builder.Function, label: string): nil
     f.terminated = false
 end
 
---- A stack slot in the entry block, returned as a pointer.
+--- A stack slot in the entry block, returned as a pointer. A slot holding a
+--- vector takes the vector's own alignment, whatever `align` says: a load or
+--- store that names none assumes it, and a 256- or 512-bit one at a lesser
+--- address faults.
 function builder.alloca(f: builder.Function, type: string, align: integer?): string
     f.serial = f.serial + 1
     local name = "%slot" .. tostring(f.serial)
-    f.allocas[#f.allocas + 1] = "  " .. name .. " = alloca " .. type .. ", align " .. tostring(align or 8)
+    local aligned = type:find("<", 1, true) ~= nil and "" or ", align " .. tostring(align or 8)
+    f.allocas[#f.allocas + 1] = "  " .. name .. " = alloca " .. type .. aligned
 
     return name
 end
