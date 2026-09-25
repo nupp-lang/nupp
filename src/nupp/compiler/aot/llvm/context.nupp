@@ -268,9 +268,11 @@ end
 --- the optimizer cannot see what produced it. A lane-wide mask needs this:
 --- otherwise LLVM folds the widening back through the loop's phi and
 --- carries `<N x i1>` again, as the C lowering's `keep_mask` also found.
+--- Not on SSE2, which has no 64-bit lane compare: there the pinned lanes
+--- cost an emulated equality every read, more than the narrowing does.
 function context.opaque(ctx: context.Context, value: string, vector: string): string
     local register = ctx.vectorRegister
-    if register == "" then
+    if register == "" or ctx.tier == "baseline" then
         return value
     end
     local lanes, element = vector:match("^<(%d+) x i(%d+)>$")
@@ -335,7 +337,11 @@ function context.loadSlot(ctx: context.Context, slot: context.Slot): string
         return loaded
     end
 
-    return builder.value(ctx.f, ("icmp ne %s %s, zeroinitializer"):format(kept, loaded))
+    -- Every lane is all ones or all zeros, so its sign is the lane: a signed
+    -- compare against zero is one instruction on every vector unit, where
+    -- `ne` is an equality and a complement.
+
+    return builder.value(ctx.f, ("icmp slt %s %s, zeroinitializer"):format(kept, loaded))
 end
 
 --- Writes a local's value (of its LLVM type) to its slot.
