@@ -221,19 +221,23 @@ jobs:
         env:
           NUPP_AOT_BACKEND: llvm
         run: |
-          sudo apt-get install -y gdb > /dev/null
+          set +e
+          sudo apt-get install -y gdb > /dev/null 2>&1
           . ./scripts/luajit.sh
           select_luajit "$PWD"
+          ulimit -c 0
           for name in $(sed -n 's/^function M\.\([A-Za-z0-9_]*\)(.*/\1/p' tests/aotbuildtest.lua); do
-            if ! timeout 600 luajit tests/run.lua --case="aotbuildtest/$name" > /tmp/case.log 2>&1; then
-              if grep -q 'Segmentation\|exit 139\|core dumped' /tmp/case.log || [ "$?" -ge 128 ]; then
-                echo "::group::crash in $name"
-                tail -20 /tmp/case.log
-                gdb -batch -ex run -ex bt --args luajit tests/run.lua --case="aotbuildtest/$name" 2>&1 | tail -40
-                echo "::endgroup::"
-              fi
+            timeout 600 luajit tests/run.lua --case="aotbuildtest/$name" > /tmp/case.log 2>&1
+            status=$?
+            if [ "$status" -ge 128 ] && [ "$status" -ne 124 ]; then
+              echo "::group::crash in $name (status $status)"
+              tail -20 /tmp/case.log
+              gdb -batch -ex run -ex bt -ex 'info sharedlibrary' \
+                --args luajit tests/run.lua --case="aotbuildtest/$name" 2>&1 | tail -80
+              echo "::endgroup::"
             fi
           done
+          exit 1
 
       - name: Run the standalone and static suites through LLVM
         env:
