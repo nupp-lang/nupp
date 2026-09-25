@@ -560,6 +560,35 @@ than enough to generalize: a rule added from a single measurement would fail
 builds for every program whose only fault was resembling that one.
 :::
 
+## Trace capacity limits
+
+LuaJIT limits how much compiled code a process keeps, and reaching a limit
+throws all of it away: every trace is flushed and the program runs interpreted
+until it earns them back. Every process Nupp starts, whether the compiler, a
+`nupp run` program, or a stamped executable, raises those limits before its
+first trace:
+
+| Limit | LuaJIT's default | Nupp's |
+| --- | --- | --- |
+| `maxtrace`, live traces | 1,000 | 20,000 |
+| `maxside`, side traces per root trace | 100 | 1,000 |
+| `sizemcode`, the machine-code area | 64 KB | 16 MB |
+| `maxmcode`, all machine code | 2 MB | 16 MB |
+
+The area matters most on arm64 macOS. A trace has to stay within branch range of
+the interpreter, and once the heap has grown, the operating system places a
+second area out of range. With the default 64 KB area, a process flushed each
+time a couple of hundred traces filled it. Nupp reserves one large area while the
+process is still small. On a cold `nupp check` of the compiler's own sources,
+this took the run from 291 flushes to none and cut its time by about a fifth.
+
+A loop reached with more than 100 different closure prototypes or shapes used
+to fall back to the interpreter for the rest. At 1,000 it compiles them all.
+
+`NUPP_JIT_DEFAULT=1` restores LuaJIT's own limits and thresholds, and
+`bench/jit-limits.lua` measures the difference. A program can still call
+`jit.opt.start` itself; its own settings apply from then on.
+
 ## Large-application workflow
 
 Use static checking to keep known cliffs from spreading through checked call

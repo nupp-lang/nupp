@@ -19,6 +19,10 @@ if package.config:sub(1, 1) == "\\" then
     _setmode(2, BINARY)
 end
 
+-- Before anything is traced, because the size of the machine-code area is fixed
+-- when the first trace allocates it.
+require("nupp.tools.jitlimits").apply()
+
 -- Before anything else is required, because what it does is decide how the rest
 -- of this compiler gets loaded. It is a cache and answers nothing when it has
 -- nothing to answer with, so a checkout without one, or with a stale one, simply

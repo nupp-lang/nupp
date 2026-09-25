@@ -965,4 +965,59 @@ function M.theTuningIsOverridable()
     )
 end
 
+-- Reaching a capacity limit flushes every trace whatever the program is, so the entry
+-- raises them for every command and the native host for every state it makes: one
+-- list, written twice, because the host sets it before any Lua runs.
+local jitlimits = require("nupp.tools.jitlimits")
+
+local function limitsApplied(env)
+    local applied = {}
+    local realStart, realFlush, realGetenv = jit.opt.start, jit.flush, os.getenv
+    jit.opt.start = function(...)
+        applied[#applied + 1] = table.concat({...}, ",")
+    end
+    jit.flush = function()
+        applied[#applied + 1] = "flush"
+    end
+    os.getenv = function(name)
+        if name == "NUPP_JIT_DEFAULT" or name == "NUPP_JIT_LIMITS" then
+            return (env or {})[name]
+        end
+        return realGetenv(name)
+    end
+    local ok, result = pcall(jitlimits.apply)
+    jit.opt.start, jit.flush, os.getenv = realStart, realFlush, realGetenv
+    assert(ok, tostring(result))
+
+    return result, table.concat(applied, " ")
+end
+
+function M.theEntryRaisesLuaJITsCapacityLimits()
+    local applied, calls = limitsApplied()
+    assert(applied, "the limits apply")
+    local want = table.concat(jitlimits.FLAGS, ",") .. " flush"
+    assert(calls == want, ("the limits, then a flush so the area is made at the new size\n  want: %q\n  got:  %q"):format(want, calls))
+
+    local kept, none = limitsApplied({NUPP_JIT_DEFAULT = "1"})
+    assert(not kept and none == "", "NUPP_JIT_DEFAULT keeps LuaJIT's own limits: " .. none)
+
+    local swept, sweep = limitsApplied({NUPP_JIT_LIMITS = "maxtrace=4000,sizemcode=1024"})
+    assert(swept and sweep == "maxtrace=4000,sizemcode=1024 flush", "NUPP_JIT_LIMITS is how a sweep moves them: " .. sweep)
+    local empty, nothing = limitsApplied({NUPP_JIT_LIMITS = ""})
+    assert(not empty and nothing == "", "an empty NUPP_JIT_LIMITS applies none: " .. nothing)
+end
+
+function M.theNativeHostRaisesTheSameLimits()
+    local shim = assert(io.open(HERE .. "/../native/crates/host/c/lua_shim.c", "rb"))
+    local text = shim:read("*a")
+    shim:close()
+    local list = assert(text:match("jit_limits%[%] = {(.-)}"), "the host carries a limit list")
+    local flags = {}
+    for flag in list:gmatch('"([^"]+)"') do
+        flags[#flags + 1] = flag
+    end
+    local want, got = table.concat(jitlimits.FLAGS, ","), table.concat(flags, ",")
+    assert(got == want, ("the host and the entry raise the same limits\n  want: %q\n  got:  %q"):format(want, got))
+end
+
 return M

@@ -1,0 +1,81 @@
+module nupp.tools.jitlimits
+
+--[[
+LuaJIT's capacity limits, raised for the whole process before anything is traced.
+
+These are not the hotness thresholds `nupp.tools.cli` tunes per command. Those
+decide which traces are worth compiling and depend on the program's shape. These
+decide how much compiled code the VM may keep, and reaching one of them throws
+all of it away: running out of trace numbers or of machine code flushes every
+trace, and the program is interpreted again until it re-earns them. Nothing is
+worth that, whatever the program is, so every command and every host applies
+them.
+
+Three limits did it, each measured on a cold `nupp check` of this repository:
+
+* `sizemcode`. A trace must stay within branch range of the interpreter, which
+  on arm64 is 128 MB. LuaJIT asks for each new machine-code area near the last
+  one, but macOS ignores the placement hint and answers with the next free
+  address, and once the heap has grown that is out of range. So the second area
+  never comes, and each time the first fills -- 64 KB by default, a couple of
+  hundred traces -- everything is flushed. One 16 MB area is reserved while the
+  process is small enough for it to land in range.
+* `maxtrace`. The default of 1000 live traces flushed the main compiler process
+  ninety-one times on its own.
+* `maxside`. A root trace takes at most 100 side traces, and a loop reached with
+  more shapes than that falls back to the interpreter for the rest: a shared
+  loop called with 150 closure prototypes ran 22x slower than with 90. At 1000
+  it compiles them all.
+
+Together they took the cold check from 2,737 flushes and 251,008 compiled traces
+to none and about 14,600, and from 21-25 s to 18.3-18.8 s. `bench/jit-limits.lua`
+repeats the measurement. A larger area buys nothing more (32 MB measured the
+same), and LuaJIT reprotects the whole area around each trace, so a much larger
+one costs compile time.
+]]
+
+local jitlimits = {}
+
+--- The limits, each as its own `jit.opt.start` argument.
+---
+--- The native host applies the same list to every state it creates, in
+--- `native/crates/host/c/lua_shim.c`; `clitest` holds the two to one account.
+jitlimits.FLAGS = {"maxtrace=20000", "maxside=1000", "sizemcode=16384", "maxmcode=16384"}
+
+--- Raises the limits, unless `NUPP_JIT_DEFAULT` asks for LuaJIT's own.
+---
+--- `NUPP_JIT_LIMITS` replaces them with a comma-separated flag list, empty for
+--- none, which is how `bench/jit-limits.lua` compares settings without rebuilding
+--- the compiler between them.
+---
+--- An area already allocated keeps the size it was made with, so whatever was
+--- traced before this is flushed and the next trace allocates at the new size.
+--- Called first thing, that is next to nothing.
+---
+--- @return whether any limit was applied
+function jitlimits.apply(): boolean
+    if os.getenv("NUPP_JIT_DEFAULT") then
+        return false
+    end
+    local flags = jitlimits.FLAGS
+    local override = os.getenv("NUPP_JIT_LIMITS")
+    if override then
+        flags = {}
+        for flag in override:gmatch("[^,]+") do
+            flags[#flags + 1] = flag
+        end
+    end
+    if #flags == 0 then
+        return false
+    end
+    -- A LuaJIT built without the JIT, or a future one that renames a flag, is not a
+    -- reason to refuse to run.
+    if not pcall(jit.opt.start, unpack(flags)) then
+        return false
+    end
+    jit.flush()
+
+    return true
+end
+
+export = jitlimits

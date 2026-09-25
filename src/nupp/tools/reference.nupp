@@ -3038,6 +3038,12 @@ Read the leaf suffix before guessing: `_[N]` is native, `_[I]` interpreted,
 hot `_[I]` frames. A shorter native stack can be normal because LuaJIT inlines
 compiled calls.
 
+Every process Nupp starts raises LuaJIT's capacity limits before its first trace:
+20,000 live traces, 1,000 side traces per root, and one 16 MB machine-code area.
+Reaching a limit flushes every trace, so `[TRACE flush]` in the middle of a
+`-jv` log means the program is outgrowing them; the one at startup is where they
+are applied. `NUPP_JIT_DEFAULT=1` restores LuaJIT's own limits for comparison.
+
 Use `nupp.profile.zone` around phases such as `frame/physics` rather than around
 each loop iteration. Recognized `zone.push` and discarded `zone.pop` statements
 lower inline. Zones are optional attribution: trace checking and abort

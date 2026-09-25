@@ -169,7 +169,9 @@ local function warnStaleDeclarations(): nil
 end
 
 --- Runs one command line and returns the process exit status.
--- Commands that keep LuaJIT's own thresholds.
+-- Commands that keep LuaJIT's own thresholds. Every command, these included, runs with
+-- the raised capacity limits `nupp.tools.main` applies first: those are not about the
+-- program's shape (`nupp.tools.jitlimits`).
 --
 -- `lsp` is resident: its traces amortize across every edit of a session, so refusing
 -- side traces would give up what it spends the first file paying for. `run` and `task`
@@ -191,9 +193,9 @@ const JIT_DEFAULT_COMMANDS = {bench = true, lsp = true, run = true, task = true}
 -- win -- because eventually the refused traces are ones that would have paid. Re-run
 -- `bench/jit-thresholds.lua` on a quiet machine before moving these.
 --
--- `NUPP_JIT_DEFAULT` turns it off and `NUPP_JIT_TUNE` replaces it with a
--- comma-separated flag list, which is how `bench/jit-thresholds.lua` compares settings
--- without rebuilding the compiler between them.
+-- `NUPP_JIT_DEFAULT` turns it off, along with the capacity limits, and `NUPP_JIT_TUNE`
+-- replaces it with a comma-separated flag list, which is how `bench/jit-thresholds.lua`
+-- compares settings without rebuilding the compiler between them.
 local function tuneJitFor(name: string)
     if JIT_DEFAULT_COMMANDS[name] or os.getenv("NUPP_JIT_DEFAULT") then
         return

@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <lauxlib.h>
@@ -214,8 +215,39 @@ static void capture_error(lua_State *state, ProtectedCall *call, int status) {
     }
 }
 
+/* LuaJIT's capacity limits, raised before the state traces anything, because
+ * the size of the machine-code area is fixed when the first trace allocates it.
+ * This is nupp.tools.jitlimits.FLAGS, which says why each is raised; clitest
+ * holds the two lists to one account. NUPP_JIT_DEFAULT keeps LuaJIT's own. */
+static const char *const jit_limits[] = {
+    "maxtrace=20000", "maxside=1000", "sizemcode=16384", "maxmcode=16384",
+};
+
+static void raise_jit_limits(lua_State *state) {
+    size_t index;
+    int top = lua_gettop(state);
+    if (getenv("NUPP_JIT_DEFAULT") != NULL) {
+        return;
+    }
+    lua_getfield(state, LUA_GLOBALSINDEX, "jit");
+    if (lua_istable(state, -1)) {
+        lua_getfield(state, -1, "opt");
+        if (lua_istable(state, -1)) {
+            lua_getfield(state, -1, "start");
+            for (index = 0; index < sizeof jit_limits / sizeof jit_limits[0]; index++) {
+                lua_pushstring(state, jit_limits[index]);
+            }
+            /* A LuaJIT built without the JIT refuses the flags; that is not a
+             * reason to refuse to run. */
+            (void)lua_pcall(state, (int)(sizeof jit_limits / sizeof jit_limits[0]), 0, 0);
+        }
+    }
+    lua_settop(state, top);
+}
+
 static int open_libraries(lua_State *state) {
     luaL_openlibs(state);
+    raise_jit_limits(state);
     return 0;
 }
 
