@@ -218,7 +218,7 @@ jobs:
             nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
             'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
-            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
+            'native/**/Cargo.toml') }}
           restore-keys: |
             nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
 

@@ -354,8 +354,7 @@ jobs:
           key: >-
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
-            'native/**/*.h') }}
+            'native/**/Cargo.toml') }}
           restore-keys: |
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-
 
@@ -899,8 +898,7 @@ jobs:
           key: >-
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
-            'native/**/*.h') }}
+            'native/**/Cargo.toml') }}
           restore-keys: |
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-
 
@@ -933,8 +931,7 @@ jobs:
           key: >-
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
-            'native/**/*.h') }}
+            'native/**/Cargo.toml') }}
 
       - name: Report GPU conformance failure
         if: steps.gpu_conformance.outcome == 'failure'
@@ -972,8 +969,7 @@ jobs:
           key: >-
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'native/**/*.rs', 'native/**/*.c',
-            'native/**/*.h') }}
+            'native/**/Cargo.toml') }}
           restore-keys: |
             nupp-rust-${{ runner.os }}-${{ runner.arch }}-
 

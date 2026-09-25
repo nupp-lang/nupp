@@ -6,8 +6,9 @@ name: LLVM backend
 # own cache, pruned to what linking the code generator needs: the build tree's
 # libraries and tools, and the source tree's LLVM and lld headers.
 
-# On main too: caches are per branch, and a tag's release build reads main's
-# LLVM cache.
+# Each run costs hours of runner time, most of it building LLVM when its cache
+# was evicted, so a push runs it only when its commit message says
+# `[llvm ci]`; otherwise every job is skipped.
 on:
   push:
   workflow_dispatch:
@@ -23,6 +24,7 @@ jobs:
   # LLVM legs link programs for the other platform with it. A kit needs no LLVM.
   kits:
     name: ${{ matrix.name }} link kit
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[llvm ci]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -63,8 +65,9 @@ jobs:
   llvm:
     name: ${{ matrix.name }} / LLVM route
     needs: kits
-    # A kit that failed to build fails the cross step, not the suites.
-    if: ${{ !cancelled() }}
+    # A kit that failed to build fails the cross step, not the suites; a kit
+    # job skipped because the run was not asked for skips this too.
+    if: ${{ !cancelled() && needs.kits.result != 'skipped' }}
     runs-on: ${{ matrix.os }}
     # A cold runner builds LLVM before any suite runs.
     timeout-minutes: 300
@@ -275,7 +278,7 @@ jobs:
   cross-run:
     name: Run the ${{ matrix.name }} program linked elsewhere
     needs: llvm
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.llvm.result != 'skipped' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:

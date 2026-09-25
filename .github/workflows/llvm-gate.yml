@@ -1,8 +1,9 @@
 name: LLVM gate B
 
 # Gate B: the LLVM backend against the C lowering on x86-64 hardware, through
-# both gcc and clang, tier by tier. Timings are noisy on shared runners, so this
-# runs on request, or when the gate or the LLVM lowering changes, and writes its tables to the job summary; a regression is
+# both gcc and clang, tier by tier. Timings are noisy on shared runners and a
+# run costs runner hours, so this runs only when a commit message says
+# `[llvm ci]`, and writes its tables to the job summary; a regression is
 # judged across runs, not from one. AVX-512 is measured only where the runner
 # has it, and a runner without it fails that job rather than passing it.
 on:
@@ -16,6 +17,7 @@ on:
 jobs:
   gate:
     name: x86-64 ${{ matrix.tiers }}
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[llvm ci]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
