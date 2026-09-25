@@ -52,7 +52,8 @@ for line in read(unitPath):gmatch("[^\n]+") do
                 break
             end
         end
-        params = line:sub(open + 1, close - 1)
+        -- Attributes with arguments (`range(i64 0, N)`) carry commas of their own.
+        params = line:sub(open + 1, close - 1):gsub("range%b()", "")
     end
     if symbol and not symbol:find("_forced_scalar", 1, true) and not symbol:find("_layout_", 1, true) then
         local logical = symbol:match("^ks_%x+_(.-)__%w+$") or symbol

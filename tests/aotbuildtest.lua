@@ -1451,7 +1451,8 @@ function M.emitCWritesTheCBesideTheBuild()
         "a block kernel writes its scalar result pack through the caller's block"
     )
     assert(
-        c:find(llvm and "i64 %count_first, i64 %count_second" or "size_t count_first, size_t count_second", 1, true),
+        llvm and c:find("i64 [^%%]-%%count_first, i64 [^%%]-%%count_second")
+            or c:find("size_t count_first, size_t count_second", 1, true),
         "a block kernel receives each span's independent length"
     )
     assert(

@@ -340,6 +340,64 @@ local function builderEntry(unit: llvmProgram.Unit, program: scalarIR.Program): 
     return new luaEntry.Registered(name = program.name, fn = name)
 end
 
+--- A relation term as an i64 value, or nil when the term is not an exact
+--- integer here (a binary64 uniform).
+local function termValue(ctx: context.Context, term: scalarIR.Term): string?
+    local kind = tostring(term.kind)
+    if kind == "zero" then
+        return "0"
+    elseif kind == "count" then
+        return ctx.counts[tostring(term.name)]
+    end
+    local value = ctx.uniforms[tostring(term.name)]
+    local param: scalarIR.Param? = nil
+    for _, one in ipairs(ctx.program.params) do
+        if one.name == term.name then
+            param = one
+        end
+    end
+    if value == nil or param == nil then
+        return nil
+    end
+    local typeName = tostring((param as scalarIR.Param).type)
+    if typeName == "i64" or typeName == "u64" then
+        return value
+    elseif typeName == "i32" then
+        return builder.value(ctx.f, ("sext i32 %s to i64"):format(value as string))
+    elseif typeName == "u32" then
+        return builder.value(ctx.f, ("zext i32 %s to i64"):format(value as string))
+    end
+
+    return nil
+end
+
+--- Each relation the wrapper checked before this call, `left <= right +
+--- offset`, as an assumption. In i64, which neither a count (at most 2^53) nor
+--- a 32-bit uniform can overflow; a 64-bit uniform could, so a relation over
+--- one is left out.
+local function assumeRelations(ctx: context.Context, program: scalarIR.Program): nil
+    for _, relation in ipairs(program.relations or {}) do
+        local wide = false
+        for _, term in ipairs({relation.left, relation.right}) do
+            if term.kind == "uniform" then
+                for _, param in ipairs(program.params) do
+                    if param.name == term.name and (param.type == "i64" or param.type == "u64") then
+                        wide = true
+                    end
+                end
+            end
+        end
+        local left = not wide and termValue(ctx, relation.left) or nil
+        local right = not wide and termValue(ctx, relation.right) or nil
+        if left ~= nil and right ~= nil then
+            local shifted = builder.value(ctx.f, ("add nsw i64 %s, %d"):format(right as string, relation.offset))
+            local holds = builder.value(ctx.f, ("icmp sle i64 %s, %s"):format(left as string, shifted))
+            builder.declare(ctx.module, "@llvm.assume", "declare void @llvm.assume(i1)")
+            builder.emit(ctx.f, ("call void @llvm.assume(i1 %s)"):format(holds))
+        end
+    end
+end
+
 --- One kernel entry.
 local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle: boolean): nil
     local module = unit.module
@@ -354,6 +412,12 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     local parameters: {string} = {}
     local narrowCounts = selected.sizeType ~= "i64"
     local countSuffix = narrowCounts and ".arg" or ""
+    -- A span's length is a Lua number, so at most 2^53, which only the
+    -- relations family states.
+    local countType = selected.sizeType
+    if unit.facts.relations and not narrowCounts then
+        countType = "i64 range(i64 0, 9007199254740993)"
+    end
     for _, param in ipairs(program.params) do
         if isSpan(param) then
             parameters[#parameters + 1] = spanParameter(unit, program, param)
@@ -366,11 +430,11 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     if independent then
         for _, param in ipairs(program.params) do
             if isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
-                parameters[#parameters + 1] = selected.sizeType .. " %count_" .. param.name .. countSuffix
+                parameters[#parameters + 1] = countType .. " %count_" .. param.name .. countSuffix
             end
         end
     else
-        parameters[#parameters + 1] = selected.sizeType .. " %count" .. countSuffix
+        parameters[#parameters + 1] = countType .. " %count" .. countSuffix
     end
     local resultStruct: string? = nil
     if #results > 1 then
@@ -445,6 +509,9 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         end
     end
     helpers(unit, ctx, program)
+    if unit.facts.relations then
+        assumeRelations(ctx, program)
+    end
 
     if program.body ~= nil then
         statements.block(ctx, program.body as {scalarIR.Statement})
