@@ -1676,6 +1676,12 @@ OPTIONS
             *)      printf '%s\n' -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 ;;
         esac
     fi
+    # MinGW's runtime DLLs are whichever PATH finds first, and on a runner
+    # that is often another toolchain's: tablegen then dies at load
+    # (0xC0000139). Tools linked statically carry their own.
+    if [ "$PLATFORM" = windows ]; then
+        printf '%s\n' -DCMAKE_EXE_LINKER_FLAGS=-static
+    fi
 }
 
 llvm_key() {
