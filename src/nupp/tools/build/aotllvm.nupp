@@ -291,11 +291,40 @@ function aotllvm.archive(triple: string, objects: {string}, output: string): str
     return nil
 end
 
+--- The Wasm libm's object under `directory`, compiled once per libm and
+--- code generator: its name carries the digest of both.
+--- @return the object's path, or nil and why not
+function aotllvm.wasmLibm(directory: string): (string?, string?)
+    local text = require("nupp.compiler.bundled").source("/aot/llvm/wasm/libm.ll")
+    if text == nil then
+        return nil, "this compiler carries no Wasm libm"
+    end
+    local digest = require("nupp.compiler.hash").digest((text as string) .. "\0" .. aotllvm.version())
+    local object = directory .. "/libm." .. digest:sub(1, 16) .. ".o"
+    if fs.exists(object) then
+        return object, nil
+    end
+    local ir = directory .. "/libm." .. digest:sub(1, 16) .. ".ll"
+    local wrote, writeErr = fs.writeFile(ir, text as string)
+    if not wrote then
+        return nil, tostring(writeErr)
+    end
+    local err = aotllvm.compileMany({
+        new aotllvm.Unit(ir = ir, triple = "wasm32-unknown-emscripten", tier = "scalar", object = object)
+    })
+    os.remove(ir)
+    if err ~= nil then
+        return nil, err
+    end
+
+    return object, nil
+end
+
 --- Links one Wasm object into the independent module `output` with lld:
 --- no entry point, exactly `exports` plus the allocator exported, and the
 --- memory the loaders expect -- 4 MiB to start, growable to 64 MiB.
 --- @return nil, or what went wrong
-function aotllvm.linkWasm(object: string, output: string, exports: {string}): string?
+function aotllvm.linkWasm(object: string, output: string, exports: {string}, libm: string?): string?
     local argv: {
         string
     } = {
@@ -312,6 +341,9 @@ function aotllvm.linkWasm(object: string, output: string, exports: {string}): st
     argv[#argv + 1] = "-o"
     argv[#argv + 1] = output
     argv[#argv + 1] = object
+    if libm ~= nil then
+        argv[#argv + 1] = libm as string
+    end
     local _, err = codegen.link(argv)
     if err ~= nil then
         os.remove(output)

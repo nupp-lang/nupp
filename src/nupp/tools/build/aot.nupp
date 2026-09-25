@@ -1295,6 +1295,11 @@ function aot.compileWasm(
         if compileErr ~= nil then
             return nil, compileErr
         end
+        local first = units[llvmDirty[1]] as aot.Emitted
+        local libm, libmErr = aotllvm.wasmLibm(first.output:match("^(.*/aot)/") or fs.dirname(first.output))
+        if libm == nil then
+            return nil, libmErr
+        end
         for position, index in ipairs(llvmDirty) do
             local one = units[index] as aot.Emitted
             local exports: {string} = {}
@@ -1308,7 +1313,7 @@ function aot.compileWasm(
                     end
                 end
             end
-            local linkErr = aotllvm.linkWasm(compiled[position].object, llvmStaged[position] as string, exports)
+            local linkErr = aotllvm.linkWasm(compiled[position].object, llvmStaged[position] as string, exports, libm)
             if linkErr ~= nil then
                 return nil, linkErr
             end

@@ -490,23 +490,37 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     builder.finish(f, "ret void")
 end
 
---- The functions a Wasm module would need a C library for, which it does
---- not carry yet: libm's, reached by a declaration, `frem` or an `fma`.
-local function libmNeeds(module: builder.Module): {string}
+--- What a Wasm module's link supplies beyond the unit: the allocator is in
+--- the unit itself, and libm is the committed musl build (`wasm/libm.ll`).
+const WASM_LIBM: {
+    [string]: boolean
+} = {
+    sin = true,
+    cos = true,
+    tan = true,
+    asin = true,
+    acos = true,
+    atan = true,
+    atan2 = true,
+    sinh = true,
+    cosh = true,
+    tanh = true,
+    exp = true,
+    log = true,
+    pow = true,
+    fmod = true,
+    expf = true,
+    fma = true,
+    fmaf = true,
+}
+
+--- The functions a Wasm unit declares that nothing linked beside it defines.
+local function wasmUnresolved(module: builder.Module): {string}
     local needs: {string} = {}
     for _, key in ipairs(module.order) do
         local name = (module.pieces[key] as string):match("^declare [^@]*@([%w_.]+)")
-        if name ~= nil and name:match("^llvm%.") == nil then
+        if name ~= nil and name:match("^llvm%.") == nil and not WASM_LIBM[name as string] then
             needs[#needs + 1] = name
-        end
-        if name ~= nil and name:match("^llvm%.fma%.") ~= nil then
-            needs[#needs + 1] = "fma"
-        end
-    end
-    for _, text in ipairs(module.functions) do
-        if text:find(" frem ", 1, true) ~= nil then
-            needs[#needs + 1] = "fmod"
-            break
         end
     end
 
@@ -583,9 +597,9 @@ function llvmProgram.module(
             end
         end
         wasmRuntime.install(module)
-        local needs = libmNeeds(module)
+        local needs = wasmUnresolved(module)
         if #needs > 0 then
-            unsupported("Wasm modules carry no libm yet; this unit needs " .. table.concat(needs, ", "))
+            unsupported("an independent Wasm module has no " .. table.concat(needs, ", ") .. " to link")
         end
     end
     if registrar ~= nil then
