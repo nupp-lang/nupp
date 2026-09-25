@@ -1,0 +1,286 @@
+module nupp.compiler.aot.llvm.lua.runtime
+
+--[[
+How a Lua-builder entry reaches the Lua C API and the AOT runtime.
+
+The Lua API is called directly: the process that loads the module is the one
+running the VM, and it exports the API. The runtime -- the C lowering's
+`ks_lua.h`, compiled once into the native provider as `ks_rt.c` -- is reached
+through the table of pointers that file ends with, which the registrar fetches
+and keeps in `@ks_rt`. Nothing about the runtime is a symbol, so nothing has to
+be resolved when the module loads, on any platform.
+
+`SLOTS` is that table's order, and it is the ABI: a test holds it to
+`ks_rt.c`. Every argument is a pointer, a `size_t`, a 64-bit integer or a
+double, narrow values widened by the caller, and nothing is passed or
+returned by value.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+
+local runtime = {}
+
+--- The ABI version slot 0 holds.
+const runtime.VERSION = 1
+
+--- The bytes generated code sets aside for a value stream's state, at
+--- least the runtime's `sizeof(KsLuaBuilder)` (slot 1).
+const runtime.BUILDER_BYTES = 4096
+
+--- The bytes set aside for a string accumulator: LuaJIT's `luaL_Buffer`
+--- with the largest `LUAL_BUFFERSIZE` any libc gives it (slot 2).
+const runtime.STRING_BUFFER_BYTES = 8256
+
+--- The word scratch block, whose fields generated code reads and writes:
+--- words, capacity, length, escape length, root index, inline words.
+const runtime.SCRATCH_U32 = "{ ptr, i32, i32, i32, i32, [32 x i32] }"
+
+--- The byte scratch block: bytes, capacity, length, root index, cached.
+const runtime.SCRATCH_U8 = "{ ptr, i32, i32, i32, i32 }"
+
+--- The runtime's messages, by the id `raise` takes (`ks_rt_messages`).
+const MESSAGE: {
+    [string]: integer
+} = {
+    stack = 1,
+    stringLength = 2,
+    byte = 3,
+    wordIndex = 4,
+    word = 5,
+    stringByte = 6,
+    scratchRead = 7,
+    scratchWrite = 8,
+    escapeRead = 9,
+    byteRead = 10,
+    byteWrite = 11,
+    byteStraddle = 12,
+    tableEntry = 13,
+    substring = 14,
+}
+
+runtime.MESSAGE = MESSAGE
+
+--- One function slot: its name after `ks_rt_`, result and parameters, with
+--- `SIZE` standing for the target's `size_t`.
+record runtime.Slot
+    name: string
+    result: string
+    params: string
+end
+
+local function slot(name: string, result: string, params: string): runtime.Slot
+    return new runtime.Slot(name = name, result = result, params = params)
+end
+
+--- The table after its five leading words (version and block sizes).
+const SLOTS: {
+    runtime.Slot
+} = {
+    slot("raise", "void", "ptr, i64"),
+    slot("raise_count", "void", "ptr, ptr"),
+    slot("raise_index", "void", "ptr, ptr"),
+    slot("bytes", "ptr", "ptr, i64, ptr"),
+    slot("count", "i64", "ptr, double, ptr"),
+    slot("index", "i64", "ptr, double, ptr"),
+    slot("string_match", "i64", "ptr, i64, ptr, SIZE"),
+    slot("string_length", "i64", "ptr, SIZE"),
+    slot("string_byte", "i64", "ptr, ptr, SIZE, i64"),
+    slot("string_byte_lua", "double", "ptr, ptr, SIZE, double"),
+    slot("string_u32", "i64", "ptr, ptr, SIZE, i64"),
+    slot("substring", "void", "ptr, ptr, SIZE, double, double"),
+    slot("table_number", "double", "ptr, i64, double, ptr"),
+    slot("string_buffer_init", "void", "ptr, ptr"),
+    slot("string_buffer_append", "void", "ptr, ptr, ptr, SIZE"),
+    slot("string_buffer_append_slice", "void", "ptr, ptr, ptr, SIZE, double, double"),
+    slot("string_buffer_append_top", "void", "ptr, ptr"),
+    slot("string_buffer_finish", "void", "ptr, ptr"),
+    slot("scratch_u32", "void", "ptr, ptr, i64, ptr"),
+    slot("scratch_u32_fixed", "void", "ptr, ptr, i64, ptr"),
+    slot("scratch_u32_stack", "void", "ptr, ptr, i64"),
+    slot("scratch_u32_get", "i64", "ptr, ptr, i64"),
+    slot("scratch_u32_get_fixed", "i64", "ptr, ptr, i64, i64"),
+    slot("scratch_u32_escape_get", "i64", "ptr, ptr, i64"),
+    slot("scratch_u32_set", "void", "ptr, ptr, i64, i64"),
+    slot("scratch_u32_set_fixed", "void", "ptr, ptr, i64, i64, i64"),
+    slot("scratch_u8", "void", "ptr, ptr, i64"),
+    slot("scratch_u8_cached", "void", "ptr, ptr, i64"),
+    slot("scratch_u8_stack", "void", "ptr, ptr, i64"),
+    slot("scratch_u8_get", "i64", "ptr, ptr, i64"),
+    slot("scratch_u8_get_fixed", "i64", "ptr, ptr, i64, i64"),
+    slot("scratch_u8_set", "void", "ptr, ptr, i64, i64"),
+    slot("scratch_u8_set_fixed", "void", "ptr, ptr, i64, i64, i64"),
+    slot("scratch_u8_set4", "void", "ptr, ptr, i64, i64"),
+    slot("scratch_u8_set4_fixed", "void", "ptr, ptr, i64, i64, i64"),
+    slot("scratch_u8_push", "void", "ptr, ptr, i64, i64"),
+    slot("builder_init", "void", "ptr, ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64"),
+    slot("builder_open", "void", "ptr, ptr, i64, i64, i64"),
+    slot("builder_string", "void", "ptr, ptr, ptr, SIZE, i64, i64, i64, i64, i64"),
+    slot("builder_string_escapes", "void", "ptr, ptr, ptr, SIZE, i64, i64, ptr, i64, i64, i64, i64"),
+    slot("builder_number_slice", "void", "ptr, ptr, ptr, SIZE, i64, i64, i64"),
+    slot("builder_integer_slice", "void", "ptr, ptr, ptr, SIZE, i64, i64, i64"),
+    slot("builder_number", "void", "ptr, ptr, double, i64"),
+    slot("builder_integer64", "void", "ptr, ptr, i64, i64, i64"),
+    slot("builder_decimal64", "void", "ptr, ptr, ptr, SIZE, i64, i64, i64, i64, i64, i64, i64"),
+    slot("builder_boolean", "void", "ptr, ptr, i64, i64"),
+    slot("builder_null", "void", "ptr, ptr, i64"),
+    slot("builder_close", "void", "ptr, ptr, i64"),
+    slot("builder_key_scratch", "void", "ptr, ptr, ptr, i64, i64"),
+    slot("builder_string_scratch", "void", "ptr, ptr, ptr, i64, i64, i64"),
+    slot("builder_pushed_scalar", "void", "ptr, ptr, i64"),
+    slot("builder_key", "void", "ptr, ptr"),
+    slot("builder_query", "i64", "ptr, ptr, i64"),
+    slot("builder_number_token", "i64", "ptr, ptr, ptr, SIZE, i64, i64, i64"),
+    slot("builder_finish", "void", "ptr, ptr"),
+}
+
+runtime.SLOTS = SLOTS
+
+--- The words before the first function slot.
+const runtime.HEADER = 5
+
+local indexOf: {[string]: integer} = {}
+local slotOf: {[string]: runtime.Slot} = {}
+for position, entry in ipairs(runtime.SLOTS) do
+    indexOf[entry.name] = runtime.HEADER + position - 1
+    slotOf[entry.name] = entry
+end
+
+--- The Lua C API functions generated code calls, by name: result and
+--- parameters, `SIZE` again standing for `size_t`.
+const API: {
+    [string]: {string}
+} = {
+    lua_checkstack = {"i32", "ptr, i32"},
+    lua_gettop = {"i32", "ptr"},
+    lua_settop = {"void", "ptr, i32"},
+    lua_replace = {"void", "ptr, i32"},
+    lua_pushvalue = {"void", "ptr, i32"},
+    lua_pushnil = {"void", "ptr"},
+    lua_pushboolean = {"void", "ptr, i32"},
+    lua_pushnumber = {"void", "ptr, double"},
+    lua_pushlstring = {"void", "ptr, ptr, SIZE"},
+    lua_createtable = {"void", "ptr, i32, i32"},
+    lua_rawseti = {"void", "ptr, i32, i32"},
+    lua_rawset = {"void", "ptr, i32"},
+    lua_concat = {"void", "ptr, i32"},
+    lua_toboolean = {"i32", "ptr, i32"},
+    lua_tolstring = {"ptr", "ptr, i32, ptr"},
+    lua_getfield = {"void", "ptr, i32, ptr"},
+    lua_call = {"void", "ptr, i32, i32"},
+    lua_pushcclosure = {"void", "ptr, ptr, i32"},
+    luaL_checknumber = {"double", "ptr, i32"},
+    luaL_checklstring = {"ptr", "ptr, i32, ptr"},
+    luaL_error = {"i32", "ptr, ptr, ..."},
+}
+
+local function sized(params: string, size: string): string
+    return (params:gsub("SIZE", size))
+end
+
+--- The `size_t` of the function being emitted.
+function runtime.size(ctx: context.Context): string
+    return ctx.lua ~= nil and (ctx.lua as context.Lua).size or "i64"
+end
+
+--- The state of the builder entry being emitted.
+--- @raises string outside one
+function runtime.lua(ctx: context.Context): context.Lua
+    local found = ctx.lua
+    if found == nil then
+        error("a Lua construction outside a builder entry", 0)
+    end
+
+    return found as context.Lua
+end
+
+--- Calls Lua API function `name` with `args` (each a typed operand), and
+--- answers its result, or nil for none.
+--- @raises string for a function not listed
+function runtime.api(ctx: context.Context, name: string, args: {string}): string?
+    local signature = API[name]
+    if signature == nil then
+        error("no Lua API declaration for " .. name, 0)
+    end
+    local result = (signature as {string})[1]
+    local params = sized((signature as {string})[2], runtime.size(ctx))
+    builder.declare(ctx.module, "@" .. name, ("declare %s @%s(%s)"):format(result, name, params))
+    local callee = params:find("...", 1, true) ~= nil and ("%s (%s) @%s"):format(result, params, name)
+        or result .. " @" .. name
+    local call = ("call %s(%s)"):format(callee, table.concat(args, ", "))
+    if result == "void" then
+        builder.emit(ctx.f, call)
+        return nil
+    end
+
+    return builder.value(ctx.f, call)
+end
+
+--- The function in runtime slot `name`, loaded from the table.
+local function pointer(ctx: context.Context, name: string): string
+    local lua = runtime.lua(ctx)
+    local address = builder.value(
+        ctx.f,
+        ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(lua.runtime, indexOf[name] as integer)
+    )
+    local invariant = builder.metadata(ctx.module, "!{}")
+
+    return builder.value(ctx.f, ("load ptr, ptr %s, !invariant.load %s"):format(address, invariant))
+end
+
+--- Calls runtime function `name` with `args`, answering its result, or nil.
+--- @raises string for a slot not listed
+function runtime.call(ctx: context.Context, name: string, args: {string}): string?
+    local entry = slotOf[name]
+    if entry == nil then
+        error("no AOT runtime slot " .. name, 0)
+    end
+    local found = entry as runtime.Slot
+    local callee = pointer(ctx, name)
+    local call = ("call %s %s(%s)"):format(found.result, callee, table.concat(args, ", "))
+    if found.result == "void" then
+        builder.emit(ctx.f, call)
+        return nil
+    end
+
+    return builder.value(ctx.f, call)
+end
+
+--- The operand `ptr %L`.
+function runtime.state(ctx: context.Context): string
+    return "ptr " .. runtime.lua(ctx).state
+end
+
+--- Branches to a raise when `failed` (an i1) holds, and continues after it
+--- otherwise. `raising` emits the call that raises.
+function runtime.guard(ctx: context.Context, failed: string, raising: function(): nil): nil
+    local f = ctx.f
+    local cold = builder.label(f, "lua.raise")
+    local fine = builder.label(f, "lua.ok")
+    local weights = builder.metadata(ctx.module, "!{!\"branch_weights\", i32 1, i32 1048575}")
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s, !prof %s"):format(failed, cold, fine, weights))
+    builder.start(f, cold)
+    raising()
+    builder.terminate(f, "unreachable")
+    builder.start(f, fine)
+end
+
+--- Raises runtime message `message` when `failed` holds.
+function runtime.check(ctx: context.Context, failed: string, message: string): nil
+    runtime.guard(ctx, failed, function(): nil
+        runtime.call(ctx, "raise", {runtime.state(ctx), "i64 " .. tostring(runtime.MESSAGE[message] as integer)})
+    end)
+end
+
+--- A NUL-terminated private string, as a global name.
+function runtime.cString(ctx: context.Context, value: string): string
+    return builder.bytes(ctx.module, value .. "\0")
+end
+
+--- Reserves `extra` Lua stack slots, raising when the VM cannot.
+function runtime.reserve(ctx: context.Context, extra: integer): nil
+    local ok = runtime.api(ctx, "lua_checkstack", {runtime.state(ctx), "i32 " .. tostring(extra)}) as string
+    runtime.check(ctx, builder.value(ctx.f, ("icmp eq i32 %s, 0"):format(ok)), "stack")
+end
+
+export = runtime

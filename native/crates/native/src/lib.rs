@@ -140,21 +140,21 @@ pub extern "C" fn nuppNativeFeatures() -> u64 {
         } else {
             0
         }
-        | if cfg!(feature = "aotrt") {
+        | if cfg!(nupp_aot_runtime) {
             FEATURE_AOT_RUNTIME
         } else {
             0
         }
 }
 
-#[cfg(feature = "aotrt")]
+#[cfg(nupp_aot_runtime)]
 unsafe extern "C" {
     static ks_rt_table: [*const std::ffi::c_void; 1];
 }
 
 /// The AOT runtime's table (`c/ks_rt.c`): what an LLVM-compiled Lua-builder
 /// module's registrar is handed, and calls the runtime through.
-#[cfg(feature = "aotrt")]
+#[cfg(nupp_aot_runtime)]
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppAotRuntime() -> *const std::ffi::c_void {
     std::ptr::addr_of!(ks_rt_table).cast()

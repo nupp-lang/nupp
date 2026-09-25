@@ -1,0 +1,290 @@
+module nupp.compiler.aot.llvm.lua.entry
+
+--[[
+A Lua-builder entry as the VM calls it, and the registrar that hands the VM
+every entry of a module.
+
+An entry is a `lua_CFunction`: it reserves the stack its body can reach,
+decodes its arguments by position, reserves one stack slot per Lua-owned
+local, and runs the body, whose `return` pushes its values and answers how
+many. The registrar is the module's one exported symbol per tier. Before it
+registers anything it fetches the runtime's table through
+`nupp.runtime.native` and refuses one of another version, or whose blocks
+are not the sizes this module sets aside.
+
+Both unwind: a Lua error raised in the VM, the runtime or a check here
+unwinds through them to the VM's protected call, so neither is `nounwind`
+and both carry unwind tables.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local runtime = require("nupp.compiler.aot.llvm.lua.runtime")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local statements = require("nupp.compiler.aot.llvm.statements")
+local verify = require("nupp.compiler.aot.verify")
+local visit = require("nupp.compiler.aot.visit")
+
+local entry = {}
+
+--- Lua 5.1's globals pseudo-index.
+const GLOBALS = -10002
+
+--- The global the registrar keeps the runtime's table in.
+const entry.TABLE = "@ks.rt"
+
+local function e(ctx: context.Context, instruction: string): string
+    return builder.value(ctx.f, instruction)
+end
+
+--- Declares the module's table global once.
+function entry.declareTable(module: builder.Module): nil
+    builder.once(module, "global " .. entry.TABLE, entry.TABLE .. " = internal global ptr null")
+end
+
+--- The saturating conversion of a binary64 argument to integer type `to`.
+local function saturate(ctx: context.Context, value: string, to: string): string
+    local width = (to == "i64" or to == "u64") and "i64" or "i32"
+    local signed = to == "i32" or to == "i64"
+    local intrinsic = ("llvm.%s.sat.%s.f64"):format(signed and "fptosi" or "fptoui", width)
+    builder.declare(ctx.module, "@" .. intrinsic, ("declare %s @%s(double)"):format(width, intrinsic))
+
+    return e(ctx, ("call %s @%s(double %s)"):format(width, intrinsic, value))
+end
+
+--- The span name rooted bytes are read through by a vector load.
+function entry.rootedSpan(cName: string): string
+    return "ks_bytes_" .. cName
+end
+
+--- Records bytes read in place, as bytes and as a span vector loads use.
+local function root(ctx: context.Context, cName: string, pointer: string, length: string, param: scalarIR.Param): nil
+    local lua = runtime.lua(ctx)
+    lua.bytes[cName] = new context.Bytes(pointer = pointer, length = length)
+    local span = new context.Span(pointer = pointer, param = param)
+    local count = lua.size == "i64" and length or e(ctx, ("zext %s %s to i64"):format(lua.size, length))
+    -- Under the name a vector load's view is rewritten to, and under the
+    -- parameter's own, which the bounds around such a load name.
+    for _, name in ipairs({entry.rootedSpan(cName), param.name}) do
+        ctx.spans[name] = span
+        ctx.counts[name] = count
+    end
+end
+
+--- Decodes the arguments, stack position by stack position.
+--- @raises string for a parameter a builder cannot take
+local function arguments(ctx: context.Context, program: scalarIR.Program): nil
+    local lua = runtime.lua(ctx)
+    local state = runtime.state(ctx)
+    for position, param in ipairs(program.params) do
+        local index = "i32 " .. tostring(position)
+        local typeName = tostring(param.type)
+        if param.kind == "uniform" then
+            local value: string
+            if typeName == "bool" then
+                local truth = runtime.api(ctx, "lua_toboolean", {state, index}) as string
+                value = e(ctx, ("icmp ne i32 %s, 0"):format(truth))
+            else
+                local number = runtime.api(ctx, "luaL_checknumber", {state, index}) as string
+                if typeName == "f64" then
+                    value = number
+                elseif typeName == "f32" then
+                    value = e(ctx, ("fptrunc double %s to float"):format(number))
+                else
+                    value = saturate(ctx, number, typeName)
+                end
+            end
+            ctx.uniforms[param.name] = value
+            local slot = statements.slot(ctx, "p_" .. param.name, typeName)
+            builder.emit(ctx.f, ("store %s %s, ptr %s"):format(context.llvmType(ctx, typeName), value, slot.pointer))
+        elseif param.kind == "scalar" and (typeName == "lua_string" or typeName == "lua_bytes") then
+            local length = builder.alloca(ctx.f, lua.size, lua.size == "i64" and 8 or 4)
+            local pointer: string
+            if typeName == "lua_bytes" then
+                pointer = runtime.call(ctx, "bytes", {state, "i64 " .. tostring(position), "ptr " .. length}) as string
+            else
+                pointer = runtime.api(ctx, "luaL_checklstring", {state, index, "ptr " .. length}) as string
+            end
+            local loaded = e(ctx, ("load %s, ptr %s"):format(lua.size, length))
+            root(ctx, tostring(param.cName or tostring(position)), pointer, loaded, param)
+        elseif param.kind == "scalar" and typeName == "lua_value" then
+            -- Referenced by its position; nothing to decode.
+        else
+            error("Lua builders currently take scalar parameters", 0)
+        end
+    end
+end
+
+--- Reserves one stack slot per Lua-owned local, above the arguments and
+--- anything decoding them left, and records each one's index.
+local function roots(ctx: context.Context, program: scalarIR.Program): nil
+    local lua = runtime.lua(ctx)
+    local slots: {string} = {}
+    local seen: {[string]: boolean} = {}
+    visit.program(
+        program,
+        new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+            if statement.op == "let" then
+                local typeName = tostring(statement.type)
+                if typeName == "lua_string"
+                or typeName == "lua_nil"
+                or typeName == "lua_table"
+                or typeName == "lua_value"
+                then
+                    local name = (statement as scalarIR.Let).cName
+                    if not seen[name] then
+                        seen[name] = true
+                        slots[#slots + 1] = name
+                    end
+                end
+            end
+        end)
+    )
+    if #slots == 0 then
+        return
+    end
+    local state = runtime.state(ctx)
+    local base = runtime.api(ctx, "lua_gettop", {state}) as string
+    runtime.api(ctx, "lua_settop", {state, "i32 " .. e(ctx, ("add i32 %s, %d"):format(base, #slots))})
+    for position, name in ipairs(slots) do
+        lua.handles[name] = e(ctx, ("add i32 %s, %d"):format(base, position))
+    end
+end
+
+--- The bytes each constant the body reads in place are kept in.
+local function constants(ctx: context.Context, program: scalarIR.Program): nil
+    for _, constant in ipairs(program.constants or {}) do
+        -- One NUL past the end, which the length does not count, so a
+        -- parse the runtime hands to the C library stops there.
+        local global = builder.bytes(ctx.module, constant.value .. "\0", 4)
+        local param = new scalarIR.Param(kind = "scalar", name = constant.cName, type = "lua_string")
+        root(ctx, constant.cName, global, tostring(#constant.value), param)
+    end
+end
+
+--- Emits the body of builder entry `program` into `ctx`, whose function is
+--- `i32 (ptr %L)`, and finishes it.
+function entry.body(ctx: context.Context, program: scalarIR.Program): nil
+    local lua = runtime.lua(ctx)
+    entry.declareTable(ctx.module)
+    lua.runtime = e(ctx, ("load ptr, ptr %s"):format(entry.TABLE))
+    local byteRoots: integer = 0
+    for _, param in ipairs(program.params) do
+        if param.type == "lua_bytes" then
+            byteRoots = byteRoots + 1
+        end
+    end
+    runtime.reserve(ctx, verify.builderStack(program) + byteRoots + (byteRoots > 0 and 2 or 0))
+    arguments(ctx, program)
+    constants(ctx, program)
+    roots(ctx, program)
+    statements.block(ctx, program.body or {})
+    builder.finish(ctx.f, "ret i32 0")
+end
+
+--- Raises `message` through `luaL_error` when `failed` holds: the registrar
+--- runs before there is a runtime to raise through.
+local function refuse(ctx: context.Context, failed: string, message: string): nil
+    runtime.guard(ctx, failed, function(): nil
+        runtime.api(ctx, "luaL_error", {
+            runtime.state(ctx),
+            "ptr " .. runtime.cString(ctx, "%s"),
+            "ptr " .. runtime.cString(ctx, message)
+        })
+    end)
+end
+
+--- One entry a registrar registers: its Lua name and its function.
+record entry.Registered
+    name: string
+    fn: string
+end
+
+--- Defines registrar `name` for `registered` with attribute group `attrs`.
+function entry.registrar(
+    module: builder.Module,
+    name: string,
+    attrs: string,
+    size: string,
+    registered: {entry.Registered},
+    program: scalarIR.Program
+): nil
+    entry.declareTable(module)
+    local f = builder.func(module, ("define i32 @%s(ptr %%L) %s {"):format(name, attrs))
+    local ctx = context.new(module, f, program)
+    ctx.lua = new context.Lua(
+        state = "%L",
+        runtime = "null",
+        size = size,
+        eager = false,
+        handles = {},
+        bytes = {},
+        blocks = {},
+        reusableScratch = nil
+    )
+    local state = runtime.state(ctx)
+    local ok = runtime.api(ctx, "lua_checkstack", {state, "i32 4"}) as string
+    refuse(ctx, e(ctx, ("icmp eq i32 %s, 0"):format(ok)), "AOT builder Lua stack exhausted")
+
+    -- require("nupp.runtime.native").aotRuntime()
+    runtime.api(ctx, "lua_getfield", {state, "i32 " .. tostring(GLOBALS), "ptr " .. runtime.cString(ctx, "require")})
+    local moduleName = "nupp.runtime.native"
+    runtime.api(ctx, "lua_pushlstring", {
+        state,
+        "ptr " .. builder.bytes(module, moduleName),
+        size .. " " .. tostring(#moduleName)
+    })
+    runtime.api(ctx, "lua_call", {state, "i32 1", "i32 1"})
+    runtime.api(ctx, "lua_getfield", {state, "i32 -1", "ptr " .. runtime.cString(ctx, "aotRuntime")})
+    runtime.api(ctx, "lua_call", {state, "i32 0", "i32 1"})
+    local length = builder.alloca(f, size, size == "i64" and 8 or 4)
+    builder.emit(f, ("store %s 0, ptr %s"):format(size, length))
+    local bytes = runtime.api(ctx, "lua_tolstring", {state, "i32 -1", "ptr " .. length}) as string
+    local got = e(ctx, ("load %s, ptr %s"):format(size, length))
+    local width = size == "i64" and 8 or 4
+    local mismatch = "AOT runtime is not the one this module was compiled for"
+    local missing = e(ctx, ("icmp eq ptr %s, null"):format(bytes))
+    local wrongLength = e(ctx, ("icmp ne %s %s, %d"):format(size, got, width))
+    refuse(ctx, e(ctx, ("or i1 %s, %s"):format(missing, wrongLength)), mismatch)
+    local table = e(ctx, ("load ptr, ptr %s, align 1"):format(bytes))
+
+    local function word(index: integer): string
+        local address = e(ctx, ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(table, index))
+        local loaded = e(ctx, ("load ptr, ptr %s"):format(address))
+
+        return e(ctx, ("ptrtoint ptr %s to i64"):format(loaded))
+    end
+
+    local function sizeOf(type: string): string
+        return ("ptrtoint (ptr getelementptr (%s, ptr null, i32 1) to i64)"):format(type)
+    end
+
+    local checks = {
+        e(ctx, ("icmp ne i64 %s, %d"):format(word(0), runtime.VERSION)),
+        e(ctx, ("icmp ugt i64 %s, %d"):format(word(1), runtime.BUILDER_BYTES)),
+        e(ctx, ("icmp ugt i64 %s, %d"):format(word(2), runtime.STRING_BUFFER_BYTES)),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(3), sizeOf(runtime.SCRATCH_U32))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(4), sizeOf(runtime.SCRATCH_U8))),
+    }
+    local wrong = checks[1]
+    for position = 2, #checks do
+        wrong = e(ctx, ("or i1 %s, %s"):format(wrong, checks[position]))
+    end
+    refuse(ctx, wrong, mismatch)
+    builder.emit(f, ("store ptr %s, ptr %s"):format(table, entry.TABLE))
+    runtime.api(ctx, "lua_settop", {state, "i32 -3"})
+
+    runtime.api(ctx, "lua_createtable", {state, "i32 0", "i32 " .. tostring(#registered)})
+    for _, one in ipairs(registered) do
+        runtime.api(ctx, "lua_pushlstring", {
+            state,
+            "ptr " .. builder.bytes(module, one.name),
+            size .. " " .. tostring(#one.name)
+        })
+        runtime.api(ctx, "lua_pushcclosure", {state, "ptr " .. one.fn, "i32 0"})
+        runtime.api(ctx, "lua_rawset", {state, "i32 -3"})
+    end
+    builder.finish(f, "ret i32 1")
+end
+
+export = entry

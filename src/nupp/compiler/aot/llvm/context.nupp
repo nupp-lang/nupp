@@ -51,6 +51,43 @@ record context.Loop
     continueLabel: string
 end
 
+--- Bytes a builder entry reads in place: a string argument's, or a constant's.
+record context.Bytes
+    pointer: string
+
+    --- The length, as the target's `size_t`.
+    length: string
+end
+
+--- What a Lua-builder entry's body is emitted against.
+record context.Lua
+    --- The `lua_State *`.
+    state: string
+
+    --- The runtime's table (`ks_rt.c`), loaded once at entry.
+    runtime: string
+
+    --- The target's `size_t`.
+    size: string
+
+    --- Whether the value stream is eager, which every event passes on.
+    eager: boolean
+
+    --- Each Lua-owned local's absolute stack index, as an i32 value, by C
+    --- name. A string argument's C name is its position, so it needs none.
+    handles: {[string]: string}
+
+    --- Bytes read in place, by the C name a read spells them with.
+    bytes: {[string]: context.Bytes}
+
+    --- The native block behind each builder, string buffer and scratch
+    --- buffer, by C name.
+    blocks: {[string]: string}
+
+    --- The one byte scratch whose buffer may be offered back to the cache.
+    reusableScratch: string?
+end
+
 record context.Context
     f: builder.Function
     module: builder.Module
@@ -125,6 +162,9 @@ record context.Context
     --- The vector accumulators of the reducer region being emitted, by
     --- reducer name.
     accumulators: {[string]: context.Accumulator}
+
+    --- The Lua-builder state, inside a builder entry.
+    lua: context.Lua?
 end
 
 --- A fresh context for one function of `program`.
@@ -163,7 +203,8 @@ function context.new(
         wideCursors = false,
         tailCounts = {},
         spanCounters = {},
-        accumulators = {}
+        accumulators = {},
+        lua = nil
     )
 end
 

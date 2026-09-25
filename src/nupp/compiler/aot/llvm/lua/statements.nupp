@@ -1,0 +1,484 @@
+module nupp.compiler.aot.llvm.lua.statements
+
+--[[
+What a Lua-builder body does: binds Lua-owned locals and native blocks, writes
+fresh tables, appends to a string accumulator, writes scratch buffers, drives
+the value stream and returns values on the Lua stack.
+
+Every native block -- a value stream's state, a string accumulator, a scratch
+buffer's header and a fixed scratch's storage -- is an entry-block alloca, so
+a `let` inside a loop rebinds the same block. The runtime is handed its
+address; it keeps no pointer past the call except the ones the C lowering's
+runtime kept, into Lua-owned userdata the stack roots.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local runtime = require("nupp.compiler.aot.llvm.lua.runtime")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local values = require("nupp.compiler.aot.llvm.lua.values")
+
+local luaStatements = {}
+
+--- The largest fixed word scratch kept on the machine stack.
+const STACK_SCRATCH_WORDS = 1024
+
+--- The largest fixed byte scratch kept on the machine stack.
+const STACK_SCRATCH_BYTES = 4096
+
+local function e(ctx: context.Context, instruction: string): string
+    return builder.value(ctx.f, instruction)
+end
+
+local function emit(ctx: context.Context, instruction: string): nil
+    builder.emit(ctx.f, instruction)
+end
+
+--- The entry-block block of `type` behind local `cName`, created once.
+local function block(ctx: context.Context, cName: string, type: string, align: integer): string
+    local lua = runtime.lua(ctx)
+    local existing = lua.blocks[cName]
+    if existing ~= nil then
+        return existing as string
+    end
+    local pointer = builder.alloca(ctx.f, type, align)
+    lua.blocks[cName] = pointer
+
+    return pointer
+end
+
+--- Zeroes `bytes` bytes at `pointer`.
+local function zero(ctx: context.Context, pointer: string, bytes: integer): nil
+    builder.declare(ctx.module, "@llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)")
+    emit(ctx, ("call void @llvm.memset.p0.i64(ptr align 16 %s, i8 0, i64 %d, i1 false)"):format(pointer, bytes))
+end
+
+--- Stores the u32 fields of a scratch header, from field 1 on.
+local function header(ctx: context.Context, scratch: string, structType: string, fields: {string}): nil
+    for position, value in ipairs(fields) do
+        emit(ctx, ("store i32 %s, ptr %s"):format(value, values.field(ctx, scratch, structType, position)))
+    end
+end
+
+--- A per-site registry key: its address, distinct from every other site's.
+local function siteKey(ctx: context.Context, cName: string): string
+    local name = ("@ks.key.%s.%s"):format(ctx.program.symbol, cName)
+    builder.once(ctx.module, "key " .. name, name .. " = internal global i8 0")
+
+    return name
+end
+
+local function stringBufferAppend(ctx: context.Context, buffer: string, value: scalarIR.Expr): nil
+    local state = runtime.state(ctx)
+    if value.op == "lua_string" then
+        local literal = (value as scalarIR.LuaString).value
+        runtime.call(ctx, "string_buffer_append", {
+            state,
+            "ptr " .. buffer,
+            "ptr " .. builder.bytes(ctx.module, literal),
+            runtime.size(ctx) .. " " .. tostring(#literal)
+        })
+        return
+    elseif value.op == "lua_substring" then
+        runtime.call(ctx, "string_buffer_append_slice", {
+            state,
+            "ptr " .. buffer,
+            values.substringOperands(ctx, value as scalarIR.LuaSubstring)
+        })
+        return
+    elseif value.op == "local" and runtime.lua(ctx).bytes[tostring((value as scalarIR.Name).cName)] ~= nil then
+        runtime.call(ctx, "string_buffer_append", {state, "ptr " .. buffer, values.byteOperands(ctx, value)})
+        return
+    end
+    -- Anything else is pushed and added as luaL_addvalue adds it, which keeps
+    -- the accumulator's own stack slots balanced when it spills.
+    values.push(ctx, value)
+    runtime.call(ctx, "string_buffer_append_top", {state, "ptr " .. buffer})
+end
+
+--- A value-stream handle argument: a Lua-owned local's index, or 0.
+local function indexOrZero(ctx: context.Context, node: scalarIR.Expr?): string
+    if node == nil then
+        return "i64 0"
+    end
+
+    return "i64 " .. e(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, node as scalarIR.Expr)))
+end
+
+local function bindStream(ctx: context.Context, statement: scalarIR.Let): nil
+    local started = statement.value as scalarIR.LuaBuilder
+    local stream = block(ctx, statement.cName, ("[%d x i8]"):format(runtime.BUILDER_BYTES), 16)
+    local maxDepth = started.maxDepth ~= nil and values.wide(ctx, started.maxDepth as scalarIR.Expr) or "i64 1024"
+    local capacity = started.stringCapacity ~= nil and values.wide(ctx, started.stringCapacity as scalarIR.Expr)
+        or "i64 0"
+    runtime.call(ctx, "builder_init", {
+        runtime.state(ctx),
+        "ptr " .. stream,
+        indexOrZero(ctx, started.nullValue),
+        indexOrZero(ctx, started.arrayMarker),
+        indexOrZero(ctx, started.objectMarker),
+        maxDepth,
+        capacity,
+        indexOrZero(ctx, started.selectionShape),
+        indexOrZero(ctx, started.arrayShapeMarker),
+        indexOrZero(ctx, started.serdeMarkers),
+        started.mode == "eager" and "i64 1" or "i64 0"
+    })
+end
+
+local function bindWordScratch(ctx: context.Context, statement: scalarIR.Let): nil
+    local started = statement.value as scalarIR.LuaScratchU32
+    local scratch = block(ctx, statement.cName, runtime.SCRATCH_U32, 8)
+    local capacity = values.operand(ctx, started.capacity, "u32")
+    local fixed = started.fixed
+    if fixed ~= nil and (fixed as integer) <= STACK_SCRATCH_WORDS then
+        -- Small enough for the machine stack: nothing for Lua to own.
+        local storage = block(ctx, statement.cName .. ".storage", ("[%d x i32]"):format(fixed as integer), 16)
+        zero(ctx, storage, (fixed as integer) * 4)
+        emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
+        header(ctx, scratch, runtime.SCRATCH_U32, {capacity, capacity, "0", "0"})
+        return
+    end
+    runtime.call(ctx, fixed ~= nil and "scratch_u32_fixed" or "scratch_u32", {
+        runtime.state(ctx),
+        "ptr " .. scratch,
+        "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity)),
+        "ptr " .. siteKey(ctx, statement.cName)
+    })
+end
+
+local function bindByteScratch(ctx: context.Context, statement: scalarIR.Let): nil
+    local started = statement.value as scalarIR.LuaScratchU8
+    local scratch = block(ctx, statement.cName, runtime.SCRATCH_U8, 8)
+    local capacity = values.operand(ctx, started.capacity, "u32")
+    local fixed = started.fixed
+    if fixed ~= nil and (fixed as integer) <= STACK_SCRATCH_BYTES then
+        local storage = block(ctx, statement.cName .. ".storage", ("[%d x i8]"):format(fixed as integer), 16)
+        zero(ctx, storage, fixed as integer)
+        emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
+        header(ctx, scratch, runtime.SCRATCH_U8, {capacity, capacity, "0", "0"})
+        return
+    end
+    local cached = runtime.lua(ctx).reusableScratch == statement.cName
+    runtime.call(ctx, cached and "scratch_u8_cached" or "scratch_u8", {
+        runtime.state(ctx),
+        "ptr " .. scratch,
+        "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity))
+    })
+end
+
+local function letStatement(ctx: context.Context, node: scalarIR.Statement): boolean
+    local statement = node as scalarIR.Let
+    local typeName = tostring(statement.type)
+    if typeName == "lua_string_buffer" then
+        local buffer = block(ctx, statement.cName, ("[%d x i8]"):format(runtime.STRING_BUFFER_BYTES), 16)
+        runtime.call(ctx, "string_buffer_init", {runtime.state(ctx), "ptr " .. buffer})
+        stringBufferAppend(ctx, buffer, (statement.value as scalarIR.LuaStringBuffer).initial)
+    elseif typeName == "lua_builder" then
+        bindStream(ctx, statement)
+    elseif typeName == "lua_scratch_u32" then
+        bindWordScratch(ctx, statement)
+    elseif typeName == "lua_scratch_u8" then
+        bindByteScratch(ctx, statement)
+    elseif typeName == "lua_table" or typeName == "lua_string" or typeName == "lua_nil" or typeName == "lua_value" then
+        values.push(ctx, statement.value)
+        local handle = runtime.lua(ctx).handles[statement.cName]
+        if handle == nil then
+            error("no root slot for " .. statement.cName, 0)
+        end
+        runtime.api(ctx, "lua_replace", {runtime.state(ctx), "i32 " .. tostring(handle)})
+    else
+        return false
+    end
+
+    return true
+end
+
+local function setStatement(ctx: context.Context, node: scalarIR.Statement): boolean
+    local write = node as scalarIR.LuaSet
+    local state = runtime.state(ctx)
+    local table = values.handle(ctx, write.table)
+    if write.op == "lua_set_index" then
+        values.push(ctx, write.value)
+        local key = values.index(ctx, write.key, write.source)
+        runtime.api(ctx, "lua_rawseti", {state, "i32 " .. table, "i32 " .. key})
+    else
+        values.push(ctx, write.key)
+        values.push(ctx, write.value)
+        runtime.api(ctx, "lua_rawset", {state, "i32 " .. table})
+    end
+
+    return true
+end
+
+local function appendStatement(ctx: context.Context, node: scalarIR.Statement): boolean
+    local appended = node as scalarIR.LuaStringBufferAppend
+    stringBufferAppend(ctx, values.block(ctx, appended.buffer), appended.value)
+
+    return true
+end
+
+local function wordSet(ctx: context.Context, node: scalarIR.Statement): boolean
+    local write = node as scalarIR.LuaScratchU32Set
+    local scratch = values.block(ctx, write.scratch)
+    local index = values.operand(ctx, write.index, "u32")
+    local value = values.operand(ctx, write.value, "u32")
+    local lengthField = values.field(ctx, scratch, runtime.SCRATCH_U32, 2)
+    if write.fixedBound ~= nil then
+        runtime.check(ctx, e(ctx, ("icmp uge i32 %s, %d"):format(index, write.fixedBound as integer)), "scratchWrite")
+    else
+        local length = e(ctx, ("load i32, ptr %s"):format(lengthField))
+        local capacity = values.u32Field(ctx, scratch, runtime.SCRATCH_U32, 1)
+        local past = e(ctx, ("icmp ugt i32 %s, %s"):format(index, length))
+        local full = e(ctx, ("icmp uge i32 %s, %s"):format(index, capacity))
+        runtime.check(ctx, e(ctx, ("or i1 %s, %s"):format(past, full)), "scratchWrite")
+        local grows = e(ctx, ("icmp eq i32 %s, %s"):format(index, length))
+        local grown = e(ctx, ("add i32 %s, 1"):format(length))
+        emit(
+            ctx,
+            (
+                "store i32 %s, ptr %s"
+            ):format(e(ctx, ("select i1 %s, i32 %s, i32 %s"):format(grows, grown, length)), lengthField)
+        )
+    end
+    local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
+    local wide = e(ctx, ("zext i32 %s to i64"):format(index))
+    local address = e(ctx, ("getelementptr inbounds i32, ptr %s, i64 %s"):format(storage, wide))
+    emit(ctx, ("store i32 %s, ptr %s"):format(value, address))
+
+    return true
+end
+
+local function byteSet(ctx: context.Context, node: scalarIR.Statement): boolean
+    local write = node as scalarIR.LuaScratchU8Set
+    local scratch = values.block(ctx, write.scratch)
+    local lengthField = values.field(ctx, scratch, runtime.SCRATCH_U8, 2)
+    local operation = tostring(write.op)
+    if operation == "lua_scratch_u8_reset" then
+        emit(ctx, ("store i32 0, ptr %s"):format(lengthField))
+        return true
+    end
+    local index = values.operand(ctx, write.index as scalarIR.Expr, "u32")
+    local value = values.operand(ctx, write.value as scalarIR.Expr, "u32")
+    local four = operation == "lua_scratch_u8_set4"
+    local width = four and 4 or 1
+    local bad: string
+    local length: string? = nil
+    if write.fixedBound ~= nil then
+        local bound = tostring(write.fixedBound as integer)
+        if four then
+            local past = e(ctx, ("icmp ugt i32 %s, %s"):format(index, bound))
+            local left = e(ctx, ("sub i32 %s, %s"):format(bound, index))
+            local short = e(ctx, ("icmp ult i32 %s, 4"):format(left))
+            bad = e(ctx, ("or i1 %s, %s"):format(past, short))
+        else
+            bad = e(ctx, ("icmp uge i32 %s, %s"):format(index, bound))
+        end
+    else
+        local current = e(ctx, ("load i32, ptr %s"):format(lengthField))
+        length = current
+        local capacity = values.u32Field(ctx, scratch, runtime.SCRATCH_U8, 1)
+        local past = e(ctx, ("icmp ugt i32 %s, %s"):format(index, current))
+        if four then
+            local over = e(ctx, ("icmp ugt i32 %s, %s"):format(index, capacity))
+            local room = e(ctx, ("sub i32 %s, %s"):format(capacity, index))
+            local short = e(ctx, ("icmp ult i32 %s, 4"):format(room))
+            bad = e(ctx, ("or i1 %s, %s"):format(e(ctx, ("or i1 %s, %s"):format(past, over)), short))
+        else
+            local full = e(ctx, ("icmp uge i32 %s, %s"):format(index, capacity))
+            bad = e(ctx, ("or i1 %s, %s"):format(past, full))
+        end
+    end
+    if not four then
+        bad = e(ctx, ("or i1 %s, %s"):format(bad, e(ctx, ("icmp ugt i32 %s, 255"):format(value))))
+    end
+    runtime.check(ctx, bad, "byteWrite")
+    if length ~= nil then
+        local current = length as string
+        if four then
+            local inside = e(ctx, ("icmp ult i32 %s, %s"):format(index, current))
+            local tail = e(ctx, ("sub i32 %s, %s"):format(current, index))
+            local short = e(ctx, ("icmp ult i32 %s, 4"):format(tail))
+            runtime.check(ctx, e(ctx, ("and i1 %s, %s"):format(inside, short)), "byteStraddle")
+        end
+        local grows = e(ctx, ("icmp eq i32 %s, %s"):format(index, current))
+        local grown = e(ctx, ("add i32 %s, %d"):format(current, width))
+        emit(
+            ctx,
+            (
+                "store i32 %s, ptr %s"
+            ):format(e(ctx, ("select i1 %s, i32 %s, i32 %s"):format(grows, grown, current)), lengthField)
+        )
+    end
+    local address = values.scratchByte(ctx, scratch, index)
+    if four then
+        emit(ctx, ("store i32 %s, ptr %s, align 1"):format(value, address))
+    else
+        emit(ctx, ("store i8 %s, ptr %s"):format(e(ctx, ("trunc i32 %s to i8"):format(value)), address))
+    end
+
+    return true
+end
+
+--- The range operands `start, length` of a string event, widened.
+local function range(ctx: context.Context, event: scalarIR.LuaBuild): {string}
+    return {values.wide(ctx, event.start as scalarIR.Expr), values.wide(ctx, event.length as scalarIR.Expr)}
+end
+
+local function streamEvent(ctx: context.Context, node: scalarIR.Statement): boolean
+    local event = node as scalarIR.LuaBuild
+    local operation = event.op
+    local args: {string} = {runtime.state(ctx), "ptr " .. values.block(ctx, event.builder)}
+
+    local function add(more: {string}): nil
+        for _, arg in ipairs(more) do
+            args[#args + 1] = arg
+        end
+    end
+
+    local eager = values.eager(ctx)
+    local slot: string
+    if operation == "lua_builder_open_array" or operation == "lua_builder_open_object" then
+        slot = "builder_open"
+        add({
+            operation == "lua_builder_open_array" and "i64 5" or "i64 6",
+            values.wide(ctx, event.capacity as scalarIR.Expr),
+            eager
+        })
+    elseif operation == "lua_builder_key" or operation == "lua_builder_string" then
+        slot = "builder_string"
+        add({values.byteOperands(ctx, event.sourceBytes as scalarIR.Expr)})
+        add(range(ctx, event))
+        add({
+            values.flag(ctx, event.escaped as scalarIR.Expr),
+            operation == "lua_builder_key" and "i64 1" or "i64 0",
+            eager
+        })
+    elseif operation == "lua_builder_number_slice" or operation == "lua_builder_integer_slice" then
+        slot = operation == "lua_builder_integer_slice" and "builder_integer_slice" or "builder_number_slice"
+        add({values.byteOperands(ctx, event.sourceBytes as scalarIR.Expr)})
+        add(range(ctx, event))
+        add({eager})
+    elseif operation == "lua_builder_key_scratch" then
+        slot = "builder_key_scratch"
+        add({"ptr " .. values.block(ctx, event.scratch as scalarIR.Expr)})
+        add(range(ctx, event))
+    elseif operation == "lua_builder_string_scratch" then
+        slot = "builder_string_scratch"
+        add({"ptr " .. values.block(ctx, event.scratch as scalarIR.Expr)})
+        add(range(ctx, event))
+        add({eager})
+    elseif operation == "lua_builder_key_escapes" or operation == "lua_builder_string_escapes" then
+        slot = "builder_string_escapes"
+        add({values.byteOperands(ctx, event.sourceBytes as scalarIR.Expr)})
+        add(range(ctx, event))
+        add({
+            "ptr " .. values.block(ctx, event.escapeScratch as scalarIR.Expr),
+            values.wide(ctx, event.escapeIndex as scalarIR.Expr),
+            values.wide(ctx, event.escapeCount as scalarIR.Expr),
+            operation == "lua_builder_key_escapes" and "i64 1" or "i64 0",
+            eager
+        })
+    elseif operation == "lua_builder_number" then
+        slot = "builder_number"
+        add({"double " .. values.operand(ctx, event.value as scalarIR.Expr, "f64"), eager})
+    elseif operation == "lua_builder_integer64" then
+        slot = "builder_integer64"
+        add({
+            "i64 " .. values.operand(ctx, event.value as scalarIR.Expr, "u64"),
+            values.flag(ctx, event.negative as scalarIR.Expr),
+            eager
+        })
+    elseif operation == "lua_builder_decimal64" then
+        slot = "builder_decimal64"
+        add({values.byteOperands(ctx, event.sourceBytes as scalarIR.Expr)})
+        add(range(ctx, event))
+        local exponent = values.operand(ctx, event.exponent as scalarIR.Expr, "i32")
+        add({
+            "i64 " .. values.operand(ctx, event.value as scalarIR.Expr, "u64"),
+            "i64 " .. e(ctx, ("sext i32 %s to i64"):format(exponent)),
+            values.flag(ctx, event.negative as scalarIR.Expr),
+            values.flag(ctx, event.exact as scalarIR.Expr),
+            eager
+        })
+    elseif operation == "lua_builder_boolean" then
+        slot = "builder_boolean"
+        add({values.flag(ctx, event.value as scalarIR.Expr), eager})
+    elseif operation == "lua_builder_null" then
+        slot = "builder_null"
+        add({eager})
+    else
+        slot = "builder_close"
+        add({eager})
+    end
+    runtime.call(ctx, slot, args)
+
+    return true
+end
+
+local function assignStatement(ctx: context.Context, node: scalarIR.Statement): boolean
+    local assignment = node as scalarIR.Assign
+    local lua = false
+    for _, entry in ipairs(assignment.values) do
+        local targetType = tostring(entry.target.type)
+        lua = lua or targetType == "lua_string" or targetType == "lua_nil"
+    end
+    if not lua then
+        return false
+    end
+    local only = assignment.values[1]
+    local onlyType = tostring(only.target.type)
+    if #assignment.values ~= 1 or (onlyType ~= "lua_string" and onlyType ~= "lua_nil") then
+        error("mixed or multiple Lua string assignment reached emission", 0)
+    end
+    values.push(ctx, only.value)
+    local handle = runtime.lua(ctx).handles[tostring(only.target.cName)]
+    if handle == nil then
+        error("no root slot for " .. tostring(only.target.cName), 0)
+    end
+    runtime.api(ctx, "lua_replace", {runtime.state(ctx), "i32 " .. tostring(handle)})
+
+    return true
+end
+
+local function returnStatement(ctx: context.Context, node: scalarIR.Statement): boolean
+    local returned = node as scalarIR.Return
+    for _, value in ipairs(returned.values) do
+        values.push(ctx, value)
+    end
+    builder.terminate(ctx.f, ("ret i32 %d"):format(#returned.values))
+
+    return true
+end
+
+--- The statements a builder entry lowers first, by operation.
+luaStatements.STATEMENTS = {
+    let = letStatement,
+    assign = assignStatement,
+    ["return"] = returnStatement,
+    lua_set_index = setStatement,
+    lua_set_key = setStatement,
+    lua_string_buffer_append = appendStatement,
+    lua_scratch_u32_set = wordSet,
+    lua_scratch_u8_set = byteSet,
+    lua_scratch_u8_set4 = byteSet,
+    lua_scratch_u8_reset = byteSet,
+    lua_builder_open_array = streamEvent,
+    lua_builder_open_object = streamEvent,
+    lua_builder_key = streamEvent,
+    lua_builder_string = streamEvent,
+    lua_builder_number = streamEvent,
+    lua_builder_number_slice = streamEvent,
+    lua_builder_integer_slice = streamEvent,
+    lua_builder_integer64 = streamEvent,
+    lua_builder_decimal64 = streamEvent,
+    lua_builder_boolean = streamEvent,
+    lua_builder_null = streamEvent,
+    lua_builder_close = streamEvent,
+    lua_builder_key_scratch = streamEvent,
+    lua_builder_string_scratch = streamEvent,
+    lua_builder_key_escapes = streamEvent,
+    lua_builder_string_escapes = streamEvent,
+} as {[string]: function(ctx: context.Context, node: scalarIR.Statement): boolean}
+
+export = luaStatements

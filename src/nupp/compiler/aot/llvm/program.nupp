@@ -25,6 +25,9 @@ local reduce = require("nupp.compiler.aot.llvm.simd.reduce")
 local simdReducers = require("nupp.compiler.aot.llvm.simd.reducers")
 local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
 local facts = require("nupp.compiler.aot.llvm.facts")
+local luaEntry = require("nupp.compiler.aot.llvm.lua.entry")
+local luaStatements = require("nupp.compiler.aot.llvm.lua.statements")
+local luaValues = require("nupp.compiler.aot.llvm.lua.values")
 local profile = require("nupp.compiler.aot.llvm.profile")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local statements = require("nupp.compiler.aot.llvm.statements")
@@ -40,7 +43,8 @@ for _, lowering in ipairs({
     rearrange.EXPRESSIONS,
     reduce.EXPRESSIONS,
     memory.EXPRESSIONS,
-    simdReducers.EXPRESSIONS
+    simdReducers.EXPRESSIONS,
+    luaValues.EXPRESSIONS
 }) do
     for operation, lower in pairs(lowering) do
         expressions.handlers[operation] = lower
@@ -53,6 +57,9 @@ for _, lowering in ipairs({memory.STATEMENTS, simdReducers.STATEMENTS}) do
 end
 for operation, bind in pairs(simdReducers.BINDERS) do
     statements.binders[operation] = bind
+end
+for operation, lower in pairs(luaStatements.STATEMENTS) do
+    statements.builderHandlers[operation] = lower
 end
 
 --- What every function of one module is emitted against.
@@ -274,6 +281,60 @@ local function firstLine(program: scalarIR.Program): integer
     return 1
 end
 
+--- A context for a function of `program` in `unit`, with what its vector
+--- code is emitted for.
+local function prepared(unit: llvmProgram.Unit, f: builder.Function, program: scalarIR.Program): context.Context
+    local ctx = context.new(unit.module, f, program, unit.facts)
+    ctx.maskedMemory = unit.maskedMemory
+    ctx.tier = unit.codegenTier
+    local architecture = unit.target.llvmTriple:match("^([^-]+)")
+    ctx.vectorRegister = (architecture == "arm64" or architecture == "aarch64") and "w"
+        or (architecture == "x86_64" or architecture == "i686") and "x"
+        or ""
+
+    return ctx
+end
+
+--- The attributes of a function Lua calls: it unwinds, and a frame holding
+--- a value stream's state and a string accumulator spans several pages, so
+--- its stack is probed.
+local function luaAttributes(selected: profile.Profile): string
+    local parts: {string} = {"uwtable", "\"probe-stack\"=\"inline-asm\""}
+    if selected.functionAttributes ~= "" then
+        parts[#parts + 1] = selected.functionAttributes
+    end
+
+    return table.concat(parts, " ")
+end
+
+--- One Lua-builder entry, as the `lua_CFunction` its registrar registers.
+local function builderEntry(unit: llvmProgram.Unit, program: scalarIR.Program): luaEntry.Registered
+    local name = "@" .. physical(program.symbol, unit.tier) .. "_lua"
+    local attrs = builder.attributes(unit.module, luaAttributes(unit.target))
+    local scope: string? = nil
+    if unit.lines ~= nil then
+        scope = dwarf.subprogram(unit.module, unit.lines as dwarf.Unit, program.name, firstLine(program))
+        attrs = attrs .. " !dbg " .. tostring(scope)
+    end
+    local f = builder.func(unit.module, ("define internal i32 %s(ptr %%L) %s {"):format(name, attrs))
+    local ctx = prepared(unit, f, program)
+    ctx.scope = scope
+    ctx.lua = new context.Lua(
+        state = "%L",
+        runtime = "null",
+        size = unit.target.sizeType,
+        eager = program.builderMode == "eager",
+        handles = {},
+        bytes = {},
+        blocks = {},
+        reusableScratch = program.reusableScratch
+    )
+    helpers(unit, ctx, program)
+    luaEntry.body(ctx, program)
+
+    return new luaEntry.Registered(name = program.name, fn = name)
+end
+
 --- One kernel entry.
 local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle: boolean): nil
     local module = unit.module
@@ -352,15 +413,9 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     else
         count("%count")
     end
-    local ctx = context.new(module, f, program, unit.facts)
+    local ctx = prepared(unit, f, program)
     ctx.scope = scope
     ctx.oracle = oracle
-    ctx.maskedMemory = unit.maskedMemory
-    ctx.tier = unit.codegenTier
-    local architecture = unit.target.llvmTriple:match("^([^-]+)")
-    ctx.vectorRegister = (architecture == "arm64" or architecture == "aarch64") and "w"
-        or (architecture == "x86_64" or architecture == "i686") and "x"
-        or ""
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
         ctx.resultStruct = resultStruct
@@ -456,11 +511,19 @@ function llvmProgram.module(
         defined = {}
     )
     local kernels: {[integer]: boolean} = {}
+    local registered: {luaEntry.Registered} = {}
+    local registrar: string? = nil
+    local registrarProgram: scalarIR.Program? = nil
     for _, program in ipairs(programs) do
         if program.executionTarget == "gpu" then
             -- Shader programs have their own artifacts.
         elseif program.entryMode == "lua-builder" then
-            unsupported("Lua-builder entries")
+            registrar = registrar or program.registrar
+            if registrar ~= program.registrar then
+                error("one translation unit carried multiple Lua registrars", 0)
+            end
+            registrarProgram = registrarProgram or program
+            registered[#registered + 1] = builderEntry(unit, program)
         else
             -- A SIMD kernel has an unoptimized twin the differential tests
             -- compare it against, emitted first as the C lowering did.
@@ -476,6 +539,17 @@ function llvmProgram.module(
         end
     end
 
+    if registrar ~= nil then
+        luaEntry.registrar(
+            module,
+            physical(registrar as string, unit.tier),
+            builder.attributes(module, luaAttributes(selected)),
+            selected.sizeType,
+            registered,
+            registrarProgram as scalarIR.Program
+        )
+    end
+
     -- A kernel touches only memory its span arguments reach, unless the unit
     -- calls something outside it: a libm function may set `errno` until the
     -- runtime's math says otherwise.
@@ -484,7 +558,9 @@ function llvmProgram.module(
     local globals = false
     for _, key in ipairs(module.order) do
         local piece = module.pieces[key] as string
-        if piece:match("^declare ") ~= nil and piece:match("^declare [^@]*@llvm%.") == nil then
+        -- The Lua API is only a builder entry's to call.
+        local name = piece:match("^declare [^@]*@([%w_.]+)")
+        if name ~= nil and name:match("^llvm%.") == nil and name:match("^luaL?_") == nil then
             opaque = true
         elseif piece:match("^@") ~= nil then
             globals = true

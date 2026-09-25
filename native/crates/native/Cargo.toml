@@ -24,9 +24,7 @@ filesystem = ["base", "dep:nupp-native-files"]
 files = ["filesystem", "nupp-native-files/lane"]
 compression = ["base", "dep:nupp-native-compression"]
 # The AOT code generator: LLVM and lld, linked in (NUPP_LLVM_PREFIX).
-codegen = ["base", "aotrt", "dep:nupp-native-codegen", "nupp-native-codegen/llvm"]
-# The runtime LLVM-compiled Lua-builder entries call (c/ks_rt.c).
-aotrt = ["base"]
+codegen = ["base", "dep:nupp-native-codegen", "nupp-native-codegen/llvm"]
 
 [dependencies]
 nupp-native-abi = { path = "../abi" }

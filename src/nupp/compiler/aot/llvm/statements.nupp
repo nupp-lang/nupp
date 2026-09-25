@@ -451,9 +451,20 @@ statements.handlers = {} as {[string]: function(ctx: context.Context, node: scal
 --- than producing a value (a reducer's state), by the value's operation.
 statements.binders = {} as {[string]: function(ctx: context.Context, slot: context.Slot, value: scalarIR.Expr): nil}
 
+--- Lowerings a Lua-builder entry puts first, by operation: each answers
+--- whether it took the statement, and one that did not leaves it to the
+--- ordinary lowering (a `let` of a scalar, an assignment to one).
+statements.builderHandlers = {} as {[string]: function(ctx: context.Context, node: scalarIR.Statement): boolean}
+
 function statements.statement(ctx: context.Context, node: scalarIR.Statement): nil
     dwarf.at(ctx.f, ctx.scope, (node as any).source as scalarIR.Source?)
     local operation = node.op
+    if ctx.lua ~= nil then
+        local special = statements.builderHandlers[operation]
+        if special ~= nil and special(ctx, node) then
+            return
+        end
+    end
     local handler = statements.handlers[operation]
     if handler ~= nil then
         handler(ctx, node)

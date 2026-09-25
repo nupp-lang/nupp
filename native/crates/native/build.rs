@@ -1,19 +1,25 @@
-//! Compiles the AOT runtime (`c/ks_rt.c`) when the `aotrt` feature is on.
+//! Compiles the AOT runtime (`c/ks_rt.c`) into every provider.
 //!
 //! The runtime is the C lowering's own `ks_lua.h`, compiled once here rather
 //! than into every module, and reached by LLVM-compiled builder entries through
-//! the table `nuppAotRuntime` returns. It calls the Lua C API, which the
-//! process loading this crate provides: statically in `nupp`, and through the
-//! interpreter when this is the provider library, where it binds at load.
+//! the table `nuppAotRuntime` returns. Every provider carries it, because the
+//! one a program is staged with is chosen by the effects its source reaches,
+//! and a compiled module's registrar is not source. It calls the Lua C API,
+//! which the process loading this crate provides: statically in `nupp`, and
+//! through the interpreter when this is the provider library, where it binds
+//! at load. A Windows library has to name the module each import comes from,
+//! so there it waits on the import library that says which.
 
 fn main() {
     println!("cargo:rerun-if-changed=c/ks_rt.c");
     println!("cargo:rerun-if-changed=../../../src/nupp/compiler/aot/include/ks_prelude.h");
     println!("cargo:rerun-if-changed=../../../src/nupp/compiler/aot/include/ks_lua.h");
-    if std::env::var_os("CARGO_FEATURE_AOTRT").is_none() {
+    println!("cargo::rustc-check-cfg=cfg(nupp_aot_runtime)");
+    let target = std::env::var("TARGET").unwrap();
+    if target.contains("windows") {
         return;
     }
-    let target = std::env::var("TARGET").unwrap();
+    println!("cargo:rustc-cfg=nupp_aot_runtime");
     let mut build = cc::Build::new();
     build
         .file("c/ks_rt.c")

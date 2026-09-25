@@ -1,0 +1,483 @@
+module nupp.compiler.aot.llvm.lua.values
+
+--[[
+What a Lua-builder body reads, and how a construction value reaches the Lua
+stack.
+
+A Lua-owned local is an absolute stack index, never a GC pointer, exactly as
+the C lowering keeps it: every allocating call then sees every live
+construction value rooted. Bytes read in place -- a string argument's, a
+constant's -- are a pointer and a `size_t` taken once at entry; LuaJIT's
+strings do not move, so both stay valid for the call.
+
+The checks a hot loop runs -- string and scratch reads and writes, table
+indices and capacities -- are emitted inline, branching to a cold raise, so
+LLVM sees the access and the bound together. Everything that allocates or
+walks the value stream is a runtime call.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local expressions = require("nupp.compiler.aot.llvm.expressions")
+local runtime = require("nupp.compiler.aot.llvm.lua.runtime")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local values = {}
+
+local function e(ctx: context.Context, instruction: string): string
+    return builder.value(ctx.f, instruction)
+end
+
+--- `node` as IR type `to`.
+function values.operand(ctx: context.Context, node: scalarIR.Expr, to: string): string
+    local value, t = expressions.value(ctx, node)
+
+    return expressions.convert(ctx, value, t, to)
+end
+
+--- `node` as a 32-bit unsigned value widened to the i64 the runtime takes.
+function values.wide(ctx: context.Context, node: scalarIR.Expr): string
+    return "i64 " .. e(ctx, ("zext i32 %s to i64"):format(values.operand(ctx, node, "u32")))
+end
+
+--- A boolean `node` as the runtime's i64 0 or 1.
+function values.flag(ctx: context.Context, node: scalarIR.Expr): string
+    return "i64 " .. e(ctx, ("zext i1 %s to i64"):format(values.operand(ctx, node, "bool")))
+end
+
+--- The `"line:column"` a message names a construction by.
+function values.site(source: scalarIR.Source?): string
+    return source ~= nil
+        and tostring((source as scalarIR.Source).line) .. ":" .. tostring((source as scalarIR.Source).column)
+        or "1:1"
+end
+
+--- The absolute stack index of a Lua-owned local or argument, as an i32.
+--- @raises string when the name is neither
+function values.handle(ctx: context.Context, node: scalarIR.Expr): string
+    local cName = tostring((node as scalarIR.Name).cName)
+    local found = runtime.lua(ctx).handles[cName]
+    if found ~= nil then
+        return found as string
+    end
+    if cName:match("^%d+$") ~= nil then
+        return cName
+    end
+    error("no Lua stack slot for " .. cName, 0)
+end
+
+--- The bytes a rooted string argument or a constant is read through.
+--- @raises string when the name has none
+function values.bytes(ctx: context.Context, node: scalarIR.Expr): context.Bytes
+    local cName = tostring((node as scalarIR.Name).cName)
+    local found = runtime.lua(ctx).bytes[cName]
+    if found == nil then
+        error("no rooted bytes for " .. cName, 0)
+    end
+
+    return found as context.Bytes
+end
+
+--- The operands `ptr bytes, size_t length` of rooted bytes.
+function values.byteOperands(ctx: context.Context, node: scalarIR.Expr): string
+    local bytes = values.bytes(ctx, node)
+
+    return ("ptr %s, %s %s"):format(bytes.pointer, runtime.size(ctx), bytes.length)
+end
+
+--- The native block behind a builder, buffer or scratch local.
+--- @raises string when the name has none
+function values.block(ctx: context.Context, node: scalarIR.Expr): string
+    local cName = tostring((node as scalarIR.Name).cName)
+    local found = runtime.lua(ctx).blocks[cName]
+    if found == nil then
+        error("no native block for " .. cName, 0)
+    end
+
+    return found as string
+end
+
+--- The address of field `index` of a scratch block of `structType`.
+function values.field(ctx: context.Context, block: string, structType: string, index: integer): string
+    return e(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %d"):format(structType, block, index))
+end
+
+--- A binary64 as a Lua C API integer: `minimum` or more, at most INT_MAX,
+--- and integral, else the raise `raising` emits. The comparisons are the
+--- runtime's, without a libm `floor`: NaN fails the first, and a value in
+--- range survives the round trip through i32 exactly when it is integral.
+local function apiInteger(ctx: context.Context, value: string, minimum: string, raising: function(): nil): string
+    local low = e(ctx, ("fcmp oge double %s, %s"):format(value, minimum))
+    local high = e(ctx, ("fcmp ole double %s, 2147483647.0"):format(value))
+    local inRange = e(ctx, ("and i1 %s, %s"):format(low, high))
+    -- Clamped so the conversion is defined whatever the value.
+    local clamped = e(ctx, ("select i1 %s, double %s, double 0.0"):format(inRange, value))
+    local integer = e(ctx, ("fptosi double %s to i32"):format(clamped))
+    local back = e(ctx, ("sitofp i32 %s to double"):format(integer))
+    local integral = e(ctx, ("fcmp oeq double %s, %s"):format(back, value))
+    local fine = e(ctx, ("and i1 %s, %s"):format(inRange, integral))
+    runtime.guard(ctx, e(ctx, ("xor i1 %s, true"):format(fine)), raising)
+
+    return integer
+end
+
+--- `ks_lua_count`: a table capacity.
+function values.count(ctx: context.Context, node: scalarIR.Expr, what: string): string
+    local value = values.operand(ctx, node, "f64")
+
+    return apiInteger(ctx, value, "0.0", function(): nil
+        runtime.call(ctx, "raise_count", {runtime.state(ctx), "ptr " .. runtime.cString(ctx, what)})
+    end)
+end
+
+--- `ks_lua_index`: an array index.
+function values.index(ctx: context.Context, node: scalarIR.Expr, source: scalarIR.Source?): string
+    local value = values.operand(ctx, node, "f64")
+
+    return apiInteger(ctx, value, "1.0", function(): nil
+        runtime.call(ctx, "raise_index", {runtime.state(ctx), "ptr " .. runtime.cString(ctx, values.site(source))})
+    end)
+end
+
+--- Pushes a string literal.
+function values.pushLiteral(ctx: context.Context, value: string): nil
+    runtime.api(ctx, "lua_pushlstring", {
+        runtime.state(ctx),
+        "ptr " .. builder.bytes(ctx.module, value),
+        runtime.size(ctx) .. " " .. tostring(#value)
+    })
+end
+
+--- The operands `bytes, length, first, last` of a substring.
+function values.substringOperands(ctx: context.Context, sliced: scalarIR.LuaSubstring): string
+    local bytes = values.bytes(ctx, sliced.bytes)
+    local first = values.operand(ctx, sliced.first, "f64")
+    local last = sliced.last ~= nil and values.operand(ctx, sliced.last as scalarIR.Expr, "f64")
+        or e(ctx, ("uitofp %s %s to double"):format(runtime.size(ctx), bytes.length))
+
+    return ("ptr %s, %s %s, double %s, double %s"):format(bytes.pointer, runtime.size(ctx), bytes.length, first, last)
+end
+
+--- Pushes one construction value on the Lua stack.
+--- @raises string for a value the construction verifier does not admit
+function values.push(ctx: context.Context, value: scalarIR.Expr): nil
+    local state = runtime.state(ctx)
+    local valueType = tostring(value.type)
+    if valueType == "lua_table" then
+        if value.op == "lua_new_table" then
+            local created = value as scalarIR.LuaNewTable
+            runtime.reserve(ctx, 3)
+            local site = values.site(created.source)
+            local array = values.count(ctx, created.arrayCapacity, "array capacity at " .. site)
+            local hash = values.count(ctx, created.hashCapacity, "hash capacity at " .. site)
+            runtime.api(ctx, "lua_createtable", {state, "i32 " .. array, "i32 " .. hash})
+            local fields = created.fields or {}
+            if #fields == 0 then
+                return
+            end
+            local table = runtime.api(ctx, "lua_gettop", {state}) as string
+            for _, field in ipairs(fields) do
+                if field.indexed then
+                    values.push(ctx, field.value)
+                    local key = values.index(ctx, field.key, field.source)
+                    runtime.api(ctx, "lua_rawseti", {state, "i32 " .. table, "i32 " .. key})
+                else
+                    values.push(ctx, field.key)
+                    values.push(ctx, field.value)
+                    runtime.api(ctx, "lua_rawset", {state, "i32 " .. table})
+                end
+            end
+            return
+        end
+    elseif valueType == "lua_nil" then
+        runtime.api(ctx, "lua_pushnil", {state})
+        return
+    elseif valueType == "lua_string" then
+        if value.op == "lua_string" then
+            values.pushLiteral(ctx, (value as scalarIR.LuaString).value)
+            return
+        elseif value.op == "lua_string_buffer_finish" then
+            local buffer = values.block(ctx, (value as scalarIR.LuaStringBufferFinish).buffer)
+            runtime.call(ctx, "string_buffer_finish", {state, "ptr " .. buffer})
+            return
+        elseif value.op == "lua_concat" then
+            local joined = value as scalarIR.LuaConcat
+            values.push(ctx, joined.left)
+            values.push(ctx, joined.right)
+            runtime.api(ctx, "lua_concat", {state, "i32 2"})
+            return
+        elseif value.op == "lua_substring" then
+            runtime.call(ctx, "substring", {state, values.substringOperands(ctx, value as scalarIR.LuaSubstring)})
+            return
+        end
+    elseif valueType == "lua_value" then
+        if value.op == "lua_builder_finish" then
+            local stream = values.block(ctx, (value as scalarIR.LuaBuilderFinish).builder)
+            runtime.call(ctx, "builder_finish", {state, "ptr " .. stream})
+            return
+        end
+    elseif valueType == "bool" then
+        local truth = values.operand(ctx, value, "bool")
+        runtime.api(ctx, "lua_pushboolean", {state, "i32 " .. e(ctx, ("zext i1 %s to i32"):format(truth))})
+        return
+    else
+        runtime.api(ctx, "lua_pushnumber", {state, "double " .. values.operand(ctx, value, "f64")})
+        return
+    end
+    -- A Lua-owned local or argument: its slot, pushed again.
+    runtime.api(ctx, "lua_pushvalue", {state, "i32 " .. values.handle(ctx, value)})
+end
+
+--- A u32 result the runtime answered as i64.
+local function narrow(ctx: context.Context, value: string): (string, string)
+    return e(ctx, ("trunc i64 %s to i32"):format(value)), "u32"
+end
+
+local function stringMatch(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local matched = node as scalarIR.LuaStringMatch
+    local index = e(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, matched.bytes)))
+    local answer = runtime.call(ctx, "string_match", {
+        runtime.state(ctx),
+        "i64 " .. index,
+        "ptr " .. builder.bytes(ctx.module, matched.value),
+        runtime.size(ctx) .. " " .. tostring(#matched.value)
+    }) as string
+
+    return e(ctx, ("icmp ne i64 %s, 0"):format(answer)), "bool"
+end
+
+local function stringLength(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local bytes = values.bytes(ctx, (node as scalarIR.LuaBytes).bytes)
+    local size = runtime.size(ctx)
+    if size == "i32" then
+        return bytes.length, "u32"
+    end
+    runtime.check(ctx, e(ctx, ("icmp ugt %s %s, 4294967295"):format(size, bytes.length)), "stringLength")
+
+    return e(ctx, ("trunc %s %s to i32"):format(size, bytes.length)), "u32"
+end
+
+--- The address of byte `offset` (a `size_t` value) of rooted bytes.
+local function byteAddress(ctx: context.Context, bytes: context.Bytes, offset: string): string
+    return e(ctx, ("getelementptr inbounds i8, ptr %s, %s %s"):format(bytes.pointer, runtime.size(ctx), offset))
+end
+
+--- A u32 as the target's `size_t`.
+local function sizeOf(ctx: context.Context, value: string): string
+    local size = runtime.size(ctx)
+    if size == "i32" then
+        return value
+    end
+
+    return e(ctx, ("zext i32 %s to %s"):format(value, size))
+end
+
+local function stringByte(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaBytes
+    local bytes = values.bytes(ctx, loaded.bytes)
+    local size = runtime.size(ctx)
+    local offset = sizeOf(ctx, values.operand(ctx, loaded.index as scalarIR.Expr, "u32"))
+    runtime.check(ctx, e(ctx, ("icmp uge %s %s, %s"):format(size, offset, bytes.length)), "byte")
+    local byte = e(ctx, ("load i8, ptr %s"):format(byteAddress(ctx, bytes, offset)))
+
+    return e(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
+end
+
+local function stringByteAt(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaBytes
+    local bytes = values.bytes(ctx, loaded.bytes)
+    local slot = ctx.locals[tostring(loaded.cursorCName)]
+    if slot == nil then
+        error("no cursor " .. tostring(loaded.cursorCName), 0)
+    end
+    local cursor = expressions.convert(
+        ctx,
+        context.loadSlot(ctx, slot as context.Slot),
+        (slot as context.Slot).type,
+        "u32"
+    )
+    local byte = e(ctx, ("load i8, ptr %s"):format(byteAddress(ctx, bytes, sizeOf(ctx, cursor))))
+
+    return e(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
+end
+
+local function stringWord(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaBytes
+    local bytes = values.bytes(ctx, loaded.bytes)
+    local size = runtime.size(ctx)
+    local index = values.operand(ctx, loaded.index as scalarIR.Expr, "u32")
+    if size == "i32" then
+        runtime.check(ctx, e(ctx, ("icmp ugt i32 %s, 1073741823"):format(index)), "wordIndex")
+    end
+    local offset = e(ctx, ("shl nuw %s %s, 2"):format(size, sizeOf(ctx, index)))
+    local past = e(ctx, ("icmp ugt %s %s, %s"):format(size, offset, bytes.length))
+    local left = e(ctx, ("sub %s %s, %s"):format(size, bytes.length, offset))
+    local short = e(ctx, ("icmp ult %s %s, 4"):format(size, left))
+    runtime.check(ctx, e(ctx, ("or i1 %s, %s"):format(past, short)), "word")
+
+    return e(ctx, ("load i32, ptr %s, align 1"):format(byteAddress(ctx, bytes, offset))), "u32"
+end
+
+local function stringByteLua(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaStringByte
+    local answer = runtime.call(ctx, "string_byte_lua", {
+        runtime.state(ctx),
+        values.byteOperands(ctx, loaded.bytes),
+        "double " .. values.operand(ctx, loaded.index, "f64")
+    }) as string
+
+    return answer, "f64"
+end
+
+local function tableNumber(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaTableGet
+    local table = e(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, loaded.table)))
+    local answer = runtime.call(ctx, "table_number", {
+        runtime.state(ctx),
+        "i64 " .. table,
+        "double " .. values.operand(ctx, loaded.key, "f64"),
+        "ptr " .. runtime.cString(ctx, values.site(loaded.source))
+    }) as string
+
+    return answer, "f64"
+end
+
+local function builderQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local query = node as scalarIR.LuaBuilderQuery
+    local which = query.op == "lua_builder_depth" and 0
+        or query.op == "lua_builder_kind" and 1
+        or query.op == "lua_builder_count" and 2
+        or 3
+
+    return narrow(
+        ctx,
+        runtime.call(ctx, "builder_query", {
+            runtime.state(ctx),
+            "ptr " .. values.block(ctx, query.builder),
+            "i64 " .. tostring(which)
+        }) as string
+    )
+end
+
+--- The runtime's `eager` flag for this entry's value stream.
+function values.eager(ctx: context.Context): string
+    return runtime.lua(ctx).eager and "i64 1" or "i64 0"
+end
+
+local function numberToken(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local number = node as scalarIR.LuaBuilderNumberToken
+
+    return narrow(
+        ctx,
+        runtime.call(ctx, "builder_number_token", {
+            runtime.state(ctx),
+            "ptr " .. values.block(ctx, number.builder),
+            values.byteOperands(ctx, number.sourceBytes),
+            values.wide(ctx, number.start),
+            values.wide(ctx, number.limit),
+            values.eager(ctx)
+        }) as string
+    )
+end
+
+--- Loads word `index` (an i32) of a word scratch's storage.
+local function word(ctx: context.Context, block: string, index: string): string
+    local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, block, runtime.SCRATCH_U32, 0)))
+    local wide = e(ctx, ("zext i32 %s to i64"):format(index))
+    local address = e(ctx, ("getelementptr inbounds i32, ptr %s, i64 %s"):format(storage, wide))
+
+    return e(ctx, ("load i32, ptr %s"):format(address))
+end
+
+--- A u32 field of a scratch block.
+function values.u32Field(ctx: context.Context, block: string, structType: string, index: integer): string
+    return e(ctx, ("load i32, ptr %s"):format(values.field(ctx, block, structType, index)))
+end
+
+--- The value of a proved cursor local, as a u32.
+--- @raises string when the cursor is not a bound local
+local function cursorValue(ctx: context.Context, cName: string): string
+    local slot = ctx.locals[cName]
+    if slot == nil then
+        error("no cursor " .. cName, 0)
+    end
+
+    return expressions.convert(ctx, context.loadSlot(ctx, slot as context.Slot), (slot as context.Slot).type, "u32")
+end
+
+local function scratchWordGet(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaScratchU32Get
+    local block = values.block(ctx, loaded.scratch)
+    local escape = loaded.op == "lua_scratch_u32_escape_get"
+    if loaded.cursor ~= nil then
+        local cursor = cursorValue(ctx, tostring(loaded.cursorCName))
+        if escape then
+            local capacity = values.u32Field(ctx, block, runtime.SCRATCH_U32, 1)
+            local last = e(ctx, ("sub i32 %s, 1"):format(capacity))
+            cursor = e(ctx, ("sub i32 %s, %s"):format(last, cursor))
+        end
+        return word(ctx, block, cursor), "u32"
+    end
+    local index = values.operand(ctx, loaded.index, "u32")
+    local bound = loaded.fixedBound ~= nil and not escape and tostring(loaded.fixedBound)
+        or values.u32Field(ctx, block, runtime.SCRATCH_U32, escape and 3 or 2)
+    runtime.check(ctx, e(ctx, ("icmp uge i32 %s, %s"):format(index, bound)), escape and "escapeRead" or "scratchRead")
+    if escape then
+        local capacity = values.u32Field(ctx, block, runtime.SCRATCH_U32, 1)
+        local last = e(ctx, ("sub i32 %s, 1"):format(capacity))
+        index = e(ctx, ("sub i32 %s, %s"):format(last, index))
+    end
+
+    return word(ctx, block, index), "u32"
+end
+
+local function scratchWordLength(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local read = node as scalarIR.LuaScratchU32Length
+    local block = values.block(ctx, read.scratch)
+    local field = read.op == "lua_scratch_u32_escape_length" and 3 or 2
+
+    return values.u32Field(ctx, block, runtime.SCRATCH_U32, field), "u32"
+end
+
+--- The address of byte `index` (an i32) of a byte scratch's storage.
+function values.scratchByte(ctx: context.Context, block: string, index: string): string
+    local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, block, runtime.SCRATCH_U8, 0)))
+    local wide = e(ctx, ("zext i32 %s to i64"):format(index))
+
+    return e(ctx, ("getelementptr inbounds i8, ptr %s, i64 %s"):format(storage, wide))
+end
+
+local function scratchByteGet(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local loaded = node as scalarIR.LuaScratchU8Get
+    local block = values.block(ctx, loaded.scratch)
+    local index = values.operand(ctx, loaded.index, "u32")
+    local bound = loaded.fixedBound ~= nil and tostring(loaded.fixedBound)
+        or values.u32Field(ctx, block, runtime.SCRATCH_U8, 2)
+    runtime.check(ctx, e(ctx, ("icmp uge i32 %s, %s"):format(index, bound)), "byteRead")
+    local byte = e(ctx, ("load i8, ptr %s"):format(values.scratchByte(ctx, block, index)))
+
+    return e(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
+end
+
+--- The Lua reads, by operation.
+values.EXPRESSIONS = {
+    lua_string_match = stringMatch,
+    lua_string_length = stringLength,
+    lua_string_byte = stringByte,
+    lua_string_byte_at = stringByteAt,
+    lua_string_u32 = stringWord,
+    lua_string_byte_lua = stringByteLua,
+    lua_table_get_index = tableNumber,
+    lua_builder_depth = builderQuery,
+    lua_builder_kind = builderQuery,
+    lua_builder_count = builderQuery,
+    lua_builder_state = builderQuery,
+    lua_builder_number_token = numberToken,
+    lua_scratch_u32_get = scratchWordGet,
+    lua_scratch_u32_escape_get = scratchWordGet,
+    lua_scratch_u32_length = scratchWordLength,
+    lua_scratch_u32_escape_length = scratchWordLength,
+    lua_scratch_u8_get = scratchByteGet,
+} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
+
+export = values

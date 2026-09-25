@@ -27,11 +27,6 @@ local types = require("nupp.compiler.aot.llvm.types")
 
 local memory = {}
 
---- @raises string always
-local function unsupported(what: string): never
-    error(expressions.UNSUPPORTED .. what, 0)
-end
-
 local function e(ctx: context.Context, instruction: string): string
     return lanes.emit(ctx, instruction)
 end
@@ -182,7 +177,7 @@ end
 
 --- The proof of `simd`'s access, or nil when it carries none.
 local function proved(ctx: context.Context, simd: scalarIR.Simd, found: species.Species, ways: integer): memory.Proof?
-    if simd.cursor == nil or simd.cursorCName == nil or simd.rooted ~= nil then
+    if simd.cursor == nil or simd.cursorCName == nil then
         return nil
     end
     local base, _, count = simdbounds.offset(simd.args[2])
@@ -790,7 +785,15 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     if simd.rooted ~= nil then
-        unsupported("rooted byte-view loads")
+        -- A view over a builder's own string argument: the entry recorded
+        -- its bytes as a span, and the load is the same load over it.
+        local viewed: any = {}
+        for key, value in pairs(simd as any) do
+            viewed[key] = value
+        end
+        viewed.span = "ks_bytes_" .. tostring((simd.rooted as scalarIR.Name).cName)
+        viewed.rooted = nil
+        simd = viewed as scalarIR.Simd
     end
     local intrinsic = tostring(simd.intrinsic)
     if intrinsic == "gather" then
