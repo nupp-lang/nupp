@@ -101,7 +101,30 @@ local function arguments(ctx: context.Context, program: scalarIR.Program): nil
             local length = builder.alloca(ctx.f, lua.size, lua.size == "i64" and 8 or 4)
             local pointer: string
             if typeName == "lua_bytes" then
-                pointer = runtime.call(ctx, "bytes", {state, "i64 " .. tostring(position), "ptr " .. length}) as string
+                -- A string is read where it is; only a Buffer needs the
+                -- runtime, which asks it for its bytes.
+                local f = ctx.f
+                local kept = builder.alloca(f, "ptr", 8)
+                local kind = runtime.api(ctx, "lua_type", {state, index}) as string
+                local isString = e(ctx, ("icmp eq i32 %s, 4"):format(kind))
+                local direct = builder.label(f, "lua.string")
+                local buffer = builder.label(f, "lua.buffer")
+                local joined = builder.label(f, "lua.bytes")
+                builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(isString, direct, buffer))
+                builder.start(f, direct)
+                local bytes = runtime.api(ctx, "luaL_checklstring", {state, index, "ptr " .. length}) as string
+                builder.emit(f, ("store ptr %s, ptr %s"):format(bytes, kept))
+                builder.jump(f, joined)
+                builder.start(f, buffer)
+                local converted = runtime.call(ctx, "bytes", {
+                    state,
+                    "i64 " .. tostring(position),
+                    "ptr " .. length
+                }) as string
+                builder.emit(f, ("store ptr %s, ptr %s"):format(converted, kept))
+                builder.jump(f, joined)
+                builder.start(f, joined)
+                pointer = e(ctx, ("load ptr, ptr %s"):format(kept))
             else
                 pointer = runtime.api(ctx, "luaL_checklstring", {state, index, "ptr " .. length}) as string
             end
@@ -259,12 +282,22 @@ function entry.registrar(
         return ("ptrtoint (ptr getelementptr (%s, ptr null, i32 1) to i64)"):format(type)
     end
 
+    local function offsetOf(type: string, field: integer): string
+        return ("ptrtoint (ptr getelementptr (%s, ptr null, i32 0, i32 %d) to i64)"):format(type, field)
+    end
+
     local checks = {
         e(ctx, ("icmp ne i64 %s, %d"):format(word(0), runtime.VERSION)),
         e(ctx, ("icmp ugt i64 %s, %d"):format(word(1), runtime.BUILDER_BYTES)),
         e(ctx, ("icmp ugt i64 %s, %d"):format(word(2), runtime.STRING_BUFFER_BYTES)),
         e(ctx, ("icmp ne i64 %s, %s"):format(word(3), sizeOf(runtime.SCRATCH_U32))),
         e(ctx, ("icmp ne i64 %s, %s"):format(word(4), sizeOf(runtime.SCRATCH_U8))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(5), offsetOf(runtime.BUILDER, 1))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(6), offsetOf(runtime.BUILDER, 7))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(7), offsetOf(runtime.BUILDER, 8))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(8), sizeOf(runtime.FRAME))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(9), offsetOf(runtime.FRAME, 2))),
+        e(ctx, ("icmp ne i64 %s, %s"):format(word(10), offsetOf(runtime.FRAME, 4))),
     }
     local wrong = checks[1]
     for position = 2, #checks do

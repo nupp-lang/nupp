@@ -39,6 +39,15 @@ const runtime.SCRATCH_U32 = "{ ptr, i32, i32, i32, i32, [32 x i32] }"
 --- The byte scratch block: bytes, capacity, length, root index, cached.
 const runtime.SCRATCH_U8 = "{ ptr, i32, i32, i32, i32 }"
 
+--- One value-stream frame: table and shape indices, kind, next, count,
+--- mode, plan, expected, seen, expects-key, aliases, tuple.
+const runtime.FRAME = "{ i32, i32, i32, i32, i32, i32, i32, i32, i64, i32, i32, i32 }"
+
+--- The fields of a value stream's state generated code reads: ten stack
+--- indices, then depth (1), frame capacity, pending mode, three flags, the
+--- spilled frames (7) and the inline ones (8).
+const runtime.BUILDER = "{ [10 x i32], i32, i32, i32, i32, i32, i32, ptr, [16 x { i32, i32, i32, i32, i32, i32, i32, i32, i64, i32, i32, i32 }] }"
+
 --- The runtime's messages, by the id `raise` takes (`ks_rt_messages`).
 const MESSAGE: {
     [string]: integer
@@ -57,6 +66,7 @@ const MESSAGE: {
     byteStraddle = 12,
     tableEntry = 13,
     substring = 14,
+    noContainer = 16,
 }
 
 runtime.MESSAGE = MESSAGE
@@ -136,8 +146,9 @@ const SLOTS: {
 
 runtime.SLOTS = SLOTS
 
---- The words before the first function slot.
-const runtime.HEADER = 5
+--- The words before the first function slot: the version, four block
+--- sizes, and the six layout facts `BUILDER` and `FRAME` state.
+const runtime.HEADER = 11
 
 local indexOf: {[string]: integer} = {}
 local slotOf: {[string]: runtime.Slot} = {}
@@ -165,6 +176,7 @@ const API: {
     lua_rawset = {"void", "ptr, i32"},
     lua_concat = {"void", "ptr, i32"},
     lua_toboolean = {"i32", "ptr, i32"},
+    lua_type = {"i32", "ptr, i32"},
     lua_tolstring = {"ptr", "ptr, i32, ptr"},
     lua_getfield = {"void", "ptr, i32, ptr"},
     lua_call = {"void", "ptr, i32, i32"},

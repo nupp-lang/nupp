@@ -16,16 +16,19 @@ ROUNDS=${1:-3}
 
 build() {
     backend=$1
-    (cd bench/sha256 && NUPP_AOT_BACKEND=$backend ../../bin/nupp build --target sha256 --out-dir "build/$backend" >/dev/null)
+    (cd bench/sha256 && NUPP_AOT_BACKEND=$backend ../../bin/nupp build --target sha256 --out-dir "build/aot-$backend" >/dev/null)
     (cd bench/fused-json && ./prepare.sh >/dev/null && NUPP_AOT_BACKEND=$backend ../../bin/nupp build --target fused-json --out-dir "build/$backend" >/dev/null)
 }
 
 build c
 build llvm
+(cd bench/sha256 && ../../bin/nupp build --target sha256-scalar --out-dir build/scalar >/dev/null)
 
+# The benchmark reads `build/aot`, so that names whichever backend is measured.
 sha256() {
     backend=$1
-    (cd bench/sha256 && LUA_PATH="build/$backend/?.lua;build/$backend/?/init.lua;$ROOT/.rocks/share/lua/5.1/?.lua;;" \
+    (cd bench/sha256 && rm -rf build/aot && ln -s "aot-$backend" build/aot && \
+        LUA_PATH="build/aot/?.lua;build/aot/?/init.lua;$ROOT/.rocks/share/lua/5.1/?.lua;;" \
         LUA_CPATH="$ROOT/.rocks/lib/lua/5.1/?.so;;" luajit benchmark.lua 9)
 }
 

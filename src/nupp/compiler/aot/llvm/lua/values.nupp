@@ -342,21 +342,57 @@ local function tableNumber(ctx: context.Context, node: scalarIR.Expr): (string, 
     return answer, "f64"
 end
 
+--- The value stream's depth, its current frame's kind and count, or its
+--- state (kind, and 0x100 once the container holds anything), read from
+--- the state block as `ks_lua_builder_query` reads them: a hot tape walk
+--- asks after every value, and a call for three loads showed.
 local function builderQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local query = node as scalarIR.LuaBuilderQuery
-    local which = query.op == "lua_builder_depth" and 0
-        or query.op == "lua_builder_kind" and 1
-        or query.op == "lua_builder_count" and 2
-        or 3
+    local operation = tostring(query.op)
+    local stream = values.block(ctx, query.builder)
+    local depthAddress = values.field(ctx, stream, runtime.BUILDER, 1)
+    local depth = e(ctx, ("load i32, ptr %s"):format(depthAddress))
+    if operation == "lua_builder_depth" then
+        return depth, "u32"
+    end
+    local f = ctx.f
+    local empty = e(ctx, ("icmp eq i32 %s, 0"):format(depth))
+    local answer = builder.alloca(f, "i32", 4)
+    if operation == "lua_builder_state" then
+        -- An empty stream's state is 0; everything else needs a frame.
+        builder.emit(f, ("store i32 0, ptr %s"):format(answer))
+        local some = builder.label(f, "lua.frame")
+        local done = builder.label(f, "lua.state")
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(empty, done, some))
+        builder.start(f, some)
+        local frame = values.currentFrame(ctx, stream, depth)
+        local kind = e(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, 2)))
+        local count = e(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, 4)))
+        local started = e(ctx, ("icmp ne i32 %s, 0"):format(count))
+        local flag = e(ctx, ("select i1 %s, i32 256, i32 0"):format(started))
+        builder.emit(f, ("store i32 %s, ptr %s"):format(e(ctx, ("or i32 %s, %s"):format(kind, flag)), answer))
+        builder.jump(f, done)
+        builder.start(f, done)
 
-    return narrow(
-        ctx,
-        runtime.call(ctx, "builder_query", {
-            runtime.state(ctx),
-            "ptr " .. values.block(ctx, query.builder),
-            "i64 " .. tostring(which)
-        }) as string
-    )
+        return e(ctx, ("load i32, ptr %s"):format(answer)), "u32"
+    end
+    runtime.check(ctx, empty, "noContainer")
+    local frame = values.currentFrame(ctx, stream, depth)
+    local field = operation == "lua_builder_kind" and 2 or 4
+
+    return e(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, field))), "u32"
+end
+
+--- The innermost open frame of a value stream at `depth` (nonzero): in the
+--- spilled array once there is one, and inline before.
+function values.currentFrame(ctx: context.Context, stream: string, depth: string): string
+    local spilled = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, stream, runtime.BUILDER, 7)))
+    local inline = values.field(ctx, stream, runtime.BUILDER, 8)
+    local none = e(ctx, ("icmp eq ptr %s, null"):format(spilled))
+    local frames = e(ctx, ("select i1 %s, ptr %s, ptr %s"):format(none, inline, spilled))
+    local last = e(ctx, ("zext i32 %s to i64"):format(e(ctx, ("sub i32 %s, 1"):format(depth))))
+
+    return e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(runtime.FRAME, frames, last))
 end
 
 --- The runtime's `eager` flag for this entry's value stream.

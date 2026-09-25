@@ -7,6 +7,10 @@
  * and slots 1-4 the sizes of the blocks generated code allocates; the
  * registrar refuses a table that disagrees with what it was compiled for.
  *
+ * Slots 5-10 are where generated code finds a value stream's depth and its
+ * current frame's kind and count, which it reads itself rather than paying a
+ * call for three loads; the registrar refuses a table whose layout differs.
+ *
  * The code is `ks_lua.h`'s, the C lowering's own prelude, included whole so
  * both backends run the same builder while both exist. What this file adds is
  * the ABI those functions are called through: every argument a pointer or a
@@ -16,6 +20,7 @@
  * The slot order is the ABI. `nupp.compiler.aot.llvm.lua.runtime` lists the
  * same slots, and a test holds the two lists to one another. */
 #define KS_JSON_WIDE 1
+#include <stddef.h>
 #include "ks_prelude.h"
 #include "ks_lua.h"
 
@@ -47,6 +52,7 @@ static const char *const ks_rt_messages[] = {
     "AOT fresh table entry is not numeric",
     "AOT string.sub bounds must be integers",
     "AOT runtime is not the one this module was compiled for",
+    "AOT value stream has no current container",
 };
 
 static KS_RT_NORETURN void ks_rt_raise(lua_State *L, uint64_t message) {
@@ -215,24 +221,19 @@ static void ks_rt_builder_init(
     int64_t serde_markers,
     uint64_t eager
 ) {
-    KsLuaBuilder *b = (KsLuaBuilder *)builder;
-    if (eager) {
-        *b = ks_lua_eager_builder_new(
-            L, (int)null_index, (int)array_marker, (int)object_marker, (uint32_t)max_depth, (uint32_t)byte_capacity
-        );
-    } else {
-        *b = ks_lua_builder_new(
-            L,
-            (int)null_index,
-            (int)array_marker,
-            (int)object_marker,
-            (uint32_t)max_depth,
-            (uint32_t)byte_capacity,
-            (int)selection_shape,
-            (int)array_shape_marker,
-            (int)serde_markers
-        );
-    }
+    /* An eager stream takes no selection shape and no serde markers. */
+    ks_lua_builder_init(
+        L,
+        (KsLuaBuilder *)builder,
+        (int)null_index,
+        (int)array_marker,
+        (int)object_marker,
+        (uint32_t)max_depth,
+        (uint32_t)byte_capacity,
+        eager ? 0 : (int)selection_shape,
+        eager ? 0 : (int)array_shape_marker,
+        eager ? 0 : (int)serde_markers
+    );
 }
 
 static void ks_rt_builder_open(lua_State *L, void *builder, uint64_t kind, uint64_t capacity, uint64_t eager) {
@@ -369,13 +370,20 @@ static void ks_rt_builder_finish(lua_State *L, void *builder) {
     ks_lua_builder_finish(L, (KsLuaBuilder *)builder);
 }
 
-/* The ABI, slot by slot. Sizes first so a registrar can check its blocks. */
+/* The ABI, slot by slot. Sizes and offsets first so a registrar can check
+ * its blocks and the fields it reads. */
 const void *const ks_rt_table[] = {
     (const void *)(uintptr_t)KS_RT_ABI_VERSION,
     (const void *)(uintptr_t)sizeof(KsLuaBuilder),
     (const void *)(uintptr_t)sizeof(KsLuaStringBuffer),
     (const void *)(uintptr_t)sizeof(KsLuaScratchU32),
     (const void *)(uintptr_t)sizeof(KsLuaScratchU8),
+    (const void *)(uintptr_t)offsetof(KsLuaBuilder, depth),
+    (const void *)(uintptr_t)offsetof(KsLuaBuilder, frames),
+    (const void *)(uintptr_t)offsetof(KsLuaBuilder, inline_frames),
+    (const void *)(uintptr_t)sizeof(KsLuaBuildFrame),
+    (const void *)(uintptr_t)offsetof(KsLuaBuildFrame, kind),
+    (const void *)(uintptr_t)offsetof(KsLuaBuildFrame, count),
     (const void *)ks_rt_raise,
     (const void *)ks_rt_raise_count,
     (const void *)ks_rt_raise_index,

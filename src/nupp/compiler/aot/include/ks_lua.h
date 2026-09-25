@@ -1018,11 +1018,17 @@ static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratc
 #define KS_LUA_BUILD_OBJECT UINT32_C(2)
 #define KS_LUA_BUILD_ARRAY UINT32_C(3)
 #define KS_LUA_BUILD_PENDING UINT32_MAX
-static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
+/* In place, so a caller holding the state in its own block (the LLVM
+ * lowering's runtime) writes the live fields rather than copying the whole
+ * struct back; the by-value constructor below is the C lowering's spelling. */
+static KS_UNUSED void ks_lua_builder_init(lua_State *L, KsLuaBuilder *builder, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
     if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, "AOT value stream depth capacity overflows"); max_depth = 0u; }
     if (selection_shape_index != 0 && lua_type(L, selection_shape_index) <= 0) { selection_shape_index = 0; }
     uint32_t pending_mode = selection_shape_index == 0 ? KS_LUA_BUILD_ALL : KS_LUA_BUILD_OBJECT;
-    KsLuaBuilder builder; builder.null_index = null_index; builder.array_marker_index = array_marker_index; builder.object_marker_index = object_marker_index; builder.root_index = 0; builder.frame_root_index = lua_gettop(L); builder.byte_root_index = 0; builder.selection_shape_index = selection_shape_index; builder.array_shape_marker_index = array_shape_marker_index; builder.serde_markers_index = serde_markers_index; builder.pending_shape_index = selection_shape_index; builder.depth = 0u; builder.frame_capacity = max_depth; builder.pending_mode = pending_mode; builder.pending_shape_owned = 0; builder.pending_scalar = 0; builder.root_done = 0; builder.frames = NULL; builder.bytes = NULL; builder.byte_capacity = byte_capacity; builder.byte_allocated = 0u; builder.plan_count = 0u; builder.key_count = 0u; return builder;
+    builder->null_index = null_index; builder->array_marker_index = array_marker_index; builder->object_marker_index = object_marker_index; builder->root_index = 0; builder->frame_root_index = lua_gettop(L); builder->byte_root_index = 0; builder->selection_shape_index = selection_shape_index; builder->array_shape_marker_index = array_shape_marker_index; builder->serde_markers_index = serde_markers_index; builder->pending_shape_index = selection_shape_index; builder->depth = 0u; builder->frame_capacity = max_depth; builder->pending_mode = pending_mode; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->root_done = 0; builder->frames = NULL; builder->bytes = NULL; builder->byte_capacity = byte_capacity; builder->byte_allocated = 0u; builder->plan_count = 0u; builder->key_count = 0u;
+}
+static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
+    KsLuaBuilder builder; ks_lua_builder_init(L, &builder, null_index, array_marker_index, object_marker_index, max_depth, byte_capacity, selection_shape_index, array_shape_marker_index, serde_markers_index); return builder;
 }
 static KS_UNUSED KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {
     return builder->frames != NULL ? &builder->frames[index] : &builder->inline_frames[index];
