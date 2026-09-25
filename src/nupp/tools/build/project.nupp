@@ -668,6 +668,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
 
                 return 1
             end
+            -- Through LLVM no C compiler runs, so C flags have nothing to
+            -- reach; say so rather than drop them.
+            local cflags = target.aotCflags as {string}?
+            if cflags ~= nil
+                and #(cflags as {string}) > 0
+                and require("nupp.tools.build.aotllvm").selected() == true
+            then
+                io.stderr:write(
+                    "nupp: warning: aotCflags has no effect through the LLVM backend, which runs no C compiler\n"
+                )
+            end
             produced, aotErr, aotDiagnostic = aotPolicy.apply(
                 target.aot as string,
                 root,
