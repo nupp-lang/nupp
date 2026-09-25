@@ -63,12 +63,21 @@ end
 
 --- Which backend this build lowers through, as text a remembered build is
 --- compared against: `c`, or the code generator and facts it would use.
+--- Whether independent Wasm entries call their kernels' unoptimized scalar
+--- twins (`NUPP_AOT_WASM_ORACLE=1`): the reference build the Wasm SIMD
+--- suites compare the optimized one against.
+function aotllvm.wasmOracle(): boolean
+    return os.getenv("NUPP_AOT_WASM_ORACLE") == "1"
+end
+
 function aotllvm.selection(): string
     if aotllvm.selected() ~= true then
         return "c"
     end
 
-    return "llvm " .. aotllvm.version() .. " facts=" .. aotllvm.factsKey()
+    return "llvm " .. aotllvm.version() .. " facts=" .. aotllvm.factsKey() .. (
+        aotllvm.wasmOracle() and " wasm-oracle" or ""
+    )
 end
 
 --- The code generator's identity, which every LLVM artifact is keyed on.
@@ -127,7 +136,8 @@ function aotllvm.emit(
         (aotllvm.facts()),
         sourceFile,
         logical,
-        bridges
+        bridges,
+        aotllvm.wasmOracle()
     )
     if not ok then
         if llvmProgram.isUnsupported(module) then
@@ -370,13 +380,18 @@ end
 --- memory the loaders expect -- 4 MiB to start, growable to 64 MiB.
 --- @return nil, or what went wrong
 function aotllvm.linkWasm(object: string, output: string, exports: {string}, libm: string?): string?
+    -- The reference build's unoptimized twins keep every vector on the
+    -- stack, so they get the room the C route's reference build had.
+    local oracle = aotllvm.wasmOracle()
     local argv: {
         string
     } = {
         "wasm-ld",
         "--no-entry",
-        "--initial-memory=4194304",
+        oracle and "--initial-memory=33554432" or "--initial-memory=4194304",
         "--max-memory=67108864",
+        "-z",
+        oracle and "stack-size=16777216" or "stack-size=65536",
         "--export=malloc",
         "--export=free",
     }

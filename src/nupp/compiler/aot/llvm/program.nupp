@@ -531,7 +531,8 @@ end
 --- the `stated` facts (all of them when nil), with line tables into
 --- `sourceFile` when one is given; `logical` keeps each entry's logical
 --- symbol rather than the tier's. On Wasm, `bridges` numbers each entry's
---- exported `nupp_bridge_<i>` by symbol.
+--- exported `nupp_bridge_<i>` by symbol, and `oracleBridges` has each one
+--- call its kernel's unoptimized scalar twin where it has one.
 --- @raises string when a program uses what this backend does not emit
 function llvmProgram.module(
     programs: {scalarIR.Program},
@@ -540,7 +541,8 @@ function llvmProgram.module(
     stated: facts.Facts?,
     sourceFile: string?,
     logical: boolean?,
-    bridges: {[string]: integer}?
+    bridges: {[string]: integer}?,
+    oracleBridges: boolean?
 ): string
     local module = builder.module()
     local unit = new llvmProgram.Unit(
@@ -593,7 +595,10 @@ function llvmProgram.module(
                 if index == nil then
                     error("no Wasm bridge index for " .. program.symbol, 0)
                 end
-                wasmBridge.define(module, program, index as integer, physical(program.symbol, unit.tier), attrs)
+                -- The reference build calls each SIMD kernel's scalar twin.
+                local callee = oracleBridges == true and program.usesSimd == true and program.symbol .. "_forced_scalar"
+                    or program.symbol
+                wasmBridge.define(module, program, index as integer, physical(callee, unit.tier), attrs)
             end
         end
         wasmRuntime.install(module)

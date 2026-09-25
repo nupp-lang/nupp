@@ -31,6 +31,28 @@ local function e(ctx: context.Context, instruction: string): string
     return lanes.emit(ctx, instruction)
 end
 
+--- A whole-vector load of `found` at `address`. On a target with no tuned
+--- vector registers (Wasm) a vector whose lane count is not a power of two
+--- is loaded lane by lane: LLVM 23 splits such a load into pieces and gives
+--- the last lane a sign-extending load that later unsigned operations take
+--- as zero-extended, so a three-lane byte shift, say, answered -32 for 32.
+local function wholeLoad(ctx: context.Context, found: species.Species, address: string, align: integer): string
+    local count = found.lanes
+    local powerOfTwo = count > 0 and (count & (count - 1)) == 0
+    if ctx.vectorRegister ~= "" or powerOfTwo then
+        return e(ctx, ("load %s, ptr %s, align %d"):format(found.vector, address, align))
+    end
+    local vector = "poison"
+    local laneAlign = math.max(math.floor(found.bits / 8), 1) as integer
+    for lane = 0, count - 1 do
+        local at = e(ctx, ("getelementptr inbounds %s, ptr %s, i32 %d"):format(found.scalar, address, lane))
+        local value = e(ctx, ("load %s, ptr %s, align %d"):format(found.scalar, at, laneAlign))
+        vector = e(ctx, ("insertelement %s %s, %s %s, i32 %d"):format(found.vector, vector, found.scalar, value, lane))
+    end
+
+    return vector
+end
+
 local function operand(ctx: context.Context, node: scalarIR.Expr): string
     local value = expressions.value(ctx, node)
 
@@ -546,7 +568,7 @@ local function contiguousLoad(
         found.lanes,
         found.vector,
         function(): string?
-            local loaded = e(ctx, ("load %s, ptr %s, align %d"):format(found.vector, window.address, align))
+            local loaded = wholeLoad(ctx, found, window.address, align)
             if active == nil then
                 return loaded
             end
@@ -826,10 +848,7 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
         found.vector,
         function(): string?
             if not interleaved then
-                return e(
-                    ctx,
-                    ("load %s, ptr %s, align %d"):format(found.vector, (proof as memory.Proof).address, align)
-                )
+                return wholeLoad(ctx, found, (proof as memory.Proof).address, align)
             end
             local wide = "<" .. tostring(ways * found.lanes) .. " x " .. found.scalar .. ">"
             local run = e(ctx, ("load %s, ptr %s, align %d"):format(wide, (proof as memory.Proof).address, align))

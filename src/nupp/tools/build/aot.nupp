@@ -1988,7 +1988,8 @@ function aot.emitC(
                                     base = key,
                                     backend = aotllvm.BACKEND,
                                     codegen = aotllvm.version(),
-                                    facts = aotllvm.factsKey()
+                                    facts = aotllvm.factsKey(),
+                                    wasmOracle = aotllvm.wasmOracle()
                                 })
                             )
                         end
