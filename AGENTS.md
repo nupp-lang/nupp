@@ -10,7 +10,8 @@ rather than in client-specific skill directories.
 
 Do changes in a worktree. When finished, rebase the originating branch,
 typically main into your worktree, resolve conflicts, and then FF merge.
-When complete, delete the worktree. Leave no attribution in commits,
+When complete, delete the worktree unless the session removes it (see
+"Worktree setup"). Leave no attribution in commits,
 do not use conventional commits, use imperative language, and keep commit
 lines under 72 characters.
 
@@ -91,6 +92,11 @@ worktree still holding unmerged work is the work. Leave every other worktree
 alone, in whatever state it is in. One that looks abandoned may be a task
 somebody else has open, and uncommitted changes in a tree that is not yours are
 not yours to decide are finished.
+
+Only remove a worktree that would otherwise outlive the session. One the
+session created for you, and removes itself when it closes, is also the
+session's working directory, so deleting it early breaks the session and saves
+nothing. Leave it once the work has landed.
 
 ## Responding to prompts
 
