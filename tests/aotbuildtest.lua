@@ -3600,6 +3600,15 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
         not viewText:find("!", 1, true) and viewText:find("^0,", 1),
         builderReport("a rooted byte view reads the same bytes the scalar walk does", "require", dir, viewText)
     )
+    -- Through LLVM, the unit carries line tables into the authored file,
+    -- and each raise keeps its own site rather than a merged line 0.
+    local unit = tieredUnit(dir, firstHostTier(), "builder.g")
+    if unit:match("%.ll$") then
+        local ir = assert(read(unit))
+        assert(ir:find('!DIFile(filename: "builder.g.nupp"', 1, true), "the unit names its source file")
+        assert(ir:find("!DILocation(line: ", 1, true), "statements carry their lines")
+        assert(ir:find("%(ptr %%L, ptr @nupp%.bytes%.%d+%) nomerge"), "a raise keeps its own site")
+    end
     local generated = assert(read(dir .. "/build/native/builder.lua"))
     assert(generated:find("ks_register_", 1, true), builderReport("generated wrapper", "require", dir, generated))
     assert(

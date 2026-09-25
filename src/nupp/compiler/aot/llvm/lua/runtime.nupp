@@ -220,6 +220,9 @@ function runtime.api(ctx: context.Context, name: string, args: {string}): string
     local callee = params:find("...", 1, true) ~= nil and ("%s (%s) @%s"):format(result, params, name)
         or result .. " @" .. name
     local call = ("call %s(%s)"):format(callee, table.concat(args, ", "))
+    if name == "luaL_error" then
+        call = call .. " nomerge"
+    end
     if result == "void" then
         builder.emit(ctx.f, call)
         return nil
@@ -255,6 +258,12 @@ function runtime.call(ctx: context.Context, name: string, args: {string}): strin
     local found = entry as runtime.Slot
     local callee = pointer(ctx, name)
     local call = ("call %s %s(%s)"):format(found.result, callee, table.concat(args, ", "))
+    if name:match("^raise") ~= nil then
+        -- Each raise keeps its own site: merged with another raise's
+        -- identical tail, the call would take line 0, and a debugger would
+        -- lose which check failed.
+        call = call .. " nomerge"
+    end
     if found.result == "void" then
         builder.emit(ctx.f, call)
         return nil

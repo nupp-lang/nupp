@@ -317,6 +317,9 @@ local function builderEntry(unit: llvmProgram.Unit, program: scalarIR.Program): 
         attrs = attrs .. " !dbg " .. tostring(scope)
     end
     local f = builder.func(unit.module, ("define internal i32 %s(ptr %%L) %s {"):format(name, attrs))
+    -- What runs before the first statement -- the stack check, argument
+    -- decoding -- is attributed to the entry's first line.
+    dwarf.at(f, scope, new scalarIR.Source(line = firstLine(program), column = 1))
     local ctx = prepared(unit, f, program)
     ctx.scope = scope
     ctx.lua = new context.Lua(

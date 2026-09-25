@@ -1865,7 +1865,15 @@ function aot.emitC(
                     -- yet keeps its C, and a static archive stays C until the
                     -- code generator writes archives.
                     if useLlvm == true and not staticLinkage then
-                        local ir, why = aotllvm.emit(artifacts.programs, tierTarget.tier, tierTarget.triple)
+                        -- Line tables into the authored file, so a debugger
+                        -- or profiler names the Nupp line a frame is at.
+                        local ir, why = aotllvm.emit(
+                            artifacts.programs,
+                            tierTarget.tier,
+                            tierTarget.triple,
+                            nil,
+                            fs.canonical(source)
+                        )
                         aotllvm.note(
                             (
                                 ir ~= nil and "llvm\t%s\t%s" or "fallback\t%s\t%s\t" .. tostring(why)
