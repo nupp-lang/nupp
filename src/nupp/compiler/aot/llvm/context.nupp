@@ -105,6 +105,10 @@ record context.Context
     --- (`w` on AArch64, `x` on x86), or empty where there is none to use.
     vectorRegister: string
 
+    --- The i64 counters of numeric `for` loops over a span, by the C name of
+    --- their binding: an access through the binding indexes from these.
+    spanCounters: {[string]: string}
+
     --- The lane counts of masks bound once to `species:tail(n)`, by C name:
     --- such a mask is exactly the first `n` lanes, as an i32 value.
     tailCounts: {[string]: string}
@@ -158,6 +162,7 @@ function context.new(
         oracle = false,
         wideCursors = false,
         tailCounts = {},
+        spanCounters = {},
         accumulators = {}
     )
 end

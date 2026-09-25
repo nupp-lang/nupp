@@ -286,6 +286,12 @@ function expressions.index(ctx: context.Context, indexCName: string?, cursorCNam
 
         return ctx.mapIndex as string
     end
+    local counter = ctx.spanCounters[tostring(indexCName)]
+    if counter ~= nil then
+        -- A span loop's own counter, 1-based and proved in bounds.
+        local current = emit(ctx, ("load i64, ptr %s"):format(counter as string))
+        return emit(ctx, ("sub %si64 %s, 1"):format(ctx.facts.bounds and "nuw " or "", current))
+    end
     local slot = ctx.locals[tostring(indexCName)]
     if slot == nil then
         error("no local " .. tostring(indexCName), 0)

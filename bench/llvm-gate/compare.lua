@@ -14,8 +14,16 @@ local cPath, llvmPath, unitPath, roundsText = arg[1], arg[2], arg[3], arg[4]
 assert(cPath and llvmPath and unitPath, "usage: compare.lua C_LIBRARY LLVM_LIBRARY LLVM_UNIT.ll [ROUNDS]")
 local ROUNDS = tonumber(roundsText or "15")
 
--- The span element type of each kernel; `double` when absent.
+-- The span element type of each kernel; `double` when absent. GATE_ELEMENTS
+-- adds `name=ctype` pairs, comma separated, for another project's kernels.
 local ELEMENT = {cross_lane = "int32_t"}
+for name, ctype in (os.getenv("GATE_ELEMENTS") or ""):gmatch("([%w_]+)=([%w_]+)") do
+    ELEMENT[name] = ctype
+end
+
+-- GATE_FILL=utf8 fills byte inputs with valid UTF-8 text, which a validator
+-- reads to the end, instead of random bytes it would stop in early.
+local UTF8 = "h\195\169llo w\195\182rld \226\130\172 \240\157\132\158 plain ascii text "
 
 local SIZES = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 63, 65539}
 
@@ -116,7 +124,11 @@ local function arguments(kernel, n)
             end
             if param.readonly then
                 for i = 0, n - 1 do
-                    buffer[i] = element == "double" and (random() * 8 - 2) or math.floor(random() * 200 - 100)
+                    if os.getenv("GATE_FILL") == "utf8" and element == "uint8_t" then
+                        buffer[i] = UTF8:byte(i % #UTF8 + 1)
+                    else
+                        buffer[i] = element == "double" and (random() * 8 - 2) or math.floor(random() * 200 - 100)
+                    end
                 end
             else
                 outputs[#outputs + 1] = buffer

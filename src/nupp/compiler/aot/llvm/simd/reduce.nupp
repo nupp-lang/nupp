@@ -108,10 +108,82 @@ registerTest = function(
     return e(ctx, ("icmp %s i64 %s, %s"):format(any and "ne" or "eq", low, any and "0" or "-1"))
 end
 
+const SWAPPED = {["ge"] = "le", ["le"] = "ge", ["gt"] = "lt", ["lt"] = "gt", ["ne"] = "ne", ["eq"] = "eq",}
+
+--- `(x OP splat(s)):any()` over one NEON register of integers, answered
+--- without forming the mask: whether any lane is at least `s` is whether the
+--- largest is (`umaxv`/`smaxv`), and whether any is nonzero is whether the
+--- largest is. The C lowering's `anyCompare`. Nil for any other shape.
+local function anyCompare(ctx: context.Context, mask: scalarIR.Expr): string?
+    if ctx.vectorRegister ~= "w" or mask.op ~= "simd_compare" then
+        return nil
+    end
+    local compare = mask as scalarIR.Simd
+    local found = context.species(ctx, tostring(compare.args[1].type))
+    if found == nil
+        or (found as species.Species).float
+        or (found as species.Species).lanes * (found as species.Species).bits ~= 128
+    then
+        return nil
+    end
+    local lanesOf = found as species.Species
+    local named = tostring(compare.intrinsic)
+    local value, bound = compare.args[1], compare.args[2]
+    if value.op == "simd_splat" and bound.op ~= "simd_splat" then
+        value, bound = bound, value
+        named = SWAPPED[named] as string
+    end
+    if bound.op ~= "simd_splat" or named == "eq" then
+        return nil
+    end
+    local vector = operand(ctx, value)
+    local scalar, scalarType = expressions.value(ctx, (bound as scalarIR.Simd).args[1])
+    local lane = lanes.toLane(ctx, lanesOf, scalar, scalarType)
+    local wideLane = lanesOf.bits < 32
+        and e(ctx, ("%s %s %s to i32"):format(lanesOf.signed and "sext" or "zext", lanesOf.scalar, lane))
+        or lane
+    local suffix = lanes.suffix(lanesOf.lanes, lanesOf.scalar)
+
+    local function reduced(kind: string): string
+        local name = ("llvm.aarch64.neon.%s%sv.i32.%s"):format(lanesOf.signed and "s" or "u", kind, suffix)
+        local callee = prelude.intrinsic(ctx.module, name, ("i32 @NAME(%s)"):format(lanesOf.vector))
+        local result = e(ctx, ("call i32 %s(%s %s)"):format(callee, lanesOf.vector, vector))
+        if lanesOf.bits == 32 then
+            return result
+        end
+        -- Only the lane's own bits are the answer; extend them as the lane.
+        local narrow = e(ctx, ("trunc i32 %s to %s"):format(result, lanesOf.scalar))
+
+        return e(ctx, ("%s %s %s to i32"):format(lanesOf.signed and "sext" or "zext", lanesOf.scalar, narrow))
+    end
+
+    if lanesOf.bits > 32 then
+        return nil
+    end
+    if named == "ne" then
+        -- Any lane differs from `s`: the largest or the smallest does.
+        local largest, smallest = reduced("max"), reduced("min")
+        local high = e(ctx, ("icmp ne i32 %s, %s"):format(largest, wideLane))
+        local low = e(ctx, ("icmp ne i32 %s, %s"):format(smallest, wideLane))
+        return e(ctx, ("or i1 %s, %s"):format(high, low))
+    end
+    local greater = named == "ge" or named == "gt"
+    local extreme = reduced(greater and "max" or "min")
+    local predicate = (lanesOf.signed and "s" or "u") .. named
+
+    return e(ctx, ("icmp %s i32 %s, %s"):format(predicate, extreme, wideLane))
+end
+
 local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local found = lanes.of(ctx, tostring(simd.args[1].type))
     local query = tostring(simd.op)
+    if query == "simd_mask_any" then
+        local shortcut = anyCompare(ctx, simd.args[1])
+        if shortcut ~= nil then
+            return shortcut as string, "bool"
+        end
+    end
     local wide = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
     local laneWide = (query == "simd_mask_any" or query == "simd_mask_all") and ctx.tier ~= "avx512f"
     -- A mask local a loop carries is already lane-wide in its slot: read that

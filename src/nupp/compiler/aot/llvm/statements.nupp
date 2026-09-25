@@ -73,7 +73,49 @@ local function loop(ctx: context.Context, breakLabel: string, continueLabel: str
     ctx.loops[#ctx.loops] = nil
 end
 
+--- A numeric `for` from 1 to a span's count: the verifier's `boundSpan`.
+--- Its values are exact integers, so it counts in i64, which LLVM can reason
+--- about, and binds each value as the binary64 it equals.
+local function spanFor(ctx: context.Context, statement: scalarIR.Fornum): nil
+    local f = ctx.f
+    local count = context.count(ctx, statement.boundSpan as string)
+    local counter = builder.alloca(f, "i64", 8)
+    builder.emit(f, ("store i64 1, ptr %s"):format(counter))
+    local head = builder.label(f, "for.head")
+    local bodyLabel = builder.label(f, "for.body")
+    local latch = builder.label(f, "for.next")
+    local exit = builder.label(f, "for.end")
+    builder.start(f, head)
+    local current = builder.value(f, ("load i64, ptr %s"):format(counter))
+    local continues = builder.value(f, ("icmp ule i64 %s, %s"):format(current, count))
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(continues, bodyLabel, exit))
+    builder.start(f, bodyLabel)
+    local bindingType = statement.binding.type == "i32" and "i32" or "f64"
+    local slot = statements.slot(ctx, statement.binding.cName, bindingType)
+    assignLocal(ctx, slot, current, "u64")
+    local saved = ctx.spanCounters[statement.binding.cName]
+    if statement.binding.assigned ~= true then
+        ctx.spanCounters[statement.binding.cName] = counter
+    end
+    loop(ctx, exit, latch, function(): nil
+        statements.block(ctx, statement.body)
+    end)
+    -- An outer loop's binding of the same name comes back into view.
+    local counters = ctx.spanCounters as {[string]: string?}
+    counters[statement.binding.cName] = saved
+    builder.start(f, latch)
+    local again = builder.value(f, ("load i64, ptr %s"):format(counter))
+    local stepped = builder.value(f, ("add nuw i64 %s, 1"):format(again))
+    builder.emit(f, ("store i64 %s, ptr %s"):format(stepped, counter))
+    builder.jump(f, head)
+    builder.start(f, exit)
+end
+
 local function fornum(ctx: context.Context, statement: scalarIR.Fornum): nil
+    if statement.boundSpan ~= nil and ctx.counts[statement.boundSpan as string] ~= nil then
+        spanFor(ctx, statement)
+        return
+    end
     local f = ctx.f
     local integral = statement.from.type == "i32" and statement.to.type == "i32"
     local control = integral and "i64" or "f64"
