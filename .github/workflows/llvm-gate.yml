@@ -2,11 +2,15 @@ name: LLVM gate B
 
 # Gate B: the LLVM backend against the C lowering on x86-64 hardware, through
 # both gcc and clang, tier by tier. Timings are noisy on shared runners, so this
-# runs on request and writes its tables to the job summary; a regression is
+# runs on request, or when the gate itself changes, and writes its tables to the job summary; a regression is
 # judged across runs, not from one. AVX-512 is measured only where the runner
 # has it, and a runner without it fails that job rather than passing it.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'bench/llvm-gate/**'
+      - '.github/workflows/llvm-gate.yml'
 
 jobs:
   gate:
