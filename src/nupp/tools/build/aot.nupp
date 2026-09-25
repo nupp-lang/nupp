@@ -1773,7 +1773,7 @@ function aot.emitC(
     if useLlvm == nil then
         return nil, tostring(backendErr), produced, {}, nil, gpuSources
     end
-    bindingRules.passRuntime = useLlvm == true
+    bindingRules.passRuntime = useLlvm == true and aotllvm.takesRuntime(triple)
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
     local authoredUnused: {[string]: {any}} = {}

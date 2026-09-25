@@ -50,17 +50,37 @@ jobs:
           python3 tests/luajit-browser/cold_checkout_test.py
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+      # LLVM is restored from its own cache below and never saved in this one.
       - uses: actions/cache@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            !.nupp-cache/toolchain/llvm
+            !.nupp-cache/toolchain/sources/llvm-project-*
           key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
           restore-keys: browser-guest-${{ runner.os }}-
+      # Built by the LLVM backend workflow. With it the compiler links the code
+      # generator, and the packaged applications are built a second time
+      # through LLVM below.
+      - name: Restore the pinned LLVM
+        id: llvm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .nupp-cache/toolchain/llvm
+            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+          key: >-
+            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}-v1
       - name: Build the pinned guest and matching sources
         run: |
           guest=$(./scripts/toolchain browser-guest)
           mkdir -p build/browser-guest
           cp -R "$guest/." build/browser-guest/
       - name: Build the LuaJIT compiler and native response oracle
+        env:
+          NUPP_REQUIRE_CODEGEN: ${{ steps.llvm-cache.outputs.cache-hit == 'true' && '1' || '' }}
         run: |
           ./scripts/toolchain --all
           ./bin/nupp build
@@ -105,6 +125,29 @@ jobs:
           server=$!
           trap 'kill "$server"' EXIT
           node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ "$consumer/browser-matrix.json"
+      # The same applications through LLVM: Wasm kernels linked in process and
+      # the guest's i686 AOT linked with its own runtime. Emscripten and the C
+      # compiler are replaced by commands that fail, so reaching either fails.
+      - name: Verify packaged AOT through LLVM with no Emscripten or C compiler
+        if: steps.llvm-cache.outputs.cache-hit == 'true'
+        env:
+          NUPP_AOT_BACKEND: llvm
+          NUPP_WASM_CC: 'false'
+          NUPP_AOT_CC: 'false'
+          NUPP_BENCH_ISOLATED: '0'
+          NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
+        run: |
+          consumer="$RUNNER_TEMP/luajit-runtime-consumer-llvm"
+          node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
+          node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
+          node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
+          node bench/luajit-browser/serve.mjs "$consumer/site" 8114 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8114/ "$consumer/browser-matrix.json"
+      - name: Say the LLVM route was not exercised
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        run: echo "::warning::No pinned LLVM is cached for this branch yet; the LLVM packaging step did not run"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

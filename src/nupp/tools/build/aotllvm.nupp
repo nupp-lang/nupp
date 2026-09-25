@@ -160,6 +160,15 @@ function aotllvm.detector(triple: string): string?
     return llvmDetector.module((selected as llvmProfile.Profile).functionAttributes)
 end
 
+--- Whether a library built for `triple` is handed the provider's runtime table
+--- when it loads. A target whose libraries link the runtime in (the browser
+--- guest, which has no provider) is not.
+function aotllvm.takesRuntime(triple: string?): boolean
+    local selected = triple ~= nil and llvmProfile.of(triple as string) or nil
+
+    return selected == nil or (selected as llvmProfile.Profile).linkedRuntime == nil
+end
+
 --- The options a tier's unit is compiled with, as the strings its key holds.
 function aotllvm.flags(triple: string, tier: string): {string}
     local selected = llvmProfile.of(triple)

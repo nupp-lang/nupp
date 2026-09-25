@@ -2484,6 +2484,35 @@ console.log(JSON.stringify({widest: tierOf.get(candidates[0]), simd: await run(t
     )
 end
 
+--- The browser guest has no native provider, so its i686 libraries link the
+--- runtime in and their loader asks for no runtime module, which the browser
+--- host does not have.
+function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
+        return
+    end
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute(("cp -R %q %q"):format(HERE .. "/luajit-browser/native-project", dir)) == 0)
+    os.execute(("rm -rf %q %q"):format(dir .. "/build", dir .. "/dist"))
+    local pipe = assert(
+        io.popen(
+            (
+                "cd %q && NUPP_CACHE_DIR=%q NUPP_AOT_CC=false NO_COLOR= '%s' build --target app --host browser 2>&1;"
+                .. " echo \"__exit__:$?\""
+            ):format(dir, cacheFor(dir), NUPP)
+        )
+    )
+    local out = pipe:read("*a")
+    pipe:close()
+    test.equal(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
+    local library = assert(read(dir .. "/dist/lib/libapp_aot.so"), "the guest library is written")
+    test.equal(library:sub(1, 5), "\127ELF\1", "a 32-bit ELF")
+    test.equal(library:byte(19), 3, "for i386")
+    local app = assert(read(dir .. "/dist/app.lua"))
+    test.equal(app:find("nupp.runtime.aotruntime", 1, true), nil, "the loader passes no runtime table")
+end
+
 function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
