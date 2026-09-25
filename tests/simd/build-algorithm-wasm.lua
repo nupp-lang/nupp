@@ -126,9 +126,13 @@ r.write(
 )
 local compiler = os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
 local nupp = os.getenv("NUPP_SIMD_NUPP") or root .. "/bin/nupp"
-local resolvedCompiler = r.command("command -v " .. q(compiler), directory .. "/compiler-path.log"):match("[^\r\n]+")
-local compilerDirectory = assert(resolvedCompiler and resolvedCompiler:gsub("\\", "/"):match("^(.*)/[^/]+$"))
-local compilerEnvironment = "PATH=" .. q(compilerDirectory .. ":" .. (os.getenv("PATH") or "")) .. " "
+-- Through LLVM nupp compiles the Wasm itself and no Emscripten is asked for.
+local compilerEnvironment = ""
+if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
+    local resolvedCompiler = r.command("command -v " .. q(compiler), directory .. "/compiler-path.log"):match("[^\r\n]+")
+    local compilerDirectory = assert(resolvedCompiler and resolvedCompiler:gsub("\\", "/"):match("^(.*)/[^/]+$"))
+    compilerEnvironment = "PATH=" .. q(compilerDirectory .. ":" .. (os.getenv("PATH") or "")) .. " "
+end
 r.command(
     "cd " .. q(
         directory

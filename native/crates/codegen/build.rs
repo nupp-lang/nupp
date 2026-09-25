@@ -89,6 +89,15 @@ fn main() {
     if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
     } else if target.contains("windows") {
+        // MinGW's static libstdc++ sits in the compiler's own library
+        // directory, which rustc does not search.
+        let compiler = cpp.get_compiler();
+        if let Ok(answer) = std::process::Command::new(compiler.path()).arg("-print-file-name=libstdc++.a").output() {
+            let found = std::path::PathBuf::from(String::from_utf8_lossy(&answer.stdout).trim());
+            if let Some(dir) = found.parent().filter(|_| found.is_absolute()) {
+                println!("cargo:rustc-link-search=native={}", dir.display());
+            }
+        }
         println!("cargo:rustc-link-lib=static=stdc++");
     } else {
         println!("cargo:rustc-link-lib=stdc++");
