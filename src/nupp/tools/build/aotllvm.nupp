@@ -429,7 +429,7 @@ end
 local function linkLinux(
     kit: string,
     manifest: any,
-    host: string,
+    machine: string,
     output: string,
     archives: {string},
     flags: {string}
@@ -439,7 +439,7 @@ local function linkLinux(
     } = {
         "ld.lld",
         "-m",
-        host:match("^aarch64") ~= nil and "aarch64linux" or "elf_x86_64",
+        machine,
         "-pie",
         "--eh-frame-hdr",
         "-z",
@@ -496,20 +496,24 @@ function aotllvm.linkStandalone(kit: string, output: string, archives: {string},
     if not ok or type(manifest) ~= "table" or manifest.schemaVersion ~= 1 then
         return "the link kit at " .. kit .. " has an unreadable kit.json"
     end
-    local host = require("nupp.tools.build.platform").hostKey()
+    -- The kit says what it links for; the host running nupp has no say.
+    local selected = type(manifest.target) == "string" and llvmProfile.of(manifest.target as string) or nil
+    if selected == nil then
+        return "the link kit at " .. kit .. " names no target this nupp can link for"
+    end
+    local machine = (selected as llvmProfile.Profile).machine
     if manifest.platform == "linux" then
-        return linkLinux(kit, manifest, tostring(host), output, archives, flags)
+        return linkLinux(kit, manifest, machine, output, archives, flags)
     elseif manifest.platform ~= "macos" then
         return "this nupp links standalone programs from macOS and Linux kits only so far"
     end
-    local architecture = host:match("^x86_64") ~= nil and "x86_64" or "arm64"
     local minimum = tostring(manifest.minimum)
     local argv: {
         string
     } = {
         "ld64.lld",
         "-arch",
-        architecture,
+        machine,
         "-platform_version",
         "macos",
         minimum,

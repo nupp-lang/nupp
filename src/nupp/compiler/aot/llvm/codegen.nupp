@@ -43,6 +43,16 @@ int32_t nuppCodegenArchive(
     const char *path, size_t pathLength,
     const char *members, size_t membersLength,
     int32_t kind);
+int32_t nuppCodegenKitFetch(
+    const char *url, size_t urlLength,
+    const char *path, size_t pathLength,
+    const char *sha256, size_t sha256Length,
+    uint64_t size);
+int32_t nuppCodegenKitUnpack(
+    const char *archive, size_t archiveLength,
+    const char *sha256, size_t sha256Length,
+    uint64_t size,
+    const char *root, size_t rootLength);
 ]]
 end
 
@@ -244,6 +254,38 @@ function codegen.archive(path: string, members: {string}, format: string): strin
         local C: any = native.C
         local joined = table.concat(members, "\0") .. "\0"
         native.succeeded(C.nuppCodegenArchive(path, #path, joined, #joined, ARCHIVE[format] or 0), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+--- Fetches the link kit archive at the HTTPS `url` into `path`, which is
+--- written only once the body is `size` bytes with SHA-256 `sha256`.
+--- @return nil, or why it could not be fetched
+function codegen.fetchKit(url: string, path: string, sha256: string, size: integer): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        native.succeeded(C.nuppCodegenKitFetch(url, #url, path, #path, sha256, #sha256, size), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+--- Checks the link kit archive at `archive` against `size` and `sha256` and
+--- unpacks it into the existing directory `root`.
+--- @return nil, or why it could not be unpacked
+function codegen.unpackKit(archive: string, sha256: string, size: integer, root: string): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        native.succeeded(C.nuppCodegenKitUnpack(archive, #archive, sha256, #sha256, size, root, #root), 2)
     end)
     if not ok then
         return tostring(err)

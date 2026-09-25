@@ -664,10 +664,18 @@ local function sizeMachOLinkedit(text: string): string?, string?
         end
         if kind == 0x19 and text:sub(cursor + 9, cursor + 24):match("^__LINKEDIT") then
             local fileOffset = integerAt(text, cursor + 40, 8)
-            if not fileOffset or fileOffset > #text then
+            local vmSize = integerAt(text, cursor + 32, 8)
+            if not fileOffset or not vmSize or fileOffset > #text then
                 return nil, "cannot stamp malformed arm64 Mach-O __LINKEDIT segment"
             end
-            return replaceAt(text, cursor + 48, littleEndian(#text - fileOffset, 8))
+            -- The segment must map at least what the file holds. A linker that
+            -- sized it tightly (lld does) leaves no room for the payload.
+            local fileSize = #text - fileOffset
+            const PAGE = 16384
+            local mapped = math.max(vmSize, math.ceil(fileSize / PAGE) * PAGE)
+            text = replaceAt(text, cursor + 32, littleEndian(mapped, 8))
+
+            return replaceAt(text, cursor + 48, littleEndian(fileSize, 8))
         end
         cursor = cursor + length
     end

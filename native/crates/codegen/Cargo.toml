@@ -20,6 +20,11 @@ llvm = ["dep:llvm-sys"]
 # The C API's declarations only: build.rs links the libraries, and targets are
 # initialized one by one, so llvm-sys never runs llvm-config itself.
 llvm-sys = { version = "=231.0.0", features = ["no-llvm-linking", "disable-alltargets-init"], optional = true }
+# Link kits: gzip'd tar archives fetched over HTTPS and checked by SHA-256.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "rustls-no-provider"] }
+ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [build-dependencies]
 cc = "1"

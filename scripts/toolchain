@@ -40,6 +40,7 @@ Components: luajit luarocks lpeg lpeg-source stage0 llvm
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
             host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
+            kit FEATURES, kit-archive FEATURES OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
 not already cached. --all builds every component and prints nothing. --prefix
@@ -1469,11 +1470,30 @@ floor ceil trunc round sqrt memcpy memmove memset bzero memcmp bcmp memchr strto
 # `nupp` links a standalone program with lld and nothing else. The stubs name
 # symbols and install names only, taken from a probe link against this
 # machine's SDK; no SDK file is copied.
+# The public Nupp platform a kit built on this machine links for.
+kit_target() {
+    case "$PLATFORM-$(uname -m 2>/dev/null)" in
+        darwin-arm64) echo aarch64-apple-darwin ;;
+        darwin-x86_64) echo x86_64-apple-darwin ;;
+        linux-x86_64) echo x86_64-unknown-linux-gnu ;;
+        linux-aarch64|linux-arm64) echo aarch64-unknown-linux-gnu ;;
+        *) die "no link kit target for $PLATFORM on $(uname -m)" ;;
+    esac
+}
+
+# The oldest macOS a kit's programs run on: LuaJIT's deployment floor.
+kit_minimum() {
+    case "$(uname -m 2>/dev/null)" in
+        x86_64) echo 10.14 ;;
+        *) echo 11.0 ;;
+    esac
+}
+
 build_kit() {
     features=${1:-}
     build_host stub "$features"
     host_out=$HOST_OUT
-    digest=$(printf 'kit-2|%s' "$(basename "$host_out")" | sha256_stdin | cut -c1-16)
+    digest=$(printf 'kit-3|%s' "$(basename "$host_out")" | sha256_stdin | cut -c1-16)
     out="$PREFIX/kits/$digest"
     KIT_OUT=$out
     take_lock "kit-$digest" "$out/.complete" || return 0
@@ -1539,7 +1559,8 @@ build_kit() {
     done < "$out/libraries"
 
     {
-        printf '{\n  "schemaVersion": 1,\n  "platform": "macos",\n  "minimum": "11.0",\n'
+        printf '{\n  "schemaVersion": 1,\n  "platform": "macos",\n  "target": "%s",\n' "$(kit_target)"
+        printf '  "minimum": "%s",\n' "$(kit_minimum)"
         printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n  "syslibroot": "sdk",\n' "$features"
         printf '  "libraries": ['
         awk '{ printf "%s\"%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/flags"
@@ -1628,7 +1649,7 @@ build_kit_linux() {
     done < "$out/needed"
 
     {
-        printf '{\n  "schemaVersion": 1,\n  "platform": "linux",\n'
+        printf '{\n  "schemaVersion": 1,\n  "platform": "linux",\n  "target": "%s",\n' "$(kit_target)"
         printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n' "$features"
         printf '  "interpreter": "%s",\n' "$interpreter"
         printf '  "startup": ["lib/Scrt1.o", "lib/crti.o", "lib/crtbeginS.o"],\n'
@@ -1833,6 +1854,17 @@ case "$1" in
     kit)
         build_kit "${2:-}"
         native_path "$KIT_OUT"
+        exit 0
+        ;;
+    kit-archive)
+        # The kit as a release carries it: a gzip'd POSIX tar of the kit's
+        # files, which nupp unpacks itself after checking the catalog's digest.
+        [ "$#" -eq 3 ] || die "usage: scripts/toolchain kit-archive FEATURES OUTPUT"
+        build_kit "$2"
+        output=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
+        (cd "$KIT_OUT" && find . -type f ! -name .complete | LC_ALL=C sort | sed 's|^\./||' \
+            | COPYFILE_DISABLE=1 tar --format ustar -cf - -T - | gzip -9n > "$output")
+        native_path "$output"
         exit 0
         ;;
     browser-sources|browser-emulator|browser-guest)

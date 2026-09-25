@@ -361,6 +361,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             return 1
         end
         target.layoutTarget = selectedPlatform
+        -- A program for another platform carries AOT code compiled for that
+        -- platform, unless the target names its AOT platform itself.
+        if target.aot ~= nil and target.aotTarget == nil and selectedPlatform ~= buildPlatform.hostKey() then
+            target.aotTarget = selectedPlatform
+        end
     elseif selectedPlatform ~= nil then
         io.stderr:write(
             "nupp: --platform requires a binary target with a platforms list; target " .. tostring(

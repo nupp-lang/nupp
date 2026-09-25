@@ -2628,6 +2628,92 @@ print(triangular(4))
     remove(dir)
 end
 
+--- A kit the stub catalog records is installed from its archive -- checked
+--- against the catalog's digest, unpacked into the per-user cache -- and
+--- linked from there; the next build needs neither the archive nor the network,
+--- and an archive that does not match its record is refused.
+function M.standaloneAotLinksFromACatalogKit()
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" or (jit.os ~= "OSX" and jit.os ~= "Linux") then
+        return
+    end
+    local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
+    local dir = tempProject({
+        [
+            "src/main.nupp"
+        ] = [[
+@aot
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do
+      result = result + index
+   end
+   return result
+end
+
+print(triangular(5))
+]],
+    })
+    write(
+        dir .. "/nupp.lua",
+        (
+            [=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]
+        ):format(dir .. "/out", dir .. "/out/app")
+    )
+    assert(os.execute("mkdir -p '" .. dir .. "/kits'") == 0)
+    local archive = dir .. "/kits/nupp-kit.tar.gz"
+    local code, answer = process.capture({root .. "/scripts/toolchain", "kit-archive", "", archive})
+    assertEq(code, 0, answer)
+    local bytes = read(archive)
+    local host = assert(require("nupp.tools.build.platform").hostKey())
+    local hostAbi = require("nupp.tools.build.package").hostAbiVersion
+    local function catalog(digest)
+        write(
+            dir .. "/catalog.json",
+            (
+                [[{"catalogRelease": "test", "hostAbi": %d, "stubs": {}, "kits": {"%s": {
+  "platform": "%s", "catalogRelease": "test", "hostAbi": %d, "artifact": "nupp-kit.tar.gz",
+  "sha256": "%s", "size": %d, "hostFeatures": [], "url": "https://kits.invalid/nupp-kit.tar.gz"}}}]]
+            ):format(hostAbi, host, host, hostAbi, digest, #bytes)
+        )
+    end
+    catalog(require("nupp.compiler.hash").sha256(bytes))
+    local ffi = require("ffi")
+    pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
+    local names = {"NUPP_STUB_CATALOG", "NUPP_STUB_DIR", "NUPP_KIT_CACHE"}
+    ffi.C.setenv("NUPP_STUB_CATALOG", dir .. "/catalog.json", 1)
+    ffi.C.setenv("NUPP_STUB_DIR", dir .. "/kits", 1)
+    ffi.C.setenv("NUPP_KIT_CACHE", dir .. "/cache", 1)
+    local function build()
+        local ok, built = pcall(project.build, dir)
+        assert(ok, built)
+        return built
+    end
+    local first = build()
+    local installed = exists(dir .. "/cache/test/" .. host .. "/" .. require("nupp.compiler.hash").sha256(bytes) .. "/kit.json")
+    os.remove(archive)
+    assert(os.execute("rm -rf '" .. dir .. "/out'") == 0)
+    local second = build()
+    local ran, text = process.capture({dir .. "/out/app"})
+    -- The digest is what authenticates a kit, so one that does not match is
+    -- refused before anything is unpacked.
+    write(archive, bytes)
+    catalog(string.rep("0", 64))
+    assert(os.execute("rm -rf '" .. dir .. "/out'") == 0)
+    local tampered = build()
+    for _, name in ipairs(names) do
+        ffi.C.unsetenv(name)
+    end
+    assertEq(first, 0)
+    assert(installed, "the kit is unpacked into the per-user cache")
+    assertEq(second, 0, "the cached kit serves without its archive")
+    assertEq(ran, 0, text)
+    assertEq(text:match("[^\r\n]+"), "15", "the program runs its AOT entry")
+    assert(tampered ~= 0, "an archive that does not match its record is refused")
+    remove(dir)
+end
+
 function M.staticAotComponentProducesAnArchiveAndDefaultNamespaceBinding()
     local dir = tempProject({
         [

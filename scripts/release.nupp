@@ -13,6 +13,7 @@ say exactly how far it reaches.
 local type Release = {
     record: function(string, string, string, string, string): (boolean?, string?),
     catalog: function(string, {string}, string, string): (boolean?, string?),
+    kitRecord: function(string, string, string, string, string): (boolean?, string?),
     stampPayload: function(string, string, string, string): (boolean?, string?)
 }
 
@@ -23,6 +24,7 @@ local arguments = {...} as {string}
 
 local USAGE = [[usage:
   release.nupp record PLATFORM CATALOG_RELEASE ARTIFACT NOTICES OUTPUT
+  release.nupp kit-record PLATFORM CATALOG_RELEASE ARCHIVE URL OUTPUT
   release.nupp catalog CATALOG_RELEASE ARTIFACT_ROOT OUTPUT RECORD...
   release.nupp payload-stamp PLATFORM STUB PAYLOAD OUTPUT]]
 
@@ -44,6 +46,11 @@ if command == "record" then
         fail(USAGE, 2)
     end
     ok, problem = release.record(arguments[2], arguments[3], arguments[4], arguments[5], arguments[6])
+elseif command == "kit-record" then
+    if #arguments ~= 6 then
+        fail(USAGE, 2)
+    end
+    ok, problem = release.kitRecord(arguments[2], arguments[3], arguments[4], arguments[5], arguments[6])
 elseif command == "catalog" then
     if #arguments < 5 then
         fail(USAGE, 2)

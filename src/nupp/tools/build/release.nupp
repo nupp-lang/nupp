@@ -227,6 +227,71 @@ function release.record(
     })
 end
 
+--- A catalog record for the link kit archive at `archivePath`, fetched from
+--- `url` by a nupp that links a standalone program for `selectedPlatform`.
+function release.kitRecord(
+    selectedPlatform: string,
+    catalogRelease: string,
+    archivePath: string,
+    url: string,
+    output: string
+): boolean?, string?
+    if not stubs.safeComponent(catalogRelease) then
+        return nil, "catalog release must be one safe path component"
+    end
+    if require("nupp.compiler.aot.llvm.profile").of(selectedPlatform) == nil then
+        return nil, "no link kit links for " .. selectedPlatform
+    end
+    if not url:match("^https://") then
+        return nil, "a kit URL must be HTTPS: " .. url
+    end
+    local bytes, readErr = fs.readFile(archivePath)
+    if not bytes then
+        return nil, "cannot read kit archive " .. archivePath .. ": " .. tostring(readErr)
+    end
+    if bytes:sub(1, 2) ~= "\31\139" then
+        return nil, "kit archive " .. archivePath .. " is not gzip"
+    end
+
+    return writeJson(output, {
+        kind = "kit",
+        artifact = fs.basename(archivePath),
+        catalogRelease = catalogRelease,
+        hostAbi = packaging.hostAbiVersion,
+        hostFeatures = json.asArray(copyArray(HOST_FEATURES)),
+        platform = selectedPlatform,
+        sha256 = hash.sha256(bytes),
+        size = #bytes,
+        url = url,
+    })
+end
+
+local function validateKit(value: any, root: string, catalogRelease: string): boolean?, string?
+    local where = "kit record for " .. tostring(value.platform)
+    if value.catalogRelease ~= catalogRelease or value.hostAbi ~= packaging.hostAbiVersion then
+        return nil, where .. " belongs to another release"
+    end
+    if not sameStringArray(value.hostFeatures, HOST_FEATURES) then
+        return nil, where .. " is not a universal kit"
+    end
+    if not stubs.safeComponent(value.artifact) then
+        return nil, where .. " has an unsafe artifact name"
+    end
+    if type(value.url) ~= "string" or not value.url:match("^https://") then
+        return nil, where .. " requires an HTTPS url"
+    end
+    local path = fs.join(root, value.artifact)
+    local bytes, readErr = fs.readFile(path)
+    if not bytes then
+        return nil, "cannot read kit archive " .. path .. ": " .. tostring(readErr)
+    end
+    if #bytes ~= value.size or hash.sha256(bytes) ~= value.sha256 then
+        return nil, where .. " does not describe " .. path
+    end
+
+    return true
+end
+
 function release.catalog(
     catalogRelease: string,
     recordPaths: {string},
@@ -237,27 +302,41 @@ function release.catalog(
         return nil, "catalog release must be one safe path component"
     end
     local records: {[string]: any} = {}
+    local kits: {[string]: any} = {}
     for _, path in ipairs(recordPaths) do
         local value, decodeErr = decode(path)
         if not value then
             return nil, decodeErr
         end
-        local selectedPlatform = type(value.platform) == "string" and value.platform or ""
-        if not platform.has(selectedPlatform) then
-            return nil, "unsupported stub platform " .. tostring(value.platform)
+        if type(value) == "table" and value.kind == "kit" then
+            local key = tostring(value.platform)
+            if kits[key] ~= nil then
+                return nil, "duplicate kit record for " .. key
+            end
+            local valid, validErr = validateKit(value, artifactRoot, catalogRelease)
+            if not valid then
+                return nil, validErr
+            end
+            value.kind = nil
+            kits[key] = value
+        else
+            local selectedPlatform = type(value.platform) == "string" and value.platform or ""
+            if not platform.has(selectedPlatform) then
+                return nil, "unsupported stub platform " .. tostring(value.platform)
+            end
+            if records[selectedPlatform] ~= nil then
+                return nil, "duplicate stub record for " .. selectedPlatform
+            end
+            local valid, validErr = validateRecord(value, selectedPlatform, catalogRelease)
+            if not valid then
+                return nil, validErr
+            end
+            local verified, verifyErr = verifyRecord(value, artifactRoot)
+            if not verified then
+                return nil, verifyErr
+            end
+            records[selectedPlatform] = value
         end
-        if records[selectedPlatform] ~= nil then
-            return nil, "duplicate stub record for " .. selectedPlatform
-        end
-        local valid, validErr = validateRecord(value, selectedPlatform, catalogRelease)
-        if not valid then
-            return nil, validErr
-        end
-        local verified, verifyErr = verifyRecord(value, artifactRoot)
-        if not verified then
-            return nil, verifyErr
-        end
-        records[selectedPlatform] = value
     end
     local missing: {string} = {}
     for _, key in ipairs(platform.keys()) do
@@ -272,6 +351,7 @@ function release.catalog(
     return writeJson(output, {
         catalogRelease = catalogRelease,
         hostAbi = packaging.hostAbiVersion,
+        kits = json.asObject(kits),
         stubs = json.asObject(records),
     })
 end

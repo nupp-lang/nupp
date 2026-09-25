@@ -11,6 +11,7 @@
 
 mod contract;
 mod isolated;
+pub mod kit;
 pub use isolated::{Job, compile_files};
 #[cfg(nupp_llvm)]
 mod llvm;

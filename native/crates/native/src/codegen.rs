@@ -177,3 +177,53 @@ pub unsafe extern "C" fn nuppCodegenCompileFiles(jobs: *const u8, length: usize,
         output(results, Some(out.into_bytes()))
     })())
 }
+
+#[unsafe(no_mangle)]
+/// Fetches a link kit archive from an HTTPS `url` into `path`, written only
+/// once it matches `size` bytes and the lowercase SHA-256 `sha256`.
+///
+/// # Safety
+/// Each input range must be readable for its length.
+pub unsafe extern "C" fn nuppCodegenKitFetch(
+    url: *const u8,
+    url_length: usize,
+    path: *const u8,
+    path_length: usize,
+    sha256: *const u8,
+    sha256_length: usize,
+    size: u64,
+) -> i32 {
+    status((|| {
+        let url = text(url, url_length, "kit URL")?;
+        let path = text(path, path_length, "kit archive path")?;
+        let sha256 = text(sha256, sha256_length, "kit digest")?;
+        codegen::kit::fetch(url, std::path::Path::new(path), size, sha256)
+            .map_err(|e| super::failed(Status::InvalidArgument, &e))
+    })())
+}
+
+#[unsafe(no_mangle)]
+/// Checks the link kit archive at `archive` against `size` and `sha256`, then
+/// unpacks it into the existing directory `root`.
+///
+/// # Safety
+/// Each input range must be readable for its length.
+pub unsafe extern "C" fn nuppCodegenKitUnpack(
+    archive: *const u8,
+    archive_length: usize,
+    sha256: *const u8,
+    sha256_length: usize,
+    size: u64,
+    root: *const u8,
+    root_length: usize,
+) -> i32 {
+    status((|| {
+        let archive = text(archive, archive_length, "kit archive path")?;
+        let sha256 = text(sha256, sha256_length, "kit digest")?;
+        let root = text(root, root_length, "kit directory")?;
+        let bytes = std::fs::read(archive)
+            .map_err(|e| super::failed(Status::InvalidArgument, &format!("cannot read {archive}: {e}")))?;
+        codegen::kit::verify(&bytes, size, sha256).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+        codegen::kit::unpack(&bytes, std::path::Path::new(root)).map_err(|e| super::failed(Status::InvalidArgument, &e))
+    })())
+}

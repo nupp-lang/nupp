@@ -270,6 +270,7 @@ function stubs.acquire(root: string, record: StubRecord, required: {string}): st
     return cached
 end
 
+stubs.catalog = catalog
 stubs.safeComponent = safeComponent
 stubs.validateArtifact = validateArtifact
 stubs.validateExecutable = validateExecutable

@@ -127,22 +127,23 @@ function stage.linkHost(
     local aotllvm = require("nupp.tools.build.aotllvm")
     local compilerRoot = envMod.compilerRoot()
     local featureNames = native.hostFeatureNames(effects)
+    local linked = selected or host
     if aotllvm.selected()
-        and (selected == nil or selected == host)
-        and (host:match("darwin") ~= nil or host:match("linux") ~= nil)
+        and linked ~= nil
+        and ((linked as string):match("darwin") ~= nil or (linked as string):match("linux") ~= nil)
     then
         -- Through LLVM, the link is lld's, from a link kit: the runtime and
-        -- stubs for the system libraries, and no C toolchain or SDK.
-        local kit = os.getenv("NUPP_KIT_DIR")
+        -- stubs for the system libraries, and no C toolchain or SDK. That holds
+        -- for any platform a kit exists for, this machine's or another's.
+        local build: (function(): (string?, string?))? = nil
+        if compilerRoot ~= nil and linked == host then
+            build = function(): (string?, string?)
+                return driven(compilerRoot as string, "kit", featureNames)
+            end
+        end
+        local kit, kitErr = require("nupp.tools.build.kits").resolve(linked as string, featureNames, build)
         if kit == nil then
-            if not compilerRoot then
-                return nil, "standalone native linking needs a link kit; name one with NUPP_KIT_DIR"
-            end
-            local built, problem = driven(compilerRoot as string, "kit", featureNames)
-            if not built then
-                return nil, "cannot build the link kit:\n" .. problem
-            end
-            kit = built
+            return nil, kitErr
         end
         local linkErr = aotllvm.linkStandalone(kit as string, output, archives, flags)
         if linkErr ~= nil then
