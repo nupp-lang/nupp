@@ -35,16 +35,21 @@ runs:
           .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
           .nupp-cache/toolchain/sources/llvm-project-*/lld/include
         key: ${{ steps.key.outputs.name }}
+        # Any earlier entry for the same pin serves: the tree is used as is.
+        restore-keys: |
+          nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/toolchain.pins') }}-
 
+    # Whether an artifact is stored is asked every time, so a tree the cache
+    # supplied is stored when none is.
     - id: artifact
-      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=${{ steps.key.outputs.name }}&per_page=20" \
           --jq '[.artifacts[] | select(.expired == false)][0].id // empty')
-        if [ -n "$id" ]; then
+        [ -z "$id" ] || echo "stored=true" >> "$GITHUB_OUTPUT"
+        if [ -n "$id" ] && [ -z "${{ steps.cache.outputs.cache-matched-key }}" ]; then
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/llvm.zip"
           mkdir -p .nupp-cache/toolchain
           unzip -q -o "$RUNNER_TEMP/llvm.zip" -d .nupp-cache/toolchain
@@ -54,7 +59,7 @@ runs:
 
     - id: built
       if: >-
-        steps.cache.outputs.cache-hit != 'true' && steps.artifact.outputs.found != 'true'
+        steps.cache.outputs.cache-matched-key == '' && steps.artifact.outputs.found != 'true'
         && inputs.build == 'true'
       shell: bash
       run: |
@@ -75,7 +80,9 @@ runs:
         done
         echo "done=true" >> "$GITHUB_OUTPUT"
 
-    - if: steps.built.outputs.done == 'true'
+    - if: >-
+        steps.artifact.outputs.stored != 'true'
+        && (steps.built.outputs.done == 'true' || steps.cache.outputs.cache-matched-key != '')
       uses: actions/upload-artifact@v4
       with:
         name: ${{ steps.key.outputs.name }}
@@ -85,7 +92,10 @@ runs:
           .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
           .nupp-cache/toolchain/sources/llvm-project-*/lld/include
 
-    - if: steps.built.outputs.done == 'true' || steps.artifact.outputs.found == 'true'
+    - if: >-
+        steps.cache.outputs.cache-hit != 'true'
+        && (steps.built.outputs.done == 'true' || steps.artifact.outputs.found == 'true'
+          || steps.cache.outputs.cache-matched-key != '')
       uses: actions/cache/save@v4
       with:
         path: |
