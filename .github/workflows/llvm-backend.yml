@@ -31,6 +31,8 @@ jobs:
             os: macos-15
           - name: Linux x64
             os: ubuntu-24.04
+          - name: Windows x64
+            os: windows-2022
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -71,23 +73,36 @@ jobs:
 
       - name: Install the LLVM build tools
         if: steps.llvm-cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
             brew install ninja
+          elif [ "$RUNNER_OS" = Windows ]; then
+            command -v ninja || choco install ninja --no-progress
           else
             sudo apt-get update && sudo apt-get install -y ninja-build
           fi
 
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
       - name: Provision the pinned toolchain
+        shell: bash
         run: ./scripts/toolchain --all
 
       - name: Build the pinned LLVM
+        shell: bash
         run: ./scripts/toolchain llvm
 
       # Only the libraries, the tools the build reads (llvm-config) and the
       # headers the code generator's glue includes are needed afterwards.
       - name: Prune the LLVM tree
         if: steps.llvm-cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           find .nupp-cache/toolchain/llvm -name '*.o' -delete
           for tree in .nupp-cache/toolchain/sources/llvm-project-*; do
@@ -108,24 +123,29 @@ jobs:
             hashFiles('scripts/toolchain.pins') }}-v1
 
       - name: Bootstrap the compiler
+        shell: bash
         run: ./bin/nupp build
 
       - name: Install the development rocks
+        shell: bash
         run: ./bin/nupp build --target bootstrapCompiler
 
       - name: Run the AOT suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm
+        shell: bash
         run: ./bin/nupp test --group=aot
 
       - name: Run the standalone and static suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm
+        shell: bash
         run: ./bin/nupp test projecttest hostembeddingtest aotincrementaltest
 
       - name: Run the SIMD differentials through LLVM
         env:
           NUPP_AOT_BACKEND: llvm
+        shell: bash
         run: >-
           ./bin/nupp test simdprimitivedifferentialtest simdnativealgorithmdifferentialtest
           simdreducerdifferentialtest
@@ -134,4 +154,5 @@ jobs:
       - name: Run the Wasm SIMD suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm
+        shell: bash
         run: ./bin/nupp test simdwasmtimeconformancetest simdwasmalgorithmdifferentialtest
