@@ -19,8 +19,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Each platform's link kit, built where that platform's libraries are. The
+  # LLVM legs link programs for the other platform with it. A kit needs no LLVM.
+  kits:
+    name: ${{ matrix.name }} link kit
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            platform: aarch64-apple-darwin
+          - name: Linux x64
+            os: ubuntu-24.04
+            platform: x86_64-unknown-linux-gnu
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build the link kit archive
+        shell: bash
+        run: ./scripts/toolchain kit-archive "" "$RUNNER_TEMP/kit-${{ matrix.platform }}.tar.gz"
+
+      - name: Upload the link kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: kit-${{ matrix.platform }}
+          path: ${{ runner.temp }}/kit-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+
   llvm:
     name: ${{ matrix.name }} / LLVM route
+    needs: kits
     runs-on: ${{ matrix.os }}
     # A cold runner builds LLVM before any suite runs.
     timeout-minutes: 300
@@ -30,10 +72,13 @@ jobs:
         include:
           - name: macOS arm64
             os: macos-15
+            cross: x86_64-unknown-linux-gnu
           - name: Linux x64
             os: ubuntu-24.04
+            cross: aarch64-apple-darwin
           - name: Windows x64
             os: windows-2022
+            cross: ''
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -131,6 +176,37 @@ jobs:
         shell: bash
         run: ./bin/nupp build --target bootstrapCompiler
 
+      # Before the suites, so a suite failure does not hide whether the
+      # other platform's program links and runs.
+      - name: Download the other platform's link kit
+        if: matrix.cross != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: kit-${{ matrix.cross }}
+          path: ${{ runner.temp }}/kit-archive
+
+      - name: Link a standalone AOT program for ${{ matrix.cross }}
+        if: matrix.cross != ''
+        env:
+          NUPP_AOT_BACKEND: llvm
+        shell: bash
+        run: |
+          kit="$RUNNER_TEMP/kit"
+          mkdir -p "$kit"
+          tar -xzf "$RUNNER_TEMP/kit-archive/kit-${{ matrix.cross }}.tar.gz" -C "$kit"
+          cd tests/fixtures/cross-aot
+          NUPP_KIT_DIR="$kit" ../../../bin/nupp build --platform "${{ matrix.cross }}"
+          mkdir -p "$RUNNER_TEMP/cross"
+          cp "build/default/${{ matrix.cross }}/default" "$RUNNER_TEMP/cross/program"
+
+      - name: Upload the program for ${{ matrix.cross }}
+        if: matrix.cross != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-program-${{ matrix.cross }}
+          path: ${{ runner.temp }}/cross/program
+          if-no-files-found: error
+
       - name: Run the AOT suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm
@@ -179,3 +255,37 @@ jobs:
           NUPP_AOT_BACKEND: llvm
         shell: bash
         run: ./bin/nupp test simdwasmtimeconformancetest simdwasmalgorithmdifferentialtest
+
+  # Each program runs where it was linked for, not where it was linked.
+  cross-run:
+    name: Run the ${{ matrix.name }} program linked elsewhere
+    needs: llvm
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            platform: aarch64-apple-darwin
+          - name: Linux x64
+            os: ubuntu-24.04
+            platform: x86_64-unknown-linux-gnu
+    steps:
+      - name: Download the program
+        uses: actions/download-artifact@v4
+        with:
+          name: cross-program-${{ matrix.platform }}
+          path: cross
+
+      # Output for an explicit platform is unsigned; a release signs it.
+      - name: Run it
+        shell: bash
+        run: |
+          chmod +x cross/program
+          if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - cross/program; fi
+          answer=$(cross/program)
+          printf '%s\n' "$answer"
+          [ "$answer" = "$(printf '15\t4')" ]
