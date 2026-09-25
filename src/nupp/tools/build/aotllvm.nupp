@@ -242,6 +242,40 @@ function aotllvm.compileMany(units: {aotllvm.Unit}): string?
     return failure
 end
 
+--- The object of the runtime a `selected` library links in, compiled once
+--- per runtime and code generator into `directory`, or nil when the target
+--- has a provider to hand modules the runtime.
+--- @return the object's path, or nil and why not
+local function linkedRuntime(selected: llvmProfile.Profile, directory: string): (string?, string?)
+    local carried = selected.linkedRuntime
+    if carried == nil then
+        return nil, nil
+    end
+    local text = require("nupp.compiler.bundled").source(carried as string)
+    if text == nil then
+        return nil, "this compiler carries no runtime " .. tostring(carried)
+    end
+    local digest = require("nupp.compiler.hash").digest((text as string) .. "\0" .. aotllvm.version())
+    local object = directory .. "/runtime." .. digest:sub(1, 16) .. ".o"
+    if fs.exists(object) then
+        return object, nil
+    end
+    local ir = directory .. "/runtime." .. digest:sub(1, 16) .. ".ll"
+    local wrote, writeErr = fs.writeFile(ir, text as string)
+    if not wrote then
+        return nil, tostring(writeErr)
+    end
+    local err = aotllvm.compileMany({
+        new aotllvm.Unit(ir = ir, triple = selected.public, tier = "baseline", object = object)
+    })
+    os.remove(ir)
+    if err ~= nil then
+        return nil, err
+    end
+
+    return object, nil
+end
+
 --- Links `objects` into the shared library `output` with lld.
 --- @return nil, or what went wrong
 function aotllvm.link(triple: string, objects: {string}, output: string): string?
@@ -251,7 +285,18 @@ function aotllvm.link(triple: string, objects: {string}, output: string): string
     end
     local staged = output .. ".tmp"
     os.remove(staged)
-    local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, objects, fs.basename(output))
+    local linked: {string} = {}
+    for _, object in ipairs(objects) do
+        linked[#linked + 1] = object
+    end
+    local runtimeObject, runtimeErr = linkedRuntime(selected as llvmProfile.Profile, fs.dirname(objects[1] or output))
+    if runtimeErr ~= nil then
+        return runtimeErr
+    end
+    if runtimeObject ~= nil then
+        linked[#linked + 1] = runtimeObject as string
+    end
+    local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, linked, fs.basename(output))
     local _, err = codegen.link(argv)
     if err ~= nil then
         os.remove(staged)

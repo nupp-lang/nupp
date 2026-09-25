@@ -38,6 +38,10 @@ record profile.Profile
 
     --- The LLVM type of `size_t`.
     sizeType: string
+
+    --- The carried IR of an AOT runtime a module links in, where the process
+    --- loading it has no provider to hand it one (the browser guest).
+    linkedRuntime: string?
 end
 
 local PROFILES: {[string]: profile.Profile} = {
@@ -91,17 +95,19 @@ local PROFILES: {[string]: profile.Profile} = {
         machine = "aarch64linux",
         sizeType = "i64"
     ),
-    [
-        "i686-unknown-linux-gnu"
-    ] = new profile.Profile(
+    ["i686-unknown-linux-gnu"] = new profile.Profile(
         public = "i686-unknown-linux-gnu",
         llvmTriple = "i686-unknown-linux-gnu",
         cpu = "pentium4",
         baseFeatures = "",
         format = "elf",
-        functionAttributes = "",
+        -- This target is the browser guest's: its LuaJIT walks frames for
+        -- callback exceptions, and it has no provider, so the runtime (built
+        -- against musl, as that LuaJIT is) goes into each library.
+        functionAttributes = "\"frame-pointer\"=\"all\"",
         machine = "elf_i386",
-        sizeType = "i32"
+        sizeType = "i32",
+        linkedRuntime = "/aot/llvm/lua/runtime-i686.ll"
     ),
     ["wasm32-unknown-emscripten"] = new profile.Profile(
         public = "wasm32-unknown-emscripten",
@@ -205,6 +211,7 @@ function profile.sharedLink(selected: profile.Profile, output: string, objects: 
             "-z",
             "now",
             "--hash-style=gnu",
+            "--gc-sections",
             "-soname",
             soname,
             "-o",

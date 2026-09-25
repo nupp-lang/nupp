@@ -746,7 +746,18 @@ static const uint64_t ks_json_power_of_five_128[1302] = {
 0xe3d8f9e563a198e5,0x58180fddd97723a6,
 0x8e679c2f5e44ff8f,0x570f09eaa7ea7648,
 };
-static inline KsJsonU128 ks_json_full_multiplication(uint64_t left, uint64_t right) { __uint128_t product = (__uint128_t)left * (__uint128_t)right; KsJsonU128 result = {(uint64_t)product, (uint64_t)(product >> 64u)}; return result; }
+/* The full 128-bit product, from 32-bit halves where the target has no
+ * 128-bit integer (i386, wasm32). */
+static inline KsJsonU128 ks_json_full_multiplication(uint64_t left, uint64_t right) {
+#if defined(__SIZEOF_INT128__)
+    __uint128_t product = (__uint128_t)left * (__uint128_t)right; KsJsonU128 result = {(uint64_t)product, (uint64_t)(product >> 64u)}; return result;
+#else
+    uint64_t a0 = (uint32_t)left, a1 = left >> 32u, b0 = (uint32_t)right, b1 = right >> 32u;
+    uint64_t p00 = a0 * b0, p01 = a0 * b1, p10 = a1 * b0, p11 = a1 * b1;
+    uint64_t mid = (p00 >> 32u) + (uint32_t)p01 + (uint32_t)p10;
+    KsJsonU128 result = {(mid << 32u) | (uint32_t)p00, p11 + (p01 >> 32u) + (p10 >> 32u) + (mid >> 32u)}; return result;
+#endif
+}
 static inline double ks_json_to_double(uint64_t mantissa, uint64_t exponent, int negative) { union { uint64_t bits; double value; } result; mantissa &= ~(UINT64_C(1) << 52u); result.bits = mantissa | (exponent << 52u) | ((uint64_t)negative << 63u); return result.value; }
 static KS_UNUSED int ks_json_compute_float64(int32_t power, uint64_t magnitude, int negative, double *answer) {
     if (magnitude == 0u) { *answer = negative ? -0.0 : 0.0; return 1; }

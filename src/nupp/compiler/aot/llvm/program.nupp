@@ -609,7 +609,8 @@ function llvmProgram.module(
             builder.attributes(module, luaAttributes(selected)),
             selected.sizeType,
             registered,
-            registrarProgram as scalarIR.Program
+            registrarProgram as scalarIR.Program,
+            selected.linkedRuntime ~= nil
         )
     end
 

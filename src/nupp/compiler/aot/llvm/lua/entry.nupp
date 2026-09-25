@@ -230,7 +230,8 @@ function entry.registrar(
     attrs: string,
     size: string,
     registered: {entry.Registered},
-    program: scalarIR.Program
+    program: scalarIR.Program,
+    linked: boolean?
 ): nil
     entry.declareTable(module)
     local f = builder.func(module, ("define i32 @%s(ptr %%L) %s {"):format(name, attrs))
@@ -249,27 +250,38 @@ function entry.registrar(
     local ok = runtime.api(ctx, "lua_checkstack", {state, "i32 4"}) as string
     refuse(ctx, e(ctx, ("icmp eq i32 %s, 0"):format(ok)), "AOT builder Lua stack exhausted")
 
-    -- require("nupp.runtime.native").aotRuntime()
-    runtime.api(ctx, "lua_getfield", {state, "i32 " .. tostring(GLOBALS), "ptr " .. runtime.cString(ctx, "require")})
-    local moduleName = "nupp.runtime.native"
-    runtime.api(ctx, "lua_pushlstring", {
-        state,
-        "ptr " .. builder.bytes(module, moduleName),
-        size .. " " .. tostring(#moduleName)
-    })
-    runtime.api(ctx, "lua_call", {state, "i32 1", "i32 1"})
-    runtime.api(ctx, "lua_getfield", {state, "i32 -1", "ptr " .. runtime.cString(ctx, "aotRuntime")})
-    runtime.api(ctx, "lua_call", {state, "i32 0", "i32 1"})
-    local length = builder.alloca(f, size, size == "i64" and 8 or 4)
-    builder.emit(f, ("store %s 0, ptr %s"):format(size, length))
-    local bytes = runtime.api(ctx, "lua_tolstring", {state, "i32 -1", "ptr " .. length}) as string
-    local got = e(ctx, ("load %s, ptr %s"):format(size, length))
-    local width = size == "i64" and 8 or 4
     local mismatch = "AOT runtime is not the one this module was compiled for"
-    local missing = e(ctx, ("icmp eq ptr %s, null"):format(bytes))
-    local wrongLength = e(ctx, ("icmp ne %s %s, %d"):format(size, got, width))
-    refuse(ctx, e(ctx, ("or i1 %s, %s"):format(missing, wrongLength)), mismatch)
-    local table = e(ctx, ("load ptr, ptr %s, align 1"):format(bytes))
+    local table: string
+    if linked == true then
+        -- The runtime is linked into this library: its table is a symbol here.
+        builder.once(module, "global @ks_rt_table", "@ks_rt_table = external hidden constant [1 x ptr]")
+        table = "@ks_rt_table"
+    else
+        -- require("nupp.runtime.native").aotRuntime()
+        runtime.api(ctx, "lua_getfield", {
+            state,
+            "i32 " .. tostring(GLOBALS),
+            "ptr " .. runtime.cString(ctx, "require")
+        })
+        local moduleName = "nupp.runtime.native"
+        runtime.api(ctx, "lua_pushlstring", {
+            state,
+            "ptr " .. builder.bytes(module, moduleName),
+            size .. " " .. tostring(#moduleName)
+        })
+        runtime.api(ctx, "lua_call", {state, "i32 1", "i32 1"})
+        runtime.api(ctx, "lua_getfield", {state, "i32 -1", "ptr " .. runtime.cString(ctx, "aotRuntime")})
+        runtime.api(ctx, "lua_call", {state, "i32 0", "i32 1"})
+        local length = builder.alloca(f, size, size == "i64" and 8 or 4)
+        builder.emit(f, ("store %s 0, ptr %s"):format(size, length))
+        local bytes = runtime.api(ctx, "lua_tolstring", {state, "i32 -1", "ptr " .. length}) as string
+        local got = e(ctx, ("load %s, ptr %s"):format(size, length))
+        local width = size == "i64" and 8 or 4
+        local missing = e(ctx, ("icmp eq ptr %s, null"):format(bytes))
+        local wrongLength = e(ctx, ("icmp ne %s %s, %d"):format(size, got, width))
+        refuse(ctx, e(ctx, ("or i1 %s, %s"):format(missing, wrongLength)), mismatch)
+        table = e(ctx, ("load ptr, ptr %s, align 1"):format(bytes))
+    end
 
     local function word(index: integer): string
         local address = e(ctx, ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(table, index))
@@ -305,7 +317,9 @@ function entry.registrar(
     end
     refuse(ctx, wrong, mismatch)
     builder.emit(f, ("store ptr %s, ptr %s"):format(table, entry.TABLE))
-    runtime.api(ctx, "lua_settop", {state, "i32 -3"})
+    if linked ~= true then
+        runtime.api(ctx, "lua_settop", {state, "i32 -3"})
+    end
 
     runtime.api(ctx, "lua_createtable", {state, "i32 0", "i32 " .. tostring(#registered)})
     for _, one in ipairs(registered) do
