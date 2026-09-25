@@ -32,6 +32,8 @@ on:
 
 permissions:
   contents: read
+  # The browser guest it calls fetches the pinned LLVM artifact.
+  actions: read
 
 # Grouped per commit rather than per branch, so no push ever discards another
 # push's answer. The previous shape kept one pending run per branch, so a newer
