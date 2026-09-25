@@ -2571,11 +2571,14 @@ end
 --- with lld in process: no C compiler, system linker or SDK is run, and the
 --- program carries no LLVM of its own.
 function M.standaloneAotLinksFromAKitWithoutACToolchain()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" or (jit.os ~= "OSX" and jit.os ~= "Linux") then
+    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
         return
     end
+    local posix = jit.os ~= "Windows"
     local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
-    local code, answer = process.capture({root .. "/scripts/toolchain", "kit", ""})
+    local code, answer = process.capture(
+        posix and {root .. "/scripts/toolchain", "kit", ""} or {"sh.exe", root .. "/scripts/toolchain", "kit", ""}
+    )
     assertEq(code, 0, answer)
     local kit = answer:match("([^\r\n]+)%s*$")
     local dir = tempProject({

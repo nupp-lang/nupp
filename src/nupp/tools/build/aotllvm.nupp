@@ -540,6 +540,44 @@ local function linkLinux(
     return nil
 end
 
+--- A Windows kit records the link MinGW's driver ran for a probe program;
+--- lld's MinGW driver replays it with this program's archives, loaded whole,
+--- where the probe's object was.
+local function linkWindows(kit: string, manifest: any, output: string, archives: {string}, flags: {string}): string?
+    if type(manifest.argv) ~= "table" then
+        return "the link kit at " .. kit .. " records no link"
+    end
+    local argv: {string} = {"ld.lld"}
+    for _, token in ipairs(manifest.argv as {string}) do
+        if token == "{output}" then
+            argv[#argv + 1] = output
+        elseif token == "{runtime}" then
+            argv[#argv + 1] = kit .. "/" .. tostring(manifest.runtime)
+        elseif token == "{archives}" then
+            argv[#argv + 1] = "--whole-archive"
+            for _, archive in ipairs(archives) do
+                argv[#argv + 1] = archive
+            end
+            argv[#argv + 1] = "--no-whole-archive"
+            for _, flag in ipairs(flags) do
+                argv[#argv + 1] = flag
+            end
+        elseif token:sub(1, 6) == "{kit}/" then
+            argv[#argv + 1] = kit .. token:sub(6)
+        else
+            argv[#argv + 1] = token
+        end
+    end
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the standalone program failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
 --- Links a standalone program `output` from the link kit at `kit`: its
 --- runtime and `archives` loaded whole (a program reaches native code by
 --- name, which no archive scan sees), against the kit's stubs for the system
@@ -563,8 +601,10 @@ function aotllvm.linkStandalone(kit: string, output: string, archives: {string},
     local machine = (selected as llvmProfile.Profile).machine
     if manifest.platform == "linux" then
         return linkLinux(kit, manifest, machine, output, archives, flags)
+    elseif manifest.platform == "windows" then
+        return linkWindows(kit, manifest, output, archives, flags)
     elseif manifest.platform ~= "macos" then
-        return "this nupp links standalone programs from macOS and Linux kits only so far"
+        return "the link kit at " .. kit .. " is for " .. tostring(manifest.platform) .. ", which this nupp cannot link"
     end
     local minimum = tostring(manifest.minimum)
     local argv: {

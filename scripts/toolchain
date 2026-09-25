@@ -1473,6 +1473,7 @@ floor ceil trunc round sqrt memcpy memmove memset bzero memcmp bcmp memchr strto
 # The public Nupp platform a kit built on this machine links for.
 kit_target() {
     case "$PLATFORM-$(uname -m 2>/dev/null)" in
+        windows-x86_64) echo x86_64-pc-windows-msvc ;;
         darwin-arm64) echo aarch64-apple-darwin ;;
         darwin-x86_64) echo x86_64-apple-darwin ;;
         linux-x86_64) echo x86_64-unknown-linux-gnu ;;
@@ -1501,7 +1502,8 @@ build_kit() {
     case "$PLATFORM" in
         darwin) ;;
         linux) build_kit_linux "$features" "$host_out" "$out"; release_lock; return 0 ;;
-        *) die "link kits are built on macOS and Linux so far" ;;
+        windows) build_kit_windows "$features" "$host_out" "$out"; release_lock; return 0 ;;
+        *) die "link kits are built on macOS, Linux and Windows" ;;
     esac
     note "staging the link kit"
     rm -rf "$out"
@@ -1569,6 +1571,98 @@ build_kit() {
     rm -f "$probe" "$probe-aot.c" "$probe-aot.o" "$probe-flags" "$out/binds" "$out/libraries" "$out/flags"
     printf 'ok\n' > "$out/.complete"
     release_lock
+}
+
+# The Windows (MinGW) kit: the link the C compiler's driver would run for a
+# program, recorded with every object and library it names copied into the
+# kit -- the CRT startup objects, the MinGW and libgcc archives, and the
+# system DLLs' import libraries, all MinGW-w64's own -- so lld's MinGW driver
+# replays it with the program's objects in place of the probe's.
+build_kit_windows() {
+    features=$1
+    host_out=$2
+    out=$3
+    note "staging the link kit"
+    rm -rf "$out"
+    mkdir -p "$out/lib"
+    cp "$host_out/libnupp-host.a" "$out/libnupp-runtime.a"
+    cp "$host_out/libnupp-host-imports.a" "$out/lib/libnupp-host-imports.a"
+
+    probe="$out/probe"
+    {
+        for name in $KIT_AOT_SYMBOLS; do printf 'extern char %s[];\n' "$name"; done
+        printf 'void *nupp_kit_probe[] = {\n'
+        for name in $KIT_AOT_SYMBOLS; do printf '    %s,\n' "$name"; done
+        printf '};\n'
+    } > "$probe-aot.c"
+    "$CC" -c -w -fno-builtin -o "$probe-aot.o" "$probe-aot.c"
+    set -- "$CC" -v -o "$probe.exe" "$probe-aot.o" "$out/libnupp-runtime.a"
+    while IFS= read -r flag; do
+        set -- "$@" "$flag"
+    done <<EOF
+$(host_system_flags "$features")
+EOF
+    set -- "$@" "$out/lib/libnupp-host-imports.a" -Wl,--export-all-symbols
+    "$@" > "$out/probe.log" 2>&1 || { tail -n 40 "$out/probe.log" >&2; die "the kit's probe link failed"; }
+    line=$(grep -E '(collect2|ld)(\.exe)?"? ' "$out/probe.log" | tail -n 1)
+    [ -n "$line" ] || die "the C compiler's driver did not say how it links"
+
+    # One argument per line: the linker itself dropped, search directories
+    # used to find each -l, then dropped; the probe's own inputs replaced by
+    # placeholders; each object or library copied in and named relative to
+    # the kit. Argument order is the link's, which one-pass archives need.
+    : > "$out/dirs"
+    for word in $line; do
+        case "$word" in -L*) printf '%s\n' "${word#-L}" >> "$out/dirs" ;; esac
+    done
+    : > "$out/argv"
+    first=1
+    for word in $line; do
+        word=${word%\"}
+        word=${word#\"}
+        if [ "$first" = 1 ]; then first=0; continue; fi
+        case "$word" in
+            -plugin|-plugin-opt=*|--sysroot=*|-L*) continue ;;
+            */liblto_plugin*) continue ;;
+            # By name: the driver prints its arguments as Windows paths.
+            probe.exe|*/probe.exe|*\\probe.exe) printf '{output}\n' >> "$out/argv" ;;
+            */probe-aot.o|*\\probe-aot.o) printf '{archives}\n' >> "$out/argv" ;;
+            */libnupp-runtime.a|*\\libnupp-runtime.a) printf '{runtime}\n' >> "$out/argv" ;;
+            */libnupp-host-imports.a|*\\libnupp-host-imports.a)
+                printf '{kit}/lib/libnupp-host-imports.a\n' >> "$out/argv"
+                ;;
+            -l*)
+                name=${word#-l}
+                found=""
+                while IFS= read -r dir; do
+                    for candidate in "$dir/lib$name.a" "$dir/lib$name.dll.a" "$dir/$name.lib"; do
+                        if [ -z "$found" ] && [ -f "$candidate" ]; then found=$candidate; fi
+                    done
+                done < "$out/dirs"
+                [ -n "$found" ] || die "the probe link names -l$name, which no search directory holds"
+                base=$(basename "$found")
+                [ -f "$out/lib/$base" ] || cp "$found" "$out/lib/$base"
+                printf '{kit}/lib/%s\n' "$base" >> "$out/argv"
+                ;;
+            *.o|*.obj|*.a)
+                base=$(basename "$word")
+                [ -f "$out/lib/$base" ] || cp "$word" "$out/lib/$base"
+                printf '{kit}/lib/%s\n' "$base" >> "$out/argv"
+                ;;
+            *) printf '%s\n' "$word" >> "$out/argv" ;;
+        esac
+    done
+    grep -q '^{archives}$' "$out/argv" || die "the probe link did not name the probe object"
+
+    {
+        printf '{\n  "schemaVersion": 1,\n  "platform": "windows",\n  "target": "%s",\n' "$(kit_target)"
+        printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n' "$features"
+        printf '  "argv": ['
+        awk '{ gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "%s\"%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/argv"
+        printf ']\n}\n'
+    } > "$out/kit.json"
+    rm -f "$probe.exe" "$probe-aot.c" "$probe-aot.o" "$out/probe.log" "$out/dirs" "$out/argv"
+    printf 'ok\n' > "$out/.complete"
 }
 
 # The Linux (glibc) kit: the runtime, the C runtime's startup objects and
