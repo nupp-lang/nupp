@@ -6,9 +6,10 @@ name: LLVM backend
 # own cache, pruned to what linking the code generator needs: the build tree's
 # libraries and tools, and the source tree's LLVM and lld headers.
 
+# On main too: caches are per branch, and a tag's release build reads main's
+# LLVM cache.
 on:
   push:
-    branches-ignore: [main]
   workflow_dispatch:
 
 # Queued rather than cancelled: a cancelled cold run never saves the LLVM it

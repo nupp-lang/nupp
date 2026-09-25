@@ -105,10 +105,35 @@ jobs:
             upload_artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # A cold LLVM cache means building LLVM before anything else.
+    timeout-minutes: 180
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+
+      # The nupp binary links the pinned LLVM (the AOT code generator). The LLVM
+      # backend workflow keeps this cache warm on main; a miss builds it here.
+      - name: Restore the pinned LLVM
+        id: llvm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .nupp-cache/toolchain/llvm
+            .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
+            .nupp-cache/toolchain/sources/llvm-project-*/lld/include
+          key: >-
+            nupp-llvm-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}-v1
+
+      - name: Install the LLVM build tools
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install ninja
+          else
+            sudo apt-get update && sudo apt-get install -y ninja-build
+          fi
 
       # Compiling Nupp evaluates `@comptime` code, and the compiler evaluates that by
       # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
@@ -169,9 +194,15 @@ jobs:
             -k "$keychain_password" "$keychain"
           security list-keychain -d user -s "$keychain" login.keychain-db
 
+      - name: Build the pinned LLVM
+        shell: bash
+        run: ./scripts/toolchain llvm
+
       - name: Build Nupp
         env:
           ARTIFACT_NAME: ${{ matrix.artifact }}
+          # The code generator is part of the binary, never silently left out.
+          NUPP_REQUIRE_CODEGEN: "1"
           MACOS_RELEASE_SIGNING: ${{ steps.macos-signing.outputs.enabled }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         shell: bash
