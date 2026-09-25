@@ -1472,12 +1472,12 @@ floor ceil trunc round sqrt memcpy memmove memset bzero memcmp bcmp memchr strto
 # machine's SDK; no SDK file is copied.
 # The public Nupp platform a kit built on this machine links for.
 kit_target() {
-    case "$PLATFORM-$(uname -m 2>/dev/null)" in
-        windows-x86_64) echo x86_64-pc-windows-msvc ;;
-        darwin-arm64) echo aarch64-apple-darwin ;;
-        darwin-x86_64) echo x86_64-apple-darwin ;;
-        linux-x86_64) echo x86_64-unknown-linux-gnu ;;
-        linux-aarch64|linux-arm64) echo aarch64-unknown-linux-gnu ;;
+    case "$PLATFORM-$(uname -s)-$(uname -m 2>/dev/null)" in
+        windows-*-x86_64) echo x86_64-pc-windows-msvc ;;
+        darwin-*-arm64) echo aarch64-apple-darwin ;;
+        darwin-*-x86_64) echo x86_64-apple-darwin ;;
+        posix-Linux-x86_64) echo x86_64-unknown-linux-gnu ;;
+        posix-Linux-aarch64|posix-Linux-arm64) echo aarch64-unknown-linux-gnu ;;
         *) die "no link kit target for $PLATFORM on $(uname -m)" ;;
     esac
 }
@@ -1499,10 +1499,10 @@ build_kit() {
     KIT_OUT=$out
     take_lock "kit-$digest" "$out/.complete" || return 0
     [ -f "$out/.complete" ] && { release_lock; return 0; }
-    case "$PLATFORM" in
-        darwin) ;;
-        linux) build_kit_linux "$features" "$host_out" "$out"; release_lock; return 0 ;;
-        windows) build_kit_windows "$features" "$host_out" "$out"; release_lock; return 0 ;;
+    case "$PLATFORM-$(uname -s)" in
+        darwin-*) ;;
+        posix-Linux) build_kit_linux "$features" "$host_out" "$out"; release_lock; return 0 ;;
+        windows-*) build_kit_windows "$features" "$host_out" "$out"; release_lock; return 0 ;;
         *) die "link kits are built on macOS, Linux and Windows" ;;
     esac
     note "staging the link kit"

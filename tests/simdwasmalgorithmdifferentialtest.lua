@@ -70,8 +70,9 @@ local function fixtureKey(name, capabilities, host)
     local parts = {
         "simd-wasm-algorithm-v2",
         name,
-        capabilities.emscripten.version,
-        capabilities.emscripten.signature,
+        -- Whichever compiler builds the Wasm: Emscripten, or the code generator.
+        tostring(capabilities.wasm.version),
+        tostring(capabilities.wasm.signature or capabilities.emscripten.signature),
         capabilities.node.version,
         capabilities.lua.command,
         capabilities.lua.runtime,

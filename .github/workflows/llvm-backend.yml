@@ -63,6 +63,8 @@ jobs:
   llvm:
     name: ${{ matrix.name }} / LLVM route
     needs: kits
+    # A kit that failed to build fails the cross step, not the suites.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     # A cold runner builds LLVM before any suite runs.
     timeout-minutes: 300
@@ -176,37 +178,6 @@ jobs:
         shell: bash
         run: ./bin/nupp build --target bootstrapCompiler
 
-      # Before the suites, so a suite failure does not hide whether the
-      # other platform's program links and runs.
-      - name: Download the other platform's link kit
-        if: matrix.cross != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: kit-${{ matrix.cross }}
-          path: ${{ runner.temp }}/kit-archive
-
-      - name: Link a standalone AOT program for ${{ matrix.cross }}
-        if: matrix.cross != ''
-        env:
-          NUPP_AOT_BACKEND: llvm
-        shell: bash
-        run: |
-          kit="$RUNNER_TEMP/kit"
-          mkdir -p "$kit"
-          tar -xzf "$RUNNER_TEMP/kit-archive/kit-${{ matrix.cross }}.tar.gz" -C "$kit"
-          cd tests/fixtures/cross-aot
-          NUPP_KIT_DIR="$kit" ../../../bin/nupp build --platform "${{ matrix.cross }}"
-          mkdir -p "$RUNNER_TEMP/cross"
-          cp "build/default/${{ matrix.cross }}/default" "$RUNNER_TEMP/cross/program"
-
-      - name: Upload the program for ${{ matrix.cross }}
-        if: matrix.cross != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: cross-program-${{ matrix.cross }}
-          path: ${{ runner.temp }}/cross/program
-          if-no-files-found: error
-
       - name: Run the AOT suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm
@@ -259,6 +230,37 @@ jobs:
           NUPP_AOT_BACKEND: llvm
         shell: bash
         run: ./bin/nupp test simdwasmtimeconformancetest simdwasmalgorithmdifferentialtest
+
+      # Whatever the suites said, so a suite failure does not hide whether
+      # the other platform's program links and runs.
+      - name: Download the other platform's link kit
+        if: ${{ !cancelled() && matrix.cross != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: kit-${{ matrix.cross }}
+          path: ${{ runner.temp }}/kit-archive
+
+      - name: Link a standalone AOT program for ${{ matrix.cross }}
+        if: ${{ !cancelled() && matrix.cross != '' }}
+        env:
+          NUPP_AOT_BACKEND: llvm
+        shell: bash
+        run: |
+          kit="$RUNNER_TEMP/kit"
+          mkdir -p "$kit"
+          tar -xzf "$RUNNER_TEMP/kit-archive/kit-${{ matrix.cross }}.tar.gz" -C "$kit"
+          cd tests/fixtures/cross-aot
+          NUPP_KIT_DIR="$kit" ../../../bin/nupp build --platform "${{ matrix.cross }}"
+          mkdir -p "$RUNNER_TEMP/cross"
+          cp "build/default/${{ matrix.cross }}/default" "$RUNNER_TEMP/cross/program"
+
+      - name: Upload the program for ${{ matrix.cross }}
+        if: ${{ !cancelled() && matrix.cross != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-program-${{ matrix.cross }}
+          path: ${{ runner.temp }}/cross/program
+          if-no-files-found: error
 
   # Each program runs where it was linked for, not where it was linked.
   cross-run:
