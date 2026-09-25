@@ -101,6 +101,43 @@ function M.recordsAndVerifiesACompleteStubCatalog()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.kitRecordsJoinTheCatalogANuppIsBuiltWith()
+   local dir = temporaryDirectory()
+   local catalogRelease = "release-123"
+   local archive = dir .. "/nupp-kit-x86_64-unknown-linux-gnu.tar.gz"
+   write(archive, "\31\139kit bytes")
+   local url = "https://example.invalid/releases/nupp-kit-x86_64-unknown-linux-gnu.tar.gz"
+   local refused, why = release.kitRecord(
+      "x86_64-unknown-linux-gnu", catalogRelease, archive, "http://example.invalid/kit", dir .. "/no.json")
+   assert(not refused and why:find("HTTPS", 1, true), tostring(why))
+   local record = dir .. "/kit-linux.json"
+   assert(release.kitRecord("x86_64-unknown-linux-gnu", catalogRelease, archive, url, record))
+
+   local output = dir .. "/embedded.json"
+   assert(release.kitCatalog(catalogRelease, {record}, dir, output))
+   local catalog = json.decode(read(output))
+   assert(catalog.catalogRelease == catalogRelease)
+   assert(next(catalog.stubs) == nil, "a nupp is built before its stubs")
+   local kit = catalog.kits["x86_64-unknown-linux-gnu"]
+   assert(kit.url == url and kit.size == #"\31\139kit bytes" and kit.kind == nil)
+
+   -- What the catalog carries is what a build resolves through.
+   local getenv = os.getenv
+   os.getenv = function(name)
+      if name == "NUPP_STUB_CATALOG" then return output end
+      return getenv(name)
+   end
+   local resolved, problem = require("nupp.tools.build.kits").record("x86_64-unknown-linux-gnu")
+   os.getenv = getenv
+   assert(resolved and resolved.sha256 == kit.sha256, tostring(problem))
+
+   write(archive, "\31\139damaged")
+   local verified, damage = release.kitCatalog(catalogRelease, {record}, dir, output)
+   assert(not verified and damage:find("does not describe", 1, true),
+      "catalog assembly authenticates the kit archive: " .. tostring(damage))
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.aRecordRejectsTheWrongExecutableFormat()
    local dir = temporaryDirectory()
    write(dir .. "/notices", "license text")

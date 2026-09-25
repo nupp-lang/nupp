@@ -88,8 +88,59 @@ jobs:
           path: release/nupp-browser-runtime.tar.gz
           if-no-files-found: error
 
+  # Each platform's universal link kit, built where that platform's libraries
+  # are. A kit needs no nupp, so it is built first and its record is compiled
+  # into every nupp this release builds: that is what lets a released nupp
+  # fetch it, check it against the recorded digest, and link a standalone
+  # program for the platform without a C toolchain.
+  kits:
+    name: ${{ matrix.name }} link kit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86-64
+            os: ubuntu-24.04
+            platform: x86_64-unknown-linux-gnu
+          - name: macOS arm64
+            os: macos-14
+            platform: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Build pinned host dependencies
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Build and record the link kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          kit="nupp-kit-${{ matrix.platform }}.tar.gz"
+          ./scripts/toolchain kit-archive \
+            lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers \
+            "release/$kit"
+          ./bin/nupp run scripts/release.nupp kit-record \
+            "${{ matrix.platform }}" "$GITHUB_SHA" "release/$kit" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$kit" \
+            "release/kit-${{ matrix.platform }}.json"
+
+      - name: Upload the link kit and its record
+        uses: actions/upload-artifact@v4
+        with:
+          name: kit-${{ matrix.platform }}
+          path: |
+            release/nupp-kit-${{ matrix.platform }}.tar.gz
+            release/kit-${{ matrix.platform }}.json
+          if-no-files-found: error
+
   build-unix:
     name: ${{ matrix.name }}
+    needs: kits
     strategy:
       fail-fast: false
       matrix:
@@ -142,6 +193,23 @@ jobs:
       - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
+
+      - name: Download the link kits
+        uses: actions/download-artifact@v4
+        with:
+          path: release/kits
+          pattern: kit-*
+          merge-multiple: true
+
+      # Before anything is compiled, so every nupp this release builds carries
+      # the same catalog.
+      - name: Compile the link kits' records into the catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./bin/nupp run scripts/release.nupp kit-catalog \
+            "$GITHUB_SHA" release/kits src/nupp/tools/build/stub-catalog.json \
+            release/kits/kit-*.json
 
       # A tag must prove the exact Rust artifacts on the same runner that will
       # package them. The compiler matrix is a separate workflow and cannot be
@@ -312,6 +380,28 @@ jobs:
               exit 1
             fi
           fi
+
+      # The released nupp, with no checkout behind it, links a standalone AOT
+      # program for each platform from the kits its catalog records. The
+      # archives come from NUPP_STUB_DIR rather than the release, which does
+      # not exist yet; the digest check is the same either way.
+      - name: Link standalone AOT programs from the recorded kits
+        shell: bash
+        env:
+          NUPP_AOT_BACKEND: llvm
+        run: |
+          set -euo pipefail
+          released="$PWD/release/verify-${{ matrix.platform }}/nupp"
+          cd tests/fixtures/cross-aot
+          for platform in x86_64-unknown-linux-gnu aarch64-apple-darwin; do
+            env -u NUPP_NATIVE_LIBRARY -u NUPP_COMPILER_ROOT \
+              NUPP_STUB_DIR="$GITHUB_WORKSPACE/release/kits" \
+              NUPP_KIT_CACHE="$RUNNER_TEMP/kit-cache" \
+              "$released" build --platform "$platform"
+          done
+          program="build/default/${{ matrix.platform }}/default"
+          if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - "$program"; fi
+          [ "$("$program")" = "$(printf '15\t4')" ]
 
       - name: Stage the platform-independent payload
         if: runner.os == 'Linux'
@@ -703,6 +793,13 @@ jobs:
           pattern: stub-*
           merge-multiple: true
 
+      - name: Download the link kits and their records
+        uses: actions/download-artifact@v4
+        with:
+          path: release/stubs
+          pattern: kit-*
+          merge-multiple: true
+
       - name: Download the built Linux compiler
         uses: actions/download-artifact@v4
         with:
@@ -718,7 +815,7 @@ jobs:
             -C release/catalog-runner
           release/catalog-runner/nupp run scripts/release.nupp catalog \
             "$GITHUB_SHA" release/stubs release/stub-catalog.json \
-            release/stubs/stub-*.json
+            release/stubs/stub-*.json release/stubs/kit-*.json
 
       - name: Upload the catalog
         uses: actions/upload-artifact@v4
@@ -875,6 +972,20 @@ jobs:
         with:
           name: stub-catalog
           path: release
+
+      # The URL each kit record names.
+      - name: Download the link kits
+        uses: actions/download-artifact@v4
+        with:
+          path: release/kits
+          pattern: kit-*
+          merge-multiple: true
+
+      - name: Stage the link kit archives
+        shell: bash
+        run: |
+          mv release/kits/nupp-kit-*.tar.gz release/
+          rm -rf release/kits
 
       - name: Create or update the tagged release
         env:

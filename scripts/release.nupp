@@ -14,6 +14,7 @@ local type Release = {
     record: function(string, string, string, string, string): (boolean?, string?),
     catalog: function(string, {string}, string, string): (boolean?, string?),
     kitRecord: function(string, string, string, string, string): (boolean?, string?),
+    kitCatalog: function(string, {string}, string, string): (boolean?, string?),
     stampPayload: function(string, string, string, string): (boolean?, string?)
 }
 
@@ -25,6 +26,7 @@ local arguments = {...} as {string}
 local USAGE = [[usage:
   release.nupp record PLATFORM CATALOG_RELEASE ARTIFACT NOTICES OUTPUT
   release.nupp kit-record PLATFORM CATALOG_RELEASE ARCHIVE URL OUTPUT
+  release.nupp kit-catalog CATALOG_RELEASE ARTIFACT_ROOT OUTPUT RECORD...
   release.nupp catalog CATALOG_RELEASE ARTIFACT_ROOT OUTPUT RECORD...
   release.nupp payload-stamp PLATFORM STUB PAYLOAD OUTPUT]]
 
@@ -51,6 +53,15 @@ elseif command == "kit-record" then
         fail(USAGE, 2)
     end
     ok, problem = release.kitRecord(arguments[2], arguments[3], arguments[4], arguments[5], arguments[6])
+elseif command == "kit-catalog" then
+    if #arguments < 5 then
+        fail(USAGE, 2)
+    end
+    local records: {string} = {}
+    for index = 5, #arguments do
+        records[#records + 1] = arguments[index]
+    end
+    ok, problem = release.kitCatalog(arguments[2], records, arguments[3], arguments[4])
 elseif command == "catalog" then
     if #arguments < 5 then
         fail(USAGE, 2)

@@ -292,6 +292,46 @@ local function validateKit(value: any, root: string, catalogRelease: string): bo
     return true
 end
 
+--- The catalog a release's nupp is built with: its link kits, which are built
+--- before it, and no stubs, which are built beside it.
+function release.kitCatalog(
+    catalogRelease: string,
+    recordPaths: {string},
+    artifactRoot: string,
+    output: string
+): boolean?, string?
+    if not stubs.safeComponent(catalogRelease) then
+        return nil, "catalog release must be one safe path component"
+    end
+    local kits: {[string]: any} = {}
+    for _, path in ipairs(recordPaths) do
+        local value, decodeErr = decode(path)
+        if not value then
+            return nil, decodeErr
+        end
+        if type(value) ~= "table" or value.kind ~= "kit" then
+            return nil, path .. " is not a kit record"
+        end
+        local key = tostring(value.platform)
+        if kits[key] ~= nil then
+            return nil, "duplicate kit record for " .. key
+        end
+        local valid, validErr = validateKit(value, artifactRoot, catalogRelease)
+        if not valid then
+            return nil, validErr
+        end
+        value.kind = nil
+        kits[key] = value
+    end
+
+    return writeJson(output, {
+        catalogRelease = catalogRelease,
+        hostAbi = packaging.hostAbiVersion,
+        kits = json.asObject(kits),
+        stubs = json.asObject({}),
+    })
+end
+
 function release.catalog(
     catalogRelease: string,
     recordPaths: {string},
