@@ -130,16 +130,21 @@ KS_RT_LUA_API(KS_RT_POINTER)
 #if defined(_WIN32)
 __declspec(dllimport) void *__stdcall GetModuleHandleA(const char *name);
 __declspec(dllimport) void *__stdcall GetProcAddress(void *module, const char *name);
-/* The program's own exports first: LuaJIT linked in exports its API. */
+/* The program's own exports first: LuaJIT linked in exports its API. Null
+ * when no loaded module exports it. */
 static void *ks_rt_lua_module(void) {
     void *module = GetModuleHandleA(NULL);
     if (!module || !GetProcAddress(module, "lua_gettop")) module = GetModuleHandleA("lua51.dll");
     return module;
 }
+#define KS_RT_HAS_MODULE(module) ((module) != NULL)
 #define KS_RT_LOOKUP(module, name) GetProcAddress((module), (name))
 #else
 #include <dlfcn.h>
+/* Every loaded object, the program first. glibc spells this handle null,
+ * so it is not a failure here. */
 static void *ks_rt_lua_module(void) { return RTLD_DEFAULT; }
+#define KS_RT_HAS_MODULE(module) 1
 #define KS_RT_LOOKUP(module, name) dlsym((module), (name))
 #endif
 
@@ -149,7 +154,7 @@ int ks_rt_bind(void) {
     void *module;
     if (bound) return 1;
     module = ks_rt_lua_module();
-    if (!module) return 0;
+    if (!KS_RT_HAS_MODULE(module)) return 0;
 #define KS_RT_RESOLVE(name) \
     ks_lua_ptr_##name = (__typeof__(ks_lua_ptr_##name))KS_RT_LOOKUP(module, #name); \
     if (!ks_lua_ptr_##name) return 0;
