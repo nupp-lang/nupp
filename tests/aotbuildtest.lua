@@ -2565,18 +2565,18 @@ return {rows = rows}
     assert(library:find("ks_dll_main", 1, true), "the entry point binds the Lua API")
 end
 
---- On Windows the runtime reaches the Lua API through pointers, one per
---- function `ks_lua.h` declares; a declaration without its pointer would call
---- an import no Windows provider can resolve.
-function M.theWindowsRuntimeRedirectsEveryLuaFunction()
+--- The runtime reaches the Lua API through pointers, one per function
+--- `ks_lua.h` declares; a declaration without its pointer would be an import,
+--- which a provider loaded by a host that does not export Lua cannot resolve.
+function M.theRuntimeRedirectsEveryLuaFunction()
     local header = assert(read(HERE .. "/../src/nupp/compiler/aot/include/ks_lua.h"))
     local runtime = assert(read(HERE .. "/../native/crates/native/c/ks_rt.c"))
     local redirected = {}
-    for name in runtime:gmatch("#define (luaL?_[%w_]+) %(%*ks_win_") do
+    for name in runtime:gmatch("#define (luaL?_[%w_]+) %(%*ks_lua_ptr_") do
         redirected[name] = true
     end
     for name in header:gmatch("\nextern [^;(]-(luaL?_[%w_]+)%(") do
-        assert(redirected[name], "ks_rt.c does not redirect " .. name .. " on Windows")
+        assert(redirected[name], "ks_rt.c does not redirect " .. name)
     end
     assert(redirected.luaL_addvalue, "nor the runtime's own luaL_addvalue")
 end

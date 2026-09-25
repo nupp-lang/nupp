@@ -178,6 +178,15 @@ jobs:
         shell: bash
         run: ./bin/nupp build --target bootstrapCompiler
 
+      # The test runner refuses to start on Windows without naming Git Bash.
+      - name: Name Git Bash for the test runner
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          bash_path=$(command -v bash)
+          echo "NUPP_TEST_BASH=$(cygpath -w "$bash_path")" >> "$GITHUB_ENV"
+          echo "NUPP_TEST_SH=$(cygpath -w "$(dirname "$bash_path")/sh.exe")" >> "$GITHUB_ENV"
+
       - name: Run the AOT suites through LLVM
         env:
           NUPP_AOT_BACKEND: llvm

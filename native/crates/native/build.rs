@@ -7,9 +7,10 @@
 //! and a compiled module's registrar is not source. It calls the Lua C API,
 //! which the process loading this crate provides: statically in `nupp`, and
 //! through the interpreter when this is the provider library, where it binds
-//! at load. A Windows library has to name the module each import comes from,
-//! and none can be named, so there the runtime finds the API in the loaded
-//! modules itself (`ks_rt_bind`).
+//! at load. It imports none of it: a host that links LuaJIT privately exports
+//! no Lua API, and a Windows import has to name a module, so the runtime finds
+//! the API in the process itself the first time it is asked for
+//! (`ks_rt_bind`), and the provider loads wherever Lua is not exported.
 
 fn main() {
     println!("cargo:rerun-if-changed=c/ks_rt.c");
@@ -31,8 +32,6 @@ fn main() {
     if target.contains("apple") {
         let floor = if target.starts_with("x86_64") { "10.14" } else { "11.0" };
         build.flag(format!("-mmacosx-version-min={floor}"));
-        // The provider library leaves the Lua API to the loading process.
-        println!("cargo:rustc-cdylib-link-arg=-Wl,-undefined,dynamic_lookup");
     }
     build.compile("nupp_aot_runtime");
 }
