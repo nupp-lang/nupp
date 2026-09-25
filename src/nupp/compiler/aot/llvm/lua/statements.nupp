@@ -48,9 +48,12 @@ local function block(ctx: context.Context, cName: string, type: string, align: i
 end
 
 --- Zeroes `bytes` bytes at `pointer`.
-local function zero(ctx: context.Context, pointer: string, bytes: integer): nil
+local function zero(ctx: context.Context, pointer: string, bytes: integer, align: integer?): nil
     builder.declare(ctx.module, "@llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)")
-    emit(ctx, ("call void @llvm.memset.p0.i64(ptr align 16 %s, i8 0, i64 %d, i1 false)"):format(pointer, bytes))
+    emit(
+        ctx,
+        ("call void @llvm.memset.p0.i64(ptr align %d %s, i8 0, i64 %d, i1 false)"):format(align or 16, pointer, bytes)
+    )
 end
 
 --- Stores the u32 fields of a scratch header, from field 1 on.
@@ -165,6 +168,14 @@ local function bindByteScratch(ctx: context.Context, statement: scalarIR.Let): n
         "ptr " .. scratch,
         "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity))
     })
+    if fixed ~= nil then
+        -- Too large for the machine stack, but still fixed: readable to its
+        -- capacity from the start, as the stack form and the word buffer
+        -- are. The C lowering left this one unzeroed and empty.
+        local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
+        zero(ctx, storage, fixed as integer, 8)
+        emit(ctx, ("store i32 %s, ptr %s"):format(capacity, values.field(ctx, scratch, runtime.SCRATCH_U8, 2)))
+    end
 end
 
 local function letStatement(ctx: context.Context, node: scalarIR.Statement): boolean

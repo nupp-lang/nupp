@@ -567,7 +567,7 @@ function llvmProgram.module(
         end
     end
     if unit.facts.effects and not opaque then
-        local reach = globals and "memory(argmem: readwrite, other: read)" or "memory(argmem: readwrite)"
+        local reach = globals and "memory(read, argmem: readwrite)" or "memory(argmem: readwrite)"
         for index in pairs(kernels) do
             module.functions[index] = (module.functions[index]:gsub("^(define [^\n]-%)) #", "%1 " .. reach .. " #", 1))
         end

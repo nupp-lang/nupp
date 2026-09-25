@@ -224,8 +224,13 @@ local function pointer(ctx: context.Context, name: string): string
         ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(lua.runtime, indexOf[name] as integer)
     )
     local invariant = builder.metadata(ctx.module, "!{}")
+    -- Named for its slot, so the IR reads as the calls it makes.
+    local f = ctx.f
+    f.serial = f.serial + 1
+    local loaded = ("%%rt.%s.%d"):format(name, f.serial)
+    builder.emit(f, ("%s = load ptr, ptr %s, !invariant.load %s"):format(loaded, address, invariant))
 
-    return builder.value(ctx.f, ("load ptr, ptr %s, !invariant.load %s"):format(address, invariant))
+    return loaded
 end
 
 --- Calls runtime function `name` with `args`, answering its result, or nil.

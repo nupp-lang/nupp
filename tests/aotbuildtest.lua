@@ -1535,19 +1535,27 @@ function M.constGenericSelectsValueStreamModePerVariant()
             out
         )
     )
-    local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
+    -- Either backend's unit: a C `static int <entry>_lua` whose calls name
+    -- `ks_lua_builder_*`, or an LLVM `define internal i32 @<entry>_lua` whose
+    -- runtime pointers are named for their slots.
+    local path = tieredUnit(dir, firstHostTier(), "constkernel")
+    local unit = assert(read(path))
+    local llvm = path:match("%.ll$") ~= nil
+    local opening = llvm and "\ndefine internal i32 @" or "static int "
+    local pattern = llvm and "define internal i32 @(ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+[%w_]-_lua)%("
+        or "static int (ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+_lua)"
     local bodies = {}
-    for symbol in c:gmatch("static int (ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+)_lua") do
+    for symbol in unit:gmatch(pattern) do
         bodies[#bodies + 1] = symbol
     end
     test.equal(#bodies, 2, "each demanded variant compiles its own body")
     for _, symbol in ipairs(bodies) do
-        local marker = "static int " .. symbol .. "_lua"
-        local from = assert(c:find(marker, 1, true))
-        local to = c:find("\nstatic ", from, true) or #c
-        local body = c:sub(from, to)
-        local nulls = body:find("ks_lua_builder_null", 1, true) ~= nil
-        local booleans = body:find("ks_lua_builder_boolean", 1, true) ~= nil
+        local from = assert(unit:find(opening .. symbol, 1, true))
+        local to = unit:find(llvm and "\n}\n" or "\nstatic ", from + 1, true) or #unit
+        local body = unit:sub(from, to)
+        local calls = llvm and "rt.builder_" or "ks_lua_builder_"
+        local nulls = body:find(calls .. "null", 1, true) ~= nil
+        local booleans = body:find(calls .. "boolean", 1, true) ~= nil
         assert(nulls ~= booleans, "a specialization keeps only its own variant's branch, not both")
     end
 end
@@ -3611,6 +3619,41 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
         failureText:find("false", 1, true) and failureText:find("array capacity at 6:", 1, true),
         builderReport("a modeled native failure is protected and source-attributed", "require", dir, failureText)
     )
+end
+
+--- The LLVM lowering calls the AOT runtime by slot, so its slot list and
+--- message ids are an ABI with `ks_rt.c`: the same names in the same order.
+function M.theAotRuntimeTableMatchesItsLowering()
+    local runtime = require("nupp.compiler.aot.llvm.lua.runtime")
+    local source = assert(read(HERE .. "/../native/crates/native/c/ks_rt.c"))
+    local slots = assert(source:match("const void %*const ks_rt_table%[%] = {(.-)\n};"), "ks_rt_table")
+    local names = {}
+    for name in slots:gmatch("%(const void %*%)ks_rt_([%w_]+),") do
+        names[#names + 1] = name
+    end
+    local expected = {}
+    for position, slot in ipairs(runtime.SLOTS) do
+        expected[position] = slot.name
+    end
+    test.equal(table.concat(names, " "), table.concat(expected, " "), "runtime slots follow ks_rt_table")
+    local header = select(2, slots:gsub("%(const void %*%)%(uintptr_t%)", ""))
+    test.equal(header, runtime.HEADER, "the leading words are the version and block sizes")
+    assert(slots:find("KS_RT_ABI_VERSION", 1, true), "slot 0 is the ABI version")
+    assert(source:find("#define KS_RT_ABI_VERSION " .. tostring(runtime.VERSION) .. "u", 1, true), "ABI version")
+
+    local messages = assert(source:match("ks_rt_messages%[%] = {(.-)\n};"), "ks_rt_messages")
+    local texts = {}
+    for text in messages:gmatch('"([^"]*)"') do
+        texts[#texts + 1] = text
+    end
+    local wanted = {
+        stack = "AOT builder Lua stack exhausted",
+        byteWrite = "AOT byte scratch write is out of bounds",
+        substring = "AOT string.sub bounds must be integers",
+    }
+    for key, text in pairs(wanted) do
+        test.equal(texts[runtime.MESSAGE[key] + 1], text, "message id " .. key)
+    end
 end
 
 function M.luaBuilderChoosesATieredRegistrarAtLoad()
