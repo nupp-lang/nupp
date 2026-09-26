@@ -69,8 +69,8 @@ function aotllvm.version(): string
     return codegen.version()
 end
 
---- Appends one line to the coverage report NUPP_AOT_LLVM_REPORT names, if
---- any: which units the LLVM backend emitted and why the rest fell back.
+--- Appends one line to the report NUPP_AOT_LLVM_REPORT names, if any: each
+--- unit the code generator compiled, and where the time went.
 function aotllvm.note(line: string): nil
     local path = os.getenv("NUPP_AOT_LLVM_REPORT")
     if path == nil or path == "" then
@@ -84,11 +84,11 @@ function aotllvm.note(line: string): nil
 end
 
 --- One unit's programs as LLVM IR, or nil and why this backend cannot emit
---- them (the build then emits C for the unit). `logical` keeps each entry's
+--- them (the build then fails, naming the unit). `logical` keeps each entry's
 --- logical symbol rather than its tier's, the way an inspection names them,
 --- and `sourceFile` gives the unit line tables pointing into that file.
 --- @raises string when emission fails for a reason other than coverage: a
----   defect in the backend, which must not be hidden by falling back
+---   defect in the backend, which must not be reported as a missing feature
 function aotllvm.emit(
     programs: {scalarIR.Program},
     tier: string,
@@ -134,7 +134,7 @@ function aotllvm.emit(
 end
 
 --- The baseline feature detector as LLVM IR, or nil when this backend has no
---- profile for `triple` (the build then emits the C one).
+--- profile for `triple` (the build then fails).
 function aotllvm.detector(triple: string): string?
     local selected = llvmProfile.of(triple)
     if selected == nil then
@@ -433,7 +433,7 @@ end
 --- @return nil, or what went wrong
 function aotllvm.linkWasm(object: string, output: string, exports: {string}, libm: string?): string?
     -- The reference build's unoptimized twins keep every vector on the
-    -- stack, so they get the room the C route's reference build had.
+    -- stack, so they start with 32 MiB rather than 4.
     local oracle = aotllvm.wasmOracle()
     local argv: {
         string

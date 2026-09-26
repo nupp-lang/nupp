@@ -728,7 +728,7 @@ function spirv.program(
 
     -- The transcendental is an IR-owned binary32 operation sequence, not a
     -- GLSL.std.450 exponential. Keep the Horner polynomial and seven squarings
-    -- here in exactly the order used by the interpreter and native C helper.
+    -- here in exactly the order used by the interpreter and native helper.
     local expFn = id()
     name(expFn, "nupp_f32_exp")
     instruction(functions, OP.Function, {f32Type, expFn, 0, fnF32})

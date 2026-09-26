@@ -3,12 +3,12 @@ module nupp.compiler.aot.llvm.detector
 --[[
 The baseline runtime detector shared by every wrapper in one AOT library.
 
-`ks_aot_feature_tier` answers 0 for the baseline, 1 when AVX2 may run and 2
-when AVX-512F may, asking CPUID and XGETBV directly the way the C lowering did
-for the Microsoft runtime. It needs no support library, so it is the one form
-for every x86-64 target. It is compiled without an optional tier, so asking
-the question never executes the instructions it asks about, and an instruction
-set counts only when the operating system also saves its register state.
+`ks_aot_feature_tier` answers 0 for the baseline, 1 when AVX2 may run and 2 when
+AVX-512F may, asking CPUID and XGETBV directly. It needs no support library, so
+it is the one form for every x86-64 target. It is compiled without an optional
+tier, so asking the question never executes the instructions it asks about, and
+an instruction set counts only when the operating system also saves its register
+state.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")

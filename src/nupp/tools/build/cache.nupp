@@ -202,7 +202,7 @@ type cache.State = {
     --- a missing or different key recompiles that object and nothing else.
     aotObjects: {[string]: string}?,
 
-    --- `(source, tier)` identity -> the Wasm side module it produced, and the
+    --- `(source, tier)` identity -> the Wasm module it produced, and the
     --- key that module was compiled under.
     aotModules: {[string]: {
         key: string,

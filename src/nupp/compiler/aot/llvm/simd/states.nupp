@@ -6,7 +6,7 @@ Reducer state as LLVM values, and the operations on it.
 A reducer lives in a stack slot of its state type and is updated through a
 pointer to that slot, so a contribution is a call and the state a local like
 any other. What each state holds and how a contribution changes it is the
-reducer contract in `nupp.simd.reducer`, bit for bit what `ks_scalar.h` did:
+reducer contract in `nupp.simd.reducer`, bit for bit:
 
 - `ordered` and `algebraic` sum, product and dot: a bare binary64 accumulator,
   updated in the body, so they have no functions here;

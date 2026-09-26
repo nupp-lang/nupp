@@ -1,7 +1,7 @@
 module nupp.tools.build.toolruns
 
 --[[
-Running the external toolchain, counted and several at a time.
+Running the external toolchain counted, and compilations several at a time.
 
 Two things the ahead-of-time backend needs that `process` does not owe it.
 
@@ -12,17 +12,16 @@ goes through here and is counted, and the count is published in `build --json`.
 A test then asserts a number rather than asserting the absence of something it
 cannot see.
 
-The second is width. Translation units are independent: nothing one C
-compilation produces is read by another, and the link that follows reads all of
-them. Compiling them one after another leaves a machine with sixteen cores
-running one compiler, which is most of what a cold multiversion build costs.
+The second is width. Units are independent: nothing one unit's compilation
+produces is read by another, and the link that follows reads all of them.
+Compiling them one after another leaves a machine with sixteen cores running one
+compilation, which is most of what a cold multiversion build costs.
 
 Width is bounded by the processor count rather than by the job count, because
-the constraint is the machine and not the work. Waves rather than a pool: the
-units are generated C of comparable size, so the tail of a wave is short, and a
-wave is something POSIX `sh` can express in four lines that cannot deadlock.
-Windows has no `wait`, so it stays serial there -- a slower answer, never a
-different one.
+the constraint is the machine and not the work. External commands run in waves
+rather than a pool: a wave is something POSIX `sh` can express in four lines
+that cannot deadlock. Windows has no `wait`, so it stays serial there -- a
+slower answer, never a different one.
 
 Order is preserved whatever the width. Results come back indexed by the job they
 came from, so the first failure a caller reports is the first failing job rather
@@ -66,11 +65,11 @@ end
 
 local processorMemo: integer? = nil
 
---- How many external compilations this machine should run at once.
+--- How many compilations this machine should run at once.
 ---
---- One per processor. The generated C is compiled with `-O3` and every unit is
---- a fresh process reading its own translation unit, so the work is CPU-bound
---- and oversubscribing it only lengthens the wave that everything waits on.
+--- One per processor. Every unit is optimized at `-O3` on its own, so the work
+--- is CPU-bound and oversubscribing it only lengthens the wave that everything
+--- waits on.
 ---
 --- Asked for only when there is dirty work, because asking runs a program.
 function toolruns.processors(): integer
@@ -96,7 +95,7 @@ function toolruns.processors(): integer
     return processorMemo as integer
 end
 
---- The width to run `jobs` external compilations at.
+--- The width to run `jobs` compilations at.
 ---
 --- `NUPP_AOT_JOBS` overrules it, which is what a machine sharing its processors
 --- with something else wants, and what a measurement of the bound needs.

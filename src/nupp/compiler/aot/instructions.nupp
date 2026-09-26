@@ -1,22 +1,23 @@
 module nupp.compiler.aot.instructions
 
 --[[
-The instructions one generated translation unit became, by symbol.
+The instructions one compiled unit became, by symbol.
 
 `nupp bc` reads the bytecode a file compiles to on the other backend, and the
 reason it exists is that a performance property nothing observes is a property an
-ordinary edit can quietly take away. The backend that does the arithmetic had no
-equivalent: what came out of the C compiler was reachable only by compiling the
-emitted C by hand and running a disassembler over it, which is four commands
-nobody types the same way twice and an answer nobody can compare with last
-week's.
+ordinary edit can quietly take away. The backend that does the arithmetic needs
+the same: without it, what came out of the code generator is reachable only by
+linking a library by hand and running a disassembler over it, which is four
+commands nobody types the same way twice and an answer nobody can compare with
+last week's.
 
 This is that answer. Assembly rather than a disassembly of a linked library,
 because the two say the same thing about a body and only one of them needs a
-second tool installed: `-S` stops the same compiler, given the same flags, one
-step before it encodes. What that costs is the linker's view -- a call through a
-stub is still spelled as a call here -- and what it buys is an answer with no
-addresses in it, which is what makes two runs diffable.
+second tool installed: the code generator stops at assembly text for the same
+module, under the same options, one step before it encodes. What that costs is
+the linker's view -- a call through a stub is still spelled as a call here --
+and what it buys is an answer with no addresses in it, which is what makes two
+runs diffable.
 
 The counts are the point rather than a decoration. A gate that says a contiguous
 load became one native load, or that an accumulator stayed in registers, is a
@@ -228,7 +229,7 @@ end
 
 --- Whether one x86 operand names memory.
 ---
---- Every addressing mode the generated C produces goes through a register or
+--- Every addressing mode the code generator produces goes through a register or
 --- `%rip`, so a parenthesised register is what memory looks like. An operand
 --- that is a bare immediate or register has no parenthesis at all.
 local function readsMemory(operand: string): boolean
@@ -342,7 +343,7 @@ end
 --- it. Dropping those is what makes the answer a list of function bodies without
 --- having to track which section each label was declared in.
 ---
---- @param assembly what the compiler wrote for one translation unit
+--- @param assembly what the code generator wrote for one unit
 --- @param architecture which rules the mnemonics are read under
 --- @param system the target's operating system, which decides whether the
 ---   assembler prefixed every symbol with an underscore
@@ -434,9 +435,9 @@ end
 
 --- Names the compiled function each symbol belongs to.
 ---
---- A symbol nothing claims keeps `helper`: the generated C emits its arithmetic
---- helpers as `static inline`, so one that survived here is one the compiler
---- chose not to inline, which is worth seeing rather than hiding.
+--- A symbol nothing claims keeps `helper`: the arithmetic helpers are defined
+--- `internal` and `alwaysinline`, so one that survived here is one the code
+--- generator did not inline, which is worth seeing rather than hiding.
 function instructions.claim(listings: {instructions.Listing}, claims: {[string]: instructions.Claim}): nil
     for _, listing in ipairs(listings) do
         local claim = claims[listing.symbol]
@@ -445,7 +446,7 @@ function instructions.claim(listings: {instructions.Listing}, claims: {[string]:
             listing.role = (claim as instructions.Claim).role
         else
             -- A layout reporter is named after the symbol whose wrapper checks
-            -- it, which is the one place the emitter derives a symbol from
+            -- it, which is the one place the lowering derives a symbol from
             -- another rather than from a program. Claiming it by that prefix
             -- keeps a struct's ten reporters attributed to the function that
             -- reified it instead of appearing as ten unexplained helpers.
@@ -461,9 +462,9 @@ end
 
 --- The listings in `ROLES` order, keeping the compiler's order within each.
 ---
---- What the compiler emitted first is an artifact of how the C was assembled --
---- reporters before bodies, the oracle before the body it is the oracle for --
---- and reading a listing should not start with that.
+--- What the compiler emitted first is an artifact of how the module was
+--- assembled -- reporters before bodies, the oracle before the body it is the
+--- oracle for -- and reading a listing should not start with that.
 function instructions.order(listings: {instructions.Listing}): {instructions.Listing}
     local ordered: {instructions.Listing} = {}
     for _, role in ipairs(instructions.ROLES) do

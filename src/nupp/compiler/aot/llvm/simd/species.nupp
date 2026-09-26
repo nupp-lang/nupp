@@ -3,12 +3,11 @@ module nupp.compiler.aot.llvm.simd.species
 --[[
 What an explicit SIMD type is in LLVM.
 
-A species is an element and a lane count. `preferred` takes as many lanes as
-one register of the tier holds; `fixed<N>` is N lanes whatever the tier. Both
-are one LLVM vector type, `<N x T>`, and LLVM legalizes a vector no register
-holds into registers that do, which is all the C lowering's composite chunks
-were for. A mask is `<N x i1>`, the form every comparison produces and every
-select and masked access takes.
+A species is an element and a lane count. `preferred` takes as many lanes as one
+register of the tier holds; `fixed<N>` is N lanes whatever the tier. Both are
+one LLVM vector type, `<N x T>`, and LLVM legalizes a vector no register holds
+into registers that do. A mask is `<N x i1>`, the form every comparison produces
+and every select and masked access takes.
 
 The IR spells the families `simd_vector_<element>_<shape>`, `simd_mask_...`,
 `simd_species_...` (the species itself, known at compile time, so it has no

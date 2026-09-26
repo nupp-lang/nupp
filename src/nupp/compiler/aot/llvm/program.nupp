@@ -526,7 +526,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
                 or "%count"
         elseif param.kind == "uniform" then
             ctx.uniforms[param.name] = "%p_" .. param.name
-            -- A body may assign its parameters, which C spells `p_<name>`:
+            -- A body may assign its parameters, spelled `p_<name>`:
             -- each one gets a slot, promoted back to a register by SROA.
             local slot = statements.slot(ctx, "p_" .. param.name, tostring(param.type))
             builder.emit(
@@ -673,7 +673,7 @@ function llvmProgram.module(
             registered[#registered + 1] = builderEntry(unit, program)
         else
             -- A SIMD kernel has an unoptimized twin the differential tests
-            -- compare it against, emitted first as the C lowering did.
+            -- compare it against, emitted first.
             if program.usesSimd == true then
                 kernel(unit, program, true)
                 kernels[#module.functions] = true

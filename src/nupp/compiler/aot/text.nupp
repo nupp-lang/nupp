@@ -491,7 +491,7 @@ local function preamble(program: scalarIR.Program): {string}
         lines[#lines + 1] = "target gpu"
     end
     -- Printed so the reuse claim can be pinned in the IR, where it is proved,
-    -- rather than by grepping the C it eventually shapes.
+    -- rather than by grepping the code it eventually shapes.
     if program.reusableScratch ~= nil then
         lines[#lines + 1] = "reuses scratch " .. tostring(program.reusableScratch)
     end

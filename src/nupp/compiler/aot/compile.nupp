@@ -91,7 +91,7 @@ local REFUSED = {}
 
 --- Every emitted symbol lives in the process-wide C namespace when an archive
 --- is linked statically. Qualify by source before either shared or static
---- linkage is selected, so C emission and its cache have one identity.
+--- linkage is selected, so code generation and its cache have one identity.
 local function qualifySymbols(programs: {scalarIR.Program}, filename: string): nil
     local identity = hash.digest(filename):sub(1, 16)
     local registrars: {[string]: string} = {}
@@ -821,15 +821,15 @@ function compile.artifacts(
     -- link several source files into one library or archive, so both forms
     -- need distinct C symbols for identically named private declarations.
     -- Inspection artifacts retain readable names unless linkage asks for
-    -- qualification; the emitted C and binding always change together.
+    -- qualification; the generated code and binding always change together.
     if qualifyLinkage then
         qualifySymbols(cpuPrograms, filename)
     end
 
     -- A file with no CPU program has no binding module to stand in front of
-    -- the C, so the GPU replacements are the whole binding. Beside CPU
-    -- programs they are not part of it: the build rewrites each GPU
-    -- declaration in place from `gpu` instead.
+    -- compiled code, so the GPU replacements are the whole binding. Beside CPU
+    -- programs they are not part of it: the build rewrites each GPU declaration
+    -- in place from `gpu` instead.
     step("emit")
     local generatedBinding = bindingRules.module(cpuPrograms, library)
     if #cpuPrograms == 0 then

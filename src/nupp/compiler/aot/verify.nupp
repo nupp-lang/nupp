@@ -3,11 +3,12 @@ module nupp.compiler.aot.verify
 --[[
 What makes AOT IR well formed.
 
-Generated C is a backend representation and not the safety boundary. Every span
-access, region relationship, conversion, and vector operation has to exist here,
-verified, before anything is emitted -- so a rewrite that produced something this
-rejects is a compiler bug caught before it becomes a miscompilation, and the
-spike's own tests deliberately corrupt IR to prove these rules fire.
+Generated code is a backend representation and not the safety boundary. Every
+span access, region relationship, conversion, and vector operation has to exist
+here, verified, before anything is emitted -- so a rewrite that produced
+something this rejects is a compiler bug caught before it becomes a
+miscompilation, and the spike's own tests deliberately corrupt IR to prove these
+rules fire.
 
 Four rules do most of the work and are worth stating separately from the code.
 
@@ -333,8 +334,8 @@ local function inheritBounds(bounds: scalarIR.CursorBounds): scalarIR.CursorBoun
 end
 
 --- Whether a direct read at `index` is proved by a cursor: the index is that
---- very cursor local -- by name and by the C name the emitter addresses -- the
---- cursor is a uint32, and a dominating check bounded it against `root`.
+--- very cursor local -- by name and by the C name generated code addresses --
+--- the cursor is a uint32, and a dominating check bounded it against `root`.
 ---
 --- One rule for every read that names a cursor, so the scratch read and the
 --- rooted byte read cannot come to require different proofs.
@@ -461,11 +462,12 @@ end
 
 --- Whether an access's bound is the one its buffer was declared with.
 ---
---- The emitter writes this bound as a literal, so it is what the generated C
---- refuses an index against. If it were ever some other buffer's width the
---- check would pass indexes past the end of the one being read, so the two are
---- compared here rather than assumed to have been kept in step. Both absent is
---- the appending buffer, which is checked against a length instead.
+--- The code generator writes this bound as a literal, so it is what the
+--- generated code refuses an index against. If it were ever some other buffer's
+--- width the check would pass indexes past the end of the one being read, so
+--- the two are compared here rather than assumed to have been kept in step.
+--- Both absent is the appending buffer, which is checked against a length
+--- instead.
 local function fixedWidthAgrees(bound: integer?, values: {[string]: string}, name: string?): boolean
     local declared = name ~= nil and values[FIXED_WIDTH .. name] or nil
     if bound == nil then
@@ -1971,10 +1973,10 @@ end
 
 --- Holds a native switch to the branch chain it stands in for.
 ---
---- The emitter dispatches on the switch wherever one is present and never
---- reads the clause conditions, so the two have to say one thing: an arm per
---- clause, and each clause's condition exactly `selector == label` over that
---- arm's labels in order, joined by `or`.
+--- The code generator dispatches on the switch wherever one is present and
+--- never reads the clause conditions, so the two have to say one thing: an arm
+--- per clause, and each clause's condition exactly `selector == label` over
+--- that arm's labels in order, joined by `or`.
 local function nativeSwitch(statement: scalarIR.If, values: {[string]: string}, scope: verify.Scope): nil
     local switch = statement.nativeSwitch as scalarIR.NativeSwitch
     scalarWalk(switch.selector, values, scope)
@@ -3144,8 +3146,8 @@ local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
             holds(values[param.name] == nil, "duplicate helper parameter")
             values[param.name] = param.type
         end
-        -- A compile-time byte table is file-scope static data in the emitted
-        -- translation unit, so a helper body reads one exactly as the entry
+        -- A compile-time byte table is module-scope static data in the
+        -- generated module, so a helper body reads one exactly as the entry
         -- body does. The entry's scope already carries them; a helper's did
         -- not, which made an ordinary `const` read inside a helper fail this
         -- invariant rather than compile.
@@ -3531,9 +3533,9 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         end
     end
     -- A compile-time byte table reads exactly as a rooted string argument does,
-    -- so it enters the body's scope the same way. Its bytes are the emitter's
-    -- business; what has to hold here is that nothing declares a name over one
-    -- and that every reader finds it typed.
+    -- so it enters the body's scope the same way. Its bytes are the code
+    -- generator's business; what has to hold here is that nothing declares a
+    -- name over one and that every reader finds it typed.
     local constantNames: {[string]: boolean} = {}
     for _, constant in ipairs(program.constants or {}) do
         holds(constantNames[constant.cName] == nil, "duplicate IR constant table")

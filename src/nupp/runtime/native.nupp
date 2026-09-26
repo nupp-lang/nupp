@@ -151,8 +151,8 @@ local aotRuntime: string? = nil
 --- An LLVM-compiled Lua-builder module reaches the runtime its entries call
 --- through this table rather than through symbols, and its registrar calls
 --- this to find it: that keeps the module free of anything a loader would
---- have to resolve, and it is how the C lowering's loaders and the host's
---- archive registration keep working unchanged.
+--- have to resolve, and it lets the loaders and the host's archive
+--- registration stay the same whatever the module is linked into.
 --- @export
 --- @raises string when the provider was built without the runtime
 function native.aotRuntime(): string

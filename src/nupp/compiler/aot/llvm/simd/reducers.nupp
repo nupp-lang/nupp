@@ -8,8 +8,7 @@ order; a masked vector contribution is its active lanes in ascending order.
 Inside a reducer region, a contract whose operation is associative in its
 order (`exact` integers; `algebraic`, which permits reassociation) may instead
 keep a lane-wise vector accumulator and fold it into the state once the region
-ends, the scheme the C lowering used, except in the scalar oracle, which folds
-lane by lane.
+ends, except in the scalar oracle, which folds lane by lane.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")
@@ -184,9 +183,9 @@ local function vectorAdd(ctx: context.Context, node: scalarIR.Statement): nil
     end
 end
 
---- Whether a `Fixed<N>` species was an aggregate of registers in the C
---- lowering, which accumulated lane by lane there; kept so the two backends
---- choose the same association while both exist.
+--- Whether a `Fixed<N>` species is not one native register, and so
+--- accumulates lane by lane rather than as a vector: the association such a
+--- reduction has always had, kept so its answer does not change.
 local function composite(ctx: context.Context, found: species.Species): boolean
     local width = context.width(ctx)
     local native = math.floor(width * 8 / found.bits)

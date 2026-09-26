@@ -14,7 +14,7 @@ entry. The result block is one 8-byte slot per result.
 
 This is `wasmbridge.registrar`'s ABI, with its one defect left out: a map
 entry whose kernel takes a count per span is handed the shared count for
-each, where the C passed only one.
+each, where that registrar passed only one.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")

@@ -8,11 +8,11 @@ a latch and an exit, and `break` and `continue` are branches to the innermost
 loop's exit and latch. Every local is a stack slot; LLVM promotes them to
 registers, which is how a frontend avoids building SSA itself.
 
-The numeric `for` keeps the private control state the C lowering gave it: the
-visible binding is rebound from a counter at the start of each iteration, so
-assigning it never changes progression, the counter is an int64 when both
-bounds are int32 and a binary64 otherwise, and the LuaJIT and Lua 5.1 entry
-normalizations of a binary64 counter are applied as the runtime would.
+The numeric `for` keeps private control state: the visible binding is rebound
+from a counter at the start of each iteration, so assigning it never changes
+progression, the counter is an int64 when both bounds are int32 and a binary64
+otherwise, and the LuaJIT and Lua 5.1 entry normalizations of a binary64
+counter are applied as the runtime would.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")
@@ -206,9 +206,9 @@ local function provedSpans(statement: scalarIR.Statement): {string}
     return spans
 end
 
---- How many times the check-free copy of a cursor loop is unrolled: the C
---- lowering's choice, 4 for vectors up to 16 bytes and 2 up to 32, for a
---- body with no loop, `break` or `continue` of its own; otherwise 1.
+--- How many times the check-free copy of a cursor loop is unrolled: 4 for
+--- vectors up to 16 bytes and 2 up to 32, for a body with no loop, `break` or
+--- `continue` of its own; otherwise 1.
 local function unrollFactor(ctx: context.Context, statement: scalarIR.While): integer
     local widest = 0
     local plain = true
@@ -391,8 +391,7 @@ local whileLoop: function(ctx: context.Context, statement: scalarIR.While, check
 
 --- A loop with proved cursor accesses, twice: when every span they reach
 --- holds at most `UINT32_MAX` elements no cursor offset can wrap, and that
---- copy runs without the checks, which is the C lowering's wide-cursor
---- loop; otherwise the checked one.
+--- copy runs without the checks; otherwise the checked one.
 local function versionedLoop(ctx: context.Context, statement: scalarIR.While, spans: {string}): nil
     local f = ctx.f
     local fits = "true"

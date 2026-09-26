@@ -572,9 +572,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     -- The AOT policy runs before the modules it affects. `off` is the default
     -- and looks for nothing, so a project that has not asked for native code
-    -- never depends on a C compiler being present -- but `require` replaces
-    -- `@aot` bodies with the wrappers that call the compiled code, and that has
-    -- to happen before the module build reads them.
+    -- never asks for the code generator -- but `require` replaces `@aot` bodies
+    -- with the wrappers that call the compiled code, and that has to happen
+    -- before the module build reads them.
     --
     -- It reads the checked tree of each source it lowers, so the same graph
     -- answers both phases: the sources it checks are checked again with their
@@ -583,7 +583,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     --
     -- A check does none of it. `nupp check` answers a question about the source
     -- as written, and asking it to compile and link first would make checking a
-    -- project need a C compiler that building it is what actually requires.
+    -- project need the code generator that only building it requires.
     local aotOverlays: {[string]: string}? = nil
     local aotAuthoredUnused: {[string]: {any}}? = nil
     local aotLibrary: string? = nil
@@ -1032,7 +1032,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             end
             newState.outputs[beside] = true
         end
-        -- A Lua-in-Wasm artifact keeps its side modules and loader manifest
+        -- A Lua-in-Wasm artifact keeps its Wasm modules and loader manifest
         -- beside the bundle under the same relative paths the manifest names.
         -- The Wasm filenames carry their content digests, so the VM, Lua bundle,
         -- and kernels remain independently cacheable.

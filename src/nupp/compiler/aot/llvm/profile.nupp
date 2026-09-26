@@ -127,8 +127,8 @@ local PROFILES: {[string]: profile.Profile} = {
         cpu = "x86-64",
         baseFeatures = "",
         format = "coff",
-        -- GCC's Win64 frames misalign wider spills; the C lowering asked for
-        -- 128-bit vectors there, and generated code keeps that preference.
+        -- 128-bit vectors, the width Win64 AOT code has always preferred:
+        -- GCC, which once compiled it, misaligned wider spills there.
         functionAttributes = "\"prefer-vector-width\"=\"128\"",
         machine = "x64",
         sizeType = "i64"

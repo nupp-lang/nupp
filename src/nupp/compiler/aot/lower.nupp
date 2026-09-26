@@ -4,8 +4,8 @@ module nupp.compiler.aot.lower
 Turning admitted source into AOT IR.
 
 The front end of the AOT backend: it reads the checked syntax tree and produces
-the IR the verifier proves and the emitter prints. Everything here is about what
-the source said; nothing here decides what the IR means.
+the IR the verifier proves and the code generator lowers. Everything here is
+about what the source said; nothing here decides what the IR means.
 
 The one rule worth stating separately is where a width may change. Ordinary Nupp
 arithmetic is binary64, and `float`, `int32` and `uint32` are establishment facts
@@ -57,8 +57,8 @@ record lower.Context
     --- Compile-time byte tables named so far, by their contents.
     ---
     --- Shared by every entry in the file rather than held per entry, because
-    --- the emitter writes these at file scope: two entries numbering their own
-    --- tables from zero give one translation unit two different `konst_0`. One
+    --- the code generator writes these at module scope: two entries numbering
+    --- their own tables from zero give one module two different `konst_0`. One
     --- table used by two entries is named once here and emitted once there.
     constantNames: {[string]: string} = {}
 
@@ -102,7 +102,7 @@ end
 --- The conversion that takes `value` to `targetType`, if one exists.
 ---
 --- Written into the IR rather than left implicit, because these are the only
---- places a width changes and an emitter that inferred them could infer a
+--- places a width changes and a code generator that inferred them could infer a
 --- different set.
 function lower.conversion(value: scalarIR.Expr, targetType: scalarIR.Type, source: scalarIR.Source?): scalarIR.Expr?
     if value.type == targetType then
@@ -504,8 +504,8 @@ end
 
 --- The layouts one kernel reifies, in the order they were first reached.
 ---
---- Order matters: it is the order the generated C declares the structs in, and
---- a set would not have one.
+--- Order matters: it is the order the structs' layout reporters are generated
+--- and checked in, and a set would not have one.
 record lower.Layouts
     ordered: {scalarIR.Layout}
     byName: {[string]: scalarIR.Layout}
@@ -924,7 +924,7 @@ record lower.Kernel
 
     --- Fixed word buffers by the name they were bound to, and how many words
     --- each holds. An access reads its bound from here, so the comparison the
-    --- emitter writes names a constant rather than a field.
+    --- code generator writes names a constant rather than a field.
     scratchBounds: {[string]: integer}
 
     --- Compile-time byte tables the body reads, by their bytes, and in the
@@ -1919,11 +1919,12 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
 
         -- A cursor compared against its bound is the commonest comparison in an
         -- admitted body, and the bound is written as an ordinary literal. Left
-        -- alone the constant stays binary64 and C widens the cursor to meet it,
-        -- so a counted loop converts and compares in floating point once an
-        -- iteration to answer a question about two integers. Narrowing the
-        -- constant where it is exactly representable at the other side's width
-        -- answers the same question in the width it was asked about.
+        -- alone the constant stays binary64 and the comparison widens the
+        -- cursor to meet it, so a counted loop converts and compares in
+        -- floating point once an iteration to answer a question about two
+        -- integers. Narrowing the constant where it is exactly representable at
+        -- the other side's width answers the same question in the width it was
+        -- asked about.
         local narrowedLeft = exactWidthConstant(left, right.type) or left
         local narrowedRight = exactWidthConstant(right, left.type) or right
         -- A whole-vector cursor guard, `cursor + s.lanes <= #span`, is taken
@@ -3333,9 +3334,8 @@ local INTERLEAVED_NAMES: {[integer]: string} = {[2] = "pairs", [3] = "triples", 
 ---
 --- A load lowers once for each local it binds, as `kernel.interleavedPart`
 --- says, and every result is a load of the whole run: each carries the
---- bounds proof a single load of that width would, and the C compiler
---- merges the identical reads into the one instruction that de-interleaves
---- them.
+--- bounds proof a single load of that width would, and LLVM merges the
+--- identical reads into the one instruction that de-interleaves them.
 local function interleavedAccess(
     node: cst.MethodCall,
     receiver: scalarIR.Expr,
@@ -3744,8 +3744,8 @@ local function simdMethod(
             end
             -- An unmasked access at `cursor + 1` under a dominating `cursor +
             -- s.lanes <= #span` is a whole vector inside the span: it carries
-            -- the cursor so the verifier can hold that and the emitter can
-            -- copy without checking any lane. A masked one keeps its mask.
+            -- the cursor so the verifier can hold that and the code generator
+            -- can copy without checking any lane. A masked one keeps its mask.
             local masked = raw[reading and 3 or 4] ~= nil
             local cursor = not indexed
                 and not masked
@@ -4525,12 +4525,12 @@ local function expressionRaw(
             if activeIndex ~= nil and name == activeIndex and kernel.mapEntry then
                 return new scalarIR.LoopIndex(op = "loop_index", type = "f64", source = lower.site(node))
             end
-            -- A `const` bound to a string literal is a byte table the emitter
-            -- can write out as static data. The checker already resolved it to
-            -- a literal type carrying its value, so nothing has to be folded or
-            -- looked up: what it answers with is a rooted-string name like any
-            -- other, and every reader between here and the emitted load is
-            -- unchanged.
+            -- A `const` bound to a string literal is a byte table the code
+            -- generator can write out as static data. The checker already
+            -- resolved it to a literal type carrying its value, so nothing has
+            -- to be folded or looked up: what it answers with is a
+            -- rooted-string name like any other, and every reader between here
+            -- and the emitted load is unchanged.
             local constant = lower.constantString(node)
             if constant ~= nil then
                 return lower.constantBytes(constant as string, kernel, lower.site(node))
@@ -4586,8 +4586,8 @@ local function expressionRaw(
         -- local unreadable as one.
         -- A helper's parameters are bound as the IR nodes themselves, which carry
         -- `op` where an ordinary binding carries `kind`. Reading only `kind` made
-        -- every reference to a helper parameter lower as an ordinary local. C
-        -- emission cannot tell the two apart so nothing looked wrong, but the lane
+        -- every reference to a helper parameter lower as an ordinary local. Code
+        -- generation cannot tell the two apart so nothing looked wrong, but the lane
         -- rewriter decides what varies by exactly this distinction, so an inlined
         -- helper body read as uniform and the loop lost its lanes.
         local op = bound.kind == "uniform" and "uniform"
@@ -5204,9 +5204,10 @@ end
 
 --- Introduces one local, refusing a name already in scope.
 ---
---- Shadowing is refused rather than renamed: the generated C has no scope to
---- tell two bindings of one name apart, and quietly renaming would make the
---- source and the C disagree about which one a later read meant.
+--- Shadowing is refused rather than renamed: the code generator keeps one slot
+--- per name and has no scope to tell two bindings of one name apart, and quietly
+--- renaming would make the source and the generated code disagree about which
+--- one a later read meant.
 local function bind(
     name: string,
     valueType: scalarIR.Type,
@@ -5722,7 +5723,8 @@ local function exitValueLoops(body: {scalarIR.Statement}, done: scalarIR.Name): 
     for _, statement in ipairs(body) do
         if statement.op == "if" then
             local branch = statement as scalarIR.If
-            -- A source break inside a block arm targets a loop, not C's switch.
+            -- A source break inside a block arm targets a loop, not the native
+            -- switch.
             branch.nativeSwitch = nil
             for _, clause in ipairs(branch.clauses) do
                 exitValueLoops(clause.body, done)
@@ -6476,7 +6478,7 @@ end
 --- One numeric `for` bound.
 ---
 --- An integer literal stays an integer rather than being written as a double
---- for the emitter to cast back.
+--- for the code generator to cast back.
 local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kernel): scalarIR.Expr
     local literal = bound
     local sign = 1
@@ -7454,8 +7456,8 @@ end
 ---
 --- Ownership is not inferred from use: a writable span has to be written
 --- `exclusive` and a readable one `borrows`, because the alias facts the
---- generated C rests on are those borrows restated, and a mode this had to guess
---- would be a `restrict` nobody proved.
+--- generated code rests on are those borrows restated, and a mode this had to
+--- guess would be a `noalias` nobody proved.
 function lower.parameters(
     raws: {cst.Param},
     checkedSignature: any?,
@@ -8179,9 +8181,9 @@ function lower.loopShape(loop: cst.Node?, signature: lower.Signature): lower.Loo
     if startName == nil or stopName == nil then
         return nil
     end
-    -- The IR carries these two as names the emitted C reads directly, and the
-    -- verifier holds them to `integer`, so a narrower integral uniform may state
-    -- a relation without being admitted as a bound.
+    -- The IR carries these two as names the generated code reads directly, and
+    -- the verifier holds them to `integer`, so a narrower integral uniform may
+    -- state a relation without being admitted as a bound.
     local from = signature.byName[startName as string]
     local to = signature.byName[stopName as string]
     if from == nil
@@ -8803,9 +8805,9 @@ end
 
 --- Lowers one whole `@aot` function to AOT IR.
 ---
---- The IR is what everything downstream is written from -- the verifier, the C,
---- the wrapper -- so this is where the source stops being consulted. What the
---- function is has been decided by the time this returns.
+--- The IR is what everything downstream is written from -- the verifier, the
+--- code generator, the wrapper -- so this is where the source stops being
+--- consulted. What the function is has been decided by the time this returns.
 function lower.program(
     declarations: lower.Declarations,
     application: lower.Application,

@@ -272,7 +272,7 @@ end
 --- `value` passed through an empty inline asm, one register at a time, so
 --- the optimizer cannot see what produced it. A lane-wide mask needs this:
 --- otherwise LLVM folds the widening back through the loop's phi and
---- carries `<N x i1>` again, as the C lowering's `keep_mask` also found.
+--- carries `<N x i1>` again.
 --- Not on SSE2, which has no 64-bit lane compare: there the pinned lanes
 --- cost an emulated equality every read, more than the narrowing does.
 function context.opaque(ctx: context.Context, value: string, vector: string): string

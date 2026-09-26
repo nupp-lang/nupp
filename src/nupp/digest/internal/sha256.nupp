@@ -106,8 +106,9 @@ local function hexDigit(nibble: uint32): uint32
 end
 
 -- The message words are big-endian and every supported host is little-endian.
--- Reading one native word gives the C compiler one checked load instead of four
--- separately checked byte loads; this expression becomes one `rev` on arm64.
+-- Reading one native word gives the code generator one checked load instead of
+-- four separately checked byte loads; this expression becomes one `rev` on
+-- arm64.
 local function bigEndianWord(word: uint32): uint32
     return unsigned(
         (signed(word) << 24)
@@ -215,7 +216,7 @@ local function digestHex(source: string, nullValue: any): any
     -- The eight state words are ordinary locals and the schedule is this
     -- buffer. Fixed rather than appending, so its sixty-four words are readable
     -- from the moment it exists and nothing has to write them first -- which is
-    -- one loop fewer per digest, and a bound the C compiler can reason about at
+    -- one loop fewer per digest, and a bound the optimizer can reason about at
     -- every access rather than a length it has to load.
     local h0 = signed(u32(0x6a09e667))
     local h1 = signed(u32(0xbb67ae85))
@@ -231,8 +232,8 @@ local function digestHex(source: string, nullValue: any): any
     while offset < total do
         -- SHA-256 is defined on big-endian words and a machine is whatever it
         -- is, so the four bytes are reassembled explicitly. Written this way
-        -- both supported C compilers fold the loads and the shifts back into
-        -- one byte-reversing load.
+        -- LLVM folds the loads and the shifts back into one byte-reversing
+        -- load.
         --
         -- Twice, with the choice made once for the block rather than once for
         -- each of its sixteen words. Both `whole` and the tail are multiples of

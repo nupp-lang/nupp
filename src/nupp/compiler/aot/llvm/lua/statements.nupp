@@ -8,8 +8,8 @@ the value stream and returns values on the Lua stack.
 Every native block -- a value stream's state, a string accumulator, a scratch
 buffer's header and a fixed scratch's storage -- is an entry-block alloca, so
 a `let` inside a loop rebinds the same block. The runtime is handed its
-address; it keeps no pointer past the call except the ones the C lowering's
-runtime kept, into Lua-owned userdata the stack roots.
+address; it keeps no pointer past the call except into Lua-owned userdata the
+stack roots.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")
@@ -169,9 +169,9 @@ local function bindByteScratch(ctx: context.Context, statement: scalarIR.Let): n
         "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity))
     })
     if fixed ~= nil then
-        -- Too large for the machine stack, but still fixed: readable to its
-        -- capacity from the start, as the stack form and the word buffer
-        -- are. The C lowering left this one unzeroed and empty.
+        -- Too large for the machine stack, but still fixed: zeroed and readable
+        -- to its capacity from the start, as the stack form and the word
+        -- buffer are.
         local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
         zero(ctx, storage, fixed as integer, 8)
         emit(ctx, ("store i32 %s, ptr %s"):format(capacity, values.field(ctx, scratch, runtime.SCRATCH_U8, 2)))

@@ -95,7 +95,7 @@ registerTest = function(
         return e(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", bits, any and "0" or "65535"))
     end
     -- A pairwise max (min) folds the register into its low 64 bits, which
-    -- are then tested whole: shorter than `umaxv`, as the C lowering found.
+    -- are then tested whole: shorter than `umaxv`.
     local name = any and "llvm.aarch64.neon.umaxp.v4i32" or "llvm.aarch64.neon.uminp.v4i32"
     local pairwise = prelude.intrinsic(ctx.module, name, "<4 x i32> @NAME(<4 x i32>, <4 x i32>)")
     local folded = e(

@@ -136,7 +136,7 @@ local REPORT_SCHEMA = {
                 flags = {
                     type = "array",
                     description = "Every flag it was given, in order. The same flags a build compiles "
-                    .. "this tier's translation unit with.",
+                    .. "this tier's unit with.",
                     items = {type = "string"},
                 },
                 functions = {
@@ -432,8 +432,8 @@ local function run(options: any): integer
         )
         return 1
     end
-    -- Compiled once, before either branch prints: producing it runs a C
-    -- compiler, so it happens when it was asked for and never as a side effect
+    -- Compiled once, before either branch prints: producing it runs the code
+    -- generator, so it happens when it was asked for and never as a side effect
     -- of choosing an output format.
     local instructionReport: any = nil
     if emit == "asm" then

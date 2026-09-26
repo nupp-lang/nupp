@@ -408,7 +408,7 @@ end
 --- that file declares, which is seconds each, so nine of them in series was nearly all
 --- of what listing cost. They are independent -- nothing one listing produces is read
 --- by another -- so they run in waves, the same four lines of POSIX `sh` the
---- ahead-of-time backend uses for translation units, and Windows keeps the serial path
+--- ahead-of-time backend uses for external commands, and Windows keeps the serial path
 --- it already had. What each child said is then remembered under `listingKey`, so a
 --- repeat with nothing changed starts no children at all.
 ---

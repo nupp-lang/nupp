@@ -1055,7 +1055,8 @@ end
 --- real work -- a splat, a constant table, a conversion -- where a scalar
 --- invariant is one instruction any backend keeps in a register. Leaving
 --- scalars in place also keeps every cursor, count and lanes expression where
---- the verifier's bounds proofs and the emitter's loop versioning look for it.
+--- the verifier's bounds proofs and the code generator's loop versioning look
+--- for it.
 local function hoistableType(type: scalarIR.Type): boolean
     local name = tostring(type)
 
@@ -1177,8 +1178,8 @@ end
 --- operand stays spelled where it is. Memory operations carry their index and
 --- mask into bounds and scatter-uniqueness proofs (`simdindices.unique` wants
 --- the literal `iota`); `any_compare` stands for a comparison directly under
---- `any()`, which the emitter answers without forming a mask only when the
---- bound is still a literal splat.
+--- `any()`, which the code generator answers without forming a mask only when
+--- the bound is still a literal splat.
 local PINNED_OPERANDS: {
     [string]: boolean
 } = {simd_load = true, simd_store = true, simd_field_load = true, simd_field_store = true, any_compare = true,}
@@ -1193,8 +1194,8 @@ local hoistWithin: function(
 
 --- Replaces the largest invariant SIMD values under `value`, whose parent is
 --- `parent`. A bare read is already as cheap as the binding that would
---- replace it, and a tail mask is a bounds fact the emitter recognises by its
---- `let`.
+--- replace it, and a tail mask is a bounds fact the code generator recognises
+--- by its `let`.
 hoistWithin = function(
     value: scalarIR.Expr,
     parent: string,
@@ -1277,8 +1278,8 @@ end
 ---
 --- `outer` holds the values in scope that never change: unassigned `let`s,
 --- by C name. A splat of a parameter inside a vector loop is the case this is
---- for; a C compiler hoists it at -O2, but a backend that lowers this IR
---- directly would otherwise rebuild it on every iteration. Loops are handled
+--- for; LLVM hoists it itself, but a backend that lowers this IR directly
+--- would otherwise rebuild it on every iteration. Loops are handled
 --- outermost first, so a value invariant in both an outer and an inner loop
 --- leaves both, and an inner loop then takes what depends only on its outer
 --- body's own values.

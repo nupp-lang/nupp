@@ -4,8 +4,8 @@ module nupp.compiler.aot.llvm.expressions
 Scalar IR expressions as LLVM instructions.
 
 `expressions.value` emits one expression into the current block and answers the
-LLVM value and the IR type it has. Numeric meaning is the IR's, which the C
-lowering expressed through C's rules and this states outright:
+LLVM value and the IR type it has. Numeric meaning is the IR's, which this
+states outright:
 
 - binary64 arithmetic carries no fast-math flags, except `contract` inside a
   function the source relaxed with `@relax("fp-contract")`;
@@ -19,8 +19,8 @@ lowering expressed through C's rules and this states outright:
   reduction.
 
 An operation this backend does not emit yet raises an error beginning with
-`expressions.UNSUPPORTED`, which the build reads as "use the C lowering for
-this unit" while both backends exist.
+`expressions.UNSUPPORTED`, which the build reports as the unit being one this
+backend cannot compile rather than as a defect in it.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")
@@ -745,7 +745,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         local counted = binary.left.op == "span_count" or binary.right.op == "span_count"
         if counted and integralOperand(binary.left) and integralOperand(binary.right) then
             -- A span count against an integer, promoted or not, compares as
-            -- integers: the bound the C lowering kept exact too.
+            -- integers, so the bound stays exact.
             local a, at = integerValue(ctx, binary.left)
             local b, bt = integerValue(ctx, binary.right)
             return expressions.compare(ctx, operation, a, at, b, bt), "bool"

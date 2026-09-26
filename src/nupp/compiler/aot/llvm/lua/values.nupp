@@ -4,11 +4,10 @@ module nupp.compiler.aot.llvm.lua.values
 What a Lua-builder body reads, and how a construction value reaches the Lua
 stack.
 
-A Lua-owned local is an absolute stack index, never a GC pointer, exactly as
-the C lowering keeps it: every allocating call then sees every live
-construction value rooted. Bytes read in place -- a string argument's, a
-constant's -- are a pointer and a `size_t` taken once at entry; LuaJIT's
-strings do not move, so both stay valid for the call.
+A Lua-owned local is an absolute stack index, never a GC pointer: every
+allocating call then sees every live construction value rooted. Bytes read in
+place -- a string argument's, a constant's -- are a pointer and a `size_t` taken
+once at entry; LuaJIT's strings do not move, so both stay valid for the call.
 
 The checks a hot loop runs -- string and scratch reads and writes, table
 indices and capacities -- are emitted inline, branching to a cold raise, so

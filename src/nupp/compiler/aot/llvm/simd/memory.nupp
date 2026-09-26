@@ -664,8 +664,8 @@ end
 
 --- How many lanes a gather or scatter of `found` is issued as. AVX-512F
 --- without VL has only 512-bit gathers, so fewer than eight 32- or 64-bit
---- lanes are padded to eight disabled ones, as the C lowering batched them;
---- LLVM would otherwise walk the lanes.
+--- lanes are padded to eight disabled ones; LLVM would otherwise walk the
+--- lanes.
 local function issued(ctx: context.Context, found: species.Species): integer
     if ctx.tier == "avx512f" and found.bits >= 32 and found.lanes < 8 then
         return 8

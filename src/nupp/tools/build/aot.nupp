@@ -60,13 +60,13 @@ local aot = {}
 
 local compilerResourceFingerprintMemo: string? = nil
 
---- The compiler-carried source and headers that can affect AOT checking or C.
+--- The compiler-carried sources that can affect AOT checking or code generation.
 ---
 --- The compiler code fingerprint covers generated Lua, and the module compiler
 --- fingerprint separately covers declarations. Neither covers the standard
---- library sources staged into another project nor the headers copied verbatim
---- into emitted C. A pre-emission hit has to cover both before it can skip the
---- checker and emitter that would otherwise observe them.
+--- library sources staged into another project nor the carried LLVM IR linked
+--- into generated code. A pre-emission hit has to cover both before it can skip
+--- the checker and code generator that would otherwise observe them.
 function aot.compilerResourceFingerprint(contentDigest: (function(string): string)?): string
     if compilerResourceFingerprintMemo ~= nil then
         return compilerResourceFingerprintMemo as string
@@ -130,9 +130,9 @@ const aot.BACKEND = "llvm"
 --- Deliberately not the source text. Two sources that lower to one IR produce
 --- one artifact, and a comment edit is not a rebuild.
 ---
---- Deliberately not the C toolchain either. The C is the same C whoever
---- compiles it; what the toolchain changes is the library, which
---- `aot.libraryKey` covers.
+--- Deliberately not the code generator either. The IR is the same IR whatever
+--- compiles it; what the code generator changes is the objects and the library,
+--- which `aot.objectKey` and `aot.libraryKey` cover.
 function aot.key(irText: string, selected: targets.Target): string
     return hash.digest(
         stable({
@@ -156,7 +156,7 @@ end
 --- Nupp source the AOT policy can discover and every Lua source that can shape
 --- a scoped target's import graph. It deliberately hashes more than a
 --- target-scoped build may reach; an unnecessary miss is safe, while an
---- omitted imported body could reuse stale C.
+--- omitted imported body could reuse stale code.
 function aot.inputFingerprint(sources: {string}, semantic: any, contentDigest: (function(string): string)?): string
     local digest = contentDigest or hash.digest
     local files: {string} = {}
@@ -199,19 +199,19 @@ record aot.Emitted
     --- The source it came from.
     source: string
 
-    --- The feature tier this translation unit was lowered and compiled for.
+    --- The feature tier this unit was lowered and compiled for.
     tier: string
 
     --- The stable state key, distinct for every `(source, tier)` pair.
     cacheKey: string
 
-    --- Where the C was written.
+    --- Where its LLVM IR was written.
     output: string
 
     --- The key it was built under, which the next build compares against.
     key: string
 
-    --- The compiled object, when the policy links rather than only emitting C.
+    --- The compiled object, when the policy links a native library.
     object: string?
 
     --- True for a compiler-owned unit, which came from no source and so has
@@ -452,7 +452,7 @@ record aot.WasmModule
     digest: string
 end
 
---- Everything compiling a policy's Wasm side modules produced.
+--- Everything compiling a policy's Wasm modules produced.
 record aot.WasmOutcome
     --- Generated sources and compiled modules, in source order, for the build
     --- to record as its own outputs.
@@ -461,7 +461,7 @@ record aot.WasmOutcome
     --- The key the whole set was produced under, compared next time.
     key: string
 
-    --- What Emscripten said about itself.
+    --- The code generator's identity.
     toolchain: string
 
     --- Per-unit records the next build reuses.
@@ -699,25 +699,25 @@ function aot.objectKey(unitKey: string, tier: string, chain: aot.Toolchain, flag
     )
 end
 
---- Compiles the emitted C into one shared library.
+--- Compiles the emitted units into one shared library.
 ---
 --- One library for the project rather than one per source, because the loader
---- opens it once and the wrappers all name the same object. Sources are sorted
---- so two builds of one project produce the same command line.
+--- opens it once and the wrappers all name the same object. Objects are sorted
+--- so two builds of one project link them in the same order.
 ---
 --- Objects are kept. An object whose key matches the one recorded for it and
 --- whose file is still there is not compiled again, so editing one `@aot` body
 --- in a project with several -- or with several target tiers, which are several
 --- objects from one body -- recompiles that body's objects and relinks, rather
 --- than recompiling everything the library contains. The ones that do have to be
---- compiled are compiled side by side: nothing one translation unit produces is
---- read by another, and the link that follows reads all of them.
+--- compiled are compiled side by side: nothing one unit produces is read by
+--- another, and the link that follows reads all of them.
 ---
---- Written through a staged path and installed only after the compiler
---- succeeded, so a failed link leaves the previous library in place rather than
---- a truncated one the loader would happily open.
+--- Written through a staged path and installed only after the link succeeded,
+--- so a failed link leaves the previous library in place rather than a
+--- truncated one the loader would happily open.
 ---
---- @param emitted the tiered C translation units the emitter wrote
+--- @param emitted the tiered LLVM IR units `aot.emit` wrote
 --- @param output where the library goes
 --- @param previous the object keys the last build recorded
 --- @return nothing, or what went wrong, and what this build produced
@@ -796,7 +796,7 @@ function aot.link(
     return nil, outcome
 end
 
---- Writes the C for every `@aot` function the project builds.
+--- Writes the LLVM IR for every `@aot` function the project builds.
 ---
 --- Found by reading the project's module roots, because an entry is a module
 --- name and an `@aot` function is in a file. What is lowered out of that is the
@@ -808,7 +808,7 @@ end
 ---
 --- @param roots the project's include directories
 --- @param scope the files the target reaches, or nothing for the whole project
---- @param outDir where the build is writing, which the C goes beside
+--- @param outDir where the build is writing, which the IR goes beside
 --- @param session the graph the sources are checked through, shared with the
 ---   module build that follows so each import is answered once
 --- @return what was written, or nothing and the first reason it could not be
@@ -995,7 +995,7 @@ function aot.emit(
                     counted.loweredPrograms = counted.loweredPrograms + #(artifacts as compile.Artifacts).programs
                     counted.optimizedPrograms = counted.optimizedPrograms + #(artifacts as compile.Artifacts).programs
                     counted.emittedUnits = counted.emittedUnits + 1
-                    -- Where the generated C goes, which has to be
+                    -- Where the generated IR goes, which has to be
                     -- under `outDir` for every source the project
                     -- reaches, including the ones it reaches by
                     -- including a directory outside itself.
@@ -1143,7 +1143,7 @@ end
 
 --- What one build of the policy produced.
 record aot.Result
-    --- The C, one entry per source that carried an `@aot` function.
+    --- The IR units, one per source and tier that carried an `@aot` function.
     emitted: {aot.Emitted}
 
     --- Logical const-specialized families, counted once before target tiers.
@@ -1155,10 +1155,10 @@ record aot.Result
     --- The key that library was linked under.
     libraryKey: string?
 
-    --- The compiler that linked it, for a build that wants to say so.
+    --- The code generator that linked it, for a build that wants to say so.
     toolchain: string?
 
-    --- Machine-readable instructions for compiling the emitted tiered units.
+    --- Machine-readable record of the emitted tiered units and their options.
     manifest: string?
 
     --- Source path -> that source with its `@aot` functions replaced by the
@@ -1176,7 +1176,7 @@ record aot.Result
     --- Internal whole-deliverable selection reused by ordinary Lua emission.
     constSelection: any?
 
-    --- Side-module C and Wasm paths, in deterministic source order.
+    --- Wasm modules' IR and compiled paths, in deterministic source order.
     wasmModules: {string}?
 
     --- Whether an authored GPU kernel needs the selected compute backend at runtime.
@@ -1189,11 +1189,11 @@ record aot.Result
     --- next build to reuse the objects nothing changed.
     objects: {[string]: string}?
 
-    --- Unit identity -> the Wasm side module it produced, for the same reason.
+    --- Unit identity -> the Wasm module it produced, for the same reason.
     modules: {[string]: aot.WasmModule}?
 
-    --- What the external toolchain said about itself, so the next build need not
-    --- start it to find out.
+    --- What the code generator said about itself, so the next build need not
+    --- ask it again.
     remembered: aot.Remembered?
 
     --- What this run of the policy did, for `build --json`.
@@ -1226,10 +1226,10 @@ record aot.Carried
     --- Unit identity -> the key its native object was compiled under.
     objects: {[string]: string}?
 
-    --- Unit identity -> the Wasm side module it produced.
+    --- Unit identity -> the Wasm module it produced.
     modules: {[string]: aot.WasmModule}?
 
-    --- What the external toolchain said about itself last time.
+    --- What the code generator said about itself last time.
     toolchain: aot.Remembered?
 end
 
@@ -1512,11 +1512,12 @@ end
 
 --- What a host has to be told about one static archive.
 ---
---- The C units manifest says how to compile the archive; this says what to do
---- with it afterwards, which is the part an FFI declaration cannot express. An
---- FFI lookup creates no undefined C reference, so a linker that reads the
---- archive normally extracts nothing from it, and every symbol below then fails
---- to resolve at load with no indication that a link option was the cause.
+--- The units manifest says what the archive was compiled from; this says what
+--- to do with it afterwards, which is the part an FFI declaration cannot
+--- express. An FFI lookup creates no undefined C reference, so a linker that
+--- reads the archive normally extracts nothing from it, and every symbol below
+--- then fails to resolve at load with no indication that a link option was the
+--- cause.
 ---
 --- `<archive>` in the retain flags stands for the archive's path, which the host
 --- knows and this build does not: the file this describes may be copied into a
@@ -1996,15 +1997,15 @@ function aot.apply(
     end
     local key = aot.libraryKey(keys, chain, keyedFlags, {static and "static" or "shared"})
 
-    -- Same rule the C artifacts follow: the key is compared, and then the
-    -- library it describes has to still be there. A relink costs seconds; a
-    -- stale library loaded because a digest agreed costs a wrong answer.
+    -- Same rule the objects follow: the key is compared, and then the library
+    -- it describes has to still be there. A relink costs seconds; a stale
+    -- library loaded because a digest agreed costs a wrong answer.
     --
-    -- The library key is over every unit key, the compiler, its flags and the
-    -- linkage, so it moves exactly when the selected object set or the way they
-    -- are put together does -- which is when a link is owed. What it cannot say
-    -- is which unit moved, so the objects carry their own keys and `aot.link`
-    -- compiles only the ones that did.
+    -- The library key is over every unit key, the code generator, its options
+    -- and the linkage, so it moves exactly when the selected object set or the
+    -- way they are put together does -- which is when a link is owed. What it
+    -- cannot say is which unit moved, so the objects carry their own keys and
+    -- `aot.link` compiles only the ones that did.
     local objects: {[string]: string} = held.objects or {}
     local reusedObjects: integer = #(emitted as {aot.Emitted})
     local compiledObjects: integer = 0

@@ -3,11 +3,10 @@ module nupp.compiler.aot.llvm.prelude
 --[[
 The scalar helpers generated code calls, as LLVM IR.
 
-Each is the IR form of one function the C lowering carried in `ks_scalar.h`,
-with the same answer bit for bit: Lua's floored modulo, LuaJIT's modular
-`wrap`, the NaN-propagating binary32 corrections, and so on. A helper is defined
-in a module only when something in it asks for one, `internal` and
-`alwaysinline`, so it costs nothing where it is not used and disappears into
+Each states one numeric rule of the AOT IR bit for bit: Lua's floored modulo,
+LuaJIT's modular `wrap`, the NaN-propagating binary32 corrections, and so on. A
+helper is defined in a module only when something in it asks for one, `internal`
+and `alwaysinline`, so it costs nothing where it is not used and disappears into
 its caller where it is.
 ]]
 
@@ -319,10 +318,9 @@ DEFINITIONS["nupp.f32.exp"] = function(module: builder.Module, attrs: string): s
     return table.concat(lines, "\n")
 end
 
---- The half-precision conversions work on the bits, the way `ks_scalar.h`
---- did: `fpext` and `fptrunc` through `half` would be libcalls on an x86
---- without F16C, which nothing here links. Every NaN becomes the canonical
---- quiet one.
+--- The half-precision conversions work on the bits: `fpext` and `fptrunc`
+--- through `half` would be libcalls on an x86 without F16C, which nothing here
+--- links. Every NaN becomes the canonical quiet one.
 DEFINITIONS["nupp.f16.to.f32"] = function(_: builder.Module, attrs: string): string
     return table.concat(
         {

@@ -4,11 +4,11 @@ module nupp.compiler.aot.llvm.lua.runtime
 How a Lua-builder entry reaches the Lua C API and the AOT runtime.
 
 The Lua API is called directly: the process that loads the module is the one
-running the VM, and it exports the API. The runtime -- the C lowering's
-`ks_lua.h`, compiled once into the native provider as `ks_rt.c` -- is reached
-through the table of pointers that file ends with, which the registrar fetches
-and keeps in `@ks_rt`. Nothing about the runtime is a symbol, so nothing has to
-be resolved when the module loads, on any platform.
+running the VM, and it exports the API. The runtime -- `ks_lua.h`, compiled once
+into the native provider as `ks_rt.c` -- is reached through the table of
+pointers that file ends with, which the registrar fetches and keeps in `@ks_rt`.
+Nothing about the runtime is a symbol, so nothing has to be resolved when the
+module loads, on any platform.
 
 `SLOTS` is that table's order, and it is the ABI: a test holds it to
 `ks_rt.c`. Every argument is a pointer, a `size_t`, a 64-bit integer or a
