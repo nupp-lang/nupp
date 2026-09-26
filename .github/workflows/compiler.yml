@@ -579,8 +579,19 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             lane="--lane=isolated"
           fi
+          # What is running, every two minutes, so a suite that stalls says
+          # what it is waiting on rather than only how long it took.
+          ( while sleep 120; do
+              echo "--- $(date -u +%H:%M:%S) longest-running processes"
+              ps -Ao etime=,command= | grep -E 'luajit|nupp|cargo|rustc|lld' | grep -v grep \
+                | sort -r | head -12 | cut -c1-220
+            done ) &
+          watchdog=$!
+          status=0
           ./bin/nupp test $lane \
-            --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+            --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance || status=$?
+          kill "$watchdog" 2>/dev/null || true
+          exit "$status"
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
