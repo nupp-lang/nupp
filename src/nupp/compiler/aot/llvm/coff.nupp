@@ -11,7 +11,8 @@ slot of its own, and its entry point fills the slots from whichever loaded
 module exports the API, refusing to load when none does.
 
 The rest are the system's: the C runtime's math and memory functions, imported
-from `msvcrt.dll` (the C runtime the Rust `windows-gnu` host itself uses), the
+from `msvcrt.dll` (the C runtime the Rust `windows-gnu` host itself uses) and,
+for the C99 math it lacks, from the Universal C Runtime's math API set; the
 two `kernel32.dll` functions the entry point calls, and `___chkstk_ms`, the
 stack probe a large frame calls, which MinGW's libgcc would otherwise supply.
 ]]
@@ -56,10 +57,55 @@ const CRT: {
     "tanh",
 }
 
+--- The C99 math `msvcrt.dll` predates, imported from the Universal C Runtime's
+--- math API set, which every supported Windows resolves to `ucrtbase.dll`.
+--- LLVM calls these where a tier has no instruction for them: SSE2 has no
+--- fused multiply-add and no rounding instruction, so `llvm.fma` becomes
+--- `fma`/`fmaf` and `llvm.trunc` becomes `trunc`/`truncf` there. Disjoint from
+--- `CRT`, so which module provides a name is never a question of order.
+const UCRT: {
+    string
+} = {
+    "ceilf",
+    "cbrt",
+    "cbrtf",
+    "exp2",
+    "exp2f",
+    "expf",
+    "floorf",
+    "fma",
+    "fmaf",
+    "fmax",
+    "fmaxf",
+    "fmin",
+    "fminf",
+    "fmodf",
+    "log2",
+    "log2f",
+    "logf",
+    "nearbyint",
+    "nearbyintf",
+    "powf",
+    "rint",
+    "rintf",
+    "round",
+    "roundf",
+    "sinf",
+    "cosf",
+    "sqrtf",
+    "tanf",
+    "trunc",
+    "truncf",
+}
+
+--- The API set `UCRT` is imported from.
+const coff.UCRT_MODULE = "api-ms-win-crt-math-l1-1-0.dll"
+
 --- What the binding's entry point imports from `kernel32.dll`.
 const KERNEL32: {string} = {"GetModuleHandleA", "GetProcAddress"}
 
 coff.CRT = CRT
+coff.UCRT = UCRT
 coff.KERNEL32 = KERNEL32
 
 local function cString(name: string): string

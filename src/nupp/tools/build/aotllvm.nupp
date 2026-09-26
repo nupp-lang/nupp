@@ -289,11 +289,14 @@ local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({
     local ir = coff.binding(selected.llvmTriple, names)
     local digest = require(
         "nupp.compiler.hash"
-    ).digest(ir .. "\0" .. table.concat(coff.CRT, ",") .. "\0" .. aotllvm.version())
+    ).digest(
+        ir .. "\0" .. table.concat(coff.CRT, ",") .. "\0" .. table.concat(coff.UCRT, ",") .. "\0" .. aotllvm.version()
+    )
         :sub(1, 16)
     local object = directory .. "/luabind." .. digest .. ".o"
     local crt = directory .. "/msvcrt." .. digest .. ".a"
     local kernel32 = directory .. "/kernel32." .. digest .. ".a"
+    local ucrt = directory .. "/ucrtmath." .. digest .. ".a"
     if not fs.exists(object) then
         local source = directory .. "/luabind." .. digest .. ".ll"
         local wrote, writeErr = fs.writeFile(source, ir)
@@ -308,7 +311,11 @@ local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({
             return nil, err
         end
     end
-    for _, library in ipairs({{"msvcrt.dll", crt, coff.CRT}, {"kernel32.dll", kernel32, coff.KERNEL32}}) do
+    for _, library in ipairs({
+        {"msvcrt.dll", crt, coff.CRT},
+        {coff.UCRT_MODULE, ucrt, coff.UCRT},
+        {"kernel32.dll", kernel32, coff.KERNEL32}
+    }) do
         if not fs.exists(library[2] as string) then
             local entries: {{string}} = {}
             for _, name in ipairs(library[3] as {string}) do
@@ -321,7 +328,7 @@ local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({
         end
     end
 
-    return {object, crt, kernel32}, nil
+    return {object, crt, ucrt, kernel32}, nil
 end
 
 --- Links `objects` into the shared library `output` with lld.
@@ -331,7 +338,13 @@ function aotllvm.link(triple: string, objects: {string}, output: string): string
     if selected == nil then
         return profileErr
     end
+    -- A DLL records the file name it was linked as, so a Windows library is
+    -- staged under its own name beside the objects, in the build's own
+    -- directory, rather than beside itself with a suffix.
     local staged = output .. ".tmp"
+    if (selected as llvmProfile.Profile).format == "coff" and objects[1] ~= nil then
+        staged = fs.dirname(objects[1]) .. "/" .. fs.basename(output)
+    end
     os.remove(staged)
     local linked: {string} = {}
     for _, object in ipairs(objects) do
