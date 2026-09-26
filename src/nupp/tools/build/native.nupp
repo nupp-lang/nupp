@@ -128,65 +128,32 @@ function stage.linkHost(
     local compilerRoot = envMod.compilerRoot()
     local featureNames = native.hostFeatureNames(effects)
     local linked = selected or host
-    if aotllvm.selected()
-        and linked ~= nil
-        and require("nupp.compiler.aot.llvm.profile").of(linked as string) ~= nil
-    then
-        -- Through LLVM, the link is lld's, from a link kit: the runtime and
-        -- stubs for the system libraries, and no C toolchain or SDK. That holds
-        -- for any platform a kit exists for, this machine's or another's.
-        local build: (function(): (string?, string?))? = nil
-        if compilerRoot ~= nil and linked == host then
-            build = function(): (string?, string?)
-                return driven(compilerRoot as string, "kit", featureNames)
-            end
+    if linked == nil then
+        return nil, "standalone native linking needs a target platform"
+    end
+    if require("nupp.compiler.aot.llvm.profile").of(linked as string) == nil then
+        return nil, "standalone native linking has no link kit for " .. tostring(linked)
+    end
+    -- The link is lld's, from a link kit: the runtime and stubs for the
+    -- system libraries, and no C toolchain or SDK, for this machine's
+    -- platform or another's.
+    local available, availableErr = aotllvm.selected()
+    if available ~= true then
+        return nil, tostring(availableErr)
+    end
+    local build: (function(): (string?, string?))? = nil
+    if compilerRoot ~= nil and linked == host then
+        build = function(): (string?, string?)
+            return driven(compilerRoot as string, "kit", featureNames)
         end
-        local kit, kitErr = require("nupp.tools.build.kits").resolve(linked as string, featureNames, build)
-        if kit == nil then
-            return nil, kitErr
-        end
-        local linkErr = aotllvm.linkStandalone(kit as string, output, archives, flags)
-        if linkErr ~= nil then
-            return nil, linkErr
-        end
-
-        return output, nil
     end
-    local pack, packErr = require("nupp.compiler.compilerpacks").resolve(selected or host)
-    if packErr ~= nil then
-        return nil, packErr
+    local kit, kitErr = require("nupp.tools.build.kits").resolve(linked as string, featureNames, build)
+    if kit == nil then
+        return nil, kitErr
     end
-    if pack == nil and selected ~= nil and selected ~= host then
-        return nil, "standalone native linking for " .. tostring(
-            selected
-        ) .. " requires a compiler pack for that target"
-    end
-    if not compilerRoot and (pack == nil or (pack as any).linkHost == nil) then
-        return nil, "standalone native linking needs compiler source or an installed compiler pack"
-    end
-    local driver = pack and (pack as any).linkHost or join(compilerRoot as string, "scripts/toolchain")
-    if driver == nil then
-        return nil, "compiler pack for " .. tostring(selected or host) .. " has no standalone host linker"
-    end
-    local argv = windows and pack == nil and {"sh.exe", driver} or {driver}
-    if pack == nil then
-        argv[#argv + 1] = "host-link"
-    end
-    argv[#argv + 1] = table.concat(featureNames, ",")
-    argv[#argv + 1] = output
-    for _, archive in ipairs(archives) do
-        argv[#argv + 1] = archive
-    end
-    argv[#argv + 1] = "--"
-    for _, flag in ipairs(flags) do
-        argv[#argv + 1] = flag
-    end
-    for _, flag in ipairs(pack and (pack as any).linkFlags or {}) do
-        argv[#argv + 1] = flag
-    end
-    local code, text = process.capture(argv)
-    if code ~= 0 then
-        return nil, "cannot link the standalone Nupp host:\n" .. text
+    local linkErr = aotllvm.linkStandalone(kit as string, output, archives, flags)
+    if linkErr ~= nil then
+        return nil, linkErr
     end
 
     return output, nil

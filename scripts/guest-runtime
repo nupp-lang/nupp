@@ -47,7 +47,7 @@ cp "$MUSL/arch/i386/bits/syscall.h.in" include/bits/syscall.h
 "$CLANG" --target=i386-linux-musl -march=pentium4 -O2 -fPIC -std=c11 -ffp-contract=off -fno-fast-math \
     -fno-omit-frame-pointer -funwind-tables -nostdinc \
     -isystem "$WORK/include" -isystem "$MUSL/arch/i386" -isystem "$MUSL/arch/generic" -isystem "$MUSL/include" \
-    -isystem "$RESOURCE/include" -I "$ROOT/src/nupp/compiler/aot/include" \
+    -isystem "$RESOURCE/include" -I "$ROOT/native/crates/native/c" \
     -S -emit-llvm "$ROOT/native/crates/native/c/ks_rt.c" -o runtime.ll
 # The table is the only thing a module refers to, and it stays inside the
 # library that links it.

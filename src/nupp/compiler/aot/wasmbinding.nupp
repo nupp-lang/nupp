@@ -1,6 +1,6 @@
 module nupp.compiler.aot.wasmbinding
 
---[[Checked source wrappers for Lua functions registered by a Wasm AOT side module.]]
+--[[Checked source wrappers that call a Wasm AOT function in its independent module.]]
 
 local binding = require("nupp.compiler.aot.binding")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -42,88 +42,15 @@ local function cast(value: string, named: string): string
     return value .. " as " .. named
 end
 
---- Replaces one source declaration with a call into its pre-registered side module.
---- `units` holds each tier's unit, widest first; the first one loaded serves.
-function wasmbinding.replacement(program: scalarIR.Program, units: {string}, independent: boolean?): string
+--- Replaces one source declaration with a call into its independent Wasm
+--- module. `units` holds each tier's unit, widest first; the host runs the
+--- first it loaded.
+function wasmbinding.replacement(program: scalarIR.Program, units: {string}): string
     local prefix = "__nuppWasm_" .. program.symbol
-    local lookups: {string} = {}
-    for _, unit in ipairs(units) do
-        lookups[#lookups + 1] = prefix .. "Registry[\"" .. unit .. "\"]"
-    end
-    local named = table.concat(units, " or ")
-    local entry = program.entryMode == "lua-builder" and "builder" or "kernel"
-    local lines: {
-        string
-    } = {
-        "local "
-        .. prefix
-        .. "Registry: any = assert(rawget(_G, \"__nuppWasmAot\"), \"Wasm AOT registry is not installed\")",
-        "local " .. prefix .. "Unit: any = assert(" .. table.concat(
-            lookups,
-            " or "
-        ) .. ", \"Wasm AOT unit " .. named .. " is not loaded\")",
-        "local "
-        .. prefix
-        .. "Native: any = assert("
-        .. prefix
-        .. "Unit[\""
-        .. program.symbol
-        .. "\"], \"Wasm AOT "
-        .. entry
-        .. " "
-        .. program.name
-        .. " is not registered\")",
-    }
-    if independent then
-        lines = binding.numericForGuard(program)
-        lines[
-            #lines + 1
-        ] = "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, units)
-    else
-        for _, layout in ipairs(program.layouts or {}) do
-            local variable = prefix .. "Layout" .. layout.name
-            lines[
-                #lines + 1
-            ] = "local "
-                .. variable
-                .. ": any = assert("
-                .. prefix
-                .. "Unit[\"layout:"
-                .. layout.name
-                .. "\"], \"Wasm AOT layout is not registered\")"
-            lines[#lines + 1] = "local " .. variable .. "Expected: any = layoutof(" .. layout.name .. ")"
-            lines[
-                #lines + 1
-            ] = "assert("
-                .. variable
-                .. ".size == "
-                .. variable
-                .. "Expected.size and "
-                .. variable
-                .. ".alignment == "
-                .. variable
-                .. "Expected.alignment, \"Wasm AOT layout mismatch for "
-                .. layout.name
-                .. "\")"
-            for _, field in ipairs(layout.fields) do
-                lines[
-                    #lines + 1
-                ] = "assert("
-                    .. variable
-                    .. "[\""
-                    .. field.name
-                    .. "\"] == "
-                    .. variable
-                    .. "Expected.offsets[\""
-                    .. field.name
-                    .. "\"], \"Wasm AOT field layout mismatch for "
-                    .. layout.name
-                    .. "."
-                    .. field.name
-                    .. "\")"
-            end
-        end
-    end
+    local lines = binding.numericForGuard(program)
+    lines[
+        #lines + 1
+    ] = "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, units)
     local params: {string} = {}
     for position, param in ipairs(program.params) do
         params[position] = logical(param)
@@ -215,10 +142,10 @@ function wasmbinding.replacement(program: scalarIR.Program, units: {string}, ind
 end
 
 --- Replaces a const declaration with checked wrappers for each emitted Wasm body.
-function wasmbinding.familyReplacement(family: any, units: {string}, independent: boolean?): string
+function wasmbinding.familyReplacement(family: any, units: {string}): string
     local lines: {string} = {}
     for _, program in ipairs(family.programs) do
-        lines[#lines + 1] = wasmbinding.replacement(program, units, independent)
+        lines[#lines + 1] = wasmbinding.replacement(program, units)
     end
     lines[#lines + 1] = binding.familyDispatch(family)
 

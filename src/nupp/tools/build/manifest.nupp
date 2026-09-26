@@ -840,19 +840,21 @@ local function validateTarget(target, label, dependencies)
     end
     if target.aot ~= nil then
         -- One policy per artifact, chosen before any `@aot` body is looked at.
-        -- Selecting `require` is how a project accepts a C compiler as a
-        -- dependency, which is why it is never the default.
         local valid, err = validateString(target.aot, label .. ".aot")
         if not valid then
             return nil, err
         end
+        if target.aot == "emit-c" then
+            return nil, label
+                .. ".aot = \"emit-c\" is gone: nupp compiles AOT code itself, for any "
+                .. "platform. Use \"require\", with aotTarget or --platform to build for another one"
+        end
         if target.aot ~= "off"
-            and target.aot ~= "emit-c"
             and target.aot ~= "require"
             and target.aot ~= "emit-wasm"
             and target.aot ~= "require-wasm"
         then
-            return nil, label .. ".aot must be \"off\", \"emit-c\", \"require\", \"emit-wasm\" or \"require-wasm\""
+            return nil, label .. ".aot must be \"off\", \"require\", \"emit-wasm\" or \"require-wasm\""
         end
         if (target.aot == "emit-wasm" or target.aot == "require-wasm")
             and target.aotTarget ~= nil
@@ -890,14 +892,7 @@ local function validateTarget(target, label, dependencies)
         end
     end
     if target.aotCflags ~= nil then
-        -- Whatever the generated C needs that the backend cannot know: a
-        -- sysroot, an include path, a vendor flag. Appended after the fixed
-        -- flags, and part of what the library is keyed on, because a flag that
-        -- changes the output has to be.
-        local valid, err = validateArray(target.aotCflags, label .. ".aotCflags", "string")
-        if not valid then
-            return nil, err
-        end
+        return nil, label .. ".aotCflags is gone: AOT code is compiled by LLVM in nupp, and no C compiler runs"
     end
     if target.aotFeatures ~= nil then
         -- The inclusive feature range every emitted tier must satisfy. A bound

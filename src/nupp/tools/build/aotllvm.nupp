@@ -25,20 +25,12 @@ local aotllvm = {}
 --- version, and the lowering's.
 const aotllvm.BACKEND = "llvm"
 
---- Whether this build uses the LLVM route, or nil and why it cannot.
---- @return true to use it, false to use C, or nil and the reason the
----   requested route is unavailable
+--- Whether this nupp can compile AOT code: true, or nil and why not (it was
+--- built without the code generator, or NUPP_AOT_FACTS is malformed).
 function aotllvm.selected(): (boolean?, string?)
-    local wanted = os.getenv("NUPP_AOT_BACKEND")
-    if wanted == nil or wanted == "" or wanted == "c" then
-        return false, nil
-    end
-    if wanted ~= "llvm" then
-        return nil, "NUPP_AOT_BACKEND must be c or llvm, not " .. tostring(wanted)
-    end
     local available, why = codegen.available()
     if not available then
-        return nil, "NUPP_AOT_BACKEND=llvm: " .. tostring(why)
+        return nil, tostring(why)
     end
     local _, factsErr = aotllvm.facts()
     if factsErr ~= nil then
@@ -61,8 +53,6 @@ function aotllvm.factsKey(): string
     return selected ~= nil and facts.key(selected as facts.Facts) or "all"
 end
 
---- Which backend this build lowers through, as text a remembered build is
---- compared against: `c`, or the code generator and facts it would use.
 --- Whether independent Wasm entries call their kernels' unoptimized scalar
 --- twins (`NUPP_AOT_WASM_ORACLE=1`): the reference build the Wasm SIMD
 --- suites compare the optimized one against.
@@ -70,11 +60,9 @@ function aotllvm.wasmOracle(): boolean
     return os.getenv("NUPP_AOT_WASM_ORACLE") == "1"
 end
 
+--- The code generator, facts and oracle switch a build lowers with, as text
+--- a remembered build is compared against.
 function aotllvm.selection(): string
-    if aotllvm.selected() ~= true then
-        return "c"
-    end
-
     return "llvm " .. aotllvm.version() .. " facts=" .. aotllvm.factsKey() .. (
         aotllvm.wasmOracle() and " wasm-oracle" or ""
     )

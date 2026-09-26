@@ -109,17 +109,9 @@ local function run(dir, argv)
     return kept[1], kept[2]
 end
 
--- The NEON instructions of FILE, or nil where this machine cannot read them.
--- Compiling for a triple the machine is not needs a compiler that can target
--- it, which is Clang: GCC answers for the host whatever triple it was given,
--- and the host's instructions say nothing about the aarch64 ones a test
--- asserts on. An aarch64 host reads them with either.
+-- The NEON instructions of FILE. The code generator targets aarch64 from any
+-- host, so every machine reads them.
 local function neonAsm(dir, file)
-    local chain = require("nupp.tools.build.aot").toolchain()
-    local host = require("nupp.compiler.aot.target").hostTriple()
-    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
-        return nil
-    end
     local asm, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm " .. file)
     test.equal(code, 0, asm)
 

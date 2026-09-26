@@ -1,6 +1,6 @@
 //! Compiles the AOT runtime (`c/ks_rt.c`) into every provider.
 //!
-//! The runtime is the C lowering's own `ks_lua.h`, compiled once here rather
+//! The runtime is `ks_lua.h`, the value-stream builder, compiled once here rather
 //! than into every module, and reached by LLVM-compiled builder entries through
 //! the table `nuppAotRuntime` returns. Every provider carries it, because the
 //! one a program is staged with is chosen by the effects its source reaches,
@@ -14,15 +14,15 @@
 
 fn main() {
     println!("cargo:rerun-if-changed=c/ks_rt.c");
-    println!("cargo:rerun-if-changed=../../../src/nupp/compiler/aot/include/ks_prelude.h");
-    println!("cargo:rerun-if-changed=../../../src/nupp/compiler/aot/include/ks_lua.h");
+    println!("cargo:rerun-if-changed=c/ks_prelude.h");
+    println!("cargo:rerun-if-changed=c/ks_lua.h");
     println!("cargo::rustc-check-cfg=cfg(nupp_aot_runtime)");
     let target = std::env::var("TARGET").unwrap();
     println!("cargo:rustc-cfg=nupp_aot_runtime");
     let mut build = cc::Build::new();
     build
         .file("c/ks_rt.c")
-        .include("../../../src/nupp/compiler/aot/include")
+        .include("c")
         .std("c11")
         .opt_level(2)
         // Lua raises unwind through the runtime's frames.

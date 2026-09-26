@@ -10,7 +10,6 @@ local bindingRules = require("nupp.compiler.aot.binding")
 local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
-local emit = require("nupp.compiler.aot.emit")
 local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local lower = require("nupp.compiler.aot.lower")
@@ -65,10 +64,7 @@ record compile.Artifacts
     --- The IR's readable form.
     irText: string
 
-    --- The C.
-    c: string
-
-    --- The Nupp module that stands in front of the compiled C.
+    --- The Nupp module that stands in front of the compiled code.
     binding: string
 
     --- Shader artifacts by logical program symbol. CPU programs have no entry.
@@ -648,7 +644,6 @@ function compile.constSpecializations(
             optimizations = optimizations,
             loops = loopReports,
             irText = text.programs(programs),
-            c = emit.program(programs, symbolTier),
             binding = "",
             gpu = {},
             sites = {},
@@ -855,7 +850,6 @@ function compile.artifacts(
         optimizations = optimizations,
         loops = loopReports,
         irText = text.programs(programs),
-        c = emit.program(cpuPrograms, symbolTier),
         binding = generatedBinding,
         gpu = gpu,
         sites = sites,

@@ -4,19 +4,16 @@ module nupp.tools.cli.aot
 `nupp aot`: what an `@aot` function compiles to.
 
 An `@aot` body is compiled somewhere a reader cannot see, so `--emit ir` shows
-the verified IR, `--emit c` shows the generated C, `--emit llvm` shows the LLVM
-IR the LLVM backend emits for it, `--emit spirv` writes the
-native WGPU module, `--emit wgsl` shows the browser WebGPU integer artifact,
-`--emit asm` shows the instructions that C became, and `--emit binding` shows
-the module that stands in front of it. Reading the C is how you tell a mask
-stack from a branch, and how you check that the loop you thought was
-register-resident is.
+the verified IR, `--emit llvm` shows the LLVM IR it is compiled from,
+`--emit spirv` writes the native WGPU module, `--emit wgsl` shows the browser
+WebGPU integer artifact, `--emit asm` shows the instructions that IR became,
+and `--emit binding` shows the module that stands in front of it. Reading the
+IR is how you tell a mask stack from a branch, and how you check that the loop
+you thought was register-resident is.
 
-`--emit asm` is where that stops being a guess. The C compiler is the last thing
-between a lowering decision and the machine, and until it was readable from here
-the only way to see what it did was to compile the emitted C by hand and run a
-disassembler over it -- four commands, typed differently every time, producing an
-answer that could not be compared with last week's. It takes `--function` and
+`--emit asm` is where that stops being a guess. The code generator is the last
+thing between a lowering decision and the machine, and this is what it made,
+with each instruction mapped to the authored line. It takes `--function` and
 `--features`, so what is asked for is one body at one tier, and it counts the
 listing by kind so that two runs of the same kernel can be put side by side.
 
@@ -24,7 +21,6 @@ With no `--emit`, one line per function reports scalar, explicit SIMD, or GPU
 execution.
 ]]
 const {type Target} = require("nupp.compiler.aot.target")
-const {type Toolchain} = require("nupp.tools.build.aot")
 const {type Claim} = require("nupp.compiler.aot.instructions")
 const {type Listing} = require("nupp.compiler.aot.instructions")
 
@@ -119,17 +115,17 @@ local REPORT_SCHEMA = {
             },
         },
         ir = {type = "string"},
-        c = {type = "string"},
+        llvm = {type = "string", description = "The LLVM IR the unit is compiled from."},
         spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
         binding = {type = "string"},
         asm = {
             type = "object",
-            description = "The instructions the generated C compiled to. Present only for "
-            .. "--emit asm, because producing it runs a C compiler.",
+            description = "The instructions the unit compiled to. Present only for "
+            .. "--emit asm, because producing it runs the code generator.",
             properties = {
                 toolchain = {
                     type = "object",
-                    description = "The compiler that produced them, which is part of the answer: "
+                    description = "The code generator that produced them, which is part of the answer: "
                     .. "two runs are comparable only when this is the same.",
                     properties = {
                         command = {type = "string"},
@@ -191,7 +187,7 @@ local REPORT_SCHEMA = {
                                         sourceLine = {type = "integer"},
                                         generatedColumn = {
                                             type = "integer",
-                                            description = "Column in generated C; #line maps authored lines only."
+                                            description = "Column in the generated IR; authored lines come from its line table."
                                         },
                                         text = {type = "string"},
                                         mnemonic = {type = "string"},
@@ -227,29 +223,15 @@ local function summarise(path: string, program: any, artifacts: any): string
     return ("%s: %s, %s, %s"):format(path, program.name, program.entryMode, what)
 end
 
---- Source annotations are inspection-only; production bytes remain unchanged.
-local function inspectionC(artifacts: any, sourceFile: string): string
-    local programs = {}
-    for _, program in ipairs(artifacts.programs) do
-        if program.executionTarget ~= "gpu" then
-            programs[#programs + 1] = program
-        end
-    end
-
-    return require("nupp.compiler.aot.emit").program(programs, nil, sourceFile)
-end
-
---- What every symbol in the generated C compiled to.
+--- What every symbol in the unit compiled to.
 ---
---- Everything here is the build's: the toolchain it would have used, the flags
---- it would have used for this tier, and the C it would have compiled. A
---- listing produced any other way would answer a question about this command
---- rather than about the artifact.
+--- Everything here is the build's: the code generator, the options it compiles
+--- this tier with, and the IR it compiles. A listing produced any other way
+--- would answer a question about this command rather than about the artifact.
 ---
 --- @param wanted one function, named as the source or the symbol spells it
 --- @return the report, or nothing and what stopped it
 local function assembly(artifacts: any, selected: Target, wanted: string?, sourceFile: string): (any?, string?)
-    local buildAot = require("nupp.tools.build.aot")
     local instructionsMod = require("nupp.compiler.aot.instructions")
     local targets = require("nupp.compiler.aot.target")
     if not instructionsMod.reads(selected.architecture) then
@@ -258,36 +240,15 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
         ):format(selected.architecture, table.concat(instructionsMod.ARCHITECTURES, " and "))
     end
 
-    -- The LLVM route, while both exist, reads what LLVM made of the unit; a
-    -- unit it does not emit yet is read from the C as before.
     local aotllvm = require("nupp.tools.build.aotllvm")
-    local text: string? = nil
-    local selectedChain: Toolchain? = nil
-    local debugFlags: {string} = {}
-    local useLlvm, backendErr = aotllvm.selected()
-    if useLlvm == nil then
+    local available, backendErr = aotllvm.selected()
+    if available ~= true then
         return nil, tostring(backendErr)
-    elseif useLlvm == true then
-        text = aotllvm.assembly(artifacts.programs, selected.tier, selected.triple, sourceFile)
-        if text ~= nil then
-            selectedChain = new buildAot.Toolchain(command = "<llvm>", version = aotllvm.version(), dialect = "llvm")
-        end
     end
+    local text = aotllvm.assembly(artifacts.programs, selected.tier, selected.triple, sourceFile)
     if text == nil then
-        local chain, chainErr = buildAot.toolchain()
-        if chain == nil then
-            return nil, tostring(chainErr)
-        end
-        selectedChain = chain as Toolchain
-        local mapped = inspectionC(artifacts, sourceFile)
-        debugFlags = {(chain as Toolchain).dialect == "clang" and "-gline-tables-only" or "-g"}
-        local assembled, assembleErr = buildAot.assemble(chain as Toolchain, selected, mapped, debugFlags)
-        if assembled == nil then
-            return nil, tostring(assembleErr)
-        end
-        text = assembled
+        return nil, "the LLVM backend has no profile for " .. selected.triple
     end
-    local chainUsed = selectedChain as Toolchain
 
     local listings = instructionsMod.parse(text as string, selected.architecture, targets.system(selected.triple))
     -- Which body a symbol is, rather than only what it is called. The oracle is
@@ -338,8 +299,8 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     end
 
     return {
-        toolchain = {command = chainUsed.command, version = chainUsed.version, dialect = chainUsed.dialect,},
-        flags = buildAot.compileFlags(selected, chainUsed, debugFlags),
+        toolchain = {command = "<llvm>", version = aotllvm.version(), dialect = "llvm",},
+        flags = aotllvm.flags(selected.triple, selected.tier),
         functions = shown,
     }, nil
 end
@@ -416,7 +377,9 @@ local function run(options: any): integer
     -- build policy is off. Keep every other project setting and make only that
     -- question explicit while checking target-specific operations.
     environment.config._target = environment.config._target or {}
-    environment.config._target.aot = "emit-c"
+    -- `inspect` is this command's own: AOT checking without a build, so a
+    -- GPU declaration is not bound to runtime types nothing staged.
+    environment.config._target.aot = "inspect"
     local tree, source = require("nupp.tools.cli.compile").check(path, environment as {[string]: any}, {
         dialect = options.dialect
     })
@@ -482,6 +445,31 @@ local function run(options: any): integer
         end
         instructionReport = built
     end
+    local llvmText: string? = nil
+    if emit == nil and options.format == "json" then
+        -- The whole report carries the LLVM IR as it carries the rest, where
+        -- the target has an LLVM profile and the unit lowers.
+        local aotllvm = require("nupp.tools.build.aotllvm")
+        local target = selected as targets.Target
+        local ok, module = pcall(aotllvm.emit, artifacts.programs, target.tier, target.triple)
+        llvmText = ok and module as string? or nil
+    elseif emit == "llvm" then
+        local aotllvm = require("nupp.tools.build.aotllvm")
+        local target = selected as targets.Target
+        local _, factsErr = aotllvm.facts()
+        if factsErr ~= nil then
+            io.stderr:write("nupp: NUPP_AOT_FACTS: " .. tostring(factsErr) .. "\n")
+
+            return 1
+        end
+        local ok, module, why = pcall(aotllvm.emit, artifacts.programs, target.tier, target.triple)
+        if not ok or module == nil then
+            io.stderr:write("nupp: " .. tostring(ok and why or module) .. "\n")
+
+            return 1
+        end
+        llvmText = module as string
+    end
     if options.format == "json" then
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do
@@ -520,9 +508,7 @@ local function run(options: any): integer
                 },
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
-                c = (emit == nil or emit == "c")
-                and (options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
-                or nil,
+                llvm = llvmText,
                 spirv = spirvHex,
                 wgsl = emit == "wgsl" and wgsl or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
@@ -531,24 +517,8 @@ local function run(options: any): integer
         )
     elseif emit == "ir" then
         io.write(artifacts.irText)
-    elseif emit == "c" then
-        io.write(options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
     elseif emit == "llvm" then
-        local aotllvm = require("nupp.tools.build.aotllvm")
-        local target = selected as targets.Target
-        local _, factsErr = aotllvm.facts()
-        if factsErr ~= nil then
-            io.stderr:write("nupp: NUPP_AOT_FACTS: " .. tostring(factsErr) .. "\n")
-
-            return 1
-        end
-        local ok, module, why = pcall(aotllvm.emit, artifacts.programs, target.tier, target.triple)
-        if not ok or module == nil then
-            io.stderr:write("nupp: " .. tostring(ok and why or module) .. "\n")
-
-            return 1
-        end
-        io.write(module as string)
+        io.write(llvmText as string)
     elseif emit == "spirv" then
         io.write(spirvParts[1])
     elseif emit == "wgsl" then
@@ -581,14 +551,13 @@ end
 --- Show what the @aot functions in a file compile to.
 ---
 --- With no artifact, reports whether each function uses scalar, explicit SIMD, or GPU
---- execution. Select verified IR, generated C, LLVM IR, native GPU SPIR-V, browser
---- GPU WGSL, native assembly, or the generated Nupp binding with `--emit`.
+--- execution. Select verified IR, LLVM IR, native GPU SPIR-V, browser GPU WGSL,
+--- native assembly, or the generated Nupp binding with `--emit`.
 ---
 --- Examples:
 ---
 ---     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ---     nupp aot --emit ir src/kernel.nupp
----     nupp aot --emit c src/kernel.nupp
 ---     nupp aot --emit llvm src/kernel.nupp
 ---     nupp aot --emit asm --function scale src/kernel.nupp
 ---     nupp aot --emit wgsl --function transform src/gpu.nupp
@@ -596,12 +565,9 @@ end
 @cli("aot")
 @derive(cliModule.Command)
 local record Aot
-    --- Artifact to print: ir, c, llvm, spirv, wgsl, asm, or binding.
-    @cli(value = "ARTIFACT", choices = {"ir", "c", "llvm", "spirv", "wgsl", "asm", "binding"})
+    --- Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
+    @cli(value = "ARTIFACT", choices = {"ir", "llvm", "spirv", "wgsl", "asm", "binding"})
     emit: string?
-
-    --- Include authored #line locations in emitted C (assembly always carries them).
-    sourceLocations: boolean = false
 
     --- Show only this function.
     @cli(name = "function", value = "NAME")
