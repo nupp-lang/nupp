@@ -537,12 +537,6 @@ jobs:
           ./bin/nupp build --target testRunner
           ./tests/run --jobs=1 --group=external-corpus
 
-      # Windows is a supported target for this backend and MSVC is not a
-      # supported compiler for it: the generated C needs `vector_size` and
-      # `__builtin_convertvector`, which Clang and MinGW GCC have and MSVC has
-      # neither of. Nothing about that is Windows-specific, so the way to know it
-      # holds is to run the same differential there rather than to reason about
-      # it -- which is what this job did not do while Windows was skipped.
       # Three minutes of starting child processes, and the only thing that can
       # change what they answer is bench code. `measurement` is the surface every
       # such path reaches -- the runner, its CLI, `src/nupp/bench/`, `bench/` and
@@ -567,8 +561,9 @@ jobs:
       # else was building -- which the runner now runs alone. The runner
       # defaults to two shards per core.
       #
-      # `--exclude-group` names what earlier steps in this job already ran. The
-      # shared lane is excluded on Linux only, where the fast gate this job
+      # `--exclude-group` names what earlier steps in this job already ran, and
+      # `wasm-conformance`, which the SIMD conformance workflow runs sharded.
+      # The shared lane is excluded on Linux only, where the fast gate this job
       # depends on has already run it against the same revision.
       - name: Run the compiler suite
         if: runner.os != 'Windows'
@@ -585,7 +580,7 @@ jobs:
             lane="--lane=isolated"
           fi
           ./bin/nupp test $lane \
-            --exclude-group=external-corpus,rust-native-gate,measurement
+            --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -641,7 +636,7 @@ jobs:
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
           ./bin/nupp test \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
 
       # What the suite saved, named in the log so a reader knows what the
       # artifact holds before downloading it. `aot-libraries.txt` beside these
