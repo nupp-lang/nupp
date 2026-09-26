@@ -18,7 +18,7 @@ jobs:
   diagnose:
     name: Windows x64 / AOT suites one at a time
     runs-on: windows-2022
-    timeout-minutes: 150
+    timeout-minutes: 60
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -74,11 +74,10 @@ jobs:
           export NUPP_TEST_BASH NUPP_TEST_SH
           NUPP_TEST_BASH=$(cygpath -w "$bash_path")
           NUPP_TEST_SH=$(cygpath -w "$(dirname "$bash_path")/sh.exe")
-          suites="$(./bin/nupp test --group=aot --list-suites) projecttest hostembeddingtest
-            simdprimitivedifferentialtest simdnativealgorithmdifferentialtest simdreducerdifferentialtest"
+          suites="aotblockguardtest aotbuildtest projecttest aotincrementaltest aotclitest hostembeddingtest"
           for suite in $suites; do
             start=$(date +%s)
-            timeout -k 15 900 ./bin/nupp test --jobs=1 "$suite" > "$RUNNER_TEMP/$suite.log" 2>&1
+            timeout -k 15 600 ./bin/nupp test --jobs=1 "$suite" > "$RUNNER_TEMP/$suite.log" 2>&1
             status=$?
             took=$(( $(date +%s) - start ))
             echo "== $suite: status $status after ${took}s: $(grep -E 'tests,' "$RUNNER_TEMP/$suite.log" | tail -1)"
@@ -87,7 +86,7 @@ jobs:
             fi
             if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
               echo "::group::$suite case by case"
-              for case in $(./bin/nupp test "$suite" --list-cases 2>/dev/null); do
+              for case in $(./bin/nupp test "$suite" --list-cases 2>/dev/null | head -3); do
                 cstart=$(date +%s)
                 timeout -k 15 300 ./bin/nupp test --jobs=1 "$suite" --case="$case" > "$RUNNER_TEMP/case.log" 2>&1
                 cstatus=$?

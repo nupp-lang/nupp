@@ -31,10 +31,22 @@ extern "C" int nupp_codegen_strict_fp(void *tm) {
 // recovery context only while crash recovery is enabled; otherwise it ends
 // nupp, silently. It is enabled for the link alone, so the handlers it
 // installs are the process's own again afterwards.
+//
+// On a Windows host lld links with one thread. Its parallel executor is a
+// static that only `llvm_shutdown` stops, which a lld of its own calls on the
+// way out and nupp never does; left running, its destructor joins threads the
+// process exit has already ended, and nupp never exits.
 extern "C" int nupp_codegen_lld(int argc, const char **argv, char **out) {
     std::string text;
     llvm::raw_string_ostream stream(text);
+#ifdef _WIN32
+    std::vector<const char *> threaded(argv, argv + argc);
+    std::string flavor = argc > 0 ? argv[0] : "";
+    threaded.push_back(flavor == "lld-link" ? "/threads:1" : "--threads=1");
+    llvm::ArrayRef<const char *> args(threaded);
+#else
     llvm::ArrayRef<const char *> args(argv, argc);
+#endif
     llvm::CrashRecoveryContext::Enable();
     lld::Result r = lld::lldMain(args, stream, stream, LLD_ALL_DRIVERS);
     llvm::CrashRecoveryContext::Disable();
