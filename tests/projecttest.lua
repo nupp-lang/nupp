@@ -2554,10 +2554,6 @@ print(triangular(4))
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/app")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir)
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
     assert(exists(dir .. "/out/lib/libdefault_aot.a"), "standalone AOT emits a static archive")
     assert(not exists(dir .. "/out/lib/" .. libraryName("default_aot")), "standalone AOT emits no loadable sidecar")
@@ -2567,13 +2563,10 @@ print(triangular(4))
     remove(dir)
 end
 
---- Through LLVM, a standalone program with AOT code links from a link kit
---- with lld in process: no C compiler, system linker or SDK is run, and the
---- program carries no LLVM of its own.
+--- A standalone program with AOT code links from a link kit with lld in
+--- process: no C compiler, system linker or SDK is run, and the program
+--- carries no LLVM of its own.
 function M.standaloneAotLinksFromAKitWithoutACToolchain()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-        return
-    end
     local posix = jit.os ~= "Windows"
     local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
     local code, answer = process.capture(
@@ -2636,7 +2629,7 @@ end
 --- linked from there; the next build needs neither the archive nor the network,
 --- and an archive that does not match its record is refused.
 function M.standaloneAotLinksFromACatalogKit()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" or (jit.os ~= "OSX" and jit.os ~= "Linux") then
+    if jit.os ~= "OSX" and jit.os ~= "Linux" then
         return
     end
     local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
@@ -2722,8 +2715,7 @@ end
 --- call used to name an unqualified symbol nothing defined, so the program
 --- failed to link.
 function M.anAotEntryCallsAnotherEntryOfItsFile()
-    local llvm = os.getenv("NUPP_AOT_BACKEND") == "llvm"
-    if llvm and jit.os == "Windows" or not llvm and require("nupp.tools.build.aot").toolchain() == nil then
+    if jit.os == "Windows" then
         return
     end
     local dir = tempProject({
@@ -2795,10 +2787,6 @@ return {triangular = triangular}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir);
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
     assert(exists(dir .. "/out/lib/libdefault_aot.a"), "static component AOT emits an archive")
     assert(not read(dir .. "/out/component.lua"):find('from"@lib/', 1, true), "static component binds through ffi.C")
@@ -2821,10 +2809,6 @@ return {make = make}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir);
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
     local component = read(dir .. "/out/component.lua")
     assert(component:find("__nuppAotBuilderModules", 1, true), "static builder reads host registration")
@@ -2866,10 +2850,6 @@ return {triangular = triangular}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir);
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
 
     local link = json.decode(assert(read(dir .. "/out/aot/link.json")))
@@ -2882,22 +2862,12 @@ return {triangular = triangular}
     assert(#link.symbols.kernels > 0, "so is every kernel")
     assert(#link.retain.forceLoad > 0, "a desktop linker extracts nothing from an archive nothing references")
 
-    -- The probe is C, or LLVM IR when the LLVM route took every unit.
-    if exists(dir .. "/out/aot/archive.ll") then
-        local ir = read(dir .. "/out/aot/archive.ll")
-        assert(ir:find("define i64 @" .. probe .. "()", 1, true), ir)
-        assert(
-            ir:find("ret i64 " .. ("%d"):format(link.fingerprint.value), 1, true),
-            "the probe returns exactly what the manifest says it does"
-        )
-    else
-        local c = assert(read(dir .. "/out/aot/archive.c"))
-        assert(c:find("uint64_t " .. probe .. "(void)", 1, true), c)
-        assert(
-            c:find("return UINT64_C(" .. ("%d"):format(link.fingerprint.value) .. ");", 1, true),
-            "the probe returns exactly what the manifest says it does"
-        )
-    end
+    local ir = assert(read(dir .. "/out/aot/archive.ll"), "the probe is emitted as LLVM IR")
+    assert(ir:find("define i64 @" .. probe .. "()", 1, true), ir)
+    assert(
+        ir:find("ret i64 " .. ("%d"):format(link.fingerprint.value), 1, true),
+        "the probe returns exactly what the manifest says it does"
+    )
 
     -- The check stands ahead of every declaration in the module, because a
     -- kernel `cdef` binds eagerly too and would raise LuaJIT's own message first.
