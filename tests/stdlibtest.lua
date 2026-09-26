@@ -520,6 +520,10 @@ function M.mathAndBit()
     assertClean("local i: integer = math.floor(1.7)")
     assertClean("local n: number = math.max(1, 2, 3)")
     assertClean("local i: integer = bit.band(0xFF, 0x0F)")
+    assertClean("local a, b, c = bit.band(1), bit.bor(1), bit.bxor(1)")
+    assertEq((diagsOf("bit.band()")), "NUPP2006:1")
+    assertEq((diagsOf("bit.bor()")), "NUPP2006:1")
+    assertEq((diagsOf("bit.bxor()")), "NUPP2006:1")
     assertEq((diagsOf("math.floor('x')")), "NUPP2006:1")
 end
 

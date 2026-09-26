@@ -1455,23 +1455,26 @@ local bit: {
     --- @return the complement
     bnot: @nosuspend function(x: number): integer,
 
-    --- Returns the bitwise and of every argument.
+    --- Returns the bitwise and of `x` and every remaining argument.
     ---
-    --- @param ... the numbers to combine
+    --- @param x the first number to combine
+    --- @param ... the remaining numbers to combine
     --- @return the combined value
-    band: @nosuspend function(...: number): integer,
+    band: @nosuspend function(x: number, ...: number): integer,
 
-    --- Returns the bitwise or of every argument.
+    --- Returns the bitwise or of `x` and every remaining argument.
     ---
-    --- @param ... the numbers to combine
+    --- @param x the first number to combine
+    --- @param ... the remaining numbers to combine
     --- @return the combined value
-    bor: @nosuspend function(...: number): integer,
+    bor: @nosuspend function(x: number, ...: number): integer,
 
-    --- Returns the bitwise exclusive or of every argument.
+    --- Returns the bitwise exclusive or of `x` and every remaining argument.
     ---
-    --- @param ... the numbers to combine
+    --- @param x the first number to combine
+    --- @param ... the remaining numbers to combine
     --- @return the combined value
-    bxor: @nosuspend function(...: number): integer,
+    bxor: @nosuspend function(x: number, ...: number): integer,
 
     --- Shifts `x` left by `n` bits, filling with zeros.
     ---
