@@ -177,9 +177,12 @@ local function plantedTree(stage0Body)
     -- Last, because the launcher stages a provider again whenever anything it is
     -- keyed on is newer than the library -- and the pins file above is one of
     -- those. Staged for real, this tree has no `rust-toolchain.toml` to name a
-    -- toolchain with, so the build these cases are watching never starts.
+    -- toolchain with, so the build these cases are watching never starts. Each
+    -- carries the marker of a provider built with the code generator, or a
+    -- machine that names a pinned LLVM (CI's does) stages it again for that.
     for _, name in ipairs({"libnupp_native_dev.dylib", "libnupp_native_dev.so", "nupp_native_dev.dll",}) do
         plant("build/lib/" .. name, "")
+        plant("build/lib/" .. name .. ".codegen", "")
     end
 
     local env = (
