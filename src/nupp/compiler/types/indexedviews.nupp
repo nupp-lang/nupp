@@ -99,8 +99,8 @@ function indexed.spanElement(t: Type): Type?
 end
 
 --- Describes one sealed standard module function which creates a root view.
---- The call checker supplies the already-resolved export identity; spelling is
---- deliberately insufficient.
+--- The call checker supplies the already-resolved export identity. A matching
+--- source name alone is deliberately insufficient.
 function indexed.exportProducer(moduleName: string, member: string, result: Type): indexed.Producer?
     if moduleName ~= "nupp.mem.span" then
         return nil

@@ -225,6 +225,30 @@ local function spirvHasFloatNaNConstant(module)
     return false
 end
 
+local function spirvMaskedShiftCount(module, wanted)
+    local instructions = spirvInstructions(module)
+    local constants = {}
+    local producers = {}
+    for _, instruction in ipairs(instructions) do
+        if instruction.opcode == 43 then -- OpConstant
+            constants[instruction.operands[2]] = instruction.operands[3]
+        elseif instruction.opcode == 199 then -- OpBitwiseAnd
+            producers[instruction.operands[2]] = instruction
+        end
+    end
+    local found = 0
+    for _, instruction in ipairs(instructions) do
+        if instruction.opcode == wanted then
+            local producer = producers[instruction.operands[4]]
+            if producer ~= nil and (constants[producer.operands[3]] == 31 or constants[producer.operands[4]] == 31) then
+                found = found + 1
+            end
+        end
+    end
+
+    return found
+end
+
 local function assertSpirvStructure(module)
     local instructions = spirvInstructions(module)
 
@@ -329,7 +353,7 @@ local function doubled(
         local product: float = 0.0
         local repetition: uint32 = 0
         while repetition < nupp.math.u32.wrap(1) do
-            product = nupp.math.f32.mul(value, scale)
+            product = nupp.math.f32.mul(nupp.math.f32.narrow(-value), scale)
             repetition = nupp.math.u32.add(repetition, 1)
         end
         local adjusted = nupp.math.f32.sub(scale, 1.0)
@@ -344,6 +368,7 @@ return {doubled = doubled}
     test.equal(#module > 20, true)
     test.equal(module:sub(1, 4), "\3\2\35\7")
     assertSpirvStructure(module)
+    assert(spirvOpcodeCount(module, 127) > 0, "float negation lost the sign of zero")
     assert(spirvDecorationCount(module, 42) > 0, "strict binary32 arithmetic lost NoContraction")
     assert(not spirvHasFloatNaNConstant(module), "SPIR-V emitted a validator-rejected NaN float constant")
 
@@ -380,10 +405,18 @@ function M.gpuIntegerSignednessUsesBitcastAndJsonBindingIsUtf8()
         ] = [[
 local span = require("nupp.mem.span")
 @aot(target = "gpu")
-local function convert(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<int32>): nil
+local function convert(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<int32>,
+    count: uint32
+): nil
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
-        output[i] = nupp.math.u32.xorBits(nupp.math.u32.fromI32(input[i]), nupp.math.u32.wrap(input[i]))
+        local bits = nupp.math.u32.fromI32(input[i])
+        output[i] = nupp.math.u32.xorBits(
+            nupp.math.u32.shiftLeft(bits, count),
+            nupp.math.u32.shiftRightLogical(bits, count)
+        )
     end
 end
 return convert
@@ -395,6 +428,8 @@ return convert
     test.equal(spirvOpcodeCount(module, 113), 0, "OpUConvert requires a change of width")
     test.equal(spirvOpcodeCount(module, 114), 0, "OpSConvert requires a change of width")
     test.equal(spirvOpcodeCount(module, 111), 0, "integer wrap must not round through binary32")
+    assert(spirvMaskedShiftCount(module, 196) > 0, "left shift count was not reduced modulo 32")
+    assert(spirvMaskedShiftCount(module, 194) > 0, "right shift count was not reduced modulo 32")
     local raw, jsonCode = run(dir, "--json gpu.nupp")
     test.equal(jsonCode, 0, raw)
     local report = require("testjson").decode(raw)
@@ -3060,9 +3095,13 @@ return {apply = apply}
         decoded.ir:find("twice_simd_vector_f32_preferred", 1, true),
         where .. ": helper specialization retains species"
     )
+    local scalarTwin = decoded.c:match(
+        "static inline KS_UNUSED ks_scalar_exp_f32x4 ([%w_]+_forced_scalar)%(ks_scalar_exp_f32x4 a_value%);"
+    )
+    assert(scalarTwin, where .. ": scalar oracle gets a type-correct helper twin")
     assert(
-        decoded.c:find("twice_simd_vector_f32_preferred_returns_simd_vector_f32_preferred_forced_scalar", 1, true),
-        where .. ": scalar oracle gets a type-correct helper twin"
+        decoded.c:find(scalarTwin .. "(ks_scalar_exp_load_f32x4", 1, true),
+        where .. ": scalar oracle calls its helper twin"
     )
 end
 

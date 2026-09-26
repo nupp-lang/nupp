@@ -55,6 +55,7 @@ const OP = {
     UConvert = 113,
     SConvert = 114,
     Bitcast = 124,
+    FNegate = 127,
     IAdd = 128,
     FAdd = 129,
     ISub = 130,
@@ -917,7 +918,7 @@ function spirv.program(
     -- Read the dispatch packet once in the entry block. Besides avoiding
     -- repeated UBO loads, this keeps loop conditions dependent on an ordinary
     -- SSA value instead of a descriptor load in the loop header, which is the
-    -- portable SPIR-V shape across the Vulkan implementations we exercise.
+    -- portable SPIR-V shape across the supported Vulkan implementations.
     uniform("count", u32Type)
     for _, param in ipairs(spans) do
         uniform(param.name .. "_count", u32Type)
@@ -1165,8 +1166,11 @@ function spirv.program(
                 instruction(functions, OP.LogicalNot, {boolType, result, input})
                 return result, boolType
             elseif op == "neg" then
-                local zero = constant(typeId, 0)
-                instruction(functions, typeId == f32Type and OP.FSub or OP.ISub, {typeId, result, zero, input})
+                if typeId == f32Type then
+                    instruction(functions, OP.FNegate, {typeId, result, input})
+                else
+                    instruction(functions, OP.ISub, {typeId, result, constant(typeId, 0), input})
+                end
             else
                 local all = constant(typeId, 4294967295)
                 instruction(functions, OP.BitwiseXor, {typeId, result, input, all})
@@ -1175,7 +1179,7 @@ function spirv.program(
         end
 
         local left, leftType = expression(value.left)
-        local right = expression(value.right)
+        local right, rightType = expression(value.right)
         local resultType = valueType(value.type)
         local opcode: integer? = (
             {
@@ -1239,6 +1243,11 @@ function spirv.program(
             )[op]
         end
         assert(opcode ~= nil, "SPIR-V subset does not emit expression " .. tostring(op))
+        if opcode == OP.ShiftLeftLogical or opcode == OP.ShiftRightLogical or opcode == OP.ShiftRightArithmetic then
+            local masked = id()
+            instruction(functions, OP.BitwiseAnd, {rightType, masked, right, constant(rightType, 31)})
+            right = masked
+        end
         local result = id()
         instruction(functions, opcode as integer, {resultType, result, left, right})
         if program.fpContract ~= true and (opcode == OP.FAdd or opcode == OP.FSub or opcode == OP.FMul) then

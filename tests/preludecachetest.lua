@@ -396,6 +396,38 @@ function M.portableImageRejectsMalformedCompactData()
         local ok = pcall(readImageFixture, data)
         assert(not ok, "malformed compact prelude must be refused")
     end
+
+    local invalidInterns = {
+        {magic .. "\1\0\1\1s\7missings\1x", "unknown interned arena"},
+        {magic .. "\2\0\2\1s\5typess\1x\2s\5typess\1x", "duplicate interned key"},
+    }
+    for _, case in ipairs(invalidInterns) do
+        local ok, why = pcall(readImageFixture, case[1])
+        assert(not ok and tostring(why):find(case[2], 1, true), tostring(why))
+    end
+
+    -- A complete graph followed by junk used to be adopted before the trailing
+    -- bytes were noticed, poisoning the process even though loading failed.
+    local internedThenTrailing = magic .. "\1\0\1\1s\5typess\1x" .. string.rep(
+        "\0",
+        5
+    ) .. string.rep("z", 8) .. "trailing"
+    local types = require("nupp.compiler.types")
+    local oldInterned, oldAdopt, oldResume = types.interned, types.adopt, types.resumeIdentity
+    local adopted, resumed = false, false
+    types.interned = function()
+        return nil
+    end
+    types.adopt = function()
+        adopted = true
+    end
+    types.resumeIdentity = function()
+        resumed = true
+    end
+    local ok = pcall(readImageFixture, internedThenTrailing)
+    types.interned, types.adopt, types.resumeIdentity = oldInterned, oldAdopt, oldResume
+    assert(not ok, "trailing compact prelude data must be refused")
+    assert(not adopted and not resumed, "a refused compact prelude changed type identity")
 end
 
 return M
