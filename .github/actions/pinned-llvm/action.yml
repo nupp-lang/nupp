@@ -87,6 +87,9 @@ runs:
       with:
         name: ${{ steps.key.outputs.name }}
         retention-days: 90
+        # The tree's `.complete` marker is a hidden file, which is otherwise
+        # left out.
+        include-hidden-files: true
         path: |
           .nupp-cache/toolchain/llvm
           .nupp-cache/toolchain/sources/llvm-project-*/llvm/include
@@ -111,10 +114,17 @@ runs:
       shell: bash
       run: |
         # A restored toolchain cache can carry another, incomplete tree beside
-        # this one, so the first complete one is taken, not the first one.
+        # this one, so the first complete one is taken, not the first one:
+        # one with llvm-config, which is what scripts/toolchain checks. An
+        # artifact uploaded without hidden files lost its `.complete` marker,
+        # so a tree that is otherwise whole gets it back.
         tree=
         for candidate in .nupp-cache/toolchain/llvm/*/; do
-          if [ -f "$candidate/.complete" ]; then tree=$candidate; break; fi
+          if [ -f "${candidate}bin/llvm-config" ] || [ -f "${candidate}bin/llvm-config.exe" ]; then
+            tree=$candidate
+            [ -f "${tree}.complete" ] || echo "restored without its marker" > "${tree}.complete"
+            break
+          fi
         done
         if [ -z "$tree" ]; then
           echo "available=false" >> "$GITHUB_OUTPUT"
