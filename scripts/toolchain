@@ -814,7 +814,21 @@ select_host_features() {
 host_export_arguments() {
     case "$PLATFORM" in
         darwin) printf '%s\n' '-C' 'link-arg=-Wl,-export_dynamic' ;;
-        windows) printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols' ;;
+        windows)
+            printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols'
+            # A PE image holds at most 65535 exports, and exporting all of
+            # LLVM's would pass it. Nothing looks for LLVM, lld, the glue
+            # around them or libstdc++ by name, so their archives stay out.
+            case ",$host_cargo_features," in
+                *,native-codegen,*)
+                    excluded=libstdc++.a,libnupp_codegen_glue.a
+                    for archive in "$LLVM_OUT"/lib/lib*.a; do
+                        [ -f "$archive" ] && excluded="$excluded,${archive##*/}"
+                    done
+                    printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs,$excluded"
+                    ;;
+            esac
+            ;;
         *) printf '%s\n' '-C' 'link-arg=-Wl,-E' ;;
     esac
 }
