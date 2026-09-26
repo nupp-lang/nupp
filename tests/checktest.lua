@@ -113,6 +113,36 @@ function M.typeTostring()
     assertEq(T.tostring(T.array(T.string)), "{string}")
 end
 
+function M.functionTypeTostringPreservesMixedGenericBinderOrder()
+    local element = T.typevar("Element", "checktest:mixed-generic:type")
+    local size = T.constvar("Size", "integer", "checktest:mixed-generic:const")
+    local fn = T.funcWith(T.func({}, {}, false), {
+        typeParams = {element},
+        constParams = {size},
+        paramKinds = {"const", "type"},
+    })
+    assertEq(T.tostring(fn), "function<const Size: integer, Element>()")
+    local reversed = T.funcWith(fn, {paramKinds = {"type", "const"}})
+    assert(fn ~= reversed, "binder order participates in function identity")
+end
+
+function M.reinternedGenericAliasRefreshesDeclarationMetadata()
+    local element = T.typevar("Element", "checktest:alias-refresh")
+    local firstDefault = {kind = "tname", value = "string"}
+    local alias = T.genericAlias("Refreshable", element, {element}, {T.string}, nil, nil, {"type"}, {firstDefault})
+    local secondDefault = {kind = "tname", value = "number"}
+    local refreshed = T.genericAlias("Refreshable", element, {element}, {T.number}, nil, nil, {"type"}, {secondDefault})
+    assert(alias == refreshed, "an incremental recheck retains alias identity")
+    assert(refreshed.typeBounds[1] == T.number, "the recheck refreshes bounds")
+    assert(refreshed.paramDefaults[1] == secondDefault, "the recheck refreshes defaults")
+end
+
+function M.cNamesOnlyTreatPointerShapedOptionalsAsNullableCValues()
+    assertEq(T.cName(T.optional(T.number)), nil)
+    assertEq(T.cName(T.optional(T.ptr(T.int32))), "int32_t *")
+    assertEq(T.cName(T.optional(T.cstring)), "const char *")
+end
+
 -- A string literal's type is the string it denotes, not the source that spells
 -- it, so a spelling is only ever a way of writing bytes: the annotation and the
 -- initializer below are the same type because they are the same one byte. A type

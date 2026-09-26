@@ -1,11 +1,11 @@
 module nupp.compiler.aot.effects
 
 --[[
-The observable behaviour of scalar AOT operations.
+The observable behavior of scalar AOT operations.
 
-Optimisation is allowed to discard or reorder an operation only after this
+Optimization is allowed to discard or reorder an operation only after this
 module has classified it.  The vocabulary is deliberately closed: adding an
-opcode to the IR without adding it here makes optimisation fail rather than
+opcode to the IR without adding it here makes optimization fail rather than
 quietly treating the new operation as pure.
 
 These are root effects.  A consumer combines them with the effects of an
@@ -59,7 +59,6 @@ local PURE_OPS: {
     constant_i64 = true,
     bool = true,
     lua_nil = true,
-    lua_string = true,
     ["local"] = true,
     uniform = true,
     helper_param = true,
@@ -203,6 +202,7 @@ local LUA_READ_OPS: {
 local LUA_ALLOCATE_OPS: {
     [string]: boolean
 } = {
+    lua_string = true,
     lua_new_table = true,
     lua_builder = true,
     lua_scratch_u32 = true,

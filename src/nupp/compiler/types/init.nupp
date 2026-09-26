@@ -539,7 +539,7 @@ end
 --- A base type narrowed by a refinement predicate: a scalar that admits only some of
 --- the values its base admits.
 ---
---- Structurally this is `Literal`'s neighbour -- a base plus the thing that narrows it
+--- Structurally this is `Literal`'s neighbor -- a base plus the thing that narrows it
 --- -- and it behaves the same way: a subtype of its base, transparent wherever the
 --- narrowing does not matter, and its own type wherever it does. What narrows it is a
 --- `predicate.Node`, the same data a `satisfies` refinement compiles to, so nothing
@@ -847,7 +847,7 @@ record types.Nominal
     predicate: any
 
     --- Member names this interface implements rather than only declaring, so a
-    --- declaration taking the contract takes the behaviour with it.
+    --- declaration taking the contract takes the behavior with it.
     defaults: {[string]: boolean}?
 
     --- The interface each inherited default came from, so the generator knows which
@@ -2748,7 +2748,15 @@ function types.genericAlias(
 
     local existing = interned(key)
     if existing then
-        return existing
+        -- Binder identity and body identity make this the same declaration across an
+        -- incremental recheck. Its bounds and defaults are declaration metadata, so
+        -- refresh them from the new syntax instead of retaining the previous check's
+        -- nodes on the shared alias object.
+        local alias = existing as types.GenericAlias
+        alias.typeBounds = typeBounds or {}
+        alias.paramKinds = paramKinds or {}
+        alias.paramDefaults = paramDefaults or {}
+        return alias
     end
 
     return intern(
@@ -2878,6 +2886,9 @@ function types.func(
             cp[j] = cv.id
         end
         key = key .. "|<const " .. table.concat(cp, ",") .. ">"
+    end
+    if paramKinds and #paramKinds > 0 then
+        key = key .. "|kinds(" .. table.concat(paramKinds, ",") .. ")"
     end
     if yieldPack then
         key = key .. "|yields" .. yieldPack.id
@@ -3933,15 +3944,36 @@ function types.tostring(t: types.Type): string
                 )
             )
             or ""
-        local binders = {}
-        for _, tv in ipairs(t.typeParams or {}) do
-            binders[#binders + 1] = tv.name
+        local binders: {string} = {}
+        local typeParams: {types.TypeVar} = t.typeParams or {}
+        local packParams: {types.PackVar} = t.packParams or {}
+        local constParams: {types.ConstVar} = t.constParams or {}
+        local typeAt: integer = 1
+        local packAt: integer = 1
+        local constAt: integer = 1
+        for _, kind in ipairs(t.paramKinds or {}) do
+            if kind == "type" then
+                binders[#binders + 1] = typeParams[typeAt].name
+                typeAt = typeAt + 1
+            elseif kind == "pack" then
+                binders[#binders + 1] = packParams[packAt].name .. "..."
+                packAt = packAt + 1
+            elseif kind == "const" then
+                local cv = constParams[constAt]
+                binders[#binders + 1] = "const " .. cv.name .. ": " .. cv.domain
+                constAt = constAt + 1
+            end
         end
-        for _, pv in ipairs(t.packParams or {}) do
-            binders[#binders + 1] = pv.name .. "..."
-        end
-        for _, cv in ipairs(t.constParams or {}) do
-            binders[#binders + 1] = "const " .. cv.name .. ": " .. cv.domain
+        if #binders == 0 then
+            for _, tv in ipairs(typeParams) do
+                binders[#binders + 1] = tv.name
+            end
+            for _, pv in ipairs(packParams) do
+                binders[#binders + 1] = pv.name .. "..."
+            end
+            for _, cv in ipairs(constParams) do
+                binders[#binders + 1] = "const " .. cv.name .. ": " .. cv.domain
+            end
         end
         local generic = #binders > 0 and "<" .. table.concat(binders, ", ") .. ">" or ""
         -- Printed, where the suspension guarantee is not, because this one is the whole
@@ -4030,7 +4062,9 @@ function types.cName(t: types.Type): string?
         -- The nullable spelling of a pointer: `T*?` is the same pointer, and NULL is
         -- one of its values.
         local other = t.members[1] == types.nil_ and t.members[2] or t.members[1]
-        return types.cName(other)
+        if other.tag == "ptr" or other == types.cstring or other == types.voidptr then
+            return types.cName(other)
+        end
     end
 
     return nil

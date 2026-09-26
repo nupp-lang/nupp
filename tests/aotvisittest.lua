@@ -189,6 +189,11 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
     end
     assertSameSet(effects.expressionOpcodes(), expressionOps, "effects expressions")
     assertSameSet(effects.statementOpcodes(), statementOps, "effects statements")
+    local stringLiteral = effects.expression("lua_string")
+    assert(
+        stringLiteral.observable and stringLiteral.mayRaise and stringLiteral.usesLua and stringLiteral.allocatesLua,
+        "pushing a string literal may allocate through Lua"
+    )
 
     local function auditRecord(name, op, mapper)
         local expected = {}
