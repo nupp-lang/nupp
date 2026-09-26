@@ -5948,4 +5948,70 @@ function M.inspectionFindsNestedProjectAndCarriesSourcePositions()
     assert(attributed, "native instructions identify their originating IR loops")
 end
 
+-- Loading each field of a struct that is a run of one scalar type reads the
+-- elements whole: on NEON the sibling loads become one de-interleaving `ld2`
+-- or `ld3`, where a lane-by-lane gather would insert each lane. A struct with
+-- a field of another type is still gathered.
+function M.siblingFieldLoadsBecomeOneDeinterleavingLoad()
+    local dir = project{
+        [
+            "fields.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+local struct Pair
+    x: float
+    y: float
+end
+
+local struct Triple
+    a: uint32
+    b: uint32
+    c: uint32
+end
+
+@aot
+local function lengths(exclusive out: span.WriteSpan<float>, borrows points: span.Span<Pair>): nil
+    assert(#out == #points)
+    local s = assert(simd.species(array.float, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #points do
+        local x = s:load(points, (cursor + 1) as integer, "x")
+        local y = s:load(points, (cursor + 1) as integer, "y")
+        s:store(out, cursor + 1, x * x + y * y)
+        cursor = cursor + s.lanes
+    end
+end
+
+@aot
+local function sums(exclusive out: span.WriteSpan<uint32>, borrows points: span.Span<Triple>): nil
+    assert(#out == #points)
+    local s = assert(simd.species(array.uint32, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #points do
+        local a = s:load(points, (cursor + 1) as integer, "a")
+        local b = s:load(points, (cursor + 1) as integer, "b")
+        local c = s:load(points, (cursor + 1) as integer, "c")
+        s:store(out, cursor + 1, a + b + c)
+        cursor = cursor + s.lanes
+    end
+end
+return {lengths = lengths, sums = sums}
+]],
+    }
+    for symbol, instruction in pairs({ks_lengths = "ld2.4s", ks_sums = "ld3.4s"}) do
+        local asm, code = run(
+            dir,
+            "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " fields.nupp"
+        )
+        test.equal(code, 0, asm)
+        assert(asm:find("\n%s+" .. instruction:gsub("%.", "%%.") .. "%s"), symbol .. " reads its elements whole\n" .. asm)
+    end
+    local oracle = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm fields.nupp")
+    local body = oracleBody(oracle, "ks_lengths")
+    assert(body:find("llvm.masked.gather", 1, true), "the oracle still gathers each lane\n" .. body)
+end
+
 return M

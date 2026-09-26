@@ -868,15 +868,106 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
     ) as string, typeName
 end
 
+--- The most fields a struct may have for a field load to read whole elements:
+--- NEON's `ld2`..`ld4` de-interleave that many, and past it a gather of the
+--- one field reads less.
+const RUN_FIELDS = 4
+
+--- Where `simd`'s field sits in its struct, and how many fields there are,
+--- when every field is stored as `scalar`: `N` elements are then one run of
+--- `fields * N` scalars with no padding, and the field is every `fields`-th
+--- one. Nil for any other struct.
+local function uniformField(ctx: context.Context, simd: scalarIR.Simd, scalar: string): (integer?, integer)
+    local layout = ctx.layouts[tostring(simd.layout)] as scalarIR.Layout
+    local index: integer? = nil
+    for position, field in ipairs(layout.fields) do
+        if types.storage(field.type, field.sourceType) ~= scalar then
+            return nil, 0
+        end
+        if field.name == simd.field then
+            index = position - 1
+        end
+    end
+
+    return index, #layout.fields
+end
+
+--- One field of `N` struct elements. Where the struct is a run of one scalar
+--- type, the elements are read whole, as one wide load, and the field's lanes
+--- picked out of it -- the shape LLVM makes one de-interleaving load (NEON's
+--- `ld2`..`ld4`) of, and that every sibling field's load shares. Elsewhere,
+--- and in the scalar oracle, each lane is gathered.
 local function fieldLoad(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     local first = memory.first(ctx, simd.args[2])
     local active = simd.args[3] ~= nil and operand(ctx, simd.args[3] as scalarIR.Expr) or nil
-    local pointers, enable = fieldPointers(ctx, found, simd, first, active)
+    local index, fields = uniformField(ctx, simd, found.scalar)
 
-    return gather(ctx, found, pointers, enable), typeName
+    local function gathered(): string?
+        local pointers, enable = fieldPointers(ctx, found, simd, first, active)
+        return gather(ctx, found, pointers, enable)
+    end
+
+    if ctx.oracle or index == nil or fields > RUN_FIELDS then
+        return gathered() as string, typeName
+    end
+    local width = fields * found.lanes
+    local wide = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+    local align = math.floor(found.bits / 8) as integer
+    local picks: {string} = {}
+    for lane = 0, found.lanes - 1 do
+        picks[#picks + 1] = "i32 " .. tostring(lane * fields + (index as integer))
+    end
+
+    local function run(address: string): string
+        local loaded = e(ctx, ("load %s, ptr %s, align %d"):format(wide, address, align))
+        local picked = e(
+            ctx,
+            (
+                "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+            ):format(wide, loaded, wide, found.lanes, table.concat(picks, ", "))
+        )
+        if active == nil then
+            return picked
+        end
+
+        return e(
+            ctx,
+            ("select %s %s, %s %s, %s zeroinitializer"):format(found.mask, active, found.vector, picked, found.vector)
+        )
+    end
+
+    local function checked(): string?
+        local structType = expressions.layoutType(ctx, tostring(simd.layout))
+        local window = memory.window(ctx, tostring(simd.span), first, found.lanes, structType)
+        return split(
+            ctx,
+            window,
+            found.lanes,
+            found.vector,
+            function(): string?
+                return run(window.address)
+            end,
+            gathered
+        )
+    end
+
+    local proof = active == nil and proved(ctx, simd, found, 1) or nil
+    if proof == nil then
+        return checked() as string, typeName
+    end
+
+    return choose(
+        ctx,
+        (proof as memory.Proof).safe,
+        found.vector,
+        function(): string?
+            return run((proof as memory.Proof).address)
+        end,
+        checked
+    ) as string, typeName
 end
 
 --- The vectors of an interleaved store laid out as one `ways * N` run: one

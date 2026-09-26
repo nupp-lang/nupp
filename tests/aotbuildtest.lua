@@ -6562,4 +6562,134 @@ void %s(double *, const NuppFieldPair%s *, size_t);]]
     end
 end
 
+-- An explicit field load of a struct that is a run of one scalar type reads
+-- whole elements and picks its field out of them; a struct with fields of
+-- other types gathers the field lane by lane. Either way each lane is its own
+-- element's field, at every tail length, and nothing past the span is read
+-- into an answer or written.
+function M.explicitFieldLoadsReadTheirOwnElementAtEveryTail()
+    local dir = project("require")
+    local variants = {
+        {name = "Pair", element = "float", array = "float", ctype = "float", lanes = 4, fields = {"x", "y"}},
+        {name = "Triple", element = "uint32", array = "uint32", ctype = "uint32_t", lanes = 4, fields = {"a", "b", "c"}},
+        {name = "Wide", element = "number", array = "number", ctype = "double", lanes = 2, fields = {"p", "q"}},
+        {
+            name = "Mixed",
+            element = "float",
+            array = "float",
+            ctype = "float",
+            lanes = 4,
+            fields = {"x", "y"},
+            extra = {"tag", "uint32", "uint32_t"},
+        },
+    }
+    local source = {
+        'local span = require("nupp.mem.span")',
+        'local array = require("nupp.mem.array")',
+        'local simd = require("nupp.simd")',
+    }
+    local exports = {}
+    for _, v in ipairs(variants) do
+        local members = {}
+        for _, field in ipairs(v.fields) do
+            members[#members + 1] = ("    %s: %s"):format(field, v.element)
+        end
+        if v.extra then
+            table.insert(members, 2, ("    %s: %s"):format(v.extra[1], v.extra[2]))
+        end
+        local whole, masked = {}, {}
+        -- Each field weighed differently, so a lane read from a sibling field
+        -- shows in the answer.
+        for position, field in ipairs(v.fields) do
+            local weight = 100 ^ (position - 1)
+            whole[#whole + 1] = ('s:load(points, (cursor + 1) as integer, "%s") * %d'):format(field, weight)
+            masked[#masked + 1] = ('s:load(points, (cursor + 1) as integer, "%s", active) * %d'):format(field, weight)
+        end
+        source[#source + 1] = ([[
+local struct %s
+%s
+end
+@aot
+local function sum%s(exclusive output: span.WriteSpan<%s>, borrows points: span.Span<%s>): nil
+    assert(#output == #points)
+    local s = assert(simd.species(array.%s, %d))
+    local cursor: uint32 = 0
+    while cursor < #points do
+        if cursor + s.lanes <= #points then
+            s:store(output, (cursor + 1) as integer, %s)
+        else
+            local active = s:tail((#points - cursor) as integer)
+            s:store(output, (cursor + 1) as integer, %s, active)
+        end
+        cursor = cursor + s.lanes
+    end
+end]]):format(
+            v.name,
+            table.concat(members, "\n"),
+            v.name,
+            v.element,
+            v.name,
+            v.array,
+            v.lanes,
+            table.concat(whole, " + "),
+            table.concat(masked, " + ")
+        )
+        exports[#exports + 1] = ("sum%s = sum%s"):format(v.name, v.name)
+    end
+    source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(table.concat(source, "\n"))
+    handle:close()
+    local report, code = build(dir)
+    test.equal(code, 0, report)
+    local ffi = require("ffi")
+    local library = ffi.load(libraryPath(dir))
+    for _, v in ipairs(variants) do
+        local symbol = librarySymbol(dir, library, "ks_sum_" .. v.name:lower())
+        local members = {}
+        for _, field in ipairs(v.fields) do
+            members[#members + 1] = ("%s %s;"):format(v.ctype, field)
+        end
+        if v.extra then
+            table.insert(members, 2, ("%s %s;"):format(v.extra[3], v.extra[1]))
+        end
+        ffi.cdef(
+            ("typedef struct { %s } NuppFieldRun%s; void %s(%s *, const NuppFieldRun%s *, size_t);"):format(
+                table.concat(members, " "),
+                v.name,
+                symbol,
+                v.ctype,
+                v.name
+            )
+        )
+        for count = 0, 13 do
+            -- One element past the span holds values that would show if read.
+            local points = ffi.new("NuppFieldRun" .. v.name .. "[?]", count + 1)
+            local output = ffi.new(v.ctype .. "[?]", count + 4)
+            for i = 0, count do
+                for position, field in ipairs(v.fields) do
+                    points[i][field] = i < count and (i * 10 + position) or 999
+                end
+                if v.extra then
+                    points[i][v.extra[1]] = 0xFFFFFFFF
+                end
+            end
+            for i = 0, count + 3 do
+                output[i] = 77
+            end
+            library[symbol](output, points, count)
+            for i = 0, count - 1 do
+                local expected = 0
+                for position in ipairs(v.fields) do
+                    expected = expected + (i * 10 + position) * 100 ^ (position - 1)
+                end
+                test.equal(tonumber(output[i]), expected, ("%s element %d of %d"):format(v.name, i, count))
+            end
+            for i = count, count + 3 do
+                test.equal(tonumber(output[i]), 77, ("%s writes nothing past %d"):format(v.name, count))
+            end
+        end
+    end
+end
+
 return M
