@@ -46,6 +46,9 @@ mod posix {
         pub fn _exit(code: c_int) -> !;
         pub fn dup2(from: c_int, to: c_int) -> c_int;
     }
+    /// `waitpid` returns at once when the child has not exited (the same
+    /// value on Linux and macOS).
+    pub const WNOHANG: c_int = 1;
 }
 
 /// Compiles every job, at most `width` at a time, answering each one's report
@@ -104,21 +107,45 @@ fn forked(jobs: &[Job], width: usize) -> Vec<Result<String, String>> {
         if running.is_empty() {
             continue;
         }
+        // Only these children, each by its pid: nupp has children of its own
+        // (the comptime worker service, processes a program starts), and
+        // reaping one of theirs, as waiting for any child would, leaves its
+        // owner waiting for an exit it will never see.
         let mut status = 0;
-        let pid = unsafe { posix::waitpid(-1, &mut status, 0) };
-        if pid <= 0 {
-            // Nothing left to reap: whatever was running is lost.
-            for (_, index) in running.drain() {
-                results[index] = Some(Err("the compiling process could not be waited for".into()));
+        let mut finished = None;
+        while finished.is_none() {
+            for &pid in running.keys() {
+                let answer = unsafe { posix::waitpid(pid, &mut status, posix::WNOHANG) };
+                if answer == pid {
+                    finished = Some(pid);
+                    break;
+                }
+                if answer < 0 {
+                    // Not waitable any more; judged by what it wrote below.
+                    status = -1;
+                    finished = Some(pid);
+                    break;
+                }
             }
-            continue;
+            if finished.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
         }
+        let pid = finished.unwrap_or_default();
         let Some(index) = running.remove(&pid) else { continue };
         let job = &jobs[index];
         let report = std::fs::read_to_string(report_path(job)).unwrap_or_default();
         let printed = std::fs::read_to_string(stderr_path(job)).unwrap_or_default();
         let _ = std::fs::remove_file(report_path(job));
         let _ = std::fs::remove_file(stderr_path(job));
+        if status == -1 {
+            results[index] = Some(if report.is_empty() {
+                Err(format!("the process compiling {} could not be waited for", job.ir.display()))
+            } else {
+                Ok(report)
+            });
+            continue;
+        }
         let exited = status & 0x7f == 0;
         let code = (status >> 8) & 0xff;
         results[index] = Some(if exited && code == 0 {
