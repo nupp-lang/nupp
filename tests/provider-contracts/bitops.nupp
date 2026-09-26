@@ -29,6 +29,13 @@ function bitopsSuite.test(provider: any): (boolean, string?)
         assert(provider.tohex(-1, 0) == "", "zero digits must produce an empty string")
         assert(provider.tohex(-1, 10) == "00ffffffff", "wide hex output must pad with zeros")
         assert(provider.tohex(-1, -10) == "00FFFFFFFF", "negative digits must select uppercase")
+        local clipped = provider.tohex(-1, 255)
+        assert(#clipped == 254 and clipped:sub(-8) == "ffffffff", "hex width must stop at the runtime limit")
+        local clippedUpper = provider.tohex(-1, -2147483648)
+        assert(
+            #clippedUpper == 254 and clippedUpper:sub(-8) == "FFFFFFFF",
+            "the minimum signed width must stop at the uppercase runtime limit"
+        )
     end)
     if not ok then
         return false, tostring(problem)

@@ -230,4 +230,30 @@ function M.releaseRefusesWhatThePoolDidNotStamp(): nil
     events:release(event)
 end
 
+function M.releaseRefusesValuesNotLiveInThatPool(): nil
+    local events = newPool(Event, 2)
+    local first = events:acquire()
+    local second = events:acquire()
+    events:release(first)
+    test.raises(
+        function()
+            events:release(first)
+        end,
+        "not live in this pool"
+    )
+    test.equal(events:live(), 1)
+    test.equal(events:free(), 1)
+
+    local other = newPool(Event, 1)
+    local foreign = other:acquire()
+    test.raises(
+        function()
+            events:release(foreign)
+        end,
+        "not live in this pool"
+    )
+    events:release(second)
+    other:release(foreign)
+end
+
 return M

@@ -84,10 +84,13 @@ syntax.lineNumber = matcher(function(line: string): string?
         if not first or not last then
             return nil
         end
-        local digits = line:sub(last + 1):match("^=(%d+)")
-        local after = digits and last + #digits + 2 or last + 1
-        if boundary(line, after) then
-            return digits or "1"
+        local suffix = line:sub(last + 1)
+        local digits = suffix:match("^=(%d+)")
+        if suffix:sub(1, 1) ~= "=" or digits ~= nil then
+            local after = digits and last + #digits + 2 or last + 1
+            if boundary(line, after) then
+                return digits or "1"
+            end
         end
         from = first + 1
     end
@@ -99,7 +102,7 @@ syntax.playground = matcher(function(line: string): integer?
         if not first or not last then
             return nil
         end
-        if boundary(line, last + 1) then
+        if line:sub(last + 1, last + 1) ~= "=" and boundary(line, last + 1) then
             return last + 1
         end
         from = first + 1

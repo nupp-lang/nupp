@@ -125,7 +125,7 @@ end
 local function tohex(value: number, digits: number?): string
     digits = digits or 8
     local upper = digits < 0
-    digits = math.abs(signed(digits))
+    digits = math.min(math.abs(signed(digits)), 254)
     if digits == 0 then
         return ""
     end

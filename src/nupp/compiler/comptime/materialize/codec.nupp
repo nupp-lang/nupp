@@ -13,6 +13,13 @@ local function within(text, opts): boolean
     return not opts or not opts.limit or #text <= opts.limit
 end
 
+local function quoted(value: string): string
+    local text = ("%q"):format(value)
+    text = text:gsub("\n", "n"):gsub("\r", "r")
+
+    return text
+end
+
 local canonicalValue: function(value: any, opts: any, active: any): (string?, string?)
 canonicalValue = function(value, opts, active): (string?, string?)
     if not allowed(opts) then
@@ -24,7 +31,7 @@ canonicalValue = function(value, opts, active): (string?, string?)
         scalar = "n"
     elseif kind == "boolean" then
         scalar = value and "t" or "f"
-    elseif kind == "number" then
+    elseif kind == "number" and value == value and value ~= math.huge and value ~= -math.huge then
         scalar = "d" .. string.format("%.17g", value)
     elseif kind == "string" then
         scalar = "s" .. #value .. ":" .. value
@@ -41,16 +48,9 @@ canonicalValue = function(value, opts, active): (string?, string?)
         return nil, "cycle"
     end
     active[value] = true
-    local keys: {any} = {}
-    for key in pairs(value) do
-        keys[#keys + 1] = key
-    end
-    table.sort(keys, function(a, b)
-        return tostring(a) < tostring(b)
-    end)
-    local out = {"{"}
+    local entries: {string} = {}
     local size = 1
-    for _, key in ipairs(keys) do
+    for key in pairs(value) do
         local encodedKey, keyError = canonicalValue(key, opts, active)
         if not encodedKey then
             active[value] = nil;
@@ -61,13 +61,18 @@ canonicalValue = function(value, opts, active): (string?, string?)
             active[value] = nil;
             return nil, valueError
         end
-        out[#out + 1] = encodedKey
-        out[#out + 1] = encodedValue
-        size = size + #encodedKey + #encodedValue
+        local entry = encodedKey .. encodedValue
+        entries[#entries + 1] = entry
+        size = size + #entry
         if opts and opts.limit and size + 1 > opts.limit then
             active[value] = nil
             return nil, "limit"
         end
+    end
+    table.sort(entries)
+    local out = {"{"}
+    for _, entry in ipairs(entries) do
+        out[#out + 1] = entry
     end
     out[#out + 1] = "}"
     active[value] = nil
@@ -109,8 +114,8 @@ renderValue = function(value, opts, active): (string?, string?)
     elseif kind == "boolean" then
         scalar = tostring(value)
     elseif kind == "string" then
-        scalar = ("%q"):format(value)
-    elseif kind == "number" then
+        scalar = quoted(value)
+    elseif kind == "number" and value == value and value ~= math.huge and value ~= -math.huge then
         scalar = value == 0 and 1 / value < 0 and "-0.0" or ("%.17g"):format(value)
     elseif kind ~= "table" then
         return nil, "invalid"
@@ -127,7 +132,14 @@ renderValue = function(value, opts, active): (string?, string?)
     active[value] = true
     local parts = {}
     local size = 2
-    for index = 1, #value do
+    local length = #value
+    for key in pairs(value) do
+        if type(key) ~= "string" and (type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > length) then
+            active[value] = nil
+            return nil, "invalid"
+        end
+    end
+    for index = 1, length do
         local rendered, why = renderValue(value[index], opts, active)
         if not rendered then
             active[value] = nil;

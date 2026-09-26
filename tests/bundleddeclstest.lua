@@ -287,6 +287,26 @@ function M.everyCarriedDeclarationResolvesToItsSource()
     end
 end
 
+function M.embeddedListingsNormalizeBothPackagingRoots()
+    local bundled = require("nupp.compiler.bundled")
+    local found = bundled.embeddedUnder(
+        {
+            ["/compiler/decls/first.d.nupp"] = "first",
+            ["/nupp/compiler/decls/second.d.nupp"] = "second",
+            ["/compiler/decls/shared.d.nupp"] = "shared",
+            ["/nupp/compiler/decls/shared.d.nupp"] = "shared",
+            ["/other/file"] = "other",
+        },
+        "/decls"
+    )
+    table.sort(found)
+    assertEq(
+        table.concat(found, ","),
+        "/decls/first.d.nupp,/decls/second.d.nupp,/decls/shared.d.nupp",
+        "both bundle roots list the same relative paths"
+    )
+end
+
 -- A public standard module the compiler ships but cannot load the types of
 -- resolves to `unknown` at every consumer, and a field read on `unknown` says
 -- "no field X in unknown" rather than naming the module that was never loaded.

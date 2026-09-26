@@ -19,6 +19,33 @@ local HELPERS = {
     ["nupp.fieldcodec.keyed"] = "_G.nupp.fieldcodec.keyed",
 }
 
+local RESERVED: {
+    [string]: boolean
+} = {
+    ["and"] = true,
+    ["break"] = true,
+    ["do"] = true,
+    ["else"] = true,
+    ["elseif"] = true,
+    ["end"] = true,
+    ["false"] = true,
+    ["for"] = true,
+    ["function"] = true,
+    ["goto"] = true,
+    ["if"] = true,
+    ["in"] = true,
+    ["local"] = true,
+    ["nil"] = true,
+    ["not"] = true,
+    ["or"] = true,
+    ["repeat"] = true,
+    ["return"] = true,
+    ["then"] = true,
+    ["true"] = true,
+    ["until"] = true,
+    ["while"] = true,
+}
+
 type ir.Failure = {@readonly message: string}
 
 local record ir
@@ -35,7 +62,10 @@ local function quote(value)
     elseif kind == "boolean" then
         return tostring(value)
     elseif kind == "string" then
-        return ("%q"):format(value)
+        local text = ("%q"):format(value)
+        text = text:gsub("\n", "n"):gsub("\r", "r")
+
+        return text
     elseif kind == "number" and value == value and value ~= math.huge and value ~= -math.huge then
         if value == 0 and 1 / value < 0 then
             return "-0.0"
@@ -47,7 +77,29 @@ local function quote(value)
 end
 
 local function validName(name)
-    return type(name) == "string" and name:find("^[%a_][%w_]*$") ~= nil
+    return type(name) == "string" and name:find("^[%a_][%w_]*$") ~= nil and not RESERVED[name]
+end
+
+local function list(value: any, description: string): {any}?, string?
+    if value == nil then
+        return {}
+    end
+    if type(value) ~= "table" then
+        return nil, "runtime-expression " .. description .. " is not a list"
+    end
+    local count = #value
+    local seen: integer = 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > count then
+            return nil, "runtime-expression " .. description .. " is not a dense list"
+        end
+        seen = seen + 1
+    end
+    if seen ~= count then
+        return nil, "runtime-expression " .. description .. " is not a dense list"
+    end
+
+    return value
 end
 
 --- Validates and renders one expression on one logical source line.
@@ -115,7 +167,11 @@ function ir.render(root: any): string?, ir.Failure?
             return path
         elseif tag == "table" then
             local parts = {}
-            for _, child in ipairs(node.array or {}) do
+            local array, arrayError = list(node.array, "table array")
+            if not array then
+                return nil, arrayError
+            end
+            for _, child in ipairs(array) do
                 local text, err = renderExpr(child)
                 if not text then
                     return nil, err
@@ -123,7 +179,11 @@ function ir.render(root: any): string?, ir.Failure?
                 parts[#parts + 1] = text
             end
             local seen = {}
-            for _, field in ipairs(node.fields or {}) do
+            local fields, fieldsError = list(node.fields, "table fields")
+            if not fields then
+                return nil, fieldsError
+            end
+            for _, field in ipairs(fields) do
                 if type(field) ~= "table" or not validName(field.name) or seen[field.name] then
                     return nil, "runtime-expression table has an invalid or repeated field"
                 end
@@ -152,7 +212,11 @@ function ir.render(root: any): string?, ir.Failure?
                 return nil, err
             end
             local args = {}
-            for _, argument in ipairs(node.args or {}) do
+            local arguments, argumentsError = list(node.args, "call arguments")
+            if not arguments then
+                return nil, argumentsError
+            end
+            for _, argument in ipairs(arguments) do
                 local text, argErr = renderExpr(argument)
                 if not text then
                     return nil, argErr
@@ -164,7 +228,11 @@ function ir.render(root: any): string?, ir.Failure?
         elseif tag == "function" then
             local own = {}
             local params = {}
-            for _, id in ipairs(node.params or {}) do
+            local parameters, parametersError = list(node.params, "closure parameters")
+            if not parameters then
+                return nil, parametersError
+            end
+            for _, id in ipairs(parameters) do
                 if type(id) ~= "number" or id ~= math.floor(id) or id < 1 or own[id] then
                     return nil, "runtime-expression closure has an invalid parameter slot"
                 end
@@ -194,11 +262,16 @@ function ir.render(root: any): string?, ir.Failure?
     end
 
     renderStats = function(stats)
-        if type(stats) ~= "table" then
-            return nil, "runtime-expression closure body is not a statement list"
+        local statements, statementsError = list(stats, "closure body")
+        if not statements then
+            return nil, statementsError
         end
         local parts = {}
-        for _, stat in ipairs(stats) do
+        local returned = false
+        for _, stat in ipairs(statements) do
+            if returned then
+                return nil, "runtime-expression closure has a statement after return"
+            end
             local ok, why = visit(stat)
             if not ok then
                 return nil, why
@@ -221,7 +294,11 @@ function ir.render(root: any): string?, ir.Failure?
                     return nil, err
                 end
                 parts[#parts + 1] = "return " .. value
+                returned = true
             elseif stat.tag == "callstat" then
+                if type(stat.value) ~= "table" or (stat.value.tag ~= "call" and stat.value.tag ~= "iife") then
+                    return nil, "runtime-expression call statement does not contain a call"
+                end
                 local value, err = renderExpr(stat.value)
                 if not value then
                     return nil, err

@@ -193,6 +193,8 @@ function bundled.embeddedUnder(files: {[string]: string}, prefix: string): {stri
         local relative = path
         if path:sub(1, #NAMESPACE_KEY + 1) == NAMESPACE_KEY .. "/" then
             relative = path:sub(#NAMESPACE_KEY + 1)
+        elseif path:sub(1, #MODULE_KEY + 1) == MODULE_KEY .. "/" then
+            relative = path:sub(#MODULE_KEY + 1)
         end
         if relative:sub(1, #prefix + 1) == prefix .. "/" and not seen[relative] then
             seen[relative] = true

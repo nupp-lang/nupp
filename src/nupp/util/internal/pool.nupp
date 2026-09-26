@@ -49,6 +49,8 @@ record pool.Pool<T is table>
     freeCount: integer
     @private
     liveCount: integer
+    @private
+    liveValues: {[any]: boolean}
 
     --- Hands out an instance, from the free list or freshly stamped.
     acquire: function(exclusive self: Pool<T>): T
@@ -81,12 +83,15 @@ end
 function pool.Pool.acquire<T is table>(exclusive self: pool.Pool<T>): T
     self.liveCount = self.liveCount + 1
     local count = self.freeCount
+    local value: T
     if count == 0 then
-        return setmetatable({}, self.witness) as T
+        value = setmetatable({}, self.witness) as T
+    else
+        value = self.freeList[count]
+        self.freeList[count] = nil
+        self.freeCount = count - 1
     end
-    local value = self.freeList[count]
-    self.freeList[count] = nil
-    self.freeCount = count - 1
+    self.liveValues[value] = true
 
     return value
 end
@@ -109,6 +114,10 @@ function pool.Pool.release<T is table>(exclusive self: pool.Pool<T>, value: T): 
     if getmetatable(value) ~= self.witness then
         error("pool release of a value the pool's declaration did not stamp", 2)
     end
+    if not self.liveValues[value] then
+        error("pool release of a value not live in this pool", 2)
+    end
+    self.liveValues[value] = nil
     self.liveCount = self.liveCount - 1
     table.clear(value as any)
     local count = self.freeCount
@@ -200,7 +209,8 @@ function pool.new<T is table>(witness: Type<T>, capacity: integer?): pool.Pool<T
         capacity = retained,
         freeList = {} as {T},
         freeCount = 0,
-        liveCount = 0
+        liveCount = 0,
+        liveValues = {}
     ) as pool.Pool<T>
     created:reserve(retained)
 
