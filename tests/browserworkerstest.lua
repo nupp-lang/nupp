@@ -139,7 +139,25 @@ function M.nothingRefusedIsSaidOfATransferableValue()
 end
 
 function M.malformedMessagesAreRefusedRatherThanDecoded()
-    for _, bytes in ipairs({"", "3:", "1:S5:ab", "1:Q", "1:S1:ab"}) do
+    local nested = "t0:"
+    for _ = 1, 32 do
+        nested = "t1:S1:n" .. nested
+    end
+    for _, bytes in ipairs({
+        "",
+        "3:",
+        "01:N",
+        "999999999999999999999999:",
+        "1:S5:ab",
+        "1:Q",
+        "1:S1:ab",
+        "1:D2:01",
+        "1:t1:S1:aN",
+        "1:t2:S1:aTS1:aF",
+        "1:t1:XT",
+        "1:t1:t0:T",
+        "1:" .. nested,
+    }) do
         check.raises(
             function()
                 codec.decode(bytes)
@@ -147,6 +165,22 @@ function M.malformedMessagesAreRefusedRatherThanDecoded()
             "worker message"
         )
     end
+end
+
+function M.malformedRecordAddressesAreRejectedBeforeLoadingAModule()
+    local loaded = false
+    package.preload["invalid-worker-record"] = function()
+        loaded = true
+        return {}
+    end
+    local address = "invalid-worker-record\0Record"
+    local bytes = "1:r" .. #address .. ":" .. address .. "0:"
+    local ok, problem = pcall(codec.decode, bytes)
+    package.preload["invalid-worker-record"] = nil
+    package.loaded["invalid-worker-record"] = nil
+    check.assert(not ok, "an invalid record address is refused")
+    check.matches(tostring(problem), "worker value names an invalid record")
+    check.assert(not loaded, "an invalid address is rejected before require")
 end
 
 function M.providersUseTheCanonicalScopeContract()

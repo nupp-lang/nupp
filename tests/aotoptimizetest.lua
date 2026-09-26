@@ -7,6 +7,7 @@
 local effects = require("nupp.compiler.aot.effects")
 local fold = require("nupp.compiler.aot.fold")
 local optimize = require("nupp.compiler.aot.optimize")
+local scalar = require("nupp.compiler.scalarintrinsics")
 
 local M = {}
 
@@ -428,6 +429,13 @@ function M.foldsExactU32MultiplyAndNormalizesBitResults()
    assert(ir.body[1].values[1].value == "1")
    assert(ir.body[1].values[2].value == "4294967295")
    assert(ir.body[1].values[3].value == "4294967295")
+end
+
+function M.foldsUnsignedComparisonsWithoutFallingBackToSignedOnFalse()
+   assert(scalar.fold("u32.lessThan", {4294967295, 0}) == false)
+   assert(scalar.fold("u32.lessOrEqual", {4294967295, 0}) == false)
+   assert(scalar.fold("u32.lessThan", {0, 4294967295}) == true)
+   assert(scalar.fold("u32.lessOrEqual", {0, 4294967295}) == true)
 end
 
 function M.normalizesSubtractionOnlyInAdmittedIntegerDomains()

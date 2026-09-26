@@ -138,9 +138,15 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
         local out = bit.ror(a, bit.band(b, 31))
         return family == "u32" and u32(out) or out
     elseif operation == "lessThan" then
-        return family == "u32" and u32(a) < u32(b) or bit.tobit(a) < bit.tobit(b)
+        if family == "u32" then
+            return u32(a) < u32(b)
+        end
+        return bit.tobit(a) < bit.tobit(b)
     elseif operation == "lessOrEqual" then
-        return family == "u32" and u32(a) <= u32(b) or bit.tobit(a) <= bit.tobit(b)
+        if family == "u32" then
+            return u32(a) <= u32(b)
+        end
+        return bit.tobit(a) <= bit.tobit(b)
     elseif operation == "fromU32" or operation == "toI32" then
         return bit.tobit(a)
     elseif operation == "toU32" or operation == "fromI32" then

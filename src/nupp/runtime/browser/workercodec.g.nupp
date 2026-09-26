@@ -131,9 +131,19 @@ local function resolveRecord(address: string): any
     if moduleName == nil or moduleName == "" or memberPath == nil then
         error("nupp: a worker value names an invalid record", 0)
     end
+    for _, path in ipairs({moduleName, memberPath}) do
+        if path:sub(1, 1) == "." or path:sub(-1) == "." or path:find("..", 1, true) then
+            error("nupp: a worker value names an invalid record", 0)
+        end
+        for member in path:gmatch("[^.]+") do
+            if not member:match("^[%a_][%w_]*$") then
+                error("nupp: a worker value names an invalid record", 0)
+            end
+        end
+    end
     local value: any = require(moduleName as string)
     for member in (memberPath as string):gmatch("[^.]+") do
-        if not member:match("^[%a_][%w_]*$") or type(value) ~= "table" then
+        if type(value) ~= "table" then
             error("nupp: a worker value names an invalid record", 0)
         end
         value = (value as {[string]: any})[member]
@@ -242,9 +252,13 @@ local function readLength(bytes: string, cursor: Cursor): integer
     if digits == nil then
         error("nupp: a worker message is malformed", 0)
     end
+    local length = tonumber(digits)
+    if length == nil or length > #bytes or (#digits > 1 and digits:sub(1, 1) == "0") then
+        error("nupp: a worker message is malformed", 0)
+    end
     cursor.at = following as integer
 
-    return tonumber(digits) as integer
+    return length as integer
 end
 
 local function readString(bytes: string, cursor: Cursor): string
@@ -280,7 +294,12 @@ local function readValue(bytes: string, cursor: Cursor, depth: integer): any
     elseif tag == NUMBER then
         local text = readString(bytes, cursor)
         local number = tonumber(text)
-        if number == nil then
+        if number == nil
+            or number ~= number
+            or number == math.huge
+            or number == -math.huge
+            or ("%.17g"):format(number) ~= text
+        then
             error("nupp: a worker message is malformed", 0)
         end
 
@@ -288,6 +307,9 @@ local function readValue(bytes: string, cursor: Cursor, depth: integer): any
     elseif tag == STRING then
         return readString(bytes, cursor)
     elseif tag == TABLE or tag == RECORD then
+        if depth >= MAX_DEPTH then
+            error("nupp: a worker message nests too deeply", 0)
+        end
         local address: string? = nil
         if tag == RECORD then
             address = readString(bytes, cursor)
@@ -297,7 +319,13 @@ local function readValue(bytes: string, cursor: Cursor, depth: integer): any
         for _ = 1, count do
             local key = readValue(bytes, cursor, depth + 1)
             local item = readValue(bytes, cursor, depth + 1)
-            if key == nil then
+            local keyKind = type(key)
+            if key == nil
+                or (keyKind ~= "boolean" and keyKind ~= "number" and keyKind ~= "string")
+                or key ~= key
+                or item == nil
+                or value[key] ~= nil
+            then
                 error("nupp: a worker message is malformed", 0)
             end
             value[key] = item

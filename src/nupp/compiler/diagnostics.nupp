@@ -8,10 +8,10 @@ The one place that turns a diagnostic into the conventional
 under it and a caret run marking the range. The CLI and the build both report
 through here, so a compiler error looks the same wherever it surfaced.
 
-Colour comes from `nupp.cli`, which decides once whether stderr is something
+Color comes from `nupp.cli`, which decides once whether stderr is something
 worth writing escape codes to; when it is not, the styles are identity functions
 and what comes out is byte-for-byte what it always was. The caret run is painted
-in the severity's own colour, so the eye reaches the marked span by the same
+in the severity's own color, so the eye reaches the marked span by the same
 route it reached the word "error".
 
 A whole report is built up and written once. stderr is unbuffered, so a line at

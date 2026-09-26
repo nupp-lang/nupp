@@ -30,10 +30,10 @@ export record Cell
     text: string
 
     --- Paints the text, overriding the column's painter for this cell alone. How one
-    --- row reports a level in its own severity colour while its neighbours do not.
+    --- row reports a level in its own severity color while its neighbors do not.
     paint: (function(string): string)?
 
-    --- An aside after the text, in its own colour: a default a project moved off, a
+    --- An aside after the text, in its own color: a default a project moved off, a
     --- unit, a "(default)" beside the name it belongs to. Written separately because
     --- it is painted separately, and measured with the text rather than after it, so
     --- a column carrying one still lines up with the column beside it.
@@ -68,7 +68,7 @@ export record Options
     --- blanks rather than refused, so a caller may leave a trailing cell out.
     rows: {{Cell}}
 
-    --- Where the heading colour and any cell colours come from. Supply the style
+    --- Where the heading color and any cell colors come from. Supply the style
     --- selected for the stream being written to; omit it and nothing is painted.
     style: Style?
 
@@ -195,7 +195,7 @@ export function render(options: Options): string
 
     -- Painted after padding, and the note painted apart from the text: an escape is
     -- bytes with no width on screen, so anything measured has to be measured before a
-    -- colour is put on it. The last column carries no padding, because a trailing run
+    -- color is put on it. The last column carries no padding, because a trailing run
     -- of spaces is invisible in a terminal and very visible in a file, a diff, or
     -- anything that trims lines.
     local function laid(cell: Cell?, index: integer, column: Column, paint: function(string): string): string
