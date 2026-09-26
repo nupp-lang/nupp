@@ -364,8 +364,6 @@ jobs:
       # not exist yet; the digest check is the same either way.
       - name: Link standalone AOT programs from the recorded kits
         shell: bash
-        env:
-          NUPP_AOT_BACKEND: llvm
         run: |
           set -euo pipefail
           released="$PWD/release/verify-${{ matrix.platform }}/nupp"

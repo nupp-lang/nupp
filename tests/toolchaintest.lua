@@ -355,52 +355,26 @@ function M.windowsDefaultsToTheGnuCompilerPair()
     assert(automatic ~= msvc, "Windows selected the MSVC-targeting clang pair")
 end
 
--- Cargo owns the ordinary Rust executable's platform closure. The two static
--- relink routes still invoke a C linker and must spell that closure explicitly.
+-- Cargo owns the ordinary Rust executable's platform closure. The static relink
+-- route still invokes a C linker and must spell that closure explicitly.
 function M.windowsHostLinkersCarryPthread()
     local driver = read(ROOT .. "/scripts/toolchain")
-    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
     local systemFlags = assert(driver:match("host_system_flags%(%) {%s*(.-)\n}"))
     local windowsFlags = assert(systemFlags:match("windows%)(.-);;"))
     assert(windowsFlags:find("-lpthread", 1, true), "the Windows application host linker does not link pthread")
     assert(driver:find('$(host_system_flags "$features")', 1, true), "the application linker omits its system flags")
-    assert(
-        packLinker:match('#ifdef _WIN32%s+append%(&cursor, "%-lpthread"%);'),
-        "the Windows compiler-pack host linker does not link pthread"
-    )
-end
-
-function M.windowsCompilerPackLinksItsToolchainRuntimeStatically()
-    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
-    assert(
-        packLinker:match('#ifdef _WIN32%s+/%*.-%*/%s+append%(&cursor, "%-static"%);'),
-        "the Windows compiler-pack output can depend on LLVM-MinGW runtime DLLs"
-    )
 end
 
 -- Rustls reads the Windows root stores through CryptoAPI, and Rust std builds
--- child pipes with ntdll. Cargo records executable dependencies; both static
--- C-link routes record them themselves.
+-- child pipes with ntdll. Cargo records executable dependencies; the static
+-- C-link route records them itself.
 function M.windowsHostLinkersCarrySystemImports()
     local driver = read(ROOT .. "/scripts/toolchain")
-    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
     assert(driver:find("-lcrypt32", 1, true), "the application host linker does not carry crypt32")
     assert(driver:find("-lntdll", 1, true), "the application host linker does not carry Rust std's ntdll dependency")
     assert(
-        packLinker:match('append%(&cursor, "%-lcrypt32"%);'),
-        "the Windows compiler-pack host linker does not link crypt32"
-    )
-    assert(
-        packLinker:match('append%(&cursor, "%-lntdll"%);'),
-        "the Windows compiler-pack host linker does not link Rust std's ntdll dependency"
-    )
-    assert(
         not driver:find("--allow-multiple-definition", 1, true),
         "the application host linker masks malformed archive composition"
-    )
-    assert(
-        not packLinker:find("--allow-multiple-definition", 1, true),
-        "the compiler-pack host linker masks malformed archive composition"
     )
 end
 
@@ -422,21 +396,12 @@ function M.windowsEmbeddingArtifactsShareTheCargoBasename()
     )
 end
 
--- The same static routes carry the macOS trust-store frameworks.
+-- The same static route carries the macOS trust-store frameworks.
 function M.macOSHostLinkersCarryTheSecurityFramework()
     local driver = read(ROOT .. "/scripts/toolchain")
-    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
     local _, security = driver:gsub("%-framework Security", "")
     local _, foundation = driver:gsub("%-framework CoreFoundation", "")
     assert(security >= 1 and foundation >= 1, "not every macOS toolchain linker carries the trust-store frameworks")
-    assert(
-        packLinker:match('append%(&cursor, "Security"%);'),
-        "the macOS compiler-pack host linker does not link Security.framework"
-    )
-    assert(
-        packLinker:match('append%(&cursor, "CoreFoundation"%);'),
-        "the macOS compiler-pack host linker does not link CoreFoundation"
-    )
 end
 
 -- The Rust application archive now contains the exact-feature provider. Cargo
@@ -446,8 +411,6 @@ end
 function M.staticHostsRetainTheRustApplicationArchive()
     local cargo = read(ROOT .. "/Cargo.toml")
     local driver = read(ROOT .. "/scripts/toolchain")
-    local packer = read(ROOT .. "/scripts/compiler-pack")
-    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
     local companionCopy = assert(driver:find('cp "$source" "$imports_archive"', 1, true))
     local sanitize = assert(driver:find('"$archive_tool" d "$destination" "@$imports_native"', 1, true))
     local importMemberCase = "*.dlls[0-9]*.o|*.dllh.o|*.dllt.o"
@@ -514,47 +477,10 @@ function M.staticHostsRetainTheRustApplicationArchive()
         not driver:find('-Wl,--whole-archive "$host_out/libnupp-host-imports.a"', 1, true),
         "the Windows application linker explicitly force-loads Rust std's import companion"
     )
-    assert(packer:find('cp "$host_dir/libnupp-host.a"', 1, true), "the compiler pack omits the Rust application host")
-    assert(
-        packer:match(
-            'if %[%s*"%$platform" = windows %]; then%s+'
-            .. 'cp "%$host_dir/libnupp%-host%-imports%.a" "%$pack/host/lib/libnupp%-host%-imports%.a"%s+fi'
-        ),
-        "the compiler pack does not stage the import companion only on Windows"
-    )
-    assert(
-        packLinker:find('host/lib/libnupp-host.a', 1, true),
-        "the compiler-pack linker omits the Rust application host"
-    )
-    local packWhole = assert(packLinker:find('append(&cursor, "-Wl,--whole-archive")', 1, true))
-    local packApplications = assert(packLinker:find("if (separator > 3)", 1, true))
-    local packWindowsHost = assert(packLinker:find("append(&cursor, host);", packApplications, true))
-    local packSystemImports = assert(packLinker:find('append(&cursor, "-lntdll")', packWhole, true))
-    local packHostImports = assert(packLinker:find('append(&cursor, host_imports)', packSystemImports, true))
-    assert(
-        packWhole < packWindowsHost and packWindowsHost < packSystemImports,
-        "the Windows compiler-pack scans the host before force-loaded AOT archives"
-    )
-    assert(
-        packLinker:find('append(&cursor, "-lkernel32")', packSystemImports, true)
-        and packLinker:find('append(&cursor, "-lsecur32")', packSystemImports, true)
-        and packLinker:find('append(&cursor, "-lncrypt")', packSystemImports, true),
-        "the compiler-pack companion can preempt canonical Windows imports"
-    )
-    assert(
-        packLinker:find('host/lib/libnupp-host-imports.a', 1, true),
-        "the Windows compiler-pack linker omits Rust std's normally selected import thunks"
-    )
-    assert(
-        packWhole < packSystemImports and packSystemImports < packHostImports,
-        "the Windows compiler-pack import companion can preempt canonical system imports"
-    )
 end
 
 function M.networkAndTlsAreRustOnlyToolchainFeatures()
     local driver = read(ROOT .. "/scripts/toolchain")
-    local packer = read(ROOT .. "/scripts/compiler-pack")
-    local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
     assert(
         driver:find('host_cargo_features="$host_cargo_features,native-net"', 1, true),
         "a network host does not select the Rust net crate"
@@ -569,8 +495,6 @@ function M.networkAndTlsAreRustOnlyToolchainFeatures()
     )
     for _, obsolete in ipairs({"libuv", "mbedtls"}) do
         assert(not driver:lower():find(obsolete, 1, true), "the toolchain still provisions " .. obsolete)
-        assert(not packer:lower():find(obsolete, 1, true), "compiler packs still copy " .. obsolete)
-        assert(not packLinker:lower():find(obsolete, 1, true), "compiler packs still link " .. obsolete)
     end
 end
 
@@ -598,50 +522,14 @@ function M.deletedCHostDoesNotContributeCacheInputs()
     assert(driver:find("embedding_headers_digest", 1, true), "the staged public embedding headers have no content key")
 end
 
--- Release and compiler-pack jobs exercise a feature list outside the ordinary
+-- Release jobs exercise a feature list outside the ordinary
 -- toolchain driver. A removed host feature left there fails only after a clean
 -- Linux or Windows release runner has provisioned the entire toolchain.
 function M.releaseJobsRequestOnlyCurrentHostFeatures()
-    for _, path in ipairs({
-        ".github/scripts/build-compiler-pack-linux.sh",
-        ".github/scripts/build-compiler-pack-windows.sh",
-        ".github/workflows/release.yml",
-    }) do
+    for _, path in ipairs({".github/workflows/release.yml"}) do
         local text = read(ROOT .. "/" .. path)
         assert(not text:find("lua-utf8", 1, true), path .. " still requests the removed lua-utf8 host feature")
     end
-end
-
--- The large LLVM compiler-pack inputs are independently pinned, but release
--- builders must admit the same pre-fetched source directory as the rest of the
--- native toolchain when a release is reconstructed without a network.
-function M.compilerPackBuildersAdmitPinnedOfflineSources()
-    for _, path in ipairs({
-        ".github/scripts/build-compiler-pack-linux.sh",
-        ".github/scripts/build-compiler-pack-windows.sh",
-    }) do
-        local source = read(ROOT .. "/" .. path)
-        assert(source:find("NUPP_HOST_SOURCE_DIR", 1, true), path .. " cannot read pre-fetched inputs")
-        assert(source:find("NUPP_HOST_OFFLINE", 1, true), path .. " cannot forbid downloads")
-        assert(
-            source:find("offline compiler-pack build needs", 1, true),
-            path .. " does not diagnose a missing offline input"
-        )
-    end
-end
-
--- Clang accepts --ld-path only while linking. Generated AOT compilation uses
--- -Werror, so putting it among compile flags makes a valid installed pack fail
--- before its linker can run.
-function M.linuxCompilerPackKeepsTheLinkerOutOfCompiles()
-    local packer = read(ROOT .. "/scripts/compiler-pack")
-    local compileFlags = assert(packer:match("compile_flags='(%[[^\n]+%])'"))
-    local linkFlags = assert(packer:match("link_flags='(%[[^\n]+%])'"))
-    assert(
-        not compileFlags:find("--ld-path", 1, true),
-        "the Linux pack gives linker selection to compile-only commands"
-    )
-    assert(linkFlags:find("--ld-path", 1, true), "the Linux pack does not select its bundled linker")
 end
 
 -- A path answered by Git Bash can be handed directly to the native compiler or

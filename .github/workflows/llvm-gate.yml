@@ -1,28 +1,22 @@
-name: LLVM gate B
+name: AOT facts benchmark
 
-# Gate B: the LLVM backend's kernels with every proved fact against the same
-# kernels with none, on x86-64 hardware, tier by tier: bit for bit, and what the
-# facts buy. Timings are noisy on shared runners and a
-# run costs runner hours, so this runs only when a commit message says
-# `[llvm ci]`, and writes its tables to the job summary; a regression is
-# judged across runs, not from one. AVX-512 is measured only where the runner
-# has it, and a runner without it fails that job rather than passing it.
+# The kernels in bench/llvm-gate with every proved fact against the same kernels
+# with none, on x86-64 hardware, tier by tier: bit for bit, and what the facts
+# buy. Timings are noisy on shared runners and a run costs runner hours, so it
+# runs only when dispatched and writes its tables to the job summary; a
+# regression is judged across runs, not from one. AVX-512 is measured only where
+# the runner has it, and a runner without it fails that job rather than passing
+# it.
 permissions:
   contents: read
   actions: read
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'bench/llvm-gate/**'
-      - 'src/nupp/compiler/aot/llvm/**'
-      - '.github/workflows/llvm-gate.yml'
 
 jobs:
   gate:
     name: x86-64 ${{ matrix.tiers }}
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[llvm ci]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:

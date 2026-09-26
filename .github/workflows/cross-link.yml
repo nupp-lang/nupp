@@ -1,15 +1,29 @@
-name: LLVM backend
+name: Cross-platform links
 
-# The AOT suites through the LLVM backend (`NUPP_AOT_BACKEND=llvm`), which the
-# compiler matrix does not select until the C lowering is gone. The pinned LLVM
-# comes from .github/actions/pinned-llvm, which builds it once per pin and
-# platform and keeps it.
-
-# Each run costs hours of runner time, most of it building LLVM when its cache
-# was evicted, so a push runs it only when its commit message says
-# `[llvm ci]`; otherwise every job is skipped.
+# A standalone AOT program linked on one platform from another's link kit, and
+# run where it was linked for. The compiler matrix runs every AOT suite through
+# the code generator on each platform; this is what it cannot see, since each of
+# its jobs links only for itself. The pinned LLVM comes from
+# .github/actions/pinned-llvm, which builds it once per pin and platform and
+# keeps it.
+#
+# It runs when something a kit or a cross link depends on changes, or when a
+# commit message says `[llvm ci]`.
 on:
   push:
+    paths:
+      - '.github/actions/pinned-llvm/**'
+      - '.github/workflows/cross-link.yml'
+      - 'native/crates/codegen/**'
+      - 'native/crates/native/c/**'
+      - 'scripts/toolchain'
+      - 'scripts/toolchain.pins'
+      - 'src/nupp/compiler/aot/llvm/coff.nupp'
+      - 'src/nupp/compiler/aot/llvm/profile.nupp'
+      - 'src/nupp/tools/build/aotllvm.nupp'
+      - 'src/nupp/tools/build/kits.nupp'
+      - 'src/nupp/tools/build/native.nupp'
+      - 'tests/fixtures/cross-aot/**'
   workflow_dispatch:
 
 # Reading and storing the pinned LLVM artifact.
@@ -20,15 +34,14 @@ permissions:
 # Queued rather than cancelled: a cancelled cold run never saves the LLVM it
 # spent an hour building. GitHub keeps only the newest pending run.
 concurrency:
-  group: llvm-backend-${{ github.ref }}
+  group: cross-link-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   # Each platform's link kit, built where that platform's libraries are. The
-  # LLVM legs link programs for the other platform with it. A kit needs no LLVM.
+  # link jobs link programs for the other platform with it. A kit needs no LLVM.
   kits:
     name: ${{ matrix.name }} link kit
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[llvm ci]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -66,15 +79,12 @@ jobs:
           path: ${{ runner.temp }}/kit-${{ matrix.platform }}.tar.gz
           if-no-files-found: error
 
-  llvm:
-    name: ${{ matrix.name }} / LLVM route
+  link:
+    name: Link on ${{ matrix.name }} for ${{ matrix.cross }}
     needs: kits
-    # A kit that failed to build fails the cross step, not the suites; a kit
-    # job skipped because the run was not asked for skips this too.
-    if: ${{ !cancelled() && needs.kits.result != 'skipped' }}
     runs-on: ${{ matrix.os }}
-    # A cold runner builds LLVM before any suite runs.
-    timeout-minutes: 300
+    # A cold runner builds LLVM first.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -85,9 +95,6 @@ jobs:
           - name: Linux x64
             os: ubuntu-24.04
             cross: aarch64-apple-darwin
-          - name: Windows x64
-            os: windows-2022
-            cross: ''
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -112,13 +119,6 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Install the ABI-compatible Windows Rust toolchain
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
-
       # After the toolchain, so this LLVM wins over whatever an older
       # toolchain cache entry carried.
       - name: Fetch or build the pinned LLVM
@@ -130,96 +130,17 @@ jobs:
 
       - name: Bootstrap the compiler
         shell: bash
+        env:
+          NUPP_REQUIRE_CODEGEN: '1'
         run: ./bin/nupp build
 
-      - name: Install the development rocks
-        shell: bash
-        run: ./bin/nupp build --target bootstrapCompiler
-
-      # The test runner refuses to start on Windows without naming Git Bash.
-      - name: Name Git Bash for the test runner
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          bash_path=$(command -v bash)
-          echo "NUPP_TEST_BASH=$(cygpath -w "$bash_path")" >> "$GITHUB_ENV"
-          echo "NUPP_TEST_SH=$(cygpath -w "$(dirname "$bash_path")/sh.exe")" >> "$GITHUB_ENV"
-
-      - name: Run the AOT suites through LLVM
-        # A hung suite fails here instead of holding the runner for hours.
-        timeout-minutes: 45
-        env:
-          NUPP_AOT_BACKEND: llvm
-        shell: bash
-        # One worker on Windows: the parallel runner's join has hung there.
-        run: ./bin/nupp test --group=aot ${{ runner.os == 'Windows' && '--jobs=1' || '' }}
-
-      # A crash in an isolated piece reports no case. Rerun the suite a case at
-      # a time under gdb so the one that crashes is named, with its backtrace.
-      - name: Name the AOT case that crashed
-        if: failure() && runner.os == 'Linux'
-        shell: bash
-        env:
-          NUPP_AOT_BACKEND: llvm
-        run: |
-          set +e
-          sudo apt-get install -y gdb > /dev/null 2>&1
-          . ./scripts/luajit.sh
-          select_luajit "$PWD"
-          ulimit -c 0
-          for name in $(sed -n 's/^function M\.\([A-Za-z0-9_]*\)(.*/\1/p' tests/aotbuildtest.lua); do
-            timeout 600 luajit tests/run.lua --case="aotbuildtest/$name" > /tmp/case.log 2>&1
-            status=$?
-            if [ "$status" -ge 128 ] && [ "$status" -ne 124 ]; then
-              echo "::group::crash in $name (status $status)"
-              tail -20 /tmp/case.log
-              gdb -batch -ex run -ex bt -ex 'info sharedlibrary' \
-                --args luajit tests/run.lua --case="aotbuildtest/$name" 2>&1 | tail -80
-              echo "::endgroup::"
-            fi
-          done
-          exit 1
-
-      - name: Run the standalone and static suites through LLVM
-        # A hung suite fails here instead of holding the runner for hours.
-        timeout-minutes: 45
-        env:
-          NUPP_AOT_BACKEND: llvm
-        shell: bash
-        run: ./bin/nupp test projecttest hostembeddingtest aotincrementaltest
-
-      - name: Run the SIMD differentials through LLVM
-        # A hung suite fails here instead of holding the runner for hours.
-        timeout-minutes: 45
-        env:
-          NUPP_AOT_BACKEND: llvm
-        shell: bash
-        run: >-
-          ./bin/nupp test simdprimitivedifferentialtest simdnativealgorithmdifferentialtest
-          simdreducerdifferentialtest
-
-      # Wasm through nupp alone: no Emscripten on this runner is asked for.
-      - name: Run the Wasm SIMD suites through LLVM
-        # A hung suite fails here instead of holding the runner for hours.
-        timeout-minutes: 45
-        env:
-          NUPP_AOT_BACKEND: llvm
-        shell: bash
-        run: ./bin/nupp test simdwasmtimeconformancetest simdwasmalgorithmdifferentialtest
-
-      # Whatever the suites said, so a suite failure does not hide whether
-      # the other platform's program links and runs.
       - name: Download the other platform's link kit
-        if: ${{ !cancelled() && matrix.cross != '' }}
         uses: actions/download-artifact@v4
         with:
           name: kit-${{ matrix.cross }}
           path: ${{ runner.temp }}/kit-archive
 
       - name: Link a standalone AOT program for ${{ matrix.cross }}
-        if: ${{ !cancelled() && matrix.cross != '' }}
-        env:
-          NUPP_AOT_BACKEND: llvm
         shell: bash
         run: |
           kit="$RUNNER_TEMP/kit"
@@ -231,7 +152,6 @@ jobs:
           cp "build/default/${{ matrix.cross }}/default" "$RUNNER_TEMP/cross/program"
 
       - name: Upload the program for ${{ matrix.cross }}
-        if: ${{ !cancelled() && matrix.cross != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: cross-program-${{ matrix.cross }}
@@ -241,8 +161,7 @@ jobs:
   # Each program runs where it was linked for, not where it was linked.
   cross-run:
     name: Run the ${{ matrix.name }} program linked elsewhere
-    needs: llvm
-    if: ${{ !cancelled() && needs.llvm.result != 'skipped' }}
+    needs: link
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
