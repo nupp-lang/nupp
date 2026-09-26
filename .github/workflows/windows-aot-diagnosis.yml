@@ -78,6 +78,37 @@ jobs:
           timeout -k 15 240 ./bin/nupp run .github/scripts/diagnose-i686-link.lua
           echo "exit status $?"
 
+      # Windows AOT suites run far longer than elsewhere. Where one small
+      # build's time goes, cold and then unchanged.
+      - name: Time one AOT build's phases
+        shell: bash
+        run: |
+          set +e
+          work="$RUNNER_TEMP/timed"
+          mkdir -p "$work/src"
+          printf '%s\n' 'return {include = {"src"}, build = {targets = {native = {kind = "modules",' \
+            '    entries = {"kernel"}, outDir = "build/native", aot = "require"}}}}' > "$work/nupp.lua"
+          printf '%s\n' 'local span = require("nupp.mem.span")' '@aot' \
+            'local function scale(exclusive out: span.WriteSpan<number>, borrows a: span.Span<number>): nil' \
+            '    assert(#out == #a)' '    for i = 1, #out do' '        out[i] = a[i] * 2' '    end' 'end' \
+            'return {scale = scale}' > "$work/src/kernel.nupp"
+          cd "$work"
+          for run in cold warm; do
+            start=$(date +%s%N)
+            timeout -k 15 300 "$GITHUB_WORKSPACE/bin/nupp" build --json > "$RUNNER_TEMP/timed-$run.json" 2>"$RUNNER_TEMP/timed-$run.err"
+            status=$?
+            echo "== $run: status $status after $(( ($(date +%s%N) - start) / 1000000 ))ms"
+            luajit -e '
+              local text = io.open(arg[1]):read("*a")
+              for name, ms in text:gmatch([["name":"([^"]+)","durationMs":([%d.]+)]]) do
+                if tonumber(ms) > 200 then print(("  %-16s %8.0f ms"):format(name, tonumber(ms))) end
+              end
+              print("  total", text:match([["totalMs":([%d.]+)]]))' "$RUNNER_TEMP/timed-$run.json" 2>/dev/null \
+              || head -c 600 "$RUNNER_TEMP/timed-$run.json"
+            tail -3 "$RUNNER_TEMP/timed-$run.err"
+          done
+          start=$(date +%s%N); "$GITHUB_WORKSPACE/bin/nupp" --version; echo "== nupp --version: $(( ($(date +%s%N) - start) / 1000000 ))ms"
+
       - name: Run each AOT suite alone, bounded
         shell: bash
         run: |
