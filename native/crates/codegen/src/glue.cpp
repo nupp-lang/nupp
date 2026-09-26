@@ -16,10 +16,12 @@ LLD_HAS_DRIVER(coff)
 LLD_HAS_DRIVER(mingw)
 LLD_HAS_DRIVER(wasm)
 
+#include <cstdlib>
 #ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
+// Declared rather than taken from <windows.h>, whose macros (the COFF machine
+// constants among them) collide with LLVM's own names.
+extern "C" __declspec(dllimport) void *__stdcall GetCurrentProcess(void);
+extern "C" __declspec(dllimport) int __stdcall TerminateProcess(void *process, unsigned int code);
 #endif
 
 // Whether this process has run a lld whose state it cannot shed on the way
@@ -85,9 +87,9 @@ extern "C" int nupp_codegen_unexitable(void) { return unexitable ? 1 : 0; }
 extern "C" void nupp_codegen_end_process(int code) {
     fflush(nullptr);
 #ifdef _WIN32
-    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(code));
+    TerminateProcess(GetCurrentProcess(), static_cast<unsigned int>(code));
 #endif
-    _exit(code);
+    std::_Exit(code);
 }
 
 // An import library naming `dll` as the provider of `names`; a non-empty
