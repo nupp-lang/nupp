@@ -821,11 +821,12 @@ host_export_arguments() {
             # around them or libstdc++ by name, so their archives stay out.
             case ",$host_cargo_features," in
                 *,native-codegen,*)
-                    excluded=libstdc++.a,libnupp_codegen_glue.a
+                    # Colon-separated: -Wl splits its argument at commas.
+                    excluded=libstdc++.a:libnupp_codegen_glue.a
                     for archive in "$LLVM_OUT"/lib/lib*.a; do
-                        [ -f "$archive" ] && excluded="$excluded,${archive##*/}"
+                        [ -f "$archive" ] && excluded="$excluded:${archive##*/}"
                     done
-                    printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs,$excluded"
+                    printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs=$excluded"
                     ;;
             esac
             ;;
