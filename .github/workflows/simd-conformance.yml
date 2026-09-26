@@ -52,7 +52,7 @@ jobs:
           PY
 
   execute:
-    name: ${{ matrix.target.name }} / ${{ matrix.compiler }} / ${{ matrix.target.tier }} / ${{ matrix.shard.name }}
+    name: ${{ matrix.target.name }} / ${{ matrix.target.tier }} / ${{ matrix.shard.name }}
     needs: platforms
     runs-on: ${{ matrix.target.os }}
     timeout-minutes: 150
@@ -60,7 +60,6 @@ jobs:
       fail-fast: false
       matrix:
         target: ${{ fromJSON(needs.platforms.outputs.targets) }}
-        compiler: [clang, gcc]
         shard: ${{ fromJSON(needs.platforms.outputs.native) }}
     steps:
       - name: Check out the repository
@@ -97,17 +96,6 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
-      - name: Select the real compiler dialect
-        shell: bash
-        env:
-          NUPP_SIMD_COMPILER_FAMILY: ${{ matrix.compiler }}
-        run: .github/scripts/prepare-simd-compilers.sh
-
-      - name: Verify Windows compiler argument boundaries
-        if: runner.os == 'Windows'
-        shell: bash
-        run: python3 tests/simd/test-clang-mingw.py
-
       - name: Execute the partitioned shared SIMD corpus at this tier
         shell: bash
         env:
@@ -122,7 +110,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: simd-${{ matrix.target.artifact }}-${{ matrix.compiler }}-${{ matrix.target.tier }}-${{ matrix.shard.name }}-${{ github.sha }}
+          name: simd-${{ matrix.target.artifact }}-${{ matrix.target.tier }}-${{ matrix.shard.name }}-${{ github.sha }}
           path: |
             build/simd-matrix/**/*.json
             build/simd-matrix/**/*.log
@@ -131,7 +119,7 @@ jobs:
             build/simd-matrix/**/*.sha256
             build/simd-matrix/**/*.nupp
             build/simd-matrix/**/*.lua
-            build/simd-matrix/**/*.c
+            build/simd-matrix/**/*.ll
             build/simd-matrix/**/*.so
             build/simd-matrix/**/*.dylib
             build/simd-matrix/**/*.dll
@@ -188,10 +176,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: emscripten-core/setup-emsdk@v15
-        with:
-          version: 6.0.8
-          actions-cache-folder: emsdk-cache
       - uses: actions/download-artifact@v4
         with:
           name: simd-luajit-browser-guest
@@ -218,7 +202,7 @@ jobs:
         run: |
           npm ci --prefix editors/playground
           npx --prefix editors/playground playwright install --with-deps chromium
-      - name: Execute identical SIMD128 and scalar-C corpora
+      - name: Execute identical SIMD128 and scalar-twin corpora
         env:
           NUPP_BROWSER_GUEST_DIR: ${{ github.workspace }}/build/simd-browser-guest
           NUPP_SIMD_TYPES: ${{ matrix.shard.element }}
@@ -235,7 +219,7 @@ jobs:
             build/simd-wasm/**/*.txt
             build/simd-wasm/**/*.nupp
             build/simd-wasm/**/*.lua
-            build/simd-wasm/**/*.c
+            build/simd-wasm/**/*.ll
             build/simd-wasm/**/*.mjs
             build/simd-wasm/**/*.wasm
           if-no-files-found: warn
@@ -251,10 +235,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: emscripten-core/setup-emsdk@v15
-        with:
-          version: 6.0.8
-          actions-cache-folder: emsdk-cache
       - uses: actions/download-artifact@v4
         with:
           name: simd-luajit-browser-guest
@@ -296,7 +276,7 @@ jobs:
             build/simd-wasm-algorithms/**/*.txt
             build/simd-wasm-algorithms/**/*.nupp
             build/simd-wasm-algorithms/**/*.lua
-            build/simd-wasm-algorithms/**/*.c
+            build/simd-wasm-algorithms/**/*.ll
             build/simd-wasm-algorithms/**/*.mjs
             build/simd-wasm-algorithms/**/*.wasm
           if-no-files-found: warn

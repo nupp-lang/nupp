@@ -68,11 +68,9 @@ end
 
 local function fixtureKey(name, capabilities, host)
     local parts = {
-        "simd-wasm-algorithm-v2",
+        "simd-wasm-algorithm-v3",
         name,
-        -- Whichever compiler builds the Wasm: Emscripten, or the code generator.
         tostring(capabilities.wasm.version),
-        tostring(capabilities.wasm.signature or capabilities.emscripten.signature),
         capabilities.node.version,
         capabilities.lua.command,
         capabilities.lua.runtime,
@@ -138,19 +136,12 @@ local cases = test.cases(
         test.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
         test.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
         test.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
-        wasmtime.prepareToolchain(test, capabilities)
         local hostLibrary, host = wasmtime.host(test, capabilities)
         local key = fixtureKey(name, capabilities, host)
         local _, report, reused = test.fixture(key, function(directory)
             directory = absolute(directory)
             runner.command(
-                wasmtime.compilerEnvironment(
-                    capabilities
-                ) .. "EM_CACHE=" .. runner.quote(
-                    capabilities.emscripten.cache
-                ) .. " NUPP_WASM_CC=" .. runner.quote(
-                    capabilities.compiler
-                ) .. " " .. runner.quote(
+                runner.quote(
                     capabilities.lua.command
                 ) .. " " .. runner.quote(
                     ROOT .. "/tests/simd/build-algorithm-wasm.lua"

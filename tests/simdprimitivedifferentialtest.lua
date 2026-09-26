@@ -6,8 +6,9 @@ local packs = require("tests.simd.native-packs")
 local runner = require("tests.simd.runner")
 local HERE = runner.root() .. "/tests"
 local WORK_CEILINGS = {
-    species = {units = 40, externalCommands = 42, cases = 85000, calls = 3200},
-    semantics = {units = 105, externalCommands = 107, cases = 60000000, calls = 750000},
+    -- LLVM compiles and lld links in process, so a build starts no command.
+    species = {units = 40, externalCommands = 0, cases = 85000, calls = 3200},
+    semantics = {units = 105, externalCommands = 0, cases = 60000000, calls = 750000},
 }
 
 local function read(path)
@@ -20,16 +21,12 @@ end
 
 local function fixtureKey(pack, generated, capability)
     local parts = {
-        "simd-native-pack-v2",
-        -- Which backend lowered the fixture, while there are two.
-        os.getenv("NUPP_AOT_BACKEND") or "c",
+        "simd-native-pack-v3",
         os.getenv("NUPP_AOT_FACTS") or "all",
         pack,
         generated.entry,
         capability.tier,
-        capability.compiler,
         capability.compilerVersion,
-        capability.compilerSignature,
         jit.os,
         jit.arch,
         require("nupp.compiler.project.fingerprint").toolFingerprint(),
@@ -59,7 +56,6 @@ local function fixtureKey(pack, generated, capability)
         "/tests/simd/runner.lua",
         "/tests/simd/execute-native.lua",
         "/tests/simd/execute-scalar.lua",
-        "/tests/simd/capabilities.c",
     }) do
         parts[#parts + 1] = path
         parts[#parts + 1] = read(runner.root() .. path)
@@ -158,8 +154,7 @@ local generatedCases = test.cases(
     end,
     function(row)
         local capability = runner.nativeCapability()
-        test.requireCapability("compiler.c", capability.compilerVersion ~= nil, capability)
-        test.requireCapability("compiler.dialect", capability.compilerDialect ~= "unknown", capability)
+        test.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
         test.requireCapability("cpu." .. capability.tier, capability.available, capability)
         local generated = row.pack == "species" and packs.species() or packs.semantics()
         local key = fixtureKey(row.pack, generated, capability)
@@ -167,7 +162,6 @@ local generatedCases = test.cases(
             local complete = runner.native(generated, {
                 directory = directory,
                 tier = capability.tier,
-                compiler = capability.compiler,
                 capability = capability,
                 buildJson = true,
             })
@@ -227,16 +221,20 @@ for name, case in pairs(generatedCases) do
     M[name] = case
 end
 
-function M.nativeCapabilityUsesTheBuildsCompilerSelection()
-    local selected, problem = require("nupp.tools.build.aot").toolchain(nil, nil)
+function M.nativeCapabilityNamesTheBuildsCodeGenerator()
+    local codegen = require("nupp.compiler.aot.llvm.codegen")
+    local available, problem = codegen.available()
     local capability = runner.nativeCapability()
-    if selected == nil then
+    test.equal(capability.compiler, "llvm")
+    test.equal(capability.compilerDialect, "llvm")
+    if not available then
         test.equal(capability.compilerVersion, nil, tostring(problem))
 
         return
     end
-    test.equal(capability.compiler, selected.command)
-    test.equal(capability.compilerDialect, selected.dialect)
+    test.equal(capability.compilerVersion, codegen.version(), "the version every AOT artifact is keyed on")
+    local tiers = assert(runner.hostTiers())
+    assert(("\n" .. tiers):find("\n" .. (jit.arch == "arm64" and "neon" or "baseline") .. "\n", 1, true), tiers)
 end
 
 function M.unsupportedPrimitiveDomainsHavePositionedRefusals()

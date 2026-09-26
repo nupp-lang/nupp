@@ -36,13 +36,14 @@ local function browserGuest()
     return value
 end
 
-local function fixtureKey(guest, compiler)
-    local parts = {"simd-browser-smoke-v2", guest, compiler, fingerprint.toolFingerprint()}
+local function fixtureKey(guest, codegen)
+    local parts = {"simd-browser-smoke-v3", guest, codegen, fingerprint.toolFingerprint()}
     for _, relative in ipairs({
         "scripts/toolchain.pins",
         "tests/simd/build-wasm-browser-smoke.lua",
         "tests/simd/run-wasm-browser-smoke.sh",
         "tests/simd/run-browser-guest.mjs",
+        "tests/simd/prepare-wasm-reference.lua",
         "tests/simd/validate-wasm-browser-smoke.lua",
     }) do
         parts[#parts + 1] = relative
@@ -55,15 +56,15 @@ end
 function M.countedRuntimeRoutesReachChromium()
     local requested = os.getenv("NUPP_FLEET_BROWSER_SMOKE") == "1"
     test.requireCapability("fleet.browser-smoke", requested, {requested = requested})
-    local node, compiler = command("node"), command(os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc")
+    local node = command("node")
     test.requireCapability("runtime.node", node ~= nil, {command = node})
-    local llvm = os.getenv("NUPP_AOT_BACKEND") == "llvm"
-    test.requireCapability("compiler.wasm", llvm or compiler ~= nil, {command = llvm and "nupp" or compiler})
+    local codegen, problem = runner.codegen()
+    test.requireCapability("compiler.wasm", codegen ~= nil, {command = "nupp", output = problem})
     local playwright = ROOT .. "/editors/playground/node_modules/playwright/index.mjs"
     test.requireCapability("runtime.playwright", exists(playwright), {path = playwright})
     local guest = browserGuest()
     test.requireCapability("runtime.luajit-browser-guest", exists(guest .. "/guest-manifest.json"), {path = guest})
-    local key = fixtureKey(guest, compiler)
+    local key = fixtureKey(guest, codegen)
     local _, report, reused = test.fixture(key, function(directory)
         local evidence = directory .. "/evidence"
         local log = directory .. "/run.log"
@@ -72,8 +73,6 @@ function M.countedRuntimeRoutesReachChromium()
                 guest
             ) .. " NUPP_SIMD_BROWSER_SMOKE_OUTPUT=" .. runner.quote(
                 evidence
-            ) .. " NUPP_WASM_CC=" .. runner.quote(
-                compiler
             ) .. " " .. runner.quote(ROOT .. "/tests/simd/run-wasm-browser-smoke.sh"),
             log
         )

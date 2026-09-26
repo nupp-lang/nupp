@@ -22,27 +22,6 @@ local function firstLine(text)
     return text:match("[^\r\n]+") or ""
 end
 
-local function resolveCommand(command)
-    local log = os.tmpname()
-    local code = os.execute("command -v " .. runner.quote(command) .. " >" .. runner.quote(log) .. " 2>/dev/null")
-    local resolved = code == 0 and firstLine(runner.read(log)) or nil
-    os.remove(log)
-
-    return resolved ~= "" and resolved or nil
-end
-
-local function commandDirectory(command)
-    return command and command:gsub("\\", "/"):match("^(.*)/[^/]+$") or nil
-end
-
-local function pathEnvironment(directory)
-    if not directory then
-        return ""
-    end
-
-    return "PATH=" .. runner.quote(directory .. ":" .. (os.getenv("PATH") or "")) .. " "
-end
-
 local function tool(command, arguments, environment)
     local log = os.tmpname()
     local code = os.execute(
@@ -62,51 +41,21 @@ local function tool(command, arguments, environment)
 end
 
 function M.capabilities()
-    local compiler = os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
-    local resolvedCompiler = resolveCommand(compiler)
-    local compilerDirectory = commandDirectory(resolvedCompiler)
-    local compilerEnvironment = pathEnvironment(compilerDirectory)
     local lua = os.getenv("NUPP_SIMD_LUA") or "luajit"
     local prebuilt = os.getenv("NUPP_WASMTIME_HOST_LIBRARY")
     local capabilities = {
-        emscripten = tool(compiler, nil, compilerEnvironment),
         node = tool("node"),
         cargo = tool("cargo"),
         rustc = tool("rustc"),
-        compiler = compiler,
-        compilerDirectory = compilerDirectory,
-        compilerEnvironment = compilerEnvironment,
         prebuilt = prebuilt,
         lua = tool(lua, "-v"),
     }
-    capabilities.emscripten.resolved = resolvedCompiler
-    -- The Wasm compiler: Emscripten over generated C, or nupp's own LLVM.
-    capabilities.llvm = os.getenv("NUPP_AOT_BACKEND") == "llvm"
-    if capabilities.llvm then
-        local codegen = require("nupp.compiler.aot.llvm.codegen")
-        local available, why = codegen.available()
-        capabilities.wasm = {
-            available = available,
-            command = "nupp",
-            version = available and codegen.version() or nil,
-            output = why,
-        }
-    else
-        capabilities.wasm = capabilities.emscripten
-    end
+    -- nupp compiles and links the Wasm itself, through its own LLVM.
+    local version, problem = runner.codegen()
+    capabilities.wasm = {available = version ~= nil, command = "nupp", version = version, output = problem,}
     capabilities.lua.runtime = jit.version
     capabilities.lua.os = jit.os
     capabilities.lua.arch = jit.arch
-    if capabilities.emscripten.available then
-        local ok, signature = pcall(require("nupp.tools.build.aot").toolSignature, compiler)
-        capabilities.emscripten.signature = ok and signature or nil
-        capabilities.emscripten.cache = os.getenv("EM_CACHE")
-            or (
-                root .. "/build/simd-emscripten-cache/" .. hash.digest(
-                    table.concat({capabilities.emscripten.version, capabilities.emscripten.signature or compiler}, "\0")
-                )
-            )
-    end
     if prebuilt then
         capabilities.host = {available = exists(prebuilt), source = "NUPP_WASMTIME_HOST_LIBRARY", path = prebuilt,}
     else
@@ -119,10 +68,6 @@ function M.capabilities()
     end
 
     return capabilities
-end
-
-function M.compilerEnvironment(capabilities)
-    return capabilities.compilerEnvironment or ""
 end
 
 local function hostSources()
@@ -145,39 +90,6 @@ local function digestFiles(prefix, paths, extra)
     end
 
     return hash.digest(table.concat(parts, "\0"))
-end
-
-function M.prepareToolchain(test, capabilities)
-    if capabilities.llvm then
-        return
-    end
-    local identity = hash.digest(
-        table.concat(
-            {capabilities.emscripten.version, capabilities.emscripten.signature or capabilities.compiler,},
-            "\0"
-        )
-    )
-    local key = "simd-emscripten-ready-" .. identity
-    test.fixture(key, function(private)
-        local source = private .. "/probe.c"
-        runner.write(source, "void nupp_wasm_cache_probe(void) {}\n")
-        runner.command(
-            "mkdir -p " .. runner.quote(
-                capabilities.emscripten.cache
-            ) .. " && " .. M.compilerEnvironment(
-                capabilities
-            ) .. "EM_CACHE=" .. runner.quote(
-                capabilities.emscripten.cache
-            ) .. " " .. runner.quote(
-                capabilities.compiler
-            ) .. " " .. runner.quote(
-                source
-            ) .. " -std=c11 -O0 -sSTANDALONE_WASM=1 --no-entry -o " .. runner.quote(private .. "/probe.wasm"),
-            private .. "/build.log"
-        )
-
-        return {compiler = capabilities.emscripten.version, cacheIdentity = identity,}
-    end)
 end
 
 function M.host(test, capabilities)
@@ -237,14 +149,12 @@ function M.fixtureKey(pack, generated, capabilities, host)
         root .. "/tests/simd/runner.lua",
         root .. "/tests/simd/wasmtime.lua",
         root .. "/tests/simd/run-wasmtime-guest.lua",
-        root .. "/tests/simd/prepare-wasm-scalar.mjs",
         root .. "/tests/simd/prepare-wasm-reference.lua",
         root .. "/tests/simd/native-packs.lua",
     }
     local extra = generatedSources(generated)
     extra[#extra + 1] = pack
     extra[#extra + 1] = capabilities.wasm.version
-    extra[#extra + 1] = capabilities.wasm.signature
     extra[#extra + 1] = capabilities.node.version
     extra[#extra + 1] = capabilities.lua.command
     extra[#extra + 1] = capabilities.lua.runtime
@@ -253,7 +163,7 @@ function M.fixtureKey(pack, generated, capabilities, host)
     extra[#extra + 1] = host.key
     extra[#extra + 1] = require("nupp.compiler.project.fingerprint").toolFingerprint()
 
-    return "simd-wasmtime-pack-" .. digestFiles("simd-wasmtime-pack-v2", paths, extra)
+    return "simd-wasmtime-pack-" .. digestFiles("simd-wasmtime-pack-v3", paths, extra)
 end
 
 local function sortedKeys(values)
@@ -313,34 +223,14 @@ end
 
 function M.produce(pack, generated, capabilities, hostLibrary, directory)
     local simdDirectory = directory .. "/simd"
-    runner.wasm(generated, {
-        directory = simdDirectory,
-        compiler = capabilities.compiler,
-        environment = M.compilerEnvironment(capabilities),
-        emscriptenCache = capabilities.emscripten.cache,
-    })
+    runner.wasm(generated, {directory = simdDirectory})
     local simd = M.execute(capabilities, hostLibrary, simdDirectory, "simd", directory .. "/simd-execution.log")
     local scalarDirectory = directory .. "/scalar-c"
-    if capabilities.llvm then
-        runner.command(
-            runner.quote(capabilities.lua.command) .. " " .. runner.quote(root .. "/tests/simd/prepare-wasm-reference.lua")
-                .. " " .. runner.quote(simdDirectory) .. " " .. runner.quote(scalarDirectory),
-            directory .. "/scalar-build.log"
-        )
-    else
     runner.command(
-        M.compilerEnvironment(
-            capabilities
-        ) .. "EM_CACHE=" .. runner.quote(
-            capabilities.emscripten.cache
-        ) .. " NUPP_WASM_CC=" .. runner.quote(
-            capabilities.compiler
-        ) .. " node " .. runner.quote(
-            root .. "/tests/simd/prepare-wasm-scalar.mjs"
-        ) .. " " .. runner.quote(simdDirectory) .. " " .. runner.quote(scalarDirectory),
+        runner.quote(capabilities.lua.command) .. " " .. runner.quote(root .. "/tests/simd/prepare-wasm-reference.lua")
+            .. " " .. runner.quote(simdDirectory) .. " " .. runner.quote(scalarDirectory),
         directory .. "/scalar-build.log"
     )
-    end
     local scalar = M.execute(
         capabilities,
         hostLibrary,

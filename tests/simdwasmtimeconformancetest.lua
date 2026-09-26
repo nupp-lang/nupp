@@ -21,7 +21,6 @@ local cases = test.cases(
         test.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
         test.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
         test.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
-        wasmtime.prepareToolchain(test, capabilities)
         local hostLibrary, host = wasmtime.host(test, capabilities)
         local generated = row.pack == "species" and packs.species() or packs.semantics({target = "wasm"})
         local key = wasmtime.fixtureKey(row.pack, generated, capabilities, host)

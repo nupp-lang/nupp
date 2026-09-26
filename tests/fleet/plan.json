@@ -3,67 +3,59 @@
   "id": "simd-equivalence",
   "jobs": [
     {
-      "id": "linux-x64-baseline-clang",
+      "id": "linux-x64-baseline-llvm",
       "executor": "linux-x64",
       "required": true,
-      "target": {"os": "linux", "arch": "x64", "tier": "baseline", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "linux", "arch": "x64", "tier": "baseline", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "baseline"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {
-      "id": "linux-x64-avx2-clang",
+      "id": "linux-x64-avx2-llvm",
       "executor": "linux-x64-avx2",
       "required": true,
-      "target": {"os": "linux", "arch": "x64", "tier": "avx2", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "avx2", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "linux", "arch": "x64", "tier": "avx2", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "avx2"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {
-      "id": "linux-x64-avx512f-clang",
+      "id": "linux-x64-avx512f-llvm",
       "executor": "linux-x64-avx512f",
       "required": true,
-      "target": {"os": "linux", "arch": "x64", "tier": "avx512f", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "avx512f", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "linux", "arch": "x64", "tier": "avx512f", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "avx512f"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {
-      "id": "linux-x64-baseline-gcc",
-      "executor": "linux-x64",
-      "required": true,
-      "target": {"os": "linux", "arch": "x64", "tier": "baseline", "compiler": "gcc"},
-      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "gcc"},
-      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
-    },
-    {
-      "id": "linux-arm64-neon-clang",
+      "id": "linux-arm64-neon-llvm",
       "executor": "linux-arm64",
       "required": true,
-      "target": {"os": "linux", "arch": "arm64", "tier": "neon", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "neon", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "linux", "arch": "arm64", "tier": "neon", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "neon"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {
-      "id": "macos-arm64-neon-clang",
+      "id": "macos-arm64-neon-llvm",
       "executor": "macos-arm64",
       "required": true,
-      "target": {"os": "macos", "arch": "arm64", "tier": "neon", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "neon", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "macos", "arch": "arm64", "tier": "neon", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "neon"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {
-      "id": "macos-x64-baseline-clang",
+      "id": "macos-x64-baseline-llvm",
       "executor": "macos-x64",
       "required": true,
-      "target": {"os": "macos", "arch": "x64", "tier": "baseline", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "macos", "arch": "x64", "tier": "baseline", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "baseline"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {
-      "id": "windows-x64-baseline-clang",
+      "id": "windows-x64-baseline-llvm",
       "executor": "windows-x64",
       "required": true,
-      "target": {"os": "windows", "arch": "x64", "tier": "baseline", "compiler": "clang"},
-      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "clang"},
+      "target": {"os": "windows", "arch": "x64", "tier": "baseline", "compiler": "llvm"},
+      "env": {"NUPP_SIMD_TIER": "baseline"},
       "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
     },
     {

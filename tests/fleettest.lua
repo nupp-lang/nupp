@@ -16,7 +16,7 @@ end
 function M.planUsesTheMinimumOrthogonalFleet()
     local plan = json("tests/fleet/plan.json")
     test.equal(plan.schemaVersion, 1)
-    test.equal(#plan.jobs, 11)
+    test.equal(#plan.jobs, 10)
     local hosts, tiers, compilers, runtimes, ids = {}, {}, {}, {}, {}
     for _, job in ipairs(plan.jobs) do
         test.assert(not ids[job.id], "duplicate fleet job " .. job.id)
@@ -44,7 +44,11 @@ function M.planUsesTheMinimumOrthogonalFleet()
     for _, tier in ipairs({"baseline", "avx2", "avx512f", "neon"}) do
         test.assert(tiers[tier], "missing fleet tier " .. tier)
     end
-    test.assert(compilers.clang and compilers.gcc)
+    -- Every native job compiles through nupp's own LLVM.
+    test.assert(compilers.llvm)
+    for compiler in pairs(compilers) do
+        test.equal(compiler, "llvm")
+    end
     test.assert(runtimes["wasmtime-48"] and runtimes.chromium)
 end
 

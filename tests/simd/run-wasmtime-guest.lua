@@ -260,12 +260,11 @@ local function resolveInventory()
     for module, names in pairs(corpus.probes) do
         local matches = {}
         for _, unit in ipairs(manifest.units) do
-            -- Generated C, or LLVM IR when the LLVM backend built the unit.
-            local sourceName = (unit.source or ""):gsub("%.ll$", ".c")
-            if endsWith(sourceName, "/" .. module .. ".simd128.c")
-                or endsWith(sourceName, "/" .. module .. ".g.simd128.c")
-                or sourceName == module .. ".simd128.c"
-                or sourceName == module .. ".g.simd128.c"
+            local sourceName = unit.source or ""
+            if endsWith(sourceName, "/" .. module .. ".simd128.ll")
+                or endsWith(sourceName, "/" .. module .. ".g.simd128.ll")
+                or sourceName == module .. ".simd128.ll"
+                or sourceName == module .. ".g.simd128.ll"
             then
                 matches[#matches + 1] = unit
             end

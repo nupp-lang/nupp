@@ -1,11 +1,9 @@
--- The scalar reference for a built Wasm SIMD project, whichever backend built it:
+-- The scalar reference for a built Wasm SIMD project:
 --
 --   luajit tests/simd/prepare-wasm-reference.lua PROJECT OUTPUT
 --
--- Through Emscripten it is prepare-wasm-scalar.mjs, which rewrites the generated
--- C to call each kernel's scalar twin. Through LLVM (NUPP_AOT_BACKEND=llvm) the
--- project is rebuilt with NUPP_AOT_WASM_ORACLE=1, which points every Wasm entry
--- at its kernel's unoptimized twin, and the same scalar-selection.json is
+-- The project is rebuilt with NUPP_AOT_WASM_ORACLE=1, which points every Wasm
+-- entry at its kernel's unoptimized scalar twin, and scalar-selection.json is
 -- written beside it. PROJECT must already hold the SIMD route's result.json.
 local project, output = assert(arg[1], "PROJECT"), assert(arg[2], "OUTPUT")
 local source = debug.getinfo(1, "S").source:gsub("^@", "")
@@ -32,11 +30,6 @@ local function run(command)
     if ok ~= 0 and ok ~= true then
         error("failed: " .. command, 0)
     end
-end
-
-if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-    run("node " .. quote(root .. "/tests/simd/prepare-wasm-scalar.mjs") .. " " .. quote(project) .. " " .. quote(output))
-    os.exit(0)
 end
 
 local json = require("nupp.codec.json")

@@ -1,4 +1,4 @@
--- Package the C-safe owned-algorithm differential corpus for the browser guest.
+-- Package the AOT-safe owned-algorithm differential corpus for the browser guest.
 -- Checked boundaries exclude only native setup and optional timing code.
 local r = require("tests.simd.runner")
 local name, directory = assert(arg[1]), assert(arg[2])
@@ -124,21 +124,9 @@ r.write(
         'return {include={"src",%q},build={targets={app={kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",dialect="luajit",host="browser",optimize=1,aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"}}}}}\n'
     ):format(root .. "/src", runner)
 )
-local compiler = os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
 local nupp = os.getenv("NUPP_SIMD_NUPP") or root .. "/bin/nupp"
--- Through LLVM nupp compiles the Wasm itself and no Emscripten is asked for.
-local compilerEnvironment = ""
-if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-    local resolvedCompiler = r.command("command -v " .. q(compiler), directory .. "/compiler-path.log"):match("[^\r\n]+")
-    local compilerDirectory = assert(resolvedCompiler and resolvedCompiler:gsub("\\", "/"):match("^(.*)/[^/]+$"))
-    compilerEnvironment = "PATH=" .. q(compilerDirectory .. ":" .. (os.getenv("PATH") or "")) .. " "
-end
-r.command(
-    "cd " .. q(
-        directory
-    ) .. " && " .. compilerEnvironment .. "NUPP_WASM_CC=" .. q(compiler) .. " " .. q(nupp) .. " build --target app",
-    directory .. "/build.log"
-)
+-- nupp compiles and links the Wasm itself, through its own LLVM.
+r.command("cd " .. q(directory) .. " && " .. q(nupp) .. " build --target app", directory .. "/build.log")
 r.writeJson(directory .. "/corpus.json", {
     algorithm = name,
     compiler = nupp,

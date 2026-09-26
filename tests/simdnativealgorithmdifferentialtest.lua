@@ -36,7 +36,6 @@ local function projectFiles(name)
         "tests/simd/run-algorithm.lua",
         "tests/simd/nativeproof.lua",
         "tests/simd/corpusmath.lua",
-        "tests/simd/capabilities.c",
     }) do
         paths[#paths + 1] = ROOT .. "/" .. relative
     end
@@ -72,19 +71,15 @@ end
 
 local function fixtureKey(name, capability)
     local parts = {
-        "simd-native-algorithm-v2",
+        "simd-native-algorithm-v3",
         name,
         capability.tier,
-        capability.compiler,
         capability.compilerVersion,
-        capability.compilerSignature,
         LUA,
         jit.version,
         jit.os,
         jit.arch,
         fingerprint.toolFingerprint(),
-        -- Which backend lowered the fixture, while there are two.
-        os.getenv("NUPP_AOT_BACKEND") or "c",
         os.getenv("NUPP_AOT_FACTS") or "all",
     }
     for _, path in ipairs(projectFiles(name)) do
@@ -123,16 +118,13 @@ local cases = test.cases(
     end,
     function(name)
         local capability = runner.nativeCapability()
-        test.requireCapability("compiler.c", capability.compilerVersion ~= nil, capability)
-        test.requireCapability("compiler.dialect", capability.compilerDialect ~= "unknown", capability)
+        test.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
         test.requireCapability("cpu." .. capability.tier, capability.available, capability)
         local key = fixtureKey(name, capability)
         local _, report, reused = test.fixture(key, function(directory)
             directory = absolute(directory)
             runner.command(
-                "NUPP_NATIVE_CC=" .. runner.quote(
-                    capability.compiler
-                ) .. " NUPP_SIMD_TIER=" .. runner.quote(
+                "NUPP_SIMD_TIER=" .. runner.quote(
                     capability.tier
                 ) .. " " .. runner.quote(
                     LUA
