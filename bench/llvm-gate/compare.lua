@@ -1,17 +1,19 @@
--- Gate A1's paired comparison: the same kernels built by the C lowering and
--- by LLVM, loaded into one process, checked bit for bit and timed interleaved.
+-- The gate's paired comparison: the same kernels built twice -- by default
+-- with every proved fact and with none -- loaded into one process, checked bit
+-- for bit and timed interleaved. A fact that changes a result is a bug in its
+-- proof, and the timing says what the facts buy.
 --
---   luajit compare.lua C_LIBRARY LLVM_LIBRARY LLVM_UNIT.ll [ROUNDS]
+--   luajit compare.lua BASE_LIBRARY CANDIDATE_LIBRARY CANDIDATE_UNIT.ll [ROUNDS]
 --
 -- Every exported kernel in the unit is called through the entry ABI both
--- backends share. A span parameter the kernel writes is a fresh output; one
+-- builds share. A span parameter the kernel writes is a fresh output; one
 -- it reads is filled with seeded values. Element types are named below, by
 -- kernel, because the ABI carries only pointers.
 local ffi = require("ffi")
 io.stdout:setvbuf("no")
 
-local cPath, llvmPath, unitPath, roundsText = arg[1], arg[2], arg[3], arg[4]
-assert(cPath and llvmPath and unitPath, "usage: compare.lua C_LIBRARY LLVM_LIBRARY LLVM_UNIT.ll [ROUNDS]")
+local basePath, candidatePath, unitPath, roundsText = arg[1], arg[2], arg[3], arg[4]
+assert(basePath and candidatePath and unitPath, "usage: compare.lua BASE_LIBRARY CANDIDATE_LIBRARY CANDIDATE_UNIT.ll [ROUNDS]")
 local ROUNDS = tonumber(roundsText or "15")
 
 -- The span element type of each kernel; `double` when absent. GATE_ELEMENTS
@@ -97,7 +99,7 @@ end
 ffi.cdef(table.concat(declarations, "\n"))
 ffi.cdef("int clock_gettime(int, struct timespec *); struct timespec { long tv_sec; long tv_nsec; };")
 
-local libraries = {c = ffi.load(cPath), llvm = ffi.load(llvmPath)}
+local libraries = {base = ffi.load(basePath), candidate = ffi.load(candidatePath)}
 
 local function now()
     local t = ffi.new("struct timespec")
@@ -105,7 +107,7 @@ local function now()
     return tonumber(t.tv_sec) + tonumber(t.tv_nsec) * 1e-9
 end
 
--- A deterministic generator, so both backends see the same inputs.
+-- A deterministic generator, so both builds see the same inputs.
 local seed = 12345
 local function random()
     seed = (seed * 1103515245 + 12345) % 2147483648
@@ -152,7 +154,7 @@ local function bits(value, element)
     return ffi.string(cell, width)
 end
 
--- Bit-identical outputs and results between the backends.
+-- Bit-identical outputs and results between the builds.
 local mismatches = 0
 for _, kernel in ipairs(kernels) do
     for _, n in ipairs(SIZES) do
@@ -163,15 +165,15 @@ for _, kernel in ipairs(kernels) do
         if os.getenv("GATE_TRACE") then
             print("call", kernel.name, n)
         end
-        local resultC = libraries.c[kernel.symbol](unpack(argsC))
-        local resultL = libraries.llvm[kernel.symbol](unpack(argsL))
+        local resultC = libraries.base[kernel.symbol](unpack(argsC))
+        local resultL = libraries.candidate[kernel.symbol](unpack(argsL))
         local same = true
         if kernel.result == "double" then
             same = bits(resultC, "double") == bits(resultL, "double")
         elseif kernel.result ~= "void" then
             same = resultC == resultL
         end
-        for label, outputs in pairs({c = outC, llvm = outL}) do
+        for label, outputs in pairs({base = outC, candidate = outL}) do
             for _, buffer in ipairs(outputs) do
                 for i = n, n + 15 do
                     if buffer[i] ~= 77 then
@@ -188,7 +190,7 @@ for _, kernel in ipairs(kernels) do
         end
         if not same then
             mismatches = mismatches + 1
-            print(("MISMATCH %s n=%d c=%s llvm=%s"):format(kernel.name, n, tostring(resultC), tostring(resultL)))
+            print(("MISMATCH %s n=%d base=%s candidate=%s"):format(kernel.name, n, tostring(resultC), tostring(resultL)))
         end
     end
 end
@@ -209,11 +211,11 @@ local function median(values)
     return values[math.floor((#values + 1) / 2)]
 end
 
-print(("%-22s %7s %12s %12s %8s"):format("kernel", "n", "C ns", "LLVM ns", "LLVM/C"))
+print(("%-22s %7s %12s %12s %8s"):format("kernel", "n", "base ns", "cand. ns", "cand./base"))
 for _, kernel in ipairs(kernels) do
     for _, n in ipairs({0, 1, 3, 7, 16, 17, 63, 65539}) do
         local args = arguments(kernel, n)
-        local fnC, fnL = libraries.c[kernel.symbol], libraries.llvm[kernel.symbol]
+        local fnC, fnL = libraries.base[kernel.symbol], libraries.candidate[kernel.symbol]
         local calls = n > 1000 and 200 or 200000
         batch(fnC, args, calls)
         batch(fnL, args, calls)

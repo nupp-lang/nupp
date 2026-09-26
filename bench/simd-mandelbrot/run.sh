@@ -18,16 +18,7 @@ fi
 mkdir -p "$OUT"
 
 case $(uname -s) in
-    Darwin)
-        SUFFIX="dylib"
-        SHARED_FLAGS="-dynamiclib"
-        MATH_LIB=""
-        ;;
-    Linux)
-        SUFFIX="so"
-        SHARED_FLAGS="-shared"
-        MATH_LIB="-lm"
-        ;;
+    Darwin|Linux) ;;
     *)
         echo "simd-mandelbrot: unsupported host $(uname -s)" >&2
         exit 2
@@ -38,17 +29,9 @@ LUA_PATH="$ROOT/.rocks/share/lua/5.1/?.lua;$ROOT/.rocks/share/lua/5.1/?/init.lua
 LUA_CPATH="$ROOT/.rocks/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
 export LUA_PATH LUA_CPATH
 
-# The LLVM route compiles in process, through the development native library
-# that carries the code generator.
-if [ "${NUPP_AOT_BACKEND:-}" = llvm ]; then
-    NUPP_NATIVE_LIBRARY="${NUPP_NATIVE_LIBRARY:-$(ls "$ROOT"/build/lib/libnupp_native_dev.* | head -n 1)}"
-    export NUPP_NATIVE_LIBRARY
-fi
+# LLVM compiles in process, through the development native library that
+# carries the code generator.
+NUPP_NATIVE_LIBRARY="${NUPP_NATIVE_LIBRARY:-$(ls "$ROOT"/build/lib/libnupp_native_dev.* | head -n 1)}"
+export NUPP_NATIVE_LIBRARY
 luajit "$BENCH/compile.lua" "$BENCH/$SOURCE.nupp" "$OUT"
-
-if [ "${NUPP_AOT_BACKEND:-}" != llvm ]; then
-${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
-    -Wall -Wextra -Werror -Wno-parentheses-equality -fPIC $SHARED_FLAGS \
-    "$OUT/kernel.c" $MATH_LIB -o "$OUT/lib${SOURCE}.$SUFFIX"
-fi
 exec luajit "$BENCH/main.lua"

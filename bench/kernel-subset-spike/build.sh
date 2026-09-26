@@ -26,59 +26,36 @@ if [ "$MODE" = off ]; then
 fi
 
 case "$MODE" in
-    require|emit-c|object) ;;
+    require|emit-llvm|object) ;;
     *)
-        echo "kernel-subset-spike: NUPP_NATIVE_MODE must be off, require, emit-c, or object" >&2
+        echo "kernel-subset-spike: NUPP_NATIVE_MODE must be off, require, emit-llvm, or object" >&2
         exit 2
         ;;
 esac
 
-"$SPIKE/generate.sh" "$SPIKE/kernels.nupp" "$OUT"
-
-if [ "$MODE" = emit-c ]; then
-    echo "$OUT/kernel.c"
-    exit 0
-fi
-
-NATIVE_CC=${NUPP_NATIVE_CC:-clang}
-NATIVE_CFLAGS=${NUPP_NATIVE_CFLAGS:-}
-if [ "$MODE" = object ]; then
-    # The caller selects a target compiler/sysroot. Nothing target-built is run.
-    $NATIVE_CC -std=c11 -O3 -ffp-contract=off -fno-fast-math \
-        -Wall -Wextra -Werror -Wno-parentheses-equality $NATIVE_CFLAGS -c "$OUT/kernel.c" -o "$OUT/kernel.o"
-    echo "$OUT/kernel.o"
+if [ "$MODE" != require ]; then
+    "$SPIKE/generate.sh" "$SPIKE/kernels.nupp" "$OUT"
+    if [ "$MODE" = emit-llvm ]; then
+        echo "$OUT/kernel.ll"
+    else
+        echo "$OUT/kernel.o"
+    fi
     exit 0
 fi
 
 case $(uname -s) in
-    Darwin)
-        LIB="$OUT/libkernel_subset_spike.dylib"
-        SHARED_FLAGS="-dynamiclib"
-        ;;
-    Linux)
-        LIB="$OUT/libkernel_subset_spike.so"
-        SHARED_FLAGS="-shared"
-        MATH_LIB="-lm"
-        ;;
+    Darwin) LIB="$OUT/libkernel_subset_spike.dylib" ;;
+    Linux) LIB="$OUT/libkernel_subset_spike.so" ;;
     *)
         echo "kernel-subset-spike: unsupported host $(uname -s)" >&2
         exit 2
         ;;
 esac
 
-MATH_LIB=${MATH_LIB:-}
-
-TARGET_FLAGS=
-if [ "$(uname -m)" = "x86_64" ]; then
-    TARGET_FLAGS="-march=x86-64"
-fi
-
-$NATIVE_CC -std=c11 -O3 -ffp-contract=off -fno-fast-math \
-    -Wall -Wextra -Werror -Wno-parentheses-equality -fPIC $NATIVE_CFLAGS $TARGET_FLAGS $SHARED_FLAGS \
-    "$OUT/kernel.c" $MATH_LIB -o "$LIB"
+"$SPIKE/generate.sh" "$SPIKE/kernels.nupp" "$OUT" "$LIB"
 ln -sf "$(basename "$LIB")" "$OUT/libkernel_subset_spike"
 
-# The binding is generated from the same verified IR as the C signature. Build
+# The binding is generated from the same verified IR as the library. Build
 # it with the ordinary span module so the benchmark enters through Nupp's
 # checked one-call wrapper rather than a handwritten FFI facade.
 ./bin/nupp check "$OUT/checked.nupp"

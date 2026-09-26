@@ -20,14 +20,10 @@ done
 cp -R "$OUT/enabled/src/nupp/." "$OUT/runtime/nupp/"
 
 # AOT is context rather than the acceptance target. Reuse the checked subset
-# generator, force its scalar oracle, and call that oracle from the benchmark.
-bench/kernel-subset-spike/generate.sh bench/span-range-lowering/aot.nupp "$OUT/aot"
+# generator and call the compiled kernel from the benchmark.
 case $(uname -s) in
-    Darwin) AOT_LIB="$OUT/aot/libspan_range_aot.dylib"; AOT_FLAGS="-dynamiclib" ;;
-    Linux) AOT_LIB="$OUT/aot/libspan_range_aot.so"; AOT_FLAGS="-shared" ;;
+    Darwin) AOT_LIB="$OUT/aot/libspan_range_aot.dylib" ;;
+    Linux) AOT_LIB="$OUT/aot/libspan_range_aot.so" ;;
     *) echo "span-range-lowering: unsupported host $(uname -s)" >&2; exit 2 ;;
 esac
-NATIVE_CC=${NUPP_NATIVE_CC:-clang}
-$NATIVE_CC -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC \
-    -Wall -Wextra -Werror -Wno-parentheses-equality $AOT_FLAGS \
-    "$OUT/aot/kernel.c" -o "$AOT_LIB"
+bench/kernel-subset-spike/generate.sh bench/span-range-lowering/aot.nupp "$OUT/aot" "$AOT_LIB"

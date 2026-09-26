@@ -1,7 +1,8 @@
 name: LLVM gate B
 
-# Gate B: the LLVM backend against the C lowering on x86-64 hardware, through
-# both gcc and clang, tier by tier. Timings are noisy on shared runners and a
+# Gate B: the LLVM backend's kernels with every proved fact against the same
+# kernels with none, on x86-64 hardware, tier by tier: bit for bit, and what the
+# facts buy. Timings are noisy on shared runners and a
 # run costs runner hours, so this runs only when a commit message says
 # `[llvm ci]`, and writes its tables to the job summary; a regression is
 # judged across runs, not from one. AVX-512 is measured only where the runner
@@ -76,7 +77,7 @@ jobs:
           grep -m1 'model name' /proc/cpuinfo | tee -a "$GITHUB_STEP_SUMMARY"
           {
             echo '```'
-            bench/llvm-gate/kernels.sh "${{ matrix.tiers }}" "gcc clang" 15
+            bench/llvm-gate/kernels.sh "${{ matrix.tiers }}" 15
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

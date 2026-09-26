@@ -35,7 +35,8 @@ function compiler.compile(source, filename, checked)
    return {
       ir = artifacts.programs[1],
       irText = artifacts.irText,
-      c = artifacts.c,
+      programs = artifacts.programs,
+      selected = selected,
       binding = artifacts.binding,
    }, diagnostics
 end
