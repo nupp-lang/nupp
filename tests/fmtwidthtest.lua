@@ -2,6 +2,7 @@
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local lexer = require("nupp.compiler.syntax.lexer")
+local displayWidth = require("nupp.tools.fmt.displaywidth")
 
 local function assertEq(got, want, label)
     if got ~= want then
@@ -25,6 +26,7 @@ local function check(src, want, label)
     local got = fmt1(src)
     assertEq(got, want, label)
     assertEq(fmt1(got), got, (label or "case") .. " (idempotency)")
+
     local function kinds(text)
         local out = {}
         for _, tok in ipairs(lexer.lex(text)) do
@@ -577,6 +579,21 @@ function M.unicodeUsesDisplayColumns()
         lines("local result = wrap(", "    '" .. ("界"):rep(50) .. "',", "    fallback", ")"),
         "wide character width"
     )
+end
+
+function M.joinedEmojiOccupyOneGlyphAndClipTogether()
+    local family = "👨‍👩‍👧‍👦"
+    assertEq(displayWidth.displayWidth(family), 2, "joined emoji width")
+    assertEq(displayWidth.clip(family .. "!", 2), family, "joined emoji clipping")
+    assertEq(displayWidth.clip(family, 1), "", "a joined emoji is not split")
+    assertEq(displayWidth.clip("👨‍A", 2), "👨", "clipping drops an unmatched joiner")
+end
+
+function M.joinersDoNotCollapseOrdinaryCharacters()
+    local joined = "A‍B"
+    assertEq(displayWidth.displayWidth(joined), 2, "ordinary joined width")
+    assertEq(displayWidth.clip(joined, 1), "A", "ordinary clipping drops an unmatched joiner")
+    assertEq(displayWidth.clip(joined, 2), joined, "ordinary characters remain separately counted")
 end
 
 function M.longTernariesBreakBeforeQuestionAndColon()

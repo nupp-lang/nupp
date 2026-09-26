@@ -157,6 +157,36 @@ end
     )
 end
 
+function M.tableIteratorCallsAreOptionalWhereLoopsAreNot()
+    assertEq(
+        diagsUnderPrelude(
+            [[
+local keyed = pairs({one = 1})
+local key: string, value: integer = keyed()
+local indexed = ipairs({1})
+local index: integer, item: integer = indexed()
+print(key, value, index, item)
+]]
+        ),
+        "NUPP2001:2 NUPP2001:2 NUPP2001:4 NUPP2001:4"
+    )
+    assertEq(
+        diagsUnderPrelude(
+            [[
+for key, value in pairs({one = 1}) do
+    local name: string, count: integer = key, value
+    print(name, count)
+end
+for index, item in ipairs({1}) do
+    local at: integer, value: integer = index, item
+    print(at, value)
+end
+]]
+        ),
+        ""
+    )
+end
+
 -- A metatable the receiver declared nothing for still has the fields Lua reads:
 -- `__index` is a table or a function, and it may be absent.
 function M.aMetatableExposesItsIndexHandlers()

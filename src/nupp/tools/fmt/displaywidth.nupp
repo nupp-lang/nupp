@@ -480,9 +480,21 @@ end
 
 export function displayWidth(text: string): number
     local width, pos = 0, 1
+    local wideBase, joined = false, false
     while pos <= #text do
         local cp, nextPos = nextCodepoint(text, pos)
-        width = width + codepointWidth(cp)
+        local advance = codepointWidth(cp)
+        local rawWidth = advance
+        if joined and wideBase and advance == 2 then
+            advance = 0
+        end
+        if cp == 0x200d then
+            joined = wideBase
+        elseif rawWidth > 0 then
+            joined = false
+            wideBase = rawWidth == 2
+        end
+        width = width + advance
         pos = nextPos
     end
 
@@ -507,15 +519,33 @@ export function clip(text: string, columns: number): string
         return ""
     end
     local width, pos = 0, 1
+    local safeEnd = 0
+    local wideBase, joined = false, false
+    local pendingJoiner = false
     while pos <= #text do
         local cp, nextPos = nextCodepoint(text, pos)
         local advance = codepointWidth(cp)
+        local rawWidth = advance
+        if joined and wideBase and advance == 2 then
+            advance = 0
+        end
         if width + advance > columns then
-            return text:sub(1, pos - 1)
+            return text:sub(1, safeEnd)
+        end
+        if cp == 0x200d then
+            joined = wideBase
+            pendingJoiner = true
+        elseif rawWidth > 0 then
+            joined = false
+            wideBase = rawWidth == 2
+            pendingJoiner = false
+            safeEnd = nextPos - 1
+        elseif not pendingJoiner then
+            safeEnd = nextPos - 1
         end
         width = width + advance
         pos = nextPos
     end
 
-    return text
+    return text:sub(1, safeEnd)
 end

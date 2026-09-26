@@ -11,6 +11,7 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
+local scalarIR = require("nupp.compiler.aot.scalar")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -23,6 +24,17 @@ local browserGpuEnv = envMod.new(HERE .. "/..", {
 })
 
 local M = {}
+
+function M.cIdentifiersPreserveDistinctSourceNames()
+    assert(
+        scalarIR.privateSymbol("fooBar") ~= scalarIR.privateSymbol("foo_bar"),
+        "camel-case and underscore names have distinct symbols"
+    )
+    assert(
+        scalarIR.privateSymbol("httpServer") ~= scalarIR.privateSymbol("HTTPServer"),
+        "acronym capitalization has distinct symbols"
+    )
+end
 
 local function codesOf(source)
     local result = parser.parse(source, "test.nupp")

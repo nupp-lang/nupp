@@ -230,6 +230,18 @@ function M.x86ReadsLoadFromStoreByOperandPosition()
     assert(kindsOf(listing, "vmovups").store, "the memory operand is the destination")
 end
 
+function M.x86IndirectControlTransfersReadTheirTargets()
+    local listing = only(
+        table.concat({"ks_dispatch:", "\tcallq\t*8(%rax)", "\tjmpq\t*(%rbx,%rcx,8)", "",}, "\n"),
+        "x86_64",
+        "linux"
+    )
+    for _, mnemonic in ipairs({"callq", "jmpq"}) do
+        local kinds = kindsOf(listing, mnemonic)
+        assert(kinds.load and not kinds.store, mnemonic .. " reads its target from memory")
+    end
+end
+
 -- `lea` computes an address and touches nothing. Counting it would report
 -- address arithmetic as memory traffic, and the spill question is exactly the
 -- one that distinction is being asked for.
@@ -318,7 +330,8 @@ function M.onlyTheArchitecturesWithRulesAreRead()
 end
 
 function M.debugLocationsFollowInstructionsAcrossLabels()
-    local parsed = instructions.parse([[
+    local parsed = instructions.parse(
+        [[
 .file 1 "kernels" "scale.nupp"
 .file 2 "helpers.nupp"
 _ks_scale:
@@ -331,7 +344,10 @@ Lloop:
     ret
     .loc 2 0 0
     nop
-]], "aarch64", "darwin")
+]],
+        "aarch64",
+        "darwin"
+    )
     test.equal(parsed[1].instructions[1].sourceFile, "kernels/scale.nupp")
     test.equal(parsed[1].instructions[1].sourceLine, 12)
     test.equal(parsed[1].instructions[2].generatedColumn, 7)

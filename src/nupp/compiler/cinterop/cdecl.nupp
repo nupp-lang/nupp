@@ -159,7 +159,6 @@ local CTF_FP = 0x04000000
 local CTF_UNSIGNED = 0x00800000
 local CTF_CONST = 0x02000000
 local CTF_UNION = 0x00800000
-local MAX_CTYPE_ID = 8192
 
 local function kindOf(value)
     return bit.rshift(value, 28)
@@ -176,6 +175,27 @@ local function info(id)
     end
 
     return nil
+end
+
+-- CType ids occupy one dense prefix of LuaJIT's registry. Stop at its first
+-- absent entry rather than imposing a smaller compiler-owned ceiling on a
+-- long-lived process.
+local function ctypes(): function(): (integer?, any?)
+    local id: integer = 0
+
+    return function(): (integer?, any?)
+        id = id + 1
+        local entry = info(id)
+        if entry == nil then
+            return nil
+        end
+
+        return id, entry
+    end
+end
+
+local function entryFingerprint(entry): string
+    return table.concat({tostring(entry.info), tostring(entry.size), tostring(entry.sib), tostring(entry.name)}, "\0")
 end
 
 -- Follow typedef and attribute wrappers to the type they describe. Const is retained on
@@ -428,10 +448,8 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     end
 
     local before = {}
-    for id = 1, MAX_CTYPE_ID do
-        if info(id) then
-            before[id] = true
-        end
+    for id, entry in ctypes() do
+        before[id] = entryFingerprint(entry)
     end
 
     -- Which names the target itself spells, for the same reason `cdecl.declare` keeps
@@ -481,9 +499,8 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
 
     local structs, functions, enums = {}, {}, {}
     local anonymousStructs = {}
-    for id = 1, MAX_CTYPE_ID do
-        local entry = info(id)
-        if entry and (not before[id] or (entry.name ~= nil and spelled[entry.name])) then
+    for id, entry in ctypes() do
+        if before[id] ~= entryFingerprint(entry) or (entry.name ~= nil and spelled[entry.name]) then
             local kind = kindOf(entry.info)
             -- An enum carries its constants whether or not it is named: `typedef enum {
             -- ... } Mode;` names the type and nothing else, and its members are the
@@ -533,10 +550,8 @@ end
 --- program plainly makes.
 function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
     local before = {}
-    for id = 1, MAX_CTYPE_ID do
-        if info(id) then
-            before[id] = true
-        end
+    for id in ctypes() do
+        before[id] = true
     end
     local ok, err = pcall(ffi.cdef, text)
     if not ok then
@@ -547,9 +562,8 @@ function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
         spelled[word] = true
     end
     local names: {[string]: boolean} = {}
-    for id = 1, MAX_CTYPE_ID do
-        local entry = info(id)
-        if entry and entry.name and kindOf(entry.info) == CT_FUNC and (not before[id] or spelled[entry.name]) then
+    for id, entry in ctypes() do
+        if entry.name and kindOf(entry.info) == CT_FUNC and (not before[id] or spelled[entry.name]) then
             names[entry.name] = true
         end
     end
@@ -586,9 +600,8 @@ end
 --- program rather than from the process.
 function cdecl.declaredFunctions(only: {[string]: boolean}?): {[string]: cdecl.Function}
     local out = {}
-    for id = 1, MAX_CTYPE_ID do
-        local entry = info(id)
-        if entry and entry.name and kindOf(entry.info) == CT_FUNC and (only == nil or only[entry.name]) then
+    for _, entry in ctypes() do
+        if entry.name and kindOf(entry.info) == CT_FUNC and (only == nil or only[entry.name]) then
             out[entry.name] = decodeFunction(entry)
         end
     end

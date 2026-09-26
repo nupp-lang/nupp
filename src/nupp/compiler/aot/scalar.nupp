@@ -50,11 +50,28 @@ const scalarIR.NUMERIC_CONTRACT = 4
 ---
 --- Derived rather than chosen, and derived in one place, because the generated
 --- C, the foreign declaration, and the layout reporters all have to agree about
---- it and none of them is in a position to check the others.
-function scalarIR.privateSymbol(name: string): string
+--- it and none of them is in a position to check the others. A name outside the
+--- canonical lower-camel form carries its source bytes, so distinct names cannot
+--- collapse onto one snake-case symbol.
+local function identifierTail(name: string): string
     local snake = name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2")
+    snake = snake:gsub("[^%w_]", "_"):lower()
+    local canonical = snake:gsub("_([%l%d])", function(character: string): string
+        return character:upper()
+    end)
+    if canonical == name then
+        return snake
+    end
+    local encoded: {string} = {}
+    for index = 1, #name do
+        encoded[index] = ("%02x"):format(name:byte(index))
+    end
 
-    return "ks_" .. snake:gsub("[^%w_]", "_"):lower()
+    return snake .. "__" .. table.concat(encoded)
+end
+
+function scalarIR.privateSymbol(name: string): string
+    return "ks_" .. identifierTail(name)
 end
 
 --- The C name of one local, which is not its source name: two source scopes may
