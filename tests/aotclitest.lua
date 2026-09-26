@@ -4942,12 +4942,13 @@ end
 function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
     -- `cursor + s.lanes <= #span`, taken exactly in u64, is the guard that
     -- proves a whole vector at `cursor + 1` lies inside the span. Under it
-    -- an unmasked load or store is the `_at` helper: one memcpy the C
-    -- compiler turns into the vector instruction. An overflow guard retains
-    -- the checked helper for wrapping uint32 indices on very large spans.
-    -- The tail is a checked prefix access of the lanes its mask names, and
-    -- moves its partial vector through general registers rather than a
-    -- stack array. Nothing in the loop goes through a double.
+    -- an unmasked load or store is one vector access at the cursor. Where
+    -- every span fits in 32 bits the index cannot wrap and the loop runs
+    -- that way throughout; elsewhere each pass proves its index does not
+    -- wrap, and one that might keeps the checked access. The tail is a
+    -- checked prefix access of the lanes its mask names, the lane count
+    -- taken once, and moves its partial vector through registers rather
+    -- than a stack array. Nothing in the loop goes through a double.
     local dir = project{
         [
             "map.nupp"
@@ -4974,160 +4975,64 @@ return {add = add}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json map.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_add%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
-    local loop = body:match("while %(.-\n    }\n")
+    local body = kernelBody(decoded.llvm, "ks_add")
+    assert(
+        body:find("icmp ule i64 %count_input, 4294967295\n", 1, true)
+            and body:find("icmp ule i64 %count_output, 4294967295\n", 1, true),
+        "the loop is versioned on whether its spans fit in 32 bits\n" .. body
+    )
+    local loop = body:match("\nwhile%.head%.%d+:\n.-\nwhile%.end%.%d+:\n")
     assert(loop, "the vector loop\n" .. body)
-    assert(
-        loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_input)", 1, true)
-        and loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_output)", 1, true),
-        "the guard is exact and compares the count as an integer\n" .. body
-    )
-    assert(
-        loop:find("ks_exp_store_at_u8x16(p_output + (size_t)v2_cursor, ", 1, true)
-        and loop:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
-        "the proven load and store are bare copies\n" .. body
-    )
-    assert(not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
-    assert(loop:find("<= UINT32_MAX)", 1, true), "the unchecked path proves its index does not wrap\n" .. body)
-    assert(
-        loop:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first", 1, true),
-        "wrapping indices keep the original checked access\n" .. body
-    )
-    -- A `tail(n)` mask activates the first n lanes, so the tail is a prefix
-    -- access of n elements, still bounded by the span's count.
-    assert(
-        body:find("ks_exp_load_prefix_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "the tail load is a checked prefix\n" .. body
-    )
-    assert(
-        body:find("ks_exp_store_prefix_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
-        "and so is the tail store\n" .. body
-    )
-    assert(body:find("_active_prefix KS_UNUSED = ", 1, true), "the lane count is taken once, where the mask is\n" .. body)
-
-    -- The helpers themselves are authored C, carried as ks_simd.h and
-    -- instantiated per element by macro, so their shape is read from the
-    -- header rather than from the emitted text.
-    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
-    assert(
-        c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t, int8_t, 16, 1, INT)", 1, true),
-        "the u8x16 helpers are instantiated\n" .. c
-    )
-    assert(
-        header:find(
-            "ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; }",
-            1,
-            true
+    for _, span in ipairs({"input", "output"}) do
+        assert(
+            loop:match("zext i32 16 to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_" .. span .. "\n"),
+            "the guard is exact and compares the count as an integer\n" .. loop
         )
-        and header:find(
-            "ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); }",
-            1,
-            true
-        ),
-        "a proven vector is one copy"
-    )
-    assert(
-        header:find("ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) {", 1, true)
-        and header:find("if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
-        "a checked whole vector is still one copy"
-    )
-    assert(
-        header:find("#if KS_WORD_TAIL", 1, true)
-        and header:find(
-            "switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }",
-            1,
-            true
-        ),
-        "a partial vector gathers into words"
-    )
-    assert(
-        header:find(
-            "case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;",
-            1,
-            true
-        )
-        and header:find(
-            "static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(",
-            1,
-            true
-        ),
-        "and scatters from them, with the lane loop cold"
-    )
-    assert(
-        header:find(
-            "bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM active) { ks_exp_mask_##ELEM inactive = (ks_exp_mask_##ELEM)(active == (ks_exp_mask_##ELEM){0});",
-            1,
-            true
-        ),
-        "all-active is a vector compare"
-    )
-    assert(
-        header:find(
-            "ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { if (active > LANES##u) active = LANES##u;",
-            1,
-            true
-        )
-        and header:find("return (ks_exp_mask_##ELEM)(lane < limit); }", 1, true),
-        "and so is a tail mask"
-    )
-
-    -- Nothing wider than a vector may cross a call boundary by value, and no
-    -- type may ask for more alignment than the narrowest calling convention
-    -- gives a by-reference argument temporary. Windows x64 allocates that
-    -- temporary in the caller's frame with sixteen bytes of alignment, and GCC
-    -- neither rounds it up for an over-aligned type nor declines to move it
-    -- with an instruction that requires the wider alignment -- so a
-    -- thirty-two byte vector handed to a function it did not inline faults on
-    -- whichever half of the calls find the frame sixteen-byte aligned. The
-    -- cold lane loop is the one helper here that is never inlined, so it takes
-    -- what it reads by pointer; a declared object is aligned correctly where
-    -- an argument temporary is not.
-    assert(
-        header:find(
-            "void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active)",
-            1,
-            true
-        )
-        and header:find("ks_exp_store_masked_part_##ELEM(destination, room, &value, &active);", 1, true),
-        "the cold lane loop takes its vector and its mask by pointer"
-    )
-    assert(
-        header:find("typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM;", 1, true)
-        and not header:find("aligned(", 1, true),
-        "and no type in the prelude asks for an alignment a caller does not give it"
-    )
-
-    -- Pointers close the boundaries this header writes. The one it does not
-    -- write is the hidden pointer a by-value vector is returned through, which
-    -- appears whenever the compiler splits a cold path out of an inline helper
-    -- into a real call -- its own choice, made again on every version. On
-    -- Windows the slot that pointer names is the caller's frame, sixteen-byte
-    -- aligned, and GCC stores a vector into it with `vmovdqa`. Every vector
-    -- here says its alignment is one there, which is what leaves the compiler
-    -- no aligned move to reach for; every other target keeps the natural one.
-    assert(
-        header:find(
-            "#if defined(_WIN32) || defined(_WIN64)\n#define KS_VECTOR_ABI_ALIGN , __aligned__(1)\n#else\n#define KS_VECTOR_ABI_ALIGN\n#endif",
-            1,
-            true
-        ),
-        "the Windows calling convention caps what a vector claims about its address"
-    )
-    for _, vector in ipairs({
-        "typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
-        "typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
-    }) do
-        assert(header:find(vector, 1, true), "and every vector carries that cap: " .. vector)
     end
+    assert(
+        loop:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  %%t%d+ = load <16 x i8>, ptr %1, align 1\n")
+            and loop:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  store <16 x i8> %%t%d+, ptr %1, align 1\n"),
+        "the proven load and store are bare vector accesses\n" .. loop
+    )
+    assert(not loop:find("double", 1, true), "nothing in the loop goes through a double\n" .. loop)
+    assert(
+        body:match("add nuw i64 %%t%d+, 16\n  %%t%d+ = icmp ule i64 %%t%d+, 4294967295\n"),
+        "where a span may not fit, the unchecked path proves its index does not wrap\n" .. body
+    )
+    assert(
+        loop:match("%%t%d+ = icmp ult i64 %%t%d+, %%count_input\n  %%t%d+ = sub i64 %%count_input, %%t%d+\n"),
+        "wrapping indices keep the original checked access\n" .. loop
+    )
+
+    -- A `tail(n)` mask activates the first n lanes, so the tail is a prefix
+    -- access of at most n elements, still bounded by the span's count.
+    local tail = assert(body:match("\ncursors%.done%.%d+:\n.*"), body)
+    local prefixes = {}
+    local room = "icmp ult i64 %%t%d+, %%count_(%w+)\n  %%t%d+ = sub i64 %%count_%w+, %%t%d+\n"
+    for span, active in tail:gmatch(room .. ".-icmp ult i32 (%%t%d+), %%t%d+\n") do
+        prefixes[#prefixes + 1] = {span = span, active = active}
+    end
+    test.equal(#prefixes, 2, "the tail load and store are each a checked prefix\n" .. tail)
+    test.equal(prefixes[1].span, "input", tail)
+    test.equal(prefixes[2].span, "output", tail)
+    test.equal(prefixes[1].active, prefixes[2].active, "the lane count is taken once, where the mask is\n" .. tail)
+    assert(
+        tail:match("switch i32 %%t%d+, label %%tail%.done%.%d+ %[")
+            and tail:find("= insertelement <16 x i8> ", 1, true)
+            and tail:find("= extractelement <16 x i8> ", 1, true),
+        "a partial vector is gathered into and scattered from a register\n" .. tail
+    )
+    assert(
+        not body:match("alloca %[%d+ x i8%]"),
+        "and never goes through a stack array\n" .. body
+    )
 end
 
 function M.aProofNeedsTheGuardAndTheCursorItLeft()
     -- A guard for one span proves nothing about another; a masked access
     -- keeps its mask and its checks; a cursor moved between the guard and
-    -- the access is no longer the one the guard was about. Each stays on
-    -- the checked `_full` helper.
+    -- the access is no longer the one the guard was about. Each stays a
+    -- checked access, measuring the room its span has left.
     local dir = project{
         [
             "unproven.nupp"
@@ -5175,29 +5080,22 @@ return {other = other, masked = masked, moved = moved}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unproven.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local other = c:match("KS_API void ks_other%(.-\n}\n")
+    local other = kernelBody(decoded.llvm, "ks_other")
     assert(
-        other and other:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
-        "the unguarded span is checked\n" .. c
+        checkedAccess(other, "output") and not provenAccess(other, "output"),
+        "the unguarded span is checked\n" .. other
     )
+    assert(provenAccess(other, "input"), "while the guarded one is proven\n" .. other)
+    local masked = kernelBody(decoded.llvm, "ks_masked")
     assert(
-        other:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
-        "while the guarded one is proven\n" .. c
+        checkedAccess(masked, "input") and masked:find("select <16 x i1> ", 1, true),
+        "a masked access keeps its mask and its checks\n" .. masked
     )
-    local masked = c:match("KS_API uint32_t ks_masked%(.-\n}\n")
+    local moved = kernelBody(decoded.llvm, "ks_moved")
+    assert(checkedAccess(moved, "input"), "a moved cursor loses the proof\n" .. moved)
     assert(
-        masked and masked:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "a masked access keeps its checks\n" .. c
-    )
-    local moved = c:match("KS_API uint32_t ks_moved%(.-\n}\n")
-    assert(
-        moved and moved:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "a moved cursor loses the proof\n" .. c
-    )
-    assert(
-        not moved:find("load_at_", 1, true) and not masked:find("load_at_", 1, true),
-        "no bare copy without a proof\n" .. c
+        not provenAccess(moved, "input") and not provenAccess(masked, "input"),
+        "no bare access without a proof\n" .. decoded.llvm
     )
 end
 
@@ -5254,22 +5152,18 @@ return {equal = equal, longer = longer, shorter = shorter}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json related.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local equal = c:match("KS_API void ks_equal%(.-\n}\n")
-    assert(equal, "the kernel is emitted:\n" .. c)
-    assert(equal:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true), "an equal span is proven\n" .. equal)
-    assert(equal:find("p_output[((size_t)v2_cursor)] = ", 1, true), "and so is its scalar tail\n" .. equal)
-    local longer = c:match("KS_API void ks_longer%(.-\n}\n")
+    local vectorStore = "(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n.-store <4 x double> %%t%d+, ptr %1, "
+    local equal = kernelBody(decoded.llvm, "ks_equal")
+    assert(equal:match(vectorStore), "an equal span is proven\n" .. equal)
     assert(
-        longer and longer:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true),
-        "a span held no shorter is proven\n" .. c
+        equal:match("(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  store double %%t%d+, ptr %1, "),
+        "and so is its scalar tail\n" .. equal
     )
-    local shorter = c:match("KS_API void ks_shorter%(.-\n}\n")
-    assert(
-        shorter and shorter:find("ks_exp_store_full_f64x4(p_output, count_output, ", 1, true),
-        "a span that may be shorter stays checked\n" .. c
-    )
-    assert(not shorter:find("store_at_", 1, true), "with no bare copy\n" .. shorter)
+    local longer = kernelBody(decoded.llvm, "ks_longer")
+    assert(longer:match(vectorStore), "a span held no shorter is proven\n" .. longer)
+    local shorter = kernelBody(decoded.llvm, "ks_shorter")
+    assert(checkedAccess(shorter, "output"), "a span that may be shorter stays checked\n" .. shorter)
+    assert(not provenAccess(shorter, "output"), "with no bare access\n" .. shorter)
 
     local refused = project{
         [
@@ -5294,13 +5188,14 @@ return {tail = tail}
     assert(out:find("span stores need a counted-loop index or cursor + 1 under cursor < #span", 1, true), out)
 end
 
-function M.aGuardedCursorLoopCarriesItsCursorIn64Bits()
-    -- Under `cursor + s.lanes <= #input` with one `cursor = cursor + s.lanes`,
-    -- the cursor cannot wrap once `#input` fits in 32 bits, so that copy of
-    -- the loop carries it in 64, runs two iterations' bodies per pass (about
-    -- 64 bytes), and skips the wrap check on its accesses. A larger span runs
-    -- the loop as written. A cursor written twice is not versioned. The
-    -- guards make the two counts one, so the loop names only one of them.
+function M.aGuardedCursorLoopIsVersionedWhereItsCursorCannotWrap()
+    -- Under `cursor + s.lanes <= #input` the cursor cannot wrap once `#input`
+    -- fits in 32 bits, so that copy of the loop skips the wrap check on its
+    -- accesses and runs two iterations' bodies per pass (about 64 bytes). A
+    -- larger span runs the loop as written, checking each pass. The guards
+    -- make the two counts one, so the loop names only one of them. A cursor
+    -- written twice is an ordinary 32-bit value the guard reads again every
+    -- pass, so it compiles too. The oracle is the loop as written everywhere.
     local dir = project{
         [
             "wide.nupp"
@@ -5336,41 +5231,41 @@ return {scale = scale, twice = twice}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json wide.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local scale = c:match("KS_API void ks_scale%(.-\n}\n")
-    assert(scale, "the kernel is emitted:\n" .. c)
-    assert(scale:find("if ((uint64_t)(count_output) <= UINT32_MAX) {", 1, true), "the loop is versioned\n" .. scale)
-    assert(scale:find("uint64_t v2_cursor = ks_wide_", 1, true), "onto a 64-bit cursor\n" .. scale)
+    local llvm = decoded.llvm
+    local scale = kernelBody(llvm, "ks_scale")
     assert(
-        scale:find("uint64_t as1 = (uint64_t)v2_cursor + (uint64_t)UINT32_C(4);", 1, true),
-        "whose increment is not truncated\n" .. scale
+        scale:match("(%%t%d+) = icmp ule i64 %%count_output, 4294967295\n.-br i1 %%t%d+, label %%cursors%.wide%.%d+, label %%cursors%.narrow%.%d+\n"),
+        "the loop is versioned on the count fitting in 32 bits\n" .. scale
     )
+    local fits = assert(scale:match("\ncursors%.wide%.%d+:\n.-\ncursors%.narrow%.%d+:\n"), scale)
+    local larger = assert(scale:match("\ncursors%.narrow%.%d+:\n.-\ncursors%.done%.%d+:\n"), scale)
     assert(
-        scale:find("while ((uint64_t)v2_cursor + UINT64_C(2) * (uint64_t)UINT32_C(4) <= (uint64_t)(count_output)) {", 1, true),
-        "and a 32-byte vector runs two bodies a pass\n" .. scale
+        fits:match("getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  br i1 true, ")
+            and not fits:find("4294967295", 1, true),
+        "the copy that fits has no wrap check on its accesses\n" .. fits
     )
+    local loopId = fits:match("br label %%while%.head%.%d+, !llvm%.loop (!%d+)\n")
+    local hint = loopId and llvm:match("\n" .. loopId .. " = distinct !{" .. loopId .. ", (!%d+)}\n")
     assert(
-        scale:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true)
-        and not scale:match("uint64_t v2_cursor = ks_wide_1;\n%s*while[^\n]*\n%s*{\n%s*%(%(%(uint64_t%)v2_cursor"),
-        "with no wrap check on its accesses\n" .. scale
+        hint and llvm:find("\n" .. hint .. ' = !{!"llvm.loop.unroll.count", i32 2}\n', 1, true),
+        "and a 32-byte vector runs two bodies a pass\n" .. llvm
     )
-    assert(scale:find("} else {\n        while (", 1, true), "a larger span runs the loop as written\n" .. scale)
+    assert(not fits:find("%count_input", 1, true), "the loop names one of the two equal counts\n" .. fits)
     assert(
-        scale:match("uint32_t as%d+ = %(%(uint32_t%)%(v2_cursor %+ UINT32_C%(4%)%)%);"),
-        "with its wrapping cursor\n" .. scale
+        larger:match("add nuw i64 %%t%d+, 4\n  %%t%d+ = icmp ule i64 %%t%d+, 4294967295\n"),
+        "a larger span runs the loop as written, checking each pass\n" .. larger
     )
-    local twice = c:match("KS_API void ks_twice%(.-\n}\n")
-    assert(twice and not twice:find("ks_wide_", 1, true), "a cursor written twice is not versioned\n" .. c)
-    local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("ks_wide_", 1, true), "the oracle is not versioned\n" .. c)
-    assert(oracle:find("count_input", 1, true), "and checks each span against its own count\n" .. oracle)
+    assert(larger:match("= add i32 %%t%d+, 4\n"), "with its wrapping cursor\n" .. larger)
+    kernelBody(llvm, "ks_twice")
+    local oracle = oracleBody(llvm, "ks_scale")
+    assert(not oracle:find("cursors.wide", 1, true), "the oracle is not versioned\n" .. oracle)
 end
 
-function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagIsAnInt()
+function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagStaysAFlag()
     -- `(x >= c):any()` over integer lanes asks one horizontal question of
     -- `x`, and `(x ~= 0):any()` whether any bit is set; neither forms the mask.
-    -- A boolean the loop reassigns is an `int` in C, which clang keeps as a
-    -- flag rather than rebuilding from the comparison every pass.
+    -- A boolean the loop reassigns is a variable of its own, kept as a flag
+    -- rather than rebuilt from the comparison every pass.
     local dir = project{
         [
             "scan.nupp"
@@ -5401,22 +5296,28 @@ return {scan = scan}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json scan.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API uint32_t ks_scan%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
-    assert(body:find("ks_exp_any_ge_u8x16(", 1, true), "a compare against a bound is one reduction\n" .. body)
-    assert(body:find("ks_exp_any_nonzero_u8x16(", 1, true), "and so is a test for any set bit\n" .. body)
-    assert(body:find("int v%d+_ascii = ") or body:match("int v%d+_ascii = "), "the flag is an int\n" .. body)
+    local body = kernelBody(decoded.llvm, "ks_scan")
+    local reduction = "call i32 @llvm%%.aarch64%%.neon%%.u[maxin]+v%%.i32%%.v16i8%%(<16 x i8> %s%%)"
+    assert(not body:find("icmp uge <16 x i8>", 1, true), "neither forms the mask\n" .. body)
+    assert(not body:find("icmp ne <16 x i8>", 1, true), "neither forms the mask\n" .. body)
     assert(
-        c:find("#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return __builtin_reduce_##REDUCE(value) OP bound;", 1, true),
-        "aarch64 answers it with a horizontal max or min\n"
+        body:match("(%%t%d+) = call i32 @llvm%.aarch64%.neon%.umaxv%.i32%.v16i8%(<16 x i8> %%t%d+%)\n.-icmp uge i32 "),
+        "aarch64 answers a compare against a bound with one horizontal max\n" .. body
+    )
+    local bits = body:match("(%%t%d+) = xor <16 x i8> %%t%d+, %%t%d+\n")
+    assert(bits, "the bits under test\n" .. body)
+    local _, reductions = body:gsub(reduction:format((bits:gsub("%%", "%%%%"))), "")
+    test.equal(reductions, 1, "a test for any set bit is one reduction too\n" .. body)
+    assert(
+        body:find("alloca i1, ", 1, true) and body:find("store i1 false, ptr %slot", 1, true),
+        "the flag is a variable of its own\n" .. body
     )
 end
 
 function M.aByteLookupOverFourTablesIsOneTableInstruction()
     -- `swizzle` with three or four tables continues one run of lanes; on a
     -- sixteen-lane byte species NEON answers it with `tbl` over three or four
-    -- registers, and the scalar oracle walks the lanes.
+    -- registers.
     local dir = project{
         [
             "lookup.nupp"
@@ -5441,21 +5342,26 @@ return {lookup = lookup}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json lookup.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_lookup%(.-\n}\n")
-    assert(body and body:find("ks_exp_swizzle_triple_u8x16(", 1, true), "three tables\n" .. c)
-    assert(body:find("ks_exp_swizzle_quad_u8x16(", 1, true), "four tables\n" .. body)
-    assert(c:find("vqtbl3q_u8(t, x)", 1, true) and c:find("vqtbl4q_u8(t, x)", 1, true), "one NEON table instruction each\n")
-    local oracle = c:match("KS_API void ks_lookup_forced_scalar%(.-\n}\n")
-    assert(oracle and oracle:find("ks_scalar_exp_swizzle_quad_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_lookup")
+    local _, triples = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl3%.v16i8%(", "")
+    local _, quads = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl4%.v16i8%(", "")
+    test.equal(triples, 1, "three tables are one NEON table instruction\n" .. body)
+    test.equal(quads, 1, "and so are four\n" .. body)
+    oracleBody(decoded.llvm, "ks_lookup")
+
+    local asm = neonAsm(dir, "lookup.nupp")
+    assert(
+        asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+ }, v%d+") and asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+, v%d+ }, v%d+"),
+        "which reach the target as `tbl` over three and four registers\n" .. asm
+    )
 end
 
 function M.anInterleavedLoadIsOneLd3AndTheStoreOneSt4()
-    -- Each result of `loadTriples` is its own load of the whole run, proved by
-    -- the loop condition like a load of three vectors; clang reads the run
-    -- once, with `ld3`. `storeQuads` is one store of four vectors, `st4`.
-    -- Outside the proof both take their checked forms, and the scalar oracle
-    -- walks the lanes.
+    -- Each result of `loadTriples` is its own strided view of one load of the
+    -- whole run, proved by the loop condition like a load of three vectors;
+    -- LLVM reads the run once, with `ld3`. `storeQuads` is one store of four
+    -- vectors interleaved, `st4`. Outside the proof both take their checked
+    -- forms, and the oracle is left unoptimized.
     local dir = project{
         [
             "records.nupp"
@@ -5490,33 +5396,35 @@ return {widen = widen}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json records.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API uint32_t ks_widen%(.-\n}\n")
-    assert(body, "the entry\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_widen")
+    assert(
+        body:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n.-= load <48 x i8>, ptr %1, align 1\n"),
+        "a proved run is one load\n" .. body
+    )
     for part = 0, 2 do
-        assert(body:find("ks_exp_load_ways_at_u8x16(p_input + (size_t)v", 1, true), "a proved run\n" .. body)
-        assert(body:find(", 3u, " .. part .. "u)", 1, true), "part " .. part .. "\n" .. body)
+        local stride = "shufflevector <48 x i8> %%t%d+, <48 x i8> poison, <16 x i32> <i32 "
+            .. part .. ", i32 " .. part + 3 .. ", i32 " .. part + 6 .. ", "
+        assert(body:match(stride), "part " .. part .. " is every third byte of it\n" .. body)
     end
-    assert(body:find("ks_exp_store_ways_at_u8x16(p_output + (size_t)v", 1, true), "a proved store\n" .. body)
-    assert(body:find("ks_exp_load_ways_u8x16(p_input, count_input, ", 1, true), "an unproved run is checked\n" .. body)
-    assert(body:find("ks_exp_store_ways_u8x16(p_output, count_output, ", 1, true), "and so is its store\n" .. body)
-    local oracle = c:match("KS_API uint32_t ks_widen_forced_scalar%(.-\n}\n")
-    assert(oracle and oracle:find("ks_scalar_exp_load_ways_at_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
-    assert(not oracle:find("ks_exp_load_ways", 1, true), "and never takes the native form\n" .. oracle)
+    assert(
+        body:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n.-store <64 x i8> %%t%d+, ptr %1, align 1\n"),
+        "a proved store is one store\n" .. body
+    )
+    assert(checkedAccess(body, "input"), "an unproved run is checked\n" .. body)
+    assert(checkedAccess(body, "output"), "and so is its store\n" .. body)
+    oracleBody(decoded.llvm, "ks_widen")
 
     local asm = neonAsm(dir, "records.nupp")
-    if asm ~= nil then
-        local _, reads = asm:gsub("ld3%.16b", "")
-        assert(reads >= 1, "the run is read with ld3\n" .. asm)
-        assert(asm:find("st4.16b", 1, true), "and written with st4\n" .. asm)
-        -- Swapping each pair back is one `rev16` where LLVM sees the load and
-        -- store together; the checked path still interleaves with st2.
-        assert(
-            asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true)
-                or asm:find("rev16.16b", 1, true) and asm:find("st2.16b", 1, true),
-            "pairs are ld2 and st2, or one pair swap\n" .. asm
-        )
-    end
+    local _, reads = asm:gsub("ld3%.16b", "")
+    assert(reads >= 1, "the run is read with ld3\n" .. asm)
+    assert(asm:find("st4.16b", 1, true), "and written with st4\n" .. asm)
+    -- Swapping each pair back is one `rev16` where LLVM sees the load and
+    -- store together; the checked path still interleaves with st2.
+    assert(
+        asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true)
+            or asm:find("rev16.16b", 1, true) and asm:find("st2.16b", 1, true),
+        "pairs are ld2 and st2, or one pair swap\n" .. asm
+    )
 
     -- A result is only ever a local's initializer.
     local refused = project{
@@ -5577,23 +5485,34 @@ return {scale = scale, double = double}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unrolled.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_scale%(.-\n}\n")
-    assert(body, "the entry\n" .. c)
-    local first = body:find("_1_1 = ks_exp_load_at_f64x4(p_input", 1, true)
-    local second = body:find("_2_1 = ks_exp_load_at_f64x4(p_input", 1, true)
-    local store = body:find("ks_exp_store_at_f64x4(p_output", 1, true)
-    assert(first and second and store and first < second and second < store, "both copies read first\n" .. body)
-    local inPlace = c:match("KS_API void ks_double%(.-\n}\n")
-    assert(inPlace and not inPlace:find("ks_unroll_", 1, true), "a written span keeps its reads\n" .. c)
-    local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("ks_unroll_", 1, true), "the oracle is not unrolled\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_scale")
+    assert(body:find(", !llvm.loop !", 1, true), "the versioned loop is unrolled\n" .. body)
+    local oracle = oracleBody(decoded.llvm, "ks_scale")
+    assert(not oracle:find("!llvm.loop", 1, true), "the oracle is not unrolled\n" .. oracle)
+
+    -- The order the instructions run in, in the first loop of each entry.
+    local function order(symbol)
+        local asm, asmCode = run(
+            dir,
+            "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " unrolled.nupp"
+        )
+        test.equal(asmCode, 0, asm)
+        local first = asm:find("\n%s+ldp%s+q")
+        local second = first and asm:find("\n%s+ldp%s+q", first + 1)
+        local store = asm:find("\n%s+stp%s+q")
+        assert(first and second and store, symbol .. " has two copies of its body\n" .. asm)
+        return second < store, asm
+    end
+    local hoisted, asm = order("ks_scale")
+    assert(hoisted, "both copies read before either writes\n" .. asm)
+    local inPlace, inPlaceAsm = order("ks_double")
+    assert(not inPlace, "a written span keeps its reads in place\n" .. inPlaceAsm)
 end
 
 function M.aLoopCarriedMaskStaysInItsRegister()
-    -- A mask a loop reassigns is kept in its vector register, so the C
-    -- compiler does not carry it as one bit a lane. The scalar oracle has no
-    -- register to keep.
+    -- A mask a loop reassigns is carried lane-wide and pinned to its vector
+    -- registers, so LLVM does not carry it as one bit a lane, and the loop
+    -- tests that register rather than rebuilding it.
     local dir = project{
         [
             "halve.nupp"
@@ -5623,13 +5542,23 @@ return {halve = halve}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json halve.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_halve%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
-    assert(body:find("_live = ks_exp_keep_mask_f64x4(as", 1, true), "the carried mask is kept\n" .. body)
-    assert(not body:find("= ks_exp_keep_mask_f64x4(ks_exp_gt", 1, true), "its first definition is not\n" .. body)
-    local oracle = c:match("KS_API void ks_halve_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("keep_mask", 1, true), "the oracle keeps nothing\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_halve")
+    local slot = body:match("(%%slot%d+) = alloca <4 x i64>\n")
+    assert(slot, "the carried mask has a lane-wide slot\n" .. body)
+    assert(not body:find("alloca <4 x i1>", 1, true), "and no slot of one bit a lane\n" .. body)
+    local escaped = slot:gsub("%%", "%%%%")
+    local _, pinned = body:gsub(
+        'call <2 x i64> asm "", "=w,0"%(<2 x i64> %%t%d+%)\n  %%t%d+ = shufflevector <2 x i64> %%t%d+, <2 x i64> %%t%d+, <4 x i32> <i32 0, i32 1, i32 2, i32 3>\n  store <4 x i64> %%t%d+, ptr '
+            .. escaped .. "\n",
+        ""
+    )
+    local _, stores = body:gsub("store <4 x i64> %%t%d+, ptr " .. escaped .. "\n", "")
+    assert(pinned >= 2, "its definitions are pinned to their registers\n" .. body)
+    test.equal(pinned, stores, "every one of them\n" .. body)
+    assert(
+        body:match("\nwhile%.head%.%d+:\n  %%t%d+ = load <4 x i64>, ptr " .. escaped .. "\n.-umaxp"),
+        "and the loop tests the register it carries\n" .. body
+    )
 end
 
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
@@ -5751,11 +5680,16 @@ return {total = total}
             tier.args .. ": the preferred shape\n" .. decoded.ir
         )
         assert(decoded.ir:find("simd_vector_f32_fixed8", 1, true), tier.args .. ": the fixed shape\n" .. decoded.ir)
+        local body = kernelBody(decoded.llvm, "ks_total")
         assert(
-            decoded.c:find("KS_EXP_ELEMENT(" .. tier.lanes * 4 .. ", f32x" .. tier.lanes .. ", float", 1, true),
-            tier.args .. ": the tier's width\n" .. decoded.c
+            body:find("= load <" .. tier.lanes .. " x float>, ptr %t", 1, true),
+            tier.args .. ": the tier's width\n" .. body
         )
-        assert(not decoded.c:find("assert", 1, true), tier.args .. ": nothing of the assert survives\n" .. decoded.c)
+        assert(body:find("<8 x float>", 1, true), tier.args .. ": and the fixed one\n" .. body)
+        assert(
+            not decoded.llvm:find("needs vectors", 1, true),
+            tier.args .. ": nothing of the assert survives\n" .. decoded.llvm
+        )
     end
 
     local out, code = run(dir, "--target wasm32-unknown-emscripten --features scalar required.nupp")
