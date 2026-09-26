@@ -136,6 +136,25 @@ end
 
 local M = {}
 
+
+-- Sets or clears a variable of this process's own environment, which the
+-- build it then runs in process reads: POSIX `setenv`, or the Windows C
+-- runtime's `_putenv_s`, where an empty value clears it.
+local function setEnvironment(name, value)
+    local ffi = require("ffi")
+    if package.config:sub(1, 1) == "\\" then
+        pcall(ffi.cdef, "int _putenv_s(const char *, const char *);")
+        ffi.C._putenv_s(name, value or "")
+    else
+        pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
+        if value == nil then
+            ffi.C.unsetenv(name)
+        else
+            ffi.C.setenv(name, value, 1)
+        end
+    end
+end
+
 function M.sha256KnownVectors()
     assertEq(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     assertEq(hash.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -2605,21 +2624,24 @@ print(triangular(4))
         write(fake .. "/" .. tool, "#!/bin/sh\necho \"$0\" >> '" .. dir .. "/invoked'\nexit 99\n")
         assert(os.execute("chmod +x '" .. fake .. "/" .. tool .. "'") == 0)
     end
-    local ffi = require("ffi")
-    pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
+    local windows = package.config:sub(1, 1) == "\\"
     local path = os.getenv("PATH") or ""
-    ffi.C.setenv("PATH", fake .. ":" .. path, 1)
-    ffi.C.setenv("NUPP_KIT_DIR", kit, 1)
+    setEnvironment("PATH", fake .. (windows and ";" or ":") .. path)
+    setEnvironment("NUPP_KIT_DIR", kit)
     local ok, built = pcall(project.build, dir)
-    ffi.C.setenv("PATH", path, 1)
-    ffi.C.unsetenv("NUPP_KIT_DIR")
+    setEnvironment("PATH", path)
+    setEnvironment("NUPP_KIT_DIR", nil)
     assert(ok, built)
     assertEq(built, 0)
     assert(not exists(dir .. "/invoked"), "no C toolchain was run")
-    local ran, text = process.capture({dir .. "/out/app"})
+    local program = dir .. "/out/app"
+    if windows and not exists(program) then
+        program = program .. ".exe"
+    end
+    local ran, text = process.capture({program})
     assertEq(ran, 0, text)
     assertEq(text:match("[^\r\n]+"), "10", "the program runs its AOT entry")
-    local _, symbols = process.capture({"nm", dir .. "/out/app"})
+    local _, symbols = process.capture({"nm", program})
     assert(not symbols:find("ZN4llvm", 1, true), "the program carries no LLVM")
     remove(dir)
 end
@@ -2675,12 +2697,10 @@ print(triangular(5))
         )
     end
     catalog(require("nupp.compiler.hash").sha256(bytes))
-    local ffi = require("ffi")
-    pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
     local names = {"NUPP_STUB_CATALOG", "NUPP_STUB_DIR", "NUPP_KIT_CACHE"}
-    ffi.C.setenv("NUPP_STUB_CATALOG", dir .. "/catalog.json", 1)
-    ffi.C.setenv("NUPP_STUB_DIR", dir .. "/kits", 1)
-    ffi.C.setenv("NUPP_KIT_CACHE", dir .. "/cache", 1)
+    setEnvironment("NUPP_STUB_CATALOG", dir .. "/catalog.json")
+    setEnvironment("NUPP_STUB_DIR", dir .. "/kits")
+    setEnvironment("NUPP_KIT_CACHE", dir .. "/cache")
     local function build()
         local ok, built = pcall(project.build, dir)
         assert(ok, built)
@@ -2699,7 +2719,7 @@ print(triangular(5))
     assert(os.execute("rm -rf '" .. dir .. "/out'") == 0)
     local tampered = build()
     for _, name in ipairs(names) do
-        ffi.C.unsetenv(name)
+        setEnvironment(name, nil)
     end
     assertEq(first, 0)
     assert(installed, "the kit is unpacked into the per-user cache")
