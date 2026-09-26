@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  # The pinned LLVM is taken from an artifact another run stored.
+  actions: read
 
 jobs:
   changes:
@@ -68,7 +70,10 @@ jobs:
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            !.nupp-cache/toolchain/llvm
+            !.nupp-cache/toolchain/sources/llvm-project-*
           key: >-
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
@@ -91,6 +96,11 @@ jobs:
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      # Every AOT unit is compiled by the LLVM linked into nupp. After the
+      # toolchain, so this LLVM wins over whatever a toolchain entry carried.
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
 
       - name: Provision the pinned toolchain
         shell: bash
@@ -182,7 +192,10 @@ jobs:
           path: build/simd-browser-guest
       - uses: actions/cache@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            !.nupp-cache/toolchain/llvm
+            !.nupp-cache/toolchain/sources/llvm-project-*
           key: >-
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
@@ -196,6 +209,8 @@ jobs:
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
           restore-keys: |
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
       - name: Install Chromium
@@ -241,7 +256,10 @@ jobs:
           path: build/simd-browser-guest
       - uses: actions/cache@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            !.nupp-cache/toolchain/llvm
+            !.nupp-cache/toolchain/sources/llvm-project-*
           key: >-
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
@@ -255,6 +273,8 @@ jobs:
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
           restore-keys: |
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
       - name: Install Chromium
