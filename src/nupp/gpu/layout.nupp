@@ -18,8 +18,9 @@ print(layout.offset(column), layout.isDense(column))
 ```
 
 Every operation is checked, so a layout that would read outside its extent is
-refused rather than produced. A layout knows whether it is dense and whether it
-is injective, which is what says when a write through it is well defined.
+refused rather than produced. A layout knows whether it is dense and whether
+its stride structure proves that writes use distinct element offsets. A false
+injectivity result can also mean the bounded stride proof was inconclusive.
 ]]
 
 local layout = {}
@@ -94,6 +95,10 @@ function layout.isDense(borrows value: layout.Layout): boolean
     return value._dense
 end
 
+--- Reports whether the layout's strides prove that element offsets are distinct.
+---
+--- A false result also covers layouts for which the bounded stride proof is
+--- inconclusive.
 function layout.isInjective(borrows value: layout.Layout): boolean
     return value._injective
 end
