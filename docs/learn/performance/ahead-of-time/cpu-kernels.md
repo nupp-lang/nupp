@@ -4,7 +4,7 @@ order: 632
 
 # CPU kernels
 
-An `@aot` CPU kernel keeps numeric and span data in a pointer-free native entry. Its loops lower to C that the selected C compiler optimizes.
+An `@aot` CPU kernel keeps numeric and span data in a pointer-free native entry. Its loops lower to LLVM IR, which the code generator in `nupp` optimizes and compiles.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -18,14 +18,14 @@ local function scale(exclusive output: span.WriteSpan<float>, borrows input: spa
 end
 ```
 
-Use `aot = "require"` in a build target to compile the C and replace this declaration with a checked native wrapper. With AOT off, the unchanged Nupp body runs.
+Use `aot = "require"` in a build target to compile it and replace this declaration with a checked native wrapper. With AOT off, the unchanged Nupp body runs.
 
 ## Inspecting a kernel
 
-Run `nupp aot --emit ir FILE` for the admitted operations, `--emit c` for the translation unit, and `--emit asm --function NAME FILE` for the instructions the C compiler emitted. `--target` and `--features` select the triple and CPU tier being inspected.
+Run `nupp aot --emit ir FILE` for the admitted operations, `--emit llvm` for the LLVM IR it is compiled from, and `--emit asm --function NAME FILE` for the instructions the code generator emitted. `--target` and `--features` select the triple and CPU tier being inspected, and any target can be inspected from any machine.
 
 ```bash
-nupp aot --emit c bench/simd11/kernels.nupp
+nupp aot --emit llvm bench/simd11/kernels.nupp
 nupp aot --emit asm --function map --features neon bench/simd11/kernels.nupp
 ```
 
@@ -35,13 +35,13 @@ The human report says whether each function lowered to scalar code, explicit SIM
 
 A loop from one through a span's count proves its direct accesses are in bounds. If it writes a second span, an equality guard such as `assert(#output == #input)` relates the two counts. A zero-based append cursor must be guarded by `cursor < #output` before writing `output[cursor + 1]`, or by a bound on a span the leading guards hold no longer than `output`.
 
-Exclusive writable spans become `restrict` pointers in C when ownership proves they cannot alias other live inputs. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry; the private entry does not carry Lua values.
+Spans become `noalias` pointers when ownership proves no written span aliases them. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry; the private entry does not carry Lua values.
 
-Physical storage type and arithmetic type are separate. Reading a `float` field widens it to ordinary Nupp binary64 unless the source uses `nupp.math.f32` operations. The generated C preserves Nupp's strict floating-point contract unless the function explicitly asks for a documented `@relax` guarantee.
+Physical storage type and arithmetic type are separate. Reading a `float` field widens it to ordinary Nupp binary64 unless the source uses `nupp.math.f32` operations. The generated code preserves Nupp's strict floating-point contract unless the function explicitly asks for a documented `@relax` guarantee.
 
 ## Calls and helpers
 
-A compiled entry called by another compiled entry remains a real scalar call, with its own symbol and ABI. A small ordinary local helper may be inlined by the AOT compiler. Neither call form implicitly maps a scalar callee across vector lanes; code that requires SIMD writes vector operations in its own body.
+A compiled entry called by another compiled entry of the same file calls that entry's own definition, which the code generator may inline. A small ordinary local helper may be inlined by the AOT compiler. Neither call form implicitly maps a scalar callee across vector lanes; code that requires SIMD writes vector operations in its own body.
 
 An entry may return several numeric or boolean results through its private aggregate. `lua-builder` entries are a separate ABI for fresh tables and strings; they are not pointer kernels. GPU entries map invocations and have a different binding surface.
 

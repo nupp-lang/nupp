@@ -390,8 +390,15 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
+      # The AOT code generator is LLVM, linked into nupp. Fetched once per pin
+      # and platform, so a run never builds it unless the pin moved.
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
+
       - name: Provision the pinned toolchain
         shell: bash
+        env:
+          NUPP_REQUIRE_CODEGEN: '1'
         run: ./scripts/toolchain --all
 
       # LuaJIT 3.0 has not been released. Its matrix entries belong beside
@@ -536,30 +543,6 @@ jobs:
       # neither of. Nothing about that is Windows-specific, so the way to know it
       # holds is to run the same differential there rather than to reason about
       # it -- which is what this job did not do while Windows was skipped.
-      - name: Name the C compiler this Windows runner offers
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          for candidate in clang gcc cc; do
-            if command -v "$candidate" >/dev/null 2>&1; then
-              echo "$candidate: $("$candidate" --version 2>&1 | head -1)"
-            else
-              echo "$candidate: absent"
-            fi
-          done
-
-      # The suite's own `aot = "require"` tests take whichever compiler the
-      # runner offers first, which is Clang. Running them again under GCC checks
-      # the version parsing, the dialect flags and `-Werror` against the other
-      # compiler a user is likely to have. This is the one repetition that is
-      # not repetition: the compiler being different is the thing under test.
-      - name: Build and load an aot = "require" project through GCC
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          NUPP_NATIVE_CC: gcc
-        run: ./bin/nupp test --jobs=1 --shard=aotbuildtest
-
       # Three minutes of starting child processes, and the only thing that can
       # change what they answer is bench code. `measurement` is the surface every
       # such path reaches -- the runner, its CLI, `src/nupp/bench/`, `bench/` and

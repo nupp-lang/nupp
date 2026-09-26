@@ -424,8 +424,7 @@ wrapper looks the table up under.
 
 A target whose VM uses a vendor static symbol registry instead of a linker
 option has no retain flags to give; `symbols` is then the list that registry
-must contain. `aot = "emit-c"` with static linkage writes the same C units,
-probe, and link manifest without compiling any of them.
+must contain.
 
 ### Reload components
 
@@ -518,30 +517,14 @@ does not also open the set of layout models. A descriptor wins over the
 built-in answer for the same triple, because a vendor port of a public triple is
 still that vendor's port.
 
-Current-platform source builds use the repository toolchain driver. Installed
-and cross-target builds use a compiler pack selected by host and target triple.
-Installed distributions discover packs under `lib/nupp/compiler-packs` beside
-their `bin` directory. `NUPP_COMPILER_PACK_DIR` overrides that location with a
-pack tree containing `<host>/<target>/pack.json`; Nupp verifies the recorded
-size and SHA-256 of its compiler, archiver, and host linker before running them.
-An explicit `NUPP_NATIVE_CC` or dependency `cc` remains the expert override and
-the ambient compiler search remains the compatibility fallback when no pack
-directory is configured.
-
-Tagged Linux x86-64 and Windows x86-64 archives carry their matching native
-pack under `lib/nupp/compiler-packs`, and the release publishes the same tree as
-a separate pack archive for an existing installation. Nupp finds the bundled
-tree both after a conventional `bin`/`lib` installation and while the release
-archive is being run directly. Release CI poisons ambient compiler names and
-requires the installed pack to build and run one standalone target containing
-both generated C FFI and AOT code before either archive is published.
-
-The macOS arm64 release does not carry a compiler pack. Apple does not permit a
-release to redistribute the Xcode SDK that a complete pack would require, so a
-macOS standalone native source build currently uses locally installed Xcode
-command-line tools. Ordinary stamped binaries and target-indexed prebuilt
-static C artifacts do not acquire that source-build requirement. Cross-target
-packs are not yet release artifacts.
+AOT code and standalone programs need no compiler pack: `nupp` compiles and
+links them itself, for any target, and a standalone program links from its
+target's link kit (see [distribution](../../reference/distribution.md)). A pack
+still serves C dependencies, whose sources need a C compiler. `NUPP_COMPILER_PACK_DIR`
+names a pack tree containing `<host>/<target>/pack.json`; Nupp verifies the
+recorded size and SHA-256 of its compiler and archiver before running them.
+Without one, a C dependency uses its own `cc`, `NUPP_NATIVE_CC`, or the first of
+`clang`, `cc` and `gcc` on `PATH`.
 
 `pack.json` has `schemaVersion = 1`, `host`, `target`, `version`, authenticated
 `cc` and `ar` tool records, optional `cxx` and `linkHost` records, and

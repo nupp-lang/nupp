@@ -428,14 +428,13 @@ That is the whole of `return 1`, down to the newline the file ends with.
 Show what the @aot functions in a file compile to.
 
 With no artifact, reports whether each function uses scalar, explicit SIMD, or GPU
-execution. Select verified IR, generated C, LLVM IR, native GPU SPIR-V, browser
-GPU WGSL, native assembly, or the generated Nupp binding with `--emit`.
+execution. Select verified IR, LLVM IR, native GPU SPIR-V, browser GPU WGSL,
+native assembly, or the generated Nupp binding with `--emit`.
 
 Examples:
 
     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
     nupp aot --emit ir src/kernel.nupp
-    nupp aot --emit c src/kernel.nupp
     nupp aot --emit llvm src/kernel.nupp
     nupp aot --emit asm --function scale src/kernel.nupp
     nupp aot --emit wgsl --function transform src/gpu.nupp
@@ -448,21 +447,18 @@ Arguments:
   FILE  Source file to inspect.
 
 Options:
-  --emit ARTIFACT     Artifact to print: ir, c, llvm, spirv, wgsl, asm, or
-                      binding.
-  --source-locations  Include authored #line locations in emitted C (assembly
-                      always carries them).
-  --function NAME     Show only this function.
-  --target TRIPLE     Target triple to compile for.
-  --features TIER     CPU feature tier to promise.
-  --dialect DIALECT   Calling Lua VM and source-checking dialect.
-  --library PATH      Compiled object path used by a generated binding.
+  --emit ARTIFACT    Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
+  --function NAME    Show only this function.
+  --target TRIPLE    Target triple to compile for.
+  --features TIER    CPU feature tier to promise.
+  --dialect DIALECT  Calling Lua VM and source-checking dialect.
+  --library PATH     Compiled object path used by a generated binding.
   --format FORMAT, --json, --text
-                      Select the report representation.
-  --schema            Print the JSON Schema of JSON output and exit.
-  -h, --help          Show this help
-  --color[=WHEN]      When to color output: always, never, or auto
-  --no-color          Never color output
+                     Select the report representation.
+  --schema           Print the JSON Schema of JSON output and exit.
+  -h, --help         Show this help
+  --color[=WHEN]     When to color output: always, never, or auto
+  --no-color         Never color output
 ```
 
 The bare command says what every `@aot` function in the file lowered to: its
@@ -473,10 +469,10 @@ or GPU invocations.
 bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, scalar
 ```
 
-`--emit` prints one artifact. `ir` is the verified IR, `c` is the generated C, `spirv` is the
-native GPU module, `wgsl` is the browser WebGPU integer artifact, `asm` is the
-instructions that C became, and `binding` is the Nupp module that stands in
-front of it.
+`--emit` prints one artifact. `ir` is the verified IR, `llvm` is the LLVM IR it
+is compiled from, `spirv` is the native GPU module, `wgsl` is the browser WebGPU
+integer artifact, `asm` is the instructions that IR became, and `binding` is the
+Nupp module that stands in front of it.
 
 `--dialect luajit` selects the calling VM's numeric-loop semantics and the
 dialect used to check the source. Independent Wasm kernels called by the LuaJIT
@@ -484,17 +480,16 @@ browser guest use `--target wasm32-unknown-emscripten --dialect luajit`.
 Omitting `--dialect` preserves the target's numeric-loop defaults. Other project
 settings remain in effect.
 
-`--emit asm` compiles the generated C with the flags a build compiles this
-tier's translation unit with, and stops one step before the assembler encodes
-it. It is the answer to what the C compiler did, which is the last thing between
-a lowering decision and the machine and the one thing nothing else in the tree
-reports. Each symbol is headed by what it is -- the compiled body, the
+`--emit asm` compiles the unit with the options a build compiles this tier
+with, for any target from any machine, and prints the instructions with each
+one's authored line. It is the answer to what the code generator did, which is
+the last thing between a lowering decision and the machine. Each symbol is headed by what it is -- the compiled body, the
 forced-scalar oracle it is differentially tested against, a Lua wrapper, the
 registrar, a layout reporter, or a helper the compiler declined to inline -- and
 by a count of the listing under it:
 
 ```text [nupp aot --emit asm --function scale src/kernel.nupp]
--- src/kernel.nupp, aarch64-apple-darwin, neon, Apple clang version 21.0.0
+-- src/kernel.nupp, aarch64-apple-darwin, neon, llvm 23.1.1; codegen 1
 -- ks_scale (scale), kernel: 50 instructions, 11 vector, 4 loads, 4 stores, 11 branches, 0 calls, 0 stack
       cbz     x2, LBB1_14
 LBB1_6:
@@ -514,12 +509,12 @@ to detect, and `stack` counts instructions whose memory operand is the frame,
 which is the closest thing to a spill count that reading instructions can give.
 
 `--function` narrows that to one body, named either as the source spells it or
-as the symbol does. With `--features`, which selects the tier the C is both
+as the symbol does. With `--features`, which selects the tier the unit is both
 lowered and compiled for, that is a repeatable command for one function at one
 tier -- so what a change did to the emitted instructions can be compared across
-runs rather than re-derived by hand. Two runs are comparable when the compiler
-is: `--json` reports it, alongside the flags it was given and the per-symbol
-counts. There are instruction rules for aarch64 and x86-64; another
+runs rather than re-derived by hand. Two runs are comparable when the code
+generator is: `--json` reports it, alongside the options it compiled with and
+the per-symbol counts. There are instruction rules for aarch64 and x86-64; another
 architecture is refused rather than reported with empty counts.
 
 The exit status is the one a build would give. An invalid explicit vector

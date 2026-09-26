@@ -9,8 +9,7 @@ import {copyGuest, digest} from './package-assets.mjs';
 import {validateNativeLibrary} from './native.mjs';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 let compilerPrepared = false;
-export async function packageBrowserApp({project, target, output, guest, nativeCc = process.env.NUPP_BROWSER_NATIVE_CC,
-  prebuilt = false}) {
+export async function packageBrowserApp({project, target, output, guest, prebuilt = false}) {
   // A cold checkout otherwise routes build --host through the pinned compiler,
   // which predates that option. Bootstrap the checkout's compiler first.
   if (!prebuilt && !compilerPrepared) {
@@ -22,8 +21,7 @@ export async function packageBrowserApp({project, target, output, guest, nativeC
   const result = prebuilt
     ? {ok:true, dialect:'luajit', artifact:'dist/app.lua', written:[], aotManifest:'dist/aot/units.json'}
     : JSON.parse(execFileSync(path.join(repo, 'bin/nupp'), ['build', '--target', target || 'browser', '--host', 'browser', '--json'],
-      {cwd: project, encoding: 'utf8', stdio: ['ignore','pipe','inherit'],
-        env:{...process.env, ...(nativeCc ? {NUPP_AOT_CC:nativeCc} : {})}}).trim().split('\n').at(-1));
+      {cwd: project, encoding: 'utf8', stdio: ['ignore','pipe','inherit']}).trim().split('\n').at(-1));
   if (!result.ok || result.dialect !== 'luajit' || !result.artifact?.endsWith('.lua')) throw new Error('A browser application must be a LuaJIT bundle target');
   guest = await prepareGuest(repo,guest);
   const guestManifest = JSON.parse(readFileSync(path.join(guest, 'guest-manifest.json'), 'utf8'));

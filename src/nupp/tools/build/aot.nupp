@@ -837,10 +837,6 @@ function aot.emit(
 
     local produced: {[string]: compile.Artifacts} = {}
     local gpuSources: {string} = {}
-    local available, backendErr = aotllvm.selected()
-    if available ~= true then
-        return nil, tostring(backendErr), produced, {}, nil, gpuSources
-    end
     bindingRules.passRuntime = aotllvm.takesRuntime(triple)
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
@@ -1028,6 +1024,12 @@ function aot.emit(
                     local stem = (prefix == "" and relative or prefix .. "/" .. relative):gsub("%.nupp$", "")
                     local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".ll"
                     local cacheKey = source .. "#" .. tierTarget.tier
+                    -- Asked here rather than up front, so a build whose `@aot`
+                    -- is all GPU needs no code generator.
+                    local available, backendErr = aotllvm.selected()
+                    if available ~= true then
+                        return nil, tostring(backendErr), produced, authoredUnused, constSelection, gpuSources
+                    end
                     -- Line tables into the authored file, so a debugger or
                     -- profiler names the Nupp line a frame is at.
                     local ir, why = aotllvm.emit(

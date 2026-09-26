@@ -60,14 +60,9 @@ jobs:
             !.nupp-cache/toolchain/sources/llvm-project-*
           key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
           restore-keys: browser-guest-${{ runner.os }}-
-      # Stored by the LLVM backend workflow; never built here. With it the
-      # compiler links the code generator, and the packaged applications are
-      # built a second time through LLVM below.
+      # The code generator the packaged applications' AOT is compiled with.
       - name: Fetch the pinned LLVM
-        id: llvm
         uses: ./.github/actions/pinned-llvm
-        with:
-          build: 'false'
       - name: Build the pinned guest and matching sources
         run: |
           guest=$(./scripts/toolchain browser-guest)
@@ -75,7 +70,7 @@ jobs:
           cp -R "$guest/." build/browser-guest/
       - name: Build the LuaJIT compiler and native response oracle
         env:
-          NUPP_REQUIRE_CODEGEN: ${{ steps.llvm.outputs.available == 'true' && '1' || '' }}
+          NUPP_REQUIRE_CODEGEN: '1'
         run: |
           ./scripts/toolchain --all
           ./bin/nupp build
@@ -105,44 +100,24 @@ jobs:
         run: |
           node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest
           tar -czf release/nupp-luajit-browser-runtime.tar.gz -C release/browser-luajit .
+      # Wasm kernels and the guest's i686 AOT are compiled and linked by nupp
+      # itself. Emscripten and the C compiler are replaced by commands that
+      # fail, so reaching either for an application fails the step.
       - name: Verify consumers of the extracted release archive
         env:
+          NUPP_WASM_CC: 'false'
+          NUPP_AOT_CC: 'false'
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
         run: |
           consumer="$RUNNER_TEMP/luajit-runtime-consumer"
           node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
           node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
-          NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py "$consumer/guest" build/browser-native-toolchain)
-          export NUPP_BROWSER_NATIVE_CC
           node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
           node bench/luajit-browser/serve.mjs "$consumer/site" 8113 &
           server=$!
           trap 'kill "$server"' EXIT
           node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ "$consumer/browser-matrix.json"
-      # The same applications through LLVM: Wasm kernels linked in process and
-      # the guest's i686 AOT linked with its own runtime. Emscripten and the C
-      # compiler are replaced by commands that fail, so reaching either fails.
-      - name: Verify packaged AOT through LLVM with no Emscripten or C compiler
-        if: steps.llvm.outputs.available == 'true'
-        env:
-          NUPP_AOT_BACKEND: llvm
-          NUPP_WASM_CC: 'false'
-          NUPP_AOT_CC: 'false'
-          NUPP_BENCH_ISOLATED: '0'
-          NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
-        run: |
-          consumer="$RUNNER_TEMP/luajit-runtime-consumer-llvm"
-          node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
-          node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
-          node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
-          node bench/luajit-browser/serve.mjs "$consumer/site" 8114 &
-          server=$!
-          trap 'kill "$server"' EXIT
-          node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8114/ "$consumer/browser-matrix.json"
-      - name: Say the LLVM route was not exercised
-        if: steps.llvm.outputs.available != 'true'
-        run: echo "::warning::No pinned LLVM is cached for this branch yet; the LLVM packaging step did not run"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

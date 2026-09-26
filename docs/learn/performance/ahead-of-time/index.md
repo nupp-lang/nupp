@@ -19,10 +19,9 @@ end
 
 `nupp check` validates the target and the structural subset, so `@aot` on
 something the backend could not compile is an error rather than a surprise
-later, and a check never needs a C compiler. [Build
-policy](build-and-artifacts.md) selects what a build does with a
-CPU result: `off` by default, `emit-c` to write C beside the build, and
-`require` to compile it into the project's own shared library and call it. Lua
+later. [Build policy](build-and-artifacts.md) selects what a build does with a
+CPU result: `off` by default, and `require` to compile it into the project's
+own shared library and call it. Lua
 5.1 applications have corresponding
 [`emit-wasm` and `require-wasm`](wasm.md) policies for pointer kernels and
 Lua-building entries.
@@ -93,7 +92,7 @@ a contract that degrades quietly is a comment.
 
 Each page owns one part of the AOT pipeline.
 
-- [CPU kernels](cpu-kernels.md) covers inspection, generated C, calls, and
+- [CPU kernels](cpu-kernels.md) covers inspection, generated code, calls, and
   representative measurement.
 - [Lua values](lua-values.md) covers table and string construction through the
   VM-rooted builder ABI.
@@ -125,11 +124,9 @@ and a tail. A loop without those operations is scalar. See
 
 ### Does a project need a C compiler?
 
-Only under `aot = "require"`, `emit-wasm`, or `require-wasm`. `off` is the
-default and `nupp check` never compiles C, so validating `@aot` source needs no
-toolchain at all. See [Accepting a C
-compiler](build-and-artifacts.md#accepting-a-c-compiler) and [Wasm AOT
-applications](wasm.md).
+No. `nupp` compiles AOT code itself, native and Wasm, for any target, with the
+LLVM it carries. See [the code generator](build-and-artifacts.md#the-code-generator)
+and [Wasm AOT applications](wasm.md).
 
 ::: seealso
 - [jit-trace-checking.md](../jit-trace-checking.md) for deciding whether LuaJIT

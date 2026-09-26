@@ -31,9 +31,9 @@ Establish what is expensive and which layer owns it.
 - Use `./bin/nupp run --jit-aborts=PATH --json FILE` when runtime trace aborts matter.
 - Use `./bin/nupp run --profile --profile-out PATH FILE` or `./bin/nupp bench --profile DIR` to locate hot stacks.
 - Use `--remarks` while investigating optimizer decisions. Use `--remarks-out` when a machine-readable account is needed; it currently writes `build/remarks.json`.
-- Use `./bin/nupp aot --emit ir|c|asm --function NAME FILE` to inspect an AOT function. Use `wgsl` or `spirv` for the corresponding GPU route.
+- Use `./bin/nupp aot --emit ir|llvm|asm --function NAME FILE` to inspect an AOT function. Use `wgsl` or `spirv` for the corresponding GPU route.
 
-For native AOT, compare emitted C and assembly before proposing a scalar compiler pass. The generated C is compiled at `-O3`; first determine whether the downstream compiler already performs the transform. Prefer Nupp-side work when it depends on information the backend does not see, such as Nupp representation choices, view materialization, runtime allocation, ownership-derived disjointness, specialization before emission, or GPU semantics.
+For native AOT, compare the emitted LLVM IR and assembly before proposing a scalar compiler pass. The IR is optimized at `-O3`; first determine whether LLVM already performs the transform. Prefer Nupp-side work when it depends on information the backend does not see, such as Nupp representation choices, view materialization, runtime allocation, ownership-derived disjointness, specialization before emission, or GPU semantics.
 
 An artifact, profile, or optimizer remark explains where to experiment. It does not establish a speedup.
 

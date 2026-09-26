@@ -65,8 +65,9 @@ That prints one line, `nupp` and the release, which is the release you
 downloaded. `nupp --help` lists what it can do.
 
 Each archive includes its third-party notices, signing status, and a
-`SHA256SUMS` file for the executable. The Linux and Windows distributions also
-include the native compiler pack used for C FFI and ahead-of-time compilation.
+`SHA256SUMS` file for the executable. Ahead-of-time compilation needs nothing
+else: `nupp` carries its own code generator and linker. Building a C dependency
+from source is the one thing that still needs a C compiler on the machine.
 
 ## Build from source
 
