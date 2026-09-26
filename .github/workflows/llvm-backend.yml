@@ -146,10 +146,13 @@ jobs:
           echo "NUPP_TEST_SH=$(cygpath -w "$(dirname "$bash_path")/sh.exe")" >> "$GITHUB_ENV"
 
       - name: Run the AOT suites through LLVM
+        # A hung suite fails here instead of holding the runner for hours.
+        timeout-minutes: 45
         env:
           NUPP_AOT_BACKEND: llvm
         shell: bash
-        run: ./bin/nupp test --group=aot
+        # One worker on Windows: the parallel runner's join has hung there.
+        run: ./bin/nupp test --group=aot ${{ runner.os == 'Windows' && '--jobs=1' || '' }}
 
       # A crash in an isolated piece reports no case. Rerun the suite a case at
       # a time under gdb so the one that crashes is named, with its backtrace.
@@ -178,12 +181,16 @@ jobs:
           exit 1
 
       - name: Run the standalone and static suites through LLVM
+        # A hung suite fails here instead of holding the runner for hours.
+        timeout-minutes: 45
         env:
           NUPP_AOT_BACKEND: llvm
         shell: bash
         run: ./bin/nupp test projecttest hostembeddingtest aotincrementaltest
 
       - name: Run the SIMD differentials through LLVM
+        # A hung suite fails here instead of holding the runner for hours.
+        timeout-minutes: 45
         env:
           NUPP_AOT_BACKEND: llvm
         shell: bash
@@ -193,6 +200,8 @@ jobs:
 
       # Wasm through nupp alone: no Emscripten on this runner is asked for.
       - name: Run the Wasm SIMD suites through LLVM
+        # A hung suite fails here instead of holding the runner for hours.
+        timeout-minutes: 45
         env:
           NUPP_AOT_BACKEND: llvm
         shell: bash

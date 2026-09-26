@@ -14,6 +14,7 @@ tests/run.lua text eol=lf
 src/nupp/tools/doc/theme.css text eol=lf
 src/nupp/tools/build/stub-catalog.json text eol=lf
 src/nupp/compiler/aot/include/*.h text eol=lf
+src/nupp/compiler/aot/llvm/**/*.ll text eol=lf
 src/nupp/runtime/vendor/lunajson/*.lua text eol=lf
 templates/** text eol=lf
 
