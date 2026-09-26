@@ -77,15 +77,27 @@ function M.sleepUntilTakesTheDeadlineItIsGiven()
     assertTrue(time.now() - again < 5, "a passed deadline still waited")
 end
 
-function M.aDurationThatIsNotFiniteAndPositiveIsRefused()
+function M.invalidDurationsAndDeadlinesAreRefused()
     local notANumber = 0 / 0
-    for _, bad in ipairs({-1, -0.5, math.huge, notANumber}) do
-        local ok, problem = pcall(time.sleep, bad)
-        assertEq(ok, false, "sleeping for " .. tostring(bad) .. " was accepted")
-        assertTrue(
-            tostring(problem):find("finite non-negative", 1, true) ~= nil,
-            "the refusal did not say why: " .. tostring(problem)
-        )
+    for _, operation in ipairs({
+        {name = "sleep", call = time.sleep},
+        {name = "sleepUntil", call = time.sleepUntil},
+        {
+            name = "wakeAt",
+            call = function(deadline)
+                return time.wakeAt(deadline, function()
+                end)
+            end,
+        },
+    }) do
+        for _, bad in ipairs({-1, -0.5, math.huge, notANumber}) do
+            local ok, problem = pcall(operation.call, bad)
+            assertEq(ok, false, operation.name .. " accepted " .. tostring(bad))
+            assertTrue(
+                tostring(problem):find("finite non-negative", 1, true) ~= nil,
+                operation.name .. " did not explain its refusal: " .. tostring(problem)
+            )
+        end
     end
 end
 

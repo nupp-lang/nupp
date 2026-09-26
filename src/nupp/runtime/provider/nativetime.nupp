@@ -222,8 +222,9 @@ end
 --- @param deadline an absolute monotonic reading (same as `now` return value)
 --- @param resume what to call when the deadline passes
 --- @return how to cancel it, which is idempotent.
---- @raises string when too many timers are already pending
+--- @raises string when the deadline is invalid or too many timers are pending
 function time.wakeAt(deadline: number, resume: function(boolean)): function(): nil
+    deadline = duration(deadline, "deadline")
     -- A deadline only fires when the shared source is polled, and `sleep` is not
     -- the only way one gets here: a wake registered before anything has slept
     -- would otherwise sit in a list nothing drives.
@@ -239,9 +240,9 @@ end
 --- Waits until an absolute monotonic deadline.
 ---
 --- @param deadline an absolute monotonic reading
---- @raises string when too many timers are already pending
+--- @raises string when the deadline is invalid or too many timers are pending
 function time.sleepUntil(deadline: number): nil
-    time.sleep(math.max(0, deadline - time.now()))
+    time.sleep(math.max(0, duration(deadline, "deadline") - time.now()))
 end
 
 export = time

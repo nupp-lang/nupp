@@ -51,7 +51,7 @@ end
 
 --- Suspends until an absolute monotonic deadline.
 function time.sleepUntil(deadline: number): nil
-    local remaining = deadline - time.now()
+    local remaining = duration(deadline, "deadline") - time.now()
     if remaining <= 0 then
         return
     end

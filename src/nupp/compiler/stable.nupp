@@ -25,17 +25,11 @@ local function stable(value: unknown, seen: {[unknown]: boolean}?): string
         return "<cycle>"
     end
     seen[value] = true
-    local keys: {unknown} = {}
-    for key in pairs(entries) do
-        keys[#keys + 1] = key
-    end
-    table.sort(keys, function(left: unknown, right: unknown): boolean
-        return tostring(left) < tostring(right)
-    end)
     local parts = {}
-    for _, key in ipairs(keys) do
+    for key in pairs(entries) do
         parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
     end
+    table.sort(parts)
     seen[value] = nil
 
     return "{" .. table.concat(parts, ",") .. "}"

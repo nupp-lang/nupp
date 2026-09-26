@@ -8,6 +8,7 @@
 local cache = require("nupp.tools.build.cache")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local envMod = require("nupp.compiler.project.env")
+local stable = require("nupp.compiler.stable")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -46,6 +47,15 @@ local function exists(path)
 end
 
 local M = {}
+
+function M.stableTextDoesNotDependOnCollidingKeyInsertionOrder()
+    local numberFirst, stringFirst = {}, {}
+    numberFirst[2], numberFirst["2"] = "number", "string"
+    stringFirst["2"], stringFirst[2] = "string", "number"
+    local expected = [[{"2"="string",2="number"}]]
+    assert(stable(numberFirst) == expected, stable(numberFirst))
+    assert(stable(stringFirst) == expected, stable(stringFirst))
+end
 
 -- The failure this catches is silent and total: one `require` of a computed name
 -- anywhere in the compiler, and every stamp below becomes the whole compiler again.
@@ -162,7 +172,10 @@ function M.theModuleStampMovesWhenACarriedDeclarationChanges()
 
     local before, after = reader("function(a, b)"), reader("function(a: T, b: T)")
     local declared = fingerprint.declarationFingerprint(nil, list, before)
-    assert(declared == fingerprint.declarationFingerprint(nil, list, before), "the same declarations have to stamp the same")
+    assert(
+        declared == fingerprint.declarationFingerprint(nil, list, before),
+        "the same declarations have to stamp the same"
+    )
     assert(
         declared ~= fingerprint.declarationFingerprint(nil, list, after),
         "an edited declaration left the declaration stamp where it was"
@@ -408,9 +421,7 @@ function M.rewritingTheCacheRemovesTheEntriesNothingPointsAt()
     local file = assert(io.open(path, "wb"))
     file:write(text)
     file:close()
-    bytecodecache.refresh(out, {
-        [name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},
-    })
+    bytecodecache.refresh(out, {[name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},})
     assert(entries() == 1, "and after an edit still one, rather than one per edit")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -431,9 +442,7 @@ function M.aMovedTreeGetsItsEntriesWrittenAgainRatherThanReused()
     assert(bytecodecache.searcher(moved) == nil, "a moved tree is not read until it is rewritten")
 
     local path = moved .. "/" .. name .. ".lua"
-    bytecodecache.refresh(moved, {
-        [name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},
-    })
+    bytecodecache.refresh(moved, {[name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},})
     local cached = assert(assert(bytecodecache.searcher(moved))(name), "and is read once it is")
     assert(cached() == "@" .. path, "with the name it has now, not the one it had: " .. tostring(cached()))
     os.execute("rm -rf '" .. dir .. "' '" .. elsewhere .. "'")
