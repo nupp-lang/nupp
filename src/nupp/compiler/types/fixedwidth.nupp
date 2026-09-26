@@ -103,11 +103,17 @@ function fixed.storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type?
         end
     elseif raw.tag == "shape" then
         for _, field in ipairs(raw.fields or {}) do
-            local found = fixed.storageOnlyValue(field.read or field.write or field.type, seen)
+            local found = fixed.storageOnlyValue(field.read, seen)
+                or fixed.storageOnlyValue(field.write, seen)
+                or fixed.storageOnlyValue(field.type, seen)
             if found then
                 return found
             end
         end
+        return fixed.storageOnlyValue(raw.indexReadKey, seen)
+            or fixed.storageOnlyValue(raw.indexReadValue, seen)
+            or fixed.storageOnlyValue(raw.indexWriteKey, seen)
+            or fixed.storageOnlyValue(raw.indexWriteValue, seen)
     end
 
     return nil
@@ -219,8 +225,8 @@ function fixed.literalFits(value: number, target: T.Type): boolean
     elseif tag == "uint32" then
         return value % 1 == 0 and value >= 0 and value < 4294967296
     elseif tag == "int64" then
-        -- A Lua number is a double, so only what a double spells exactly may stand
-        -- for the box: an integral value within 2^53 of zero.
+        -- A Lua number is a double, so only a value it represents exactly may
+        -- stand for the box: an integral value within 2^53 of zero.
         return value % 1 == 0 and value >= -9007199254740992 and value <= 9007199254740992
     elseif tag == "uint64" then
         return value % 1 == 0 and value >= 0 and value <= 9007199254740992
@@ -237,11 +243,9 @@ local INTEGER_RANGE: {
     int8 = {-128, 127},
     int16 = {-32768, 32767},
     int32 = {-2147483648, 2147483647},
-    int64 = {-2 ^ 63, 2 ^ 63 - 1},
     uint8 = {0, 255},
     uint16 = {0, 65535},
     uint32 = {0, 4294967295},
-    uint64 = {0, 2 ^ 64 - 1},
 }
 
 --- Whether a Lua numeric literal survives the conversion a physical store performs
@@ -250,6 +254,14 @@ local INTEGER_RANGE: {
 --- its range, since anything else is truncated or wrapped into a different value.
 function fixed.physicalLiteralFits(value: number, target: T.Type): boolean
     local tag = T.unwrapOwnership(target).tag
+    -- Binary64 rounds `2^63 - 1` to `2^63`, and likewise at 64 unsigned
+    -- bits. Test those upper bounds exclusively instead of storing rounded
+    -- inclusive maxima in `INTEGER_RANGE`.
+    if tag == "int64" or tag == "uint64" then
+        local lower = tag == "int64" and -2 ^ 63 or 0
+        local upper = tag == "int64" and 2 ^ 63 or 2 ^ 64
+        return value % 1 == 0 and value >= lower and value < upper
+    end
     local range = INTEGER_RANGE[tag]
     if range then
         return value % 1 == 0 and value >= range[1] and value <= range[2]

@@ -1,7 +1,7 @@
 module nupp.compiler.aot.admit
 
 --[[
-What an `@aot` body may be written out of.
+This module defines the constructs admitted in an `@aot` body.
 
 The admitted subset, as data. Every operator, storage type and intrinsic a
 kernel may name is here, and a construct with no entry is refused rather than
@@ -10,9 +10,9 @@ subset is does not mean reading a lowering pass.
 
 The fixed-width intrinsics are keyed by the canonical identity
 `nupp.compiler.scalarintrinsics` assigns, not by the path the source wrote.
-The checker recognises those members by definition rather than by spelling, and
-keying on the identity is what keeps aliasing a standard member from meaning one
-thing to the checker and another to this backend.
+The checker recognizes those members by definition rather than by a source
+path. Keying on the identity keeps an alias of a standard member from meaning
+one thing to the checker and another to this backend.
 ]]
 
 local scalar = require("nupp.compiler.scalarintrinsics")
@@ -38,8 +38,8 @@ const admit.STORAGE = {
     ["uint64"] = "u64",
 }
 
---- The canonical source spelling of each physical value type: what an IR node
---- built without one means, and what a storage type establishes.
+--- The canonical source name of each physical value type. It is what an IR node
+--- built without one means and what a storage type establishes.
 const admit.CANONICAL_SOURCE = {
     ["f64"] = "number",
     ["f32"] = "float",
@@ -113,7 +113,7 @@ record admit.Fixed
     --- The type every operand has to have been established in.
     operand: string
 
-    --- What it produces.
+    --- Names the result type.
     result: string
 end
 
@@ -195,7 +195,7 @@ record admit.Math
     --- The path the source writes.
     path: string
 
-    --- What the IR calls it.
+    --- Names the IR operation.
     name: string
 
     --- The fewest operands it takes.

@@ -13,6 +13,11 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 
 local wgslemit = {}
 
+-- Every compiler-owned name uses this prefix. Source names enter a separate
+-- subnamespace, so neither current nor future WGSL reserved words can collide
+-- with generated metadata.
+local INTERNAL = "nupp_tmp_"
+
 const WGSL_TYPE: {[string]: string} = {i32 = "i32", u32 = "u32", bool = "bool"}
 
 const BINARY: {
@@ -52,17 +57,15 @@ const BINARY: {
 
 local function identifier(value: string): string
     local name = (value:gsub("[^%w_]", "_"))
-    -- Compiler temporaries use C's reserved namespace. WGSL forbids it;
-    -- escape our escape prefix too so an authored identifier cannot collide
-    -- merely by already using the escaped form.
-    if name:sub(1, 2) == "__" or name:sub(1, 9) == "nupp_tmp_" then
-        return "nupp_tmp_" .. name
-    end
 
-    return name
+    return INTERNAL .. "name_" .. name
 end
 
---- What a profile refusal unwinds with, so `program` can tell it from a bug.
+local function entrypoint(value: string): string
+    return (value:gsub("[^%w_]", "_"))
+end
+
+--- Identifies a profile refusal so `program` can distinguish it from a bug.
 const OUTSIDE = {}
 
 local outsideReason: string? = nil
@@ -147,7 +150,9 @@ local function emitProgram(
             refuse("webgpu-int32 spans must use the dispatch index")
         end
 
-        return "[uniforms." .. identifier(value.span) .. "_offset + dispatch_index]"
+        return "[" .. INTERNAL .. "uniforms." .. INTERNAL .. identifier(
+            value.span
+        ) .. "_offset + " .. INTERNAL .. "dispatch_index]"
     end
 
     local expression: function(any): string
@@ -156,13 +161,13 @@ local function emitProgram(
         if op == "local" or op == "helper_param" then
             return identifier(value.cName or value.name)
         elseif op == "uniform" then
-            return "uniforms." .. identifier(value.name)
+            return INTERNAL .. "uniforms." .. identifier(value.name)
         elseif op == "loop_index" then
-            return "(dispatch_index + 1u)"
+            return "(" .. INTERNAL .. "dispatch_index + 1u)"
         elseif op == "load" then
-            return identifier(value.span) .. spanIndex(value)
+            return INTERNAL .. "buffer_" .. identifier(value.span) .. spanIndex(value)
         elseif op == "span_count" then
-            return "uniforms." .. identifier(value.span) .. "_count"
+            return INTERNAL .. "uniforms." .. INTERNAL .. identifier(value.span) .. "_count"
         elseif op == "constant" or op == "constant_i32" then
             return literal(value.value, value.type)
         elseif op == "bool" then
@@ -249,7 +254,9 @@ local function emitProgram(
             elseif op == "store" then
                 line(
                     depth,
-                    identifier(statement.span) .. spanIndex(statement) .. " = " .. expression(statement.value) .. ";"
+                    INTERNAL .. "buffer_" .. identifier(
+                        statement.span
+                    ) .. spanIndex(statement) .. " = " .. expression(statement.value) .. ";"
                 )
             elseif op == "if" then
                 for index, clause in ipairs(statement.clauses) do
@@ -267,9 +274,9 @@ local function emitProgram(
                     refuse("GPU counted loop bounds must be int32")
                 end
                 forSerial = forSerial + 1
-                local counter = "nupp_for_counter_" .. tostring(forSerial)
-                local last = "nupp_for_last_" .. tostring(forSerial)
-                local done = "nupp_for_done_" .. tostring(forSerial)
+                local counter = INTERNAL .. "for_counter_" .. tostring(forSerial)
+                local last = INTERNAL .. "for_last_" .. tostring(forSerial)
+                local done = INTERNAL .. "for_done_" .. tostring(forSerial)
                 line(depth, "{")
                 line(depth + 1, "var " .. counter .. ": i32 = " .. expression(statement.from) .. ";")
                 line(depth + 1, "let " .. last .. ": i32 = " .. expression(statement.to) .. ";")
@@ -316,13 +323,13 @@ local function emitProgram(
         end
     end
 
-    line(0, "struct NuppUniforms {")
-    line(1, "count: u32,")
+    line(0, "struct " .. INTERNAL .. "Uniforms {")
+    line(1, INTERNAL .. "count: u32,")
     for _, param in ipairs(spans) do
-        line(1, identifier(param.name) .. "_count: u32,")
+        line(1, INTERNAL .. identifier(param.name) .. "_count: u32,")
     end
     for _, param in ipairs(spans) do
-        line(1, identifier(param.name) .. "_offset: u32,")
+        line(1, INTERNAL .. identifier(param.name) .. "_offset: u32,")
     end
     for _, param in ipairs(uniforms) do
         line(1, identifier(param.name) .. ": " .. typeName(param.type) .. ",")
@@ -335,7 +342,9 @@ local function emitProgram(
             0,
             "@group(0) @binding(" .. tostring(
                 binding
-            ) .. ") var<storage, read> " .. identifier(param.name) .. ": array<" .. typeName(param.type) .. ">;"
+            ) .. ") var<storage, read> " .. INTERNAL .. "buffer_" .. identifier(
+                param.name
+            ) .. ": array<" .. typeName(param.type) .. ">;"
         )
         binding = binding + 1
     end
@@ -344,16 +353,28 @@ local function emitProgram(
             0,
             "@group(0) @binding(" .. tostring(
                 binding
-            ) .. ") var<storage, read_write> " .. identifier(param.name) .. ": array<" .. typeName(param.type) .. ">;"
+            ) .. ") var<storage, read_write> " .. INTERNAL .. "buffer_" .. identifier(
+                param.name
+            ) .. ": array<" .. typeName(param.type) .. ">;"
         )
         binding = binding + 1
     end
-    line(0, "@group(0) @binding(" .. tostring(binding) .. ") var<uniform> uniforms: NuppUniforms;")
+    line(
+        0,
+        "@group(0) @binding(" .. tostring(
+            binding
+        ) .. ") var<uniform> " .. INTERNAL .. "uniforms: " .. INTERNAL .. "Uniforms;"
+    )
     line(0, "")
     line(0, "@compute @workgroup_size(" .. tostring(threads) .. ")")
-    line(0, "fn " .. identifier(program.symbol) .. "_gpu(@builtin(global_invocation_id) global_id: vec3<u32>) {")
-    line(1, "let dispatch_index = global_id.x;")
-    line(1, "if (dispatch_index >= uniforms.count) {")
+    line(
+        0,
+        "fn " .. entrypoint(
+            program.symbol
+        ) .. "_gpu(@builtin(global_invocation_id) " .. INTERNAL .. "global_id: vec3<u32>) {"
+    )
+    line(1, "let " .. INTERNAL .. "dispatch_index = " .. INTERNAL .. "global_id.x;")
+    line(1, "if (" .. INTERNAL .. "dispatch_index >= " .. INTERNAL .. "uniforms." .. INTERNAL .. "count) {")
     line(2, "return;")
     line(1, "}")
     statements((loop as scalarIR.Loop).statements, 1)

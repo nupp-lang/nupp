@@ -2,6 +2,8 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local stdlib = require("nupp.compiler.stdlib")
+local fixed = require("nupp.compiler.types.fixedwidth")
+local types = require("nupp.compiler.types")
 local ffi = require("ffi")
 local test = require("assert")
 
@@ -177,6 +179,19 @@ end
 return read
 ]]
     )
+end
+
+function M.storageOnlyWidthsCannotHideBehindWritableShapeMembers()
+    local field = types.shape({{name = "value", read = types.number, write = types.uint8}})
+    assertEq(fixed.storageOnlyValue(field), types.uint8)
+
+    local indexer = types.shape({}, {
+        readKey = types.string,
+        readValue = types.number,
+        writeKey = types.string,
+        writeValue = types.int16
+    })
+    assertEq(fixed.storageOnlyValue(indexer), types.int16)
 end
 
 function M.recordFactsDoNotSurviveGradualErasure()
@@ -854,6 +869,8 @@ function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
     assertEq(errorCodes(S .. "s.b = -1"), "NUPP2001")
     assertEq(errorCodes(S .. "s.f = 1e40"), "NUPP2001")
     assertEq(errorCodes(S .. "s.ubig = -1"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.big = 9223372036854775808"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.ubig = 18446744073709551616"), "NUPP2001")
     assertEq(
         errorCodes(
             table.concat(

@@ -82,15 +82,16 @@ local CATEGORIES = {
     fornumStmt = {loop = true},
     forinStmt = {loop = true},
     assignStmt = {assignment = true},
-    compoundAssignStmt = {assignment = true},
+    compoundAssign = {assignment = true},
     callStmt = {call = true},
     fieldDecl = {field = true},
     indexerDecl = {indexer = true},
 }
 
---- What a registry offers a caller. The methods are explicit fields as well as
---- `__index` entries, so a shape describes one exactly: the checker reads the fields
---- it can see rather than following an arbitrary metatable.
+--- Describes the registry surface offered to callers. The methods are explicit
+--- fields as well as `__index` entries, so a shape describes one exactly. The
+--- checker reads the fields it can see rather than following an arbitrary
+--- metatable.
 type annotations.Registry = {
     byname: {[string]: any},
     define: function(self: any, spec: any): (any, string?),

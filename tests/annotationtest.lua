@@ -364,6 +364,9 @@ function M.customAnnotationsCanLimitTheirTargets()
     assert(registry:define({name = "entity", arguments = "none", targets = {"record"},}))
     assertEq(diagsOf("@entity local record E end", registry), "")
     assertEq(diagsOf("@entity local function f() end", registry), "NUPP2112")
+
+    local assignment = assert(registry:define({name = "tracked", arguments = "none", targets = {"assignment"},}))
+    assert(registry:accepts(assignment, {kind = "compoundAssign"}), "compound assignment is an assignment target")
 end
 
 function M.definitionTargetsAreValidated()

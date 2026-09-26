@@ -549,15 +549,23 @@ return xorMask
     local shader, code = run(dir, "--emit wgsl gpu.nupp")
     test.equal(code, 0, shader)
     assert(shader:find("@compute @workgroup_size(256)", 1, true), shader)
-    assert(shader:find("var<storage, read> input: array<u32>", 1, true), shader)
-    assert(shader:find("var<storage, read_write> output: array<u32>", 1, true), shader)
-    assert(shader:find("output[uniforms.output_offset + dispatch_index]", 1, true), shader)
-    assert(shader:find("^ uniforms.mask", 1, true), shader)
+    assert(shader:find("var<storage, read> nupp_tmp_buffer_nupp_tmp_name_input: array<u32>", 1, true), shader)
+    assert(shader:find("var<storage, read_write> nupp_tmp_buffer_nupp_tmp_name_output: array<u32>", 1, true), shader)
+    assert(
+        shader:find(
+            "nupp_tmp_buffer_nupp_tmp_name_output["
+            .. "nupp_tmp_uniforms.nupp_tmp_nupp_tmp_name_output_offset + nupp_tmp_dispatch_index]",
+            1,
+            true
+        ),
+        shader
+    )
+    assert(shader:find("^ nupp_tmp_uniforms.nupp_tmp_name_mask", 1, true), shader)
 
     local binding, bindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
     test.equal(bindingCode, 0, binding)
     assert(binding:find("local artifacts = new gpuImplementation_ks_xor_mask.ArtifactSet", 1, true), binding)
-    assert(binding:find("wgsl = \"struct NuppUniforms", 1, true), binding)
+    assert(binding:find("wgsl = \"struct nupp_tmp_Uniforms", 1, true), binding)
     assert(binding:find("compileGenerated(context, artifacts, 1, 1", 1, true), binding)
 
     local floatingDir = project({
@@ -583,6 +591,38 @@ return doubled
     local floating, floatingCode = run(floatingDir, "--emit wgsl gpu.nupp")
     test.equal(floatingCode, 1, floating)
     assert(floating:find("webgpu-int32 profile", 1, true), floating)
+end
+
+function M.webGpuNamesCannotCollideWithSourceOrKeywords()
+    local dir = project({
+        [
+            "gpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function reservedNames(
+    exclusive uniforms: span.WriteSpan<uint32>,
+    borrows array: span.Span<uint32>,
+    count: uint32,
+    asm: uint32
+): nil
+    assert(#uniforms == #array, "length mismatch")
+    for i = 1, #uniforms do
+        uniforms[i] = nupp.math.u32.add(nupp.math.u32.add(array[i], count), asm)
+    end
+end
+return reservedNames
+]],
+    })
+    local shader, code = run(dir, "--emit wgsl gpu.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("nupp_tmp_buffer_nupp_tmp_name_uniforms", 1, true), shader)
+    assert(shader:find("nupp_tmp_buffer_nupp_tmp_name_array", 1, true), shader)
+    assert(shader:find("nupp_tmp_count: u32", 1, true), shader)
+    assert(shader:find("nupp_tmp_name_count: u32", 1, true), shader)
+    assert(shader:find("nupp_tmp_name_asm: u32", 1, true), shader)
+    assert(not shader:find("var<storage, read> array:", 1, true), shader)
 end
 
 function M.loopFreeScalarExplainsWhyLanesDoNotApply()
