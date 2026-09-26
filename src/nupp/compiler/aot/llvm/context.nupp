@@ -273,11 +273,9 @@ end
 --- the optimizer cannot see what produced it. A lane-wide mask needs this:
 --- otherwise LLVM folds the widening back through the loop's phi and
 --- carries `<N x i1>` again.
---- Not on SSE2, which has no 64-bit lane compare: there the pinned lanes
---- cost an emulated equality every read, more than the narrowing does.
 function context.opaque(ctx: context.Context, value: string, vector: string): string
     local register = ctx.vectorRegister
-    if register == "" or ctx.tier == "baseline" then
+    if register == "" then
         return value
     end
     local lanes, element = vector:match("^<(%d+) x i(%d+)>$")
@@ -358,6 +356,14 @@ function context.storeSlot(ctx: context.Context, slot: context.Slot, value: stri
         stored = builder.value(ctx.f, ("sext %s %s to %s"):format(carried, value, kept))
         stored = context.opaque(ctx, stored, kept)
     end
+    builder.emit(ctx.f, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
+end
+
+--- Writes a lane-wide mask value to its lane-wide slot, pinned as
+--- `storeSlot` pins a widened one.
+function context.storeWide(ctx: context.Context, slot: context.Slot, value: string): nil
+    local kept = context.slotType(ctx, slot.type, slot.carried)
+    local stored = context.opaque(ctx, value, kept)
     builder.emit(ctx.f, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
 end
 

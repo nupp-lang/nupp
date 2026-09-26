@@ -57,6 +57,7 @@ for _, lowering in ipairs({memory.STATEMENTS, simdReducers.STATEMENTS}) do
         statements.handlers[operation] = lower
     end
 end
+statements.wideMask = vectors.wideMask
 for operation, bind in pairs(simdReducers.BINDERS) do
     statements.binders[operation] = bind
 end

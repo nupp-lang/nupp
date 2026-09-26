@@ -254,18 +254,105 @@ local function compare(ctx: context.Context, node: scalarIR.Expr): (string, stri
     return e(ctx, ("icmp %s %s %s, %s"):format(table[intrinsic] as string, left.vector, a, b)), typeName
 end
 
+--- The lane-wide register a loop carries mask `node` in, when it is such a
+--- local, its lanes are as wide as `found`'s, and the tier has no blend that
+--- reads a lane's sign (SSE2's baseline); nil otherwise. Everywhere else one
+--- blend instruction already selects by the carried register.
+local function carriedMask(ctx: context.Context, node: scalarIR.Expr, found: species.Species): string?
+    if node.op ~= "local" or ctx.vectorRegister == "" or ctx.tier ~= "baseline" then
+        return nil
+    end
+    local slot = ctx.locals[tostring((node as scalarIR.Name).cName)]
+    if slot == nil or not (slot as context.Slot).carried then
+        return nil
+    end
+    local kept = context.slotType(ctx, (slot as context.Slot).type, true)
+    local wide = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
+    if kept ~= wide then
+        return nil
+    end
+
+    return e(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
+end
+
 local function selectLanes(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
-    local mask = operand(ctx, simd.args[1])
+    local carried = carriedMask(ctx, simd.args[1], found)
     local yes = vectors.vectorOperand(ctx, found, simd.args[2])
     local no = vectors.vectorOperand(ctx, found, simd.args[3])
+    if carried ~= nil then
+        -- The carried register is already every lane's bits: select with it
+        -- directly, as and/and-not/or, rather than narrow it to `<N x i1>`
+        -- and widen it again for SSE2's own and/and-not/or.
+        local ints = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
+        local a = found.vector == ints and yes or e(ctx, ("bitcast %s %s to %s"):format(found.vector, yes, ints))
+        local b = found.vector == ints and no or e(ctx, ("bitcast %s %s to %s"):format(found.vector, no, ints))
+        local kept = e(ctx, ("and %s %s, %s"):format(ints, a, carried as string))
+        local other = e(ctx, ("xor %s %s, splat (i%d -1)"):format(ints, carried as string, found.bits))
+        local dropped = e(ctx, ("and %s %s, %s"):format(ints, b, other))
+        local joined = e(ctx, ("or %s %s, %s"):format(ints, kept, dropped))
+        if found.vector == ints then
+            return joined, typeName
+        end
+
+        return e(ctx, ("bitcast %s %s to %s"):format(ints, joined, found.vector)), typeName
+    end
+    local mask = operand(ctx, simd.args[1])
 
     return e(
         ctx,
         ("select %s %s, %s %s, %s %s"):format(found.mask, mask, found.vector, yes, found.vector, no)
     ), typeName
+end
+
+--- Mask `node` as lanes as wide as they are -- all ones or all zeros, the
+--- register a compare fills -- for a loop's lane-wide slot on SSE2. There a
+--- mask spanning several registers has no `<N x i1>` form: LLVM packs it into
+--- one register's narrower lanes and widens it back for every use. Built lane
+--- wide from its compares, each pinned so it is not folded back to i1, the
+--- logic is the registers' own `and`/`or`/`xor`. Nil where this is not that
+--- tier, slot, or kind of expression.
+function vectors.wideMask(ctx: context.Context, node: scalarIR.Expr, slot: context.Slot): string?
+    if ctx.tier ~= "baseline" or ctx.vectorRegister == "" or not slot.carried then
+        return nil
+    end
+    local found = context.species(ctx, slot.type)
+    if found == nil or (found as species.Species).family ~= "mask" then
+        return nil
+    end
+    local mask = found as species.Species
+    local wide = "<" .. tostring(mask.lanes) .. " x i" .. tostring(mask.bits) .. ">"
+    if mask.lanes * mask.bits <= 128 or context.slotType(ctx, slot.type, true) ~= wide then
+        return nil
+    end
+    local simd = node as scalarIR.Simd
+    if node.op ~= "simd_binary" or INTEGER_BINARY[tostring(simd.intrinsic)] == nil then
+        return nil
+    end
+
+    local function leaf(value: scalarIR.Expr): string
+        if value.op == "local" then
+            local held = ctx.locals[tostring((value as scalarIR.Name).cName)]
+            if held ~= nil
+                and (held as context.Slot).carried
+                and context.slotType(ctx, (held as context.Slot).type, true) == wide
+            then
+                return e(ctx, ("load %s, ptr %s"):format(wide, (held as context.Slot).pointer))
+            end
+        end
+        if value.op == "simd_binary" and INTEGER_BINARY[tostring((value as scalarIR.Simd).intrinsic)] ~= nil then
+            local inner = value as scalarIR.Simd
+            local a, b = leaf(inner.args[1]), leaf(inner.args[2])
+            return e(ctx, ("%s %s %s, %s"):format(INTEGER_BINARY[tostring(inner.intrinsic)] as string, wide, a, b))
+        end
+        local narrow = vectors.vectorOperand(ctx, mask, value)
+
+        return context.opaque(ctx, e(ctx, ("sext %s %s to %s"):format(mask.mask, narrow, wide)), wide)
+    end
+
+    return leaf(node)
 end
 
 --- The bits of every lane unchanged.

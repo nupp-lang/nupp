@@ -526,14 +526,30 @@ end
 --- @raises string when a target names an unbound local
 local function assign(ctx: context.Context, statement: scalarIR.Assign): nil
     local computed: {{string}} = {}
+    local wide: {[integer]: boolean} = {}
     for position, entry in ipairs(statement.values) do
-        local value, t = expressions.value(ctx, entry.value)
-        computed[position] = {value, t}
+        local slot = entry.target.kind == "local" and ctx.locals[tostring(entry.target.cName)] or nil
+        local lanes = slot ~= nil
+            and statements.wideMask ~= nil
+            and (
+                statements.wideMask as function(ctx: context.Context, node: scalarIR.Expr, slot: context.Slot): string?
+            )(ctx, entry.value, slot as context.Slot)
+            or nil
+        if lanes ~= nil then
+            computed[position] = {lanes as string, ""}
+            wide[position] = true
+        else
+            local value, t = expressions.value(ctx, entry.value)
+            computed[position] = {value, t}
+        end
     end
     for position, entry in ipairs(statement.values) do
         local value, t = computed[position][1], computed[position][2]
         local target = entry.target
-        if target.kind == "local" then
+        if wide[position] then
+            local slot = ctx.locals[tostring(target.cName)] as context.Slot
+            context.storeWide(ctx, slot, value)
+        elseif target.kind == "local" then
             local slot = ctx.locals[tostring(target.cName)]
             if slot == nil then
                 error("assignment to unbound local " .. tostring(target.cName), 0)
@@ -599,6 +615,11 @@ statements.handlers = {} as {[string]: function(ctx: context.Context, node: scal
 --- Lowerings of `let` values that initialize their slot in place rather
 --- than producing a value (a reducer's state), by the value's operation.
 statements.binders = {} as {[string]: function(ctx: context.Context, slot: context.Slot, value: scalarIR.Expr): nil}
+
+--- The lane-wide value an assignment stores in a loop's mask slot, computed
+--- without an `<N x i1>` in between, or nil to assign the ordinary way.
+--- Installed by `llvmProgram`.
+statements.wideMask = nil as function(ctx: context.Context, node: scalarIR.Expr, slot: context.Slot): string?
 
 --- Lowerings a Lua-builder entry puts first, by operation: each answers
 --- whether it took the statement, and one that did not leaves it to the

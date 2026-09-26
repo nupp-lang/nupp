@@ -5738,6 +5738,62 @@ return {halve = halve}
     )
 end
 
+-- On SSE2 a four-lane double mask spans two registers and has no one-bit
+-- form. Carried lane-wide, selected with and/and-not/or, and recombined from
+-- its compares lane-wide, it stays the two registers its compares fill: the
+-- loop never packs it into one register's narrower lanes (`shufps`) or widens
+-- it back from a lane's sign (`pslld`/`psrad`).
+function M.aBaselineMaskAcrossRegistersIsNeverRepacked()
+    local dir = project{
+        [
+            "refine.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function refine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local value = s:load(input, cursor + 1)
+        local rounds = s:splat(0.0)
+        local live = value > 1
+        while live:any() do
+            value = live:select(value * 0.5, value)
+            rounds = live:select(rounds + 1, rounds)
+            live = (value > 1) & (rounds < 32)
+        end
+        s:store(output, cursor + 1, value + rounds)
+        cursor = cursor + s.lanes
+    end
+end
+return {refine = refine}
+]],
+    }
+    local asm, code = run(
+        dir,
+        "--target x86_64-unknown-linux-gnu --features baseline --emit asm --function ks_refine refine.nupp"
+    )
+    test.equal(code, 0, asm)
+    -- The inner loop: the block that branches back to itself.
+    local loop
+    for label in asm:gmatch("\n(%.LBB%d+_%d+):\n") do
+        local body = asm:match("\n" .. label:gsub("%.", "%%.") .. ":\n(.-\n%s+jne%s+" .. label:gsub("%.", "%%.") .. ")\n")
+        if body and body:find("mulpd", 1, true) then
+            loop = body
+        end
+    end
+    assert(loop, "the refining loop branches back to itself\n" .. asm)
+    for _, instruction in ipairs({"shufps", "pslld", "psrad", "pshufd"}) do
+        assert(not loop:find("%s" .. instruction .. "%s"), "the loop does not " .. instruction .. " its mask\n" .. loop)
+    end
+    local _, compares = loop:gsub("cmpltpd", "")
+    test.equal(compares, 4, "two compares a register, combined as they are\n" .. loop)
+end
+
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
     local dir = project{
         [
