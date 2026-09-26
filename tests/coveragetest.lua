@@ -56,11 +56,11 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     test.matches(genPage, "Generated Lua")
     assert(genPage:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true), "coverage pages have breadcrumbs")
     assert(
-        genPage:find("href='../../../../../directories/src/index.html'>src</a>", 1, true),
+        genPage:find("href='../../../../../../directories/src/index.html'>src</a>", 1, true),
         "coverage breadcrumbs link each parent layer"
     )
     assert(
-        genPage:find("href='../../../../../directories/src/nupp/compiler/index.html'>compiler</a>", 1, true),
+        genPage:find("href='../../../../../../directories/src/nupp/compiler/index.html'>compiler</a>", 1, true),
         "coverage breadcrumbs link nested parent layers"
     )
     assert(not index:find("location.hash", 1, true), "coverage navigation uses real pages")

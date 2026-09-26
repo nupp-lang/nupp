@@ -122,4 +122,11 @@ function M.theVendoredDecoderPreservesBothZeroSigns()
     end
 end
 
+function M.theVendoredDecoderResetsSurrogateStateAfterFailure()
+    local decode = assert(loadfile(HERE .. "/../src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
+    local ok, problem = pcall(decode, [["\ud800x"]])
+    assert(not ok and tostring(problem):find("surrogate", 1, true), tostring(problem))
+    assert(decode([["\n"]]) == "\n", "a failed surrogate decode poisoned the next document")
+end
+
 return M

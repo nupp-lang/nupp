@@ -906,7 +906,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             runtimeModules,
             ((target.kind == "binary" and target.stub == "nupp") or target.kind == "component") and requiredHostFeatures
             or nil,
-            target.kind == "component"
+            target.kind == "component",
+            outDir
         )
         if not text then
             io.stderr:write("nupp: " .. tostring(bundleErr) .. "\n")
@@ -924,7 +925,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         local name = target.name or opts.target or (target.platforms and "default") or target.kind
         local output
         if target.kind == "binary" then
-            output = binaryOutput(root, target, name, outDir, selectedPlatform)
+            output = binaryOutput(root, target, name, outDir, selectedPlatform, opts.outDir ~= nil)
             if target.payloadOutput ~= nil then
                 local payloadOutput = join(root, target.payloadOutput as string)
                 if normalize(payloadOutput) == normalize(output) then
@@ -1002,8 +1003,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 newState.outputs[archive] = true
             end
         else
-            output = target.kind == "component" and componentOutput(root, target, name)
-                or bundleOutput(root, target, name)
+            output = target.kind == "component" and componentOutput(root, target, name, opts.outDir)
+                or bundleOutput(root, target, name, opts.outDir)
             local written, writeErr = writeFile(output, text)
             if not written then
                 io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
@@ -1292,12 +1293,26 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
         return 1
     end
     local test = manifest.testConfig(config)
-    if project.build(root, {target = test.build, outDir = asked.outDir, coverage = asked.coverage}) ~= 0 then
+    local produced: {[string]: any} = {}
+    if project.build(root, {
+        target = test.build,
+        outDir = asked.outDir,
+        coverage = asked.coverage,
+        produced = produced
+    }) ~= 0 then
         return 1
     end
     local argv = {}
     for _, item in ipairs(manifest.testArgv(test)) do
         argv[#argv + 1] = item
+    end
+    local builtTarget = assert(targetConfig(config, test.build))
+    if asked.outDir ~= nil and builtTarget.output ~= nil and produced.artifact then
+        for index, item in ipairs(argv) do
+            if item == builtTarget.output then
+                argv[index] = produced.artifact as string
+            end
+        end
     end
     for _, item in ipairs(args or {}) do
         argv[#argv + 1] = item
@@ -1317,8 +1332,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     for key, value in pairs(asked.env or {}) do
         env[key] = value
     end
-    local builtTarget = assert(targetConfig(config, test.build))
-    env.NUPP_TEST_BUILD = env.NUPP_TEST_BUILD or normalize(asked.outDir or builtTarget.outDir or "build")
+    env.NUPP_TEST_BUILD = normalize(asked.outDir or env.NUPP_TEST_BUILD or builtTarget.outDir or "build")
     -- The rocks the tested target depends on were installed into a tree that belongs to
     -- the project, and the test command is a fresh interpreter that has never heard of
     -- it. A trailing empty entry is where Lua substitutes its own path, so the tree is

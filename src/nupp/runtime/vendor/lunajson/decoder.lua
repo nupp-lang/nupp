@@ -669,6 +669,11 @@ local function newdecoder()
     local function decode(json_, pos_, nullv_, arraylen_)
         json, pos, nullv, arraylen = json_, pos_, nullv_, arraylen_
         rec_depth = 0
+        -- A malformed first surrogate may raise from inside gsub before the
+        -- substitution callback reaches its normal reset. Decoder instances are
+        -- reused, so every document must begin with no pending half from the one
+        -- before it.
+        f_str_surrogate_prev = 0
 
         pos = assert(match(json, '^[ \n\r\t]*()', pos))
 

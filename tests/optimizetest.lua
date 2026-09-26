@@ -37,12 +37,12 @@ end
 local function compile(src, level, coverage)
     local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax errors in test source")
-    check.check(result, "test.g.nupp", env)
+    local diagnostics = check.check(result, "test.g.nupp", env)
     local remarks = runOptimizer(result, {level = level or 2})
     local code, diags = gen.generate(result, "test", coverage)
     assertEq(#diags, 0, "gen diagnostics for " .. src)
 
-    return code, remarks
+    return code, remarks, diagnostics
 end
 
 local function sized(src)
@@ -296,7 +296,16 @@ const banner = comptime do
 end
 return banner
 ]]
-    local code = compile(src)
+    local code, _, diagnostics = compile(src)
+    local diagnosticDetails = {}
+    for _, diagnostic in ipairs(diagnostics) do
+        diagnosticDetails[#diagnosticDetails + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg)
+    end
+    assertEq(
+        #diagnostics,
+        0,
+        "check diagnostics for scalar comptime propagation: " .. table.concat(diagnosticDetails, "; ")
+    )
     assertTrue(
         code:find('return "NUPP COMPILES THIS ONCE ========"', 1, true) ~= nil,
         "a scalar comptime const is propagated: " .. code

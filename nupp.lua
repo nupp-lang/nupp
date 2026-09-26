@@ -476,9 +476,14 @@ return {
                 description = "Build the worker-hosted test runner",
                 outDir = "build/test-runner",
                 entries = {"main"},
-                sources = {"tests/runner/main.g.nupp", "tests/runner/job.g.nupp"},
+                -- Lua suites load project modules by name after discovery, so no
+                -- static entry graph can enumerate what a selected run will need.
+                -- Carry the source set the suites test; coverage then instruments the
+                -- same modules an ordinary runner can load dynamically.
+                sources = {"tests/runner/main.g.nupp", "tests/runner/job.g.nupp", "src/nupp/**.nupp"},
 
                 nativeFeatures = {workers = true, lpeg = true},
+                resources = RESOURCES,
                 stub = "nupp",
                 output = "build/nupp-test",
             },

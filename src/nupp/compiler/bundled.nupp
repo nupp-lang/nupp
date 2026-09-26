@@ -59,9 +59,14 @@ local embedded: any = nil
 --- of its namespace, and the command line's entry is `nupp.tools.main`.
 const NAMESPACE_KEY = "/compiler"
 
+--- Where the same files sit when the program's entry is outside the `nupp`
+--- namespace. The packager then keys them from the program entry's directory,
+--- preserving their full module path.
+const MODULE_KEY = "/nupp/compiler"
+
 --- The carried file `relative` names in a bundle's table, under either key.
 local function embeddedFile(files: any, relative: string): string?
-    return files[NAMESPACE_KEY .. relative] or files[relative]
+    return files[NAMESPACE_KEY .. relative] or files[MODULE_KEY .. relative] or files[relative]
 end
 
 --- The checkout these carried files were copied out of, when there is one.

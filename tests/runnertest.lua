@@ -813,7 +813,6 @@ function M.nestedRunnerTemporaryNamesStayProcessDistinct()
         [[
 return {names = function()
     local name = os.tmpname()
-    os.remove(name)
     local output = assert(io.open(assert(os.getenv("NUPP_TEST_TEMP_OUTPUT")), "wb"))
     output:write(name)
     output:close()
@@ -838,6 +837,8 @@ end}
     invoke(first)
     invoke(second)
     test.assert(read(first) ~= read(second), "separate runner processes reserve distinct temporary names")
+    test.equal(io.open(read(first), "rb"), nil, "a runner removes unused temporary reservations on exit")
+    test.equal(io.open(read(second), "rb"), nil, "each runner cleans its own temporary reservations")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 

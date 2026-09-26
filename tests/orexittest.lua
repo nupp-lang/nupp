@@ -1119,10 +1119,21 @@ function M.protectedWrappersAnswerTheConventionalLayout()
     assert(value == nil and reason == nil)
 
     -- The handler decides the reason's type, and runs before the stack unwinds.
-    local depth = nil
+    local workIsOnStack = false
     value, reason = protected.xpcallse(
         function(raised)
-            depth = debug.traceback("", 2):find("work") ~= nil
+            local level = 2
+            while true do
+                local info = debug.getinfo(level, "f")
+                if not info then
+                    break
+                end
+                if info.func == work then
+                    workIsOnStack = true
+                    break
+                end
+                level = level + 1
+            end
 
             return {message = tostring(raised)}
         end,
@@ -1131,7 +1142,7 @@ function M.protectedWrappersAnswerTheConventionalLayout()
     )
     assert(value == nil and type(reason) == "table", tostring(reason))
     assert(reason.message:find("negative", 1, true), reason.message)
-    assert(depth, "the handler ran before the stack unwound")
+    assert(workIsOnStack, "the handler ran before the stack unwound")
 end
 
 --- A caller propagating `pcallse`'s reason declares it `unknown`; narrowing it

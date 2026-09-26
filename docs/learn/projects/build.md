@@ -314,6 +314,11 @@ order with `--platform all`. A multi-platform default output is
 may map configured triples to custom raw paths. POSIX platforms also own a
 deterministic `.tar` which records mode `0755`.
 
+`--out-dir` temporarily replaces the target's output directory. It reroots
+bundles, components, host binaries, platform binaries, modules, and resources
+together; it does not write an explicitly configured output path from the
+manifest during that build.
+
 An explicit macOS result is unsigned and build JSON reports
 `distributionReady = false` with a signing notice. Sign it on macOS with
 `codesign --force --sign - <binary>` for local execution. The release workflow

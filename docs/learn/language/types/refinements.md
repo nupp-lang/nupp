@@ -111,6 +111,10 @@ the step before it with `?.`, because the test runs against values that are not
 of the type yet, so `satisfies |self| -> self.a.b == "x"` compiles to
 `s.a?.b == "x"`.
 
+Ordered comparisons verify that the field has the literal's runtime type, and
+length tests verify that their field is a string. A table whose field has the
+wrong runtime type makes `is` answer false instead of raising an error.
+
 ::: deepdive
 The grammar of a test is small because the checker reads it as well as running
 it. Comparisons against literals and `type()` tests reduce to facts the checker

@@ -907,6 +907,37 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     assertEq(project.build(dir, {platform = linux}), 0, "a verified cache hit needs no source directory artifact")
     assertEq(os.rename(hiddenStubDir, stubDir), true)
 
+    write(
+        dir .. "/nupp.lua",
+        [[return {build = {kind = "binary", stub = "nupp", entries = {"main"},
+         platforms = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin",
+         "x86_64-pc-windows-msvc"},
+         platformOutputs = {['x86_64-unknown-linux-gnu'] = "custom/linux"}}}]]
+    )
+    local overridden = {}
+    assertEq(
+        project.build(dir, {
+            platform = linux,
+            outDir = "alternate",
+            produced = overridden
+        }),
+        0,
+        "an output-directory override reroots a configured platform output"
+    )
+    assertEq(
+        overridden.artifact,
+        dir .. "/alternate/default/x86_64-unknown-linux-gnu/default",
+        "the reported platform artifact uses the override"
+    )
+    assert(exists(overridden.artifact), "the overridden platform artifact exists")
+    assert(not exists(dir .. "/custom/linux"), "the manifest platform path was not written")
+    write(
+        dir .. "/nupp.lua",
+        [[return {build = {kind = "binary", stub = "nupp", entries = {"main"},
+         platforms = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin",
+         "x86_64-pc-windows-msvc"}}}]]
+    )
+
     write(catalogPath, json.encode({catalogRelease = "synthetic-abi", hostAbi = 2, stubs = records}))
     assertEq(project.build(dir, {platform = linux}), 1, "a catalog for another host ABI is refused before stamping")
     write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
@@ -3729,6 +3760,38 @@ return {
     assertEq(project.test(dir), 0)
     assertEq(read(dir .. "/test-ran"), "yes")
     assert(exists(dir .. "/out/main.lua"), "test builds first")
+    remove(dir)
+end
+
+function M.testOutputOverrideRunsTheArtifactItBuilt()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {
+      kind = "bundle",
+      outDir = "build",
+      output = "build/test.lua",
+      entries = {"main"},
+   },
+   test = {argv = {"luajit", "build/test.lua"}},
+}
+]],
+        [
+            "src/main.g.nupp"
+        ] = [[
+assert(os.getenv("NUPP_TEST_BUILD") == "coverage", tostring(os.getenv("NUPP_TEST_BUILD")))
+local file = assert(io.open("test-ran", "wb"))
+file:write("yes")
+file:close()
+]],
+    })
+    assertEq(project.test(dir, {}, {outDir = "coverage"}), 0)
+    assertEq(read(dir .. "/test-ran"), "yes")
+    assert(exists(dir .. "/coverage/test.lua"), "the override receives the test artifact")
+    assert(not exists(dir .. "/build/test.lua"), "the manifest output is not overwritten")
     remove(dir)
 end
 

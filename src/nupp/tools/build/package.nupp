@@ -19,7 +19,7 @@ local deps = require("nupp.tools.build.deps")
 local modulesMod = require("nupp.tools.build.modules")
 
 local normalize, join = fs.normalize, fs.join
-local dirname = fs.dirname
+local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 local expandGlob = deps.expandGlob
 local resourceOutput = modulesMod.resourceOutput
@@ -125,9 +125,13 @@ local function bundleText(
     workerDispatch: boolean?,
     runtimeModules: {string}?,
     hostFeatures: {string}?,
-    component: boolean?
+    component: boolean?,
+    builtOutDir: string?
 ): string?, string?, {string}?
-    local outDir = target.outDir or "build"
+    -- A caller may build a target beneath `--out-dir` without changing the
+    -- manifest target. Bundle the files that build just wrote, not the target's
+    -- usual directory.
+    local outDir = builtOutDir or target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
     local chunks = component
         and {
@@ -546,15 +550,21 @@ local function bundleText(
 end
 
 --- Where a `bundle` target writes its one file.
-local function bundleOutput(root: string, target: Target, name: string): string
-    local outDir = target.outDir or "build"
-    return join(root, target.output or join(outDir, name .. ".lua"))
+local function bundleOutput(root: string, target: Target, name: string, builtOutDir: string?): string
+    if builtOutDir then
+        return join(root, join(builtOutDir, basename(target.output or (name .. ".lua"))))
+    end
+
+    return join(root, target.output or join(target.outDir or "build", name .. ".lua"))
 end
 
 --- Where a `component` target writes its versioned in-memory artifact.
-local function componentOutput(root: string, target: Target, name: string): string
-    local outDir = target.outDir or "build"
-    return join(root, target.output or join(outDir, name .. ".nuppc"))
+local function componentOutput(root: string, target: Target, name: string, builtOutDir: string?): string
+    if builtOutDir then
+        return join(root, join(builtOutDir, basename(target.output or (name .. ".nuppc"))))
+    end
+
+    return join(root, target.output or join(target.outDir or "build", name .. ".nuppc"))
 end
 
 --- Where one binary platform writes its raw stamped executable.
@@ -563,11 +573,15 @@ local function binaryOutput(
     target: Target,
     name: string,
     outDir: string,
-    selectedPlatform: string?
+    selectedPlatform: string?,
+    outDirOverridden: boolean?
 ): string
     if selectedPlatform then
-        local configured = target.platformOutputs and target.platformOutputs[selectedPlatform]
         local suffix = require("nupp.tools.build.platform").executableSuffix(selectedPlatform)
+        if outDirOverridden then
+            return join(root, join(outDir, join(name, join(selectedPlatform, name .. suffix))))
+        end
+        local configured = target.platformOutputs and target.platformOutputs[selectedPlatform]
         return join(root, configured or join(outDir, join(name, join(selectedPlatform, name .. suffix))))
     end
 
@@ -591,6 +605,9 @@ local function binaryOutput(
         local named = spelled:match("[^/\\]*$") or spelled
         if hostSuffix ~= "" and not named:find(".", 1, true) then
             spelled = spelled .. hostSuffix
+        end
+        if outDirOverridden then
+            spelled = join(outDir, basename(spelled))
         end
 
         return join(root, spelled)

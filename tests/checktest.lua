@@ -1898,16 +1898,46 @@ function M.aLengthRefinementIsAdmittedAndNormalised()
         )
     )
     local node = {op = "len", path = {"name"}, a = {op = "cmp", cmp = "<=", path = {}, literal = "4", constant = 4}}
-    assertEq(predicate.render(node, "v"), "#v.name <= 4")
+    assertEq(predicate.render(node, "v"), '(type(v.name) == "string" and #v.name <= 4)')
     assertEq(predicate.satisfiedByValue(node, {name = "abcd"}), true)
     assertEq(predicate.satisfiedByValue(node, {name = "abcde"}), false)
     assertEq(predicate.satisfiedByValue(node, {name = 7}), nil)
     assertEq(predicate.satisfiedByValue(node, 7), nil)
     -- the subject itself, which is what a constrained scalar constrains
     local bare = {op = "len", path = {}, a = {op = "cmp", cmp = ">=", path = {}, literal = "2", constant = 2}}
-    assertEq(predicate.render(bare, "v"), "#v >= 2")
+    assertEq(predicate.render(bare, "v"), '(type(v) == "string" and #v >= 2)')
     assertEq(predicate.satisfiedByValue(bare, "ab"), true)
     assertEq(predicate.satisfiedByValue(bare, "a"), false)
+end
+
+function M.aRefinementRejectsOrderedBooleanAndNilComparisons()
+    assertEq(
+        (
+            diagsOf(
+                table.concat(
+                    {
+                        "local interface Invalid",
+                        "   enabled: boolean",
+                        "   satisfies |self| -> self.enabled < true",
+                        "end",
+                    },
+                    "\n"
+                )
+            )
+        ),
+        "NUPP2122:3"
+    )
+    assertEq(
+        (
+            diagsOf(
+                table.concat(
+                    {"local interface Invalid", "   value: any", "   satisfies |self| -> self.value >= nil", "end",},
+                    "\n"
+                )
+            )
+        ),
+        "NUPP2122:3"
+    )
 end
 
 -- Three-valued against a value, the way `satisfiedBy` is against declared fields:

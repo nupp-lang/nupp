@@ -41,6 +41,25 @@ local function generateCoverage(src)
     return code, metadata
 end
 
+local function withFreshCoverage(run)
+    local outer = rawget(_G, "__nuppCoverage")
+    local previous = outer and outer.hits["coverage-test.nupp"] or nil
+    if outer then
+        outer.hits["coverage-test.nupp"] = nil
+    else
+        rawset(_G, "__nuppCoverage", nil)
+    end
+    local ok, problem = pcall(run)
+    if outer then
+        outer.hits["coverage-test.nupp"] = previous
+    else
+        rawset(_G, "__nuppCoverage", nil)
+    end
+    if not ok then
+        error(problem, 0)
+    end
+end
+
 local function generateChecked(src)
     local result = parser.parse(src, "prepared_worker.g.nupp")
     assertEq(#result.errors, 0, "syntax errors in checked generator source")
@@ -69,6 +88,45 @@ local function countLines(s)
 end
 
 local M = {}
+
+-- A comparison whose field is on the right has to reverse its ordered operator
+-- when the refinement is normalized to put that field on the left. Equality hid
+-- this because it is symmetric; `64 >= self.n` otherwise became `self.n >= 64`.
+function M.refinementsReverseOrderedComparisonsWrittenLiteralFirst()
+    local source = [[
+local interface Small
+    n: integer
+    satisfies |self| -> 64 >= self.n
+end
+local function isSmall(value: any): boolean
+    return value is Small
+end
+return isSmall
+]]
+    local code = generateChecked(source)
+    local isSmall = assert(loadstring(code))()
+    assertEq(isSmall({n = 63}), true, "the reversed comparison admits a smaller value")
+    assertEq(isSmall({n = 65}), false, "the reversed comparison rejects a larger value")
+    assertEq(isSmall({n = "63"}), false, "an ordered comparison with the wrong runtime type is false")
+end
+
+function M.lengthRefinementsAreFalseForTheWrongRuntimeType()
+    local source = [[
+local interface Short
+    name: string
+    satisfies |self| -> #self.name <= 4
+end
+local function isShort(value: any): boolean
+    return value is Short
+end
+return isShort
+]]
+    local code = generateChecked(source)
+    local isShort = assert(loadstring(code))()
+    assertEq(isShort({name = "four"}), true, "a short string passes")
+    assertEq(isShort({name = "longer"}), false, "a long string fails")
+    assertEq(isShort({name = 4}), false, "a non-string field does not make `is` raise")
+end
 
 function M.targetFactsResolveTheHostAfterSelectingTheCheckDialect()
     local environments = {{value = env}}
@@ -409,25 +467,25 @@ function M.coverageModeCountsStatementsFunctionsAndBranches()
     assert((kinds.statement or 0) >= 3, "statement sites are recorded")
     assert((kinds["function"] or 0) >= 1, "function sites are recorded")
     assert((kinds.branch or 0) >= 1, "branch sites are recorded")
-    _G.__nuppCoverage = nil
-    local chunk, err = loadstring(code, "@coverage_generated")
-    assert(chunk, tostring(err) .. "\n" .. code)
-    assertEq(chunk(), 1, "instrumented program result")
-    local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
-    local sawStatement, sawFunction, sawTrue = false, false, false
-    for _, site in ipairs(metadata.sites) do
-        if site.kind == "statement" and (hits[tostring(site.id)] or 0) > 0 then
-            sawStatement = true
+    withFreshCoverage(function()
+        local chunk, err = loadstring(code, "@coverage_generated")
+        assert(chunk, tostring(err) .. "\n" .. code)
+        assertEq(chunk(), 1, "instrumented program result")
+        local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
+        local sawStatement, sawFunction, sawTrue = false, false, false
+        for _, site in ipairs(metadata.sites) do
+            if site.kind == "statement" and (hits[tostring(site.id)] or 0) > 0 then
+                sawStatement = true
+            end
+            if site.kind == "function" and (hits[tostring(site.id)] or 0) > 0 then
+                sawFunction = true
+            end
+            if site.kind == "branch" and (hits[tostring(site.id) .. ":true"] or 0) > 0 then
+                sawTrue = true
+            end
         end
-        if site.kind == "function" and (hits[tostring(site.id)] or 0) > 0 then
-            sawFunction = true
-        end
-        if site.kind == "branch" and (hits[tostring(site.id) .. ":true"] or 0) > 0 then
-            sawTrue = true
-        end
-    end
-    assert(sawStatement and sawFunction and sawTrue, "instrumented run records the executed source sites")
-    _G.__nuppCoverage = nil
+        assert(sawStatement and sawFunction and sawTrue, "instrumented run records the executed source sites")
+    end)
 end
 
 -- A report lists functions rather than reading them against the source, so a
@@ -551,19 +609,19 @@ function M.coverageModeCountsANamedVarargFunction()
         end
     end
     assertEq(functions, 1, "the vararg function is a function site")
-    _G.__nuppCoverage = nil
-    local chunk, err = loadstring(code, "@coverage_vararg")
-    assert(chunk, tostring(err) .. "\n" .. code)
-    assertEq(chunk(), 3, "instrumented program result")
-    local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
-    local sawFunction = false
-    for _, site in ipairs(metadata.sites) do
-        if site.kind == "function" and (hits[tostring(site.id)] or 0) > 0 then
-            sawFunction = true
+    withFreshCoverage(function()
+        local chunk, err = loadstring(code, "@coverage_vararg")
+        assert(chunk, tostring(err) .. "\n" .. code)
+        assertEq(chunk(), 3, "instrumented program result")
+        local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
+        local sawFunction = false
+        for _, site in ipairs(metadata.sites) do
+            if site.kind == "function" and (hits[tostring(site.id)] or 0) > 0 then
+                sawFunction = true
+            end
         end
-    end
-    assert(sawFunction, "the instrumented run records the vararg function")
-    _G.__nuppCoverage = nil
+        assert(sawFunction, "the instrumented run records the vararg function")
+    end)
 end
 
 function M.erasure()

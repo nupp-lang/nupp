@@ -7,8 +7,8 @@ A declaration's `where` clause names the runtime test that decides whether a
 value is one of these. Two very different readers need it: the checker, which
 validates it against the declaration's own fields, and the generator, which
 compiles `x is T` into it. Handing the generator an expression tree, or worse a
-piece of source text to resolve again, is how a spelling ends up being resolved
-twice and disagreeing, the mistake `TODO.md` records for cleanups.
+piece of source text to resolve again, can resolve one expression twice and
+produce different answers.
 
 So the clause is read once, into a small tree of plain data whose only free
 variable is the subject. Nothing in it needs a scope: a path is a list of field
@@ -292,8 +292,10 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
             -- otherwise: a field of the subject against a literal, either way round
             local path = pathOf(node.lhs)
             local other = node.rhs
+            local flipped = false
             if not path then
                 path, other = pathOf(node.rhs), node.lhs
+                flipped = path ~= nil
             end
             if not path then
                 -- Name what was actually written. "not a field" sends a reader looking
@@ -313,7 +315,16 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
             if not text then
                 return nil, "a comparison against something that is not a literal"
             end
-            return new predicate.Node(op = "cmp", cmp = op, path = path, literal = text, constant = value)
+            if op ~= "==" and op ~= "~=" and type(value) ~= "number" and type(value) ~= "string" then
+                return nil, "an ordered comparison against a value Lua cannot order"
+            end
+            return new predicate.Node(
+                op = "cmp",
+                cmp = flipped and FLIPPED[op] or op,
+                path = path,
+                literal = text,
+                constant = value
+            )
         end
         return nil, ("the %s operator"):format(op)
     end
@@ -1000,12 +1011,20 @@ function predicate.render(node: predicate.Node?, subject: string): string
     if op == "len" then
         -- The accessor reaches its path, then the comparison it carries applies to the
         -- length rather than to the value. The inner node's own path is empty, so
-        -- rendering it against this subject is what substitutes the length in.
+        -- rendering it against this subject is what substitutes the length in. Guard
+        -- the operand as well as the outer table: an `is` test may receive a table
+        -- whose field has the wrong runtime type, and `#7` must answer false rather
+        -- than turn a type test into an error.
         local target = subject
         for j, segment in ipairs(node.path or {}) do
             target = target .. (j > 1 and "?." or ".") .. segment
         end
-        return predicate.render(node.a, "#" .. target)
+        local inner = node.a
+        local comparison = inner
+            and inner.op == "cmp"
+            and ("#%s %s %s"):format(target, inner.cmp or "==", inner.literal or "nil")
+            or predicate.render(inner, "#" .. target)
+        return ('(type(%s) == "string" and %s)'):format(target, comparison)
     end
 
     -- Reaching through a field guards the step before it, because the test runs against
@@ -1018,7 +1037,11 @@ function predicate.render(node: predicate.Node?, subject: string): string
     end
 
     if op == "cmp" then
-        return access .. " " .. (node.cmp or "==") .. " " .. (node.literal or "nil")
+        local comparison = access .. " " .. (node.cmp or "==") .. " " .. (node.literal or "nil")
+        if node.cmp ~= "==" and node.cmp ~= "~=" then
+            return ("(type(%s) == %q and %s)"):format(access, type(node.constant), comparison)
+        end
+        return comparison
     elseif op == "integral" then
         -- `type(x) == "number"` is the whole of what Lua can say about a number, and
         -- an integer is less than that. A NaN and an infinity both answer NaN to `% 1`,

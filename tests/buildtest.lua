@@ -160,6 +160,42 @@ function M.explicitBuildCreatesItsOutputDirectory()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.projectOutDirOverrideBundlesResourcesFromTheOverride()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {
+      targets = {
+         app = {
+            kind = "bundle",
+            outDir = "build/default",
+            output = "build/default/application.lua",
+            entries = {"main"},
+            resources = {{source = "asset.txt", output = "asset.txt"}},
+         },
+      },
+      default = "app",
+   },
+}
+]],
+        ["asset.txt"] = "resource from overridden output",
+        [
+            "src/main.g.nupp"
+        ] = [[
+local embedded = (package.preload["nupp.embedded"] as any)()
+print(embedded["/asset.txt"])
+]],
+    })
+    local out = capture(("cd %q && %q build --out-dir alternate"):format(dir, NUPP))
+    assertEq(out, "", "project output override builds a resource bundle")
+    local ran = capture(("cd %q && luajit alternate/application.lua"):format(dir))
+    assertEq(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.explicitBuildPreservesModulePathsAndNormalizesDuplicates()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',

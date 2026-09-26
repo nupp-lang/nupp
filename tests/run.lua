@@ -94,7 +94,9 @@ local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 -- creating it through `open` with a mode that never had to work before, and the
 -- output could then not be read back by name. Callers that want a directory
 -- remove it first, as they did before.
-local rawTmpname = os.tmpname
+local rawTmpname, rawExit = os.tmpname, os.exit
+local tempStem = rawTmpname()
+os.remove(tempStem)
 local processSalt
 do
     local stateSalt = tostring({}):match("0x(%x+)") or tostring(os.clock())
@@ -116,22 +118,29 @@ do
 end
 local shardSalt = ((os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0") .. "-" .. processSalt
 local handedOut = 0
+local reservedTempNames = {}
+
+local function cleanupTempNames()
+    for _, path in ipairs(reservedTempNames) do
+        os.remove(path)
+    end
+end
+
+os.exit = function(code, close)
+    cleanupTempNames()
+    return rawExit(code, close)
+end
+
 os.tmpname = function()
     handedOut = handedOut + 1
-    local reserved = rawTmpname()
-    local named = ("%s-%s-%d"):format((reserved:gsub("\\", "/")), shardSalt, handedOut)
-    -- LuaJIT reserves this name on Unix, while its Windows `tmpnam` only names a
-    -- path. Keep an existing reservation by renaming it; otherwise create the
-    -- salted name, and never hand a caller a path that was not actually made.
-    local renamed = os.rename(reserved, named)
-    if not renamed then
-        local file, problem = io.open(named, "wb")
-        assert(file, ("cannot reserve temporary name %s: %s"):format(named, tostring(problem)))
-        file:close()
-        -- If rename failed for a reason other than an absent source, do not leave
-        -- the raw reservation behind for the length of the run.
-        os.remove(reserved)
-    end
+    -- One raw temporary name supplies the platform's temporary directory. The
+    -- process, state, shard and counter make every derived name distinct without
+    -- repeatedly consuming libc's finite tmpnam sequence during a large run.
+    local named = ("%s-%s-%d"):format((tempStem:gsub("\\", "/")), shardSalt, handedOut)
+    local file, problem = io.open(named, "wb")
+    assert(file, ("cannot reserve temporary name %s: %s"):format(named, tostring(problem)))
+    file:close()
+    reservedTempNames[#reservedTempNames + 1] = named
 
     return named
 end
@@ -3311,6 +3320,7 @@ local report = {
 }
 
 if embedded then
+    cleanupTempNames()
     return report
 elseif asJson then
     local json = testJson
