@@ -303,9 +303,14 @@ end
 
 --- The attributes of a function Lua calls: it unwinds, and a frame holding
 --- a value stream's state and a string accumulator spans several pages, so
---- its stack is probed.
+--- its stack is probed. Windows probes every large frame already, through the
+--- `___chkstk_ms` its DLL links; there `probe-stack` would name the function
+--- to call, and `inline-asm` is no function.
 local function luaAttributes(selected: profile.Profile): string
-    local parts: {string} = {"uwtable", "\"probe-stack\"=\"inline-asm\""}
+    local parts: {string} = {"uwtable"}
+    if selected.format ~= "coff" then
+        parts[#parts + 1] = "\"probe-stack\"=\"inline-asm\""
+    end
     if selected.functionAttributes ~= "" then
         parts[#parts + 1] = selected.functionAttributes
     end

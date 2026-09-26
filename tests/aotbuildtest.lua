@@ -2250,6 +2250,13 @@ end
 --- each call site; an engine that cannot validate SIMD128 runs the scalar unit
 --- rather than failing the application. Wasm asks no CPU questions, so no
 --- feature detector is built beside them.
+-- A module path as the `file:` URL Node imports, which on Windows is the only
+-- form an absolute path is accepted in.
+local function fileUrl(path)
+    local url = path:gsub("\\", "/")
+    return (url:match("^%a:") and "file:///" or "file://") .. url
+end
+
 function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
     local probe = io.popen("node --version 2>/dev/null")
     local node = probe and probe:read("*a") or ""
@@ -2314,7 +2321,7 @@ async function run(simd) {
   return {total: results.getFloat64(0, true), first: results.getUint32(8, true), second: results.getUint32(16, true)};
 }
 console.log(JSON.stringify({widest: tierOf.get(candidates[0]), simd: await run(true), scalar: await run(false)}));
-]=]):format(HERE .. "/../runtime/luajit/aot.mjs", table.concat(candidates, ", ")))
+]=]):format(fileUrl(HERE .. "/../runtime/luajit/aot.mjs"), table.concat(candidates, ", ")))
     handle:close()
     local run = assert(io.popen(("node %q %q 2>&1"):format(script, dir)))
     local answer = run:read("*a")
@@ -2354,6 +2361,22 @@ function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
     test.equal(library:byte(19), 3, "for i386")
     local app = assert(read(dir .. "/dist/app.lua"))
     test.equal(app:find("nupp.runtime.aotruntime", 1, true), nil, "the loader passes no runtime table")
+end
+
+--- Every builder shape the fixture holds -- value streams, scratch buffers,
+--- wrapping arithmetic -- links into a Windows DLL from any host. Their large
+--- frames are probed through the `___chkstk_ms` the DLL carries; the
+--- `probe-stack` attribute ELF and Mach-O take would, on Windows, name an
+--- undefined function instead.
+function M.everyBuilderShapeLinksIntoAWindowsDll()
+    local dir = builderProject("require")
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write([[return {include = {"src"}, build = {targets = {native = {kind = "modules",
+   entries = {"builder"}, outDir = "build/native", aot = "require", aotTarget = "x86_64-pc-windows-msvc"}}}}]])
+    manifest:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    assert(read(dir .. "/build/native/lib/native_aot.dll"), "the DLL is written")
 end
 
 --- A Windows DLL of builder entries names no Lua module: the Lua API is
