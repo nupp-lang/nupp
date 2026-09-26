@@ -1,42 +1,19 @@
 module nupp.tools.build.toolruns
 
 --[[
-Running the external toolchain counted, and compilations several at a time.
+How many external toolchain processes a build started, and how many
+compilations it runs at once.
 
-Two things the ahead-of-time backend needs that `process` does not owe it.
-
-The first is a count. "An unchanged build starts no compiler" is a claim about
-process creation, and a claim about process creation is worth exactly what can
-be observed about it -- so every external toolchain command the backend runs
-goes through here and is counted, and the count is published in `build --json`.
-A test then asserts a number rather than asserting the absence of something it
-cannot see.
-
-The second is width. Units are independent: nothing one unit's compilation
-produces is read by another, and the link that follows reads all of them.
-Compiling them one after another leaves a machine with sixteen cores running one
-compilation, which is most of what a cold multiversion build costs.
+The count backs a claim about process creation: `build --json` publishes it,
+and a test asserts a number rather than the absence of something it cannot
+see. The code generator runs in process, so an AOT build starts none; the count
+stays so that anything which ever does start one is seen.
 
 Width is bounded by the processor count rather than by the job count, because
-the constraint is the machine and not the work. External commands run in waves
-rather than a pool: a wave is something POSIX `sh` can express in four lines
-that cannot deadlock. Windows has no `wait`, so it stays serial there -- a
-slower answer, never a different one.
-
-Order is preserved whatever the width. Results come back indexed by the job they
-came from, so the first failure a caller reports is the first failing job rather
-than whichever process happened to exit first.
+the constraint is the machine and not the work.
 ]]
 
-local process = require("nupp.compiler.process")
-
 local toolruns = {}
-
---- What one external command produced.
-type toolruns.Run = {
-    code: integer,
-    output: string
-}
 
 local windows = package.config:sub(1, 1) == "\\"
 
@@ -54,13 +31,6 @@ end
 --- How many external toolchain processes have been started since the reset.
 function toolruns.count(): integer
     return counted
-end
-
---- Runs one external toolchain command, counting it.
-function toolruns.capture(argv: {string}): (integer, string)
-    counted = counted + 1
-
-    return process.capture(argv)
 end
 
 local processorMemo: integer? = nil
@@ -110,74 +80,6 @@ function toolruns.width(jobs: integer): integer
     end
 
     return jobs < bound and jobs or bound as integer
-end
-
-local function readAll(path: string): string
-    local handle = io.open(path, "rb")
-    if handle == nil then
-        return ""
-    end
-    local text = (handle as LuaFile):read("*a");
-    (handle as LuaFile):close()
-
-    return text or ""
-end
-
---- Runs every command, at most `width` of them at once, and answers in order.
----
---- A `width` of one is the serial path, which is what Windows and a single job
---- get, and it goes through `capture` so both paths are counted the same way.
-function toolruns.captureAll(argvs: {{string}}, width: integer): {toolruns.Run}
-    local runs: {toolruns.Run} = {}
-    if width <= 1 or windows then
-        for index, argv in ipairs(argvs) do
-            local code, output = toolruns.capture(argv)
-            runs[index] = {code = code, output = output}
-        end
-
-        return runs
-    end
-    local first: integer = 1
-    local total: integer = #argvs
-    while first <= total do
-        local last: integer = first + width - 1
-        if last > total then
-            last = total
-        end
-        local parts: {string} = {}
-        local outputs: {string} = {}
-        local statuses: {string} = {}
-        for index = first, last do
-            counted = counted + 1
-            local outPath = os.tmpname()
-            local statusPath = outPath .. ".rc"
-            outputs[index] = outPath
-            statuses[index] = statusPath
-            parts[
-                #parts + 1
-            ] = "( { " .. process.command(
-                argvs[index]
-            ) .. " ; } >" .. process.quote(outPath) .. " 2>&1; printf %d $? >" .. process.quote(statusPath) .. " ) &"
-        end
-        parts[#parts + 1] = "wait"
-        os.execute(table.concat(parts, "\n"))
-        for index = first, last do
-            local outPath = outputs[index] as string
-            local statusPath = statuses[index] as string
-            local status = tonumber(readAll(statusPath):match("%d+") or "")
-            local output = readAll(outPath)
-            os.remove(outPath)
-            os.remove(statusPath)
-            -- A missing status file is a wave that could not run at all, which
-            -- is a failure of this module rather than of the command. Reporting
-            -- it as a nonzero exit lets the caller say what it always says
-            -- about a compilation that did not succeed.
-            runs[index] = {code = (status or 1) as integer, output = output}
-        end
-        first = last + 1
-    end
-
-    return runs
 end
 
 export = toolruns

@@ -6,31 +6,6 @@ local scalar = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
 local json = require("nupp.runtime.provider.lunajson")
 local bridge = {}
-local TYPES = {
-    bool = "bool",
-    f32 = "float",
-    f64 = "double",
-    i32 = "int32_t",
-    u32 = "uint32_t",
-    i64 = "int64_t",
-    u64 = "uint64_t"
-}
-
-local function physical(param: scalar.Param): string
-    local struct = param.type:match("^struct:(.+)$")
-    if struct then
-        return "Ks" .. struct
-    end
-    if param.sourceType == "uint8"
-        or param.sourceType == "int8"
-        or param.sourceType == "uint16"
-        or param.sourceType == "int16"
-    then
-        return tostring(param.sourceType) .. "_t"
-    end
-
-    return TYPES[param.type] or "double"
-end
 
 function bridge.validate(programs: {scalar.Program}): string?
     for _, program in ipairs(programs) do
@@ -79,63 +54,6 @@ function bridge.metadata(programs: {scalar.Program}, tier: string): any
     end
 
     return {abi = 1, entries = entries}
-end
-
-function bridge.registrar(programs: {scalar.Program}, tier: string): string
-    local lines: {string} = {""}
-    for index, program in ipairs(programs) do
-        lines[#lines + 1] = "KS_API void nupp_bridge_" .. tostring(index) .. "(const uint8_t *a, uint8_t *r) {"
-        lines[#lines + 1] = "    (void)a; (void)r;"
-        local arguments: {string} = {}
-        local counts: {string} = {}
-        local countPosition = #program.params
-        for position, param in ipairs(program.params) do
-            local slot = "(a + " .. tostring((position - 1) * 8) .. ")"
-            if param.kind == "read_span" or param.kind == "write_span" then
-                arguments[
-                    #arguments + 1
-                ] = "(" .. (
-                    param.kind == "read_span" and "const " or ""
-                ) .. physical(param) .. " *)(uintptr_t)*(const uint32_t *)" .. slot
-                counts[#counts + 1] = "(size_t)*(const uint32_t *)(a + " .. tostring(countPosition * 8) .. ")"
-                if program.body ~= nil then
-                    countPosition = countPosition + 1
-                end
-            else
-                arguments[#arguments + 1] = "*(const " .. physical(param) .. " *)" .. slot
-            end
-        end
-        if program.body ~= nil then
-            for _, count in ipairs(counts) do
-                arguments[#arguments + 1] = count
-            end
-        else
-            arguments[#arguments + 1] = counts[1] or "0"
-        end
-        local results = program.resultTypes or {}
-        if #results > 1 then
-            arguments[#arguments + 1] = "&result"
-        end
-        local call = target.symbol(program.symbol, tier) .. "(" .. table.concat(arguments, ", ") .. ")"
-        if #results == 0 then
-            lines[#lines + 1] = "    " .. call .. ";"
-        elseif #results == 1 then
-            lines[#lines + 1] = "    *(" .. TYPES[results[1]] .. " *)r = " .. call .. ";"
-        else
-            lines[#lines + 1] = "    " .. scalar.cIdentifier("KsResult", program.symbol) .. " result;"
-            lines[#lines + 1] = "    " .. call .. ";"
-            for position, kind in ipairs(results) do
-                lines[
-                    #lines + 1
-                ] = "    *(" .. TYPES[
-                    kind
-                ] .. " *)(r + " .. tostring((position - 1) * 8) .. ") = result.v" .. tostring(position) .. ";"
-            end
-        end
-        lines[#lines + 1] = "}"
-    end
-
-    return table.concat(lines, "\n") .. "\n"
 end
 
 --- One unit is named as a string; several, one per tier, as a list the host

@@ -12,9 +12,8 @@ copied elements, a scalar's its value in its own width (a bool one byte); the
 counts follow as u32s, one per span for a body entry and one shared for a map
 entry. The result block is one 8-byte slot per result.
 
-This is `wasmbridge.registrar`'s ABI, with its one defect left out: a map
-entry whose kernel takes a count per span is handed the shared count for
-each, where that registrar passed only one.
+A map entry whose kernel takes a count per span is handed the shared count for
+each.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")
