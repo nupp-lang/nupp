@@ -267,6 +267,17 @@ function M.concatenatingAPathAddsOneSeparator()
     test.equal(plain:concatPath("/users"):path(), "/v1/users")
     test.equal(slashed:concatPath("users"):path(), "/v1/users")
     test.equal(slashed:concatPath("/users"):path(), "/v1/users")
+    test.equal(plain:concatPath(""), plain, "an empty suffix leaves the URI unchanged")
+end
+
+function M.removingAHostRemovesItsAuthority()
+    local module = ready()
+    local value = assert(module.newURI("custom://user:pass@example.com:8080/path"))
+    local without = value:withHost(nil)
+    test.equal(without:toString(), "custom:/path")
+    test.equal(without:authority(), nil)
+    test.equal(without:userInfo(), nil)
+    test.equal(without:port(), nil)
 end
 
 -- A component holding a delimiter, or a path shaped like an authority, is

@@ -660,7 +660,7 @@ function log.sink(next: log.Target?): log.Target
     if type(next) == "function" then
         target = next
         targetIsSink = true
-    elseif type(next) == "table" or type(next) == "userdata" then
+    elseif (type(next) == "table" or type(next) == "userdata") and type((next as any).write) == "function" then
         target = next
         targetIsSink = false
     else

@@ -319,9 +319,9 @@ export record URI
             newURI(
                 new Components(
                     scheme = self._scheme,
-                    userInfo = self:userInfo(),
+                    userInfo = value ~= nil and self:userInfo() or nil,
                     host = value,
-                    port = self._port,
+                    port = value ~= nil and self._port or nil,
                     path = self._path,
                     query = self._query,
                     fragment = self._fragment
@@ -423,6 +423,10 @@ export record URI
     --- @return the new URI, or this one when path is empty
     --- @raises string when the path cannot be appended
     function concatPath(self, value: string): URI
+        if value == "" then
+            return self
+        end
+
         return self:withPath(self._path:gsub("/$", "") .. "/" .. value:gsub("^/", ""))
     end
 
@@ -686,7 +690,7 @@ end
 --- @return why it did not, when it did not
 --- @export
 export function validate(value: string): (boolean, string?)
-    local parsed, reason = newURI(value)
+    local parsed, reason = provider.parse(value)
     return parsed ~= nil, reason
 end
 

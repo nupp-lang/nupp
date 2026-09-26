@@ -1153,6 +1153,14 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         not rawequal(firstURI, assert(uri.newURI("https://example.com/cache/first"))),
         "uri.newURI evicts the least recently used URI after 1024 entries"
     )
+    local validatedSentinel = assert(uri.newURI("https://example.com/cache/validated-sentinel"))
+    for index = 1, 1024 do
+        assert(uri.validate("https://example.com/validated/" .. tostring(index)))
+    end
+    assert(
+        rawequal(validatedSentinel, assert(uri.newURI("https://example.com/cache/validated-sentinel"))),
+        "uri.validate does not retain parsed URIs or disturb the cache"
+    )
 end
 
 function M.bufferAppendsInAmortizedConstantTime()

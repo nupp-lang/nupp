@@ -962,6 +962,27 @@ return AtLeastTwo("aa"), AtLeastTwo("a"), AtLeastTwo("aaa"), AtMostTwo("aa")
     assertEq(capped, 3, "negative exponent maximum")
 end
 
+function M.keepsLiteralWhitespaceInsideByteClasses()
+    local space, digit, letter = run(
+        [[
+const Class: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("[ %d] !.")
+end
+return Class(" "), Class("4"), Class("x")
+]]
+    )
+    assertEq(space, 2, "a leading class space is a member")
+    assertEq(digit, 2, "a predefined member remains in the class")
+    assertEq(letter, nil, "the class still rejects other bytes")
+
+    local codes = errorsOf([[
+const Bad: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("% d")
+end
+]])
+    assertEq(table.concat(codes, " "), "NUPP2417", "a predefined name starts immediately after percent")
+end
+
 function M.agreesWithLpegOnTheOverlappingFloor()
     local lpeg = officialLpeg()
     local matcher = run(
@@ -1047,6 +1068,7 @@ return {
     )
 
     local lpeg = officialLpeg()
+
     local function pack(...)
         return {n = select("#", ...), ...}
     end

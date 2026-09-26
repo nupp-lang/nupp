@@ -434,9 +434,8 @@ function M.formatsComparativeSuitesWithBaselineRatios()
         "the result table retains each baseline ratio\n" .. rendered
     )
     assertTrue(
-        rendered:find(
-            "map%.lookup:size=100%s+array%s+2%.000x"
-        ) ~= nil and rendered:find("map%.insert:size=100%s+table%s+2%.000x") ~= nil,
+        rendered:find("map%.lookup:size=100%s+array%s+2%.000x") ~= nil
+        and rendered:find("map%.insert:size=100%s+table%s+2%.000x") ~= nil,
         "each workload names its winner against the runner-up\n" .. rendered
     )
     assertTrue(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
@@ -636,9 +635,12 @@ end
 function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
     local statistics = require("nupp.bench.internal.statistics")
     local zeros = {}
-    for index = 1, 12 do zeros[index] = 0 end
+    for index = 1, 12 do
+        zeros[index] = 0
+    end
     assertEq(statistics.pairedPValue(zeros), 1, "identical pairs provide no evidence of a change")
     assertEq(statistics.pairedPValue({0, 0, 1, 2, 3, 4}), 0.125, "zero pairs do not increase the evidence")
+
     -- Independently enumerate every sign assignment. Rank by counting smaller
     -- and equal magnitudes, rather than sorting or using the implementation's DP.
     local function exact(values)
@@ -646,31 +648,51 @@ function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
         for index, value in ipairs(values) do
             local smaller, equal = 0, 0
             for _, other in ipairs(values) do
-                if math.abs(other) < math.abs(value) then smaller = smaller + 1 end
-                if math.abs(other) == math.abs(value) then equal = equal + 1 end
+                if math.abs(other) < math.abs(value) then
+                    smaller = smaller + 1
+                end
+                if math.abs(other) == math.abs(value) then
+                    equal = equal + 1
+                end
             end
             local rank = smaller + (equal + 1) / 2
             ranks[index] = rank
             total = total + rank
-            if value > 0 then observed = observed + rank end
+            if value > 0 then
+                observed = observed + rank
+            end
         end
         local lower, count = math.min(observed, total - observed), 0
         for signs = 0, 2 ^ #values - 1 do
             local sum = 0
             for index, rank in ipairs(ranks) do
-                if math.floor(signs / 2 ^ (index - 1)) % 2 == 1 then sum = sum + rank end
+                if math.floor(signs / 2 ^ (index - 1)) % 2 == 1 then
+                    sum = sum + rank
+                end
             end
-            if sum <= lower then count = count + 1 end
+            if sum <= lower then
+                count = count + 1
+            end
         end
+
         return math.min(1, 2 * count / 2 ^ #values)
     end
+
     for _, values in ipairs({{1, -1, 2, 2, -2, 3}, {1, 1, 1, -1, 2, 2}, {-1, 1, -1, 1}}) do
         local expected = exact(values)
         assertEq(statistics.pairedPValue(values), expected, "ties use their sign-permutation distribution")
         local reversed = {}
-        for index = #values, 1, -1 do reversed[#reversed + 1] = -values[index] end
+        for index = #values, 1, -1 do
+            reversed[#reversed + 1] = -values[index]
+        end
         assertEq(statistics.pairedPValue(reversed), expected, "sign reversal and tie order do not change significance")
     end
+end
+
+function M.unpairedPValuesCorrectTheirVarianceForTies()
+    local statistics = require("nupp.bench.internal.statistics")
+    local found = statistics.unpairedPValue({1, 2, 2}, {2, 2, 3})
+    closeTo(found, 0.1967056, 1e-6, "four tied observations reduce the rank-sum variance")
 end
 
 function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()

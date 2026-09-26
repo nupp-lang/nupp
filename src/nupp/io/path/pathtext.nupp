@@ -5,7 +5,7 @@ module nupp.io.path.pathtext
 --[[
 Path text, as rules about characters.
 
-Most operations `nupp.io.path` offers are questions about the spelling of a
+Most operations `nupp.io.path` offers are questions about the text of a
 path, and none of those needs the filesystem or the platform it is running on.
 They were C, and being C meant each of them crossed the FFI, allocated an
 answer, copied it back out and freed it -- for a path of a few dozen bytes,
@@ -16,13 +16,13 @@ A path is read as a sequence of components: an optional prefix, an optional
 root, and the names between separators, with `.` dropped and `..` kept. The
 scans retain byte offsets rather than component records: several answers are
 slices of what the caller wrote rather than a rebuild. The parent of
-`alpha/./beta/../file` is `alpha/./beta/..`, spelled that way, and normalising
+`alpha/./beta/../file` is `alpha/./beta/..`, written that way, and normalizing
 is a separate request with its own answer.
 
 POSIX has one separator and no prefix. Windows has two separators and three
 prefixes that matter: a drive, a UNC share, and the verbatim form, which is
 carried and rebuilt but not otherwise reasoned about, since its whole point is
-that the system does not normalise it either.
+that the system does not normalize it either.
 
 `windows` is a parameter here rather than the `#if` it was in C. These rules do
 not depend on where they run, only on which set is asked for, and making that an
@@ -70,9 +70,9 @@ local function isDriveLetter(value: integer?): boolean
     return (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
 end
 
---- Whether the path is spelled in the verbatim form. The test is byte-exact:
---- the system recognises `\\?\` and nothing else -- not `//?/`, and not `/` as
---- a separator after it -- so a spelling this loses is a path this corrupts.
+--- Whether the path uses the verbatim form. The test is byte-exact:
+--- the system recognizes `\\?\` and nothing else -- not `//?/`, and not `/` as
+--- a separator after it -- so changing this text changes the path it names.
 local function isVerbatim(text: string, windows: boolean): boolean
     if not windows or #text < 4 then
         return false
@@ -155,7 +155,7 @@ end
 ---
 --- @param value the text to answer with
 --- @param windows whether Windows rules apply
---- @return the text, with separators as the answer spells them
+--- @return the text, with separators in the answer's form
 function pathtext.finish(value: string, windows: boolean): string
     if not windows or isVerbatim(value, windows) then
         return value
@@ -322,7 +322,7 @@ end
 --- Resolves what can be resolved without asking the filesystem.
 ---
 --- A verbatim path is answered exactly as written: the system does not
---- normalise one, so resolving a `..` or respelling a separator here would
+--- normalize one, so resolving a `..` or rewriting a separator here would
 --- make this text name something the original did not.
 --- @param text the path
 --- @param windows whether Windows rules apply
@@ -404,7 +404,7 @@ end
 --- prefix does too, while a rooted part without one keeps the prefix and nothing
 --- else. The part is appended as it was written rather than as it parsed:
 --- pushing keeps a trailing separator or a `.` the caller put there, and
---- normalising is a separate request.
+--- normalizing is a separate request.
 ---
 --- @param carried what has been joined so far
 --- @param part the part to append
@@ -559,7 +559,7 @@ end
 --- Expresses `target` against `base` using their component views.
 ---
 --- A target that is its base answers `.`: the path is where the base already
---- is, and `.` is how a path spells that, where `""` names nothing a
+--- is, and `.` represents that location, where `""` names nothing a
 --- filesystem call accepts. A verbatim path is refused, because expressing
 --- one is exactly the reasoning about its components this module does not do.
 --- @param target the path to express
@@ -594,9 +594,9 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
         if targetKind ~= baseKind or targetLength ~= baseLength then
             break
         end
-        -- A root is compared by kind alone: `/` and `\` spell the same anchor. A
+        -- A root is compared by kind alone: `/` and `\` name the same anchor. A
         -- prefix is compared with its separators folded the same way, so a share
-        -- written in either spelling still matches itself.
+        -- written with either separator still matches itself.
         if targetKind ~= pathtext.ROOT then
             local targetPart = target:sub(targetStart as integer, (targetStart as integer) + targetLength - 1)
             local basePart = base:sub(baseStart as integer, (baseStart as integer) + baseLength - 1)
@@ -690,7 +690,7 @@ function pathtext.with(text: string, replacement: string, extension: boolean, wi
         if not hasName then
             return pathtext.finish(text, windows)
         end
-        -- Everything up to the end of the stem, in the caller's own spelling,
+        -- Everything up to the end of the stem, in the caller's own text,
         -- and then the new extension on the end of it.
         local found = start as integer
         local stemLength = splitNameAt(text, found, length)
@@ -714,7 +714,7 @@ end
 ---
 --- Each is a slice of what the caller wrote rather than a rebuild, because
 --- asking for a path's parent asks about that path and not about the path it
---- would normalise to.
+--- would normalize to.
 ---
 --- @param text the path
 --- @param kind 0 for the parent, 1 the file name, 2 the stem, 3 the extension

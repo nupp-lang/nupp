@@ -369,6 +369,7 @@ function M.anUnknownLevelRaisesWhereItIsNotALiteral()
     assertTrue(not pcall(log.setLevel, 3, "debug"), "a module name must be a string")
     assertTrue(not pcall(log.enabled, "verbose"), "including when only asked about")
     assertTrue(not pcall(log.sink, 3), "a target that is neither function nor file is refused")
+    assertTrue(not pcall(log.sink, {}), "a table without a writer is not file-like")
     assertTrue(not pcall(log.formatter, "text"), "a formatter that is not a function is refused")
     assertTrue(not pcall(log.named, 3), "a name that is not a string is refused")
 end

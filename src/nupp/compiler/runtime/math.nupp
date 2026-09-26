@@ -168,7 +168,7 @@ local function encode32(value: number): number
     end
     if biased == 0 then
         -- A subnormal that rounded up to a full significand is the smallest normal,
-        -- and a zero exponent field beside a significand of 2^23 already spells it.
+        -- and a zero exponent field beside a significand of 2^23 already represents it.
         return sign + whole
     end
     if whole == 16777216 then
@@ -854,7 +854,7 @@ function vec2.rotate(x: number, y: number, radians: number): number, number
     return x * c - y * s, x * s + y * c
 end
 
---- The angle of a vector, in (-pi, pi].
+--- The angle of a vector, in [-pi, pi].
 ---
 --- Written out rather than deferred to Lua's two-argument arc tangent, which is not
 --- on the `lua51` surface: this module answers `nupp.math` on every target the
@@ -1001,8 +1001,8 @@ end
 
 --- Returns a unit rotation in the same direction, or the identity for a zero input.
 ---
---- The sign is left alone. A rotation has two spellings, `q` and `-q`, and which one
---- arrived is information the caller may be relying on -- `slerp` reads it to pick
+--- The sign is left alone. A rotation has two representations, `q` and `-q`, and which
+--- one arrived is information the caller may be relying on -- `slerp` reads it to pick
 --- the short way around -- so this does not quietly canonicalize to one of them.
 function quat.normalize(x: number, y: number, z: number, w: number): number, number, number, number
     local length = math.sqrt(x * x + y * y + z * z + w * w)
@@ -1169,7 +1169,8 @@ end
 --- components rather than the arc.
 ---
 --- Cheaper than `slerp` and not constant in angular speed. If the short route ends at
---- `-b`, that spelling is kept through `t == 1` so the four components stay continuous.
+--- `-b`, that representation is kept through `t == 1` so the four components stay
+--- continuous.
 function quat.nlerp(
     ax: number,
     ay: number,
@@ -1200,7 +1201,7 @@ end
 ---
 --- Nearly parallel endpoints fall back to `nlerp`, because the arc the spherical form
 --- divides by vanishes there while the answer it is converging on does not. If the
---- short route ends at `-b`, that spelling is kept through `t == 1` so the four
+--- short route ends at `-b`, that representation is kept through `t == 1` so the four
 --- components stay continuous.
 function quat.slerp(
     ax: number,

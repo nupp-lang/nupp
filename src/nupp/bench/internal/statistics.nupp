@@ -3,9 +3,10 @@ module nupp.bench.internal.statistics
 --[[
 Distribution-free statistics for benchmark records.
 
-Everything here is exact and deterministic: order statistics, exact null
-distributions, and closed-form coverage. Nothing resamples, so nothing needs a
-seed and two readers of one record compute the same answer.
+Everything here is deterministic: order statistics, exact null distributions
+where the sample size permits them, and closed-form approximations elsewhere.
+Nothing resamples, so nothing needs a seed and two readers of one record compute
+the same answer.
 
 The governing rule is that a claim is never printed above the sample size that
 supports it. `medianInterval` reports the coverage it *attained* rather than the
@@ -279,7 +280,7 @@ end
 ---
 --- Counted and returned, never removed. A genuine warmup or deoptimization phase sits
 --- exactly where these fences fall, so excluding what they catch would delete the
---- behaviour the trend test is looking for. The median estimator is robust enough to
+--- behavior the trend test is looking for. The median estimator is robust enough to
 --- see every sample without being moved by the far ones.
 function statistics.outliers(values: {number}): statistics.Outliers
     if #values == 0 then
@@ -405,7 +406,7 @@ end
 ---
 --- Called per fork. Never call it on samples pooled across processes: concatenating
 --- two processes' series manufactures a discontinuity at the join that has nothing
---- to do with either process's behaviour.
+--- to do with either process's behavior.
 function statistics.trend(series: {number}): statistics.Trend
     if #series < TREND_MIN_SAMPLES then
         return new statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, drift = 0.0, blocks = 0)
@@ -553,7 +554,7 @@ function statistics.pairedShift(differences: {number}): statistics.Interval?
     )
 end
 
---- Two-sided signed-rank p-value for the null that `differences` centre on zero.
+--- Two-sided signed-rank p-value for the null that `differences` center on zero.
 function statistics.pairedPValue(differences: {number}): number
     -- Zero differences carry no sign evidence. Rank only the nonzero pairs,
     -- assigning tied magnitudes their average rank. Double the ranks so the
@@ -617,6 +618,36 @@ end
 -- Unpaired comparison
 ----------------------------------------------------------------------------
 
+--- Rank-sum variance with the standard correction for tied pooled values.
+local function rankSumVariance(candidate: {number}, baseline: {number}): number
+    local n, m = #candidate, #baseline
+    local pooled: {number} = {}
+    for _, value in ipairs(candidate) do
+        pooled[#pooled + 1] = value
+    end
+    for _, value in ipairs(baseline) do
+        pooled[#pooled + 1] = value
+    end
+    table.sort(pooled)
+    local correction = 0.0
+    local first: integer = 1
+    while first <= #pooled do
+        local last = first
+        while last < #pooled and pooled[last + 1] == pooled[first] do
+            last = last + 1
+        end
+        local tied = last - first + 1
+        correction = correction + tied * tied * tied - tied
+        first = last + 1
+    end
+    local total = n + m
+    if total < 2 then
+        return 0.0
+    end
+
+    return n * m / 12.0 * (total + 1 - correction / (total * (total - 1)))
+end
+
 --- The Hodges-Lehmann two-sample shift: the median of every pairwise difference.
 ---
 --- Used when the comparison is observational, which is every comparison against a
@@ -648,13 +679,13 @@ function statistics.unpairedShift(candidate: {number}, baseline: {number}): (num
     local n = #candidate
     local m = #baseline
     local mean = n * m / 2.0
-    local variance = n * m * (n + m + 1) / 12.0
+    local variance = rankSumVariance(candidate, baseline)
     if variance <= 0.0 then
         return estimate, nil
     end
     local offset = 1.959964 * math.sqrt(variance)
     local sorted = statistics.sorted(differences)
-    -- The endpoints are placed symmetrically about the centre of the pairwise
+    -- The endpoints are placed symmetrically about the center of the pairwise
     -- differences, so the upper one is derived from the lower rather than computed
     -- again. Rounding each independently would leave the interval very slightly
     -- lopsided for no reason.
@@ -678,7 +709,7 @@ function statistics.unpairedShift(candidate: {number}, baseline: {number}): (num
     )
 end
 
---- Two-sided rank-sum p-value for the null that both samples share a centre.
+--- Two-sided rank-sum p-value for the null that both samples share a center.
 function statistics.unpairedPValue(candidate: {number}, baseline: {number}): number
     local n = #candidate
     local m = #baseline
@@ -696,7 +727,7 @@ function statistics.unpairedPValue(candidate: {number}, baseline: {number}): num
         end
     end
     local mean = n * m / 2.0
-    local variance = n * m * (n + m + 1) / 12.0
+    local variance = rankSumVariance(candidate, baseline)
     if variance <= 0.0 then
         return 1.0
     end
@@ -758,7 +789,7 @@ end
 ---   claim demonstrated by a narrow interval, not the residue of a test that failed
 ---   to reach significance.
 --- - `inconclusive` is everything else, including every interval straddling a margin
----   boundary. A wide interval centred on zero lands here, which is correct: it says
+---   boundary. A wide interval centered on zero lands here, which is correct: it says
 ---   the run could not tell, not that nothing moved.
 ---
 --- With no interval -- too few forks, or a trend detected -- the answer is always

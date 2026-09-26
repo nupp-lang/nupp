@@ -204,14 +204,20 @@ local function repeatExact(make: any, pattern: any, count: integer): any
     return sequence(make, patterns)
 end
 
-local function predefined(state: any, external: boolean?): string?, pegRe.Failure?, string?
+local function predefined(state: any, external: boolean?, insideClass: boolean?): string?, pegRe.Failure?, string?
     local at = state.position
-    if not consume(state, "%") then
+    if state.source:sub(state.position, state.position) ~= "%" then
         return nil, syntaxFailure(state, "expected a predefined byte class")
     end
-    local name = nameAt(state, true)
-    if not name then
+    state.position = state.position + 1
+    local first, last = state.source:find("^[%a_][%w_]*", state.position)
+    if not first then
         return nil, syntaxFailure(state, "expected a byte-class name after '%'", at)
+    end
+    local name = state.source:sub(first, last)
+    state.position = last + 1
+    if not insideClass then
+        skip(state)
     end
     local value = PREDEFINED[name]
     if value then
@@ -249,7 +255,7 @@ end
 local function parseClass(state: any): any?, pegRe.Failure?
     local make = state.make
     local at = state.position
-    consume(state, "[")
+    state.position = state.position + 1
     local inverted = false
     if state.source:sub(state.position, state.position) == "^" then
         inverted = true
@@ -260,7 +266,7 @@ local function parseClass(state: any): any?, pegRe.Failure?
         local item, externalName
         if state.source:sub(state.position, state.position) == "%" then
             local why
-            item, why, externalName = predefined(state, true)
+            item, why, externalName = predefined(state, true, true)
             if why then
                 return nil, why
             end
