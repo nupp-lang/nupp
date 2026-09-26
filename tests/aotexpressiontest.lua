@@ -1,4 +1,4 @@
--- Differential execution of statementful expressions through Lua and native C.
+-- Differential execution of statementful expressions through Lua and native code.
 local test = require("assert")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -82,6 +82,44 @@ local function repeatHeader(): number
         total = total + count
     until do yield stop end
     return total * 10.0 + count
+end
+
+-- A continue belongs to the innermost loop: one in a plain block continues the
+-- enclosing repeat, and a while or repeat nested inside keeps its own.
+@aot
+local function nestedRepeatContinues(): number
+    local total = 0.0
+    local outer = 0.0
+    repeat
+        outer = outer + 1.0
+        if outer > 8.0 then return -1.0 end
+        local inner = 0.0
+        local deep = 0.0
+        do
+            if outer == 1.0 then continue end
+        end
+        while inner < 3.0 do
+            inner = inner + 1.0
+            if inner == 2.0 then continue end
+            total = total + inner
+        end
+        repeat
+            deep = deep + 1.0
+            if deep > 8.0 then return -2.0 end
+            if deep == 1.0 then continue end
+            total = total + 100.0
+        until deep >= 2.0
+        if outer == 2.0 then continue end
+        total = total + 1000.0
+    until outer >= 3.0
+    return total * 10.0 + outer
+end
+
+-- A span count against a signed 64-bit integer compares as integers across
+-- signs: a negative cursor is below every count.
+@aot
+local function countBelow(borrows input: span.Span<number>, cursor: int64): boolean
+    return #input < cursor
 end
 
 @aot
@@ -393,7 +431,7 @@ local function repeatedStrings(count: integer): string
     end
     return result
 end
-export = {capturedStringSelector = capturedStringSelector, stringSelector = stringSelector, computedStringSelector = computedStringSelector, staticStringSelector = staticStringSelector, stringBlockSelector = stringBlockSelector, repeatedStringSelector = repeatedStringSelector, returningSwitchCondition = returningSwitchCondition, mappedHeaders = mappedHeaders, repeatedStrings = repeatedStrings, mapped = mapped, countedHeaders = countedHeaders, countedHeaderExits = countedHeaderExits, nilBlock = nilBlock, textBlock = textBlock, lazyReturns = lazyReturns, returningCondition = returningCondition, choose = choose, lazy = lazy, nested = nested, whileHeader = whileHeader, repeatHeader = repeatHeader, headerExits = headerExits, switchExits = switchExits, elseifSetup = elseifSetup, order = order, booleanResult = booleanResult, booleanSelector = booleanSelector, fractionalSelector = fractionalSelector, nilSelector = nilSelector, fixed = fixed, arguments = arguments, mixed = mixed, neverArm = neverArm, packed = packed, yieldFromHeader = yieldFromHeader, repeatedOuterExits = repeatedOuterExits}
+export = {nestedRepeatContinues = nestedRepeatContinues, countBelow = countBelow, capturedStringSelector = capturedStringSelector, stringSelector = stringSelector, computedStringSelector = computedStringSelector, staticStringSelector = staticStringSelector, stringBlockSelector = stringBlockSelector, repeatedStringSelector = repeatedStringSelector, returningSwitchCondition = returningSwitchCondition, mappedHeaders = mappedHeaders, repeatedStrings = repeatedStrings, mapped = mapped, countedHeaders = countedHeaders, countedHeaderExits = countedHeaderExits, nilBlock = nilBlock, textBlock = textBlock, lazyReturns = lazyReturns, returningCondition = returningCondition, choose = choose, lazy = lazy, nested = nested, whileHeader = whileHeader, repeatHeader = repeatHeader, headerExits = headerExits, switchExits = switchExits, elseifSetup = elseifSetup, order = order, booleanResult = booleanResult, booleanSelector = booleanSelector, fractionalSelector = fractionalSelector, nilSelector = nilSelector, fixed = fixed, arguments = arguments, mixed = mixed, neverArm = neverArm, packed = packed, yieldFromHeader = yieldFromHeader, repeatedOuterExits = repeatedOuterExits}
 ]]
 
 local SCRIPT = [[
@@ -410,6 +448,7 @@ assert(m.nested(7) == 99)
 assert(m.whileHeader() == 85)
 assert(m.repeatHeader() == 84)
 assert(m.headerExits() == 4)
+assert(m.nestedRepeatContinues() == 12083)
 assert(m.switchExits() == 40)
 assert(m.elseifSetup(-1) == 0)
 assert(m.elseifSetup(0) == 1)
@@ -480,6 +519,14 @@ for _, count in ipairs({0, 1, 3, 17, 64}) do
         local expected = i < 4 and i ~= 2 and input[i] or -99
         assert(output[i] == expected, "mapped header result at " .. i)
     end
+end
+do
+    local input = ffi.new("double[3]")
+    local three = span.fromCarray(input, 3)
+    assert(m.countBelow(three, -1) == false, "a negative cursor is below a count")
+    assert(m.countBelow(three, 3) == false)
+    assert(m.countBelow(three, 4) == true)
+    assert(m.countBelow(three, 0x7fffffff) == true)
 end
 assert(m.repeatedStrings(10000) == "even")
 assert(m.repeatedStrings(9999) == "odd")

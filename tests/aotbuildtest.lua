@@ -7,13 +7,11 @@ local test = require("assert")
 local equivalenceMutation = require("tests.simd.equivalence-mutation")
 local aot = require("nupp.tools.build.aot")
 local aotCompile = require("nupp.compiler.aot.compile")
-local aotEmitter = require("nupp.compiler.aot.emit")
 local compilerCheck = require("nupp.compiler.check")
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local envMod = require("nupp.compiler.project.env")
 local parser = require("nupp.compiler.syntax.parser")
 local targets = require("nupp.compiler.aot.target")
-local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -304,9 +302,9 @@ local function primitives(source: string, nullValue: any): (any, uint32)
 end
 
 --- Both wraps over a value the destination may not be able to hold, which is
---- the whole point of a wrap. A C cast is undefined outside the destination's
---- range and saturates on arm64, so this is where a compiled body used to stop
---- agreeing with the same source on the interpreter.
+--- the whole point of a wrap. A plain native conversion is undefined outside
+--- the destination's range and saturates on arm64, so this is where a compiled
+--- body used to stop agreeing with the same source on the interpreter.
 @aot
 local function wrapped(value: integer, nullValue: any): any
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
@@ -320,7 +318,7 @@ local function wrapped(value: integer, nullValue: any): any
 end
 
 --- A fixed word buffer: zero everywhere before anything writes it, and refusing
---- an index outside it. The bound is a constant the C compiler can discharge in
+--- an index outside it. The bound is a constant the code generator can discharge in
 --- a counted loop, which is the point of it -- so what has to be shown is that
 --- the refusal survives that, and reaches the same answer as the interpreter.
 @aot
@@ -786,10 +784,10 @@ end
 -- A kernel that reads a span's length and never reads through the span.
 --
 -- Perfectly ordinary Nupp, and both `nupp check` and `nupp aot` accepted it, but
--- the pointer then became a C parameter nothing used and the generated C is
--- compiled `-Werror`. The build failed against a line of C the author never
--- wrote. Nothing about the source was wrong, so the emitter says the parameter
--- may go unread rather than the front end refusing the shape.
+-- the pointer became a parameter nothing uses, which a native build once
+-- refused against a line the author never wrote. Nothing about the source is
+-- wrong, so the backend has to take a parameter that goes unread rather than
+-- the front end refusing the shape.
 local LENGTH_ONLY = [[
 module lengthonly
 
@@ -1063,8 +1061,8 @@ end
 --- The cases below ask the same two projects -- one that links compiled code and
 --- one that does not -- a different question about what an entry answers at run
 --- time. The question travels in the script rather than in the source, so the
---- build is the same build every time, and building it per question paid for a C
---- compilation and a link per assertion. The directory comes back beside the
+--- build is the same build every time, and building it per question paid for a
+--- native compilation and a link per assertion. The directory comes back beside the
 --- answer, so a failure still names which of the two fixtures produced it.
 local builderFixtures = {}
 
@@ -1136,22 +1134,9 @@ local function buildTiers(triple, ceiling)
     return assert(require("nupp.compiler.aot.target").buildTiers(triple, ceiling))
 end
 
-local function tieredC(dir, tier, stem)
-    return dir .. "/build/native/aot/src/" .. (stem or "kernel") .. "." .. tier .. ".c"
-end
-
--- The unit a tier was emitted as, whichever backend emitted it: C, or LLVM IR
--- when the LLVM route took the unit.
+-- The LLVM IR unit a tier was emitted as.
 local function tieredUnit(dir, tier, stem)
-    local c = tieredC(dir, tier, stem)
-    local ll = c:gsub("%.c$", ".ll")
-    local handle = io.open(ll, "rb")
-    if handle then
-        handle:close()
-        return ll
-    end
-
-    return c
+    return dir .. "/build/native/aot/src/" .. (stem or "kernel") .. "." .. tier .. ".ll"
 end
 
 -- Discover the build-qualified entry from the actual translation unit rather
@@ -1159,8 +1144,7 @@ end
 local function emittedSymbol(unit, logical, tier)
     local suffix = logical:gsub("^ks_", "") .. "__" .. tier
     local symbol = assert(
-        unit:match("KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_" .. suffix .. ")%s*%(")
-            or unit:match("\ndefine [^@\n]*@(ks_[0-9a-f]+_" .. suffix .. ")%("),
+        unit:match("\ndefine [^@\n]*@(ks_[0-9a-f]+_" .. suffix .. ")%("),
         "missing qualified native entry " .. suffix
     )
 
@@ -1196,14 +1180,6 @@ end
 
 function M.gpuRemarksNameTheAuthoredDeclarationAndArtifact()
     local dir = gpuProject()
-    local path = dir .. "/nupp.lua"
-    local manifest = assert(io.open(path, "wb"))
-    manifest:write(
-        [[return {include = {"src"}, build = {targets = {native = {
-        kind = "modules", entries = {"gpucheck"}, outDir = "build/native", aot = "emit-c",
-    }}}}]]
-    )
-    manifest:close()
     for _ = 1, 2 do
         local pipe = assert(
             io.popen(
@@ -1414,7 +1390,7 @@ function M.theDefaultPolicyEmitsNothing()
     test.equal(
         read(tieredUnit(dir, firstHostTier())),
         nil,
-        "a project that did not ask for native code gets none, and needs no C compiler"
+        "a project that did not ask for native code gets none"
     )
     assert(read(dir .. "/build/native/kernel.lua"), "the ordinary Lua body is still what was built")
 end
@@ -1426,73 +1402,57 @@ function M.offEmitsNothing()
     test.equal(read(tieredUnit(dir, firstHostTier())), nil, "off means off")
 end
 
-function M.emitCWritesTheCBesideTheBuild()
-    local dir = builtFixture("emit-c")
+function M.requireWritesTheLlvmUnitBesideTheBuild()
+    local dir = builtFixture("require")
 
     local tier = firstHostTier()
-    -- The unit is C, or LLVM IR when the LLVM route emitted it; each assertion
-    -- below reads the same fact in whichever spelling the unit has.
-    local path = tieredUnit(dir, tier)
-    local llvm = path:match("%.ll$") ~= nil
-    local c = read(path)
-    assert(c, "the unit was written where the build is writing")
-    local defines = llvm and "define void @" or "void "
+    local ir = read(tieredUnit(dir, tier))
+    assert(ir, "the unit was written where the build is writing")
     assert(
-        c:find(defines .. emittedSymbol(c, "ks_scale", tier) .. "(", 1, true),
-        "and it defines the tiered exported symbol: " .. c:sub(1, 200)
+        ir:find("define void @" .. emittedSymbol(ir, "ks_scale", tier) .. "(", 1, true),
+        "and it defines the tiered exported symbol: " .. ir:sub(1, 200)
     )
-    local sum = emittedSymbol(c, "ks_sum_bytes", tier)
-    local pack = llvm and "ptr noalias captures(none) writeonly %ks_result)"
-        or "KsResult_" .. sum:gsub("__" .. tier .. "$", "") .. " *restrict ks_result)"
-    local opens = c:find(defines .. sum .. "(", 1, true)
-    local signature = opens and c:sub(opens, (c:find("{", opens, true)))
+    local sum = emittedSymbol(ir, "ks_sum_bytes", tier)
+    local opens = ir:find("define void @" .. sum .. "(", 1, true)
+    local signature = opens and ir:sub(opens, (ir:find("{", opens, true)))
     assert(
-        signature and signature:find(pack, 1, true),
+        signature and signature:find("ptr noalias captures(none) writeonly %ks_result)", 1, true),
         "a block kernel writes its scalar result pack through the caller's block"
     )
     assert(
-        llvm and c:find("i64 [^%%]-%%count_first, i64 [^%%]-%%count_second")
-            or c:find("size_t count_first, size_t count_second", 1, true),
+        ir:find("i64 [^%%]-%%count_first, i64 [^%%]-%%count_second"),
         "a block kernel receives each span's independent length"
     )
     assert(
-        c:find(llvm and "%struct.KsDecimal = type { double }" or "double value;", 1, true),
+        ir:find("%struct.KsDecimal = type { double }", 1, true),
         "a native arena field retains physical binary64 storage"
     )
     -- A module with no `@aot` in it produces nothing rather than an empty file.
     test.equal(read(tieredUnit(dir, tier, "plain")), nil, "a module with no @aot function produces no artifact")
     local units = assert(read(dir .. "/build/native/aot/units.json"))
-    assert(units:find('"tier":"' .. tier .. '"', 1, true), "the external compiler handoff records each unit's tier")
+    assert(units:find('"tier":"' .. tier .. '"', 1, true), "the unit manifest records each unit's tier")
     assert(
         read(dir .. "/build/native/kernel.lua"),
-        "the ordinary Lua body is still emitted: emit-c adds an artifact, it does not replace one"
+        "the ordinary Lua body is still emitted: require adds a library, it does not replace one"
     )
 end
 
-function M.constGenericEmitCOmitsTheCarrierAndUnrollsTheBody()
-    local dir = constProject("emit-c")
+function M.constGenericAotOmitsTheCarrierAndUnrollsTheBody()
+    local dir = constProject("require")
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local path = tieredUnit(dir, firstHostTier(), "constkernel")
-    local c = assert(read(path))
-    assert(c:match("ks_[0-9a-f]+___nupp_const_doubled_"), "the canonical private key reaches the native symbol")
-    assert(not c:find("p_count", 1, true), "the const carrier is absent from the private native ABI")
-    if path:match("%.ll$") then
-        -- IR names no locals, so the unrolling is read from the instructions:
-        -- three doublings and no loop left to run them.
-        local _, doublings = c:gsub("fmul double %%t%d+, 0x4000000000000000", "")
-        test.equal(doublings, 3, "the specialized arithmetic reached emitted IR, unrolled:\n" .. c)
-        test.equal(c:find("br i1", 1, true), nil, "and no loop is left to run it:\n" .. c)
-    else
-        assert(
-            c:find("answer = answer *", 1, true) or c:find("answer * 2", 1, true),
-            "the specialized arithmetic reached emitted C"
-        )
-    end
+    local ir = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
+    assert(ir:match("ks_[0-9a-f]+___nupp_const_doubled_"), "the canonical private key reaches the native symbol")
+    assert(not ir:find("p_count", 1, true), "the const carrier is absent from the private native ABI")
+    -- IR names no locals, so the unrolling is read from the instructions:
+    -- three doublings and no loop left to run them.
+    local _, doublings = ir:gsub("fmul double %%t%d+, 0x4000000000000000", "")
+    test.equal(doublings, 3, "the specialized arithmetic reached emitted IR, unrolled:\n" .. ir)
+    test.equal(ir:find("br i1", 1, true), nil, "and no loop is left to run it:\n" .. ir)
 end
 
 function M.constGenericSelectsValueStreamModePerVariant()
-    local dir = constProject("emit-c")
+    local dir = constProject("require")
     local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
     source:write(
         table.concat(
@@ -1556,33 +1516,26 @@ function M.constGenericSelectsValueStreamModePerVariant()
             out
         )
     )
-    -- Either backend's unit: a C `static int <entry>_lua` whose calls name
-    -- `ks_lua_builder_*`, or an LLVM `define internal i32 @<entry>_lua` whose
-    -- runtime pointers are named for their slots.
-    local path = tieredUnit(dir, firstHostTier(), "constkernel")
-    local unit = assert(read(path))
-    local llvm = path:match("%.ll$") ~= nil
-    local opening = llvm and "\ndefine internal i32 @" or "static int "
-    local pattern = llvm and "define internal i32 @(ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+[%w_]-_lua)%("
-        or "static int (ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+_lua)"
+    -- Each entry is a `define internal i32 @<entry>_lua` whose runtime
+    -- pointers are named for their slots.
+    local unit = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
     local bodies = {}
-    for symbol in unit:gmatch(pattern) do
+    for symbol in unit:gmatch("define internal i32 @(ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+[%w_]-_lua)%(") do
         bodies[#bodies + 1] = symbol
     end
     test.equal(#bodies, 2, "each demanded variant compiles its own body")
     for _, symbol in ipairs(bodies) do
-        local from = assert(unit:find(opening .. symbol, 1, true))
-        local to = unit:find(llvm and "\n}\n" or "\nstatic ", from + 1, true) or #unit
+        local from = assert(unit:find("\ndefine internal i32 @" .. symbol, 1, true))
+        local to = unit:find("\n}\n", from + 1, true) or #unit
         local body = unit:sub(from, to)
-        local calls = llvm and "rt.builder_" or "ks_lua_builder_"
-        local nulls = body:find(calls .. "null", 1, true) ~= nil
-        local booleans = body:find(calls .. "boolean", 1, true) ~= nil
+        local nulls = body:find("rt.builder_null", 1, true) ~= nil
+        local booleans = body:find("rt.builder_boolean", 1, true) ~= nil
         assert(nulls ~= booleans, "a specialization keeps only its own variant's branch, not both")
     end
 end
 
 function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
-    local dir = constProject("emit-c")
+    local dir = constProject("require")
     local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
     local calls = {}
     for count = 1, 9 do
@@ -1606,9 +1559,9 @@ function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
 
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local c = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
+    local ir = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
     local bodies = {}
-    for suffix in c:gmatch("ks_[0-9a-f]+___nupp_const_tag_([0-9a-f]+)") do
+    for suffix in ir:gmatch("ks_[0-9a-f]+___nupp_const_tag_([0-9a-f]+)") do
         bodies[suffix] = true
     end
     local count = 0
@@ -1619,7 +1572,7 @@ function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
 end
 
 function M.constGenericAotCapNamesTheWholeDemandSet()
-    local dir = constProject("emit-c")
+    local dir = constProject("require")
     local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
     local calls = {}
     for count = 1, 9 do
@@ -1659,19 +1612,17 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
     local out, code = build(dir)
     test.equal(code, 0, out)
     local tier = firstHostTier()
-    local path = tieredUnit(dir, tier)
-    local llvm = path:match("%.ll$") ~= nil
-    local c = assert(read(path))
+    local ir = assert(read(tieredUnit(dir, tier)))
     assert(
-        c:find((llvm and "define void @" or "void ") .. emittedSymbol(c, "ks_aliased", tier) .. "(", 1, true),
+        ir:find("define void @" .. emittedSymbol(ir, "ks_aliased", tier) .. "(", 1, true),
         "resolved span aliases still produce the compiled entry"
     )
     assert(
-        c:find(llvm and "%struct.KsSample = type { i32 }" or "uint32_t value;", 1, true),
+        ir:find("%struct.KsSample = type { i32 }", 1, true),
         "the checked nominal field layout, not alias text, selects physical storage"
     )
     assert(
-        c:find(llvm and "add i32 " or "+", 1, true),
+        ir:find("add i32 ", 1, true),
         "the fixed-width operation aliased through a local reaches native IR"
     )
 end
@@ -1770,12 +1721,12 @@ end
 --- fixtures would make a reuse answer depend on whichever temporary project the
 --- worker built first.
 function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
-    local dir = isolatedBuiltFixture("emit-c")
+    local dir = isolatedBuiltFixture("require")
     local path = tieredUnit(dir, firstHostTier())
 
     local function rebuild(phase)
         local out, code = build(dir)
-        test.equal(code, 0, ("%s (emit-c fixture at %s): %s"):format(phase, dir, out))
+        test.equal(code, 0, ("%s (require fixture at %s): %s"):format(phase, dir, out))
     end
 
     -- Unchanged: a second's granularity is all `stat` promises, so a rewrite has
@@ -1787,7 +1738,7 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
     test.equal(
         modified(path),
         written,
-        ("an artifact whose key still matches is left alone rather than rewritten (emit-c fixture at %s)"):format(dir)
+        ("an artifact whose key still matches is left alone rather than rewritten (require fixture at %s)"):format(dir)
     )
 
     -- Missing: the recorded key still matches, so a build that trusted it would
@@ -1800,19 +1751,19 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
     test.equal(
         read(path),
         first,
-        ("a deleted artifact comes back rather than being believed on a digest (emit-c fixture at %s)"):format(dir)
+        ("a deleted artifact comes back rather than being believed on a digest (require fixture at %s)"):format(dir)
     )
 
     -- Edited: the same rule read from the other side. The bytes disagree with
     -- the key, and the bytes are what the key is about.
     local handle = assert(io.open(path, "wb"))
-    handle:write(path:match("%.ll$") and "; not what the compiler wrote\n" or "/* not what the compiler wrote */\n")
+    handle:write("; not what the compiler wrote\n")
     handle:close()
     rebuild("a project whose artifact was damaged rebuilds")
     test.equal(
         read(path),
         first,
-        ("an artifact whose bytes disagree with its key is written again (emit-c fixture at %s)"):format(dir)
+        ("an artifact whose bytes disagree with its key is written again (require fixture at %s)"):format(dir)
     )
 
     -- And the key is taken over the lowered program rather than over the text,
@@ -1828,18 +1779,18 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
         before,
         (
             "two sources that lower to one program share one artifact: a comment is not a rebuild "
-            .. "(emit-c fixture at %s)"
+            .. "(require fixture at %s)"
         ):format(dir)
     )
 end
 
 function M.anUnknownFeatureTierIsRejected()
-    local dir = project("emit-c")
+    local dir = project("require")
     local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
     local text = manifest:read("*a")
     manifest:close()
     manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write((text:gsub('aot = "emit%-c",', 'aot = "emit-c", aotFeatures = "avx9",')))
+    manifest:write((text:gsub('aot = "require",', 'aot = "require", aotFeatures = "avx9",')))
     manifest:close()
 
     local out, code = build(dir)
@@ -1854,17 +1805,13 @@ function M.anUnknownFeatureTierIsRejected()
     )
 end
 
-function M.theAvx512TierReachesTheNativeCompiler()
-    local targets = require("nupp.compiler.aot.target")
-    local selected = assert(targets.select("x86_64-unknown-linux-gnu", "avx512f"))
-    local flags = aot.compileFlags(selected, {command = "clang", version = "test clang", dialect = "clang",})
-    local found = false
-    for _, flag in ipairs(flags) do
-        if flag == "-mavx512f" then
-            found = true
-        end
-    end
-    assert(found, "the tier must promise AVX-512F to the C compiler")
+function M.theAvx512TierReachesTheCodeGenerator()
+    local profile = assert(require("nupp.compiler.aot.llvm.profile").of("x86_64-unknown-linux-gnu"))
+    local options = require("nupp.compiler.aot.llvm.profile").options(profile, "avx512f")
+    assert(
+        options.features and options.features:find("+avx512f", 1, true),
+        "the tier must promise AVX-512F to the code generator: " .. tostring(options.features)
+    )
 end
 
 --- The widest tier this host's architecture has, and whether asking for it
@@ -1884,10 +1831,10 @@ end
 function M.theFeatureTierReachesTheBackend()
     local tier, widens = widestTier()
 
-    -- What this host emits when nothing names a tier is what the shared emit-c
+    -- What this host emits when nothing names a tier is what the shared require
     -- fixture already holds. Building a second copy of the same project to read
     -- it again bought nothing.
-    local unnamed = builtFixture("emit-c")
+    local unnamed = builtFixture("require")
     local beforeTiers = buildTiers(nil, nil)
     -- An LLVM unit's line tables name the directory its source sits in, which
     -- is the one thing two copies of a project may not share.
@@ -1898,20 +1845,18 @@ function M.theFeatureTierReachesTheBackend()
     local baseline = assert(unit(tieredUnit(unnamed, beforeTiers[1].tier)))
     local before = assert(unit(tieredUnit(unnamed, beforeTiers[#beforeTiers].tier)))
 
-    local dir = project("emit-c")
+    local dir = project("require")
     local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
     local text = manifest:read("*a")
     manifest:close()
     manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write((text:gsub('aot = "emit%-c",', 'aot = "emit-c", aotFeatures = "' .. tier .. '",')))
+    manifest:write((text:gsub('aot = "require",', 'aot = "require", aotFeatures = "' .. tier .. '",')))
     manifest:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, ("the manifest key is accepted (emit-c fixture at %s)\n%s"):format(dir, out))
+    test.equal(code, 0, ("the manifest key is accepted (require fixture at %s)\n%s"):format(dir, out))
     -- Scalar source does not request vector species at any tier.
-    local path = tieredUnit(dir, tier)
-    local llvm = path:match("%.ll$") ~= nil
-    local after = assert(unit(path))
+    local after = assert(unit(tieredUnit(dir, tier)))
     -- Named from the tier's own width rather than a constant, because NEON's is
     -- not its register width: it pairs two registers for a region, so binary64
     -- gets four lanes there where one 16-byte register would hold two.
@@ -1925,12 +1870,12 @@ function M.theFeatureTierReachesTheBackend()
         tier = tier,
     })
     local tierBytes = math.min(targets.TIERS[tier], ceiling or math.huge)
-    assert(not after:find(llvm and " x double>" or "ks_exp_f64x", 1, true), "no inferred vector species")
+    assert(not after:find(" x double>", 1, true), "no inferred vector species")
 
     if widens then
         assert(ceiling ~= nil or after ~= baseline, "and the ceiling also carries the wide unit")
         assert(
-            read(dir .. "/build/native/aot/features." .. (llvm and "ll" or "c")),
+            read(dir .. "/build/native/aot/features.ll"),
             "several tiers bring one baseline runtime detector"
         )
     else
@@ -1950,39 +1895,30 @@ local function withKeys(dir, extra)
 end
 
 function M.x86BuildCarriesEveryTierAndItsDetector()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu",')
     local out, code = build(dir)
     test.equal(code, 0, out)
 
-    local llvm = false
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
-        local path = tieredUnit(dir, tier)
-        llvm = path:match("%.ll$") ~= nil
-        local c = assert(read(path), "missing " .. tier .. " translation unit")
-        assert(c:find(emittedSymbol(c, "ks_scale", tier), 1, true), tier .. " exports its own physical symbol")
+        local ir = assert(read(tieredUnit(dir, tier)), "missing " .. tier .. " translation unit")
+        assert(ir:find(emittedSymbol(ir, "ks_scale", tier), 1, true), tier .. " exports its own physical symbol")
     end
-    if llvm then
-        -- The IR detector asks CPUID itself: leaf 7's EBX carries AVX2 in bit 5
-        -- and AVX-512F in bit 16, behind the OS-enabled register state.
-        local detector = assert(read(dir .. "/build/native/aot/features.ll"))
-        assert(detector:find("define i32 @ks_aot_feature_tier()", 1, true), detector)
-        assert(detector:find('asm sideeffect "cpuid"', 1, true) and detector:find("(i32 7, i32 0)", 1, true), detector)
-        assert(detector:find('asm sideeffect "xgetbv"', 1, true), detector)
-        assert(detector:find("and i32 %%t%d+, 32\n"), detector)
-        assert(detector:find("and i32 %%t%d+, 65536\n"), detector)
-    else
-        local detector = assert(read(dir .. "/build/native/aot/features.c"))
-        assert(detector:find('__builtin_cpu_supports("avx2")', 1, true), detector)
-        assert(detector:find('__builtin_cpu_supports("avx512f")', 1, true), detector)
-    end
+    -- The detector asks CPUID itself: leaf 7's EBX carries AVX2 in bit 5 and
+    -- AVX-512F in bit 16, behind the OS-enabled register state.
+    local detector = assert(read(dir .. "/build/native/aot/features.ll"))
+    assert(detector:find("define i32 @ks_aot_feature_tier()", 1, true), detector)
+    assert(detector:find('asm sideeffect "cpuid"', 1, true) and detector:find("(i32 7, i32 0)", 1, true), detector)
+    assert(detector:find('asm sideeffect "xgetbv"', 1, true), detector)
+    assert(detector:find("and i32 %%t%d+, 32\n"), detector)
+    assert(detector:find("and i32 %%t%d+, 65536\n"), detector)
     local units = assert(read(dir .. "/build/native/aot/units.json"))
-    assert(units:find('"cflags":["-mavx2"]', 1, true), units)
-    assert(units:find('"cflags":["-mavx512f"]', 1, true), units)
+    assert(units:find('"features=+avx2"', 1, true), units)
+    assert(units:find('"features=+avx512f"', 1, true), units)
 end
 
 function M.aFeatureCeilingKeepsItsBaselineFallback()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx2",')
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -1992,7 +1928,7 @@ function M.aFeatureCeilingKeepsItsBaselineFallback()
 end
 
 function M.aFeatureRangeCarriesOnlyItsInclusiveTiers()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(
         dir,
         'aotTarget = "x86_64-unknown-linux-gnu", ' .. 'aotFeatures = {minimum = "avx2", maximum = "avx512f"},'
@@ -2007,7 +1943,7 @@ end
 function M.aFeatureRangeWithoutAMaximumRunsToTheWidestTier()
     -- The minimum on its own is what a tier-failure diagnostic tells its reader
     -- to write, so it has to be a manifest that builds.
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {minimum = "avx2"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -2017,7 +1953,7 @@ function M.aFeatureRangeWithoutAMaximumRunsToTheWidestTier()
 end
 
 function M.aFeatureRangeWithoutAMinimumKeepsItsNarrowestTier()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -2027,7 +1963,7 @@ function M.aFeatureRangeWithoutAMinimumKeepsItsNarrowestTier()
 end
 
 function M.aFeatureRangeRequiresOneBound()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {},')
     local out, code = build(dir)
     test.equal(code, 1, out)
@@ -2037,11 +1973,11 @@ end
 function M.theStringFeatureFormIsTheMaximum()
     -- Every manifest written before the range says a bare tier name, and it has
     -- to keep meaning the ceiling it has always meant.
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx2",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local ranged = project("emit-c")
+    local ranged = project("require")
     withKeys(ranged, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local rangedOut, rangedCode = build(ranged)
     test.equal(rangedCode, 0, rangedOut)
@@ -2123,7 +2059,7 @@ return {
    include = {"src"},
    build = {targets = {native = {
       kind = "modules", entries = {"kernel"}, outDir = "build/native",
-      aot = "emit-c", %s
+      aot = "require", %s
    }}},
 }
 ]]
@@ -2141,118 +2077,60 @@ function M.aLinuxBaselineChunksFixedFloatingSpecies()
     local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local path = tieredUnit(dir, "baseline")
-    if path:match("%.ll$") then
-        -- LLVM carries a species whole in every tier and its code generator
-        -- splits one wider than the tier's registers, so what C chunked by
-        -- hand is not in the IR. What stays the backend's is that no exported
-        -- entry passes a vector, and that a partial access is a masked move
-        -- only where the tier has one: baseline walks the lanes.
-        local baseline = assert(read(path))
-        local avx512 = assert(read(tieredUnit(dir, "avx512f")))
-        for _, unit in ipairs({baseline, avx512}) do
-            for signature in unit:gmatch("\ndefine ([^\n]*)") do
-                if not signature:match("^internal ") then
-                    test.equal(signature:find("<%d+ x "), nil, "an exported entry passes a vector: " .. signature)
-                end
+    -- LLVM carries a species whole in every tier and its code generator splits
+    -- one wider than the tier's registers, so nothing is chunked by hand in the
+    -- IR. What stays the backend's is that no exported entry passes a vector,
+    -- and that a partial access is a masked move only where the tier has one:
+    -- baseline walks the lanes.
+    local baseline = assert(read(tieredUnit(dir, "baseline")))
+    local avx512 = assert(read(tieredUnit(dir, "avx512f")))
+    for _, unit in ipairs({baseline, avx512}) do
+        for signature in unit:gmatch("\ndefine ([^\n]*)") do
+            if not signature:match("^internal ") then
+                test.equal(signature:find("<%d+ x "), nil, "an exported entry passes a vector: " .. signature)
             end
         end
-        for _, species in ipairs({"v4f64", "v8f32"}) do
-            local lanes, element = assert(species:match("^v(%d+)(%a%d+)$"))
-            local whole = "<" .. lanes .. " x " .. (element == "f64" and "double" or "float") .. ">"
-            assert(baseline:find(whole, 1, true), species .. " is carried whole at baseline")
-            test.equal(
-                baseline:find("@llvm.masked.load." .. species, 1, true),
-                nil,
-                species .. " has no masked move at baseline"
-            )
-            assert(avx512:find("@llvm.masked.load." .. species, 1, true), species .. " keeps its AVX masked move")
-        end
-        return
     end
-    local baseline = assert(read(path))
-    for _, species in ipairs({"f64x4", "f32x8"}) do
-        assert(baseline:find("KS_EXP_FIXED(" .. species .. ",", 1, true), species .. " stays chunked at baseline")
-        local _, vectorDefinitions = baseline:gsub("KS_EXP_ELEMENT%(32, " .. species, "")
-        test.equal(vectorDefinitions, 1, species .. " has no baseline ABI beyond the inactive header branch")
-    end
-    local avx512 = assert(read(tieredC(dir, "avx512f")))
-    for _, species in ipairs({"f64x4", "f32x8"}) do
-        local _, vectorDefinitions = avx512:gsub("KS_EXP_ELEMENT%(32, " .. species, "")
-        test.equal(vectorDefinitions, 2, species .. " keeps its AVX ABI")
+    for _, species in ipairs({"v4f64", "v8f32"}) do
+        local lanes, element = assert(species:match("^v(%d+)(%a%d+)$"))
+        local whole = "<" .. lanes .. " x " .. (element == "f64" and "double" or "float") .. ">"
+        assert(baseline:find(whole, 1, true), species .. " is carried whole at baseline")
+        test.equal(
+            baseline:find("@llvm.masked.load." .. species, 1, true),
+            nil,
+            species .. " has no masked move at baseline"
+        )
+        assert(avx512:find("@llvm.masked.load." .. species, 1, true), species .. " keeps its AVX masked move")
     end
 end
 
--- The Windows x64 frame is sixteen-byte aligned and nothing in a generated
--- prologue widens it, yet GCC there reads a wider object as deserving the
--- aligned move for its own width. A spill slot is such an object and no
--- attribute names one, so the only account that holds is that no value wider
--- than sixteen bytes is built at all: a `preferred` species is one sixteen-byte
--- register whatever the tier says, a wider `Fixed` species is chunks of that,
--- and an operation that spans the whole species -- a conversion -- runs in
--- groups no wider either. What the emitted C may not contain is the evidence.
-function M.aWindowsTargetBuildsNoVectorWiderThanItsFrameCarries()
+-- The Windows x64 frame is sixteen-byte aligned, and GCC's Win64 frames
+-- misalign a wider spill. LLVM realigns a frame that holds one, so the IR keeps
+-- whole species; what carries over is the preference every function is
+-- compiled under, which keeps LLVM from widening what the source did not.
+function M.aWindowsTargetCompilesEveryFunctionUnderItsFramesVectorPreference()
     local dir = wideSimdProject(
         'aotTarget = "x86_64-pc-windows-msvc", aotFeatures = {minimum = "baseline", maximum = "avx512f"},'
     )
     local out, code = build(dir)
     test.equal(code, 0, out)
-    if tieredUnit(dir, "baseline"):match("%.ll$") then
-        -- The hazard is GCC's: its Win64 frames misalign a wider spill. LLVM
-        -- realigns a frame that holds one, so the IR keeps whole species, and
-        -- what carries over is the preference every function is compiled
-        -- under, which keeps LLVM from widening what the source did not.
-        for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
-            local unit = assert(read(tieredUnit(dir, tier)), tier .. " travels")
-            if tier == "baseline" then
-                unit = equivalenceMutation.text("avx2-windows", unit, ' "prefer%-vector%-width"="128"', "")
-            end
-            local groups = 0
-            for group in unit:gmatch("\nattributes #%d+ = (%b{})") do
-                groups = groups + 1
-                assert(
-                    group:find('"prefer-vector-width"="128"', 1, true),
-                    equivalenceMutation.active("avx2-windows")
-                    and equivalenceMutation.marker("avx2-windows", "wrong-result")
-                    or tier .. " compiles a function without the frame's vector preference: " .. group
-                )
-            end
-            assert(groups > 0, tier .. " names its function attributes")
+    for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
+        local unit = assert(read(tieredUnit(dir, tier)), tier .. " travels")
+        if tier == "baseline" then
+            unit = equivalenceMutation.text("avx2-windows", unit, ' "prefer%-vector%-width"="128"', "")
         end
-    else
-        for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
-            local c = assert(read(tieredC(dir, tier)), tier .. " travels")
-            if tier == "baseline" and equivalenceMutation.active("avx2-windows") then
-                c = c .. "\ntypedef int equivalence_wide __attribute__((vector_size(32)));\n"
-            end
-            for bytes in c:gmatch("vector_size%((%d+)%)") do
-                assert(
-                    tonumber(bytes) <= 16,
-                    equivalenceMutation.active("avx2-windows")
-                    and equivalenceMutation.marker("avx2-windows", "wrong-result")
-                    or tier .. " declares a " .. bytes .. "-byte vector:\n" .. c
-                )
-            end
-            assert(c:find("#define KS_SIMD_WIDTH 16", 1, true), tier .. " takes the sixteen-byte species:\n" .. c)
-            for _, wider in ipairs({"#define KS_SIMD_WIDTH 32", "#define KS_SIMD_WIDTH 64"}) do
-                test.equal(c:find(wider, 1, true), nil, tier .. " instantiates " .. wider)
-            end
-            -- The address vector AVX-512's gather and scatter take is itself a
-            -- 64-byte object, so that path is not reached for and the lanes
-            -- are walked, which is what every narrower tier already does. The
-            -- carried header's own `__m256i` bodies are text under a width this
-            -- build does not instantiate, so what is asked about here is the
-            -- emitted body.
-            local wide = {"__builtin_ia32_gatherdiv", "__builtin_ia32_scatterdiv", "__m512i ks_addresses"}
-            for _, reached in ipairs(wide) do
-                test.equal(c:find(reached, 1, true), nil, tier .. " reaches for " .. reached)
-            end
+        local groups = 0
+        for group in unit:gmatch("\nattributes #%d+ = (%b{})") do
+            groups = groups + 1
+            assert(
+                group:find('"prefer-vector-width"="128"', 1, true),
+                equivalenceMutation.active("avx2-windows")
+                and equivalenceMutation.marker("avx2-windows", "wrong-result")
+                or tier .. " compiles a function without the frame's vector preference: " .. group
+            )
         end
+        assert(groups > 0, tier .. " names its function attributes")
     end
-    -- And the C compiler is told not to add one of its own where the source
-    -- has none, which is the only lever that reaches what it invents.
-    local units = assert(read(dir .. "/build/native/aot/units.json"))
-    assert(units:find("-mprefer-vector-width=128", 1, true), units)
 end
 
 -- The ceiling is Windows x64's alone: nothing else gives up its registers for
@@ -2262,57 +2140,35 @@ function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
     local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local path = tieredUnit(dir, "avx512f")
-    if path:match("%.ll$") then
-        -- LLVM reads the ceiling from each function's attributes, and a Linux
-        -- build asks for none: the tier's registers are the code generator's.
-        local unit = equivalenceMutation.text(
-            "target-vector-ceilings",
-            assert(read(path)),
-            "uwtable }",
-            'uwtable "prefer-vector-width"="128" }'
-        )
-        test.equal(
-            unit:find("prefer-vector-width", 1, true),
-            nil,
-            equivalenceMutation.active("target-vector-ceilings")
-            and equivalenceMutation.marker("target-vector-ceilings", "artifact-tier-mismatch")
-            or "Linux keeps the register its tier names"
-        )
-        local units = assert(read(dir .. "/build/native/aot/units.json"))
-        test.equal(units:find("-mprefer-vector-width", 1, true), nil, units)
-        return
-    end
-    local c = equivalenceMutation.text(
+    -- LLVM reads the ceiling from each function's attributes, and a Linux build
+    -- asks for none: the tier's registers are the code generator's.
+    local unit = equivalenceMutation.text(
         "target-vector-ceilings",
-        assert(read(tieredC(dir, "avx512f"))),
-        "KS_SIMD_WIDTH 64",
-        "KS_SIMD_WIDTH 32"
+        assert(read(tieredUnit(dir, "avx512f"))),
+        "uwtable }",
+        'uwtable "prefer-vector-width"="128" }'
     )
-    assert(
-        c:find("KS_SIMD_WIDTH 64", 1, true),
+    test.equal(
+        unit:find("prefer-vector-width", 1, true),
+        nil,
         equivalenceMutation.active("target-vector-ceilings")
         and equivalenceMutation.marker("target-vector-ceilings", "artifact-tier-mismatch")
-        or "Linux keeps the register its tier names:\n" .. c
+        or "Linux keeps the register its tier names"
     )
-    local units = assert(read(dir .. "/build/native/aot/units.json"))
-    test.equal(units:find("-mprefer-vector-width", 1, true), nil, units)
 end
 
 function M.aTierWithoutVectorsAcceptsScalarLoops()
-    local dir = project("emit-c")
-    withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = "scalar",')
+    local dir = project("emit-wasm")
+    withKeys(dir, 'aotFeatures = "scalar",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local path = tieredUnit(dir, "scalar")
-    local unit = assert(read(path))
-    local vector = path:match("%.ll$") and " x double>" or "ks_exp_f64x"
-    assert(not unit:find(vector, 1, true), "scalar loops do not require SIMD")
+    local unit = assert(read(tieredUnit(dir, "scalar")))
+    assert(not unit:find(" x double>", 1, true), "scalar loops do not require SIMD")
 end
 
 -- A condition block remains ordinary scalar control flow.
 function M.aStatementfulLoopConditionBuildsAsScalarControlFlow()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'sources = {"src/conditional.nupp"},')
     local source = assert(io.open(dir .. "/src/conditional.nupp", "wb"))
     source:write(
@@ -2345,10 +2201,6 @@ end
 --- everything it runs on: it imports nothing, and a bridge entry computes what
 --- the kernel says, results and counts laid out as the loaders read them.
 function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
-    -- The C route builds Wasm through Emscripten, which this case is not about.
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-        return
-    end
     local probe = io.popen("node --version 2>/dev/null")
     local node = probe and probe:read("*a") or ""
     if probe then
@@ -2361,9 +2213,6 @@ function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
     withKeys(dir, 'dialect = "luajit", host = "browser", aot = "require-wasm", aotFeatures = "simd128",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    if not tieredUnit(dir, "simd128"):match("%.ll$") then
-        return
-    end
     local script = dir .. "/run.mjs"
     local handle = assert(io.open(script, "wb"))
     handle:write([=[
@@ -2402,9 +2251,6 @@ end
 --- rather than failing the application. Wasm asks no CPU questions, so no
 --- feature detector is built beside them.
 function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-        return
-    end
     local probe = io.popen("node --version 2>/dev/null")
     local node = probe and probe:read("*a") or ""
     if probe then
@@ -2488,9 +2334,6 @@ end
 --- runtime in and their loader asks for no runtime module, which the browser
 --- host does not have.
 function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-        return
-    end
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute(("cp -R %q %q"):format(HERE .. "/luajit-browser/native-project", dir)) == 0)
@@ -2498,7 +2341,7 @@ function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
     local pipe = assert(
         io.popen(
             (
-                "cd %q && NUPP_CACHE_DIR=%q NUPP_AOT_CC=false NO_COLOR= '%s' build --target app --host browser 2>&1;"
+                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' build --target app --host browser 2>&1;"
                 .. " echo \"__exit__:$?\""
             ):format(dir, cacheFor(dir), NUPP)
         )
@@ -2513,29 +2356,11 @@ function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
     test.equal(app:find("nupp.runtime.aotruntime", 1, true), nil, "the loader passes no runtime table")
 end
 
---- A Wasm build of C units never asks for the code generator: a nupp built
---- without LLVM has none, and asking raised before Emscripten was reached.
-function M.aCWasmBuildNeverAsksForTheCodeGenerator()
-    local aotllvm = require("nupp.tools.build.aotllvm")
-    local aot = require("nupp.tools.build.aot")
-    local version = aotllvm.version
-    aotllvm.version = function()
-        error("this nupp was built without the LLVM code generator", 0)
-    end
-    local ok, result, err = pcall(aot.compileWasm, {{source = "missing.scalar.c", tier = "scalar"}}, {})
-    aotllvm.version = version
-    assert(ok, "the C route raised: " .. tostring(result))
-    assert(not tostring(err):find("code generator", 1, true), tostring(err))
-end
-
 --- A Windows DLL of builder entries names no Lua module: the Lua API is
 --- reached through slots its entry point fills from whichever loaded module
 --- exports it, and the C runtime's math comes from msvcrt. Linked here from
 --- any host, which is all it takes to show nothing is left unresolved.
 function M.aWindowsBuilderDllBindsLuaWhenItLoads()
-    if os.getenv("NUPP_AOT_BACKEND") ~= "llvm" then
-        return
-    end
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
@@ -2569,7 +2394,7 @@ end
 --- `ks_lua.h` declares; a declaration without its pointer would be an import,
 --- which a provider loaded by a host that does not export Lua cannot resolve.
 function M.theRuntimeRedirectsEveryLuaFunction()
-    local header = assert(read(HERE .. "/../src/nupp/compiler/aot/include/ks_lua.h"))
+    local header = assert(read(HERE .. "/../native/crates/native/c/ks_lua.h"))
     local runtime = assert(read(HERE .. "/../native/crates/native/c/ks_rt.c"))
     local redirected = {}
     for name in runtime:gmatch("#define (luaL?_[%w_]+) %(%*ks_lua_ptr_") do
@@ -2582,8 +2407,8 @@ function M.theRuntimeRedirectsEveryLuaFunction()
 end
 
 function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
-    local dir = project("emit-c")
-    withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
+    local dir = project("emit-wasm")
+    withKeys(dir, 'aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     assert(read(tieredUnit(dir, "simd128")), "the required tier travels")
@@ -2591,7 +2416,7 @@ function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
 end
 
 function M.aFeatureRangeRejectsUnknownKeys()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(
         dir,
         'aotTarget = "x86_64-unknown-linux-gnu", '
@@ -2603,7 +2428,7 @@ function M.aFeatureRangeRejectsUnknownKeys()
 end
 
 function M.aFeatureRangeRejectsAMinimumWiderThanItsMaximum()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(
         dir,
         'aotTarget = "x86_64-unknown-linux-gnu", ' .. 'aotFeatures = {minimum = "avx512f", maximum = "avx2"},'
@@ -2613,17 +2438,29 @@ function M.aFeatureRangeRejectsAMinimumWiderThanItsMaximum()
     assert(out:find("minimum avx512f is wider than maximum avx2", 1, true), out)
 end
 
-function M.multiversioningOwnsInstructionFlags()
-    local dir = project("emit-c")
+-- No C compiler runs, so there are no flags to hand one: a manifest still
+-- naming them is told so rather than having them silently ignored.
+function M.aotCflagsAreRefused()
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotCflags = {"-march=native"},')
     local out, code = build(dir)
     test.equal(code, 1, out)
-    assert(out:find("changes the CPU tier", 1, true), out)
-    assert(out:find("-march=native", 1, true), out)
+    assert(out:find("aotCflags is gone", 1, true) and out:find("no C compiler runs", 1, true), out)
+end
+
+-- A Wasm unit is an independent module the Wasm policies build, so a native
+-- library for wasm32 is refused by name rather than attempted.
+function M.requireRefusesAWasmTarget()
+    local dir = project("require")
+    withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten",')
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find('aot = "require" links a native library', 1, true), out)
+    assert(out:find('use "emit-wasm" or "require-wasm"', 1, true), out)
 end
 
 function M.anUnknownCrossTargetIsRejected()
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, 'aotTarget = "sparc-sun-solaris",')
     local out, code = build(dir)
     test.equal(code, 1, out)
@@ -2634,7 +2471,7 @@ function M.anUnknownCrossTargetIsRejected()
 end
 
 function M.aTierIsCheckedAgainstTheTargetItAppliesTo()
-    local dir = project("emit-c")
+    local dir = project("require")
     -- `avx2` is a real tier and not one aarch64 has. Checking it against the set
     -- of all tiers would accept it; it has to be checked against the target.
     withKeys(dir, 'aotTarget = "aarch64-apple-darwin", aotFeatures = "avx2",')
@@ -2644,19 +2481,18 @@ function M.aTierIsCheckedAgainstTheTargetItAppliesTo()
 end
 
 function M.crossCompilingEmitsThatTargetsCode()
-    -- What this host emits is what the shared emit-c fixture already holds; the
-    -- cross build is the one this case has to run for itself.
-    local host = assert(read(tieredUnit(builtFixture("emit-c"), firstHostTier())))
+    -- What this host emits is what the shared require fixture already holds;
+    -- the cross build is the one this case has to run for itself.
+    local host = assert(read(tieredUnit(builtFixture("require"), firstHostTier())))
 
     -- A target this machine is not, whichever machine it is. Naming one
     -- architecture outright would be naming the host on half of them, and a
-    -- cross build that is not one proves nothing. Emitting C needs no toolchain
-    -- for the target, which is what makes `emit-c` the answer for a platform
-    -- whose compiler is somebody else's.
+    -- cross build that is not one proves nothing. LLVM and lld are in nupp, so
+    -- no toolchain for the target has to be installed.
     local targets = require("nupp.compiler.aot.target")
     local here = assert(targets.select(nil, nil))
     local elsewhere = here.architecture == "x86_64" and "aarch64-unknown-linux-gnu" or "x86_64-unknown-linux-gnu"
-    local dir = project("emit-c")
+    local dir = project("require")
     withKeys(dir, ('aotTarget = "%s",'):format(elsewhere))
     local out, code = build(dir)
     test.equal(code, 0, ("a target this machine is not still emits (fixture at %s)\n%s"):format(dir, out))
@@ -2670,7 +2506,17 @@ function M.anUnknownPolicyIsRejected()
     local dir = project("sometimes")
     local out, code = build(dir)
     test.equal(code, 1, out)
-    assert(out:find('must be "off", "emit-c", "require", "emit-wasm" or "require-wasm"', 1, true), out)
+    assert(out:find('must be "off", "require", "emit-wasm" or "require-wasm"', 1, true), out)
+end
+
+-- The policy that wrote C for another compiler is gone, and a manifest naming
+-- it is told what builds for another platform now.
+function M.theEmitCPolicyIsRefusedWithWhatToUseInstead()
+    local dir = project("emit-c")
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find('.aot = "emit-c" is gone', 1, true), out)
+    assert(out:find('Use "require", with aotTarget or --platform', 1, true), out)
 end
 
 function M.wasmPoliciesAreIndependentOfTheSourceDialect()
@@ -2693,19 +2539,41 @@ function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
     assert(out:find("wasm32 has no feature tier avx2; it has scalar, simd128", 1, true), out)
 end
 
-function M.wasmRegistersLuaBuildersWithoutAPointerWrapper()
-    local builder = {entryMode = "lua-builder", name = "copy", symbol = "ks_copy", params = {}, layouts = {},}
-    test.equal(wasmEmitter.validate({builder}), nil)
-    local source = wasmEmitter.registrar({builder}, "u1234", "wasm")
-    assert(source:find("lua_pushcclosure(L, ks_copy_lua, 0)", 1, true), source)
-    assert(not source:find("ks_wasm_call_ks_copy", 1, true), source)
-end
+-- An independent Wasm module binds kernels only: a Lua-builder entry needs a
+-- Lua VM's ABI, which a module that imports nothing does not have, so one is
+-- refused by name. Each specialization of a kernel family is bound to its own
+-- export, and none of the generic body is left to run interpreted.
+function M.wasmConstFamiliesBindEveryKernelSpecializationAndRefuseBuilders()
+    local environment = envMod.new(HERE .. "/..")
+    local selected = assert(targets.select("wasm32-unknown-emscripten", "simd128"))
+    local function lowered(source)
+        local tree = parser.parse(source, "wasmconst.nupp")
+        for _, problem in ipairs(compilerCheck.check(tree, "wasmconst.nupp", environment)) do
+            assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
+        end
+        local artifacts, problems = aotCompile.artifacts(source, "wasmconst.nupp", tree, nil, selected)
+        assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
+        return artifacts
+    end
 
-function M.wasmConstFamiliesReplaceBothKernelAndBorrowedBuilderBodies()
-    local source = [=[
+    local withBuilder = lowered([=[
 module wasmconst
 local valueBuilder = require("nupp.codec.valuebuilder")
 local {type Buffer} = require("nupp.text")
+@aot
+local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
+    return nupp.math.u32.add(valueBuilder.length(source), nupp.math.u32.wrap(bump as integer))
+end
+local function apply(borrows source: string | Buffer): uint32
+    return measured(source, 1)
+end
+export = {apply=apply, measured=measured}
+]=])
+    local refused = require("nupp.compiler.aot.wasmbridge").validate(withBuilder.programs)
+    assert(refused and refused:find("cannot bind Lua-builder entry", 1, true), tostring(refused))
+
+    local source = [=[
+module wasmconst
 @aot
 local function first(value: number): number return value + 1 end
 @aot
@@ -2715,26 +2583,15 @@ end
 @aot
 local function middle(value: number): number return value + 2 end
 @aot
-local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
-    return nupp.math.u32.add(valueBuilder.length(source), nupp.math.u32.wrap(bump as integer))
-end
-@aot
 local function last(value: number): number return value + 3 end
-local function apply(value: number, borrows source: string | Buffer): (number, uint32)
-    return scaled(value, 2), measured(source, 1)
+local function apply(value: number): (number, number)
+    return scaled(value, 2), scaled(value, 3)
 end
-export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, measured=measured}
+export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled}
 ]=]
-    local environment = envMod.new(HERE .. "/..")
-    local tree = parser.parse(source, "wasmconst.nupp")
-    local checked = compilerCheck.check(tree, "wasmconst.nupp", environment)
-    for _, problem in ipairs(checked) do
-        assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
-    end
-    local selected = assert(targets.select("wasm32-unknown-emscripten", "simd128"))
-    local artifacts, problems = aotCompile.artifacts(source, "wasmconst.nupp", tree, nil, selected)
-    assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
-    test.equal(#artifacts.constFamilies, 2)
+    local artifacts = lowered(source)
+    test.equal(require("nupp.compiler.aot.wasmbridge").validate(artifacts.programs), nil)
+    test.equal(#artifacts.constFamilies, 1)
     local rewritten = aot.wasmDispatch(
         source,
         artifacts.programs,
@@ -2743,23 +2600,19 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, mea
         artifacts.gpu,
         artifacts.constFamilies
     )
-    local modes = {}
+    local specializations = 0
     for _, family in ipairs(artifacts.constFamilies) do
         for _, program in ipairs(family.programs) do
-            modes[program.entryMode] = true
+            specializations = specializations + 1
             assert(
-                rewritten:find('Unit["' .. program.symbol .. '"]', 1, true),
+                rewritten:find('.kernel("unit", "' .. program.symbol .. '"', 1, true),
                 "each emitted specialization must be bound: " .. rewritten
             )
             assert(rewritten:find("return " .. program.name .. "(", 1, true), rewritten)
         end
     end
-    assert(modes.kernel and modes["lua-builder"], "fixture must exercise both Wasm entry ABIs")
+    test.equal(specializations, 2, "each demanded factor is its own specialization")
     assert(not rewritten:find("return value *", 1, true), "the generic kernel body must not remain interpreted")
-    assert(
-        not rewritten:find("valueBuilder.length(source)", 1, true),
-        "the generic builder body must not remain interpreted"
-    )
     for _, name in ipairs({"first", "middle", "last"}) do
         assert(rewritten:find("local function " .. name .. "(", 1, true), "mixed declaration offsets preserved")
     end
@@ -2774,22 +2627,24 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, mea
     end
     local lua, errors = require("nupp.compiler.lua.gen").generate(generated, "wasmconst.nupp")
     test.equal(#errors, 0)
-    local registered, completed = {}, {}
-    for _, program in ipairs(artifacts.programs) do
-        local symbol, value = program.symbol, program.entryMode == "lua-builder" and 55 or 44
-        registered[symbol] = function(...)
-            completed[symbol] = (completed[symbol] or 0) + 1
-            return value
+    local completed = {}
+    local browser = {
+        kernel = function(unit, symbol)
+            test.equal(unit, "unit")
+            return function()
+                completed[symbol] = (completed[symbol] or 0) + 1
+                return 44
+            end
         end
-    end
-    local globals = setmetatable({__nuppWasmAot = {unit = registered}}, {__index = _G})
+    }
+    local globals = setmetatable({__nuppBrowser = browser}, {__index = _G})
     globals._G = globals
     local loaded = assert(loadstring(lua, "@wasmconst.lua"))
     setfenv(loaded, globals)
     local mod = loaded()
-    local kernel, builder = mod.apply(3, "abc")
-    test.equal(kernel, 44, "the generic kernel routes through the registered closure")
-    test.equal(tonumber(builder), 55, "the generic builder routes through the registered closure")
+    local two, three = mod.apply(3)
+    test.equal(two, 44, "the generic kernel routes through the bound export")
+    test.equal(three, 44, "and so does its other specialization")
     for _, family in ipairs(artifacts.constFamilies) do
         for _, program in ipairs(family.programs) do
             test.equal(completed[program.symbol], 1)
@@ -2803,7 +2658,7 @@ function M.wasmReplacementRecordsItsCompiledClosure()
     local wasmbinding = require("nupp.compiler.aot.wasmbinding")
     local source = wasmbinding.replacement(
         {
-            entryMode = "lua-builder",
+            entryMode = "kernel",
             name = "copy",
             symbol = "ks_copy",
             params = {},
@@ -2875,17 +2730,7 @@ end
 local function librarySuffix()
     local targets = require("nupp.compiler.aot.target")
     local host = assert(targets.select(nil, nil), "this host is a modeled target")
-    return select(2, aot.linkage(host))
-end
-
---- Whether `require` can be exercised here at all.
----
---- The condition is a C compiler, not a platform: `require` works wherever
---- Clang or a new enough GCC does, and works nowhere without one. A machine
---- with neither skips these rather than failing, because what it is missing is
---- a build dependency the project opts into.
-local function hasToolchain()
-    return (aot.toolchain()) ~= nil
+    return aot.librarySuffix(host)
 end
 
 --- Which case is running, read back from the table the runner calls it out of.
@@ -2989,25 +2834,15 @@ local function libraryKey(dir)
     return state and state:match('"aotLibrary":"([0-9a-f]+)"')
 end
 
-function M.requireBuildsTheLibraryFromTheGeneratedC()
-    if not hasToolchain() then
-        return
-    end
-
+function M.requireBuildsTheLibraryFromTheLlvmUnits()
     local dir = builtFixture("require")
 
-    assert(
-        read(tieredUnit(dir, firstHostTier())),
-        "require writes the unit as well; it is a superset of emit-c, not a replacement"
-    )
+    assert(read(tieredUnit(dir, firstHostTier())), "require writes each tier's LLVM unit beside the build")
     assert(read(libraryPath(dir)), "and compiled it into the project's own library")
     assert(libraryKey(dir), "recorded under a key of its own")
 end
 
 function M.absoluteIncludeRootsKeepTheirCompiledBindings()
-    if not hasToolchain() then
-        return
-    end
     local dir = project("require")
     local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     source:write(
@@ -3057,10 +2892,6 @@ export = {boxed = boxed}
 end
 
 function M.pathNormalizationUsesOneBodyAcrossBuildPolicies()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = pathProject("off")
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -3140,13 +2971,10 @@ end
 
 --- `wrap` is modular by definition, so a compiled body has to answer what the
 --- interpreted one answers for values the destination cannot hold -- not what
---- a C cast does with them, which is undefined and saturates on arm64. The
+--- a plain native conversion does with them, which is undefined and saturates
+--- on arm64. The
 --- cases either side of 2^31 and 2^32 are the ones that used to differ.
 function M.aKernelThatOnlyReadsALengthStillBuilds()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = lengthOnlyProject()
     local out, code = build(dir)
     test.equal(code, 0, "a span read only for its length is not a build failure\n" .. out)
@@ -3169,9 +2997,6 @@ function M.aKernelThatOnlyReadsALengthStillBuilds()
 end
 
 function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
-    if not hasToolchain() then
-        return
-    end
     local answers = {}
     for _, policy in ipairs({"off", "require"}) do
         local dir = os.tmpname()
@@ -3318,9 +3143,6 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
 end
 
 function M.provenSimdCursorsKeepWrappedIndicesOnLargeSpans()
-    if not hasToolchain() then
-        return
-    end
     local ffi = require("ffi")
     if ffi.sizeof("size_t") < 8 then
         return
@@ -3406,11 +3228,6 @@ void %s(void *, uint32_t, size_t);
         ):format(names.width, names.read, names.read_base, names.write, names.read_fields, names.write_field)
     )
     local lanes = tonumber(lib[names.width]())
-    -- The C lowering names NEON's deinterleaving load itself; LLVM chooses it.
-    local emitted = ffi.arch == "arm64" and read(tieredC(dir, "neon")) or nil
-    if emitted ~= nil then
-        assert(emitted:find("vld2q_u32", 1, true), "paired derived loads did not deinterleave")
-    end
     local input = ffi.new("uint32_t[64]")
     for i = 0, 63 do
         input[i] = 100 + i
@@ -3448,10 +3265,6 @@ void %s(void *, uint32_t, size_t);
 end
 
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
-    if not hasToolchain() then
-        return
-    end
-
     local function answer(policy)
         local dir = wideBitwiseProject(policy)
         local out, code = build(dir)
@@ -3491,14 +3304,10 @@ end
 --- them, on the target's table instruction and not only in the lane loop.
 ---
 --- The NEON, SSSE3 and wasm bodies each combine two table lookups their own
---- way, so this runs the compiled entry rather than reading the C: the answer
+--- way, so this runs the compiled entry rather than reading the IR: the answer
 --- for a lane in the first vector, the first and last of the second, one past
 --- both and index zero is what every body has to agree on.
 function M.aPairedSwizzleAnswersBothVectorsAndZeroPastThem()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
@@ -3567,10 +3376,6 @@ export const joined = joined
 end
 
 function M.aWrapIsModularOnBothRoutes()
-    if not hasToolchain() then
-        return
-    end
-
     local CASES = {
         0,
         1,
@@ -3624,10 +3429,6 @@ function M.aWrapIsModularOnBothRoutes()
 end
 
 function M.binary16StorageConversionsAgreeInCompiledCode()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = halfProject()
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -3673,10 +3474,6 @@ end
 --- reported is the one taken from the source as written, so a binding nothing
 --- reads is still reported and one the body reads is not.
 function M.unusedBindingJudgesTheSourceAsWrittenNotTheAotRewrite()
-    if not hasToolchain() then
-        return
-    end
-
     local function report(dir)
         local out = build(dir)
         local found = {}
@@ -3715,17 +3512,13 @@ end
 
 --- A fixed word buffer answers zero for a word nothing wrote, and refuses an
 --- index outside itself -- on both routes, and with the compiled one's bound
---- reduced to a constant the C compiler discharges wherever it can.
+--- reduced to a constant the code generator discharges wherever it can.
 ---
 --- That reduction is the whole reason the buffer exists, so this is the case
 --- that says the reduction did not take the refusal with it. An index the
 --- compiler cannot fold is the one that matters: `probe` arrives from the
 --- caller, so nothing about it is known when the check is compiled.
 function M.aFixedScratchIsZeroedAndStillRefusesAnIndexOutsideIt()
-    if not hasToolchain() then
-        return
-    end
-
     local function answer(policy, probe)
         return builderAnswer(
             policy,
@@ -3785,14 +3578,10 @@ end
 --- index rather than only at the end, and refuses one outside itself.
 ---
 --- The out-of-order write is the half an appending buffer cannot do, and the
---- refusal is the half that has to survive the bound becoming a literal the C
---- compiler folds. Both routes are asked, because the answer has to be one
+--- refusal is the half that has to survive the bound becoming a literal the
+--- code generator folds. Both routes are asked, because the answer has to be one
 --- answer.
 function M.aFixedByteScratchIsZeroedWritableInAnyOrderAndStillBounded()
-    if not hasToolchain() then
-        return
-    end
-
     local function answer(policy, probe)
         return builderAnswer(
             policy,
@@ -3852,10 +3641,6 @@ end
 --- words while holding four. That is a read past the end rather than a refusal,
 --- which is why it is tested rather than argued.
 function M.aReusedScratchNameDoesNotInheritAnEarlierBuffersBound()
-    if not hasToolchain() then
-        return
-    end
-
     local function answer(policy, probe)
         return builderAnswer(
             policy,
@@ -3900,10 +3685,6 @@ function M.aReusedScratchNameDoesNotInheritAnEarlierBuffersBound()
 end
 
 function M.luaBuilderRegistrationReturnsOrdinaryTables()
-    if not hasToolchain() then
-        return
-    end
-
     local REGISTRATION = [[
          local builder = require("builder")
          local rows = builder.rows(4)
@@ -3970,15 +3751,12 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
         not viewText:find("!", 1, true) and viewText:find("^0,", 1),
         builderReport("a rooted byte view reads the same bytes the scalar walk does", "require", dir, viewText)
     )
-    -- Through LLVM, the unit carries line tables into the authored file,
-    -- and each raise keeps its own site rather than a merged line 0.
-    local unit = tieredUnit(dir, firstHostTier(), "builder.g")
-    if unit:match("%.ll$") then
-        local ir = assert(read(unit))
-        assert(ir:find('!DIFile(filename: "builder.g.nupp"', 1, true), "the unit names its source file")
-        assert(ir:find("!DILocation(line: ", 1, true), "statements carry their lines")
-        assert(ir:find("%(ptr %%L, ptr @nupp%.bytes%.%d+%) nomerge"), "a raise keeps its own site")
-    end
+    -- The unit carries line tables into the authored file, and each raise
+    -- keeps its own site rather than a merged line 0.
+    local ir = assert(read(tieredUnit(dir, firstHostTier(), "builder.g")))
+    assert(ir:find('!DIFile(filename: "builder.g.nupp"', 1, true), "the unit names its source file")
+    assert(ir:find("!DILocation(line: ", 1, true), "statements carry their lines")
+    assert(ir:find("%(ptr %%L, ptr @nupp%.bytes%.%d+%) nomerge"), "a raise keeps its own site")
     local generated = assert(read(dir .. "/build/native/builder.lua"))
     assert(generated:find("ks_register_", 1, true), builderReport("generated wrapper", "require", dir, generated))
     assert(
@@ -4057,15 +3835,11 @@ end
 
 --- What a recorded library key is evidence about, in two ordered phases.
 ---
---- The same rule the emitted C follows, read on the linked object: an unchanged
+--- The same rule the emitted units follow, read on the linked object: an unchanged
 --- project relinks nothing, and a key still matching is not a reason to believe
 --- in a library that is not there. Both phases want the fixture relinked from a
 --- known state, and running them apart paid for that twice.
 function M.aRecordedLibraryKeyIsEvidenceAboutTheObjectRatherThanABelief()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = builtFixture("require")
     local path = libraryPath(dir)
 
@@ -4079,7 +3853,7 @@ function M.aRecordedLibraryKeyIsEvidenceAboutTheObjectRatherThanABelief()
         ("a library whose key still matches is left alone (require fixture at %s)"):format(dir)
     )
 
-    -- Same rule the C follows: the key is evidence about something that has to
+    -- Same rule the units follow: the key is evidence about something that has to
     -- be there, and here the something is what the loader would open.
     local before = assert(libraryKey(dir), "the build recorded what it linked under, at " .. dir)
     os.remove(path)
@@ -4094,10 +3868,6 @@ function M.aRecordedLibraryKeyIsEvidenceAboutTheObjectRatherThanABelief()
 end
 
 function M.aProjectWithNoAotFunctionLinksNothing()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = project("require")
     -- The policy says what to do with `@aot` code, not that there has to be any.
     assert(os.remove(dir .. "/src/kernel.nupp"))
@@ -4114,10 +3884,6 @@ function M.aProjectWithNoAotFunctionLinksNothing()
 end
 
 function M.theBuiltLibraryLoadsAndComputes()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = builtFixture("require")
 
     -- The point of `require` is that the answer comes out of the object rather
@@ -4171,10 +3937,6 @@ function M.theBuiltLibraryLoadsAndComputes()
 end
 
 function M.constGenericDispatcherCallsTheBuiltBodyAndRejectsAnOpenTuple()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = constProject("require")
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -4210,10 +3972,6 @@ end
 -- borrow to a builder held in an `any` local (NUPP2611). Both ends are checked
 -- here by building one and running it over each side of the union.
 function M.aBorrowedStringOrBufferEntryCompilesAndRuns()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
@@ -4287,10 +4045,6 @@ export = {measureString = measureString, measureBuffer = measureBuffer}
 end
 
 function M.crossModuleConstDemandBuildsTheDeclaringAotFamily()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = constProject("require")
     local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
     manifest:write(
@@ -4324,10 +4078,6 @@ return kernel.doubled(5.0, 4)
 end
 
 function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = project("require")
     local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     source:write(CORRECTED_KERNEL)
@@ -4412,10 +4162,6 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
 end
 
 function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
-    if not hasToolchain() then
-        return
-    end
-
     local artifacts = os.getenv("NUPP_TEST_AOT_ARTIFACTS")
 
     local function trace(phase)
@@ -4438,49 +4184,6 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local out, code = build(dir)
     test.equal(code, 0, out)
 
-    -- The unvectorized byte copy is authored in ks_simd.h inside
-    -- KS_SCALAR_REGION_BEGIN/END, which on GCC x86 is the O0 no-avx target.
-    -- The region is opened at file scope and nowhere else: GCC drops the
-    -- definitions that follow a push_options _Pragma inside a macro body, so
-    -- a byte oracle helper defined under a region was simply
-    -- absent, and the oracle calling it failed to compile on Linux and
-    -- Windows CI while Clang, which honours the pragma, saw nothing.
-    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
-    assert(
-        header:find(
-            '#define KS_SCALAR_REGION_BEGIN _Pragma("GCC push_options") _Pragma("GCC optimize (\\"O0\\")") _Pragma("GCC target (\\"no-avx\\")")',
-            1,
-            true
-        ),
-        "the scalar region holds its helpers to the oracle target"
-    )
-    local regions, inRegion = 0, false
-    local sawCopy = false
-    for line in header:gmatch("[^\n]*") do
-        assert(
-            not line:find("^KS_SCALAR_REGION_[A-Z]+ \\$"),
-            "a scalar region is never opened inside a macro: " .. line
-        )
-        if line:find("^KS_SCALAR_REGION_BEGIN") then
-            regions, inRegion = regions + 1, true
-        elseif line:find("^KS_SCALAR_REGION_END") then
-            inRegion = false
-        elseif inRegion then
-            sawCopy = sawCopy or line:find("void ks_scalar_copy_bytes(", 1, true) ~= nil
-            assert(not line:find("memcpy(", 1, true), "fortified copies stay out of the scalar target: " .. line)
-            assert(not line:find("ks_store4_", 1, true), "packed helpers stay at the tier target: " .. line)
-        end
-    end
-    assert(regions >= 1 and not inRegion, "every scalar region is closed")
-    assert(sawCopy, "the unvectorized scalar copy sits inside a region")
-    for _, tier in ipairs(buildTiers(nil, nil)) do
-        -- The C lowering's regions are what this asks about; a unit the LLVM
-        -- route emitted has none, and runs the same checks below.
-        local c = read(tieredC(dir, tier.tier)) or assert(read(tieredUnit(dir, tier.tier)), tier.tier) and ""
-        assert(c == "" or c:find("\nKS_SCALAR_REGION_BEGIN\n", 1, true), tier.tier .. " carries the scalar regions")
-        assert(c == "" or c:find("\n#define KS_SIMD_WIDTH ", 1, true), tier.tier .. " instantiates a packed width")
-    end
-
     if artifacts then
         local function save(name, bytes)
             local file = assert(io.open(artifacts .. "/" .. name, "wb"))
@@ -4492,7 +4195,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         local library = libraryPath(dir)
         save(assert(library:match("[^/\\]+$")), read(library))
         for _, tier in ipairs(buildTiers(nil, nil)) do
-            save("simd-tail-" .. tier.tier .. ".c", read(tieredC(dir, tier.tier)))
+            save("simd-tail-" .. tier.tier .. ".ll", read(tieredUnit(dir, tier.tier)))
         end
     end
     trace("load " .. libraryPath(dir))
@@ -4613,9 +4316,6 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
 end
 
 function M.exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution()
-    if not hasToolchain() then
-        return
-    end
     local ffi = require("ffi")
     local cases, exports = {}, {}
     local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
@@ -4782,7 +4482,7 @@ end
         end
     end
     -- The AOT-off body executes the Lua reducers over the same physical inputs;
-    -- neither scalar-source C nor lane C participates in its arithmetic.
+    -- neither scalar-source nor lane native code participates in its arithmetic.
     local reference = assert(loadfile(ordinary .. "/build/native/kernel.lua"))()
     local spans = require("nupp.mem.span")
 
@@ -4913,9 +4613,6 @@ end
 require("jit").off(M.exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution, true)
 
 function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
-    if not hasToolchain() then
-        return
-    end
     local ffi = require("ffi")
     local types = {
         {name = "float", c = "float", bits = 32, floating = true},
@@ -5070,9 +4767,6 @@ end
 require("jit").off(M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults, true)
 
 function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
-    if not hasToolchain() then
-        return
-    end
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
@@ -5275,10 +4969,6 @@ return {scaleBoth = scaleBoth, shiftBoth = shiftBoth, Point = Point,}
 ]]
 
 function M.twoAotFunctionsOverOneStructBuild()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(TWO)
@@ -5290,7 +4980,7 @@ function M.twoAotFunctionsOverOneStructBuild()
     -- twice and reported NUPP2008.
     test.equal(code, 0, "two @aot functions sharing a struct compile\n" .. out)
     local lua = assert(read(dir .. "/build/native/kernel.lua"))
-    -- The C symbol is the snake_cased name, which is what the wrapper calls.
+    -- The native symbol is the snake_cased name, which is what the wrapper calls.
     assert(lua:match("ks_[0-9a-f]+_scale_both_native"), "the first wrapper calls the selected symbol")
     assert(lua:match("ks_[0-9a-f]+_shift_both_native"), "and so does the second")
     assert(
@@ -5320,9 +5010,6 @@ function M.twoAotFunctionsOverOneStructBuild()
 end
 
 function M.countedLoopsPreserveBoundAndInductionSemantics()
-    if not hasToolchain() then
-        return
-    end
     local answers = {}
     for _, policy in ipairs({"off", "require"}) do
         local dir = project(policy)
@@ -5497,10 +5184,6 @@ print("MODE-REFUSED")
 end
 
 function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
-    if not hasToolchain() then
-        return
-    end
-
     -- Two builds of one source, one calling the compiled code and one not.
     -- Nothing else about `@aot` matters if these disagree: the annotation says
     -- the strategy changes and the answer does not.
@@ -5587,10 +5270,6 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
 end
 
 function M.theLibraryTravelsWithWhatWasBuilt()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = builtFixture("require")
 
     local lua = assert(read(dir .. "/build/native/kernel.lua"))
@@ -5635,10 +5314,6 @@ function M.theLibraryTravelsWithWhatWasBuilt()
 end
 
 function M.aLibraryLeftBehindIsANamedFailure()
-    if not hasToolchain() then
-        return
-    end
-
     local dir = builtFixture("require")
 
     local moved = dir .. "/incomplete"
@@ -5667,10 +5342,6 @@ function M.aLibraryLeftBehindIsANamedFailure()
 end
 
 function M.aBundleCarriesItsCompiledLibrary()
-    if not hasToolchain() then
-        return
-    end
-
     -- A bundle is one file someone moves somewhere. Its library lives in the
     -- build directory the bundle was assembled in, which is not where the bundle
     -- ends up, so the build has to put a copy beside it.
@@ -5725,7 +5396,7 @@ end
 
 function M.requireCrossCompilesToAnotherMachine()
     local triple, tier = crossTriple()
-    if triple == nil or not hasToolchain() then
+    if triple == nil then
         return
     end
 
@@ -5756,10 +5427,6 @@ function M.requireCrossCompilesToAnotherMachine()
 end
 
 function M.aStampedBinaryFindsItsCompiledLibrary()
-    if not hasToolchain() then
-        return
-    end
-
     -- A binary carries its payload rather than loading a module file, so the
     -- chunk the wrapper ends up in is the executable. What is being checked is
     -- that this still gives the `@` walk somewhere to start.
@@ -5835,115 +5502,25 @@ print("VALUE " .. tostring(target[6].value))
     assert(report:find("VALUE 12.25", 1, true), "a stamped binary reaches its compiled code: " .. report)
 end
 
-function M.aNamedCompilerThatCannotBuildThisCIsRefused()
+-- AOT code is compiled by the code generator linked into nupp, so a compiler
+-- the environment names -- one that cannot build anything -- is never reached
+-- for, and the build records what did compile it.
+function M.anAotBuildRunsNoCCompiler()
     local dir = project("require")
     local pipe = assert(
         io.popen(
             (
-                "cd %q && NUPP_NATIVE_CC=false NO_COLOR= '%s' build --target native 2>&1; echo \"__exit__:$?\""
-            ):format(dir, NUPP)
+                "cd %q && NUPP_CACHE_DIR=%q NUPP_NATIVE_CC=false NUPP_AOT_CC=false NO_COLOR= '%s' "
+                .. "build --target native 2>&1; echo \"__exit__:$?\""
+            ):format(dir, cacheFor(dir), NUPP)
         )
     )
     local out = pipe:read("*a")
     pipe:close()
     local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")))
-    if os.getenv("NUPP_AOT_BACKEND") == "llvm" then
-        -- Every unit here is LLVM's, so no C compiler is run for a named one
-        -- to break: the build succeeds on the in-process code generator.
-        test.equal(code, 0, "an all-LLVM build does not reach for NUPP_NATIVE_CC\n" .. out)
-        local state = assert(read(dir .. "/build/native/.nupp-state.json"))
-        assert(state:find('"command":"<llvm>"', 1, true), "and records the code generator it used: " .. state)
-        return
-    end
-
-    test.equal(code, 1, "a toolchain that cannot build the C fails the build\n" .. out)
-    assert(
-        out:find("NUPP_NATIVE_CC", 1, true),
-        "and says how to name a working one rather than only that it failed: " .. out
-    )
-    assert(out:find("emit-c", 1, true), "and what to select instead: " .. out)
-end
-
-function M.anApplicationCompilerDoesNotReplaceTheHostToolchain()
-    local dir = project("require")
-    local pipe = assert(
-        io.popen(
-            (
-                "cd %q && NUPP_AOT_CC=false NO_COLOR= '%s' build --target native 2>&1; echo \"__exit__:$?\""
-            ):format(dir, NUPP)
-        )
-    )
-    local out = pipe:read("*a")
-    pipe:close()
-    local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")))
-    if os.getenv("NUPP_AOT_BACKEND") == "llvm" then
-        -- Every unit here is LLVM's, so no C compiler is run for a named one
-        -- to break: the build succeeds on the in-process code generator.
-        test.equal(code, 0, "an all-LLVM build does not reach for NUPP_AOT_CC\n" .. out)
-        local state = assert(read(dir .. "/build/native/.nupp-state.json"))
-        assert(state:find('"command":"<llvm>"', 1, true), "and records the code generator it used: " .. state)
-        return
-    end
-
-    test.equal(code, 1, "a toolchain that cannot build the C fails the build\n" .. out)
-    assert(
-        out:find("NUPP_AOT_CC", 1, true),
-        "and says how to name a working one rather than only that it failed: " .. out
-    )
-    assert(out:find("emit-c", 1, true), "and what to select instead: " .. out)
-end
-
--- Version parsing, checked against banners rather than against whatever
--- compiler happens to be installed. A machine with only one of the two cannot
--- exercise the other's path any other way, and getting this wrong means
--- refusing a working compiler or accepting one that cannot build the C.
-local BANNERS = {
-    {"Apple clang version 16.0.0 (clang-1600.0.26.6)", "clang", 16},
-    {"clang version 18.1.8 (Fedora 18.1.8-1.fc40)", "clang", 18},
-    {"Ubuntu clang version 14.0.0-1ubuntu1.1", "clang", 14},
-    {"gcc (Ubuntu 13.2.0-23ubuntu4) 13.2.0", "gcc", 13},
-    {"gcc (GCC) 9.5.0", "gcc", 9},
-    {"gcc (Debian 8.3.0-6) 8.3.0", "gcc", 8},
-    {"cc (GCC) 12.3.0", "gcc", 12},
-    -- Red Hat continues past the version with a build date and a second
-    -- parenthetical, so the version is not at the end of the line.
-    {"gcc (GCC) 11.4.1 20230605 (Red Hat 11.4.1-2)", "gcc", 11},
-    {"gcc (GCC) 14.2.1 20240912 (Red Hat 14.2.1-3)", "gcc", 14},
-}
-
-function M.aCompilerIsIdentifiedFromWhatItSaysRatherThanItsName()
-    for _, one in ipairs(BANNERS) do
-        local banner, dialect, version = one[1], one[2], one[3]
-        local gotDialect, gotVersion = aot.identify(banner .. "\nsome trailing line\n")
-        test.equal(gotDialect, dialect, "dialect of: " .. banner)
-        test.equal(gotVersion, version, "version of: " .. banner)
-    end
-end
-
-function M.emscriptenVersionIdentificationSkipsColdCacheSetup()
-    local line, release, found = aot.identifyEmscripten(
-        "shared:INFO: (Emscripten: Running sanity checks)\n"
-        .. "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.8-git\n"
-    )
-    test.assert(found)
-    test.equal(release, "6.0.8")
-    test.equal(line, "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.8-git")
-end
-
-function M.somethingThatIsNeitherCompilerIsNotGuessedAt()
-    local dialect = aot.identify("Microsoft (R) C/C++ Optimizing Compiler Version 19.39\n")
-    test.equal(
-        dialect,
-        nil,
-        "MSVC has neither vector_size nor __builtin_convertvector, so it is refused rather than tried"
-    )
-end
-
-function M.tooOldAGccIsRefusedRatherThanTried()
-    -- GCC 8 predates __builtin_convertvector. Nothing here runs it to find out;
-    -- the version is the answer.
-    local _, version = aot.identify("gcc (Debian 8.3.0-6) 8.3.0\n")
-    assert(version < aot.OLDEST_GCC, "8 is older than the floor")
+    test.equal(code, 0, "a named compiler that cannot run does not fail the build\n" .. out)
+    local state = assert(read(dir .. "/build/native/.nupp-state.json"))
+    assert(state:find('"command":"<llvm>"', 1, true), "and records the code generator it used: " .. state)
 end
 
 -- A project that reaches a module by including a directory outside itself.
@@ -5955,7 +5532,7 @@ end
 -- So the assertion is not that one particular place stays clean: it is that
 -- nothing generated appears anywhere under the project except below its build
 -- directory.
-function M.generatedCStaysUnderTheOutputDirectory()
+function M.generatedUnitsStayUnderTheOutputDirectory()
     local dir = os.tmpname()
     os.remove(dir)
     local inner = dir .. "/one/two/three/inner"
@@ -6013,7 +5590,7 @@ return {
             kind = "modules",
             entries = {"entry"},
             outDir = "build/native",
-            aot = "emit-c",
+            aot = "require",
          },
       },
    },
@@ -6023,9 +5600,8 @@ return {
     manifest:close()
     local out = io.popen("cd '" .. inner .. "' && '" .. NUPP .. "' build --target native 2>&1"):read("*a")
     assert(not out:find("error"), "the project builds: " .. out)
-    -- Everywhere under the temporary directory except the build tree, in
-    -- either backend's spelling of a unit.
-    local units = "\\( -name '*.c' -o -name '*.ll' \\)"
+    -- Everywhere under the temporary directory except the build tree.
+    local units = "\\( -name '*.ll' -o -name '*.o' \\)"
     local stray = io.popen("find '" .. dir .. "' " .. units .. " -not -path '*/build/*' 2>/dev/null"):read("*a")
     test.equal(stray, "", "no generated unit landed outside the build directory:\n" .. stray)
     local inside = io.popen("find '" .. inner .. "/build' " .. units .. " 2>/dev/null"):read("*a")
@@ -6034,9 +5610,6 @@ return {
 end
 
 function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
-    if not hasToolchain() then
-        return
-    end
     local ffi = require("ffi")
     local dir = project("require")
     local modules, cases = {}, {}
@@ -6248,11 +5821,8 @@ end
 
 function M.aTargetLowersWhatItBundlesAndNothingElse()
     local dir = scopedProject()
-    local out = build(dir)
-
-    -- Emscripten is what a Wasm build needs after the C is written, and a host
-    -- without it stops there. The C is the question here, so the assertions are
-    -- about what got lowered rather than about the exit status.
+    local out, code = build(dir)
+    test.equal(code, 0, ("the scoped fixture at %s builds: %s"):format(dir, out))
     assert(
         not out:find("unreached.nupp", 1, true),
         ("a module the target does not bundle is not this target's to compile (fixture at %s): %s"):format(dir, out)
@@ -6424,9 +5994,6 @@ return {
 ]]
 
 function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
-    if not hasToolchain() then
-        return
-    end
     local ffi = require("ffi")
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
@@ -6633,12 +6200,10 @@ require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecu
 -- moves a lane's value to a position the data decides, a scan makes lane n
 -- depend on every lane before it, and a horizontal operation collapses all of
 -- them. Each has scalar executable semantics the compiler emits beside the
--- production form -- `ks_scalar_exp_compress_*`, `ks_scalar_exp_prefix_*`,
--- `ks_scalar_exp_horizontal_*` -- and the existing coverage of them asserts
--- that text appears in the C. That is not the same as running it: a scalar
--- reference nothing executes is a comment. The `_forced_scalar` twin here is
--- built out of exactly those helpers, so calling both symbols over one corpus
--- is what holds the vector forms to their references and both to Lua.
+-- production form, and a scalar reference nothing executes is a comment. The
+-- `_forced_scalar` twin here is built out of exactly those scalar forms, so
+-- calling both symbols over one corpus is what holds the vector forms to their
+-- references and both to Lua.
 local CROSS_LANE_KERNEL = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
@@ -6680,9 +6245,6 @@ return {crossLane = crossLane, horizontals = horizontals, extrema = extrema}
 ]]
 
 function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
-    if not hasToolchain() then
-        return
-    end
     local ffi = require("ffi")
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
@@ -6817,34 +6379,8 @@ end
 
 require("jit").off(M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics, true)
 
-function M.cCompilerFailureIsAJsonDiagnostic()
-    if not hasToolchain() then
-        test.skip("requires a C compiler")
-    end
-    -- The LLVM route runs no C compiler and takes no aotCflags, and nothing a
-    -- project can write makes its in-process code generator fail.
-    if os.getenv("NUPP_AOT_BACKEND") == "llvm" then
-        return
-    end
-    local dir = project("require")
-    withKeys(dir, 'aotCflags = {"-DNUPP_ISSUE49_FAILURE=1", "-include", "nupp-issue49-missing-header.h"},')
-    local pipe = assert(
-        io.popen(
-            (
-                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= %q build --target native --json 2>/dev/null"
-            ):format(dir, cacheFor(dir), NUPP)
-        )
-    )
-    local text = pipe:read("*a")
-    pipe:close()
-    local report = require("testjson").decode(text)
-    test.equal(report.ok, false)
-    assert(#report.diagnostics > 0, text)
-    assert(report.diagnostics[1].message:find("nupp-issue49-missing-header.h", 1, true), text)
-end
-
 function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
-    local dir = project("emit-c")
+    local dir = project("require")
     for name, code in pairs({
         [
             "unused.nupp"
@@ -6862,7 +6398,7 @@ function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
     test.equal(code, 0, out)
     local reached = false
     for _, file in ipairs(require("nupp.compiler.fs").listFiles(dir .. "/build/native/aot")) do
-        if file:match("%.c$") or file:match("%.ll$") then
+        if file:match("%.ll$") then
             local source = assert(read(file))
             assert(not source:match("ks_[0-9a-f]+_unused"), "an unreachable AOT body is not emitted")
             reached = reached or source:match("ks_[0-9a-f]+_needed") ~= nil
@@ -6944,9 +6480,6 @@ return whole
 end
 
 function M.homogeneousFieldPairsPreserveNativeValuesAndTails()
-    if not hasToolchain() then
-        return
-    end
     local dir = project("require")
     local source = {'local span = require("nupp.mem.span")'}
     local variants = {

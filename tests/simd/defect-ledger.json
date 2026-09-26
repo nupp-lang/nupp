@@ -171,12 +171,12 @@
     {
       "id": "avx2-windows",
       "description": "AVX2 entries obey the Windows calling convention and frame layout.",
-      "expectedWitnesses": ["aotbuildtest/aWindowsTargetBuildsNoVectorWiderThanItsFrameCarries"],
+      "expectedWitnesses": ["aotbuildtest/aWindowsTargetCompilesEveryFunctionUnderItsFramesVectorPreference"],
       "acceptedFailureModes": ["compile-failure", "wrong-result", "native-entry-failure"],
       "mechanism": {
         "kind": "preserved-test",
-        "testId": "aotbuildtest/aWindowsTargetBuildsNoVectorWiderThanItsFrameCarries",
-        "operation": "inject an observed 32-byte vector declaration before the Windows frame assertion",
+        "testId": "aotbuildtest/aWindowsTargetCompilesEveryFunctionUnderItsFramesVectorPreference",
+        "operation": "strip the frame's 128-bit vector preference from the baseline unit before the Windows frame assertion",
         "implemented": true,
         "killMarker": "SIMD_EQUIVALENCE_KILL:avx2-windows:wrong-result",
         "historicalCommit": "fa4ea7d3",
