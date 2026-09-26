@@ -4,6 +4,12 @@ module nupp.tools.cli.testrunner
 
 local testrunner = {}
 
+-- Worker commands are read by a POSIX shell on every supported test host. The
+-- Windows runner installs Git Bash before it starts a worker.
+local function shellQuote(text: string): string
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
 function testrunner.run(args: any): integer
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(arg[0] or "nupp")
@@ -17,7 +23,7 @@ function testrunner.run(args: any): integer
     -- the process facts a file invocation used to derive from arg[0]: where suites
     -- live, and how a parallel child invokes the same program again.
     rawset(_G, "__NUPP_TEST_DIR", "tests")
-    rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", string.format("%q", executable) .. " test --internal-runner")
+    rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", shellQuote(executable) .. " test --internal-runner")
 
     -- A suite requiring the public assertion module receives this exact instance.
     -- The literal require also keeps it in a stamped compiler whose runner source is

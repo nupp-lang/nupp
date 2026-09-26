@@ -181,14 +181,45 @@ function listing.group(
     boundaryFunction: any?,
     boundaryPc: integer?
 ): {[integer]: {any}}, {any}, integer
-    local hidden: {[integer]: boolean} = {}
+    local generatedSlots: {[integer]: boolean} = {}
     if boundaryFunction ~= nil and boundaryPc ~= nil then
         for _, ins in ipairs(boundaryFunction.instructions) do
             if ins.pc < (boundaryPc as integer) and ins.op == "FNEW" then
                 local slot = tonumber(ins.text:match("FNEW%s+%d+%s+(%d+)"))
                 if slot then
-                    hidden[math.floor(slot)] = true
+                    generatedSlots[math.floor(slot)] = true
                 end
+            end
+        end
+    end
+
+    -- A constant slot belongs to one parent function. Nested authored functions
+    -- start numbering their own constants from zero again, so a slot number from
+    -- the boundary function cannot identify a function by itself. The bytecode
+    -- analysis is in preorder; mark only matching direct children of the boundary
+    -- and the descendants those generated children built.
+    local hidden: {[any]: boolean} = {}
+    local boundaryIndex, boundaryDepth = nil, 0
+    for index, fn in ipairs(functions) do
+        if fn == boundaryFunction then
+            boundaryIndex = index
+            boundaryDepth = math.floor(tonumber(fn.depth) or 0)
+            break
+        end
+    end
+    if boundaryIndex ~= nil then
+        local hidingBranch = false
+        for index = (boundaryIndex as integer) + 1, #functions do
+            local fn = functions[index]
+            local depth = math.floor(tonumber(fn.depth) or 0)
+            if depth <= boundaryDepth then
+                break
+            elseif depth == boundaryDepth + 1 then
+                local slot = math.floor(tonumber(fn.slot) or -1)
+                hidingBranch = generatedSlots[slot] == true
+            end
+            if hidingBranch then
+                hidden[fn] = true
             end
         end
     end
@@ -199,7 +230,7 @@ function listing.group(
     local order = 0
     for _, fn in ipairs(functions) do
         order = order + 1
-        local generated = hidden[math.floor(tonumber(fn.slot) or -1)] == true
+        local generated = hidden[fn] == true
         if generated then
             built = built + 1
         end

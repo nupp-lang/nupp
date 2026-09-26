@@ -206,31 +206,82 @@ end
 --- The receiver widens to the whole union for that reason. Every other parameter
 --- narrows to what all the alternatives accept, since the call has to suit whichever
 --- one is selected, and the result is the union of what they return. Anything the
---- rule does not cover in full -- a vararg, its own binders, differing arity -- is
---- left to the union it already was.
+--- rule does not cover in full -- a vararg, its own binders, differing arity, or a
+--- capability relation -- is left to the union it already was. Parameter ownership
+--- modes and labels must agree because the joined call has one invocation contract.
 ---
 --- @param owner the union the method was read from
 --- @param signatures one alternative's method per alternative
 --- @return the single method, or nil when they do not join
 local function joinedMethod(owner: T.Type, signatures: {T.Type}): T.Type?
     local first = signatures[1] as T.Func?
-    if not first or first.tag ~= "func" or first.vararg or first.typeParams or #first.params < 1 then
+    if not first
+        or first.tag ~= "func"
+        or first.vararg
+        or first.typeParams
+        or first.packParams
+        or first.constParams
+        or first.paramPack.tail
+        or first.paramPack.alternatives
+        or first.retPack.tail
+        or first.retPack.alternatives
+        or first.yieldPack
+        or first.resumePack
+        or first.predicate
+        or first.borrowsParam
+        or first.borrowsSelf
+        or first.borrowsParams
+        or first.borrowsResult
+        or first.preservesResults
+        or first.explicitPreserves
+        or first.ffiOut
+        or first.partitionResults
+        or #first.params < 1
+    then
         return nil
     end
     if not (first.paramNames and first.paramNames[1] == "self") then
         return nil
     end
+    local noYield, sendable, noreturn = true, true, true
     for _, signature in ipairs(signatures) do
         local one = signature as T.Func
         if one.tag ~= "func"
             or one.vararg
             or one.typeParams
+            or one.packParams
+            or one.constParams
+            or one.paramPack.tail
+            or one.paramPack.alternatives
+            or one.retPack.tail
+            or one.retPack.alternatives
+            or one.yieldPack
+            or one.resumePack
+            or one.predicate
+            or one.borrowsParam
+            or one.borrowsSelf
+            or one.borrowsParams
+            or one.borrowsResult
+            or one.preservesResults
+            or one.explicitPreserves
+            or one.ffiOut
+            or one.partitionResults
             or #one.params ~= #first.params
             or #one.rets ~= #first.rets
+            or one.foreign ~= first.foreign
+            or one.comptimeOnly ~= first.comptimeOnly
             or not (one.paramNames and one.paramNames[1] == "self")
         then
             return nil
         end
+        for j = 1, #first.params do
+            if one.paramModes[j] ~= first.paramModes[j] or one.paramNames[j] ~= first.paramNames[j] then
+                return nil
+            end
+        end
+        noYield = noYield and one.noYield == true
+        sendable = sendable and one.sendable == true
+        noreturn = noreturn and one.noreturn == true
     end
     local params: {T.Type} = {owner}
     local rets: {T.Type} = {}
@@ -249,28 +300,15 @@ local function joinedMethod(owner: T.Type, signatures: {T.Type}): T.Type?
         rets[j] = T.union(alternatives)
     end
 
-    return T.func(
-        params,
-        rets,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        T.pack(params),
-        T.pack(rets),
-        nil,
-        nil,
-        nil,
-        nil,
-        first.paramNames
-    )
+    return T.funcWith(first, {
+        params = params,
+        rets = rets,
+        paramPack = T.pack(params, nil, first.paramModes),
+        retPack = T.pack(rets),
+        noYield = noYield or false,
+        sendable = sendable or false,
+        noreturn = noreturn or false,
+    })
 end
 
 --- A union has a member only where every alternative has it, which is what makes

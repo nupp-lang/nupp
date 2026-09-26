@@ -58,7 +58,8 @@ The operations that consult the process or filesystem can fail, as can a
 relative path whose base uses a different coordinate system. Each answers nil
 with a reason when it does.
 
-- `absolute()` resolves the path against the process's working directory.
+- `absolute()` resolves the path against the process's working directory. A
+  drive-relative Windows path fails when that directory uses another drive.
 - `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
 - `canonicalize()` asks the filesystem for the real path, following every
   symbolic link, which requires the path to exist.
@@ -165,6 +166,9 @@ export record Path
     end
 
     --- Resolves this path against the process's current working directory.
+    ---
+    --- A drive-relative Windows path can be resolved only when the current
+    --- directory is on that drive.
     --- @param self this path
     --- @return the absolute path, or nil on failure
     --- @return a failure reason, when unsuccessful
@@ -178,7 +182,17 @@ export record Path
             if current == nil then
                 return nil, reason
             end
-            text = pathtext.pushPart(current as string, text, WINDOWS)
+            local drive = WINDOWS and text:match("^([A-Za-z]:)") or nil
+            if drive ~= nil then
+                local currentDrive = (current as string):match("^([A-Za-z]:)")
+                if currentDrive == nil or currentDrive:lower() ~= drive:lower() then
+                    return nil, "cannot resolve a drive-relative path from another drive"
+                end
+                local suffix = text:sub(#drive + 1)
+                text = #suffix == 0 and current as string or pathtext.pushPart(current as string, suffix, true)
+            else
+                text = pathtext.pushPart(current as string, text, WINDOWS)
+            end
         end
 
         return raw(pathtext.clean(text, WINDOWS)), nil

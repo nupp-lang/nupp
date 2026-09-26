@@ -230,6 +230,33 @@ function M.joiningOntoABareDriveStaysDriveRelative()
     test.equal(pathtext.join({"\\\\server\\share", "file"}, true), "//server/share/file")
 end
 
+function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
+    local loadedPath = package.loaded["nupp.io.path"]
+    local loadedProvider = package.loaded["nupp.io.path.provider"]
+    package.loaded["nupp.io.path"] = nil
+    package.loaded["nupp.io.path.provider"] = {
+        separator = function()
+            return "\\"
+        end,
+        currentDirectory = function()
+            return "C:\\base", nil
+        end,
+        canonicalize = function(value)
+            return value, nil
+        end,
+    }
+    local ok, windowsPath = pcall(require, "nupp.io.path")
+    package.loaded["nupp.io.path"] = loadedPath
+    package.loaded["nupp.io.path.provider"] = loadedProvider
+    assert(ok, windowsPath)
+
+    test.equal(assert(windowsPath.newPath("c:work"):absolute()):toString(), "C:/base/work")
+    test.equal(assert(windowsPath.newPath("C:"):absolute()):toString(), "C:/base")
+    local answer, reason = windowsPath.newPath("D:work"):absolute()
+    test.equal(answer, nil)
+    test.matches(reason, "another drive")
+end
+
 -- The verbatim form's whole point is that the system does not normalise it,
 -- so nothing here may either: no `..` resolution, no separator respelling.
 -- The system reads `\\?\` and nothing else -- not `//?/`, and not `/` as a

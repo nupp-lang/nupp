@@ -69,6 +69,40 @@ function M.unionViewExposesOnlySharedCapabilities()
    assertEq(view.byname.write.writeType, T.intersection({T.string, T.integer}))
 end
 
+local function method(receiver, mode, overrides)
+   local base = T.func({receiver, T.string}, {T.string}, false, {"takes", mode})
+   local fields = overrides or {}
+   fields.paramNames = {"self", "value"}
+   return T.funcWith(base, fields)
+end
+
+function M.unionMethodJoinKeepsTheSharedInvocationContract()
+   local leftMethod = method(T.string, "takes", {noYield = true, sendable = true})
+   local rightMethod = method(T.integer, "takes", {noYield = true, sendable = true})
+   local left = T.shape({{name = "apply", read = leftMethod}})
+   local right = T.shape({{name = "apply", read = rightMethod}})
+   local joined = members.view(T.union({left, right})).byname.apply.readType
+   assertEq(joined.tag, "func")
+   assertEq(joined.paramModes[1], "takes", "receiver ownership mode")
+   assertEq(joined.paramModes[2], "takes", "argument ownership mode")
+   assertEq(joined.noYield, true, "shared suspension guarantee")
+   assertEq(joined.sendable, true, "shared sendability guarantee")
+end
+
+function M.unionMethodJoinRefusesDifferentOwnershipContracts()
+   local left = T.shape({{name = "apply", read = method(T.string, "takes")}})
+   local right = T.shape({{name = "apply", read = method(T.integer, "plain")}})
+   local read = members.view(T.union({left, right})).byname.apply.readType
+   assertEq(read.tag, "union", "different ownership modes stay separate")
+end
+
+function M.unionMethodJoinRefusesCapabilityRelationsItCannotCompose()
+   local left = T.shape({{name = "borrow", read = method(T.string, "plain", {borrowsParam = 1})}})
+   local right = T.shape({{name = "borrow", read = method(T.integer, "plain", {borrowsParam = 1})}})
+   local read = members.view(T.union({left, right})).byname.borrow.readType
+   assertEq(read.tag, "union", "borrow relations stay attached to their alternatives")
+end
+
 function M.semanticFingerprintUsesTheCallersTypeVocabulary()
    -- A vocabulary that describes the type, which is what the parameter is for. Not
    -- `t.id`: an id identifies an interned type without saying anything about it.
