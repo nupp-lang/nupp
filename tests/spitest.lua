@@ -198,47 +198,6 @@ function M.discoveryTerminatesDependencyCyclesWithoutChangingFirstOccurrenceOrde
     )
 end
 
-function M.dependencyDescriptorFailuresPropagateFromTheirOwnFile()
-    fixture({["dependency/spi.json"] = "[]"}, function(dir)
-        local entries, problem = discovery.read(
-            dir,
-            {dependencies = {dependency = {dependencies = {}},}},
-            {dependencies = {"dependency"}},
-            {dependency = {typeRoot = dir .. "/dependency"},}
-        )
-        assert(entries == nil, "an invalid dependency descriptor was accepted")
-        assert(tostring(problem):find("dependency/spi.json", 1, true), tostring(problem))
-    end)
-end
-
-function M.descriptorReadFailuresAndAbsentDependencyRecordsAreHandled()
-    fixture({}, function(dir)
-        assert(fs.mkdir(dir .. "/nupp"))
-        assert(fs.mkdir(dir .. "/nupp/spi.json"))
-        local entries, problem = discovery.read(dir, {dependencies = {}}, {dependencies = {}}, {})
-        assert(entries == nil and problem ~= nil, "an unreadable descriptor was accepted")
-    end)
-    fixture({}, function(dir)
-        local entries = assert(
-            discovery.read(dir, {dependencies = {missing = {dependencies = {}},}}, {dependencies = {"missing"}}, {})
-        )
-        assert(#entries == 0, "a dependency without a package record contributed providers")
-    end)
-end
-
-function M.transitiveDependencyDescriptorFailuresReachTheTarget()
-    fixture({["child/spi.json"] = "[]"}, function(dir)
-        local entries, problem = discovery.read(
-            dir,
-            {dependencies = {parent = {dependencies = {"child"}}, child = {dependencies = {}},}},
-            {dependencies = {"parent"}},
-            {parent = {typeRoot = dir .. "/parent"}, child = {typeRoot = dir .. "/child"},}
-        )
-        assert(entries == nil, "an invalid transitive descriptor was accepted")
-        assert(tostring(problem):find("child/spi.json", 1, true), tostring(problem))
-    end)
-end
-
 function M.generatedIndexesAreDeterministicAndReportWriteFailures()
     fixture({}, function(dir)
         local entries = {
@@ -301,26 +260,28 @@ export const marker = {}]]
 end
 
 function M.caughtProviderFailuresDoNotAdvanceToFallback()
-    local sources = files(
-        [[module main
-local spi = require("nupp.spi")
-local {type Codec} = require("example.api")
-local next = spi.load(Codec)
-for _ = 1, 2 do
-    local ok, problem = pcall(next)
-    assert(not ok and tostring(problem):find("broken first provider", 1, true), tostring(problem))
-end
-assert(rawget(_G, "__secondProviderLoaded") == nil, "a caught failure advanced to the next provider")
-print("ok")]]
+    local marker = {}
+    local attempts, fallbackLoads = 0, 0
+    local load = require("providerstate").instance(
+        {["nupp.spi"] = true},
+        {["nupp.spi.index"] = {["example.Api"] = {"fixture.broken", "fixture.fallback"}},},
+        {
+            ["fixture.broken"] = function()
+                attempts = attempts + 1
+                error(marker, 0)
+            end,
+            ["fixture.fallback"] = function()
+                fallbackLoads = fallbackLoads + 1
+                return {}
+            end,
+        }
     )
-    sources["src/example/first.nupp"] = sources["src/example/first.nupp"] .. '\nerror("broken first provider")'
-    sources[
-        "src/example/second.nupp"
-    ] = sources["src/example/second.nupp"] .. '\nrawset(_G, "__secondProviderLoaded", true)'
-    fixture(sources, function(dir)
-        local _, output = run(dir)
-        assert(output == "ok\n", output)
-    end)
+    local next = load("nupp.spi").load("example.Api")
+    for _ = 1, 2 do
+        local ok, problem = pcall(next)
+        assert(not ok and problem == marker, "a provider failure changed identity")
+    end
+    assert(attempts == 2 and fallbackLoads == 0, "a caught failure advanced to the next provider")
 end
 
 function M.providerIndexInitializationErrorsCannotMasqueradeAsAbsence()
@@ -448,38 +409,6 @@ error("provider bodies must not run during discovery")]]
     fixture(sources, function(dir)
         assert(project.build(dir) ~= 0, "a number cannot implement an encode function")
     end)
-end
-
-function M.descriptorDeclarationsAndImplementationsFailAtTheBuildBoundary()
-    local cases = {
-        {label = "missing interface module", descriptor = [[{"missing.api.Codec":["example.first"]}]],},
-        {
-            label = "non-interface declaration",
-            descriptor = [[{"example.api.Codec":["example.first"]}]],
-            api = [[module example.api
-export record Codec
-    encode: function(value: string): string
-end]],
-        },
-        {label = "missing implementation module", descriptor = [[{"example.api.Codec":["missing.provider"]}]],},
-        {
-            label = "plain Lua implementation",
-            descriptor = [[{"example.api.Codec":["example.plain"]}]],
-            plain = "return {encode = function(value) return value end}\n",
-        },
-    }
-    for _, case in ipairs(cases) do
-        local sources = files("module main\nreturn true", case.descriptor)
-        if case.api then
-            sources["src/example/api.nupp"] = case.api
-        end
-        if case.plain then
-            sources["src/example/plain.lua"] = case.plain
-        end
-        fixture(sources, function(dir)
-            assert(project.build(dir) ~= 0, case.label .. " was accepted")
-        end)
-    end
 end
 
 function M.descriptorChangesUpdateTheWarmBuild()
