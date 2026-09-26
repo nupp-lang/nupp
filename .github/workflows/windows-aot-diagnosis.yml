@@ -66,6 +66,30 @@ jobs:
         shell: bash
         run: ./bin/nupp build --target bootstrapCompiler
 
+      # #71: an i686 browser-guest build does not finish here. Each piece of
+      # it on its own, bounded, so the one that stops is the one named.
+      - name: Time the pieces of the i686 browser-guest build
+        shell: bash
+        run: |
+          set +e
+          work="$RUNNER_TEMP/guest"
+          cp -R tests/luajit-browser/native-project "$work"
+          cd "$work"
+          rm -rf build dist
+          nupp="$GITHUB_WORKSPACE/bin/nupp"
+          piece() {
+            start=$(date +%s)
+            timeout -k 15 240 "$@" > "$RUNNER_TEMP/piece.log" 2>&1
+            status=$?
+            echo "== $*: status $status after $(( $(date +%s) - start ))s"
+            tail -15 "$RUNNER_TEMP/piece.log"
+          }
+          piece "$nupp" aot --emit llvm --target i686-unknown-linux-gnu --features baseline src/main.g.nupp
+          piece "$nupp" aot --emit asm --target i686-unknown-linux-gnu --features baseline src/main.g.nupp
+          piece "$nupp" build --target app --host native --json
+          rm -rf build dist
+          piece "$nupp" build --target app --host browser --json
+
       - name: Run each AOT suite alone, bounded
         shell: bash
         run: |
@@ -74,7 +98,7 @@ jobs:
           export NUPP_TEST_BASH NUPP_TEST_SH
           NUPP_TEST_BASH=$(cygpath -w "$bash_path")
           NUPP_TEST_SH=$(cygpath -w "$(dirname "$bash_path")/sh.exe")
-          suites="aotblockguardtest aotbuildtest projecttest aotincrementaltest aotclitest hostembeddingtest"
+          suites="aotblockguardtest projecttest aotincrementaltest"
           for suite in $suites; do
             start=$(date +%s)
             timeout -k 15 600 ./bin/nupp test --jobs=1 "$suite" > "$RUNNER_TEMP/$suite.log" 2>&1

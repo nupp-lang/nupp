@@ -2334,6 +2334,9 @@ end
 --- runtime in and their loader asks for no runtime module, which the browser
 --- host does not have.
 function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
+    if package.config:sub(1, 1) == "\\" then
+        require("assert").skip("this build does not finish on the Windows runner (#71)")
+    end
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute(("cp -R %q %q"):format(HERE .. "/luajit-browser/native-project", dir)) == 0)

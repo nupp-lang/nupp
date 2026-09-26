@@ -139,7 +139,11 @@ local function objects(dir)
         if package.config:sub(1, 1) == "\\" then
             path = path:gsub("^/([A-Za-z])/", "%1:/")
         end
-        found[path] = assert(read(path), "unreadable object " .. path)
+        -- A Windows library also links the compiler's own glue, built once
+        -- beside the units; it is not a unit's object.
+        if not path:match("/luabind%.[^/]*%.o$") then
+            found[path] = assert(read(path), "unreadable object " .. path)
+        end
     end
     pipe:close()
 

@@ -1464,6 +1464,9 @@ EOF
 # runtime itself uses them.
 KIT_AOT_SYMBOLS="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma fmaf
 floor ceil trunc round sqrt memcpy memmove memset bzero memcmp bcmp memchr strtod"
+# Windows has no `bzero` or `bcmp`, and LLVM emits neither for it.
+KIT_AOT_SYMBOLS_WINDOWS="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma
+fmaf floor ceil trunc round sqrt memcpy memmove memset memcmp memchr strtod"
 
 # Stages the link kit for one host feature set: the runtime archive, stubs for
 # every system library it and AOT code bind to, and kit.json naming them, so
@@ -1590,9 +1593,9 @@ build_kit_windows() {
 
     probe="$out/probe"
     {
-        for name in $KIT_AOT_SYMBOLS; do printf 'extern char %s[];\n' "$name"; done
+        for name in $KIT_AOT_SYMBOLS_WINDOWS; do printf 'extern char %s[];\n' "$name"; done
         printf 'void *nupp_kit_probe[] = {\n'
-        for name in $KIT_AOT_SYMBOLS; do printf '    %s,\n' "$name"; done
+        for name in $KIT_AOT_SYMBOLS_WINDOWS; do printf '    %s,\n' "$name"; done
         printf '};\n'
     } > "$probe-aot.c"
     "$CC" -c -w -fno-builtin -o "$probe-aot.o" "$probe-aot.c"
