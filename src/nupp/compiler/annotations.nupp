@@ -439,7 +439,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"function"},
         builtin = true,
-        doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default), emit-c, or require.",
+        doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default), require, emit-wasm or require-wasm.",
         docsPath = "guides/ahead-of-time",
     },
 }
