@@ -126,7 +126,9 @@ Creating an iterator executes no provider. Each advance requires one module, so
 stopping early leaves the rest unloaded, and an empty index gives an empty
 iterator. A provider that fails to load propagates its ordinary `require`
 error, values and identities intact, and ordinary module caching keeps an
-implementation's identity within a Lua state.
+implementation's identity within a Lua state. If a caller catches that error,
+the next advance retries the same provider; a failed provider never becomes an
+implicit skip to the next one.
 
 ## Build artifacts
 

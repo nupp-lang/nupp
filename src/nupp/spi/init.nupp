@@ -11,8 +11,11 @@ Packages advertise their implementation modules in `nupp/spi.json`.
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.spi.index"
 
-local found, loaded = pcall(require, "nupp.spi.index")
-if not found and not tostring(loaded):find("module 'nupp.spi.index' not found", 1, true) then
+local indexName = "nupp.spi.index"
+local indexWasPresent = package.loaded[indexName] ~= nil or package.preload[indexName] ~= nil
+local found, loaded = pcall(require, indexName)
+local indexWasMissing = not found and tostring(loaded):find("module 'nupp.spi.index' not found:", 1, true) == 1
+if not found and (indexWasPresent or not indexWasMissing) then
     error("nupp.spi: cannot read provider index: " .. tostring(loaded), 0)
 end
 local index: {[string]: {string}} = found and loaded or {}
@@ -23,17 +26,19 @@ local index: {[string]: {string}} = found and loaded or {}
 --- @param interface The exported interface whose implementations to discover.
 --- @return A lazy iterator of implementations, returning nil at exhaustion.
 --- @raises any whatever an implementation raised while loading, which is that
----     module's business rather than this one's
+---     module's business rather than this one's; the next call retries it
 export function load<I>(interface: string): function(): I?
     local modules = index[interface] or {}
     local position: integer = 0
     return function(): I?
-        position = position + 1
-        local name = modules[position]
+        local name = modules[position + 1]
         if name == nil then
             return nil
         end
 
-        return require(name) as I
+        local implementation = require(name) as I
+        position = position + 1
+
+        return implementation
     end
 end

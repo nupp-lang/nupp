@@ -11,11 +11,13 @@ local contracts = require("nupp.workers.spi")
 -- public facade's literal imports carry its built-in fallbacks when that facility
 -- is actually used; this dynamic require does not add a native dependency itself.
 local function available(name: string): contracts.Provider?
+    local wasPresent = package.loaded[name] ~= nil or package.preload[name] ~= nil
     local ok, value = pcall(require, name)
     if ok then
         return value as contracts.Provider
     end
-    if not tostring(value):find("module '" .. name .. "' not found", 1, true) then
+    local wasMissing = tostring(value):find("module '" .. name .. "' not found:", 1, true) == 1
+    if wasPresent or not wasMissing then
         error(value, 0)
     end
 

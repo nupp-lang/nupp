@@ -3,14 +3,21 @@ module nupp.tools.build.spi
 local fs = require("nupp.compiler.fs")
 local json = require("nupp.codec.json")
 local deps = require("nupp.tools.build.deps")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local spi = {}
 
 local function qualified(name: any): boolean
-    return type(name) == "string"
-        and name:match("^[A-Za-z_][A-Za-z0-9_.]*$") ~= nil
-        and not name:find("..", 1, true)
-        and name:sub(-1) ~= "."
+    if type(name) ~= "string" or name:sub(1, 1) == "." or name:sub(-1) == "." or name:find("..", 1, true) ~= nil then
+        return false
+    end
+    for segment in name:gmatch("[^.]+") do
+        if segment:match("^[A-Za-z_][A-Za-z0-9_]*$") == nil or lexer.KEYWORDS[segment] then
+            return false
+        end
+    end
+
+    return name ~= ""
 end
 
 --- Reads application and dependency declarations without executing implementations.
