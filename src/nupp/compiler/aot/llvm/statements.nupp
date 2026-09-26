@@ -248,6 +248,145 @@ local function unrollFactor(ctx: context.Context, statement: scalarIR.While): in
     return widest <= 16 and 4 or widest <= 32 and 2 or 1
 end
 
+--- `node` without the numeric casts around it.
+local function uncast(node: scalarIR.Expr): scalarIR.Expr
+    while node.op == "numeric_cast" do
+        node = (node as scalarIR.Convert).value
+    end
+
+    return node
+end
+
+--- The integer an expression is, through numeric casts; nil when it is not a
+--- constant.
+local function constantOf(node: scalarIR.Expr): number?
+    node = uncast(node)
+    if node.op == "constant_i32" or node.op == "constant_i64" or node.op == "constant" then
+        return tonumber(tostring((node as scalarIR.Constant).value))
+    end
+
+    return nil
+end
+
+--- Whether two IR values are written the same, field by field, ignoring
+--- where they came from.
+local function sameTree(a: any, b: any): boolean
+    if type(a) ~= "table" or type(b) ~= "table" then
+        return a == b
+    end
+    for key, value in pairs(a as {[any]: any}) do
+        if key ~= "source" and not sameTree(value, (b as {[any]: any})[key]) then
+            return false
+        end
+    end
+    for key in pairs(b as {[any]: any}) do
+        if key ~= "source" and (a as {[any]: any})[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+--- Whether stepping by `by` stays within the room `width` proves: the same
+--- value, or constants no larger than it.
+local function withinRoom(by: scalarIR.Expr, width: scalarIR.Expr): boolean
+    local step, room = constantOf(by), constantOf(width)
+    if step ~= nil and room ~= nil then
+        return (step as number) >= 0 and (step as number) <= (room as number)
+    end
+
+    return sameTree(uncast(by), uncast(width))
+end
+
+--- The one increment of a `while` whose `uint32` cursor its guard bounds:
+--- the guard is `cursor + w <= #span` or `cursor < #span` (every conjunct
+--- the same cursor), and the body's only write to the cursor is a top-level
+--- `cursor = cursor + k`, `k` within every `w` (1 for `<`). Where every
+--- guarded count fits in 32 bits that increment stays within the room the
+--- guard proved, so it cannot wrap. `fits` holds the counts known to fit;
+--- a guard on any other count is not a proof. Nil for any other loop.
+local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits: {[string]: boolean}): scalarIR.Expr?
+    if statement.conditionBody ~= nil then
+        return nil
+    end
+    local cursor: string? = nil
+    local widths: {scalarIR.Expr} = {}
+    local pending: {scalarIR.Expr} = {statement.condition}
+    while #pending > 0 do
+        local guard = table.remove(pending) as scalarIR.Expr
+        if guard.op == "and" then
+            pending[#pending + 1] = (guard as scalarIR.Binary).left
+            pending[#pending + 1] = (guard as scalarIR.Binary).right
+        elseif (guard.op == "le" or guard.op == "lt") and (guard as scalarIR.Binary).right.op == "span_count" then
+            local counted = (guard as scalarIR.Binary).right as scalarIR.SpanCount
+            if not fits[context.count(ctx, counted.span)] then
+                return nil
+            end
+            local left = (guard as scalarIR.Binary).left
+            if guard.op == "le" then
+                if left.op ~= "u64_add" then
+                    return nil
+                end
+                widths[#widths + 1] = (left as scalarIR.Fixed).right
+                left = (left as scalarIR.Fixed).left
+            else
+                widths[#widths + 1] = new scalarIR.IntConstant(op = "constant_i32", value = "1", type = "u32")
+            end
+            left = uncast(left)
+            if left.op ~= "local" or left.type ~= "u32" then
+                return nil
+            end
+            local named = (left as scalarIR.Name).cName
+            if cursor ~= nil and named ~= cursor then
+                return nil
+            end
+            cursor = named
+        else
+            return nil
+        end
+    end
+    if cursor == nil then
+        return nil
+    end
+    local writes = 0
+    visit.block(
+        statement.body,
+        new visit.Visitor(scalarStatement = function(node: scalarIR.Statement): nil
+            if node.op == "assign" then
+                for _, target in ipairs((node as scalarIR.Assign).values) do
+                    if target.target.cName == cursor then
+                        writes = writes + 1
+                    end
+                end
+            end
+        end)
+    )
+    if writes ~= 1 then
+        return nil
+    end
+    for _, child in ipairs(statement.body) do
+        if child.op == "assign" and #(child as scalarIR.Assign).values == 1 then
+            local only = (child as scalarIR.Assign).values[1]
+            local step = only.value
+            if only.target.cName == cursor
+                and step.op == "u32_add"
+                and (step as scalarIR.Fixed).left.op == "local"
+                and ((step as scalarIR.Fixed).left as scalarIR.Name).cName == cursor
+            then
+                for _, width in ipairs(widths) do
+                    if not withinRoom((step as scalarIR.Fixed).right, width) then
+                        return nil
+                    end
+                end
+                return step
+            end
+        end
+    end
+
+    return nil
+end
+
 local whileLoop: function(ctx: context.Context, statement: scalarIR.While, checked: boolean?): nil
 
 --- A loop with proved cursor accesses, twice: when every span they reach
@@ -257,7 +396,9 @@ local whileLoop: function(ctx: context.Context, statement: scalarIR.While, check
 local function versionedLoop(ctx: context.Context, statement: scalarIR.While, spans: {string}): nil
     local f = ctx.f
     local fits = "true"
+    local counts: {[string]: boolean} = {}
     for _, span in ipairs(spans) do
+        counts[context.count(ctx, span)] = true
         local small = builder.value(f, ("icmp ule i64 %s, 4294967295"):format(context.count(ctx, span)))
         fits = fits == "true" and small or builder.value(f, ("and i1 %s, %s"):format(fits, small))
     end
@@ -267,7 +408,16 @@ local function versionedLoop(ctx: context.Context, statement: scalarIR.While, sp
     builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(fits, wide, narrow))
     builder.start(f, wide)
     ctx.wideCursors = true
+    -- Where the guard's room covers the step, the cursor never wraps, which
+    -- is what lets LLVM count the trips and unroll under one bound check.
+    local step = cursorStep(ctx, statement, counts)
+    if step ~= nil then
+        ctx.noWrap[step as scalarIR.Expr] = true
+    end
     whileLoop(ctx, statement)
+    if step ~= nil then
+        ctx.noWrap[step as scalarIR.Expr] = nil
+    end
     ctx.wideCursors = false
     builder.jump(f, done)
     builder.start(f, narrow)

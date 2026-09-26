@@ -1,13 +1,9 @@
 module nupp.tools.build.aotllvm
 
 --[[
-The AOT build's LLVM route: emitting a unit as LLVM IR, compiling it in
-process, and linking the objects with lld.
-
-The C route stays the default until the LLVM backend reaches parity; while both
-exist, `NUPP_AOT_BACKEND=llvm` selects this one, and a unit using something it
-does not emit yet falls back to C on its own. A build that selected it on a host
-without the code generator is refused rather than silently given C.
+The AOT build's code generator: emitting a unit as LLVM IR, compiling it in
+process, and linking the objects with lld. A build that needs it on a `nupp`
+built without it is refused.
 ]]
 
 local codegen = require("nupp.compiler.aot.llvm.codegen")

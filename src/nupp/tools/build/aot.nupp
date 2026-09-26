@@ -10,13 +10,12 @@ performance and packaging, never an answer, and a build that had silently done
 half of each would be a build whose speed nobody could reason about.
 
 - `off` does not look for `@aot` at all. It is the default, so a project that
-  has not asked for native code never depends on a C compiler.
-- `emit-c` verifies the IR and writes the C beside the build, without compiling
-  it. A platform build can hand that to its own vendor compiler, and a reviewer
-  can read what the backend actually produced.
-- `require` compiles that C into the project's own shared library, and fails the
-  build when it cannot. Choosing it is how a project accepts a C compiler as a
-  dependency; nothing else in Nupp makes a project depend on one.
+  has not asked for native code never asks for the code generator.
+- `require` lowers the verified IR to LLVM IR, writes it beside the build,
+  compiles it in process and links the project's own shared library, and fails
+  the build when it cannot.
+- `emit-wasm` and `require-wasm` compile the same units into independent Wasm
+  modules.
 
 Code is linked, never mapped at run time. An ordinary build loads one shared
 library; a standalone binary links the same objects from an archive into its
@@ -682,8 +681,8 @@ end
 ---
 --- Everything that decides its bytes and nothing that does not: the unit key,
 --- which already carries the IR, the target and the compiler that lowered it;
---- the feature tier, which chooses the instructions; the C compiler that reads
---- the unit; and every flag it is given, in the order it is given them.
+--- the feature tier, which chooses the instructions; the code generator that
+--- reads the unit; and every option it is given, in the order it is given them.
 ---
 --- Deliberately separate from `aot.libraryKey`. One unit changing must recompile
 --- one object, and a key that covered the whole set could only say that
@@ -1158,7 +1157,7 @@ record aot.Result
 
     --- Source path -> that source with its `@aot` functions replaced by the
     --- wrappers that call the compiled code. Empty unless the policy links, so
-    --- `emit-c` leaves every module exactly as it was written.
+    --- `emit-wasm` leaves every module exactly as it was written.
     dispatch: {[string]: string}
 
     remarks: {any}?
@@ -1410,10 +1409,10 @@ end
 
 --- What one archive's contents come to.
 ---
---- Over the units' content keys rather than over the linked file, so an
---- `emit-c` consumer that compiles and archives the C itself arrives at the
---- same number the generated wrapper was given. Forty-eight bits, because the
---- wrapper compares it as a Lua number.
+--- Over the units' content keys rather than over the linked file, so a host
+--- build that archives the objects itself arrives at the same number the
+--- generated wrapper was given. Forty-eight bits, because the wrapper compares
+--- it as a Lua number.
 function aot.archiveFingerprint(emitted: {aot.Emitted}): integer
     local keys: {string} = {}
     for _, one in ipairs(emitted) do
@@ -1464,7 +1463,8 @@ function aot.writeArchiveProbe(
     ), new bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
 end
 
---- Writes the portable handoff for an `emit-c` consumer.
+--- Writes `aot/units.json`: every unit, its tier and the options it compiled
+--- with.
 function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Emitted}): (string?, string?)
     if #emitted == 0 then
         return nil, nil
@@ -1591,10 +1591,10 @@ end
 
 --- Applies a target's ahead-of-time policy.
 ---
---- `emit-c` stops after writing the C. `require` goes on to compile it, and a
---- project that selected `require` and has no `@aot` function anywhere gets a
---- successful build with no library rather than an empty one: the policy says
---- what to do with `@aot` code, not that there must be some.
+--- `require` compiles and links the emitted units, and a project that selected
+--- it and has no `@aot` function anywhere gets a successful build with no
+--- library rather than an empty one: the policy says what to do with `@aot`
+--- code, not that there must be some.
 ---
 --- @param policy the target's `aot` value
 --- @param name the target's name, which the library is named after

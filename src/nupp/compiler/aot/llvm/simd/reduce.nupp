@@ -113,7 +113,7 @@ const SWAPPED = {["ge"] = "le", ["le"] = "ge", ["gt"] = "lt", ["lt"] = "gt", ["n
 --- `(x OP splat(s)):any()` over one NEON register of integers, answered
 --- without forming the mask: whether any lane is at least `s` is whether the
 --- largest is (`umaxv`/`smaxv`), and whether any is nonzero is whether the
---- largest is. The C lowering's `anyCompare`. Nil for any other shape.
+--- largest is. Nil for any other shape.
 local function anyCompare(ctx: context.Context, mask: scalarIR.Expr): string?
     if ctx.vectorRegister ~= "w" or mask.op ~= "simd_compare" then
         return nil
@@ -160,7 +160,17 @@ local function anyCompare(ctx: context.Context, mask: scalarIR.Expr): string?
     if lanesOf.bits > 32 then
         return nil
     end
-    if named == "ne" then
+    local zero = (bound as scalarIR.Simd).args[1]
+    while zero.op == "numeric_cast" do
+        zero = (zero as scalarIR.Convert).value
+    end
+    local isZero = (zero.op == "constant" or zero.op == "constant_i32" or zero.op == "constant_i64")
+        and tonumber(tostring((zero as scalarIR.Constant).value)) == 0
+    if named == "ne" and not lanesOf.signed and isZero then
+        -- No unsigned lane is below zero, so one differs exactly when the
+        -- largest does.
+        return e(ctx, ("icmp ne i32 %s, 0"):format(reduced("max")))
+    elseif named == "ne" then
         -- Any lane differs from `s`: the largest or the smallest does.
         local largest, smallest = reduced("max"), reduced("min")
         local high = e(ctx, ("icmp ne i32 %s, %s"):format(largest, wideLane))

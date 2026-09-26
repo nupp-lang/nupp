@@ -485,7 +485,7 @@ end
 local function preamble(program: scalarIR.Program): {string}
     local lines: {
         string
-    } = {"native-c-ir " .. tostring(scalarIR.VERSION), "function " .. program.name, "symbol " .. program.symbol,}
+    } = {"native-ir " .. tostring(scalarIR.VERSION), "function " .. program.name, "symbol " .. program.symbol,}
     lines[#lines + 1] = "entry " .. program.entryMode
     if program.executionTarget == "gpu" then
         lines[#lines + 1] = "target gpu"

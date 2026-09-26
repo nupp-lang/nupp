@@ -503,7 +503,7 @@ native_is_current() {
     # union invalidates its staged copy.
     [ ! "$ROOT/bin/nupp" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ -z "$(find "$ROOT/runtime" "$ROOT/native" "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" -type f \
-        \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' -o -name 'Cargo.lock' \) \
+        \( -name '*.rs' -o -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.toml' -o -name 'Cargo.lock' \) \
         -newer "$NUPP_NATIVE_LIBRARY" 2>/dev/null | head -n 1)" ] || return 1
     [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1

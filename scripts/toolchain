@@ -189,7 +189,7 @@ rust_sources_digest() {
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates -type f \
-            \( -name '*.rs' -o -name '*.c' -o -name '*.h' \
+            \( -name '*.rs' -o -name '*.c' -o -name '*.cpp' -o -name '*.h' \
                 -o -name 'Cargo.toml' -o -name 'build.rs' \) \
             2>/dev/null) || true
     } | LC_ALL=C sort | {

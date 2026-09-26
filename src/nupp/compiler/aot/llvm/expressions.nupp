@@ -818,10 +818,11 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif U32_BINARY[operation] ~= nil then
         local binary = node as scalarIR.Fixed
         local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local flags = ctx.noWrap[node] and " nuw" or ""
 
         return emit(
             ctx,
-            ("%s i32 %s, %s"):format(U32_BINARY[operation] as string, u32Bits(ctx, a, at), u32Bits(ctx, b, bt))
+            ("%s%s i32 %s, %s"):format(U32_BINARY[operation] as string, flags, u32Bits(ctx, a, at), u32Bits(ctx, b, bt))
         ), "u32"
     elseif operation == "u32_div" or operation == "u32_mod" then
         local binary = node as scalarIR.Fixed

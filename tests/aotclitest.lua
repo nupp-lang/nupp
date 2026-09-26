@@ -1623,10 +1623,11 @@ function M.assertGuardsReachTheSameKernel()
     local gotReport, got, gotCode, gotWhere = lowered(asserted, PINNED .. "--json compute.nupp")
     test.equal(wantedCode, 0, wanted)
     test.equal(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
+    assert(wantedReport.llvm, "the report carries the LLVM IR\n" .. wanted)
     test.equal(
-        gotReport.c,
-        wantedReport.c,
-        ("both guard forms emit the same C (%s versus %s)"):format(gotWhere, wantedWhere)
+        gotReport.llvm,
+        wantedReport.llvm,
+        ("both guard forms emit the same LLVM IR (%s versus %s)"):format(gotWhere, wantedWhere)
     )
 end
 
@@ -3348,13 +3349,6 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
         where .. ": the single result is established rather than returned as any: " .. decoded.binding
     )
     assert(decoded.ir, where .. ": and the checked run still reports the IR it judged: " .. raw)
-end
-
--- Whether the instructions can be read on this machine at all. The condition is
--- a C compiler, which is what produces them; a machine without one is missing a
--- build dependency rather than failing.
-local function hasToolchain()
-    return (require("nupp.tools.build.aot").toolchain()) ~= nil
 end
 
 -- Instructions come from LLVM's code generator, linked into nupp, which targets
@@ -5625,11 +5619,12 @@ return {misplaced = misplaced}
     assert(refusedCode ~= 0 and out:find("initializes up to 2 locals", 1, true), out)
 end
 
-function M.anUnrolledLoopReadsEveryCopyBeforeItWrites()
-    -- The unrolled copies of a versioned loop read the spans they never write
-    -- first, every copy at its own cursor, and then do their work; a store no
-    -- longer separates one copy from the next copy's loads. A span the body
-    -- writes keeps its reads in place, and the scalar oracle is not unrolled.
+function M.anUnrolledLoopChecksItsBoundOncePerGroup()
+    -- Where the guard's room covers the cursor's step the step cannot wrap, so
+    -- the versioned loop's trip count is known and its unrolled copies run
+    -- back to back under one bound check, whether or not the body writes the
+    -- span it reads. Ordering the copies' loads is left to the processor. The
+    -- scalar oracle is not unrolled.
     local dir = project{
         [
             "unrolled.nupp"
@@ -5668,23 +5663,27 @@ return {scale = scale, double = double}
     local oracle = oracleBody(decoded.llvm, "ks_scale")
     assert(not oracle:find("!llvm.loop", 1, true), "the oracle is not unrolled\n" .. oracle)
 
-    -- The order the instructions run in, in the first loop of each entry.
-    local function order(symbol)
+    assert(body:find("add nuw i32 ", 1, true), "the cursor's step cannot wrap\n" .. body)
+
+    -- The first loop of each entry: two copies of the body, and nothing that
+    -- compares or branches between them.
+    local function checkedOnce(symbol)
         local asm, asmCode = run(
             dir,
             "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " unrolled.nupp"
         )
         test.equal(asmCode, 0, asm)
-        local first = asm:find("\n%s+ldp%s+q")
-        local second = first and asm:find("\n%s+ldp%s+q", first + 1)
-        local store = asm:find("\n%s+stp%s+q")
-        assert(first and second and store, symbol .. " has two copies of its body\n" .. asm)
-        return second < store, asm
+        local first = asm:find("\n%s+stp%s+q")
+        local second = first and asm:find("\n%s+stp%s+q", first + 1)
+        assert(first and second, symbol .. " has two copies of its body\n" .. asm)
+        local between = asm:sub(first + 1, second)
+        assert(
+            not between:find("\n%s+cmp%s") and not between:find("\n%s+b%.") and not between:find("\nLBB"),
+            symbol .. " checks once per group\n" .. asm
+        )
     end
-    local hoisted, asm = order("ks_scale")
-    assert(hoisted, "both copies read before either writes\n" .. asm)
-    local inPlace, inPlaceAsm = order("ks_double")
-    assert(not inPlace, "a written span keeps its reads in place\n" .. inPlaceAsm)
+    checkedOnce("ks_scale")
+    checkedOnce("ks_double")
 end
 
 function M.aLoopCarriedMaskStaysInItsRegister()

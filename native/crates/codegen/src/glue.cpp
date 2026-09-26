@@ -3,6 +3,7 @@
 #include "lld/Common/Driver.h"
 #include "llvm/Object/ArchiveWriter.h"
 #include "llvm/Object/COFFImportFile.h"
+#include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include <string>
@@ -25,12 +26,22 @@ extern "C" int nupp_codegen_strict_fp(void *tm) {
 
 // argv[0] picks the flavor: ld64.lld, ld.lld, lld-link, wasm-ld. Output and
 // diagnostics are returned in `out` (caller frees with nupp_codegen_free).
+//
+// lld ends a fatal error through `Process::Exit`, which returns to lldMain's
+// recovery context only while crash recovery is enabled; otherwise it ends
+// nupp, silently. It is enabled for the link alone, so the handlers it
+// installs are the process's own again afterwards.
 extern "C" int nupp_codegen_lld(int argc, const char **argv, char **out) {
     std::string text;
     llvm::raw_string_ostream stream(text);
     llvm::ArrayRef<const char *> args(argv, argc);
+    llvm::CrashRecoveryContext::Enable();
     lld::Result r = lld::lldMain(args, stream, stream, LLD_ALL_DRIVERS);
+    llvm::CrashRecoveryContext::Disable();
     stream.flush();
+    if (r.retCode != 0 && text.empty()) {
+        text = "lld stopped with status " + std::to_string(r.retCode) + " and no message";
+    }
     *out = strdup(text.c_str());
     return r.retCode;
 }
