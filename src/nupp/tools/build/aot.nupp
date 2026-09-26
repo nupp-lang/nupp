@@ -781,8 +781,14 @@ function aot.link(
 
     local outcome = new aot.LinkOutcome(objects = objectKeys, reused = reused, compiled = #dirty, linked = true)
     report:at("aot:link")
-    local linkErr = static and aotllvm.archive(selected.triple, objects, output)
-        or aotllvm.link(selected.triple, objects, output)
+    -- Not `static and archive() or link()`: an archive that succeeded answers
+    -- nil, which would link a shared library over it.
+    local linkErr: string? = nil
+    if static then
+        linkErr = aotllvm.archive(selected.triple, objects, output)
+    else
+        linkErr = aotllvm.link(selected.triple, objects, output)
+    end
     if linkErr ~= nil then
         return linkErr, nil
     end
