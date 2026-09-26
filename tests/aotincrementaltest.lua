@@ -8,19 +8,17 @@
 --
 -- Two things are asserted about every rebuild. The counts `build --json`
 -- publishes -- how many objects were reused, how many were compiled, and how
--- many external toolchain processes the policy started -- and the bytes of the
--- object files themselves, because a count is a claim the compiler makes about
--- itself and the bytes are not.
+-- many external processes the policy started, which for a code generator and
+-- linker running in process is always none -- and the bytes of the object files
+-- themselves, because a count is a claim the compiler makes about itself and
+-- the bytes are not.
 --
 -- One project, built and rebuilt through a sequence of states, rather than one
--- project per assertion: each build costs a C compiler run and the states are
--- consecutive by nature. The scenario names each transition as it makes it, so
+-- project per assertion: each build costs a code generator run and the states
+-- are consecutive by nature. The scenario names each transition as it makes it, so
 -- a failure says which rebuild was wrong.
 
 local test = require("assert")
-
--- Whether the build lowers through LLVM rather than C, while there are two.
-local LLVM = os.getenv("NUPP_AOT_BACKEND") == "llvm"
 local json = require("nupp.codec.json")
 local process = require("nupp.compiler.process")
 
@@ -105,13 +103,16 @@ end
 -- Its own content cache, for the reason `aotbuildtest` gives: a shard-wide one
 -- makes an artifact-reuse assertion depend on whichever unrelated project the
 -- worker happened to build first.
-local function build(dir)
+--
+-- `env` is prepended to the command, for a build under another code generator
+-- selection.
+local function build(dir, env)
     local cache = dir .. "/build/test-cache"
     local pipe = assert(
         io.popen(
             (
-                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' build --target native --remarks-out --format json 2>/dev/null"
-            ):format(dir, cache, NUPP)
+                "cd %q && %s NUPP_CACHE_DIR=%q NO_COLOR= '%s' build --target native --remarks-out --format json 2>/dev/null"
+            ):format(dir, env or "", cache, NUPP)
         )
     )
     local out = pipe:read("*a")
@@ -206,12 +207,8 @@ function M.rebuildsOnlyWhatChanged()
     assert(coldFacts.compiledObjects >= SOURCES, "a cold build compiles every unit: " .. coldFacts.compiledObjects)
     test.equal(coldFacts.compiledObjects, coldFacts.units, "every emitted unit becomes an object")
     test.equal(coldFacts.linked, true, "a cold build links")
-    if LLVM then
-        -- The LLVM route compiles and links in process.
-        test.equal(coldFacts.externalCommands, 0, "a cold LLVM build runs no external command")
-    else
-        assert(coldFacts.externalCommands > coldFacts.compiledObjects, "a cold build runs a compiler and a linker")
-    end
+    -- LLVM compiles and lld links in process.
+    test.equal(coldFacts.externalCommands, 0, "a cold build runs no external command")
     local remarks = json.decode(assert(read(dir .. "/build/remarks.json")))
     local aotNotes = 0
     for _, note in ipairs(remarks.remarks or {}) do
@@ -236,8 +233,6 @@ function M.rebuildsOnlyWhatChanged()
     )
 
     -- Nothing changed, so nothing may be produced and nothing may be started.
-    -- The second half is the one worth having: an unchanged build that quietly
-    -- asked a compiler its version costs most of what an unchanged build costs.
     local unchanged = build(dir)
     local stillFacts = unchanged.timing.aot
     test.equal(stillFacts.externalCommands, 0, "an unchanged build starts no external toolchain process")
@@ -266,11 +261,7 @@ function M.rebuildsOnlyWhatChanged()
     )
     test.equal(editFacts.reusedObjects, editFacts.units - count(mine), "every other object is reused")
     test.equal(editFacts.linked, true, "the library is relinked once")
-    test.equal(
-        editFacts.externalCommands,
-        LLVM and 0 or editFacts.compiledObjects + 1,
-        "one compiler run per dirty object and one link"
-    )
+    test.equal(editFacts.externalCommands, 0, "compiling and relinking start no external process")
     local editedObjects = objects(dir)
     local moved = changed(coldObjects, editedObjects)
     test.equal(
@@ -328,23 +319,22 @@ function M.theTimelineNamesTheAheadOfTimePhases()
             seen[span.name] = true
         end
     end
-    -- The three a cold build always spends measurable time in: finding the
-    -- bodies, compiling what it emitted, and linking it.
+    -- The two a cold build always spends measurable time in: finding the
+    -- bodies and compiling what it emitted. Linking is not among them: lld in
+    -- process links a fixture this small in under a millisecond, below what
+    -- the timeline reports.
     assert(seen["aot:check"], "checking the policy's own sources is named")
-    assert(seen["aot:compile"], "running the C compiler is named")
-    -- lld in process links a fixture this small in under a millisecond,
-    -- below what the timeline reports.
-    assert(LLVM or seen["aot:link"], "linking is named")
+    assert(seen["aot:compile"], "running the code generator is named")
 
-    -- And an unchanged build spends none of it on the external compiler, which
-    -- is the same claim the counts make, read off the timeline instead.
+    -- And an unchanged build spends none of it, which is the same claim the
+    -- counts make, read off the timeline instead.
     local unchanged = build(dir)
     for _, span in ipairs(unchanged.timing.phases) do
         assert(span.name ~= "aot:check", "an unchanged build checks no AOT source")
         assert(span.name ~= "aot:lower", "an unchanged build lowers no AOT program")
         assert(span.name ~= "aot:optimize", "an unchanged build optimizes no AOT program")
         assert(span.name ~= "aot:emit", "an unchanged build emits no AOT unit")
-        assert(span.name ~= "aot:compile", "an unchanged build has no external compilation to report")
+        assert(span.name ~= "aot:compile", "an unchanged build has no compilation to report")
         assert(span.name ~= "aot:link", "and nothing to link")
     end
 end
@@ -431,59 +421,44 @@ function M.preEmissionInputsInvalidateIndependently()
     assert(not foundBuild, "an implicit root does not fingerprint generated build output")
 end
 
-function M.replayRequiresTheCurrentlySelectedCompilerCommand()
+--- A replay is admitted only for the code generator this build selects.
+function M.replayRequiresTheCurrentCodeGenerator()
     local aot = require("nupp.tools.build.aot")
-    local remembered = {command = "clang", signature = "signature", version = "clang 18", dialect = "clang"}
-    assert(aot.replayCommandMatches("require", remembered, "clang"), "the remembered native command matches itself")
-    assert(
-        not aot.replayCommandMatches("require", remembered, "/usr/bin/clang"),
-        "an explicit native compiler spelling invalidates replay"
-    )
-    assert(
-        not aot.replayCommandMatches("require-wasm", remembered, "emcc"),
-        "a changed Wasm compiler invalidates replay"
-    )
-    assert(aot.replayCommandMatches("emit-c", nil, nil), "emitting C selects no external compiler")
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local policy = aot.toolchainPolicy("require", nil)
+    test.equal(policy.desiredCommand, "<llvm>", "the in-process code generator is the only command")
+    test.equal(policy.codegen, aotllvm.selection(), "the policy names the code generator selection")
+
+    local remembered = {command = "<llvm>", signature = "", version = aotllvm.version(), dialect = "llvm"}
+    local byC = {command = "clang", signature = "", version = "clang 18", dialect = "clang"}
+    for _, name in ipairs({"require", "require-wasm", "emit-wasm"}) do
+        assert(aot.replayCommandMatches(name, remembered, "<llvm>"), name .. ": the remembered code generator matches")
+        assert(not aot.replayCommandMatches(name, byC, "<llvm>"), name .. ": a build a C compiler produced is not replayed")
+        assert(
+            not aot.replayCommandMatches(name, nil, "<llvm>"),
+            name .. ": a build with nothing remembered is not replayed"
+        )
+    end
+    assert(aot.replayCommandMatches("off", nil, nil), "a policy that compiles nothing selects no code generator")
 end
 
-function M.preEmissionInputsIncludeTheWholeCompilerPackPolicy()
+--- The code generator selection is part of the key asked before any source is
+--- checked: a build under other facts, or another LLVM, lowers again.
+function M.preEmissionInputsIncludeTheCodeGeneratorSelection()
     local aot = require("nupp.tools.build.aot")
-    local semantic = {sources = "same", toolchain = nil,}
-
-    local function key(pack)
-        semantic.toolchain = aot.toolchainPolicyRecord("require", "x86_64-unknown-linux-gnu", pack, nil)
-
-        return aot.inputFingerprint({}, semantic)
-    end
-
-    local base = {
-        host = "x86_64-apple-darwin",
-        target = "x86_64-unknown-linux-gnu",
-        version = "pack-1",
-        manifestDigest = "manifest-1",
-        cc = "/packs/cc",
-        cxx = "/packs/cxx",
-        ar = "/packs/ar",
-        linkHost = "/packs/link-host",
-        compileFlags = {"--sysroot=/packs/sdk"},
-        linkFlags = {"--sysroot=/packs/sdk", "-lc"},
-        profile = {target = "x86_64-unknown-linux-gnu", staticAot = true,},
-    }
-    local first = key(base)
-    local fields = {"version", "manifestDigest", "cc", "cxx", "ar", "linkHost", "compileFlags", "linkFlags", "profile",}
-    for _, field in ipairs(fields) do
+    local semantic = {sources = "same", toolchainPolicy = aot.toolchainPolicy("require", "x86_64-unknown-linux-gnu")}
+    local base = aot.inputFingerprint({}, semantic)
+    test.equal(aot.inputFingerprint({}, semantic), base, "one selection keeps one fingerprint")
+    for _, field in ipairs({"policy", "target", "codegen"}) do
         local changed = {}
-        for name, value in pairs(base) do
+        for name, value in pairs(semantic.toolchainPolicy) do
             changed[name] = value
         end
-        if field == "compileFlags" or field == "linkFlags" then
-            changed[field] = {"changed-with-the-same-compiler-command"}
-        elseif field == "profile" then
-            changed[field] = {target = "x86_64-unknown-linux-gnu", staticAot = false,}
-        else
-            changed[field] = tostring(changed[field]) .. "-changed"
-        end
-        assert(key(changed) ~= first, "compiler pack " .. field .. " invalidates pre-emission replay")
+        changed[field] = tostring(changed[field]) .. "-changed"
+        assert(
+            aot.inputFingerprint({}, {sources = "same", toolchainPolicy = changed}) ~= base,
+            field .. " invalidates pre-emission replay"
+        )
     end
 end
 
@@ -550,14 +525,15 @@ function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/aot'") == 0)
-    local unit = dir .. "/aot/kernel.c"
+    local unit = dir .. "/aot/kernel.ll"
     local manifest = dir .. "/aot/units.json"
     local linkManifest = dir .. "/aot/link.json"
     write(unit, "unit")
     write(manifest, "units")
     write(linkManifest, "link")
     local bridge = {entries = {{call = "kernel", layouts = {},},},}
-    local snapshot = aot.captureReplay("emit-c", {
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local snapshot = aot.captureReplay("emit-wasm", {
         emitted = {
             {
                 source = "kernel.nupp",
@@ -568,49 +544,54 @@ function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
                 registrar = "nupp_wasm_register_u1234",
                 bridge = bridge,
                 unit = "u1234",
+                backend = "llvm",
             },
         },
         manifest = manifest,
         dispatch = {},
         specializedBodies = 0,
+        remembered = {command = "<llvm>", signature = "", version = aotllvm.version(), dialect = "llvm"},
     })
     assert(
         snapshot.payload.files.nupp_wasm_register_u1234 == nil,
         "a registrar symbol is metadata rather than a path to validate"
     )
     test.equal(snapshot.payload.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives capture")
-    local restored = assert(aot.replay(snapshot, nil), "intact replay evidence restores the result")
+    assert(aot.replay(snapshot, "clang") == nil, "another code generator refuses replay")
+    local restored = assert(aot.replay(snapshot, "<llvm>"), "intact replay evidence restores the result")
     test.equal(restored.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives replay")
     os.remove(linkManifest)
-    assert(aot.replay(snapshot, nil) == nil, "a missing static link manifest refuses replay")
+    assert(aot.replay(snapshot, "<llvm>") == nil, "a missing static link manifest refuses replay")
 end
 
---- A project flag the last build did not use recompiles every object.
+--- A code generator selection the last build did not use recompiles every
+--- source's objects.
 ---
---- Flags are not in the unit key, because the C does not change when they do.
---- They are in the object key, because the object does. A build that kept
---- objects across a flag change would ship a library compiled two ways.
-function M.changedFlagsRecompileEveryObject()
-    if LLVM then
-        -- C flags reach no LLVM object; its own options are in its key.
-        return
-    end
+--- The facts the lowering states change the IR, so they are in the unit key
+--- and through it the object key. A build that kept objects across a change of
+--- facts would ship a library lowered two ways.
+function M.changedFactsRecompileEveryObject()
     local dir = project()
     local first = build(dir)
     test.equal(first.timing.aot.reusedObjects, 0)
+    local coldObjects = objects(dir)
     local settled = build(dir)
     test.equal(settled.timing.aot.reusedObjects, settled.timing.aot.units, "the fixture starts settled")
 
-    local manifest = assert(read(dir .. "/nupp.lua"))
-    write(
-        dir .. "/nupp.lua",
-        (manifest:gsub('aot = "require",', 'aot = "require", aotCflags = {"-DNUPP_AOT_TEST=1"},'))
-    )
-    local reflagged = build(dir)
-    assert(reflagged.timing.aot.checkedSources >= SOURCES, "AOT flags invalidate the pre-emission fingerprint")
-    test.equal(reflagged.timing.aot.reusedObjects, 0, "a flag the objects were not compiled with recompiles them")
-    test.equal(reflagged.timing.aot.compiledObjects, reflagged.timing.aot.units)
-    test.equal(reflagged.timing.aot.linked, true, "and the library is linked again")
+    local refacted = build(dir, "NUPP_AOT_FACTS=none")
+    local facts = refacted.timing.aot
+    assert(facts.checkedSources >= SOURCES, "the fact selection invalidates the pre-emission fingerprint")
+    local mine = 0
+    for index = 1, SOURCES do
+        mine = mine + count(objectsOf(coldObjects, "k" .. index))
+    end
+    test.equal(facts.compiledObjects, mine, "every source's objects are compiled again")
+    test.equal(facts.reusedObjects, facts.units - mine, "and only compiler-owned units are reused")
+    test.equal(facts.linked, true, "and the library is linked again")
+
+    local back = build(dir)
+    assert(back.timing.aot.checkedSources >= SOURCES, "returning to every fact lowers again")
+    test.equal(back.timing.aot.compiledObjects, mine, "and compiles every source's objects again")
 end
 
 --- What an object key covers, asserted on the key rather than through a build.
@@ -667,47 +648,26 @@ end
 
 function M.objectKeysCoverWhatChangesTheirBytes()
     local aot = require("nupp.tools.build.aot")
-    local clang = {command = "cc", version = "clang 17", dialect = "clang"}
-    local newer = {command = "cc", version = "clang 18", dialect = "clang"}
-    local base = aot.objectKey("unit", "baseline", clang, {"-O3"})
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local llvm = {command = "<llvm>", version = "llvm 20", dialect = "llvm"}
+    local newer = {command = "<llvm>", version = "llvm 21", dialect = "llvm"}
+    local triple = "x86_64-unknown-linux-gnu"
+    local baseline = aotllvm.flags(triple, "baseline")
+    local avx2 = aotllvm.flags(triple, "avx2")
+    assert(table.concat(baseline, " ") ~= table.concat(avx2, " "), "each tier compiles with its own options")
+    local base = aot.objectKey("unit", "baseline", llvm, baseline)
 
-    test.equal(aot.objectKey("unit", "baseline", clang, {"-O3"}), base, "the same inputs give the same key")
-    assert(aot.objectKey("other", "baseline", clang, {"-O3"}) ~= base, "the unit is in the key")
-    assert(aot.objectKey("unit", "avx2", clang, {"-O3"}) ~= base, "the target tier is in the key")
-    assert(aot.objectKey("unit", "baseline", newer, {"-O3"}) ~= base, "the compiler's identity is in the key")
-    assert(aot.objectKey("unit", "baseline", clang, {"-O2"}) ~= base, "the flags are in the key")
-    assert(aot.objectKey("unit", "baseline", clang, {"-O3", "-g"}) ~= base, "and so is one more of them")
-end
-
---- What lets a build believe a recorded compiler identity without asking again.
----
---- The signature has to move when the file it names does, because everything
---- keyed on the recorded version text is only as good as this is. It names a
---- path rather than running anything, so it can be asked about an ordinary file.
-function M.aToolSignatureFollowsTheFileItNames()
-    local aot = require("nupp.tools.build.aot")
-    local path = os.tmpname()
-    write(path, "one")
-    local first = aot.toolSignature(path)
-    write(path, "one and a half")
-    local grown = aot.toolSignature(path)
-    assert(first ~= grown, "a compiler replaced with a file of another length is seen")
-    write(path, "one")
-    test.equal(aot.toolSignature(path), first, "and restoring it restores the signature")
-
-    local elsewhere = os.tmpname()
-    write(elsewhere, "one")
-    assert(aot.toolSignature(elsewhere) ~= first, "the same bytes at another path are another compiler")
-    os.remove(path)
-    os.remove(elsewhere)
-
-    local missing = aot.toolSignature("/nonexistent/compiler-that-is-not-there")
-    assert(missing ~= first, "a compiler that is not there matches nothing that is")
-    test.equal(
-        aot.toolSignature("/nonexistent/compiler-that-is-not-there"),
-        missing,
-        "and says the same thing every time it is asked"
-    )
+    test.equal(aot.objectKey("unit", "baseline", llvm, baseline), base, "the same inputs give the same key")
+    assert(aot.objectKey("other", "baseline", llvm, baseline) ~= base, "the unit is in the key")
+    assert(aot.objectKey("unit", "avx2", llvm, baseline) ~= base, "the target tier is in the key")
+    assert(aot.objectKey("unit", "baseline", newer, baseline) ~= base, "the code generator's identity is in the key")
+    assert(aot.objectKey("unit", "baseline", llvm, avx2) ~= base, "the options are in the key")
+    local more = {}
+    for index, flag in ipairs(baseline) do
+        more[index] = flag
+    end
+    more[#more + 1] = "extra=1"
+    assert(aot.objectKey("unit", "baseline", llvm, more) ~= base, "and so is one more of them")
 end
 
 return M
