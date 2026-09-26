@@ -153,7 +153,35 @@ local PARSED = {
     -- An empty query and no query are different URIs.
     {"http://example.com/?#", "http://example.com/?#", query = "", fragment = ""},
     {"https://[::1]:8080/x", "https://[::1]:8080/x", authority = "[::1]:8080", host = "[::1]", port = 8080},
+    {"https://[2001:db8::1]/x", "https://[2001:db8::1]/x", host = "[2001:db8::1]"},
+    {"https://[1:2:3:4:5:6:7:8]/x", "https://[1:2:3:4:5:6:7:8]/x", host = "[1:2:3:4:5:6:7:8]"},
     {"http://user@example.com", "http://user@example.com/", username = "user", password = false},
+    {
+        "http://user@info@example.com/x",
+        "http://user%40info@example.com/x",
+        username = "user%40info",
+        host = "example.com",
+    },
+    {
+        "http://user name:pass word@example.com/x",
+        "http://user%20name:pass%20word@example.com/x",
+        username = "user%20name",
+        password = "pass%20word",
+    },
+    {
+        "http://example.com/a b?x y#z z",
+        "http://example.com/a%20b?x%20y#z%20z",
+        path = "/a%20b",
+        query = "x%20y",
+        fragment = "z%20z",
+    },
+    {
+        "mailto:user name@example.com?subject=hello world#part one",
+        "mailto:user name@example.com?subject=hello%20world#part%20one",
+        path = "user name@example.com",
+        query = "subject=hello%20world",
+        fragment = "part%20one",
+    },
     {"https://example.com/a?b=1&c=2#frag", "https://example.com/a?b=1&c=2#frag", query = "b=1&c=2", fragment = "frag"},
 }
 
@@ -335,6 +363,23 @@ function M.browserParserAgreesOnPortableUriComponents()
                 test.equal(parts[name], expected, row[1] .. " browser " .. name)
             end
         end
+    end
+end
+
+function M.browserParserRefusesMalformedOrUnsupportedHosts()
+    local browser = require("nupp.runtime.browser.uri")
+    for _, text in ipairs({
+        "http://[::::]/",
+        "http://[1:2:3:4:5:6:7:8:9]/",
+        "http://[1:2:3:4:5:6:7]/",
+        "http://exa%mple.com/x",
+        "http://127.0.0.999/x",
+        "http://127.00.0.1/x",
+        "http://example.com/\0suffix",
+    }) do
+        local value, reason = browser.parse(text)
+        test.equal(value, nil, text .. " is refused")
+        assert(reason, text .. " explains its refusal")
     end
 end
 

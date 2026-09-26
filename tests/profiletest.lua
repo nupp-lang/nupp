@@ -178,6 +178,19 @@ function M.zonePathIsRebuiltAfterEveryChange()
     zone.release()
 end
 
+function M.aLateLeaveCannotPopANewerSession()
+    zone.acquire()
+    local stale = zone.enter("old")
+    zone.release()
+
+    zone.acquire()
+    zone.push("current")
+    zone.leave(stale)
+    assertEq(zone.path(), "current", "a stale token left the new generation alone")
+    zone.pop()
+    zone.release()
+end
+
 -------------------------------------------------------------------------------
 -- Sampling
 -------------------------------------------------------------------------------

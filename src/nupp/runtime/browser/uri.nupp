@@ -2,7 +2,8 @@
 module nupp.runtime.browser.uri
 
 --[[
-Portable absolute-URI parsing for `host.uri` API 1.
+The browser implementation parses absolute URIs for the `host.uri` API 1
+contract.
 
 The parser splits scheme, authority, credentials, host, port, path, query, and
 fragment and constructs the canonical UriParts record. It normalizes supported
@@ -19,9 +20,100 @@ local contracts = require("nupp.io.uri.spi")
 const pathtext = require("nupp.io.uri.pathtext")
 local provider = {}
 
+local function encodedComponent(text: string, encodeAt: boolean?): string
+    text = text:gsub(" ", "%%20")
+    if encodeAt then
+        text = text:gsub("@", "%%40")
+    end
+
+    return text
+end
+
+local function validIpv4(text: string): boolean
+    local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if d == nil then
+        return false
+    end
+    for _, part in ipairs({a, b, c, d}) do
+        local value = tonumber(part)
+        if value == nil or value > 255 or tostring(value) ~= part then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function ipv6PartCount(text: string, ipv4Allowed: boolean): integer?
+    if text == "" then
+        return 0
+    end
+    if text:sub(1, 1) == ":" or text:sub(-1) == ":" then
+        return nil
+    end
+    local count: integer = 0
+    local offset: integer = 1
+    while true do
+        local nextColon = text:find(":", offset, true)
+        local part = nextColon and text:sub(offset, nextColon - 1) or text:sub(offset)
+        if part:find(".", 1, true) then
+            if not ipv4Allowed or nextColon ~= nil or not validIpv4(part) then
+                return nil
+            end
+            count = count + 2
+        elseif #part < 1 or #part > 4 or not part:match("^[%x]+$") then
+            return nil
+        else
+            count = count + 1
+        end
+        if nextColon == nil then
+            break
+        end
+        offset = nextColon + 1
+    end
+
+    return count
+end
+
+local function validIpv6(text: string): boolean
+    local compression = text:find("::", 1, true)
+    if compression == nil then
+        return ipv6PartCount(text, true) == 8
+    end
+    if text:find("::", compression + 2, true) ~= nil then
+        return false
+    end
+    local left = text:sub(1, compression - 1)
+    local right = text:sub(compression + 2)
+    local leftCount = ipv6PartCount(left, false)
+    local rightCount = ipv6PartCount(right, true)
+
+    return leftCount ~= nil and rightCount ~= nil and leftCount + rightCount < 8
+end
+
+local function validHost(text: string, special: boolean): boolean
+    if text:find("[%s%[%]\\<>^|%%]") then
+        return false
+    end
+    for index = 1, #text do
+        local byte = text:byte(index)
+        if byte < 33 or byte > 126 then
+            return false
+        end
+    end
+    if special and text:match("^[%d.]+$") and not validIpv4(text) then
+        return false
+    end
+
+    return true
+end
+
 -- Browser URI parsing supplies components; the public URI value and its
 -- operations are owned by nupp.io.uri on every host.
 function provider.parse(text: string): (contracts.UriParts?, string?)
+    if text:find("\0", 1, true) then
+        return nil, "URI contains a NUL byte"
+    end
     local scheme, remainder = text:match("^([A-Za-z][A-Za-z0-9+.-]*):(.*)$")
     if scheme == nil then
         return nil, "relative URL without a base"
@@ -52,20 +144,22 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
     local host: string? = nil
     local port: integer? = nil
     if authority ~= nil then
-        local userInfo, hostPort = authority:match("^(.-)@(.*)$")
+        local userInfo, hostPort = authority:match("^(.*)@(.*)$")
         hostPort = hostPort or authority
         if userInfo ~= nil then
             local foundUsername, foundPassword = userInfo:match("^([^:]*):?(.*)$")
-            username, password = foundUsername or "", foundPassword
+            username, password = encodedComponent(foundUsername or "", true), foundPassword
             if password == "" and not userInfo:find(":", 1, true) then
                 password = nil
+            elseif password ~= nil then
+                password = encodedComponent(password, true)
             end
         end
         local namedHost: string
         local namedPort: string? = nil
         if hostPort:sub(1, 1) == "[" then
             local address, suffix = hostPort:match("^(%[[%x:.]+%])(.*)$")
-            if address == nil or not address:find(":", 1, true) then
+            if address == nil or not validIpv6(address:sub(2, -2)) then
                 return nil, "invalid IPv6 address"
             end
             namedHost = address:lower()
@@ -79,7 +173,7 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
             local before, after = hostPort:match("^(.-):(.*)$")
             namedHost = before or hostPort
             namedPort = after
-            if namedHost:find("[%s%[%]\\<>^|]") then
+            if not validHost(namedHost, special) then
                 return nil, "invalid host"
             end
         end
@@ -102,15 +196,19 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
                 port = nil
             end
         end
-        authority = (userInfo ~= nil and userInfo .. "@" or "") .. (host or "") .. (port ~= nil and ":" .. port or "")
+        authority = (
+            userInfo ~= nil and username .. (password ~= nil and ":" .. password or "") .. "@" or ""
+        ) .. (host or "") .. (port ~= nil and ":" .. port or "")
     end
     if authority ~= nil or path:sub(1, 1) == "/" then
         path = pathtext.removeDotSegments(path)
+        path = encodedComponent(path)
     end
     if special and path == "" then
         path = "/"
     end
-    path = path:gsub(" ", "%%20")
+    query = query ~= nil and encodedComponent(query) or nil
+    fragment = fragment ~= nil and encodedComponent(fragment) or nil
 
     local normalized = scheme .. ":" .. (
         authority ~= nil and "//" .. authority or ""
