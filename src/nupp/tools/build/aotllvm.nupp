@@ -64,8 +64,14 @@ function aotllvm.selection(): string
     )
 end
 
---- The code generator's identity, which every LLVM artifact is keyed on.
+--- The code generator's identity, which every LLVM artifact is keyed on, or
+--- `unavailable` in a nupp built without it: a build that compiles nothing on
+--- the CPU needs none, and one that does says so where it would compile.
 function aotllvm.version(): string
+    if not codegen.available() then
+        return "unavailable"
+    end
+
     return codegen.version()
 end
 
