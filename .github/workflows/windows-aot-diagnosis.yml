@@ -66,83 +66,17 @@ jobs:
         shell: bash
         run: ./bin/nupp build --target bootstrapCompiler
 
-      # #71: an i686 browser-guest build does not finish here. Its compile and
-      # link in one process, each announced, bounded, so the log names the one
-      # that stops -- or shows the process not exiting after both.
-      - name: Compile and link the i686 runtime, step by step
+      # #71: an i686 build compiles and links, and then its process never
+      # exits. One step per process, each bounded, so the step whose process
+      # is killed is the one that leaves it unable to exit.
+      - name: Which step keeps the process from exiting
         shell: bash
         run: |
           set +e
           export NUPP_PROBE_OUT="$RUNNER_TEMP/i686"
           mkdir -p "$NUPP_PROBE_OUT"
-          timeout -k 15 240 ./bin/nupp run .github/scripts/diagnose-i686-link.lua
-          echo "exit status $?"
-
-      # Windows AOT suites run far longer than elsewhere. Where one small
-      # build's time goes, cold and then unchanged.
-      - name: Time one AOT build's phases
-        shell: bash
-        run: |
-          set +e
-          work="$RUNNER_TEMP/timed"
-          mkdir -p "$work/src"
-          printf '%s\n' 'return {include = {"src"}, build = {targets = {native = {kind = "modules",' \
-            '    entries = {"kernel"}, outDir = "build/native", aot = "require"}}}}' > "$work/nupp.lua"
-          printf '%s\n' 'local span = require("nupp.mem.span")' '@aot' \
-            'local function scale(exclusive out: span.WriteSpan<number>, borrows a: span.Span<number>): nil' \
-            '    assert(#out == #a)' '    for i = 1, #out do' '        out[i] = a[i] * 2' '    end' 'end' \
-            'return {scale = scale}' > "$work/src/kernel.nupp"
-          cd "$work"
-          for run in cold warm; do
-            start=$(date +%s%N)
-            timeout -k 15 300 "$GITHUB_WORKSPACE/bin/nupp" build --json > "$RUNNER_TEMP/timed-$run.json" 2>"$RUNNER_TEMP/timed-$run.err"
-            status=$?
-            echo "== $run: status $status after $(( ($(date +%s%N) - start) / 1000000 ))ms"
-            luajit -e '
-              local text = io.open(arg[1]):read("*a")
-              for name, ms in text:gmatch([["name":"([^"]+)","durationMs":([%d.]+)]]) do
-                if tonumber(ms) > 200 then print(("  %-16s %8.0f ms"):format(name, tonumber(ms))) end
-              end
-              print("  total", text:match([["totalMs":([%d.]+)]]))' "$RUNNER_TEMP/timed-$run.json" 2>/dev/null \
-              || head -c 600 "$RUNNER_TEMP/timed-$run.json"
-            tail -3 "$RUNNER_TEMP/timed-$run.err"
-          done
-          start=$(date +%s%N); "$GITHUB_WORKSPACE/bin/nupp" --version; echo "== nupp --version: $(( ($(date +%s%N) - start) / 1000000 ))ms"
-
-      - name: Run each AOT suite alone, bounded
-        shell: bash
-        run: |
-          set +e
-          bash_path=$(command -v bash)
-          export NUPP_TEST_BASH NUPP_TEST_SH
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path")
-          NUPP_TEST_SH=$(cygpath -w "$(dirname "$bash_path")/sh.exe")
-          suites="projecttest"
-          for suite in $suites; do
+          for mode in compile link coff both; do
             start=$(date +%s)
-            timeout -k 15 600 ./bin/nupp test --jobs=1 "$suite" > "$RUNNER_TEMP/$suite.log" 2>&1
-            status=$?
-            took=$(( $(date +%s) - start ))
-            echo "== $suite: status $status after ${took}s: $(grep -E 'tests,' "$RUNNER_TEMP/$suite.log" | tail -1)"
-            if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; then
-              sed -n '/^Failures:/,/tests,/p' "$RUNNER_TEMP/$suite.log" | head -80
-            fi
-            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
-              echo "::group::$suite case by case"
-              for case in $(./bin/nupp test "$suite" --list-cases 2>/dev/null | head -3); do
-                cstart=$(date +%s)
-                timeout -k 15 300 ./bin/nupp test --jobs=1 "$suite" --case="$case" > "$RUNNER_TEMP/case.log" 2>&1
-                cstatus=$?
-                echo "$case: status $cstatus after $(( $(date +%s) - cstart ))s"
-                if [ "$cstatus" -eq 124 ] || [ "$cstatus" -eq 137 ]; then
-                  echo "::error::$case hangs"
-                  tail -30 "$RUNNER_TEMP/case.log"
-                fi
-              done
-              echo "::endgroup::"
-            fi
-            # Whatever a killed run left behind must not hold the next one.
-            taskkill //F //IM luajit.exe > /dev/null 2>&1
-            taskkill //F //IM nupp.exe > /dev/null 2>&1
+            NUPP_PROBE_MODE=$mode timeout -k 10 90 ./bin/nupp run .github/scripts/diagnose-i686-link.lua
+            echo "== $mode: exit status $? after $(( $(date +%s) - start ))s"
           done
-          exit 0
