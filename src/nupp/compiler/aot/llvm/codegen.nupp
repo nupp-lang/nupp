@@ -34,6 +34,8 @@ int32_t nuppCodegenCompile(
     const char *options, size_t optionsLength,
     uint64_t *object, uint64_t *report, uint64_t *assembly, uint64_t *optimizedIr);
 int32_t nuppCodegenLink(const char *argv, size_t length, uint64_t *messages);
+int32_t nuppCodegenUnexitable(void);
+void nuppCodegenEndProcess(int32_t code);
 int32_t nuppCodegenImportLibrary(
     const char *dll, size_t dllLength,
     const char *path, size_t pathLength,
@@ -198,6 +200,25 @@ function codegen.compileFiles(jobs: {codegen.Job}, width: integer): ({codegen.Ou
     end
 
     return result as {codegen.Outcome}, nil
+end
+
+--- Ends this process with `code` when a link left it unable to exit through
+--- its static destructors, which on a Windows host an ELF, Mach-O or Wasm link
+--- does; returns otherwise. The process's own buffered output is flushed
+--- first, since nothing after this runs.
+function codegen.endIfUnexitable(code: integer): nil
+    if not declared then
+        return
+    end
+    local C: any = native.C
+    local ok, unexitable = pcall(function(): boolean
+        return C.nuppCodegenUnexitable() ~= 0
+    end)
+    if ok and unexitable then
+        io.stdout:flush()
+        io.stderr:flush()
+        C.nuppCodegenEndProcess(code)
+    end
 end
 
 --- Runs lld in process. `argv[1]` picks the flavor: `ld64.lld`, `ld.lld`,

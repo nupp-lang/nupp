@@ -94,6 +94,20 @@ pub unsafe extern "C" fn nuppCodegenLink(argv: *const u8, length: usize, message
 }
 
 #[unsafe(no_mangle)]
+/// Whether a link left this process unable to exit through its static
+/// destructors; 1 when it did.
+pub extern "C" fn nuppCodegenUnexitable() -> i32 {
+    i32::from(codegen::unexitable())
+}
+
+#[unsafe(no_mangle)]
+/// Ends this process with `code` without its static destructors. For a
+/// process `nuppCodegenUnexitable` names, once its own output is flushed.
+pub extern "C" fn nuppCodegenEndProcess(code: i32) {
+    codegen::end_process(code)
+}
+
+#[unsafe(no_mangle)]
 /// Writes a MinGW import library. `names` is NUL-separated entries, each
 /// `name` or `name\texport`.
 ///

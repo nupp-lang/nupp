@@ -14,6 +14,8 @@ use std::time::Instant;
 unsafe extern "C" {
     fn nupp_codegen_strict_fp(tm: LLVMTargetMachineRef) -> c_int;
     fn nupp_codegen_lld(argc: c_int, argv: *const *const c_char, out: *mut *mut c_char) -> c_int;
+    fn nupp_codegen_unexitable() -> c_int;
+    fn nupp_codegen_end_process(code: c_int) -> !;
     fn nupp_codegen_import_library(
         dll: *const c_char,
         path: *const c_char,
@@ -251,6 +253,16 @@ pub fn compile(ir: &str, name: &str, options: &CompileOptions) -> Result<Compile
         violations,
         timings: Timings { parse: parse_us, optimize: optimize_us, codegen: codegen_us },
     })
+}
+
+/// Whether a link left this process unable to exit normally (see glue.cpp).
+pub fn unexitable() -> bool {
+    unsafe { nupp_codegen_unexitable() != 0 }
+}
+
+/// Ends the process with `code`, skipping static destructors.
+pub fn end_process(code: i32) -> ! {
+    unsafe { nupp_codegen_end_process(code) }
 }
 
 pub fn link(argv: &[String]) -> Result<String, String> {

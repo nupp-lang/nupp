@@ -6,6 +6,7 @@
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,18 @@ LLD_HAS_DRIVER(elf)
 LLD_HAS_DRIVER(coff)
 LLD_HAS_DRIVER(mingw)
 LLD_HAS_DRIVER(wasm)
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+// Whether this process has run a lld whose state it cannot shed on the way
+// out. On a Windows host an ELF, Mach-O or Wasm link leaves the process unable
+// to exit through its static destructors (#71); `lld-link` with one thread
+// does not.
+static bool unexitable = false;
 
 // Strict: no multiply-add is formed except from an explicit `llvm.fmuladd`,
 // which Nupp emits only inside `@relax("fp-contract")` functions. Per-instruction
@@ -48,6 +61,11 @@ extern "C" int nupp_codegen_lld(int argc, const char **argv, char **out) {
     llvm::ArrayRef<const char *> args(argv, argc);
 #endif
     llvm::CrashRecoveryContext::Enable();
+#ifdef _WIN32
+    if (flavor != "lld-link") {
+        unexitable = true;
+    }
+#endif
     lld::Result r = lld::lldMain(args, stream, stream, LLD_ALL_DRIVERS);
     llvm::CrashRecoveryContext::Disable();
     stream.flush();
@@ -59,6 +77,18 @@ extern "C" int nupp_codegen_lld(int argc, const char **argv, char **out) {
 }
 
 extern "C" void nupp_codegen_free(char *p) { free(p); }
+
+extern "C" int nupp_codegen_unexitable(void) { return unexitable ? 1 : 0; }
+
+// Ends this process with `code` without running its static destructors, once
+// the C streams are flushed: the way out for a process `unexitable` names.
+extern "C" void nupp_codegen_end_process(int code) {
+    fflush(nullptr);
+#ifdef _WIN32
+    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(code));
+#endif
+    _exit(code);
+}
 
 // An import library naming `dll` as the provider of `names`; a non-empty
 // `renames[i]` imports `names[i]` under that export name instead.

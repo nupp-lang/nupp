@@ -140,6 +140,32 @@ pub fn compile(ir: &str, name: &str, options: &CompileOptions) -> Result<Compile
     }
 }
 
+/// Whether a link left this process unable to exit through its static
+/// destructors, which on a Windows host an ELF, Mach-O or Wasm link does.
+pub fn unexitable() -> bool {
+    #[cfg(nupp_llvm)]
+    {
+        llvm::unexitable()
+    }
+    #[cfg(not(nupp_llvm))]
+    {
+        false
+    }
+}
+
+/// Ends the process with `code` once the C streams are flushed, without its
+/// static destructors.
+pub fn end_process(code: i32) -> ! {
+    #[cfg(nupp_llvm)]
+    {
+        llvm::end_process(code)
+    }
+    #[cfg(not(nupp_llvm))]
+    {
+        std::process::exit(code)
+    }
+}
+
 /// Runs lld in process. `argv[0]` picks the flavor: `ld64.lld`, `ld.lld`,
 /// `lld-link`, `wasm-ld`. Returns lld's output (warnings) on success.
 pub fn link(argv: &[String]) -> Result<String, String> {
