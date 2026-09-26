@@ -130,6 +130,26 @@ function M.aDescriptorMustReferenceAModelledLayout()
     assert(err:find("modelled layoutModel", 1, true), err)
 end
 
+function M.aDescriptorRejectsMalformedLinkFlags()
+    local mapped = descriptor()
+    mapped.link.forceLoad = {archive = "-Wl,--whole-archive"}
+    local profile, err = profiles.fromDescriptor("aarch64-vendor-console", mapped, "pack.json")
+    assertEq(profile, nil, "an object is not a flag array")
+    assert(err:find("array of strings", 1, true), err)
+
+    local sparse = descriptor()
+    sparse.link.export = {[2] = "-Wl,-E"}
+    profile, err = profiles.fromDescriptor("aarch64-vendor-console", sparse, "pack.json")
+    assertEq(profile, nil, "a sparse array loses linker arguments")
+    assert(err:find("must not have gaps", 1, true), err)
+
+    local scalar = descriptor()
+    scalar.link = "-Wl,-E"
+    profile, err = profiles.fromDescriptor("aarch64-vendor-console", scalar, "pack.json")
+    assertEq(profile, nil, "link metadata must be an object")
+    assert(err:find("link must be an object", 1, true), err)
+end
+
 function M.staticAotWithoutAResolverIsRefusedInTheDescriptor()
     local stated = descriptor({staticSymbolResolver = false})
     local profile, err = profiles.fromDescriptor("aarch64-vendor-console", stated, "pack.json")

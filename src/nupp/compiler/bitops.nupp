@@ -17,16 +17,16 @@ function bitops.bnot(value: number): integer
     return raw.bnot(value)
 end
 
-function bitops.band(...: number): integer
-    return raw.band(...)
+function bitops.band(first: number, ...: number): integer
+    return raw.band(first, ...)
 end
 
-function bitops.bor(...: number): integer
-    return raw.bor(...)
+function bitops.bor(first: number, ...: number): integer
+    return raw.bor(first, ...)
 end
 
-function bitops.bxor(...: number): integer
-    return raw.bxor(...)
+function bitops.bxor(first: number, ...: number): integer
+    return raw.bxor(first, ...)
 end
 
 function bitops.lshift(value: number, count: number): integer

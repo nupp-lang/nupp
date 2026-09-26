@@ -492,10 +492,10 @@ rereading it as advice. A `cdef ... from "name"` asks the platform to load a
 library, so a target with no loader rejects it; the same C is reachable through
 the default namespace, which is what a static link puts there. An `ffi.cast` to
 a function type asks the VM for a callback trampoline, so a target that
-allocates none rejects it — ahead of the `@unsafe` question, because `@unsafe`
-says the author accepts what a callback costs rather than that the destination
-can make one, and unlike the `jit-callback` lint beside it this cannot be waved
-away with `@allow`. A target nothing describes refuses nothing.
+allocates none rejects it before the `@unsafe` question. `@unsafe` says the
+author accepts what a callback costs rather than that the destination can make
+one, and unlike the `jit-callback` lint beside it this cannot be waved away with
+`@allow`. A target nothing describes refuses nothing.
 
 A vendor describes a private target in its compiler pack, so nothing about a
 confidential platform has to reach the public distribution catalog. `pack.json`

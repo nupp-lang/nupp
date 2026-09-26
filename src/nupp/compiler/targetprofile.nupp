@@ -10,12 +10,12 @@ Those are not layout questions and they are not preferences: a build that gets
 them wrong produces an artifact that cannot run, and usually cannot say why.
 
 Every publicly modelled triple is an ordinary hosted platform and answers yes to
-all of them. The profile exists for the ones that do not. An embedded host --
-a console, a fixed-function appliance -- commonly links one executable with no
-loader in it, ships a LuaJIT port with the interpreter and no trace compiler,
-and forbids the executable pages an FFI callback trampoline needs. Naming those
-facts is what lets the compiler refuse a construct the destination cannot run
-instead of emitting it and finding out on the device.
+all of them. The profile exists for the ones that do not. An embedded host, such
+as a console or fixed-function appliance, commonly links one executable with no
+loader in it, ships a LuaJIT port with the interpreter and no trace compiler, and
+forbids the executable pages an FFI callback trampoline needs. Naming those facts
+is what lets the compiler refuse a construct the destination cannot run instead
+of emitting it and finding out on the device.
 
 A vendor supplies the facts for a private target in a compiler pack, so nothing
 about a confidential platform has to reach the public distribution catalog. The
@@ -171,6 +171,16 @@ local function flagList(value: any, field: string, label: string): ({string}?, s
     if type(value) ~= "table" then
         return nil, label .. "." .. field .. " must be an array of strings"
     end
+    local count = 0
+    for key in pairs(value as any) do
+        if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
+            return nil, label .. "." .. field .. " must be an array of strings"
+        end
+        count = count + 1
+    end
+    if count ~= #value then
+        return nil, label .. "." .. field .. " must not have gaps"
+    end
     local out: {string} = {}
     for index, entry in ipairs(value as {any}) do
         if type(entry) ~= "string" then
@@ -233,6 +243,9 @@ function targetProfile.fromDescriptor(target: string, value: any, origin: string
         return nil, label .. " claims static AOT without a static symbol resolver"
     end
     local link = descriptor.link
+    if link ~= nil and type(link) ~= "table" then
+        return nil, label .. ".link must be an object"
+    end
     local linkTable = type(link) == "table" and link as {[string]: any} or {}
     local forceLoad, forceErr = flagList(linkTable.forceLoad, "link.forceLoad", label)
     if forceLoad == nil then

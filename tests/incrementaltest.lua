@@ -969,4 +969,18 @@ function M.validationTerminatesOnADependencyCycle()
     assertEq(q:get("checked", "b"), 2, "and the change on the far side of it is still seen")
 end
 
+function M.cycleGuardsKeepDifferentlyTypedKeysSeparate()
+    local q = query.new()
+    q:define("value", function(self, key)
+        if type(key) == "number" then
+            return self:get("value", tostring(key))
+        end
+
+        return "string key"
+    end)
+
+    assertEq(q:get("value", 1), "string key", "numeric and string keys are distinct computations")
+    assertEq(q.stats.value, 2, "both differently typed keys compute")
+end
+
 return M

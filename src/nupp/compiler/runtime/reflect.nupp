@@ -95,8 +95,7 @@ function reflectruntime.install(namespace: any): nil
     --- reported the same way every time rather than retried.
     ---
     --- @raises string when the descriptor is not one of ours, when the extension is
-    ---     already
-    --- being built, or when its `build` did not succeed
+    ---     already being built, or when its `build` did not succeed
     function Info:extension(extension: any): any
         local state = states[self]
         if not state then

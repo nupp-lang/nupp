@@ -84,8 +84,8 @@ record query.Q
     --- dependency of the frame on top.
     stack: {query.Frame}
 
-    --- Guards against a query re-entering itself.
-    active: {[string]: boolean}
+    --- Guards against a query re-entering itself, by query name and exact key.
+    active: {[string]: {[any]: boolean}}
 
     --- How many times each query actually computed, for tests and tooling.
     stats: {[string]: integer}
@@ -184,8 +184,8 @@ function query.Q:get(name: string, key: any): any
         return entry.value
     end
 
-    local activeKey = name .. "\0" .. tostring(key)
-    if self.active[activeKey] then
+    local active = self.active[name]
+    if active and active[key] then
         -- cycle: the re-entrant edge observes the previous value (or nil)
         record(self, name, key)
         return entry and entry.value or nil
@@ -204,7 +204,9 @@ function query.Q:get(name: string, key: any): any
         -- edge reports what this entry last changed at, which is the same rule the
         -- computation path resolves a cycle by.
         self.stack[#self.stack + 1] = {deps = {}}
-        self.active[activeKey] = true
+        active = active or {}
+        self.active[name] = active
+        active[key] = true
         local validated, clean = pcall(function(): boolean
             for _, d in ipairs(entry.deps) do
                 if depChangedAt(self, d.name, d.key) > entry.verifiedAt then
@@ -214,7 +216,7 @@ function query.Q:get(name: string, key: any): any
 
             return true
         end)
-        self.active[activeKey] = nil
+        active[key] = nil
         self.stack[#self.stack] = nil
         if not validated then
             error(clean, 0)
@@ -228,12 +230,14 @@ function query.Q:get(name: string, key: any): any
     end
 
     self.stats[name] = (self.stats[name] or 0) + 1
-    self.active[activeKey] = true
+    active = active or {}
+    self.active[name] = active
+    active[key] = true
     self.stack[#self.stack + 1] = {deps = {}}
     local ok, value = pcall(def.fn, self, key)
     local frame = self.stack[#self.stack]
     self.stack[#self.stack] = nil
-    self.active[activeKey] = nil
+    active[key] = nil
     if not ok then
         error(value, 0)
     end
