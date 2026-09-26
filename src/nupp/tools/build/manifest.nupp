@@ -881,7 +881,7 @@ local function validateTarget(target, label, dependencies)
     if target.aotTarget ~= nil then
         -- Which machine the compiled code is for. Separate from the target's own
         -- `platforms`, which says where the Lua runs: an artifact can be built
-        -- on one machine for another, and the C compiler has to be told so.
+        -- on one machine for another, and the code generator has to be told so.
         local valid, err = validateString(target.aotTarget, label .. ".aotTarget")
         if not valid then
             return nil, err
@@ -889,6 +889,17 @@ local function validateTarget(target, label, dependencies)
         local _, targetErr = aotTargets.select(target.aotTarget as string, nil)
         if targetErr ~= nil then
             return nil, label .. ".aotTarget: " .. tostring(targetErr)
+        end
+        -- Wasm units are independent modules, which only the Wasm policies
+        -- build; there is no native library to link for one. A static link
+        -- is refused later, by the target profile that has no archive.
+        if target.aot == "require"
+            and target.aotLinkage ~= "static"
+            and (target.aotTarget as string):match("^wasm32%-") ~= nil
+        then
+            return nil, label .. ".aot = \"require\" links a native library, and " .. tostring(
+                target.aotTarget
+            ) .. " has none: use \"emit-wasm\" or \"require-wasm\""
         end
     end
     if target.aotCflags ~= nil then
