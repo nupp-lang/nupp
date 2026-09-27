@@ -1,6 +1,7 @@
 const {type Reader} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Writer} = require("nupp.io")
+const {type ByteQueue} = require("nupp.io")
 const io2 = require("nupp.io")
 
 local text = require("nupp.text")
@@ -50,6 +51,22 @@ local record ProbeWriter is Writer
     function close(takes self): nil
         self.state.closes = self.state.closes + 1
     end
+end
+
+local record BrokenQueue is ByteQueue
+    reported: integer
+    answer: string
+
+    metamethod __len: function(self: BrokenQueue): integer
+    get: function(self: BrokenQueue, ...: integer?): string
+end
+
+function BrokenQueue.__len(self: BrokenQueue): integer
+    return self.reported
+end
+
+function BrokenQueue.get(self: BrokenQueue, ...: integer?): string
+    return self.answer
 end
 
 function M.roundTripsEveryCScalar(): nil
@@ -192,6 +209,46 @@ function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
             reader:readInto(other, 0, 0)
         end)
     )
+end
+
+function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
+    local buffer = io2.newBuffer("abc")
+    assert(
+        not pcall(function(): nil
+            buffer:setString("x", false as any)
+        end)
+    )
+    assert(
+        not pcall(function(): nil
+            local lease = buffer:reserveWrite(9007199254740991, 1)
+            nupp.drop(lease)
+        end)
+    )
+    assert(
+        not pcall(function(): nil
+            local invalid = io2.newStringReader("x")
+            invalid:read(math.huge as integer)
+        end)
+    )
+    assert(
+        not pcall(function(): nil
+            local invalid = io2.newStringReader("x")
+            local destination = io2.newBuffer()
+            invalid:readInto(destination, nil, false as any)
+        end)
+    )
+
+    local reader = io2.newQueueReader(new BrokenQueue(reported = 2, answer = "x"))
+    local ok, reason = pcall(function(): nil
+        reader:read(2)
+    end)
+    assert(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
+
+    local negative = io2.newQueueReader(new BrokenQueue(reported = -1, answer = ""))
+    ok, reason = pcall(function(): nil
+        negative:read(1)
+    end)
+    assert(not ok and tostring(reason):find("ByteQueue length", 1, true) ~= nil)
 end
 
 function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil

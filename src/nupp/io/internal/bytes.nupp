@@ -7,10 +7,15 @@ local span = require("nupp.mem.span")
 
 local SMALLEST = 32
 local DEFAULT_READ = 65536
+local MAX_EXACT_INTEGER = 9007199254740991
 
 --- @raises string when value is not a non-negative integer
 local function integer_(value: any, what: string, level: integer): integer
-    if type(value) ~= "number" or value ~= math.floor(value as number) or (value as number) < 0 then
+    if type(value) ~= "number"
+        or value ~= math.floor(value as number)
+        or (value as number) < 0
+        or (value as number) > MAX_EXACT_INTEGER
+    then
         error("nupp: " .. what .. " must be a non-negative integer", level)
     end
 
@@ -19,11 +24,23 @@ end
 
 --- @raises string when value is not an integer
 local function whole(value: any, what: string, level: integer): integer
-    if type(value) ~= "number" or value ~= math.floor(value as number) then
+    if type(value) ~= "number"
+        or value ~= math.floor(value as number)
+        or math.abs(value as number) > MAX_EXACT_INTEGER
+    then
         error("nupp: " .. what .. " must be an integer", level)
     end
 
     return value as integer
+end
+
+--- @raises string when the sum is outside the exact integer range
+local function sizeSum(left: integer, right: integer, what: string, level: integer): integer
+    if left > MAX_EXACT_INTEGER - right then
+        error("nupp: " .. what .. " is too large", level)
+    end
+
+    return left + right
 end
 
 --- @raises string when value is not a positive integer
@@ -48,12 +65,12 @@ end
 
 --- @raises string when the range is not within length
 local function range(length: integer, offset: any, count: any, what: string, level: integer): (integer, integer)
-    local from = integer_(offset or 0, what .. " offset", level)
+    local from = integer_(offset == nil and 0 or offset, what .. " offset", level)
     if from > length then
         error("nupp: " .. what .. " offset is past the end", level)
     end
     local taking = integer_(count == nil and length - from or count, what .. " count", level)
-    if from + taking > length then
+    if taking > length - from then
         error("nupp: " .. what .. " range is past the end", level)
     end
 
@@ -188,14 +205,38 @@ end
 
 --- Reads the queue contract on Lua 5.1 as well as userdata-backed LuaJIT queues.
 export const queueLength: function(source: ByteQueue): integer = function(source)
+    local answer: any
+    local custom = false
     if type(source) == "table" then
         local meta: any = getmetatable(source)
         if type(meta) == "table" and type(meta.__len) == "function" then
-            return meta.__len(source) as integer
+            answer = meta.__len(source)
+            custom = true
         end
     end
+    if not custom then
+        answer = #source
+    end
 
-    return #source
+    return integer_(answer, "io.ByteQueue length", 2)
+end
+
+local function takeQueue(source: ByteQueue, count: integer): string
+    local chunk: any = source:get(count)
+    if type(chunk) ~= "string" or #chunk ~= count then
+        error("nupp: io.ByteQueue returned the wrong byte count", 2)
+    end
+
+    return chunk
+end
+
+local function takeAllQueue(source: ByteQueue, count: integer): string
+    local chunk: any = source:get()
+    if type(chunk) ~= "string" or #chunk ~= count then
+        error("nupp: io.ByteQueue returned the wrong byte count", 2)
+    end
+
+    return chunk
 end
 
 --- A snapshot of bytes that cannot be written through.
@@ -356,8 +397,8 @@ local record HeapBuffer is Buffer
         if type(bytes) ~= "string" then
             error("nupp: io.Buffer bytes must be a string", 2)
         end
-        local from = integer_(offset or 0, "io.Buffer offset", 2)
-        local ending = from + #bytes
+        local from = integer_(offset == nil and 0 or offset, "io.Buffer offset", 2)
+        local ending = sizeSum(from, #bytes, "io.Buffer range", 2)
         reserve(self, ending)
         if from > self._length then
             @unsafe
@@ -391,7 +432,7 @@ local record HeapBuffer is Buffer
         opened(self._closed, "io.Buffer", 2)
         local from = integer_(offset, "io.Buffer write offset", 2)
         local available = integer_(count, "io.Buffer write count", 2)
-        reserve(self, from + available)
+        reserve(self, sizeSum(from, available, "io.Buffer write range", 2))
 
         return newWriteLease(self, from, available)
     end
@@ -522,7 +563,7 @@ local record BufferWriter is Writer
         -- The writer already owns the exclusive buffer borrow. A string can use
         -- its bulk overwrite path directly without building temporary views.
         (state as Buffer):setString(bytes, self._at)
-        self._at = self._at + #bytes
+        self._at = sizeSum(self._at, #bytes, "Writer position", 2)
 
         return true, nil
     end
@@ -556,7 +597,7 @@ local record BufferWriter is Writer
             nupp.drop(output)
         end
         lease:commit(count)
-        self._at = at + count
+        self._at = sizeSum(at, count, "Writer position", 2)
 
         return count, nil
     end
@@ -655,8 +696,8 @@ local record StringReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local from = integer_(offset or 0, "Reader:readInto offset", 2)
-        local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
+        local from = integer_(offset == nil and 0 or offset, "Reader:readInto offset", 2)
+        local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readInto count", 2)
         local bytes = self._bytes
         local at = self._at
         if at > #bytes then
@@ -726,7 +767,7 @@ local record QueueReader is Reader
             return "", nil
         end
 
-        return source:get(math.min(wanted, have)), nil
+        return takeQueue(source, math.min(wanted, have) as integer), nil
     end
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
@@ -744,7 +785,7 @@ local record QueueReader is Reader
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        local chunk = source:get(taking)
+        local chunk = takeQueue(source, taking)
         copyString(destination, chunk, 0, taking)
 
         return taking, nil
@@ -754,15 +795,15 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local from = integer_(offset or 0, "Reader:readInto offset", 2)
-        local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
+        local from = integer_(offset == nil and 0 or offset, "Reader:readInto offset", 2)
+        local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readInto count", 2)
         local source = self._source as ByteQueue
         local have = queueLength(source)
         if have == 0 then
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        local chunk = source:get(taking) as string
+        local chunk = takeQueue(source, taking)
         local lease = destination:reserveWrite(from, wanted)
         do
             local output = lease:span()
@@ -783,7 +824,9 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local rest = self._source:get() as string
+        local source = self._source as ByteQueue
+        local count = queueLength(source)
+        local rest = takeAllQueue(source, count)
         local ok, reason = destination:write(rest)
         if not ok then
             return nil, reason
@@ -859,7 +902,7 @@ reserve = function(borrows self: Buffer, minimum: integer): nil
     if minimum <= state._capacity then
         return
     end
-    local capacity = state._capacity * 2
+    local capacity = state._capacity > MAX_EXACT_INTEGER / 2 and minimum or state._capacity * 2
     if capacity < minimum then
         capacity = minimum
     end

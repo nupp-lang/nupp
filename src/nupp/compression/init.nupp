@@ -54,6 +54,7 @@ const provider = require("nupp.compression.spi")
 local DEFAULT_WORKSPACE: integer = 65536
 local DEFAULT_MAX_OUTPUT: integer = 67108864
 local RATIO_ALLOWANCE: integer = 1024
+local MAX_EXACT_INTEGER = 9007199254740991
 
 --- Options in the `gzip` block passed to a compression writer.
 export interface GzipWriterOptions
@@ -112,13 +113,21 @@ export interface ReaderOptions
     gzip: GzipReaderOptions?
 end
 
-local function positive(value: integer?, fallback: integer, what: string): integer
-    local answer = value or fallback
-    if answer < 1 or answer ~= math.floor(answer) then
+local function positive(value: any, fallback: integer, what: string): integer
+    local answer: any = value == nil and fallback or value
+    if type(answer) ~= "number" or answer < 1 or answer > MAX_EXACT_INTEGER or answer ~= math.floor(answer) then
         error("nupp: " .. what .. " must be a positive integer", 3)
     end
 
-    return answer
+    return answer as integer
+end
+
+local function validProgress(value: any, maximum: integer): boolean
+    return type(value) == "number" and value >= 0 and value <= maximum and value == math.floor(value)
+end
+
+local function needsOutput(status: integer, written: integer, capacity: integer): boolean
+    return status ~= provider.NEED_OUTPUT or written == capacity
 end
 
 local function optionKey(name: string): string
@@ -251,7 +260,12 @@ local record Writer is CompressionWriter
             if consumed == nil or written == nil or status == nil then
                 return nil, reason
             end
-            if consumed < 0 or consumed > #remaining or written < 0 or written > self.capacity then
+            if not validProgress(consumed, #remaining)
+                or not validProgress(written, self.capacity)
+                or (status ~= provider.NEED_INPUT and status ~= provider.NEED_OUTPUT)
+                or (status == provider.NEED_INPUT and consumed ~= #remaining)
+                or not needsOutput(status, written, self.capacity)
+            then
                 return nil, "compression provider reported invalid progress"
             end
             local ok, why = self:drain(written)
@@ -275,7 +289,10 @@ local record Writer is CompressionWriter
             if written == nil or status == nil then
                 return false, reason
             end
-            if written < 0 or written > self.capacity then
+            if not validProgress(written, self.capacity)
+                or (status ~= provider.NEED_INPUT and status ~= provider.NEED_OUTPUT)
+                or not needsOutput(status, written, self.capacity)
+            then
                 return false, "compression provider reported invalid progress"
             end
             local ok, why = self:drain(written)
@@ -301,7 +318,10 @@ local record Writer is CompressionWriter
                 if written == nil or status == nil then
                     return false, reason
                 end
-                if written < 0 or written > capacity then
+                if not validProgress(written, capacity)
+                    or (status ~= provider.NEED_OUTPUT and status ~= provider.FINISHED)
+                    or not needsOutput(status, written, capacity)
+                then
                     return false, "compression provider reported invalid progress"
                 end
                 if written > 0 then
@@ -451,16 +471,29 @@ local record Reader is io.Reader
                     if written == nil or status == nil then
                         return nil, reason
                     end
+                    if not validProgress(written, destinationLength)
+                        or (
+                            status ~= provider.NEED_INPUT
+                            and status ~= provider.NEED_OUTPUT
+                            and status ~= provider.FINISHED
+                        )
+                        or not needsOutput(status, written, destinationLength)
+                    then
+                        return nil, "compression provider reported invalid progress"
+                    end
                     local limitFailure = self:account(0, written)
                     if limitFailure ~= nil then
                         return nil, limitFailure
                     end
-                    if status ~= provider.FINISHED then
+                    if status == provider.NEED_INPUT then
                         return nil, "compressed stream ended before its trailer"
                     end
-                    self.streamFinished = true
+                    self.streamFinished = status == provider.FINISHED
                     if written > 0 then
                         return written, nil
+                    end
+                    if status == provider.NEED_OUTPUT then
+                        return nil, "compression provider made no progress"
                     end
                     self.ended = true
                     return 0, nil
@@ -473,7 +506,12 @@ local record Reader is io.Reader
             if consumed == nil or written == nil or status == nil then
                 return nil, reason
             end
-            if consumed < 0 or consumed > #input or written < 0 or written > destinationLength then
+            if not validProgress(consumed, #input)
+                or not validProgress(written, destinationLength)
+                or (status ~= provider.NEED_INPUT and status ~= provider.NEED_OUTPUT and status ~= provider.FINISHED)
+                or (status == provider.NEED_INPUT and consumed ~= #input)
+                or not needsOutput(status, written, destinationLength)
+            then
                 return nil, "compression provider reported invalid progress"
             end
             self.inputAt = self.inputAt + consumed
@@ -510,12 +548,12 @@ local record Reader is io.Reader
     end
 
     function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
-        local from = offset or 0
-        if from < 0 or from ~= math.floor(from) then
+        local from: any = offset == nil and 0 or offset
+        if type(from) ~= "number" or from < 0 or from > MAX_EXACT_INTEGER or from ~= math.floor(from) then
             error("nupp: compression Reader:readInto offset must be a non-negative integer", 2)
         end
         local wanted = positive(count, DEFAULT_WORKSPACE, "compression Reader:readInto count")
-        local lease = destination:reserveWrite(from, wanted)
+        local lease = destination:reserveWrite(from as integer, wanted)
         local written: integer?
         local reason: string?
         do
@@ -568,6 +606,9 @@ function Reader.refill(self: Reader): (boolean?, string?)
     nupp.drop(writable)
     if count == nil then
         return nil, reason
+    end
+    if not validProgress(count, self.capacity) then
+        return nil, "source reader reported invalid progress"
     end
     self.inputAt = 1
     self.inputLength = count

@@ -3,10 +3,16 @@ module nupp.compression.spi
 --[[Implementation interfaces for compression stream catalogs.
 
 Providers expose retained format descriptors. A descriptor creates independent
-encoder and decoder state, and every state operation is span based. Step results
-are three scalars: input consumed, output written and one of the integer status
-constants below. Providers retain neither span and perform no SPI lookup from
-a state operation.
+encoder and decoder state, and every state operation is span based. Input steps
+return input consumed, output written and one of the integer status constants
+below. Flush and finalization steps return output written and a status. A failed
+step returns nil numeric fields and a reason. Providers retain neither span and
+perform no SPI lookup from a state operation.
+
+The facade chooses the unique highest-priority catalog during initialization.
+Each format name agrees with its catalog key. Selected formats replace native
+formats with the same names and may add others. Discovery order never selects a
+provider.
 ]]
 
 local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
@@ -25,32 +31,54 @@ export type FormatOptions = {@readonly [string]: any}
 
 --- Independent incremental compression state.
 export interface Encoder is nupp.Closeable
+    --- Releases encoder state without producing a trailer.
     close: @nosuspend function(takes self: Encoder): nil
+
+    --- Consumes input and produces output. `NEED_INPUT` consumes the whole
+    --- input; `NEED_OUTPUT` fills the whole output span.
     write: function(
         exclusive self: Encoder,
         borrows input: ByteSpan,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
+
+    --- Flushes pending output. `NEED_INPUT` completes the flush; `NEED_OUTPUT`
+    --- fills the whole output span.
     flush: function(exclusive self: Encoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+
+    --- Produces the trailer. `FINISHED` completes the stream; `NEED_OUTPUT`
+    --- fills the whole output span and requires another call.
     finish: function(exclusive self: Encoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
 end
 
 --- Independent incremental decompression state.
 export interface Decoder is nupp.Closeable
+    --- Releases decoder state.
     close: @nosuspend function(takes self: Decoder): nil
+
+    --- Consumes input and produces output. `NEED_INPUT` consumes the whole
+    --- input; `NEED_OUTPUT` fills the output; `FINISHED` completes the stream.
     read: function(
         exclusive self: Decoder,
         borrows input: ByteSpan,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
+
+    --- Reports source EOF. `FINISHED` completes the stream, `NEED_OUTPUT` fills
+    --- the output and `NEED_INPUT` reports a truncated stream.
     finishInput: function(exclusive self: Decoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
 end
 
 --- Immutable format identity and state factories.
 export interface Format
+    --- Canonical format name, matching the catalog map key.
     @readonly
     name: string
+
+    --- Creates independent encoder state for checked format options.
     createEncoder: function(self: Format, options: FormatOptions?): Encoder
+
+    --- Creates independent decoder state for checked format options.
     createDecoder: function(self: Format, options: FormatOptions?): Decoder
 end
 
@@ -59,6 +87,7 @@ export interface Provider
     @readonly
     priority: integer?
 
+    --- Canonical names mapped to checked, independent-state factories.
     @readonly
     formats: {[string]: Format}
 end

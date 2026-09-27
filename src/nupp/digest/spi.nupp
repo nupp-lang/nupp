@@ -7,7 +7,8 @@ Importing this declaration does not load storage or algorithms.
 A provider supplies an algorithms map keyed by canonical algorithm name. Each
 descriptor's name agrees with its key, and each create returns independent owned
 state. The chosen catalog replaces matching built-in algorithms and
-may add names; other built-in algorithms remain available. Empty discovery uses the built-in catalog. Discovery order never selects a provider.
+may add names; other built-in algorithms remain available. Empty discovery uses
+the built-in catalog. Discovery order never selects a provider.
 
 The facade validates and retains descriptors while requiring the module. Lookup,
 listing, and context creation then use cached descriptors without SPI resolution.
