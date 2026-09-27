@@ -122,6 +122,17 @@ local function positive(value: any, fallback: integer, what: string): integer
     return answer as integer
 end
 
+local function settings(options: any, what: string): {[string]: any}
+    if options == nil then
+        return {}
+    end
+    if type(options) ~= "table" then
+        error("nupp: compression " .. what .. " options must be a table", 3)
+    end
+
+    return options as {[string]: any}
+end
+
 local function validProgress(value: any, maximum: integer): boolean
     return type(value) == "number" and value >= 0 and value <= maximum and value == math.floor(value)
 end
@@ -200,6 +211,23 @@ local function decoderOptions(settings: ReaderOptions, name: string): provider.F
     return options
 end
 
+local function closeBoth(takes first: nupp.Closeable, takes second: nupp.Closeable): nil
+    local firstOk, firstFailure = pcall(function(): nil takes (first)
+        first:close()
+    end)
+    local secondOk, secondFailure = pcall(function(): nil takes (second)
+        second:close()
+    end)
+    if not firstOk then
+        if not secondOk then
+            error(tostring(firstFailure) .. " (suppressed 1 cleanup failure)", 0)
+        end
+        error(firstFailure, 0)
+    elseif not secondOk then
+        error(secondFailure, 0)
+    end
+end
+
 local interface OwnedPair is nupp.Closeable
     state: affine(provider.Encoder)
     destination: affine(io.Writer)
@@ -210,8 +238,7 @@ local record PairOwner is OwnedPair
     destination: affine(io.Writer)
 
     function close(takes self): nil
-        self.state:close()
-        self.destination:close()
+        closeBoth(self.state, self.destination)
     end
 end
 
@@ -351,8 +378,7 @@ local record Writer is CompressionWriter
     end
 
     function close(takes self): nil
-        self.state:close()
-        self.destination:close()
+        closeBoth(self.state, self.destination)
         error("nupp: compression writer was closed without finish", 2)
     end
 
@@ -380,8 +406,7 @@ function Writer.drain(exclusive self: Writer, count: integer): (boolean, string?
 end
 
 function Writer.abort(takes self: Writer): nil
-    self.state:close()
-    self.destination:close()
+    closeBoth(self.state, self.destination)
 end
 
 local function makeWriter(
@@ -390,9 +415,9 @@ local function makeWriter(
     takes destination: io.Writer,
     options: WriterOptions?
 ): Writer
-    local settings = options or {}
-    local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
-    local formatSettings = encoderOptions(settings, name)
+    local configured = settings(options, "writer")
+    local capacity = positive(configured.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
+    local formatSettings = encoderOptions(configured as WriterOptions, name)
     return new Writer(
         state = implementation:createEncoder(formatSettings),
         destination = destination,
@@ -428,8 +453,7 @@ local record Reader is io.Reader
     ended: boolean
 
     function close(takes self): nil
-        self.state:close()
-        self.source:close()
+        closeBoth(self.state, self.source)
     end
 
     @private
@@ -642,18 +666,21 @@ export record Format
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match
     function newReader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
-        local settings = options or {}
-        local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
-        if settings.unbounded and settings.maxOutputBytes ~= nil then
+        local configured = settings(options, "reader")
+        local capacity = positive(configured.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
+        if configured.unbounded ~= nil and type(configured.unbounded) ~= "boolean" then
+            error("nupp: compression unbounded must be a boolean", 2)
+        end
+        if configured.unbounded and configured.maxOutputBytes ~= nil then
             error("nupp: compression ReaderOptions cannot set both unbounded and maxOutputBytes", 2)
         end
-        local maximum: integer? = settings.unbounded and nil
-            or positive(settings.maxOutputBytes, DEFAULT_MAX_OUTPUT, "compression maxOutputBytes")
-        local ratio = settings.maxExpansionRatio
-        if ratio ~= nil and (ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
+        local maximum: integer? = configured.unbounded and nil
+            or positive(configured.maxOutputBytes, DEFAULT_MAX_OUTPUT, "compression maxOutputBytes")
+        local ratio = configured.maxExpansionRatio
+        if ratio ~= nil and (type(ratio) ~= "number" or ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
             error("nupp: compression maxExpansionRatio must be positive and finite", 2)
         end
-        local formatSettings = decoderOptions(settings, self.name)
+        local formatSettings = decoderOptions(configured as ReaderOptions, self.name)
 
         return new Reader(
             state = self.implementation:createDecoder(formatSettings),
@@ -665,7 +692,7 @@ export record Format
             inputTotal = 0,
             outputTotal = 0,
             maxOutputBytes = maximum,
-            maxExpansionRatio = settings.maxExpansionRatio,
+            maxExpansionRatio = ratio as number?,
             streamFinished = false,
             ended = false
         )

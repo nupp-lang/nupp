@@ -216,6 +216,106 @@ function M.rejectsInvalidProviderAndSourceProgress()
     reader:close()
 end
 
+function M.rejectsMalformedUntypedOptions()
+    local load = state.family("compression", {
+        provider(
+            "fixture",
+            decoder(function()
+                return 0, FINISHED
+            end)
+        )
+    })
+    local format = load("nupp.compression").format("fixture")
+
+    local function rejects(options, expected)
+        local source = io2.newStringReader("")
+        local ok, problem = pcall(format.newReader, format, source, options)
+        if ok then
+            problem:close()
+        else
+            source:close()
+        end
+        assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
+    end
+
+    rejects(false, "reader options must be a table")
+    rejects({unbounded = "yes"}, "unbounded must be a boolean")
+    rejects({maxExpansionRatio = "1"}, "maxExpansionRatio must be positive and finite")
+
+    local destination = io2.newBuffer()
+    local sink = destination:newWriter()
+    local ok, problem = pcall(format.newWriter, format, sink, false)
+    if ok then
+        problem:close()
+    else
+        sink:close()
+    end
+    destination:close()
+    assert(not ok and tostring(problem):find("writer options must be a table", 1, true), tostring(problem))
+end
+
+function M.cleanupContinuesAfterProviderReleaseFailure()
+    local released = {encoder = 0, decoder = 0, destination = 0, source = 0}
+    local fixture = {
+        formats = {
+            fixture = {
+                name = "fixture",
+                createEncoder = function()
+                    return {
+                        finish = function()
+                            return 0, FINISHED
+                        end,
+                        close = function()
+                            released.encoder = released.encoder + 1
+                            error("encoder release failed")
+                        end,
+                    }
+                end,
+                createDecoder = function()
+                    return {
+                        read = function(_, input)
+                            return input.count, 0, NEED_INPUT
+                        end,
+                        finishInput = function()
+                            return 0, FINISHED
+                        end,
+                        close = function()
+                            released.decoder = released.decoder + 1
+                            error("decoder release failed")
+                        end,
+                    }
+                end,
+            },
+        },
+    }
+    local format = state.family("compression", {fixture})("nupp.compression").format("fixture")
+    local destination = {
+        flush = function()
+            return true
+        end,
+        close = function()
+            released.destination = released.destination + 1
+        end,
+    }
+    local writer = format:newWriter(destination, {workspaceBytes = 1})
+    local ok, problem = pcall(writer.finish, writer)
+    assert(not ok and tostring(problem):find("encoder release failed", 1, true), tostring(problem))
+    assert(released.encoder == 1 and released.destination == 1)
+
+    local source = {
+        readSpan = function()
+            return 0
+        end,
+        close = function()
+            released.source = released.source + 1
+        end,
+    }
+    local reader = format:newReader(source, {workspaceBytes = 1, unbounded = true})
+    ok, problem = pcall(reader.close, reader)
+    assert(not ok and tostring(problem):find("decoder release failed", 1, true), tostring(problem))
+    assert(released.decoder == 1 and released.source == 1)
+end
+
 function M.prioritySelectionIsOrderIndependent()
     for _, providers in ipairs({
         {
