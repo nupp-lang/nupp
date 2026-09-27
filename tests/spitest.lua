@@ -720,4 +720,23 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
     end
 end
 
+function M.browserMemoryUsesTheActiveGuestOrTheWasmFallback()
+    local instances = require("providerstate")
+    local name = "nupp.runtime.browser.memory"
+    local guestMemory = {}
+    local wasmMemory = {}
+    local owned = {[name] = true}
+    local replacements = {["nupp.runtime.wasm"] = wasmMemory}
+
+    local guest = instances.instance(owned, replacements, nil, {__nuppBrowser = {memory = guestMemory},})
+    assert(guest(name) == guestMemory, "the active LuaJIT browser guest supplies its memory transport")
+
+    local wasm = instances.instance(owned, replacements)
+    assert(wasm(name) == wasmMemory, "a Wasm guest uses the target representation host")
+
+    local missing = instances.instance(owned, replacements, nil, {__nuppBrowser = {}})
+    local ok, problem = pcall(missing, name)
+    assert(not ok and tostring(problem):find("memory transport is unavailable", 1, true), tostring(problem))
+end
+
 return M

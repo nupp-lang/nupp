@@ -114,6 +114,7 @@ end
 
 function M.acquireAllocatesNothingOnceItsPageExists(): nil
     local rows = arena.new(Row, 64)
+
     local function epoch(count: integer): nil
         for _ = 1, count do
             for _ = 1, 64 do
@@ -232,6 +233,40 @@ function M.releaseWithoutALeaseRaises(): nil
         end,
         "without a live lease"
     )
+end
+
+function M.releaseTracksTheExactLeasedRow(): nil
+    local rows = arena.new(Row, 2)
+    local first = rows:acquire()
+    local second = rows:acquire()
+    rows:release(first)
+    test.raises(
+        function()
+            rows:release(first)
+        end,
+        "without a live lease"
+    )
+    test.equal(rows:live(), 1, "a duplicate release does not spend another row's lease")
+    test.raises(
+        function()
+            rows:reset()
+        end,
+        "1 live lease"
+    )
+
+    local other = arena.new(Row, 1)
+    local foreign = other:acquire()
+    test.raises(
+        function()
+            rows:release(foreign)
+        end,
+        "without a live lease"
+    )
+    test.equal(rows:live(), 1, "a foreign row does not spend this arena's lease")
+
+    rows:release(second)
+    rows:reset()
+    other:release(foreign)
 end
 
 return M

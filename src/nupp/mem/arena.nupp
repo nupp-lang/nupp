@@ -25,9 +25,10 @@ impacts:reset() -- rewinds; the page stays
 ```
 
 Every acquired row reads as zero, whether it is fresh or one a reset made
-available again. A release ends a lease and nothing more: the cursor does not
-rewind until `reset`, and `reset` refuses while any lease is live, so a row
-that is out is never handed out twice.
+available again. A release ends that row's lease and nothing more: the cursor
+does not rewind until `reset`, and `reset` refuses while any lease is live, so
+a row that is out is never handed out twice. Releasing a row that is not live
+in this arena raises without changing its lease count.
 
 Storage comes from the `cstorage` capability, so the module is available on
 native LuaJIT and on the Wasm and browser backends, and refused by `portable`.
@@ -63,6 +64,8 @@ record arena.Arena<S>
     usedCount: integer
     @private
     liveCount: integer
+    @private
+    leases: table
 
     --- Hands out the next row, zero-filled.
     acquire: function(exclusive self: Arena<S>): S
@@ -124,6 +127,7 @@ function arena.Arena.acquire<S>(exclusive self: arena.Arena<S>): S
     self.usedCount = self.usedCount + 1
     self.liveCount = self.liveCount + 1
     local row = self.rows[page][cursor]
+    rawset(self.leases, row as any, true)
     storage.fill(row, self.width, 0)
 
     return row
@@ -136,13 +140,14 @@ end
 ---
 --- @param self the arena
 --- @param row the row whose lease ends
---- @raises string when no lease is live
+--- @raises string when row is not live in this arena
 --- @export
 @allow("unused-binding")
 function arena.Arena.release<S>(exclusive self: arena.Arena<S>, row: S): nil
-    if self.liveCount == 0 then
-        error("arena release without a live lease", 2)
+    if rawget(self.leases, row as any) ~= true then
+        error("arena release of a row without a live lease", 2)
     end
+    rawset(self.leases, row as any, false)
     self.liveCount = self.liveCount - 1
 end
 
@@ -225,7 +230,8 @@ function arena.new<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
         pageIndex = 0,
         cursor = rows,
         usedCount = 0,
-        liveCount = 0
+        liveCount = 0,
+        leases = {}
     ) as arena.Arena<S>
     addPage(created, 1)
 
