@@ -2,8 +2,7 @@
 
 module nupp.runtime.provider.nativeprocess
 
---[[
-Native child-process implementation used as a built-in module fallback.
+--[[The native process provider adapts the host ABI to [](nupp.io.process.spi).
 
 Loading requires the native process feature. Spawn translates the shared
 [](nupp.io.process.types) options into native argument, environment, directory,
@@ -14,7 +13,8 @@ separate pipe value.
 Reads distinguish pending input from EOF, writes report accepted bytes and a
 closed-pipe flag, and readiness waits use the native process reactor. Exit values
 are constructed with the shared `exited` function. Per-stream scratch storage and
-release flags belong to this Lua state.
+release flags belong to this Lua state. Counts and status tags are checked before
+they become Lua strings or state-machine progress.
 
 The [](nupp.io.process) facade resolves this table once. Closing streams and
 reaping the child remain distinct operations. Cleanup releases every native
@@ -209,11 +209,16 @@ local function create(): contract.Provider
         poll = function(self: contract.Provider, owner: any): shared.Exit?
             local output = native.ffi.new("NuppNativeProcessExit[1]")
             configured(C.nuppNativeProcessPollExit(owner.handle, output), "poll process")
-            if output[0].ready == 0 then
+            local ready = tonumber(output[0].ready) as integer
+            local killed = tonumber(output[0].killed) as integer
+            if (ready ~= 0 and ready ~= 1) or (killed ~= 0 and killed ~= 1) then
+                error("nupp: native process provider returned an invalid exit status", 0)
+            end
+            if ready == 0 then
                 return nil
             end
 
-            return shared.exited(tonumber(output[0].code) as integer, output[0].killed ~= 0, false)
+            return shared.exited(tonumber(output[0].code) as integer, killed ~= 0, false)
         end,
         kill = function(self: contract.Provider, owner: any, force: boolean): nil
             configured(C.nuppNativeProcessKill(owner.handle, force and 1 or 0), "kill process")
@@ -235,16 +240,29 @@ local function create(): contract.Provider
                 C.nuppNativeProcessStreamRead(stream.handle, stream.scratch, wanted, state, length),
                 "read process stream"
             )
+            local got = tonumber(length[0]) as integer
+            if got < 0 or got > wanted then
+                error("nupp: native process provider returned an invalid read count", 0)
+            end
             if state[0] == READ_DATA then
-                return native.ffi.string(stream.scratch, tonumber(length[0]) as integer)
+                if got == 0 then
+                    error("nupp: native process provider returned empty read data", 0)
+                end
+                return native.ffi.string(stream.scratch, got)
             end
             if state[0] == READ_PENDING then
+                if got ~= 0 then
+                    error("nupp: native process provider returned pending read data", 0)
+                end
                 return ""
             end
             if state[0] == READ_EOF then
+                if got ~= 0 then
+                    error("nupp: native process provider returned data at end of stream", 0)
+                end
                 return nil
             end
-            error("nupp: Rust process provider returned an invalid read state", 0)
+            error("nupp: native process provider returned an invalid read state", 0)
         end,
         write = function(self: contract.Provider, stream: any, bytes: string): (integer, boolean)
             local state = native.ffi.new("uint32_t[1]")
@@ -253,16 +271,26 @@ local function create(): contract.Provider
                 C.nuppNativeProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
                 "write process stream"
             )
+            local wrote = tonumber(length[0]) as integer
+            if wrote < 0 or wrote > #bytes then
+                error("nupp: native process provider returned an invalid write count", 0)
+            end
             if state[0] == WRITE_ACCEPTED then
-                return tonumber(length[0]) as integer, false
+                return wrote, false
             end
             if state[0] == WRITE_PENDING then
+                if wrote ~= 0 then
+                    error("nupp: native process provider returned data for a pending write", 0)
+                end
                 return 0, false
             end
             if state[0] == WRITE_GONE then
+                if wrote ~= 0 then
+                    error("nupp: native process provider returned data for a closed pipe", 0)
+                end
                 return 0, true
             end
-            error("nupp: Rust process provider returned an invalid write state", 0)
+            error("nupp: native process provider returned an invalid write state", 0)
         end,
         closeStream = function(self: contract.Provider, stream: any): (boolean, string?)
             if stream.released then
@@ -315,8 +343,12 @@ local function create(): contract.Provider
                 ),
                 "wait for process readiness"
             )
+            local count = tonumber(ready[0]) as integer
+            if count < 0 or count > readCount + writeCount + 1 then
+                error("nupp: native process provider returned an invalid readiness count", 0)
+            end
 
-            return tonumber(ready[0]) as integer
+            return count
         end
     }
 end

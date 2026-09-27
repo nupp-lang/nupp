@@ -1,6 +1,7 @@
 local system = require("nupp.system")
 local random = require("nupp.random")
 local uuid = require("nupp.util")
+local providerstate = require("providerstate")
 local ffi = require("ffi")
 local M = {}
 
@@ -27,6 +28,62 @@ function M.identifiersAreMembersOfTheUtilNamespace()
     assert(uuid.uuid4():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
     assert(uuid.uuid7():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
     assert(uuid.v4 == nil and uuid.v7 == nil, "the old nested spelling is gone")
+end
+
+function M.identifiersRejectMalformedProviderResults()
+    local valid4 = "12345678-1234-4abc-8def-123456789abc"
+    local valid7 = "12345678-1234-7abc-bdef-123456789abc"
+    local values = {
+        17,
+        "12345678-1234-4ABC-8def-123456789abc",
+        "1234567-81234-4abc-8def-123456789abc",
+        "12345678-1234-4abc-7def-123456789abc",
+    }
+    for _, value in ipairs(values) do
+        local load = providerstate.instance({["nupp.util.internal.uuid"] = true}, {
+            ["nupp.runtime.uuid"] = {
+                uuid4 = function()
+                    return value
+                end,
+                uuid7 = function()
+                    return value
+                end,
+            },
+        })
+        local generated = load("nupp.util.internal.uuid")
+        local ok4, problem4 = pcall(generated.uuid4)
+        local ok7, problem7 = pcall(generated.uuid7)
+        assert(not ok4 and tostring(problem4):find("invalid version 4 UUID", 1, true), tostring(problem4))
+        assert(not ok7 and tostring(problem7):find("invalid version 7 UUID", 1, true), tostring(problem7))
+    end
+
+    local wrongVersion = providerstate.instance({["nupp.util.internal.uuid"] = true}, {
+        ["nupp.runtime.uuid"] = {
+            uuid4 = function()
+                return valid7
+            end,
+            uuid7 = function()
+                return valid4
+            end,
+        },
+    })("nupp.util.internal.uuid")
+    local ok4, problem4 = pcall(wrongVersion.uuid4)
+    local ok7, problem7 = pcall(wrongVersion.uuid7)
+    assert(not ok4 and tostring(problem4):find("invalid version 4 UUID", 1, true), tostring(problem4))
+    assert(not ok7 and tostring(problem7):find("invalid version 7 UUID", 1, true), tostring(problem7))
+
+    local load = providerstate.instance({["nupp.util.internal.uuid"] = true}, {
+        ["nupp.runtime.uuid"] = {
+            uuid4 = function()
+                return valid4
+            end,
+            uuid7 = function()
+                return valid7
+            end,
+        },
+    })
+    local generated = load("nupp.util.internal.uuid")
+    assert(generated.uuid4() == valid4 and generated.uuid7() == valid7)
 end
 
 return M

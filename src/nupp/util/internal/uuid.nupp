@@ -1,18 +1,42 @@
 module nupp.util.internal.uuid
 
---[[UUID generation using the implementation retained when this module loads.
+--[[UUID generation uses the implementation retained when this module loads.
 
-UUIDs are lowercase, hyphenated strings. Setup selects the canonical uuid service
+UUIDs are lowercase, hyphenated strings. Setup selects the canonical UUID service
 before requiring this module. The built-in default uses the native or browser host.
+Each call checks the retained provider's result before returning it.
 ]]
 local provider = require("nupp.runtime.uuid")
 
+local function canonical(value: any, version: string): string
+    if type(value) ~= "string" or #value ~= 36 then
+        error("nupp: UUID provider returned an invalid version " .. version .. " UUID", 0)
+    end
+    local compact = value:gsub("-", "")
+    if value:sub(9, 9) ~= "-"
+        or value:sub(14, 14) ~= "-"
+        or value:sub(19, 19) ~= "-"
+        or value:sub(24, 24) ~= "-"
+        or #compact ~= 32
+        or compact:find("[^0-9a-f]") ~= nil
+        or value:sub(15, 15) ~= version
+        or value:sub(20, 20):find("[89ab]") == nil then
+        error("nupp: UUID provider returned an invalid version " .. version .. " UUID", 0)
+    end
+
+    return value
+end
+
 --- Generates a random version 4 UUID.
 --- @return the UUID, hyphenated and lowercase
---- @raises string when the system cannot supply randomness
-export const uuid4: function(): string = provider.uuid4
+--- @raises string when the provider fails or returns a malformed UUID
+export function uuid4(): string
+    return canonical(provider.uuid4(), "4")
+end
 
 --- Generates a time-ordered version 7 UUID.
 --- @return the UUID, hyphenated and lowercase
---- @raises string when the system cannot supply randomness
-export const uuid7: function(): string = provider.uuid7
+--- @raises string when the provider fails or returns a malformed UUID
+export function uuid7(): string
+    return canonical(provider.uuid7(), "7")
+end
