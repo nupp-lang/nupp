@@ -165,11 +165,12 @@ checker holds you to: one that does not resolve where the docblock is written is
 `NUPP1010`, the same rule that keeps an `@param` naming a real parameter. A
 module required only so a `@raises` can name what it exports counts as used.
 
-The `undocumented-raise` lint asks a documented function that calls `error` to
-say so. It judges only documented functions, `assert` does not count, and it
-does not propagate through calls, because documenting what a callee raises is a
-claim the checker cannot verify. That limit is about deriving a claim the
-function never made; `NUPP1010` above asks only what a line already says. See
+The `undocumented-raise` lint asks a documented function that calls the built-in
+`error` to say so. It judges only documented functions, `assert` does not count,
+and it does not propagate through calls, because documenting what a callee
+raises is a claim the checker cannot verify. That limit is about deriving a
+claim the function never made; `NUPP1010` above asks only what a line already
+says. See
 [lints.md](../../reference/lints.md) for configuring it.
 
 ### Namespaces

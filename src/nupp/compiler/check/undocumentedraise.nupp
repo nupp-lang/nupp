@@ -14,11 +14,11 @@ Only a documented function. One with no `---` run has promised nothing, and a
 lint that asked every function in a gradually typed language for a docblock
 would be a different lint under a different name.
 
-`error` counts and `assert` does not. There is no reason to write `error` except
-to raise. Lua writes `assert` both for a caller who passed the wrong thing and
-for an invariant its author believes cannot fail, and the call does not say
-which; reading the second as a documented raise would ask for a promise about
-something that never happens. Measured on this compiler, that spelling was a
+The built-in `error` counts and `assert` does not. There is no reason to call
+`error` except to raise. Lua uses `assert` both for a caller who passed the wrong
+thing and for an invariant its author believes cannot fail, and the call does
+not say which. Reading the second as a documented raise would ask for a promise
+about something that never happens. Measured on this compiler, that call was a
 caller's business one time in three, and a lint wrong that often is one a
 project learns to silence.
 
@@ -26,10 +26,9 @@ A nested function's raises are its own, so the walk stops where a new body
 begins. That is also what excuses a function handing a raising body to `pcall`.
 
 It does not propagate through calls. Documenting what a callee raises is a claim
-this checker cannot verify, and enforcing an unverified claim at every
-intermediate frame is the trade that made `throws Exception` ubiquitous. A
-caller gets the same fact by retrieval instead: `nupp lsp inspect` on the call
-returns the callee's `@raises`. See `docs/reference/lints.md`.
+this checker cannot verify. A caller gets the same fact by retrieval instead:
+`nupp lsp inspect` on the call returns the callee's `@raises`. See
+[lints.md](docs/reference/lints.md#undocumented-raise).
 
 What a raise names is checked, separately and always. `@raises Type condition`
 writes a type first, and `NUPP1010` reports one that names nothing here. That is
@@ -46,8 +45,7 @@ local state = require("nupp.compiler.check.state")
 
 local undocumentedraise = {}
 
---- What the walk calls into this judgement with: one call per named function body, at
---- the three places one is declared with a `---` run to read.
+--- Defines the operations the walk uses for documented function bodies.
 type undocumentedraise.Ops = {
     --- Reports an @param name that the documented callable does not declare, and
     --- takes down this declaration's `@raises` types for `sweep` to resolve.
@@ -61,10 +59,10 @@ type undocumentedraise.Ops = {
     sweep: function()
 }
 
--- Where this body raises on its own account, or nil if it does not. `error` is
--- recognized by name, the way `neverReturns` already recognizes it, so that untyped
--- code keeps the meaning it always had.
-local function raisesAt(node: any): any
+-- Where this body raises on its own account, or nil if it does not. Only the stable
+-- built-in `error` counts: a local with that name is an ordinary call, not evidence
+-- that the body raises.
+local function raisesAt(c: state.Checker, node: any): any
     if not node or cst.isToken(node) then
         return nil
     end
@@ -74,12 +72,14 @@ local function raisesAt(node: any): any
     end
     if kind == "call" then
         local callee = node.obj
-        if callee and callee.kind == "name" and callee.token and callee.token.text == "error" then
-            return callee.token
+        local tok = callee and callee.kind == "name" and callee.token or nil
+        local global = c.env and c.env.globals and c.env.globals.error or nil
+        if tok and tok.text == "error" and global and tok.definition == global.definition then
+            return tok
         end
     end
     for _, child in ipairs(node) do
-        local at = raisesAt(child)
+        local at = raisesAt(c, child)
         if at then
             return at
         end
@@ -88,7 +88,7 @@ local function raisesAt(node: any): any
     return nil
 end
 
---- Installs the undocumented-raise judgement on one run.
+--- Installs the undocumented-raise judgment on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
@@ -216,7 +216,7 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
         end
         ops.checkParams(stat, body.params or {})
         local info, documented = docblock.of(stat)
-        local raiseTok = raisesAt(body.body)
+        local raiseTok = raisesAt(c, body.body)
         if not raiseTok or not documented or #info.raises > 0 then
             return
         end

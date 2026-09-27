@@ -118,6 +118,24 @@ end
     )
 end
 
+function M.warnsWhenAGenericDefaultNamesAPrivateNominal()
+    local found = reports(
+        [[
+module geom.shapes
+
+local record Coordinate
+   x: number
+end
+
+export record Box<T = Coordinate>
+   value: T
+end
+]]
+    )
+    assertEq(#found, 1, "the omitted type argument exposes Coordinate")
+    assert(found[1].msg:find('private record "Coordinate"', 1, true), found[1].msg)
+end
+
 function M.transparentPrivateAliasesDoNotWarn()
     assertQuiet(
         [[

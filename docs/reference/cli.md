@@ -1168,6 +1168,7 @@ deprecated                      suspicious   warning  use of an API marked depre
 discarded-result                suspicious   warning  a call with nothing to do but return has its result dropped
 else-if                         style        warning  a conditional chain written as separate ifs
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled
+exit-suffix-binding             suspicious   warning  a binding list takes more than one value from an exit suffix
 gradual-projection              suspicious   warning  an associated type was erased because inference did not reach its head
 jit-boundary                    suspicious   warning  an FFI boundary cannot safely run on a compiled trace
 jit-callback                    suspicious   warning  a C callback left on the JIT
@@ -1175,6 +1176,8 @@ jit-loop-closure                performance  off      a loop builds a function a
 loop-invariant-closure          suspicious   warning  a loop builds the same function every iteration
 missing-require                 correctness  error    a project module is used without being required
 positional-record-construction  style        warning  a record built by field order rather than by naming its fields
+prefer-comptime                 performance  off      a closed no-input function repeats work that comptime can erase
+private-export-type             suspicious   warning  an export exposes a private nominal type
 reifiable-record                performance  off      a record whose fields would all live in C memory
 string-pointer                  suspicious   warning  a pointer taken from a Lua string
 undocumented-raise              suspicious   warning  a documented function raises without saying so

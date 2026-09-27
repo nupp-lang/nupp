@@ -360,9 +360,9 @@ help: add an @raises line saying what makes it raise
 ```
 :::
 
-Only functions with a `---` documentation run are judged. `error` counts but
-`assert` does not, nested functions own their raises, and the lint does not
-propagate through calls. `nupp lsp inspect` shows a callee's documented
+Only functions with a `---` documentation run are judged. The built-in `error`
+counts but `assert` does not, nested functions own their raises, and the lint
+does not propagate through calls. `nupp lsp inspect` shows a callee's documented
 `@raises` at its use site.
 
 The line it asks for is `@raises <Type> [text]`, and the type is checked: one
@@ -388,10 +388,10 @@ return shout
 ```
 
 ```text [nupp check output]
-src/unused-binding.nupp:1:7: warning: NUPP2507 unused-binding: nothing uses strutil, so requiring "strutil" does nothing here
+src/unused-binding.nupp:1:7: warning: NUPP2507 unused-binding: nothing reads strutil after requiring "strutil"
  1 | local strutil = require("strutil")
    |       ^~~~~~~
-help: delete the require
+help: delete the require, or call require without binding its result when loading it is intentional
 src/unused-binding.nupp:4:11: warning: NUPP2507 unused-binding: nothing uses prefix
  4 |     local prefix = "> "
    |           ^~~~~~
@@ -409,7 +409,9 @@ Writing counts as reading, because both resolve the name the same way. A binding
 only ever assigned to is a separate question, asked flow-sensitively, and this
 lint does not answer it. Nor does it unpick a function that only calls itself.
 Both are silences rather than false reports, which is the direction to be wrong
-in.
+in. An unused require binding still reports when loading the module has effects;
+call `require` without a binding to keep those effects and remove only the unread
+name.
 
 ### `discarded-result`
 

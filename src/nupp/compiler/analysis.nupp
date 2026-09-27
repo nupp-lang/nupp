@@ -298,6 +298,7 @@ end
 
 local function collectFunctions(root)
     local functions, byDefinition = {}, {}
+    local literalDefinitions = {}
 
     local function walk(node)
         if not node or cst.isToken(node) then
@@ -305,16 +306,25 @@ local function collectFunctions(root)
         end
         local target = unwrap(node)
         local kind = target and target.kind
-        -- A function expression is summarized like a declared one. It has no
-        -- definition to be reached by name, so nothing calls it through
-        -- `byDefinition`; what wants it is a caller holding the node, which is how a
-        -- module export written `{reader = function() ... end}` gets an answer at all.
+        if kind == "localStmt" then
+            for index, initializer in ipairs(target.exprs or {}) do
+                local name = target.names and target.names[index] or nil
+                if name and name.definition and initializer then
+                    literalDefinitions[initializer] = name.definition
+                end
+            end
+        end
+        -- A function expression is summarized like a declared one. A direct local
+        -- initializer is reached through that binding's definition; otherwise what
+        -- wants it holds the node, which is how a module export written
+        -- `{reader = function() ... end}` gets an answer at all.
         if kind == "funcExpr" or kind == "shortfn" then
-            local body = target.body
+            local body = kind == "shortfn" and target or target.body
             if body then
                 local info = {
                     node = target,
                     body = body,
+                    definition = literalDefinitions[target],
                     params = {},
                     paramNames = {},
                     contract = body.effectContract,
@@ -331,8 +341,12 @@ local function collectFunctions(root)
                 end
                 functions[#functions + 1] = info
                 target.effectInfo = info
-                if body.body then
-                    walk(body.body)
+                if info.definition then
+                    byDefinition[info.definition] = info
+                end
+                local contents = body.body or kind == "shortfn" and body.expr or nil
+                if contents then
+                    walk(contents)
                 end
                 return
             end
@@ -405,6 +419,16 @@ local function collectFunctions(root)
     walk(root)
 
     return functions, byDefinition
+end
+
+-- The syntax one callable executes. Long forms carry a block under their funcbody;
+-- expression short functions carry the returned expression directly.
+local function bodyContents(body)
+    if body and body.kind == "shortfn" then
+        return body.body or body.expr
+    end
+
+    return body and body.body or nil
 end
 
 ----------------------------------------------------------------------------
@@ -481,7 +505,7 @@ local function inferFunction(info, byDefinition)
         end
     end
 
-    collectBindings(info.body and info.body.body)
+    collectBindings(bodyContents(info.body))
     local rooted = {}
     for definition, index in pairs(info.params) do
         rooted[find(definition)] = info.paramNames[index]
@@ -732,7 +756,7 @@ local function inferFunction(info, byDefinition)
             end
         end
     end
-    walk(info.body and info.body.body, false)
+    walk(bodyContents(info.body), false)
 
     -- Automatic cleanup executes on an ordinary exit even though lowering has not yet
     -- inserted a source call. Its effects therefore belong to the function summary.
@@ -793,7 +817,7 @@ local function inferFunction(info, byDefinition)
         end
     end
 
-    cleanupEffects(info.body and info.body.body)
+    cleanupEffects(bodyContents(info.body))
 
     return out
 end
@@ -1319,8 +1343,9 @@ function analysis.run(result: analysis.Target, checker: analysis.Reporter?): ana
         bodies[#bodies + 1] = block
     end
     for _, info in ipairs(functions) do
-        if info.body and info.body.body then
-            bodies[#bodies + 1] = info.body.body
+        local contents = bodyContents(info.body)
+        if contents then
+            bodies[#bodies + 1] = contents
         end
     end
     result.analysis = {functions = functions, byDefinition = byDefinition, bodies = bodies}

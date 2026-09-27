@@ -79,8 +79,12 @@ local strutil = require("strutil")
 
 return 1
 ]])
-    assertEq(at.msg, 'nothing uses strutil, so requiring "strutil" does nothing here')
-    assertEq(at.help, "delete the require", "the help says what to delete")
+    assertEq(at.msg, 'nothing reads strutil after requiring "strutil"')
+    assertEq(
+        at.help,
+        "delete the require, or call require without binding its result when loading it is intentional",
+        "the help preserves intentional load effects"
+    )
 end
 
 function M.flagsALocalFunctionNothingCalls()

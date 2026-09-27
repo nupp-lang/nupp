@@ -13,6 +13,7 @@ Judging waits until the whole file is checked. A later exported alias can give a
 earlier private nominal a public name, derives can add members, and boundary
 finalization can replace function types. Suppression, however, belongs to the export
 statement, so it is captured when that statement is checked and carried to the sweep.
+See [lints.md](docs/reference/lints.md#private-export-type).
 ]]
 
 local T = require("nupp.compiler.types")
@@ -40,7 +41,7 @@ local function aliasedNominalOrigin(t: T.Type): T.Type?
     return current.tag == "nominal" and nominalOrigin(current) or nil
 end
 
---- Installs the private-export-type judgement on one checking run.
+--- Installs the private-export-type judgment on one checking run.
 ---
 --- @param c the run's state
 function privateexport.install(c: state.Checker): privateexport.Ops
@@ -145,6 +146,7 @@ function privateexport.install(c: state.Checker): privateexport.Ops
         visitType(t.indexWriteValue, expandOrigin, found, seen)
         visitType(t.arrayOf, expandOrigin, found, seen)
         visitList(t.supertypes, expandOrigin, found, seen)
+        visitList(t.typeParams, expandOrigin, found, seen)
         visitList(t.typeBounds, expandOrigin, found, seen)
         visitList(t.constructors, expandOrigin, found, seen)
         for _, requirement in ipairs(t.associatedRequirements or {}) do
@@ -193,6 +195,7 @@ function privateexport.install(c: state.Checker): privateexport.Ops
             visitPack(t.yieldPack, expandOrigin, found, seen)
             visitPack(t.resumePack, expandOrigin, found, seen)
             visitType(t.varargType, expandOrigin, found, seen)
+            visitList(t.typeParams, expandOrigin, found, seen)
             visitList(t.typeBounds, expandOrigin, found, seen)
             if t.predicate then
                 visitType(t.predicate.type, expandOrigin, found, seen)
@@ -201,6 +204,7 @@ function privateexport.install(c: state.Checker): privateexport.Ops
             visitType(t.base, expandOrigin, found, seen)
         elseif tag == "typevar" then
             visitType(t.bound, expandOrigin, found, seen)
+            visitType(t.default, expandOrigin, found, seen)
         elseif tag == "typeHandle" then
             visitType(t.bound, expandOrigin, found, seen)
         elseif tag == "packResult" then
@@ -231,6 +235,7 @@ function privateexport.install(c: state.Checker): privateexport.Ops
             visitPack(t.returnPack, expandOrigin, found, seen)
         elseif tag == "genericAlias" then
             visitType(t.body, expandOrigin, found, seen)
+            visitList(t.typeParams, expandOrigin, found, seen)
             visitList(t.typeBounds, expandOrigin, found, seen)
         end
     end

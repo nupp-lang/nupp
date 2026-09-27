@@ -8,9 +8,10 @@ round, so the loop allocates one per pass to no end. Saying so is a lint rather
 than an optimization on purpose: caching it in the output would cost a stored
 slot, a branch on every evaluation, and the guarantee that two closures from one
 place are two objects, all to avoid moving one line. Lifting it out of the loop
-in the source costs nothing and reads better. See `docs/reference/lints.md`.
+in the source costs nothing and reads better. See
+[lints.md](docs/reference/lints.md#loop-invariant-closure).
 
-The judgement is a scope-depth comparison, which is exactly the question being
+The judgment is a scope-depth comparison, which is exactly the question being
 asked rather than an approximation of it: a name bound at or inside the loop
 belongs to the iteration, a name bound before it is the same name every pass.
 Name resolution already reports through `captureWatches` for cleanup regions, so
@@ -41,9 +42,7 @@ local state = require("nupp.compiler.check.state")
 
 local loopclosure = {}
 
---- What the walk calls into this judgement with: a loop is opened and closed around its
---- body, and a function written inside one is watched from where its scope begins to
---- where it ends.
+--- Defines the operations the walk uses to judge functions written in loops.
 type loopclosure.Ops = {
     --- Opens a loop for the duration of its body.
     push: function(body: any),
@@ -57,7 +56,7 @@ type loopclosure.Ops = {
     --- Starts judging a function body written inside a loop, or answers nil.
     begin: function(enclosing: integer): any,
 
-    --- Ends that judgement, reporting when nothing the body read came from the
+    --- Ends that judgment, reporting when nothing the body read came from the
     --- iteration.
     finish: function(watch: any, at: any)
 }
@@ -67,14 +66,31 @@ type loopclosure.Ops = {
 local function leavesFirstPass(body: any): boolean
     local stats = body and body.kind == "block" and body.stats or {}
     local last = stats[#stats]
+    while last and (last.kind == "pragmaStmt" or last.kind == "exportStmt") do
+        last = last.stat
+    end
     if not last then
         return false
     end
+    local kind = last.kind
+    if kind == "returnStmt" or kind == "breakStmt" then
+        return true
+    elseif kind == "doStmt" or kind == "unsafeStmt" or kind == "withStmt" then
+        return leavesFirstPass(last.body)
+    elseif kind == "ifStmt" and last.elseClause then
+        for _, clause in ipairs(last.clauses or {}) do
+            if not leavesFirstPass(clause.body) then
+                return false
+            end
+        end
 
-    return last.kind == "returnStmt" or last.kind == "breakStmt"
+        return leavesFirstPass(last.elseClause.body)
+    end
+
+    return false
 end
 
---- Installs the loop-closure judgement on one run.
+--- Installs the loop-closure judgment on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
@@ -149,7 +165,7 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
         return watch
     end
 
-    --- Ends that judgement, reporting `loop-invariant-closure` when nothing the body
+    --- Ends that judgment, reporting `loop-invariant-closure` when nothing the body
     --- read came from the iteration and `jit-loop-closure` when something did.
     ---
     --- @param watch what `begin` answered

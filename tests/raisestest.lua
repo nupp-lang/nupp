@@ -220,6 +220,22 @@ end
     )
 end
 
+function M.doesNotCountAShadowedErrorFunction()
+    assertQuiet(
+        [[
+local function error(message: string): string
+   return message
+end
+
+--- Formats a message.
+local function format(message: string): string
+   return error(message)
+end
+]],
+        "a local named error is not the raising built-in"
+    )
+end
+
 function M.findsARaiseInsideControlFlow()
     assertFlagged(
         [[
