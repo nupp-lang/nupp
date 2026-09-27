@@ -1143,11 +1143,14 @@ end
 -- Discover the build-qualified entry from the actual translation unit rather
 -- than duplicating the build's module identity calculation in the test.
 local function emittedSymbol(c, logical, tier)
-    local suffix = logical:gsub("^ks_", "") .. "__" .. tier
-    local symbol = assert(
-        c:match("KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_" .. suffix .. ")%s*%("),
-        "missing qualified native entry " .. suffix
-    )
+    local sourceName = logical:gsub("^ks_", "")
+    local forced = sourceName:match("(_forced_scalar)$") or ""
+    sourceName = sourceName:sub(1, #sourceName - #forced)
+    local suffix = sourceName .. forced .. "__" .. tier
+    local prefix = "KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_"
+    local symbol = c:match(prefix .. suffix .. ")%s*%(")
+        or c:match(prefix .. sourceName .. "__[0-9a-f]+" .. forced .. "__" .. tier .. ")%s*%(")
+    assert(symbol, "missing qualified native entry " .. suffix)
 
     return symbol
 end
@@ -1521,8 +1524,14 @@ function M.constGenericSelectsValueStreamModePerVariant()
     )
     local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
     local bodies = {}
-    for symbol in c:gmatch("static int (ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+)_lua") do
-        bodies[#bodies + 1] = symbol
+    for symbol in c:gmatch("static int (ks_[%w_]+)_lua%(") do
+        local marker = "static int " .. symbol .. "_lua"
+        local from = assert(c:find(marker, 1, true))
+        local to = c:find("\nstatic ", from, true) or #c
+        local body = c:sub(from, to)
+        if body:find("ks_lua_builder_null", 1, true) or body:find("ks_lua_builder_boolean", 1, true) then
+            bodies[#bodies + 1] = symbol
+        end
     end
     test.equal(#bodies, 2, "each demanded variant compiles its own body")
     for _, symbol in ipairs(bodies) do
