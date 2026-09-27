@@ -146,8 +146,8 @@ const http.capabilities = provider.capabilities
 --- Builds a request body that streams from a reader.
 ---
 --- The bytes are sent as the reader produces them, so a large upload never has to
---- be held in memory. A redirect cannot replay one, so a request carrying this
---- fails rather than following.
+--- be held in memory. A redirect that preserves the request body cannot replay
+--- one, so the request fails rather than following that redirect.
 ---
 --- ```nupp
 --- local request = new http.Request(

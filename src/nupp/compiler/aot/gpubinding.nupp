@@ -101,21 +101,27 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     -- element count and offset per bound span in slot order, then the authored scalars.
     -- Dispatch patches the leading words from the bound buffers, so generated
     -- code only fills the scalars.
-    local fields: {string} = {"uint32_t count;"}
-    for _, param in ipairs(artifact.readonly) do
-        fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_count;"
+    local fields: {string} = {"uint32_t dispatch_count;"}
+    local spanPosition = 0
+    for _ in ipairs(artifact.readonly) do
+        spanPosition = spanPosition + 1
+        fields[#fields + 1] = "uint32_t span_" .. tostring(spanPosition) .. "_count;"
     end
-    for _, param in ipairs(artifact.writable) do
-        fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_count;"
+    for _ in ipairs(artifact.writable) do
+        spanPosition = spanPosition + 1
+        fields[#fields + 1] = "uint32_t span_" .. tostring(spanPosition) .. "_count;"
     end
-    for _, param in ipairs(artifact.readonly) do
-        fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_offset;"
+    spanPosition = 0
+    for _ in ipairs(artifact.readonly) do
+        spanPosition = spanPosition + 1
+        fields[#fields + 1] = "uint32_t span_" .. tostring(spanPosition) .. "_offset;"
     end
-    for _, param in ipairs(artifact.writable) do
-        fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_offset;"
+    for _ in ipairs(artifact.writable) do
+        spanPosition = spanPosition + 1
+        fields[#fields + 1] = "uint32_t span_" .. tostring(spanPosition) .. "_offset;"
     end
-    for _, param in ipairs(artifact.uniforms) do
-        fields[#fields + 1] = tostring(C_TYPE[param.type]) .. " " .. param.name:gsub("[^%w_]", "_") .. ";"
+    for position, param in ipairs(artifact.uniforms) do
+        fields[#fields + 1] = tostring(C_TYPE[param.type]) .. " uniform_" .. tostring(position) .. ";"
     end
     if not browser then
         append(
@@ -265,9 +271,9 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         append(lines, "    self._binding:dispatchWords(scalars)")
     else
         append(lines, "    local uniforms = " .. native .. ".ffi.new(" .. uniformType .. ")")
-        append(lines, "    uniforms.count = self._binding.count")
-        for _, param in ipairs(artifact.uniforms) do
-            append(lines, "    uniforms." .. param.name:gsub("[^%w_]", "_") .. " = " .. param.name)
+        append(lines, "    uniforms.dispatch_count = self._binding.count")
+        for position, param in ipairs(artifact.uniforms) do
+            append(lines, "    uniforms.uniform_" .. tostring(position) .. " = " .. param.name)
         end
         append(lines, "    self._binding:dispatchPacked(uniforms, " .. tostring(artifact.uniformBytes) .. ")")
     end

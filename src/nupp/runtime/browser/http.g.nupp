@@ -180,12 +180,23 @@ record http.Client is contracts.Client
             error("nupp: HTTP request url must be a URI", 2)
         end
         local headers: {any} = {}
-        for name, value in pairs(self._options.headers or {}) do
-            headers[#headers + 1] = {name, value}
+        local headerPositions: {[string]: integer} = {}
+
+        local function addHeaders(values: {[string]: string}?): nil
+            for name, value in pairs(values or {}) do
+                local lower = name:lower()
+                local position = headerPositions[lower]
+                if position == nil then
+                    headers[#headers + 1] = {name, value}
+                    headerPositions[lower] = #headers
+                else
+                    headers[position] = {name, value}
+                end
+            end
         end
-        for name, value in pairs(request.headers or {}) do
-            headers[#headers + 1] = {name, value}
-        end
+
+        addHeaders(self._options.headers)
+        addHeaders(request.headers)
         local body = request.body
         local upload: string? = nil
         if type(body) == "string" then
@@ -210,8 +221,9 @@ record http.Client is contracts.Client
                 return nil, "HTTP upload ended before its declared length"
             end
             upload = table.concat(chunks)
-            if body.contentType ~= nil then
+            if body.contentType ~= nil and headerPositions["content-type"] == nil then
                 headers[#headers + 1] = {"content-type", body.contentType}
+                headerPositions["content-type"] = #headers
             end
         elseif body ~= nil then
             return nil, "browser HTTP file uploads require an available file host"

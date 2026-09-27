@@ -95,8 +95,8 @@ end
 
 --- A request body streamed from a reader rather than held in memory.
 ---
---- Built by [](nupp.io.http.reader). A redirect cannot replay one, so a request
---- carrying a reader body fails rather than following.
+--- Built by [](nupp.io.http.reader). A redirect that preserves the request body
+--- cannot replay one, so the request fails rather than following that redirect.
 record http.ReaderBody is nupp.Closeable
     --- Where the body's bytes come from.
     reader: http.Reader

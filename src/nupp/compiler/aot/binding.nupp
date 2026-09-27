@@ -20,10 +20,9 @@ The unsafe call and immediate unpacking are one block wide. Everything around it
 the length agreement between spans -- is ordinary checked Nupp, and the `@unsafe
 do` block holds the foreign call and nothing else.
 
-The wrapper's own signature is spelled the way the source spelled it, over
-spans and reified structs, while the foreign declaration underneath is spelled
-in pointers and counts. A caller writes against the first and never sees the
-second.
+The wrapper's own signature matches the source, over spans and reified structs,
+while the foreign declaration underneath uses pointers and counts. A caller
+writes against the first and never sees the second.
 ]]
 
 local relations = require("nupp.compiler.aot.relations")
@@ -32,7 +31,7 @@ local target = require("nupp.compiler.aot.target")
 
 local binding = {}
 
---- How a storage type is spelled in Nupp source.
+--- The Nupp source name for each storage type.
 const binding.SOURCE_TYPE = {
     ["f64"] = "number",
     ["f32"] = "float",
@@ -42,7 +41,7 @@ const binding.SOURCE_TYPE = {
     ["u64"] = "uint64",
 }
 
---- The source storage spelling carried by the IR, or its canonical spelling.
+--- The source storage name carried by the IR, or its canonical name.
 local function sourceType(valueType: string, physicalType: string?): string
     return physicalType or tostring(binding.SOURCE_TYPE[valueType])
 end
@@ -59,8 +58,7 @@ local function pointerType(param: scalarIR.Param): string
     return prefix .. tostring(element) .. "*"
 end
 
---- How a uniform parameter is spelled in a `cdef`, where the ABI type is what
---- matters rather than the source spelling.
+--- The `cdef` name for each uniform type, where the ABI type is what matters.
 const binding.ABI_TYPE = {
     ["f64"] = "number",
     ["f32"] = "float",
@@ -73,7 +71,7 @@ const binding.ABI_TYPE = {
 
 --- The library clause a `cdef` ends with.
 local function from(library: string?): string
-    return library and ("from\"" .. library .. "\"") or ""
+    return library and ("from" .. string.format("%q", library)) or ""
 end
 
 local function resultName(program: scalarIR.Program): string
@@ -189,7 +187,7 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
     return lines
 end
 
---- How the wrapper spells one parameter, which is how the source spelled it.
+--- One wrapper parameter, preserving the source declaration.
 local function logical(param: scalarIR.Param): string
     if param.soa ~= nil then
         return (
@@ -213,7 +211,7 @@ local function logical(param: scalarIR.Param): string
     end
 end
 
---- One term as the wrapper's own source spells it.
+--- One term in the wrapper's source form.
 local function termSource(term: scalarIR.Term): string
     if term.kind == "count" then
         return "#" .. tostring(term.name)
@@ -487,6 +485,7 @@ function binding.builderLoader(
         }
     end
     local relative = library:match("^@(.+)$") or library
+    local relativeSuffix = string.format("%q", "/" .. relative)
     local registrar = tostring(program.registrar)
     -- Everything but the loaded builder is scoped away, for the reason
     -- `binding.compiledMarker` gives.
@@ -523,7 +522,7 @@ function binding.builderLoader(
         "    local directory = here and here:match(\"^(.*)[/\\\\]\") or \".\"",
         "    local started = directory",
         "    for _ = 0, 8 do",
-        "        local path = directory .. \"/" .. relative .. "\"",
+        "        local path = directory .. " .. relativeSuffix,
         "        local cacheKey = path .. \"\\0\" .. " .. prefix .. "Registrar",
         "        local registered: any = modules[cacheKey]",
         "        if registered then return registered[\"" .. program.name .. "\"] end",
@@ -542,10 +541,13 @@ function binding.builderLoader(
         "        end",
         "        directory = directory .. \"/..\"",
         "    end",
-        "    error(\"cannot find "
-        .. relative
-        .. " at or above \" .. started"
-        .. " .. \"; the compiled library has to travel with the module that calls it\", 0)",
+        "    error(" .. string.format(
+            "%q",
+            "cannot find " .. relative .. " at or above "
+        ) .. " .. started .. " .. string.format(
+            "%q",
+            "; the compiled library has to travel with the module that calls it"
+        ) .. ", 0)",
         "end",
         prefix .. " = " .. prefix .. "Load()",
     }
@@ -674,7 +676,7 @@ end
 --- A replacement stands where a declaration was, so whatever it emits first
 --- inherits that declaration's doc comment; a block is not a declaration, so an
 --- authored `@param` above it names nothing and reports nothing. It also scopes
---- the three names this needs, which is why they are spelled plainly.
+--- the three names this needs, which is why they are kept plain.
 function binding.archiveProbe(archive: binding.Archive): {string}
     return {
         "do",

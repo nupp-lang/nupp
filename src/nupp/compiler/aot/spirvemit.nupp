@@ -419,8 +419,9 @@ function spirv.program(
         layoutStride[layout.name] = align(offset, largest)
     end
 
+    local dispatchCount = "\0count"
     local uniformMembers: {integer} = {u32Type}
-    local uniformIndex: {[string]: integer} = {count = 0}
+    local uniformIndex: {[string]: integer} = {[dispatchCount] = 0}
     local spans: {scalarIR.Param} = {}
     for _, param in ipairs(readonly) do
         spans[#spans + 1] = param
@@ -919,7 +920,7 @@ function spirv.program(
     -- repeated UBO loads, this keeps loop conditions dependent on an ordinary
     -- SSA value instead of a descriptor load in the loop header, which is the
     -- portable SPIR-V shape across the supported Vulkan implementations.
-    uniform("count", u32Type)
+    uniform(dispatchCount, u32Type)
     for _, param in ipairs(spans) do
         uniform(param.name .. "_count", u32Type)
     end
@@ -932,7 +933,7 @@ function spirv.program(
 
     local entryMerge: integer? = nil
     if workgroup == nil then
-        local count = uniform("count", u32Type)
+        local count = uniform(dispatchCount, u32Type)
         local inRange = id()
         instruction(functions, OP.ULessThan, {boolType, inRange, dispatch, count})
         local bodyLabel, returnLabel = id(), id()

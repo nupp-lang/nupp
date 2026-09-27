@@ -394,6 +394,14 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
             resume({ok = true, value = {bytes = 3}})
         else
             assert(effect.memoryResponse and effect.bodyBase64 == nil)
+            local headers = {}
+            for _, header in ipairs(effect.headers) do
+                local name = header[1]:lower()
+                assert(headers[name] == nil, "browser HTTP sent a duplicate header")
+                headers[name] = header[2]
+            end
+            assertEq(headers["x-test"], "request")
+            assertEq(headers["content-type"], "request/type")
             local upload = assert(leases[effect.bodyLease])
             assert(not upload.writable and ffi.string(upload.pointer, upload.count) == "upload")
             resume({ok = true, value = {status = 200, body = 1, bodyBytes = 3, headers = {}}})
@@ -403,7 +411,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         end
     end
     local ok, problem = pcall(function()
-        local client = browser.client()
+        local client = browser.client({headers = {["X-Test"] = "client", ["Content-Type"] = "client/type"},})
         local closedUpload = false
         local input = "upload"
         local source = {
@@ -419,7 +427,8 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         local request = setmetatable(
             {
                 url = assert(require("nupp.io.uri").newURI("https://example.com/")),
-                body = require("nupp.io.http").reader(source, 6),
+                headers = {["x-test"] = "request", ["content-type"] = "request/type"},
+                body = require("nupp.io.http").reader(source, 6, "body/type"),
             },
             require("nupp.io.http.messages").Request
         )

@@ -3616,6 +3616,37 @@ function M.luaBuilderChoosesATieredRegistrarAtLoad()
     assert(generated:find("loadlib(path, ks_rows_builderRegistrar)", 1, true), generated)
 end
 
+function M.generatedBindingsQuoteLibraryPaths()
+    local binding = require("nupp.compiler.aot.binding")
+    local library = "@lib/quoted\"name\\part\n.so"
+    local kernel = {
+        entryMode = "kernel",
+        name = "copy",
+        symbol = "ks_copy",
+        params = {},
+        guards = {},
+        relations = {},
+        layouts = {},
+        resultTypes = {},
+        resultSourceTypes = {},
+    }
+    local foreign = table.concat(binding.foreign(kernel, library), "\n")
+    local parsedForeign = parser.parse(foreign, "foreign-binding.nupp")
+    test.equal(#parsedForeign.errors, 0, parsedForeign.errors[1] and parsedForeign.errors[1].msg)
+
+    local builder = {
+        entryMode = "lua-builder",
+        name = "rows",
+        symbol = "ks_rows",
+        registrar = "ks_register_rows",
+        params = {},
+        resultSourceTypes = {},
+    }
+    local loader = table.concat(binding.builderLoader(builder, library), "\n")
+    local parsedLoader = parser.parse(loader, "builder-binding.nupp")
+    test.equal(#parsedLoader.errors, 0, parsedLoader.errors[1] and parsedLoader.errors[1].msg)
+end
+
 --- What a recorded library key is evidence about, in two ordered phases.
 ---
 --- The same rule the emitted C follows, read on the linked object: an unchanged

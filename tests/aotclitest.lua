@@ -182,6 +182,29 @@ local function spirvOpcodeCount(module, opcode)
     return count
 end
 
+local function spirvDispatchCountMember(module)
+    local constants = {}
+    local accessMembers = {}
+    local loads = {}
+    for _, instruction in ipairs(spirvInstructions(module)) do
+        if instruction.opcode == 43 then -- OpConstant
+            constants[instruction.operands[2]] = instruction.operands[3]
+        elseif instruction.opcode == 65 then -- OpAccessChain
+            accessMembers[instruction.operands[2]] = instruction.operands[#instruction.operands]
+        elseif instruction.opcode == 61 then -- OpLoad
+            loads[instruction.operands[2]] = instruction.operands[3]
+        elseif instruction.opcode == 176 then -- OpULessThan
+            local pointer = loads[instruction.operands[4]]
+            local member = pointer ~= nil and accessMembers[pointer] or nil
+            if member ~= nil then
+                return constants[member]
+            end
+        end
+    end
+
+    return nil
+end
+
 local function spirvDecorationCount(module, decoration)
     local count = 0
     for _, instruction in ipairs(spirvInstructions(module)) do
@@ -623,6 +646,16 @@ return reservedNames
     assert(shader:find("nupp_tmp_name_count: u32", 1, true), shader)
     assert(shader:find("nupp_tmp_name_asm: u32", 1, true), shader)
     assert(not shader:find("var<storage, read> array:", 1, true), shader)
+
+    local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
+    test.equal(moduleCode, 0, module)
+    test.equal(spirvDispatchCountMember(module), 0, "the dispatch guard reads the compiler-owned count")
+
+    local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
+    test.equal(bindingCode, 0, binding)
+    assert(binding:find("uint32_t dispatch_count;", 1, true), binding)
+    assert(binding:find("uint32_t uniform_1;", 1, true), binding)
+    assert(binding:find("uniforms.uniform_1 = count", 1, true), binding)
 end
 
 function M.loopFreeScalarExplainsWhyLanesDoNotApply()
@@ -4985,7 +5018,10 @@ return {add = add}
         body:find("ks_exp_store_prefix_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
         "and so is the tail store\n" .. body
     )
-    assert(body:find("_active_prefix KS_UNUSED = ", 1, true), "the lane count is taken once, where the mask is\n" .. body)
+    assert(
+        body:find("_active_prefix KS_UNUSED = ", 1, true),
+        "the lane count is taken once, where the mask is\n" .. body
+    )
 
     -- The helpers themselves are authored C, carried as ks_simd.h and
     -- instantiated per element by macro, so their shape is read from the
@@ -5237,7 +5273,10 @@ return {equal = equal, longer = longer, shorter = shorter}
     local c = decoded.c
     local equal = c:match("KS_API void ks_equal%(.-\n}\n")
     assert(equal, "the kernel is emitted:\n" .. c)
-    assert(equal:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true), "an equal span is proven\n" .. equal)
+    assert(
+        equal:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true),
+        "an equal span is proven\n" .. equal
+    )
     assert(equal:find("p_output[((size_t)v2_cursor)] = ", 1, true), "and so is its scalar tail\n" .. equal)
     local longer = c:match("KS_API void ks_longer%(.-\n}\n")
     assert(
@@ -5326,7 +5365,11 @@ return {scale = scale, twice = twice}
         "whose increment is not truncated\n" .. scale
     )
     assert(
-        scale:find("while ((uint64_t)v2_cursor + UINT64_C(2) * (uint64_t)UINT32_C(4) <= (uint64_t)(count_output)) {", 1, true),
+        scale:find(
+            "while ((uint64_t)v2_cursor + UINT64_C(2) * (uint64_t)UINT32_C(4) <= (uint64_t)(count_output)) {",
+            1,
+            true
+        ),
         "and a 32-byte vector runs two bodies a pass\n" .. scale
     )
     assert(
@@ -5388,7 +5431,11 @@ return {scan = scan}
     assert(body:find("ks_exp_any_nonzero_u8x16(", 1, true), "and so is a test for any set bit\n" .. body)
     assert(body:find("int v%d+_ascii = ") or body:match("int v%d+_ascii = "), "the flag is an int\n" .. body)
     assert(
-        c:find("#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return __builtin_reduce_##REDUCE(value) OP bound;", 1, true),
+        c:find(
+            "#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return __builtin_reduce_##REDUCE(value) OP bound;",
+            1,
+            true
+        ),
         "aarch64 answers it with a horizontal max or min\n"
     )
 end
@@ -5425,7 +5472,10 @@ return {lookup = lookup}
     local body = c:match("KS_API void ks_lookup%(.-\n}\n")
     assert(body and body:find("ks_exp_swizzle_triple_u8x16(", 1, true), "three tables\n" .. c)
     assert(body:find("ks_exp_swizzle_quad_u8x16(", 1, true), "four tables\n" .. body)
-    assert(c:find("vqtbl3q_u8(t, x)", 1, true) and c:find("vqtbl4q_u8(t, x)", 1, true), "one NEON table instruction each\n")
+    assert(
+        c:find("vqtbl3q_u8(t, x)", 1, true) and c:find("vqtbl4q_u8(t, x)", 1, true),
+        "one NEON table instruction each\n"
+    )
     local oracle = c:match("KS_API void ks_lookup_forced_scalar%(.-\n}\n")
     assert(oracle and oracle:find("ks_scalar_exp_swizzle_quad_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
 end
