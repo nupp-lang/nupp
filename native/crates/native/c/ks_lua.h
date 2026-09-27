@@ -1,22 +1,44 @@
-/* The Lua 5.1 interop prelude: what a Lua-callable AOT entry needs from the
- * host VM, and the value-stream builder that assembles Lua tables from a
- * compiled body's stream.
+/* The AOT runtime's implementation: what an LLVM-compiled Lua-builder entry
+ * needs from the host VM, and the value-stream builder that assembles Lua
+ * tables from a compiled body's stream. `ks_rt.c` includes it and exposes it
+ * through the runtime table.
  *
- * Appended verbatim to generated C after ks_prelude.h. The Lua API surface is
- * declared here rather than taken from lua.h so `emit-c` output compiles without
- * locating development headers; these are the public ABI declarations, not
- * LuaJIT object layouts, and the artifact fingerprint names the ABI family.
- *
- * KS_JSON_WIDE, when defined, adds the 128-bit power-of-five table and the exact
- * decimal-to-binary64 path that uses it; a body that parses no wide decimal
- * leaves both out. */
+ * The Lua API surface is declared here rather than taken from lua.h so the
+ * runtime compiles without locating development headers; these are the public
+ * ABI declarations, not LuaJIT object layouts. `ks_rt.c` turns each into a
+ * pointer it fills from the process. */
 #include <limits.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#elif defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#endif
+#if defined(__GNUC__) || defined(__clang__)
+#define KS_COLD __attribute__((noinline, cold))
+#define KS_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
+#else
+#define KS_COLD
+#define KS_UNLIKELY(cond) (cond)
+#endif
+/* A count that came in as a uint32_t can only overflow the byte product
+ * where size_t is no wider than it is. On a 64-bit size_t the comparison
+ * is provably false, which is a -Wtype-limits error rather than a guard. */
+#if SIZE_MAX <= 0xFFFFFFFFu
+#define KS_COUNT_OVERFLOWS(n, size) ((size_t)(n) > SIZE_MAX / (size))
+#else
+#define KS_COUNT_OVERFLOWS(n, size) (0)
+#endif
 typedef struct lua_State lua_State;
-typedef int (*lua_CFunction)(lua_State *L);
 typedef struct { char *p; int level; lua_State *L; char bytes[BUFSIZ > 16384 ? 8192 : BUFSIZ]; } KsLuaStringBuffer;
 extern int lua_checkstack(lua_State *L, int extra);
 extern int lua_gettop(lua_State *L);
-extern double luaL_checknumber(lua_State *L, int narg);
 extern const char *luaL_checklstring(lua_State *L, int narg, size_t *length);
 extern void luaL_buffinit(lua_State *L, KsLuaStringBuffer *buffer);
 extern void luaL_addlstring(KsLuaStringBuffer *buffer, const char *bytes, size_t length);
@@ -26,8 +48,6 @@ extern double lua_tonumber(lua_State *L, int index);
 extern const char *lua_tolstring(lua_State *L, int index, size_t *length);
 extern size_t lua_objlen(lua_State *L, int index);
 extern const void *lua_topointer(lua_State *L, int index);
-extern int lua_rawequal(lua_State *L, int first, int second);
-extern int lua_getmetatable(lua_State *L, int index);
 extern void lua_createtable(lua_State *L, int narr, int nrec);
 extern void lua_pushnumber(lua_State *L, double value);
 extern void lua_pushboolean(lua_State *L, int value);
@@ -37,14 +57,11 @@ extern void lua_pushlstring(lua_State *L, const char *value, size_t length);
 extern void *lua_newuserdata(lua_State *L, size_t size);
 extern void *lua_touserdata(lua_State *L, int index);
 extern void lua_pushvalue(lua_State *L, int index);
-extern void lua_concat(lua_State *L, int count);
-extern void lua_replace(lua_State *L, int index);
 extern void lua_insert(lua_State *L, int index);
 extern void lua_remove(lua_State *L, int index);
 extern void lua_settop(lua_State *L, int index);
 extern int lua_setmetatable(lua_State *L, int index);
 extern int lua_type(lua_State *L, int index);
-extern void lua_pushcclosure(lua_State *L, lua_CFunction function, int upvalues);
 extern void lua_rawseti(lua_State *L, int index, int key);
 extern void lua_rawgeti(lua_State *L, int index, int key);
 extern void lua_rawget(lua_State *L, int index);
@@ -55,7 +72,7 @@ extern void lua_call(lua_State *L, int arguments, int results);
 extern int lua_equal(lua_State *L, int index1, int index2);
 extern int luaL_error(lua_State *L, const char *format, ...);
 
-static KS_UNUSED const unsigned char *ks_lua_bytes(lua_State *L, int index, size_t *length) {
+static const unsigned char *ks_lua_bytes(lua_State *L, int index, size_t *length) {
     if (lua_type(L, index) == 4) { return (const unsigned char *)luaL_checklstring(L, index, length); }
     if (lua_type(L, index) != 5 && lua_type(L, index) != 7) { return (const unsigned char *)(uintptr_t)luaL_error(L, "string or nupp.text.Buffer expected"); }
     lua_getfield(L, index, "tostring"); if (lua_type(L, -1) != 6) { return (const unsigned char *)(uintptr_t)luaL_error(L, "buffer tostring method expected"); }
@@ -64,7 +81,7 @@ static KS_UNUSED const unsigned char *ks_lua_bytes(lua_State *L, int index, size
     return (const unsigned char *)lua_tolstring(L, -1, length);
 }
 
-static KS_UNUSED int ks_lua_count(lua_State *L, double value, const char *what) {
+static int ks_lua_count(lua_State *L, double value, const char *what) {
     if (!(value >= 0.0) || value > (double)INT_MAX || floor(value) != value)
         return luaL_error(L, "AOT builder %s must be a nonnegative integer in C API range", what);
     return (int)value;
@@ -74,14 +91,14 @@ static int ks_lua_index(lua_State *L, double value, const char *site) {
         return luaL_error(L, "AOT builder array index at %s must be a positive integer in C API range", site);
     return (int)value;
 }
-static KS_UNUSED double ks_lua_number_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const char *what) {
+static double ks_lua_number_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const char *what) {
     size_t first = (size_t)start, count = (size_t)length;
     if (first > source_length || count > source_length - first) { luaL_error(L, "AOT %s number range is out of bounds", what); return 0.0; }
     char *end = NULL; double value = strtod((const char *)(source + first), &end);
     if (end != (char *)(source + first + count)) { luaL_error(L, "AOT %s number is invalid", what); return 0.0; }
     return value;
 }
-static KS_UNUSED double ks_lua_integer_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {
+static double ks_lua_integer_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {
     size_t first = (size_t)start, count = (size_t)length;
     if (first > source_length || count > source_length - first) { luaL_error(L, "AOT value stream integer range is out of bounds"); return 0.0; }
     size_t at = 0u; int negative = 0; uint64_t integer = 0u;
@@ -90,7 +107,6 @@ static KS_UNUSED double ks_lua_integer_slice(lua_State *L, const unsigned char *
     if (at == count && at > digits) { double value = (double)integer; return negative ? -value : value; }
     return ks_lua_number_slice(L, source, source_length, start, length, "value stream integer");
 }
-#if defined(KS_JSON_WIDE)
 /* Generated 128-bit significands for powers 5^-342 through 5^308. */
 typedef struct { uint64_t low, high; } KsJsonU128;
 static const uint64_t ks_json_power_of_five_128[1302] = {
@@ -759,7 +775,7 @@ static inline KsJsonU128 ks_json_full_multiplication(uint64_t left, uint64_t rig
 #endif
 }
 static inline double ks_json_to_double(uint64_t mantissa, uint64_t exponent, int negative) { union { uint64_t bits; double value; } result; mantissa &= ~(UINT64_C(1) << 52u); result.bits = mantissa | (exponent << 52u) | ((uint64_t)negative << 63u); return result.value; }
-static KS_UNUSED int ks_json_compute_float64(int32_t power, uint64_t magnitude, int negative, double *answer) {
+static int ks_json_compute_float64(int32_t power, uint64_t magnitude, int negative, double *answer) {
     if (magnitude == 0u) { *answer = negative ? -0.0 : 0.0; return 1; }
     int64_t exponent = (((INT64_C(152170) + INT64_C(65536)) * (int64_t)power) >> 16u) + INT64_C(1087); int leading = __builtin_clzll(magnitude); magnitude <<= leading; uint32_t index = 2u * (uint32_t)(power + 342);
     KsJsonU128 product = ks_json_full_multiplication(magnitude, ks_json_power_of_five_128[index]); if ((product.high & UINT64_C(0x1ff)) == UINT64_C(0x1ff)) { KsJsonU128 next = ks_json_full_multiplication(magnitude, ks_json_power_of_five_128[index + 1u]); product.low += next.high; if (next.high > product.low) { product.high += 1u; } }
@@ -768,15 +784,12 @@ static KS_UNUSED int ks_json_compute_float64(int32_t power, uint64_t magnitude, 
     if (lower <= 1u && power >= -4 && power <= 23 && (mantissa & 3u) == 1u && (mantissa << (upper_bit + 9u)) == upper) { mantissa &= ~UINT64_C(1); } mantissa += mantissa & 1u; mantissa >>= 1u;
     if (mantissa >= (UINT64_C(1) << 53u)) { mantissa = UINT64_C(1) << 52u; real_exponent += 1; } if (real_exponent > 2046) { return 0; } *answer = ks_json_to_double(mantissa, (uint64_t)real_exponent, negative); return 1;
 }
-#endif
-static KS_UNUSED double ks_lua_decimal64_value(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact) {
+static double ks_lua_decimal64_value(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact) {
     if (exact && magnitude <= UINT64_C(9007199254740991) && exponent >= -22 && exponent <= 22) {
         static const double powers[] = { 1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22 };
         double value = (double)magnitude; value = exponent < 0 ? value / powers[-exponent] : value * powers[exponent]; return negative ? -value : value;
     }
-#if defined(KS_JSON_WIDE)
     if (exact) { double value; if (exponent < -342) { return negative ? -0.0 : 0.0; } if (exponent <= 308 && ks_json_compute_float64(exponent, magnitude, negative, &value)) { return value; } }
-#endif
     return ks_lua_number_slice(L, source, source_length, start, length, "value stream decimal");
 }
 static int ks_lua_hex(unsigned char byte) {
@@ -811,52 +824,52 @@ typedef struct { uint32_t *words; uint32_t capacity, length, escape_length; int 
 typedef struct { unsigned char *bytes; uint32_t capacity, length; int root_index, cached; } KsLuaScratchU8;
 /* The selector is already a rooted string. Length-aware equality preserves
  * embedded NUL bytes and never allocates or interns the literal case. */
-static KS_UNUSED bool ks_lua_string_match(lua_State *L, int index, const char *literal, size_t literal_length) {
+static bool ks_lua_string_match(lua_State *L, int index, const char *literal, size_t literal_length) {
     size_t length = 0;
     const char *bytes = lua_tolstring(L, index, &length);
     return bytes != NULL && length == literal_length && memcmp(bytes, literal, length) == 0;
 }
-static KS_UNUSED uint32_t ks_lua_string_length(lua_State *L, size_t length) {
+static uint32_t ks_lua_string_length(lua_State *L, size_t length) {
     if (length > (size_t)UINT32_MAX) { luaL_error(L, "AOT builder string exceeds uint32 range"); return 0u; }
     return (uint32_t)length;
 }
-static KS_UNUSED uint32_t ks_lua_string_byte(lua_State *L, const unsigned char *bytes, size_t length, uint32_t offset) {
+static uint32_t ks_lua_string_byte(lua_State *L, const unsigned char *bytes, size_t length, uint32_t offset) {
     if ((size_t)offset >= length) { luaL_error(L, "AOT builder byte is out of bounds"); return 0u; }
     return (uint32_t)bytes[offset];
 }
-static KS_UNUSED double ks_lua_string_byte_lua(lua_State *L, const unsigned char *bytes, size_t length, double index) {
+static double ks_lua_string_byte_lua(lua_State *L, const unsigned char *bytes, size_t length, double index) {
     if (floor(index) != index || index < 1.0 || index > (double)length) { luaL_error(L, "AOT string.byte index is out of bounds"); return 0.0; }
     return (double)bytes[(size_t)index - 1u];
 }
-static KS_UNUSED void ks_lua_substring(lua_State *L, const unsigned char *bytes, size_t length, double first_value, double last_value) {
+static void ks_lua_substring(lua_State *L, const unsigned char *bytes, size_t length, double first_value, double last_value) {
     if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, "AOT string.sub bounds must be integers"); return; }
     double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value;
     if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { lua_pushlstring(L, "", 0u); return; }
     lua_pushlstring(L, (const char *)(bytes + (size_t)first - 1u), (size_t)(last - first + 1.0));
 }
-static KS_UNUSED double ks_lua_table_number(lua_State *L, int table_index, double key, const char *site) {
+static double ks_lua_table_number(lua_State *L, int table_index, double key, const char *site) {
     lua_rawgeti(L, table_index, ks_lua_index(L, key, site)); if (lua_type(L, -1) != 3) { luaL_error(L, "AOT fresh table entry is not numeric"); return 0.0; }
     double value = lua_tonumber(L, -1); lua_settop(L, lua_gettop(L) - 1); return value;
 }
-static KS_UNUSED void ks_lua_string_buffer_init(lua_State *L, KsLuaStringBuffer *buffer) {
+static void ks_lua_string_buffer_init(lua_State *L, KsLuaStringBuffer *buffer) {
     luaL_buffinit(L, buffer);
 }
-static KS_UNUSED void ks_lua_string_buffer_append(lua_State *L, KsLuaStringBuffer *buffer, const unsigned char *bytes, size_t length) {
+static void ks_lua_string_buffer_append(lua_State *L, KsLuaStringBuffer *buffer, const unsigned char *bytes, size_t length) {
     (void)L; luaL_addlstring(buffer, (const char *)bytes, length);
 }
-static KS_UNUSED void ks_lua_string_buffer_append_slice(lua_State *L, KsLuaStringBuffer *buffer, const unsigned char *bytes, size_t length, double first_value, double last_value) {
+static void ks_lua_string_buffer_append_slice(lua_State *L, KsLuaStringBuffer *buffer, const unsigned char *bytes, size_t length, double first_value, double last_value) {
     if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, "AOT string.sub bounds must be integers"); return; } double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value; if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { return; } ks_lua_string_buffer_append(L, buffer, bytes + (size_t)first - 1u, (size_t)(last - first + 1.0));
 }
-static KS_UNUSED void ks_lua_string_buffer_finish(lua_State *L, KsLuaStringBuffer *buffer) {
+static void ks_lua_string_buffer_finish(lua_State *L, KsLuaStringBuffer *buffer) {
     (void)L; luaL_pushresult(buffer);
 }
-static KS_UNUSED uint32_t ks_lua_string_u32(lua_State *L, const unsigned char *bytes, size_t length, uint32_t index) {
+static uint32_t ks_lua_string_u32(lua_State *L, const unsigned char *bytes, size_t length, uint32_t index) {
     if (KS_COUNT_OVERFLOWS(index, sizeof(uint32_t))) { luaL_error(L, "AOT builder word index overflows"); return 0u; }
     size_t offset = (size_t)index * sizeof(uint32_t); uint32_t value = 0u;
     if (offset > length || sizeof(uint32_t) > length - offset) { luaL_error(L, "AOT builder word is out of bounds"); return 0u; }
     memcpy(&value, bytes + offset, sizeof(value)); return value;
 }
-static KS_UNUSED void ks_lua_scratch_u32(lua_State *L, KsLuaScratchU32 *scratch, uint32_t capacity, const void *key) {
+static void ks_lua_scratch_u32(lua_State *L, KsLuaScratchU32 *scratch, uint32_t capacity, const void *key) {
     scratch->capacity = capacity; scratch->length = 0u; scratch->escape_length = 0u; scratch->root_index = 0;
     if (capacity <= 32u) { scratch->words = scratch->inline_words; return; }
     if (KS_COUNT_OVERFLOWS(capacity, sizeof(uint32_t)) || (size_t)capacity * sizeof(uint32_t) > SIZE_MAX - sizeof(KsLuaScratchU32Storage)) { luaL_error(L, "AOT scratch capacity overflows"); scratch->words = NULL; return; }
@@ -878,11 +891,11 @@ static KS_UNUSED void ks_lua_scratch_u32(lua_State *L, KsLuaScratchU32 *scratch,
 /* A fixed buffer whose storage is the caller's array. Nothing is
  * allocated and nothing is rooted, because nothing here outlives the
  * frame that declared it or can be reached from Lua at all. */
-static KS_UNUSED void ks_lua_scratch_u32_stack(KsLuaScratchU32 *scratch, uint32_t *storage, uint32_t capacity) {
+static void ks_lua_scratch_u32_stack(KsLuaScratchU32 *scratch, uint32_t *storage, uint32_t capacity) {
     scratch->capacity = capacity; scratch->length = capacity; scratch->escape_length = 0u;
     scratch->root_index = 0; scratch->words = storage;
 }
-static KS_UNUSED void ks_lua_scratch_u32_fixed(lua_State *L, KsLuaScratchU32 *scratch, uint32_t capacity, const void *key) {
+static void ks_lua_scratch_u32_fixed(lua_State *L, KsLuaScratchU32 *scratch, uint32_t capacity, const void *key) {
     ks_lua_scratch_u32(L, scratch, capacity, key);
     if (scratch->words != NULL && capacity != 0u) { memset(scratch->words, 0, (size_t)capacity * sizeof(uint32_t)); }
     scratch->length = capacity;
@@ -893,31 +906,24 @@ static KS_UNUSED void ks_lua_scratch_u32_fixed(lua_State *L, KsLuaScratchU32 *sc
  * number the compiler has, so it can discharge it where the index is a
  * counted loop's and keep it where it cannot. Nothing here asserts the
  * index is in range -- it is checked, and the check is what is emitted. */
-static KS_UNUSED uint32_t ks_lua_scratch_u32_get_fixed(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t bound) {
+static uint32_t ks_lua_scratch_u32_get_fixed(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t bound) {
     if (index >= bound) { luaL_error(L, "AOT scratch read is out of bounds"); return 0u; }
     return scratch->words[index];
 }
-static KS_UNUSED void ks_lua_scratch_u32_set_fixed(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value, uint32_t bound) {
+static void ks_lua_scratch_u32_set_fixed(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value, uint32_t bound) {
     if (index >= bound) { luaL_error(L, "AOT scratch write is out of bounds"); return; }
     scratch->words[index] = value;
 }
-static KS_UNUSED uint32_t ks_lua_scratch_u32_get(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index) {
+static uint32_t ks_lua_scratch_u32_get(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index) {
     if (index >= scratch->length) { luaL_error(L, "AOT scratch read is out of bounds"); return 0u; }
     return scratch->words[index];
 }
-static KS_UNUSED uint32_t ks_lua_scratch_u32_escape_get(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index) { if (index >= scratch->escape_length) { luaL_error(L, "AOT escape scratch read is out of bounds"); return 0u; } return scratch->words[scratch->capacity - 1u - index]; }
-static KS_UNUSED void ks_lua_scratch_u32_set(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value) {
+static uint32_t ks_lua_scratch_u32_escape_get(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index) { if (index >= scratch->escape_length) { luaL_error(L, "AOT escape scratch read is out of bounds"); return 0u; } return scratch->words[scratch->capacity - 1u - index]; }
+static void ks_lua_scratch_u32_set(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value) {
     if (index > scratch->length || index >= scratch->capacity) { luaL_error(L, "AOT scratch write is out of bounds"); return; }
     if (index == scratch->length) { scratch->length += 1u; } scratch->words[index] = value;
 }
-static KS_UNUSED uint32_t ks_reverse_u32(uint32_t value) {
-    value = ((value >> 1u) & UINT32_C(0x55555555)) | ((value & UINT32_C(0x55555555)) << 1u);
-    value = ((value >> 2u) & UINT32_C(0x33333333)) | ((value & UINT32_C(0x33333333)) << 2u);
-    value = ((value >> 4u) & UINT32_C(0x0f0f0f0f)) | ((value & UINT32_C(0x0f0f0f0f)) << 4u);
-    value = ((value >> 8u) & UINT32_C(0x00ff00ff)) | ((value & UINT32_C(0x00ff00ff)) << 8u);
-    return (value >> 16u) | (value << 16u);
-}
-static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {
+static KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {
     unsigned char *bytes = (unsigned char *)lua_newuserdata(L, capacity == 0u ? 1u : (size_t)capacity);
     KsLuaScratchU8 scratch = {bytes, capacity, 0u, lua_gettop(L), 0}; return scratch;
 }
@@ -940,11 +946,7 @@ static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacit
  * state. An interned string is the same slot everywhere. */
 #define KS_SCRATCH_CACHE_KEY "nupp.aot.scratch.u8"
 #define KS_SCRATCH_CACHE_MAX ((size_t)8u << 20)
-/* Lua 5.1's registry pseudo-index and userdata tag, as the numbers this
- * file already spells its other type tags as. */
-#define KS_REGISTRY (-10000)
-#define KS_TUSERDATA 7
-static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8_cached(lua_State *L, uint32_t capacity) {
+static KsLuaScratchU8 ks_lua_scratch_u8_cached(lua_State *L, uint32_t capacity) {
     size_t want = capacity == 0u ? 1u : (size_t)capacity;
     lua_pushlstring(L, KS_SCRATCH_CACHE_KEY, sizeof(KS_SCRATCH_CACHE_KEY) - 1u);
     lua_rawget(L, -10000);
@@ -963,7 +965,7 @@ static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8_cached(lua_State *L, uint32_t 
  * allocated and nothing is rooted, because nothing here outlives the
  * frame that declared it or can be reached from Lua at all. Readable to
  * its capacity from the moment it exists, so it is zeroed once. */
-static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8_stack(unsigned char *storage, uint32_t capacity) {
+static KsLuaScratchU8 ks_lua_scratch_u8_stack(unsigned char *storage, uint32_t capacity) {
     if (capacity != 0u) { memset(storage, 0, (size_t)capacity); }
     KsLuaScratchU8 scratch = {storage, capacity, capacity, 0, 0}; return scratch;
 }
@@ -971,26 +973,26 @@ static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8_stack(unsigned char *storage, 
  * call site wrote rather than a length loaded from the buffer. Nothing
  * here asserts the index is in range: it is checked, and the check is
  * what is emitted. */
-static KS_UNUSED uint32_t ks_lua_scratch_u8_get_fixed(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t bound) {
+static uint32_t ks_lua_scratch_u8_get_fixed(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t bound) {
     if (index >= bound) { luaL_error(L, "AOT byte scratch read is out of bounds"); return 0u; }
     return (uint32_t)scratch->bytes[index];
 }
 /* Out of line and cold so that a guard is a predicted-not-taken branch
  * to somewhere else, rather than a call the hot block has to keep its
  * live values alive across. */
-static KS_UNUSED KS_COLD void ks_scratch_raise(lua_State *L, const char *what) { luaL_error(L, what); }
-static KS_UNUSED void ks_lua_scratch_u8_set_fixed(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value, uint32_t bound) {
+static KS_COLD void ks_scratch_raise(lua_State *L, const char *what) { luaL_error(L, what); }
+static void ks_lua_scratch_u8_set_fixed(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value, uint32_t bound) {
     if (KS_UNLIKELY(index >= bound || value > 255u)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; }
     scratch->bytes[index] = (unsigned char)value;
 }
-static KS_UNUSED uint32_t ks_lua_scratch_u8_get(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index) {
+static uint32_t ks_lua_scratch_u8_get(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index) {
     if (index >= scratch->length) { luaL_error(L, "AOT byte scratch read is out of bounds"); return 0u; } return (uint32_t)scratch->bytes[index];
 }
-static KS_UNUSED void ks_lua_scratch_u8_set(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {
+static void ks_lua_scratch_u8_set(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {
     if (KS_UNLIKELY(index > scratch->length || index >= scratch->capacity || value > 255u)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; }
     if (index == scratch->length) { scratch->length += 1u; } scratch->bytes[index] = (unsigned char)value;
 }
-static KS_UNUSED void ks_store_u8x4(unsigned char *destination, uint32_t value) {
+static void ks_store_u8x4(unsigned char *destination, uint32_t value) {
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
     destination[0] = (unsigned char)(value & 0xffu); destination[1] = (unsigned char)((value >> 8) & 0xffu);
     destination[2] = (unsigned char)((value >> 16) & 0xffu); destination[3] = (unsigned char)((value >> 24) & 0xffu);
@@ -998,17 +1000,17 @@ static KS_UNUSED void ks_store_u8x4(unsigned char *destination, uint32_t value) 
     memcpy(destination, &value, sizeof(value));
 #endif
 }
-static KS_UNUSED void ks_lua_scratch_u8_set4_fixed(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value, uint32_t bound) {
+static void ks_lua_scratch_u8_set4_fixed(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value, uint32_t bound) {
     if (KS_UNLIKELY(index > bound || bound - index < 4u)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; }
     ks_store_u8x4(scratch->bytes + index, value);
 }
-static KS_UNUSED void ks_lua_scratch_u8_set4(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {
+static void ks_lua_scratch_u8_set4(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {
     if (KS_UNLIKELY(index > scratch->length || index > scratch->capacity || scratch->capacity - index < 4u)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; }
     if (KS_UNLIKELY(index < scratch->length && scratch->length - index < 4u)) { ks_scratch_raise(L, "AOT byte scratch write straddles the length"); return; }
     if (index == scratch->length) { scratch->length += 4u; }
     ks_store_u8x4(scratch->bytes + index, value);
 }
-static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_t start, uint32_t length) {
+static int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_t start, uint32_t length) {
     if (start > scratch->length || length > scratch->length - start) { return luaL_error(L, "AOT byte scratch string range is out of bounds"); }
     lua_pushlstring(L, (const char *)(scratch->bytes + start), (size_t)length);
     if (scratch->cached && (size_t)scratch->capacity <= KS_SCRATCH_CACHE_MAX) {
@@ -1029,22 +1031,18 @@ static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratc
 #define KS_LUA_BUILD_OBJECT UINT32_C(2)
 #define KS_LUA_BUILD_ARRAY UINT32_C(3)
 #define KS_LUA_BUILD_PENDING UINT32_MAX
-/* In place, so a caller holding the state in its own block (the LLVM
- * lowering's runtime) writes the live fields rather than copying the whole
- * struct back; the by-value constructor below is the C lowering's spelling. */
-static KS_UNUSED void ks_lua_builder_init(lua_State *L, KsLuaBuilder *builder, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
+/* In place, in the block generated code set aside for the state, so only
+ * the live fields are written rather than a whole struct copied back. */
+static void ks_lua_builder_init(lua_State *L, KsLuaBuilder *builder, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
     if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, "AOT value stream depth capacity overflows"); max_depth = 0u; }
     if (selection_shape_index != 0 && lua_type(L, selection_shape_index) <= 0) { selection_shape_index = 0; }
     uint32_t pending_mode = selection_shape_index == 0 ? KS_LUA_BUILD_ALL : KS_LUA_BUILD_OBJECT;
     builder->null_index = null_index; builder->array_marker_index = array_marker_index; builder->object_marker_index = object_marker_index; builder->root_index = 0; builder->frame_root_index = lua_gettop(L); builder->byte_root_index = 0; builder->selection_shape_index = selection_shape_index; builder->array_shape_marker_index = array_shape_marker_index; builder->serde_markers_index = serde_markers_index; builder->pending_shape_index = selection_shape_index; builder->depth = 0u; builder->frame_capacity = max_depth; builder->pending_mode = pending_mode; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->root_done = 0; builder->frames = NULL; builder->bytes = NULL; builder->byte_capacity = byte_capacity; builder->byte_allocated = 0u; builder->plan_count = 0u; builder->key_count = 0u;
 }
-static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
-    KsLuaBuilder builder; ks_lua_builder_init(L, &builder, null_index, array_marker_index, object_marker_index, max_depth, byte_capacity, selection_shape_index, array_shape_marker_index, serde_markers_index); return builder;
-}
-static KS_UNUSED KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {
+static KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {
     return builder->frames != NULL ? &builder->frames[index] : &builder->inline_frames[index];
 }
-static KS_UNUSED void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int destination) {
+static void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int destination) {
     if (builder->byte_root_index >= destination) { builder->byte_root_index += 1; }
     if (builder->array_marker_index >= destination) { builder->array_marker_index += 1; } if (builder->object_marker_index >= destination) { builder->object_marker_index += 1; }
     if (builder->selection_shape_index >= destination) { builder->selection_shape_index += 1; } if (builder->array_shape_marker_index >= destination) { builder->array_shape_marker_index += 1; } if (builder->serde_markers_index >= destination) { builder->serde_markers_index += 1; }
@@ -1052,14 +1050,14 @@ static KS_UNUSED void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int de
     for (uint32_t at = 0u; at < builder->depth; ++at) { KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, at); if (frame->table_index >= destination) { frame->table_index += 1; } if (frame->shape_index >= destination) { frame->shape_index += 1; } }
     if (builder->root_index >= destination) { builder->root_index += 1; }
 }
-static KS_UNUSED void ks_lua_builder_ensure_frames(lua_State *L, KsLuaBuilder *builder) {
+static void ks_lua_builder_ensure_frames(lua_State *L, KsLuaBuilder *builder) {
     if (builder->frames != NULL || builder->frame_capacity <= 16u) { return; }
     size_t bytes = (size_t)builder->frame_capacity * sizeof(KsLuaBuildFrame);
     builder->frames = (KsLuaBuildFrame *)lua_newuserdata(L, bytes); memcpy(builder->frames, builder->inline_frames, sizeof(builder->inline_frames));
     int destination = builder->frame_root_index + 1; lua_insert(L, destination); builder->frame_root_index = destination;
     ks_lua_builder_shift_indices(builder, destination);
 }
-static KS_UNUSED unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder *builder, uint32_t needed) {
+static unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder *builder, uint32_t needed) {
     if (needed > builder->byte_capacity) { luaL_error(L, "AOT value stream string exceeds its authored capacity"); return NULL; }
     if (builder->bytes != NULL && needed <= builder->byte_allocated) { return builder->bytes; }
     uint32_t capacity = builder->byte_allocated == 0u ? (builder->byte_capacity < 64u ? builder->byte_capacity : 64u) : builder->byte_allocated;
@@ -1070,8 +1068,8 @@ static KS_UNUSED unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder 
     builder->bytes = bytes; builder->byte_allocated = capacity;
     return builder->bytes;
 }
-static KS_UNUSED int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker);
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_complete(lua_State *L, KsLuaBuilder *builder, int pushed, int eager) {
+static int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker);
+static inline __attribute__((always_inline)) int ks_lua_builder_complete(lua_State *L, KsLuaBuilder *builder, int pushed, int eager) {
     if (!eager && pushed && builder->pending_mode == KS_LUA_BUILD_OBJECT && builder->pending_shape_index != 0 && lua_type(L, builder->pending_shape_index) == 5) { int value = lua_gettop(L), matched = 0, literal = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 11); if (lua_type(L, literal) != 0) { matched = lua_equal(L, value, literal); } else { int choices = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 14); if (lua_type(L, choices) == 5) { size_t count = lua_objlen(L, choices); for (size_t at = 1u; at <= count && !matched; ++at) { lua_rawgeti(L, choices, (int)at); matched = lua_equal(L, value, -1); lua_settop(L, lua_gettop(L) - 1); } } } if (!matched) { return luaL_error(L, "nupp: value does not match literal schema or union"); } lua_settop(L, value); if (builder->pending_shape_owned) { lua_remove(L, builder->pending_shape_index); } builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_mode = KS_LUA_BUILD_PENDING; }
     if (builder->depth == 0u) {
         if (builder->root_done) { return luaL_error(L, "AOT value stream has more than one root"); }
@@ -1091,8 +1089,7 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_complete
     if (frame->table_index == 0 || (!eager && lua_gettop(L) != frame->table_index + 2)) { return luaL_error(L, "AOT value stream key and value are not above their object"); }
     if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return 1; } lua_rawset(L, frame->table_index); return 1;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_put(lua_State *L, KsLuaBuilder *builder, int eager) { return ks_lua_builder_complete(L, builder, 1, eager); }
-static KS_UNUSED int ks_lua_builder_prepare(lua_State *L, KsLuaBuilder *builder) {
+static int ks_lua_builder_prepare(lua_State *L, KsLuaBuilder *builder) {
     if (builder->pending_mode != KS_LUA_BUILD_PENDING) { return 1; }
     if (builder->depth == 0u) { return luaL_error(L, "AOT value stream has more than one root"); }
     KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);
@@ -1102,11 +1099,10 @@ static KS_UNUSED int ks_lua_builder_prepare(lua_State *L, KsLuaBuilder *builder)
     else { if (frame->tuple) { if (frame->next > (uint32_t)INT_MAX) { return luaL_error(L, "AOT tuple index exceeds C API range"); } lua_rawgeti(L, frame->shape_index, (int)frame->next); if (lua_type(L, -1) == 0) { return luaL_error(L, "nupp: tuple has too many values"); } } else { lua_pushvalue(L, frame->shape_index); } builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; }
     return 1;
 }
-static KS_UNUSED void ks_lua_builder_clear_pending(lua_State *L, KsLuaBuilder *builder) {
+static void ks_lua_builder_clear_pending(lua_State *L, KsLuaBuilder *builder) {
     if (builder->pending_shape_owned) { lua_remove(L, builder->pending_shape_index); } builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->pending_mode = KS_LUA_BUILD_PENDING;
 }
-static KS_UNUSED int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker);
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_scalar_wanted(lua_State *L, KsLuaBuilder *builder, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_scalar_wanted(lua_State *L, KsLuaBuilder *builder, int eager) {
     if (eager) { return 1; }
     ks_lua_builder_prepare(L, builder); uint32_t mode = builder->pending_mode;
     if (mode == KS_LUA_BUILD_SKIP) { ks_lua_builder_clear_pending(L, builder); return 0; }
@@ -1117,12 +1113,12 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_scalar_w
     if (type == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); int wanted = lua_type(L, scalar) == 3; lua_settop(L, top); if (!wanted) { int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); wanted = lua_type(L, choices) == 5; lua_settop(L, top); } if (wanted) { return 1; } return luaL_error(L, "pull container shape matched a scalar value"); }
     return luaL_error(L, "pull shape entries must be true, false, object shapes, or array shapes");
 }
-static KS_UNUSED int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker) {
+static int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker) {
     if (builder->serde_markers_index == 0 || lua_type(L, builder->serde_markers_index) != 5) { lua_pushnil(L); return lua_gettop(L); }
     if (shape_index == 0 || lua_type(L, shape_index) != 5) { return luaL_error(L, "AOT value stream shape marker needs a table"); }
     lua_rawgeti(L, builder->serde_markers_index, marker); lua_rawget(L, shape_index); return lua_gettop(L);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_scalar_validate(lua_State *L, KsLuaBuilder *builder, int eager, int actual, double value) {
+static inline __attribute__((always_inline)) int ks_lua_builder_scalar_validate(lua_State *L, KsLuaBuilder *builder, int eager, int actual, double value) {
     if (eager) { return 1; }
     if (builder->pending_mode != KS_LUA_BUILD_OBJECT || (builder->pending_shape_index == 0 && builder->pending_scalar == 0)) { return 1; }
     int shape = builder->pending_shape_index; int expected = builder->pending_scalar, literal = 0; if (expected == 0) { if (lua_type(L, shape) == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); if (lua_type(L, scalar) == 3) { expected = (int)lua_tonumber(L, scalar); } else { lua_settop(L, top); int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); if (lua_type(L, choices) != 5) { return luaL_error(L, "pull container shape matched a scalar value"); } } lua_settop(L, top); literal = 1; if (expected == 0) { return 1; } } else { if (lua_type(L, shape) != 3) { return luaL_error(L, "pull container shape matched a scalar value"); } expected = (int)lua_tonumber(L, shape); } } if (expected < 0) { expected = -expected; }
@@ -1135,7 +1131,7 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_scalar_v
     }
     if (!literal) { ks_lua_builder_clear_pending(L, builder); } return 1;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_null_wanted(lua_State *L, KsLuaBuilder *builder, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_null_wanted(lua_State *L, KsLuaBuilder *builder, int eager) {
     if (eager) { return 1; }
     ks_lua_builder_prepare(L, builder); uint32_t mode = builder->pending_mode;
     if (mode == KS_LUA_BUILD_SKIP) { ks_lua_builder_clear_pending(L, builder); return 0; }
@@ -1147,20 +1143,20 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_null_wan
     if (lua_type(L, shape) != 5) { return luaL_error(L, "pull shape cannot accept null"); } int top = lua_gettop(L); int nullable = ks_lua_builder_shape_marker(L, builder, shape, 9); int accepted = lua_toboolean(L, nullable); lua_settop(L, top);
     if (!accepted) { return luaL_error(L, "nupp: null is not allowed"); } ks_lua_builder_clear_pending(L, builder); return 1;
 }
-static KS_UNUSED uint32_t ks_lua_builder_key_hash(const unsigned char *bytes, size_t length) {
+static uint32_t ks_lua_builder_key_hash(const unsigned char *bytes, size_t length) {
     uint32_t hash = UINT32_C(2166136261); for (size_t at = 0u; at < length; ++at) { hash ^= (uint32_t)bytes[at]; hash *= UINT32_C(16777619); } return hash;
 }
-static KS_UNUSED void ks_lua_builder_add_shape_key(lua_State *L, KsLuaBuilder *builder, int index) {
+static void ks_lua_builder_add_shape_key(lua_State *L, KsLuaBuilder *builder, int index) {
     KsLuaShapeKey *key = &builder->keys[builder->key_count++]; key->bytes = lua_tolstring(L, index, &key->length); key->hash = ks_lua_builder_key_hash((const unsigned char *)key->bytes, key->length); key->packed = 0u; key->scalar = 0;
     if (key->length <= 7u) { memcpy(&key->packed, key->bytes, key->length); key->packed |= (uint64_t)'"' << (key->length * 8u); }
 }
-static KS_UNUSED uint32_t ks_lua_builder_blob_u32(const unsigned char *bytes) { uint32_t value = 0u; memcpy(&value, bytes, sizeof(value)); return value; }
-static KS_UNUSED int ks_lua_builder_plan_key(KsLuaBuilder *builder, KsLuaShapePlan *plan, uint32_t index, KsLuaShapeKey *key) {
+static uint32_t ks_lua_builder_blob_u32(const unsigned char *bytes) { uint32_t value = 0u; memcpy(&value, bytes, sizeof(value)); return value; }
+static int ks_lua_builder_plan_key(KsLuaBuilder *builder, KsLuaShapePlan *plan, uint32_t index, KsLuaShapeKey *key) {
     if (index >= plan->count) { return 0; } if (plan->compiled == NULL) { *key = builder->keys[plan->first + index]; return 1; }
     const unsigned char *header = plan->compiled + 12u + (size_t)index * 24u; uint32_t offset = ks_lua_builder_blob_u32(header + 16u); key->length = (size_t)ks_lua_builder_blob_u32(header); key->hash = ks_lua_builder_blob_u32(header + 4u); memcpy(&key->packed, header + 8u, sizeof(key->packed)); key->scalar = (int32_t)ks_lua_builder_blob_u32(header + 20u);
     size_t names = 12u + (size_t)plan->count * 24u; if (names > plan->compiled_length || (size_t)offset > plan->compiled_length - names || key->length > plan->compiled_length - names - (size_t)offset) { return 0; } key->bytes = (const char *)(plan->compiled + names + (size_t)offset); return 1;
 }
-static KS_UNUSED uint32_t ks_lua_builder_shape_plan(lua_State *L, KsLuaBuilder *builder, int shape_index) {
+static uint32_t ks_lua_builder_shape_plan(lua_State *L, KsLuaBuilder *builder, int shape_index) {
     const void *identity = lua_topointer(L, shape_index);
     for (uint32_t index = 0u; index < builder->plan_count; ++index) { if (builder->plans[index].identity == identity) return index; }
     if (builder->plan_count >= 16u) { return UINT32_MAX; }
@@ -1183,7 +1179,7 @@ static KS_UNUSED uint32_t ks_lua_builder_shape_plan(lua_State *L, KsLuaBuilder *
     lua_settop(L, top);
     uint32_t plan = builder->plan_count++; builder->plans[plan].identity = identity; builder->plans[plan].compiled = NULL; builder->plans[plan].compiled_length = 0u; builder->plans[plan].first = first; builder->plans[plan].count = builder->key_count - first; builder->plans[plan].required = 0u; int aliases = ks_lua_builder_shape_marker(L, builder, shape_index, 1); builder->plans[plan].aliases = lua_type(L, aliases) == 5; lua_settop(L, top); int defaults = ks_lua_builder_shape_marker(L, builder, shape_index, 8); builder->plans[plan].defaults = lua_type(L, defaults) == 5; lua_settop(L, top); int factory = ks_lua_builder_shape_marker(L, builder, shape_index, 12); builder->plans[plan].factory = lua_type(L, factory) == 6; lua_settop(L, top); return plan;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_open(lua_State *L, KsLuaBuilder *builder, uint32_t kind, uint32_t capacity, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_open(lua_State *L, KsLuaBuilder *builder, uint32_t kind, uint32_t capacity, int eager) {
     if (!eager) { ks_lua_builder_prepare(L, builder); }
     if (builder->depth >= builder->frame_capacity) { return luaL_error(L, "AOT value stream nesting exceeds its authored capacity"); }
     if (builder->depth == 16u && builder->frames == NULL) { ks_lua_builder_ensure_frames(L, builder); }
@@ -1215,14 +1211,14 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_open(lua
     frame->table_index = mode == KS_LUA_BUILD_SKIP ? 0 : lua_gettop(L); frame->shape_index = shape_index; frame->kind = kind; frame->next = 1u; frame->count = 0u; frame->mode = mode; frame->plan = plan; frame->expected = 0u; frame->seen = 0u; frame->expects_key = kind == 6u; frame->aliases = plan != UINT32_MAX && builder->plans[plan].aliases; frame->tuple = 0; if (kind == 5u && mode == KS_LUA_BUILD_ARRAY && lua_type(L, shape_index) == 5) { int top = lua_gettop(L), tuple = ks_lua_builder_shape_marker(L, builder, shape_index, 13); frame->tuple = lua_toboolean(L, tuple); lua_settop(L, top); } if (kind == 6u && mode == KS_LUA_BUILD_OBJECT && plan == UINT32_MAX) { int aliases = ks_lua_builder_shape_marker(L, builder, shape_index, 1); frame->aliases = lua_type(L, aliases) == 5; lua_settop(L, frame->table_index); }
     return 1;
 }
-static inline __attribute__((always_inline, unused)) uint32_t ks_lua_builder_query(lua_State *L, KsLuaBuilder *builder, uint32_t query) {
+static inline __attribute__((always_inline)) uint32_t ks_lua_builder_query(lua_State *L, KsLuaBuilder *builder, uint32_t query) {
     if (query == 0u) { return builder->depth; }
     if (builder->depth == 0u) { if (query == 3u) { return 0u; } luaL_error(L, "AOT value stream has no current container"); return 0u; }
     KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);
     if (query == 1u) { return frame->kind; }
     return query == 3u ? frame->kind | (frame->count > 0u ? 0x100u : 0u) : frame->count;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_key(lua_State *L, KsLuaBuilder *builder) {
+static inline __attribute__((always_inline)) int ks_lua_builder_key(lua_State *L, KsLuaBuilder *builder) {
     if (builder->depth == 0u) { return luaL_error(L, "AOT value stream key is outside an object"); }
     KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);
     if (frame->kind != 6u || !frame->expects_key) { return luaL_error(L, "AOT value stream object is not expecting a key"); } frame->expects_key = 0;
@@ -1234,7 +1230,7 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_key(lua_
     { int aliases = ks_lua_builder_shape_marker(L, builder, frame->shape_index, 1); if (lua_type(L, aliases) == 5) { lua_pushvalue(L, frame->table_index + 1); lua_rawget(L, aliases); lua_remove(L, aliases); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); } else { lua_insert(L, frame->table_index + 1); lua_remove(L, frame->table_index + 2); } } else { lua_settop(L, aliases - 1); } }
     builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;
 }
-static inline __attribute__((always_inline, unused)) uint32_t ks_lua_copy_find_slash16(const unsigned char *input, unsigned char *out) {
+static inline __attribute__((always_inline)) uint32_t ks_lua_copy_find_slash16(const unsigned char *input, unsigned char *out) {
 #if defined(__aarch64__)
     uint8x16_t bytes = vld1q_u8(input); vst1q_u8(out, bytes);
     const uint8_t powers_data[16] = {1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u, 1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u};
@@ -1249,10 +1245,10 @@ static inline __attribute__((always_inline, unused)) uint32_t ks_lua_copy_find_s
     uint32_t bits = 0u; memcpy(out, input, 16u); for (uint32_t at = 0u; at < 16u; ++at) { if (input[at] == '\\') { bits |= UINT32_C(1) << at; } } return bits;
 #endif
 }
-static inline __attribute__((always_inline, unused)) uint32_t ks_lua_copy_find_slash32(const unsigned char *input, unsigned char *out) {
+static inline __attribute__((always_inline)) uint32_t ks_lua_copy_find_slash32(const unsigned char *input, unsigned char *out) {
     return ks_lua_copy_find_slash16(input, out) | (ks_lua_copy_find_slash16(input + 16u, out + 16u) << 16u);
 }
-static KS_UNUSED int ks_lua_builder_validate_escaped_string(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {
+static int ks_lua_builder_validate_escaped_string(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {
     size_t first = (size_t)start, count = (size_t)length; if (first > source_length || count > source_length - first) { return luaL_error(L, "AOT value stream string range is out of bounds"); }
     const unsigned char *input = source + first; size_t at = 0u;
     while (at < count) {
@@ -1266,7 +1262,7 @@ static KS_UNUSED int ks_lua_builder_validate_escaped_string(lua_State *L, const 
     }
     return 1;
 }
-static KS_UNUSED int ks_lua_builder_unescape(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const unsigned char **decoded, size_t *decoded_length) {
+static int ks_lua_builder_unescape(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const unsigned char **decoded, size_t *decoded_length) {
     size_t first = (size_t)start, count = (size_t)length;
     if (first > source_length || count > source_length - first) { return luaL_error(L, "AOT value stream string range is out of bounds"); }
     if (count > (size_t)builder->byte_capacity) { return luaL_error(L, "AOT value stream string exceeds its authored capacity"); }
@@ -1300,7 +1296,7 @@ static KS_UNUSED int ks_lua_builder_unescape(lua_State *L, KsLuaBuilder *builder
     *decoded = out; *decoded_length = written;
     return 1;
 }
-static KS_UNUSED int ks_lua_builder_unescape_indexed(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, const unsigned char **decoded, size_t *decoded_length) {
+static int ks_lua_builder_unescape_indexed(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, const unsigned char **decoded, size_t *decoded_length) {
     size_t first = (size_t)start, count = (size_t)length; if (first > source_length || count > source_length - first) { return luaL_error(L, "AOT value stream string range is out of bounds"); }
     if (escape_index > escapes->escape_length || escape_count > escapes->escape_length - escape_index) { return luaL_error(L, "AOT value stream escape range is out of bounds"); } if (count > (size_t)builder->byte_capacity) { return luaL_error(L, "AOT value stream string exceeds its authored capacity"); }
     const unsigned char *input = source + first; unsigned char *out = ks_lua_builder_bytes(L, builder, length); size_t at = 0u, written = 0u;
@@ -1318,38 +1314,35 @@ static KS_UNUSED int ks_lua_builder_unescape_indexed(lua_State *L, KsLuaBuilder 
     }
     if (at < count) { memcpy(out + written, input + at, count - at); written += count - at; } *decoded = out; *decoded_length = written; return 1;
 }
-static KS_UNUSED int ks_lua_builder_escaped_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int publish) {
+static int ks_lua_builder_escaped_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int publish) {
     const unsigned char *decoded = NULL; size_t decoded_length = 0u;
     ks_lua_builder_unescape(L, builder, source, source_length, start, length, &decoded, &decoded_length);
     if (publish) { lua_pushlstring(L, (const char *)decoded, decoded_length); } return 1;
 }
-static KS_UNUSED KsLuaBuilder ks_lua_eager_builder_new(lua_State *L, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity) {
-    return ks_lua_builder_new(L, null_index, array_marker_index, object_marker_index, max_depth, byte_capacity, 0, 0, 0);
-}
-static KS_UNUSED int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, KsLuaScratchU32 *escape_positions, uint32_t escape_index, uint32_t escape_count);
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key, int eager);
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_string_escapes(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, int key, int eager) {
+static int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, KsLuaScratchU32 *escape_positions, uint32_t escape_index, uint32_t escape_count);
+static inline __attribute__((always_inline)) int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key, int eager);
+static inline __attribute__((always_inline)) int ks_lua_builder_string_escapes(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, int key, int eager) {
     if (length < 64u) { return ks_lua_builder_string(L, builder, source, source_length, start, length, 1, key, eager); }
     if (key) { return ks_lua_builder_select_key(L, builder, source, source_length, start, length, 1, escapes, escape_index, escape_count); }
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); const unsigned char *decoded = NULL; size_t decoded_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &decoded, &decoded_length); lua_pushlstring(L, (const char *)decoded, decoded_length); } else { const unsigned char *ignored = NULL; size_t ignored_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &ignored, &ignored_length); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static KS_UNUSED int ks_lua_builder_select_entry(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {
+static int ks_lua_builder_select_entry(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {
     int entry = lua_gettop(L);
     if (frame->aliases) { int aliases = ks_lua_builder_shape_marker(L, builder, frame->shape_index, 1); lua_pushlstring(L, (const char *)key, key_length); lua_rawget(L, aliases); lua_remove(L, aliases); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushlstring(L, (const char *)key, key_length); } lua_insert(L, entry); }
     builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;
 }
-static KS_UNUSED int ks_lua_builder_select_known(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {
+static int ks_lua_builder_select_known(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {
     lua_pushlstring(L, (const char *)key, key_length); if (!frame->aliases) { lua_pushvalue(L, -1); } lua_rawget(L, frame->shape_index); return ks_lua_builder_select_entry(L, builder, frame, key, key_length);
 }
-static KS_UNUSED int ks_lua_builder_select_planned(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, uint32_t index, const KsLuaShapeKey *key) {
+static int ks_lua_builder_select_planned(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, uint32_t index, const KsLuaShapeKey *key) {
     frame->seen |= UINT64_C(1) << index;
     if (frame->aliases) { lua_rawgeti(L, frame->shape_index, -((int)index + 1)); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushlstring(L, key->bytes, key->length); } } else { lua_pushlstring(L, key->bytes, key->length); } if (key->scalar != 0) { builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = key->scalar; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1; } lua_rawgeti(L, frame->shape_index, (int)index + 1);
     if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return ks_lua_builder_select_known(L, builder, frame, (const unsigned char *)key->bytes, key->length); } builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_shape_key_matches(const KsLuaShapeKey *shape_key, const unsigned char *key, size_t key_length, uint64_t packed, uint32_t hash, int escaped) {
+static inline __attribute__((always_inline)) int ks_lua_builder_shape_key_matches(const KsLuaShapeKey *shape_key, const unsigned char *key, size_t key_length, uint64_t packed, uint32_t hash, int escaped) {
     if (shape_key->length != key_length) { return 0; } if (!escaped && key_length <= 7u) { return shape_key->packed == packed; } if (key_length > 7u && shape_key->hash != hash) { return 0; } return memcmp(shape_key->bytes, key, key_length) == 0;
 }
-static KS_UNUSED int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, KsLuaScratchU32 *escape_positions, uint32_t escape_index, uint32_t escape_count) {
+static int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, KsLuaScratchU32 *escape_positions, uint32_t escape_index, uint32_t escape_count) {
     size_t first = (size_t)start, key_length = (size_t)length;
     if (first > source_length || key_length > source_length - first) { return luaL_error(L, "AOT value stream string range is out of bounds"); }
     if (builder->depth == 0u) { return luaL_error(L, "AOT value stream key is outside an object"); }
@@ -1397,7 +1390,7 @@ static KS_UNUSED int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *build
     if (lua_toboolean(L, reject)) { lua_pushlstring(L, (const char *)key, key_length); return luaL_error(L, "nupp: unknown member %s", lua_tolstring(L, -1, NULL)); }
     lua_settop(L, table_index); builder->pending_mode = KS_LUA_BUILD_SKIP; return 1;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key, int eager) {
     size_t first = (size_t)start, count = (size_t)length;
     if (first > source_length || count > source_length - first) { return luaL_error(L, "AOT value stream string range is out of bounds"); }
     if (key) {
@@ -1407,24 +1400,24 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_string(l
     if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); } if (escaped && wanted) { ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); } else if (escaped) { ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); } else if (wanted) { lua_pushlstring(L, (const char *)(source + first), count); }
     return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_number_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_number_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) { return ks_lua_builder_complete(L, builder, 0, eager); }
     double value = ks_lua_number_slice(L, source, source_length, start, length, "value stream"); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_integer_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_integer_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) { return ks_lua_builder_complete(L, builder, 0, eager); }
     double value = ks_lua_integer_slice(L, source, source_length, start, length); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_number(lua_State *L, KsLuaBuilder *builder, double value, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_number(lua_State *L, KsLuaBuilder *builder, double value, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_integer64(lua_State *L, KsLuaBuilder *builder, uint64_t magnitude, int negative, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double unsigned_value = (double)magnitude; double value = negative ? -unsigned_value : unsigned_value; ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_decimal64(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent, negative, exact); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
-static inline __attribute__((always_inline, unused)) int ks_json_eight_digits(const unsigned char *source, uint32_t *value) {
+static inline __attribute__((always_inline)) int ks_lua_builder_integer64(lua_State *L, KsLuaBuilder *builder, uint64_t magnitude, int negative, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double unsigned_value = (double)magnitude; double value = negative ? -unsigned_value : unsigned_value; ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
+static inline __attribute__((always_inline)) int ks_lua_builder_decimal64(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent, negative, exact); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }
+static inline __attribute__((always_inline)) int ks_json_eight_digits(const unsigned char *source, uint32_t *value) {
     uint64_t word; memcpy(&word, source, sizeof(word)); if (((word & UINT64_C(0xf0f0f0f0f0f0f0f0)) | (((word + UINT64_C(0x0606060606060606)) & UINT64_C(0xf0f0f0f0f0f0f0f0)) >> 4u)) != UINT64_C(0x3333333333333333)) { return 0; }
     word = (word & UINT64_C(0x0f0f0f0f0f0f0f0f)) * UINT64_C(2561) >> 8u; word = (word & UINT64_C(0x00ff00ff00ff00ff)) * UINT64_C(6553601) >> 16u; *value = (uint32_t)((word & UINT64_C(0x0000ffff0000ffff)) * UINT64_C(42949672960001) >> 32u); return 1;
 }
-static KS_UNUSED uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t limit, int eager) {
+static uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t limit, int eager) {
     uint32_t at = start, magnitude_digits = 0u, fraction_digits = 0u; uint64_t magnitude = 0u; int negative = 0, exact = 1, integer_token = 1; int64_t explicit_exponent = 0;
     if ((size_t)limit > source_length || limit >= UINT32_C(2147483648) || start >= limit) { return start + 1u; } if (source[at] == '-') { negative = 1; at += 1u; if (at >= limit) { return at + 1u; } }
     if (source[at] == '0') { magnitude_digits = 1u; at += 1u; if (at < limit && (unsigned)(source[at] - '0') <= 9u) { return at + 1u; } }
@@ -1446,26 +1439,26 @@ static KS_UNUSED uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { uint32_t length = at - start; double value; if (integer_token && exact) { value = (double)magnitude; if (negative) { value = -value; } } else if (integer_token) { value = ks_lua_number_slice(L, source, source_length, start, length, "value stream integer"); } else { int64_t decimal_exponent = explicit_exponent - (int64_t)fraction_digits; int exponent_fits = decimal_exponent >= INT32_MIN && decimal_exponent <= INT32_MAX; value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent_fits ? (int32_t)decimal_exponent : 0, negative, exact && exponent_fits); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); }
     ks_lua_builder_complete(L, builder, wanted, eager); return UINT32_C(2147483648) | at;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_pushed_scalar(lua_State *L, KsLuaBuilder *builder, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_pushed_scalar(lua_State *L, KsLuaBuilder *builder, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { int actual = lua_type(L, -1); double value = actual == 3 ? lua_tonumber(L, -1) : 0.0; ks_lua_builder_scalar_validate(L, builder, eager, actual, value); } else { lua_settop(L, lua_gettop(L) - 1); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_boolean(lua_State *L, KsLuaBuilder *builder, int value, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_boolean(lua_State *L, KsLuaBuilder *builder, int value, int eager) {
     int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 1, 0.0); lua_pushboolean(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_null(lua_State *L, KsLuaBuilder *builder, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_null(lua_State *L, KsLuaBuilder *builder, int eager) {
     int wanted = ks_lua_builder_null_wanted(L, builder, eager); if (wanted) { lua_pushvalue(L, builder->null_index); } return ks_lua_builder_complete(L, builder, wanted, eager);
 }
-static KS_UNUSED int ks_lua_builder_finish_object(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame) {
+static int ks_lua_builder_finish_object(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame) {
     int table_index = frame->table_index; int required = ks_lua_builder_shape_marker(L, builder, frame->shape_index, 7);
     if (lua_type(L, required) == 5) { size_t count = lua_objlen(L, required); for (size_t at = 1u; at <= count; ++at) { lua_rawgeti(L, required, (int)at); lua_pushvalue(L, -1); lua_rawget(L, table_index); if (lua_type(L, -1) == 0) { return luaL_error(L, "nupp: missing required member %s", lua_tolstring(L, -2, NULL)); } lua_settop(L, lua_gettop(L) - 2); } }
     lua_settop(L, table_index); if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -66); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 8); } int defaults = lua_gettop(L);
     if (lua_type(L, defaults) == 5) { lua_pushnil(L); while (lua_next(L, defaults) != 0) { lua_pushvalue(L, -2); lua_rawget(L, table_index); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushvalue(L, -2); lua_pushvalue(L, -2); lua_rawset(L, table_index); } else { lua_settop(L, lua_gettop(L) - 1); } lua_settop(L, lua_gettop(L) - 1); } }
     lua_settop(L, table_index); return 1;
 }
-static KS_UNUSED int ks_lua_builder_finalize_object(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame) {
+static int ks_lua_builder_finalize_object(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame) {
     int table_index = frame->table_index; if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -67); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 12); } int factory = lua_gettop(L); if (lua_type(L, factory) == 0) { lua_settop(L, table_index); return 0; } if (lua_type(L, factory) != 6) { return luaL_error(L, "nupp: serde factory is not callable"); } lua_pushvalue(L, table_index); lua_call(L, 1, 1); lua_remove(L, table_index); return 1;
 }
-static inline __attribute__((always_inline, unused)) int ks_lua_builder_close(lua_State *L, KsLuaBuilder *builder, int eager) {
+static inline __attribute__((always_inline)) int ks_lua_builder_close(lua_State *L, KsLuaBuilder *builder, int eager) {
     if (builder->depth == 0u) { return luaL_error(L, "AOT value stream close has no container"); }
     KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);
     if (frame->kind == 6u && !frame->expects_key) { return luaL_error(L, "AOT value stream object has an unmatched key"); }
@@ -1475,7 +1468,7 @@ static inline __attribute__((always_inline, unused)) int ks_lua_builder_close(lu
     if (pushed) { int marker_index = frame->kind == 5u ? builder->array_marker_index : builder->object_marker_index; if (frame->kind == 5u && frame->mode == KS_LUA_BUILD_ARRAY && frame->tuple && frame->count != (uint32_t)lua_objlen(L, frame->shape_index)) { return luaL_error(L, "nupp: tuple length does not match"); } if (frame->kind == 6u && frame->mode == KS_LUA_BUILD_OBJECT) { if (frame->plan != UINT32_MAX) { KsLuaShapePlan *plan = &builder->plans[frame->plan]; uint64_t missing = plan->required & ~frame->seen; if (missing != 0u) { KsLuaShapeKey key; uint32_t index = (uint32_t)__builtin_ctzll(missing); if (!ks_lua_builder_plan_key(builder, plan, index, &key)) { return luaL_error(L, "AOT serde key plan is malformed"); } lua_pushlstring(L, key.bytes, key.length); return luaL_error(L, "nupp: missing required member %s", lua_tolstring(L, -1, NULL)); } if (plan->defaults) { ks_lua_builder_finish_object(L, builder, frame); } if (plan->factory && ks_lua_builder_finalize_object(L, builder, frame)) { marker_index = 0; } } else { ks_lua_builder_finish_object(L, builder, frame); if (ks_lua_builder_finalize_object(L, builder, frame)) { marker_index = 0; } } if (marker_index != 0) { if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -65); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 4); } int serde_mt = lua_gettop(L); if (lua_type(L, serde_mt) != 0) { lua_setmetatable(L, frame->table_index); marker_index = 0; } else { lua_settop(L, serde_mt - 1); } } } if (marker_index != 0) { lua_pushvalue(L, marker_index); lua_setmetatable(L, frame->table_index); } }
     int shape_index = frame->shape_index; builder->depth -= 1u; if (shape_index != 0) { lua_remove(L, shape_index); } return ks_lua_builder_complete(L, builder, pushed, eager);
 }
-static KS_UNUSED int ks_lua_builder_finish(lua_State *L, KsLuaBuilder *builder) {
+static int ks_lua_builder_finish(lua_State *L, KsLuaBuilder *builder) {
     if (builder->depth != 0u) { return luaL_error(L, "AOT value stream has an unclosed container"); }
     if (!builder->root_done || builder->root_index == 0) { return luaL_error(L, "AOT value stream has no root"); }
     if (builder->root_index != lua_gettop(L)) { return luaL_error(L, "AOT value stream root is not on top"); }

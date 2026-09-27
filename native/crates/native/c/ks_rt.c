@@ -11,15 +11,14 @@
  * current frame's kind and count, which it reads itself rather than paying a
  * call for three loads; the registrar refuses a table whose layout differs.
  *
- * The code is `ks_lua.h`'s, the C lowering's own prelude, included whole so
- * both backends run the same builder while both exist. What this file adds is
- * the ABI those functions are called through: every argument a pointer or a
- * 64-bit scalar (narrow values widened by the caller), no aggregate by value,
- * and every raise through a function that does not return.
+ * The code is `ks_lua.h`'s: the Lua API surface and the value-stream
+ * builder. What this file adds is the ABI those functions are called through:
+ * every argument a pointer or a 64-bit scalar (narrow values widened by the
+ * caller), no aggregate by value, and every raise through a function that
+ * does not return.
  *
  * The slot order is the ABI. `nupp.compiler.aot.llvm.lua.runtime` lists the
  * same slots, and a test holds the two lists to one another. */
-#define KS_JSON_WIDE 1
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE 1
 #endif
@@ -35,35 +34,29 @@
 #define luaL_addvalue (*ks_lua_ptr_luaL_addvalue)
 #define luaL_buffinit (*ks_lua_ptr_luaL_buffinit)
 #define luaL_checklstring (*ks_lua_ptr_luaL_checklstring)
-#define luaL_checknumber (*ks_lua_ptr_luaL_checknumber)
 #define luaL_error (*ks_lua_ptr_luaL_error)
 #define luaL_pushresult (*ks_lua_ptr_luaL_pushresult)
 #define lua_call (*ks_lua_ptr_lua_call)
 #define lua_checkstack (*ks_lua_ptr_lua_checkstack)
-#define lua_concat (*ks_lua_ptr_lua_concat)
 #define lua_createtable (*ks_lua_ptr_lua_createtable)
 #define lua_equal (*ks_lua_ptr_lua_equal)
 #define lua_getfield (*ks_lua_ptr_lua_getfield)
-#define lua_getmetatable (*ks_lua_ptr_lua_getmetatable)
 #define lua_gettop (*ks_lua_ptr_lua_gettop)
 #define lua_insert (*ks_lua_ptr_lua_insert)
 #define lua_newuserdata (*ks_lua_ptr_lua_newuserdata)
 #define lua_next (*ks_lua_ptr_lua_next)
 #define lua_objlen (*ks_lua_ptr_lua_objlen)
 #define lua_pushboolean (*ks_lua_ptr_lua_pushboolean)
-#define lua_pushcclosure (*ks_lua_ptr_lua_pushcclosure)
 #define lua_pushlightuserdata (*ks_lua_ptr_lua_pushlightuserdata)
 #define lua_pushlstring (*ks_lua_ptr_lua_pushlstring)
 #define lua_pushnil (*ks_lua_ptr_lua_pushnil)
 #define lua_pushnumber (*ks_lua_ptr_lua_pushnumber)
 #define lua_pushvalue (*ks_lua_ptr_lua_pushvalue)
-#define lua_rawequal (*ks_lua_ptr_lua_rawequal)
 #define lua_rawget (*ks_lua_ptr_lua_rawget)
 #define lua_rawgeti (*ks_lua_ptr_lua_rawgeti)
 #define lua_rawset (*ks_lua_ptr_lua_rawset)
 #define lua_rawseti (*ks_lua_ptr_lua_rawseti)
 #define lua_remove (*ks_lua_ptr_lua_remove)
-#define lua_replace (*ks_lua_ptr_lua_replace)
 #define lua_setmetatable (*ks_lua_ptr_lua_setmetatable)
 #define lua_settop (*ks_lua_ptr_lua_settop)
 #define lua_toboolean (*ks_lua_ptr_lua_toboolean)
@@ -73,7 +66,6 @@
 #define lua_touserdata (*ks_lua_ptr_lua_touserdata)
 #define lua_type (*ks_lua_ptr_lua_type)
 
-#include "ks_prelude.h"
 #include "ks_lua.h"
 
 #define KS_RT_ABI_VERSION 1u
@@ -85,35 +77,29 @@ extern void luaL_addvalue(KsLuaStringBuffer *buffer);
     X(luaL_addvalue) \
     X(luaL_buffinit) \
     X(luaL_checklstring) \
-    X(luaL_checknumber) \
     X(luaL_error) \
     X(luaL_pushresult) \
     X(lua_call) \
     X(lua_checkstack) \
-    X(lua_concat) \
     X(lua_createtable) \
     X(lua_equal) \
     X(lua_getfield) \
-    X(lua_getmetatable) \
     X(lua_gettop) \
     X(lua_insert) \
     X(lua_newuserdata) \
     X(lua_next) \
     X(lua_objlen) \
     X(lua_pushboolean) \
-    X(lua_pushcclosure) \
     X(lua_pushlightuserdata) \
     X(lua_pushlstring) \
     X(lua_pushnil) \
     X(lua_pushnumber) \
     X(lua_pushvalue) \
-    X(lua_rawequal) \
     X(lua_rawget) \
     X(lua_rawgeti) \
     X(lua_rawset) \
     X(lua_rawseti) \
     X(lua_remove) \
-    X(lua_replace) \
     X(lua_setmetatable) \
     X(lua_settop) \
     X(lua_toboolean) \

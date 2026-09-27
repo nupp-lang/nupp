@@ -14,7 +14,6 @@
 
 fn main() {
     println!("cargo:rerun-if-changed=c/ks_rt.c");
-    println!("cargo:rerun-if-changed=c/ks_prelude.h");
     println!("cargo:rerun-if-changed=c/ks_lua.h");
     println!("cargo::rustc-check-cfg=cfg(nupp_aot_runtime)");
     let target = std::env::var("TARGET").unwrap();
@@ -27,7 +26,6 @@ fn main() {
         .opt_level(2)
         // Lua raises unwind through the runtime's frames.
         .flag_if_supported("-fasynchronous-unwind-tables")
-        .flag_if_supported("-Wno-unused-function")
         .warnings(false);
     if target.contains("apple") {
         let floor = if target.starts_with("x86_64") { "10.14" } else { "11.0" };
