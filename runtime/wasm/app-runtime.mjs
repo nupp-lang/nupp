@@ -502,6 +502,9 @@ async function performGpuEffect(effect, options) {
 }
 
 async function performHttpEffect(effect, options) {
+  if (effect.operation === "release-body") {
+    return {released: options.httpBodies?.delete(effect.body) === true};
+  }
   if (effect.operation === "read-body") {
     const saved = options.httpBodies?.get(effect.body);
     if (!saved) throw new Error("browser HTTP body was released");
@@ -520,6 +523,7 @@ async function performHttpEffect(effect, options) {
   if (typeof effect.url !== "string" || !/^https?:\/\//i.test(effect.url)) {
     throw new Error("browser HTTP effects require an absolute http or https URL");
   }
+  if (options.signal?.aborted) throw abortError(options.signal);
   const controller = new AbortController();
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, {once: true});

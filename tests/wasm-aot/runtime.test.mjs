@@ -57,6 +57,37 @@ test("browser HTTP effect failures resume as protocol errors", async () => {
   assert.match(result.responses[0].error, /absolute http or https URL/);
 });
 
+test("browser HTTP effects enforce size, timeout, and cancellation limits", async () => {
+  let result = await handleBrowserEffects({
+    kind: "effects",
+    requests: [{id: 1, kind: "http", url: "https://example.test", maxBytes: 2}],
+  }, {fetch: async () => new Response("abc", {headers: {"content-length": "3"}})});
+  assert.equal(result.responses[0].ok, false);
+  assert.match(result.responses[0].error, /exceeded maxBytes/);
+
+  result = await handleBrowserEffects({
+    kind: "effects",
+    requests: [{id: 2, kind: "http", url: "https://example.test", timeoutMs: 1}],
+  }, {
+    fetch: async (_url, request) => new Promise((_resolve, reject) => {
+      request.signal.addEventListener("abort", () => reject(request.signal.reason), {once: true});
+    }),
+  });
+  assert.equal(result.responses[0].ok, false);
+  assert.match(result.responses[0].error, /timed out/);
+
+  const cancelled = new AbortController();
+  cancelled.abort(new Error("application cancelled"));
+  let fetched = false;
+  result = await handleBrowserEffects({
+    kind: "effects",
+    requests: [{id: 3, kind: "http", url: "https://example.test"}],
+  }, {signal: cancelled.signal, fetch: async () => { fetched = true; return new Response(""); }});
+  assert.equal(result.responses[0].ok, false);
+  assert.match(result.responses[0].error, /application cancelled/);
+  assert.equal(fetched, false);
+});
+
 function fakeOpfs() {
   class FileHandle {
     constructor(name) {
@@ -769,6 +800,16 @@ test("HTTP moves response chunks through a writable memory lease without base64"
   assert.equal(result.ok, true, result.error);
   assert.deepEqual(Array.from(heap.subarray(8, 13)), [0, 255, 65, 66, 67]);
   assert.equal(live, false);
+  assert.equal(options.httpBodies.size, 0);
+
+  live = true;
+  result = (await handleBrowserEffects(request, options)).responses[0];
+  const orphan = result.value.body;
+  assert.equal(options.httpBodies.has(orphan), true);
+  result = (await handleBrowserEffects({kind: "effects", requests: [{
+    id: 4, kind: "http", operation: "release-body", body: orphan,
+  }]}, options)).responses[0];
+  assert.deepEqual(result.value, {released: true});
   assert.equal(options.httpBodies.size, 0);
 
   live = true;

@@ -24,6 +24,19 @@ local effects = require("nupp.runtime.browser.effects")
 local time = {}
 local browserHost = rawget(_G, "__nuppBrowser")
 
+local function clock(value: any, label: string, nonNegative: boolean): number
+    if type(value) ~= "number"
+        or value ~= value
+        or value == math.huge
+        or value == -math.huge
+        or (nonNegative and value < 0)
+    then
+        error("nupp: browser " .. label .. " returned an invalid clock value", 3)
+    end
+
+    return value
+end
+
 local function duration(value: number, label: string): number
     if value ~= value or value < 0 or value == math.huge then
         error("nupp: " .. label .. " must be a finite non-negative number", 3)
@@ -34,14 +47,14 @@ end
 --- Monotonic milliseconds since the Worker time origin.
 function time.now(): number
     if browserHost ~= nil then
-        return browserHost.now() as number
+        return clock(browserHost.now(), "monotonic clock", true)
     end
-    return response.await("time", {operation = "now",}) as number
+    return clock(response.await("time", {operation = "now",}), "monotonic clock", true)
 end
 
 --- Unix time in milliseconds.
 function time.wallTime(): number
-    return response.await("time", {operation = "wall",}) as number
+    return clock(response.await("time", {operation = "wall",}), "wall clock", false)
 end
 
 --- Suspends for at least `milliseconds` without blocking the Worker thread.
@@ -67,7 +80,7 @@ function time.wakeAt(deadline: number, resume: function(boolean): nil): function
             deadline = duration(deadline, "deadline")
         },
         function(result: any): nil
-            resume(result.error == nil)
+            resume(type(result) == "table" and result.ok == true)
         end
     )
 end

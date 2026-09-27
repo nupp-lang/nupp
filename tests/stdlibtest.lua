@@ -482,6 +482,165 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
     rejected({url = assert(uri.newURI("https://example.com/")), timeoutMs = 1.5}, "integer")
 end
 
+function M.browserCryptoRejectsMalformedHostValues()
+    local returned = {}
+    local browser = require("providerstate").browserCrypto({
+        await = function(kind)
+            return returned[kind]
+        end,
+    })
+    local base64 = require("nupp.codec.base64")
+
+    returned.random = {bytesBase64 = base64.encode("\0")}
+    assertEq(browser.randomBytes(1), "\0")
+    returned.random = {bytesBase64 = base64.encode("short")}
+    local ok, problem = pcall(browser.randomBytes, 6)
+    assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
+    returned.random = {bytesBase64 = "not base64"}
+    ok, problem = pcall(browser.randomBytes, 1)
+    assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
+
+    returned.sha256 = string.rep("a", 64)
+    assertEq(browser.sha256("value"), returned.sha256)
+    returned.sha256 = string.rep("A", 64)
+    ok, problem = pcall(browser.sha256, "value")
+    assert(not ok and tostring(problem):find("SHA-256", 1, true), tostring(problem))
+
+    returned["hmac-sha256"] = {digestBase64 = base64.encode(string.rep("x", 32))}
+    assertEq(#browser.digest("key", "value"), 32)
+    returned["hmac-sha256"] = {digestBase64 = base64.encode("short")}
+    ok, problem = pcall(browser.digest, "key", "value")
+    assert(not ok and tostring(problem):find("digestBase64", 1, true), tostring(problem))
+
+    returned.random = {bytesBase64 = base64.encode(string.rep("\0", 10)), wallTimeMs = 1.5}
+    ok, problem = pcall(browser.uuid7)
+    assert(not ok and tostring(problem):find("wall time", 1, true), tostring(problem))
+    returned.random = {bytesBase64 = base64.encode(string.rep("\0", 10)), wallTimeMs = 281474976710656}
+    ok, problem = pcall(browser.uuid7)
+    assert(not ok and tostring(problem):find("wall time", 1, true), tostring(problem))
+end
+
+function M.browserSystemRejectsMalformedParallelism()
+    local value
+    local browser = require("providerstate").browserSystem({
+        await = function()
+            return value
+        end,
+    })
+    for _, malformed in ipairs({false, {}, {availableParallelism = 0}, {availableParallelism = 1.5}}) do
+        value = malformed
+        local ok, problem = pcall(browser.availableParallelism)
+        assert(not ok and tostring(problem):find("invalid available parallelism", 1, true), tostring(problem))
+    end
+    value = {availableParallelism = 3}
+    assertEq(browser.availableParallelism(), 3)
+end
+
+function M.browserTimeRejectsMalformedClocksAndWakeResults()
+    local values = {now = 12.5, wall = 1000}
+    local delivered
+    local browser = require("providerstate").browserTime(
+        {
+            await = function(_, payload)
+                return values[payload.operation]
+            end,
+        },
+        {
+            request = function(_, _, resume)
+                delivered = resume
+                return function()
+                end
+            end,
+        }
+    )
+    assertEq(browser.now(), 12.5)
+    assertEq(browser.wallTime(), 1000)
+    for _, malformed in ipairs({"12", -1, math.huge}) do
+        values.now = malformed
+        local ok, problem = pcall(browser.now)
+        assert(not ok and tostring(problem):find("invalid clock value", 1, true), tostring(problem))
+    end
+    values.now = 12.5
+    local woke
+    browser.wakeAt(20, function(answer)
+        woke = answer
+    end)
+    delivered({ok = true, value = nil})
+    assertEq(woke, true)
+    delivered({ok = false, error = "refused"})
+    assertEq(woke, false)
+    delivered({})
+    assertEq(woke, false, "a malformed timer response must not report success")
+end
+
+function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
+    local effects = require("nupp.runtime.browser.effects")
+    local prior = effects.request
+    local returned, copied = nil, 0
+    local released = {}
+    local discard
+    local leases, nextLease = {}, 0
+    local memory = {
+        lease = function(_, count)
+            nextLease = nextLease + 1
+            leases[nextLease] = count
+            return nextLease
+        end,
+        releaseLease = function(id)
+            leases[id] = nil
+        end,
+    }
+    effects.request = function(_, request, resume, onDiscard)
+        if request.operation == "release-body" then
+            released[#released + 1] = request.body
+        elseif request.operation == "read-body" then
+            resume({ok = true, value = {bytes = copied}})
+        else
+            discard = onDiscard
+            resume({ok = true, value = returned})
+        end
+
+        return function()
+        end
+    end
+    local ok, problem = pcall(function()
+        local browser = require("providerstate").browserHttp(memory)
+        local request = setmetatable(
+            {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
+            require("nupp.io.http.messages").Request
+        )
+        local client = browser.client({maxBytes = 4})
+        for _, case in ipairs({
+            {value = false, expected = "invalid response value"},
+            {value = {status = 200, body = 0, bodyBytes = 0, headers = {}}, expected = "body handle"},
+            {value = {status = 99, body = 2, bodyBytes = 0, headers = {}}, expected = "status"},
+            {value = {status = 200, body = 3, bodyBytes = 5, headers = {}}, expected = "body length"},
+            {value = {status = 200, body = 4, bodyBytes = 0, headers = {{false, "value"}}}, expected = "headers"},
+        }) do
+            returned = case.value
+            local response, reason = client:send(request)
+            assertEq(response, nil)
+            assert(tostring(reason):find(case.expected, 1, true), tostring(reason))
+        end
+        assertEq(table.concat(released, ","), "2,3,4", "malformed metadata releases valid body handles")
+
+        returned = {status = 200, body = 5, bodyBytes = 0, headers = {}}
+        copied = 1
+        local sent, invalidCopy = pcall(client.send, client, request)
+        assert(not sent and tostring(invalidCopy):find("copied byte count", 1, true), tostring(invalidCopy))
+        assertEq(released[#released], 5)
+
+        assert(type(discard) == "function", "browser HTTP supplies a late-response discard")
+        discard({ok = true, value = {body = 6}})
+        assertEq(released[#released], 6, "a cancelled response releases its retained host body")
+        client:close()
+        request:close()
+        assert(next(leases) == nil)
+    end)
+    effects.request = prior
+    assert(ok, problem)
+end
+
 function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     local effects = require("nupp.runtime.browser.effects")
     local ffi = require("ffi")

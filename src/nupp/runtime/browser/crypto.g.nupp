@@ -24,6 +24,22 @@ local contracts = require("nupp.runtime.uuid.spi")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}
 
+local function invalid(kind: string): never
+    error("nupp: browser crypto returned invalid " .. kind, 3)
+end
+
+local function decoded(value: any, field: string, count: integer): string
+    if type(value) ~= "table" or type(value[field]) ~= "string" then
+        invalid(field)
+    end
+    local ok, bytes = pcall(base64.decode, value[field])
+    if not ok or #bytes ~= count then
+        invalid(field)
+    end
+
+    return bytes
+end
+
 local function random(count: integer, wallTime: boolean?): any
     if count < 0 or count ~= math.floor(count) then
         error("nupp: random byte count must be a non-negative integer", 3)
@@ -31,15 +47,31 @@ local function random(count: integer, wallTime: boolean?): any
         error("nupp: one random request cannot exceed 1048576 bytes", 3)
     end
 
-    return response.await("random", {count = count, wallTime = wallTime == true,})
+    local value = response.await("random", {count = count, wallTime = wallTime == true,})
+    local bytes = decoded(value, "bytesBase64", count)
+    local timestamp: number? = nil
+    if wallTime then
+        local given = value.wallTimeMs
+        if type(given) ~= "number" or given ~= math.floor(given) or given < 0 or given > 281474976710655 then
+            invalid("wall time")
+        end
+        timestamp = given
+    end
+
+    return {bytes = bytes, wallTimeMs = timestamp,}
 end
 
 function crypto.randomBytes(count: integer): string
-    return base64.decode(random(count).bytesBase64)
+    return random(count).bytes
 end
 
 function crypto.sha256(value: string): string
-    return response.await("sha256", {bytesBase64 = base64.encode(value),}) as string
+    local digest = response.await("sha256", {bytesBase64 = base64.encode(value),})
+    if type(digest) ~= "string" or #digest ~= 64 or digest:find("[^0-9a-f]") ~= nil then
+        invalid("SHA-256 digest")
+    end
+
+    return digest
 end
 
 function crypto.digest(key: string, message: string): string
@@ -48,7 +80,7 @@ function crypto.digest(key: string, message: string): string
         messageBase64 = base64.encode(message),
     })
 
-    return base64.decode(value.digestBase64)
+    return decoded(value, "digestBase64", 32)
 end
 
 function crypto.hex(key: string, message: string): string
@@ -100,13 +132,13 @@ end
 
 function crypto.uuid7(): string
     local generated = random(10, true)
-    local timestamp = math.floor(generated.wallTimeMs as number)
+    local timestamp = generated.wallTimeMs as integer
     local bytes: {integer} = {}
     for index = 6, 1, -1 do
         bytes[index] = timestamp % 256
         timestamp = math.floor(timestamp / 256)
     end
-    local tail = base64.decode(generated.bytesBase64)
+    local tail = generated.bytes as string
     for index = 1, 10 do
         bytes[index + 6] = tail:byte(index)
     end

@@ -31,6 +31,7 @@ local ownedReader = require("nupp.io.internal.ownedreader")
 local contracts = require("nupp.io.http.spi")
 local memory = require("nupp.runtime.browser.memory") as any
 local http = {}
+local MAX_EXACT_INTEGER = 9007199254740991
 
 const messages = require("nupp.io.http.messages")
 
@@ -87,6 +88,63 @@ local function copyHeaders(values: any, what: string): {[string]: string}
     end
 
     return out
+end
+
+local function hostInteger(value: any, minimum: integer, maximum: number): integer?
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum or value > maximum then
+        return nil
+    end
+
+    return value as integer
+end
+
+local function responseHeaders(values: any): ({[string]: {string}}?, string?)
+    if type(values) ~= "table" then
+        return nil, "browser HTTP host returned invalid response headers"
+    end
+    local byName: {[string]: {string}} = {}
+    local count: integer = 0
+    local highest: integer = 0
+    for index, pair in pairs(values) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) then
+            return nil, "browser HTTP host returned invalid response headers"
+        end
+        count = count + 1
+        highest = math.max(highest, index) as integer
+        if type(pair) ~= "table"
+            or type(pair[1]) ~= "string"
+            or type(pair[2]) ~= "string"
+            or pair[1] == ""
+            or pair[1]:find("[\r\n:]") ~= nil
+            or pair[2]:find("[\r\n]") ~= nil
+        then
+            return nil, "browser HTTP host returned invalid response headers"
+        end
+        local name = pair[1]:lower()
+        local entries = byName[name] or {}
+        entries[#entries + 1] = pair[2]
+        byName[name] = entries
+    end
+    if count ~= highest then
+        return nil, "browser HTTP host returned invalid response headers"
+    end
+
+    return byName, nil
+end
+
+local function releaseBody(handle: integer): nil
+    effects.request("http", {operation = "release-body", body = handle,}, function(): nil
+    end)
+end
+
+local function orphanedResponse(answer: any): nil
+    if type(answer) ~= "table" or answer.ok ~= true or type(answer.value) ~= "table" then
+        return
+    end
+    local handle = hostInteger(answer.value.body, 1, MAX_EXACT_INTEGER)
+    if handle ~= nil then
+        releaseBody(handle)
+    end
 end
 
 record http.Response is contracts.Response
@@ -308,7 +366,7 @@ record http.Client is contracts.Client
         local completed, suspended = pcall(suspension.suspend, "browser HTTP request", function(
             resume: function(any): nil
         ): function()
-            return effects.request("http", descriptor, resume)
+            return effects.request("http", descriptor, resume, orphanedResponse)
         end)
         if descriptor.bodyLease ~= nil then
             memory.releaseLease(descriptor.bodyLease)
@@ -318,19 +376,35 @@ record http.Client is contracts.Client
             error(suspended, 0)
         end
         local answer = suspended as any
+        if type(answer) ~= "table" or type(answer.ok) ~= "boolean" then
+            return nil, "browser HTTP host returned an invalid response"
+        end
         if not answer.ok then
-            return nil, answer.error or "browser HTTP request failed"
+            return nil, type(answer.error) == "string" and answer.error or "browser HTTP request failed"
         end
         local value = answer.value
-        local byName: {[string]: {string}} = {}
-        for _, pair in ipairs(value.headers or {}) do
-            local name = pair[1]:lower()
-            local values = byName[name] or {}
-            values[#values + 1] = pair[2]
-            byName[name] = values
+        if type(value) ~= "table" then
+            return nil, "browser HTTP host returned an invalid response value"
         end
-        local storage = io.newBuffer(value.bodyBytes as integer)
-        local lease = storage:reserveWrite(0, value.bodyBytes as integer)
+        local body = hostInteger(value.body, 1, MAX_EXACT_INTEGER)
+        if body == nil then
+            return nil, "browser HTTP host returned an invalid body handle"
+        end
+        local bodyBytes = hostInteger(value.bodyBytes, 0, MAX_EXACT_INTEGER)
+        local status = hostInteger(value.status, 100, 599)
+        local byName, headersProblem = responseHeaders(value.headers)
+        if bodyBytes == nil or (descriptor.maxBytes > 0 and bodyBytes > descriptor.maxBytes) then
+            releaseBody(body)
+            return nil, "browser HTTP host returned an invalid body length"
+        elseif status == nil then
+            releaseBody(body)
+            return nil, "browser HTTP host returned an invalid status"
+        elseif byName == nil then
+            releaseBody(body)
+            return nil, headersProblem
+        end
+        local storage = io.newBuffer(bodyBytes)
+        local lease = storage:reserveWrite(0, bodyBytes)
         do
             local output = lease:span()
             do
@@ -341,19 +415,24 @@ record http.Client is contracts.Client
                     writable: boolean?
                 ): integer
                 local token = leaseWrite(pointer, count, true)
-                local copied, failure = pcall(response.await, "http", {
+                local copied, result = pcall(response.await, "http", {
                     operation = "read-body",
-                    body = value.body,
+                    body = body,
                     lease = token
                 })
                 memory.releaseLease(token)
                 if not copied then
-                    error(failure, 0)
+                    releaseBody(body)
+                    error(result, 0)
+                end
+                if type(result) ~= "table" or result.bytes ~= bodyBytes then
+                    releaseBody(body)
+                    error("nupp: browser HTTP host returned an invalid copied byte count", 0)
                 end
             end
             nupp.drop(output)
         end
-        lease:commit(value.bodyBytes as integer)
+        lease:commit(bodyBytes)
         local responseBody = ownedReader.newOwnedReader(storage)
         -- The host follows redirects, so the URL it answers is the last hop
         -- rather than the one the request named.
@@ -365,7 +444,7 @@ record http.Client is contracts.Client
             end
         end
 
-        return makeResponse(value.status, finalUrl, responseBody, byName)
+        return makeResponse(status, finalUrl, responseBody, byName)
     end
 
     function close(takes self): nil

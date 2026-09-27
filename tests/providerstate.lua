@@ -74,6 +74,26 @@ function M.browserHttp(memory)
     return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)
 end
 
+function M.browserCrypto(response)
+    local name = "nupp.runtime.browser.crypto"
+    return instance({[name] = true}, {["nupp.runtime.browser.response"] = response})(name)
+end
+
+function M.browserSystem(response)
+    local name = "nupp.runtime.browser.system"
+    return instance({[name] = true}, {["nupp.runtime.browser.response"] = response})(name)
+end
+
+function M.browserTime(response, effects, browserHost)
+    local name = "nupp.runtime.browser.time"
+    return instance(
+        {[name] = true},
+        {["nupp.runtime.browser.effects"] = effects, ["nupp.runtime.browser.response"] = response,},
+        nil,
+        {__nuppBrowser = browserHost}
+    )(name)
+end
+
 function M.browserFiles(memory)
     local name = "nupp.runtime.browser.files"
     return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)
@@ -94,6 +114,7 @@ function M.browserGpu(response)
         ["nupp.runtime.browser.response"] = response,
     })(name)
 end
+
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
     local facade = "nupp." .. kind

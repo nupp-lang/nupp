@@ -19,5 +19,10 @@ export const pointerBits: integer = 32
 
 export function availableParallelism(): integer
     local answer = response.await("system", {})
-    return answer.availableParallelism as integer
+    local count = type(answer) == "table" and answer.availableParallelism or nil
+    if type(count) ~= "number" or count ~= math.floor(count) or count < 1 or count > 9007199254740991 then
+        error("nupp: browser system returned invalid available parallelism", 2)
+    end
+
+    return count as integer
 end
