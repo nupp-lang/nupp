@@ -35,6 +35,38 @@ local function remove(dir)
     assert(require("nupp.io.files").remove(dir, true))
 end
 
+function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()
+    local capabilities = require("nupp.tools.build.capabilities")
+    local dir = tempProject({
+        [
+            "capabilities.json"
+        ] = [[
+{"schema":2,"capabilities":[
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.codegen"}
+]}
+]],
+    })
+    local record = {typeRoot = dir}
+    local entry = assert(capabilities.find(record, "provider", "generator", "codegen"))
+    assertEq(entry.entry, "provider.codegen", "the selected entry is returned")
+
+    write(dir .. "/capabilities.json", '{"schema":2,"capabilities":[],"extra":true}\n')
+    local _, unknown = capabilities.find(record, "provider", "generator", "codegen")
+    assert(unknown:find("unknown key extra", 1, true), unknown)
+
+    write(
+        dir .. "/capabilities.json",
+        [[{"schema":2,"capabilities":[
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.first"},
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.second"}
+]}
+]]
+    )
+    local _, duplicate = capabilities.find(record, "provider", "generator", "codegen")
+    assert(duplicate:find("duplicates capability codegen", 1, true), duplicate)
+    remove(dir)
+end
+
 function M.namedManifestTargetsCarryTheSelectedHostAndVm()
     local source = [[
 local text = require("nupp.text")

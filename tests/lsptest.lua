@@ -380,6 +380,17 @@ function M.positionsAgreeWithAScanFromTheStart()
     )
 end
 
+function M.fileUrisRoundTripWindowsDrivePaths()
+    local text = require("nupp.tools.lsp.text")
+    local path = "C:/Users/Example/space # percent%.nupp"
+    local uri = text.pathToUri(path)
+    assert(
+        uri == "file:///C:/Users/Example/space%20%23%20percent%25.nupp",
+        "a drive path is an absolute URI path: " .. uri
+    )
+    assert(text.uriToPath(uri) == path, "the URI returns to the same drive path")
+end
+
 -- A session started against a relative root answered a document reached by its
 -- absolute path by walking up from that path, finding the same manifest the
 -- root names, and building a second graph of the same project under the

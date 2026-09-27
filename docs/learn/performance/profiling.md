@@ -158,7 +158,8 @@ such as `local zone = nupp.profile.zone`. This removes the function call;
 
 Place zone boundaries around phases, outside inner loops. The other forms
 above make ordinary function calls, as do `enter` and `leave`. `bench.keep`
-has similar inlining rules; see [Benchmarks](benchmarks.md#keep-is-the-one-rule).
+has similar inlining rules; see
+[benchmarks.md](benchmarks.md#keeping-results-alive) for the matching sink rule.
 
 ### `enter` and `leave`
 

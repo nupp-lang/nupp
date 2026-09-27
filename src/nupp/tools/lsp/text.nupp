@@ -13,22 +13,22 @@ local lexer = require("nupp.compiler.syntax.lexer")
 
 local text = {}
 
---- A position as the protocol counts it: zero-based lines, and a character offset in
---- UTF-16 code units rather than the bytes the lexer works in.
+--- A position as the protocol counts it: zero-based lines, and a character
+--- offset in UTF-16 code units rather than the bytes the lexer works in.
 type text.Position = {
     line: integer,
     character: integer
 }
 
---- A half-open span between two protocol positions. The end key is quoted because the
---- protocol named it after a Lua keyword.
+--- A half-open span between two protocol positions. The end key is quoted
+--- because the protocol named it after a Lua keyword.
 type text.Range = {
     start: text.Position,
     ["end"]: text.Position
 }
 
---- One run of lines replaced wholesale, where `from`..`to` is a half-open span of the
---- original's 1-based line numbers and `lines` is what takes its place.
+--- One run of lines replaced wholesale, where `from`..`to` is a half-open span
+--- of the original's 1-based line numbers and `lines` is what takes its place.
 type text.Hunk = {
     from: integer,
     to: integer,
@@ -40,12 +40,19 @@ function text.uriToPath(uri: string): string
     path = path:gsub("%%(%x%x)", function(hex)
         return string.char(tonumber(hex, 16) or 0)
     end)
+    -- RFC 8089 gives a Windows drive path a leading slash. It is part of the
+    -- URI path rather than the filesystem path.
+    if path:match("^/[A-Za-z]:[/\\]") then
+        path = path:sub(2)
+    end
 
     return path
 end
 
 function text.pathToUri(path: string): string
-    return "file://" .. path:gsub("[^%w%-%._~/:]", function(ch)
+    local prefix = path:match("^[A-Za-z]:[/\\]") and "/" or ""
+
+    return "file://" .. prefix .. path:gsub("[^%w%-%._~/:]", function(ch)
         return ("%%%02X"):format(ch:byte())
     end)
 end
@@ -73,9 +80,9 @@ function text.utf8Char(source: string, offset: number): integer, integer
 end
 
 -- The line starts of the source most recently asked about. A request such as
--- semantic tokens asks for thousands of positions in one text, and scanning from the
--- first byte each time made that quadratic; one text at a time is enough, because a
--- request works over one document.
+-- semantic tokens asks for thousands of positions in one text, and scanning
+-- from the first byte each time made that quadratic. One text at a time is
+-- enough because a request works over one document.
 local cachedSource: string? = nil
 local cachedStarts: {integer} = {}
 
@@ -136,8 +143,8 @@ function text.tokenRange(source: string, tok: lexer.Token): text.Range
     return text.spanRange(source, tok.offset, tok.offset + #tok.text)
 end
 
---- The lines of `text`, each keeping its own newline, so concatenating them reproduces
---- the text exactly, including a final line with no newline at all.
+--- The lines of `text`, each keeping its own newline, so concatenating them
+--- reproduces the text exactly, including a final line with no newline at all.
 function text.splitLines(source: string): {string}
     local lines = {}
     local pos = 1
@@ -155,8 +162,8 @@ function text.splitLines(source: string): {string}
     return lines
 end
 
---- The byte offset each line of `text` starts at, plus one past the end, so a run of
---- lines converts to a span without counting anything twice.
+--- The byte offset each line of `text` starts at, plus one past the end, so a
+--- run of lines converts to a span without counting anything twice.
 function text.lineStarts(source: string): {integer}
     local starts = {1}
     for pos = 1, #source do
@@ -168,9 +175,9 @@ function text.lineStarts(source: string): {integer}
     return starts
 end
 
--- How far ahead a resynchronization is looked for before the rest of the file is called
--- one changed run. A formatter's edits are local; a gap wider than this is a rewrite,
--- and describing a rewrite in pieces saves nobody anything.
+-- How far ahead a resynchronization is looked for before the rest of the file
+-- is called one changed run. A formatter's edits are local; a gap wider than
+-- this is a rewrite, and describing a rewrite in pieces saves nobody anything.
 local RESYNC: integer = 64
 
 --- The runs of lines turning `before` into `after`, as {from, to, lines} where

@@ -1,8 +1,8 @@
 module nupp.tools.build.capabilities
 
 -- Static package metadata for build-time generators.
--- Discovery never loads provider code: the capability entry point is required only
--- after the build has selected and validated one descriptor entry.
+-- Discovery never loads provider code. The capability entry point is required
+-- only after the build has selected and validated one descriptor entry.
 
 local fs = require("nupp.compiler.fs")
 local json = require("nupp.codec.json")
@@ -37,7 +37,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
     end
     for key in pairs(document) do
         if key ~= "schema" and key ~= "capabilities" then
-            return nil, path .. " has no key " .. tostring(key)
+            return nil, path .. " has unknown key " .. tostring(key)
         end
     end
     if document.schema ~= 2 then
@@ -55,7 +55,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
         end
         for key in pairs(raw) do
             if not ENTRY_KEYS[key] then
-                return nil, label .. " has no key " .. tostring(key)
+                return nil, label .. " has unknown key " .. tostring(key)
             end
         end
         if raw.kind ~= "generator" then

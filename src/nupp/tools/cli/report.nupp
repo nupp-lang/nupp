@@ -3,11 +3,11 @@ module nupp.tools.cli.report
 --[[
 Diagnostics as JSON, for the reader that is a program.
 
-The text form lives in `nupp.compiler.diagnostics`, where the build and the command line
-share it. This is the other reader: `--json` promises line, column, and offset for
-every range, including the ranges inside fixes and related locations, and a
-diagnostic carries only a byte offset, so each file it mentions is read once and
-walked to turn offsets into positions.
+The text form lives in `nupp.compiler.diagnostics`, where the build and the
+command line share it. This is the other reader: `--json` promises line, column,
+and offset for every range, including the ranges inside fixes and related
+locations, and a diagnostic carries only a byte offset, so each file it mentions
+is read once and walked to turn offsets into positions.
 
 See `docs/reference/diagnostics.md` for what the fields mean.
 ]]
@@ -19,8 +19,9 @@ local diagnosticMod = require("nupp.compiler.diagnostics")
 
 local report = {}
 
---- A source and where each of its lines starts, so that an offset is turned into a
---- line by searching a list rather than by walking the text again for every range.
+--- A source and where each of its lines starts, so that an offset is turned
+--- into a line by searching a list rather than by walking the text again for
+--- every range.
 local type Source = {
     text: string,
     lineStarts: {integer}
@@ -37,9 +38,9 @@ local function indexed(text: string): Source
     return {text = text, lineStarts = lineStarts}
 end
 
---- The line and column an offset falls on. Positions are 1-based byte counts, matching
---- what the text form prints. The line is the last one starting at or before the
---- offset, found by bisection.
+--- The line and column an offset falls on. Positions are 1-based byte counts,
+--- matching what the text form prints. The line is the last one starting at or
+--- before the offset, found by bisection.
 local function positionAtByte(source: Source?, offset: number?): any
     if not source or not offset or offset < 1 then
         return {line = 0, column = 0, offset = offset or 0}
@@ -58,7 +59,8 @@ local function positionAtByte(source: Source?, offset: number?): any
     return {line = low, column = offset - starts[low] + 1, offset = offset}
 end
 
---- Reads and indexes each file at most once, however many diagnostics point into it.
+--- Reads and indexes each file at most once, even when many diagnostics point
+--- into it.
 local function sourceReader(): function(string?): Source?
     local sources: {[string]: any} = {}
     return function(path: string?): Source?
@@ -141,20 +143,21 @@ local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): st
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
---- Encodes a value the way every `--json` command encodes one. Every empty field in
---- this reporting model is a list, so the copy marks those lists explicitly without
---- mutating the compiler data it was handed. Object keys are sorted so the same
---- report has the same bytes in separate processes.
+--- Encodes a value the way every `--json` command encodes one. Every empty
+--- field in this reporting model is a list, so the copy marks those lists
+--- explicitly without mutating the compiler data it was handed. Object keys
+--- are sorted so the same report has the same bytes in separate processes.
 function report.encode(value: unknown): string
     return stableEncode(withArrayEmpties(value))
 end
 
 --- Lays compact JSON out over lines, two spaces per level of nesting.
 ---
---- The document is walked rather than re-encoded, so the indented form is the compact
---- form with whitespace in it and the two can never describe different values. Only
---- structural punctuation outside a string is touched; the scan skips over strings
---- whole, escapes included, so a brace or comma inside one is left alone.
+--- The document is walked rather than re-encoded, so the indented form is the
+--- compact form with whitespace in it and the two can never describe different
+--- values. Only structural punctuation outside a string is touched; the scan
+--- skips over strings whole, escapes included, so a brace or comma inside one
+--- is left alone.
 local function indented(compact: string): string
     local out: {string} = {}
     local depth = 0
@@ -208,21 +211,21 @@ local function indented(compact: string): string
     return table.concat(out)
 end
 
---- The same value `report.encode` produces, laid out over lines for a person reading
---- it. Commands offer this behind a flag of its own: the default stays one line,
---- because the default reader is a program.
+--- The same value `report.encode` produces, laid out over lines for a person
+--- reading it. Commands offer this behind a flag of its own: the default stays
+--- one line, because the default reader is a program.
 function report.encodePretty(value: unknown): string
     return indented(report.encode(value))
 end
 
---- Writes one line of JSON to stdout. Never coloured: the reader is a program, and an
---- escape code in a JSON string is a bug in whatever printed it.
+--- Writes one line of JSON to stdout. Never colored: the reader is a program,
+--- and an escape code in a JSON string is a bug in whatever printed it.
 function report.write(value: unknown): nil
     io.write(report.encode(value) .. "\n")
 end
 
---- The diagnostics as `--json` promises them: every range resolved to line, column and
---- offset, including the ranges inside fixes and related locations.
+--- The diagnostics as `--json` promises them: every range resolved to line,
+--- column and offset, including the ranges inside fixes and related locations.
 function report.diagnosticValues(diagnostics: {any}): {any}
     local read = sourceReader()
     local values: {any} = {}
@@ -252,7 +255,7 @@ function report.diagnosticValues(diagnostics: {any}): {any}
                 #related + 1
             ] = {
                 file = relatedFile,
-                message = item.message,
+                message = item.message or item.msg or "related location",
                 range = rangeAt(read(relatedFile), item.offset, item.length)
             }
         end
@@ -285,7 +288,16 @@ end
 --- or written has no position, so the range fields are zero and the code is the one
 --- every command reports for a file the run never got inside.
 function report.fileDiagnostic(path: string, msg: string?, help: string): {[string]: any}
-    return {filename = path, line = 0, col = 0, offset = 0, length = 0, code = "NUPP0001", msg = msg, help = help}
+    return {
+        filename = path,
+        line = 0,
+        col = 0,
+        offset = 0,
+        length = 0,
+        code = "NUPP0001",
+        msg = msg or "cannot access " .. path,
+        help = help,
+    }
 end
 
 --- Says that a file could not be read or written, the way every command says it: as a
@@ -296,7 +308,7 @@ function report.fileFailure(path: string, err: string?, help: string, collected:
     if collected then
         collected[#collected + 1] = diagnostic
     else
-        io.stderr:write("nupp: " .. tostring(err) .. "\n")
+        io.stderr:write("nupp: " .. diagnostic.msg .. "\n")
     end
 
     return diagnostic
@@ -329,7 +341,7 @@ report.LOCATION = {
 local EDIT = {
     type = "object",
     properties = {file = {type = "string"}, range = RANGE, newText = {type = "string"},},
-    required = {"range", "newText"},
+    required = {"file", "range", "newText"},
 }
 
 --- One diagnostic, as `--json` reports it.
@@ -369,7 +381,7 @@ report.DIAGNOSTIC = {
             items = {
                 type = "object",
                 properties = {file = {type = "string"}, message = {type = "string"}, range = RANGE},
-                required = {"range"},
+                required = {"file", "message", "range"},
             },
         },
         fixes = {

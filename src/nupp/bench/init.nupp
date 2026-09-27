@@ -219,7 +219,7 @@ record bench.Measurement
     allocatedKb: number?
 
     --- Kilobytes still held once the collector has run again, which is what "retained"
-    --- has to mean. An earlier spelling of this reported the number above and called it
+    --- has to mean. An earlier implementation reported the number above and called it
     --- this one: with collection stopped for the rounds, the heap delta is what they
     --- allocated, not what survived them.
     retainedKb: number?
@@ -307,13 +307,13 @@ record bench.Measurement
     --- largest of them over the median.
     ---
     --- Classified, never removed. A real warmup or deoptimization phase falls exactly
-    --- where these fences do, so excluding what they catch would delete the behaviour
+    --- where these fences do, so excluding what they catch would delete the behavior
     --- `trend` is looking for. Every sample stays in `samplesSec` and in the median.
     outlierCount: integer?
 
     outlierMaxRatio: number?
 
-    --- Processes this measurement summarises, when the runner merged forks into it.
+    --- Processes this measurement summarizes, when the runner merged forks into it.
     ---
     --- Absent on a measurement a child wrote: a child is one process and knows nothing
     --- about the others.
@@ -347,6 +347,7 @@ local type Job = {
 
 local jobs: {Job} = {}
 local selectedDeclarations: integer = 0
+local declaredNames: {[string]: boolean} = {}
 
 --- Whether `report` has already written. A frame session reports itself, so a program
 --- with both frames and cases would otherwise write twice and gate twice.
@@ -674,6 +675,13 @@ local function announceRun(name: string): nil
 end
 
 local function register(name: string, run: function(): nil, listing: any?): nil
+    if name == "" then
+        error("bench: a benchmark name cannot be empty", 3)
+    end
+    if declaredNames[name] then
+        error("bench: duplicate benchmark " .. name, 3)
+    end
+    declaredNames[name] = true
     local declared = listing or {name = name}
     if options.list then
         announce(declared)
@@ -733,7 +741,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         end
         sampling:stop(options.sampleOut)
     end
-    -- Retained in execution order, not just summarised. The runner's interval is built
+    -- Retained in execution order, not just summarized. The runner's interval is built
     -- from one summary per process, but a reader wanting to see what a process actually
     -- did -- or a later warmup classifier wanting to run over it -- needs the series
     -- itself, and a median thrown away cannot be recovered.
@@ -779,6 +787,7 @@ end
 --- @param name what to record the case as
 --- @param body the work, which iterates `case.n` times
 --- @param fixedN an explicit iteration count, skipping calibration
+--- @raises string when the name is empty or already declared
 function bench.case(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
     register(name, function(): nil
         measureCase(name, body, fixedN)
@@ -1155,18 +1164,26 @@ end
 ---
 --- Plain parameters rather than an options record, because a record would make the
 --- ordinary call site write `new bench.FrameOptions(...)` -- a table literal is not
---- one, which is what the first spelling of this got wrong in its own documented
+--- one, which is what the first version of this API got wrong in its documented
 --- example.
 ---
 --- @param name what to record the session as
 --- @param budgetMs milliseconds a frame is allowed; frames over it are counted
 --- @param count frames to record before `more` turns false, or nil to let the
 ---     application decide when to stop
+--- @raises string when the name is empty or already declared
 function bench.frames(name: string, budgetMs: number?, count: integer?): bench.FrameSession
     -- A frame session is a case as far as the runner is concerned: it is named, it is
     -- listed, and it is selected one per process. A session that is being listed or is
     -- not the selected one is handed back already finished, so `more` is false and the
     -- application's loop does not run.
+    if name == "" then
+        error("bench: a benchmark name cannot be empty", 2)
+    end
+    if declaredNames[name] then
+        error("bench: duplicate benchmark " .. name, 2)
+    end
+    declaredNames[name] = true
     if options.list then
         announce({name = name})
     end
@@ -1485,6 +1502,8 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
             uncompared[#uncompared + 1] = entry.name .. ": no baseline"
         elseif not recorderMatches then
             uncompared[#uncompared + 1] = entry.name .. ": trace profile differs, abort sites not compared"
+        elseif entry.abortSites == nil or was.abortSites == nil then
+            uncompared[#uncompared + 1] = entry.name .. ": trace aborts were not collected"
         else
             local added = listDifference(entry.abortSites or {}, was.abortSites or {})
             for _, site in ipairs(added) do
@@ -1588,7 +1607,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     --
     -- With one process this is that process's interquartile range, written as a
     -- percentage either side of the median. It is a spread, not an interval: the
-    -- samples it summarises share a heap and a set of compiled traces, so nothing
+    -- samples it summarizes share a heap and a set of compiled traces, so nothing
     -- about a population median follows from it, and the note below the table says so.
     local function spreadCell(entry: any, scale: number): string
         local lowerQuartile = entry.p25Sec
@@ -1928,7 +1947,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         lines[#lines + 1] = "note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence"
         lines[#lines + 1] = "      interval: samples inside one process share its heap, traces and thermal"
         lines[#lines + 1] = "      state, so no population interval follows from them. A score far from the"
-        lines[#lines + 1] = "      middle of that range means the samples are not centred on it. No interval or"
+        lines[#lines + 1] = "      middle of that range means the samples are not centered on it. No interval or"
         lines[
             #lines + 1
         ] = (

@@ -20,7 +20,7 @@ One run of one process gives you a number. It does not tell you whether a
 number that moved actually changed, and most of this page is about the
 difference.
 
-## One case
+## Declaring a case
 
 ```nupp
 local bench = require("nupp.bench")
@@ -45,7 +45,7 @@ point.sized    p50      7      16.897  ns/op           64.000    [16.626, 17.916
 note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
       interval: samples inside one process share its heap, traces and thermal
       state, so no population interval follows from them. A score far from the
-      middle of that range means the samples are not centred on it. No interval or
+      middle of that range means the samples are not centered on it. No interval or
       verdict is available below 10 forks; run --pilot to size a replicated run.
 ```
 
@@ -62,11 +62,11 @@ byte total, not an allocation-event count, and does not include native
 allocations. Frames and older records without the measurement show `-`.
 
 `p25-p99` is a **spread, not an error bar**. Rounds inside one process share a
-heap, a set of compiled traces and a thermal state, so no population interval
-follows from them — which is why one fork earns no interval and no verdict.
+heap, a set of compiled traces and a thermal state. No population interval
+follows from them, so one fork earns no interval and no verdict.
 
-Read it as a sanity check on the score. Score near the middle of the range means
-the samples are centred on it; score outside means they are not:
+Read it as a sanity check on the score. A score near the middle of the range
+means the samples are centered on it; a score outside means they are not:
 
 ```text
 Benchmark             Mode    Cnt       Score  Units       Alloc B/op             p25-p99
@@ -86,16 +86,16 @@ cycle's worth per call, so with one call per sample the collector ran on every
 *other* sample: half measured the loop, half measured the loop plus a cycle the
 previous sample's garbage had earned. Raising `sampleIterations` to 8 so each
 sample spans whole cycles moved it from 9% concentration to 98%, and the score
-from `40.6` to `65.8 ns/op` — the old number was **18% low**, because half the
+from `40.6` to `65.8 ns/op`. The old number was **18% low** because half the
 samples excluded work their own allocations caused.
 
 The upper end is p99 rather than p75 because a slow mode holding a tenth of the
 samples moves p99 and leaves p75 where it was. `p75Sec` is still in the record.
 
-## `keep` is the one rule
+## Keeping results alive
 
-LuaJIT deletes work whose result never escapes its trace. That is how a
-benchmark comes out impossibly fast — the loop under test is gone and the
+LuaJIT deletes work whose result never escapes its trace. A benchmark then
+comes out impossibly fast because the loop under test is gone and the
 measurement is of nothing. `bench.keep` stores the value somewhere a trace
 cannot sink it:
 
@@ -112,9 +112,9 @@ local kept = bench.keep({y = 2})
 :::
 
 In statement position on a local holding the module, it is generated as that
-store rather than a call — a call per iteration is exactly the cost a sink must
-not add. Bind the result and you get an ordinary call instead. Same terms as the
-[profiler zone intrinsics](profiling.md#zones).
+store rather than a call. A call per iteration is exactly the cost a sink must
+not add. Bind the result and you get an ordinary call instead. The same terms
+apply to the [profiler zone intrinsics](profiling.md#zones).
 
 ## Comparing implementations
 
@@ -232,9 +232,9 @@ bench: --forks 13 covers every selected benchmark at +-2%
 ```
 
 The pilot is often the whole answer. On `bench/presize.bench.nupp` it reports a
-CV near 15% and asks for **over 300 forks** to resolve 2% — that benchmark
-cannot support a small claim at any price, which is worth more than a number
-pretending otherwise.
+CV near 15% and asks for **over 300 forks** to resolve 2%. That benchmark cannot
+support a small claim at any price, which is worth more than a number pretending
+otherwise.
 
 Then run them:
 
@@ -254,8 +254,8 @@ sum.floats.index:size=10000     p50     12    5499.875  ns/op            0.000  
 
 `96.14%` is computed, not chosen. The interval `[x₍ₖ₎, x₍ₙ₊₁₋ₖ₎]` over `n` fork
 summaries covers the population median with exact probability
-`1 − 2·P(Bin(n, ½) ≤ k−1)` — the sign test, which assumes nothing about the
-distribution's shape.
+`1 − 2·P(Bin(n, ½) ≤ k−1)`. This is the sign test, which assumes nothing about
+the distribution's shape.
 
 That formula is also why **ten forks is the minimum**:
 
@@ -288,8 +288,8 @@ moved between the ends of the series. Both are required: a trend needs a
 p-value under 0.05 *and* a drift of at least 3%.
 
 The magnitude half matters as much as the significance half. Over 64 blocks a
-drift of a fraction of a percent is comfortably detectable — one benchmark
-reported `p = 0.00035` on a level that had moved 2.5%, which is unmistakable and
+drift of a fraction of a percent is comfortably detectable. One benchmark
+reported `p = 0.00035` on a level that had moved 2.5%, which is unmistakable but
 worth nothing. Withholding an interval for that is the same error as calling a
 significant change meaningful without a margin.
 
@@ -324,20 +324,21 @@ removed: a real warmup or deoptimization phase falls exactly where those fences
 do, so excluding them would delete what the trend test is looking for. The
 median is robust enough not to need them gone.
 
-## Did my change do anything?
+## Measuring a change
 
-Two ways to ask, and they are not equally strong.
+`nupp bench` can compare an interleaved executable or a saved baseline. The
+interleaved comparison supports a stronger conclusion.
 
-### `--against`: interleaved, and causal
+### Interleaved `--against` comparisons
 
 ```bash
 nupp bench --against build/baseline/bin/nupp --forks 12 --margin 2
 ```
 
 Both executables run in one session, adjacent in the same shuffled permutation,
-so fork *k* of each meets the same thermal and scheduling state. That pairing is
-what licenses a causal reading, and the comparison uses it — Hodges–Lehmann on
-the paired log ratios with an exact signed-rank interval.
+so fork *k* of each meets the same thermal and scheduling state. That pairing
+licenses a causal reading. The comparison uses Hodges-Lehmann on the paired log
+ratios with an exact signed-rank interval.
 
 ```text
 Durations: candidate vs build/baseline/bin/nupp  (interleaved, paired)
@@ -351,25 +352,26 @@ bench: 49 compared, equivalence margin +-2.0%, Benjamini-Hochberg adjusted
        1 regressed, 1 improved, 1 unchanged, 46 inconclusive
 ```
 
-### `--baseline`: historical, and observational
+### Historical `--baseline` comparisons
 
 ```bash
 nupp bench --baseline build/bench-baseline.json --forks 12 --margin 2
 ```
 
-Same verdicts, weaker warrant, and the output says so — nothing controls for
-what changed on the machine between the two sessions. Where the machine itself
-differs, the duration section is withheld entirely while the deterministic gate
-is unaffected.
+The same verdicts have weaker support because nothing controls for what changed
+on the machine between the two sessions, and the output says so. Where the
+machine itself differs, the duration section is withheld entirely while the
+deterministic gate is unaffected.
 
 `--json`, `build/bench-record.json`, and `--history` retain the same comparison
 record. Candidate measurements are in `benchmarks`; each `comparisons` entry
 names its `kind` and baseline `source`, keeps the baseline's full `benchmarks`,
-and records `verdicts` with the relative change, interval (or `withheld` reason),
-raw `pValue`, adjusted significance and verdict. Saved baselines remain labeled
-`observational`; interleaved executable comparisons remain `interleaved`.
+and records `verdicts` with the relative change, interval (or `withheld`
+reason), raw `pValue`, adjusted significance and verdict. Saved baselines remain
+labeled `observational`; interleaved executable comparisons remain
+`interleaved`.
 
-### The four verdicts
+### Comparison verdicts
 
 `--margin` is required and has no default, because three of the four answers are
 undefined without one.
@@ -391,8 +393,8 @@ the remedy is `--pilot`, a quieter machine, or a wider margin.
 Forty-nine benchmarks at a nominal 5% produce significant results from unchanged
 code by construction, so p-values are Benjamini–Hochberg adjusted across the
 comparisons a run actually made and the family size is printed. That is also why
-"run unchanged code and never see `regressed`" does not check this harness — an
-A/A study does, by confirming the rate of non-`inconclusive` verdicts sits at or
+"run unchanged code and never see `regressed`" does not check this harness. An
+A/A study does by confirming the rate of non-`inconclusive` verdicts sits at or
 below the adjusted level.
 
 ## Frame loops
@@ -421,7 +423,7 @@ frame      p99.9   60       0.134  ms/frame             -
 ```
 
 `more` is false once `count` frames are recorded, and `report` writes the record
-and applies the gate — but it must be called: nothing hands the library a
+and applies the gate. It must be called because nothing hands the library a
 callback when the chunk returns, so an unreported session produces no record.
 
 Frames are timed on the monotonic clock, not `os.clock`. A frame that waited on
@@ -438,13 +440,16 @@ nupp bench --case '^floats$' --parameter '^size=10000$'
 nupp bench --case '^floats$' --variant '^ipairs$' --variant '^index$'
 ```
 
-Every case gets its own process — not every file. Two sharing one would share
-its heap, compiled traces and blacklist, so a program declaring more than one
+Every case gets its own process, not every file. Two sharing one would share its
+heap, compiled traces and blacklist, so a program declaring more than one
 benchmark refuses a direct run too:
 
 ```text
 nupp: bench: this program defines more than one benchmark; use --case NAME or nupp bench
 ```
+
+Every declared benchmark needs a nonempty, unique name. The harness rejects a
+duplicate instead of letting one selector run two different measurements.
 
 Order is shuffled, and reshuffled every fork round: running one benchmark's
 replicates back to back would hand it a contiguous slice of the machine's
@@ -454,12 +459,12 @@ sets another.
 
 ## Run gates
 
-Durations never do, in any mode. Every verdict above is a report; nothing there
-changes the exit status. Two things gate, because they are identical on every
-run of one binary:
+Duration verdicts never change the exit status. Two deterministic properties
+gate because they are identical on every run of one binary:
 
 - **allocation sites** the optimizer left standing, counted per file;
-- **trace abort site identities** — severity, reason, location and zone.
+- **trace abort site identities**, including severity, reason, location and
+  zone.
 
 ```bash
 nupp bench --baseline build/bench-baseline.json           # compare
@@ -471,10 +476,10 @@ allocations rose from 3 to 5 in src/parser.nupp
 sum.floats.index:size=100: new trace abort site: ...
 ```
 
-Everything else — durations, the calibrated `n`, allocated bytes, retained-heap
-delta, the `--remarks` set — is recorded, never gated. A run with no comparable
-baseline says so, which is a result and a different one from a pass; a named
-baseline that is not there exits non-zero.
+Durations, the calibrated `n`, allocated bytes, retained-heap delta, and the
+`--remarks` set are recorded but never gated. A run with no comparable baseline
+says so, which is a result and a different one from a pass; a named baseline
+that is not there exits non-zero.
 
 Replication makes the abort gate stricter, not noisier. Whether a loop aborts is
 timing-dependent, so forks legitimately disagree; only a site present in
@@ -485,6 +490,9 @@ bench: flaky abort site: peg-kernels.capture-list.lpeg: NYI:return-to-lower-fram
        in 3/12 forks; reported, not gated
 ```
 
+If either record could not open a trace recorder, the abort comparison is
+reported as uncollected. Missing observations are not treated as an empty set.
+
 Allocation sites and remarks are the compiler's account of its own output, so
 every fork of one binary must agree. Disagreement is a defect, not a
 measurement, and is reported as one:
@@ -494,14 +502,14 @@ bench: json-decode.large: nondeterministic compiler output: fork 4 reported
        different allocation sites
 ```
 
-::: deepdive Why those choices
+::: deepdive
 Allocations are counted per file rather than by line and column: a comment
 inserted above unchanged code would otherwise look like every allocation below
 it was newly introduced.
 
 Remarks are diffed both ways but not gated, because nothing in a remark says
-whether a pass fired or declined — a pass that started firing adds one remark
-and removes another.
+whether a pass fired or declined. A pass that started firing adds one remark and
+removes another.
 
 An allocation site is one the Nupp optimizer left in the Lua it wrote. It says
 nothing about whether LuaJIT went on to sink it. This catches that optimizer
@@ -515,7 +523,7 @@ site is exactly the regression this exists to catch, and keying by the digest
 would discard it as uncomparable the moment it appeared.
 :::
 
-## Where did the time go?
+## Profiling benchmark time
 
 ```bash
 nupp bench --case '^floats$' --profile build/bench-profiles
@@ -556,15 +564,16 @@ root.comparison                     interleaved | observational
 ```
 
 A summary cannot give the forks back: recomputing the interval needs the
-per-fork summaries, and a calibrated warmup classifier — which this does not
-ship — needs each process's ordered series.
+per-fork summaries. A calibrated warmup classifier, which this does not ship,
+needs each process's ordered series.
 
 `build/bench-record.json` always holds the latest complete record. `--history`
 appends the same document as NDJSON once every selected benchmark reported.
 
 `nupp.bench` measures from inside a program; `nupp bench` discovers and isolates
-those programs. Neither replaces an application's own hot loop — a game's frame
-or a server's request path, with its real asset load and trace population.
+those programs. Neither replaces an application's own hot loop, such as a
+game's frame or a server's request path with its real asset load and trace
+population.
 
 ::: seealso
 - [profiling.md](profiling.md) for where the time went, and whether it compiled

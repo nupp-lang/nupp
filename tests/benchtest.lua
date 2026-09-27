@@ -220,6 +220,30 @@ function M.movingCodeDoesNotLookLikeANewAllocation()
     assertEq(#grew, 1, "a third allocation in the same file is a regression")
 end
 
+function M.uncollectedTraceAbortsNeverLookComparable()
+    local bench = require("nupp.bench")
+    local profile = {optLevel = 1, disabled = ""}
+    local recorder = {id = "test-recorder"}
+    local current = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = nil}},}
+    local baseline = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = {}}},}
+    local failures, uncompared = bench.compare(current, baseline)
+    assertEq(#failures, 0, "missing observations are not regressions")
+    assertEq(#uncompared, 1, "missing observations are reported as incomparable")
+    assertTrue(uncompared[1]:find("not collected", 1, true) ~= nil, "the missing observation is named")
+end
+
+function M.duplicateBenchmarkNamesAreRejected()
+    local bench = require("nupp.bench")
+    bench.case("duplicate-name", function()
+    end)
+    local ok, err = pcall(function()
+        bench.case("duplicate-name", function()
+        end)
+    end)
+    assertTrue(not ok, "a duplicate benchmark name is rejected")
+    assertTrue(tostring(err):find("duplicate benchmark", 1, true) ~= nil, "the duplicate is explained")
+end
+
 function M.formatsHumanResultsAsPerOperationScores()
     local bench = require("nupp.bench")
     local rendered = bench.format({
@@ -241,7 +265,7 @@ frame:over-budget  count     60           2  frames               -             
 note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
       interval: samples inside one process share its heap, traces and thermal
       state, so no population interval follows from them. A score far from the
-      middle of that range means the samples are not centred on it. No interval or
+      middle of that range means the samples are not centered on it. No interval or
       verdict is available below 10 forks; run --pilot to size a replicated run.
 ]],
         "human benchmark table"

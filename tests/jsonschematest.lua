@@ -39,9 +39,9 @@ local function validate(value, schema, root, path)
         else
             actual = type(value)
         end
-        local fits = actual == wanted or (
-            wanted == "number" and actual == "integer"
-        ) or (wanted == "object" and actual == "array" and next(value) == nil)
+        local fits = actual == wanted
+            or (wanted == "number" and actual == "integer")
+            or (wanted == "object" and actual == "array" and next(value) == nil)
         if not fits then
             return nil, ("%s: expected %s, got %s"):format(path, wanted, actual)
         end
@@ -283,6 +283,17 @@ function M.reportEncodingSortsKeysWithoutChangingValues()
     local expected = [[{"flag":true,"list":[3,2],"nested":{"a":"first","z":"last"},"number":1.25,"text":"line\nbreak"}]]
     assert(report.encode(first) == expected, report.encode(first))
     assert(report.encode(second) == expected, report.encode(second))
+end
+
+function M.fileDiagnosticsAlwaysCarryAMessage()
+    local report = require("nupp.tools.cli.report")
+    local diagnostic = report.fileDiagnostic("missing.nupp", nil, "check the path")
+    local value = report.diagnosticValues({diagnostic})[1]
+    assert(value.message == "cannot access missing.nupp", "an absent OS error gets a useful message")
+
+    diagnostic.related = {{filename = "other.nupp", offset = 1, length = 0, msg = "declared here"}}
+    value = report.diagnosticValues({diagnostic})[1]
+    assert(value.related[1].message == "declared here", "compiler related messages retain their text")
 end
 
 --- Every name a schema requires is one it also describes, at every depth. A

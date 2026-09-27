@@ -90,18 +90,23 @@ local function displayPath(root, path)
 end
 
 local function pathToUri(path)
-    return "file://" .. path:gsub("[^%w%-%._~/:]", function(ch)
+    local prefix = path:match("^[A-Za-z]:[/\\]") and "/" or ""
+
+    return "file://" .. prefix .. path:gsub("[^%w%-%._~/:]", function(ch)
         return ("%%%02X"):format(ch:byte())
     end)
 end
 
 local function uriToPath(uri)
     local path = uri:gsub("^file://", "")
-    return normalizePath(
-        (path:gsub("%%(%x%x)", function(hex)
-            return string.char(tonumber(hex, 16) or 0)
-        end))
-    )
+    path = path:gsub("%%(%x%x)", function(hex)
+        return string.char(tonumber(hex, 16) or 0)
+    end)
+    if path:match("^/[A-Za-z]:[/\\]") then
+        path = path:sub(2)
+    end
+
+    return normalizePath(path)
 end
 
 local function utf8Char(source, offset)
@@ -186,7 +191,7 @@ local SYMBOL = {
         associated = {
             type = "string",
             description = "For an associated type projection, what state it is in beside "
-            .. "the spelling: what it resolves to, the bound it is opaque at, gradual, or cyclic.",
+            .. "the source form: what it resolves to, the bound it is opaque at, gradual, or cyclic.",
         },
         detail = {type = "string"},
         documentation = {type = "string"},

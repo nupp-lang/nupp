@@ -1,9 +1,9 @@
 ---
 order: 540
-title: Code Generators
+title: Code generators
 ---
 
-# Code Generators
+# Code generators
 
 A package advertises build tools in `nupp/capabilities.json`:
 
@@ -15,8 +15,8 @@ A package advertises build tools in `nupp/capabilities.json`:
 
 The descriptor is data. Runtime implementations use [SPI](spi.md).
 
-Declare the package once as a dependency, then select its generator by capability
-name:
+Declare the package once as a dependency, then select its generator by
+capability name:
 
 ```lua
 return {
@@ -40,13 +40,13 @@ return {
 }
 ```
 
-`using` is `dependency/provider`. Naming it makes that dependency a host tool; it is
-not shipped in the target merely because the build ran it. Generator options are plain
-JSON-shaped data so they can cross the worker boundary and participate in a stable
-cache key.
+`using` is `dependency/provider`. Naming it makes that dependency a host tool;
+it is not shipped in the target merely because the build ran it. Generator
+options are plain JSON-shaped data so they can cross the worker boundary and
+participate in a stable cache key.
 
-The provider entry module returns a function, or a table with `generate`. It receives
-this API 1 request:
+The provider entry module returns a function, or a table with `generate`. It
+receives this API 1 request:
 
 ```lua
 local function generate(request)
@@ -63,15 +63,15 @@ end
 return generate
 ```
 
-`read` accepts only declared inputs. `write` accepts only paths below the staging
-output. A successful run is published atomically at
-`<outDir>/generated/<instance>/`, and that instance directory is a module root. A
-failed run leaves the last successful output intact. The cache key includes the
-provider installation, capability entry, generator configuration, and input content;
-cached outputs are content-checked before reuse.
+`read` accepts only declared inputs. `write` accepts only paths below the
+staging output. A successful run is published atomically at
+`<outDir>/generated/<instance>/`, and that instance directory is a module root.
+A failed run leaves the last successful output intact. The cache key includes
+the provider installation, capability entry, generator configuration, and input
+content; cached outputs are content-checked before reuse.
 
-Generators run for `nupp build` and project `nupp check`. The language server uses the
-last published output and never installs or executes a tool. Generator modules are
-ordinary trusted build dependencies. The child process supplies time and memory
-bounds and narrows the request API, but it is not an operating-system security
-sandbox; do not install an untrusted provider.
+Generators run for `nupp build` and project `nupp check`. The language server
+uses the last published output and never installs or executes a tool. Generator
+modules are ordinary trusted build dependencies. The child process supplies
+time and memory bounds and narrows the request API, but it is not an
+operating-system security sandbox; do not install an untrusted provider.
