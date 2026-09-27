@@ -1,4 +1,4 @@
--- Behavioural tests for nupp.codec.base64.
+-- Behavioral tests for nupp.codec.base64.
 --
 -- Encoding is an `@aot` entry, so it has two lowerings: compiled ahead of time
 -- where a target asks for that, and the same source on LuaJIT where it does
@@ -63,11 +63,6 @@ function M.paddingIsExactlyWhatTheRemainderAsksFor()
     check.equal(base64.encode("abc"):sub(-1) == "=", false)
 end
 
-function M.aLengthThatIsNotAQuantumIsRefused()
-    check.equal(pcall(base64.decode, "abc"), false)
-    check.equal(pcall(base64.decode, "a"), false)
-end
-
 --- The decoder reports rather than returning whatever the inverse table holds
 --- for a byte outside the alphabet.
 function M.aCharacterOutsideTheAlphabetIsRefused()
@@ -81,6 +76,14 @@ end
 function M.decodeRefusesALengthThatIsNotAQuantum()
     check.equal(pcall(base64.decode, "abc"), false)
     check.equal(pcall(base64.decode, "Zm9vY"), false)
+end
+
+--- Padding only closes the final quantum, and unused bits must be zero so one
+--- byte string has one base64 representation.
+function M.decodeRefusesMalformedOrNoncanonicalPadding()
+    for _, value in ipairs({"====", "A===", "AA=A", "A=AA", "=AAA", "AA==AAAA", "AAAA====", "Zh==", "Zm9="}) do
+        check.equal(pcall(base64.decode, value), false, value)
+    end
 end
 
 return M

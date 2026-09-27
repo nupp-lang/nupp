@@ -1,4 +1,4 @@
--- Behavioural tests for the compiler's private one-shot SHA-256 implementation.
+-- Behavioral tests for the compiler's private one-shot SHA-256 implementation.
 --
 -- The digest is an `@aot` entry, so it has two lowerings: compiled ahead of
 -- time where a target asks for that, and the same source on LuaJIT where it
@@ -38,7 +38,7 @@ function M.matchesThePublishedVectors()
     end
 end
 
-function M.hashesAMillionBlocksWithoutDrifting()
+function M.hashesThePublishedMillionByteMessage()
     check.equal(
         digest.sha256(string.rep("a", 1000000)),
         "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
@@ -61,15 +61,25 @@ function M.answersSixtyFourLowercaseHexadecimalDigitsAtEveryLength()
     end
 end
 
--- Where the padding decides between one final block and two. 55 is the last
--- length whose terminator and eight-byte tally still fit beside it, 56 is the
--- first that does not, and 64 and 128 are the whole blocks either side.
-function M.paddingBoundariesEachGetTheirOwnAnswer()
-    local seen = {}
-    for _, length in ipairs({55, 56, 57, 63, 64, 65, 119, 120, 127, 128, 129}) do
-        local answer = digest.sha256(("x"):rep(length))
-        check.assert(seen[answer] == nil, ("lengths %s and %d hash alike"):format(tostring(seen[answer]), length))
-        seen[answer] = length
+-- Independent OpenSSL vectors around the padding choice and whole-block
+-- boundaries. 55 is the last length whose tally fits in one final block; 56
+-- is the first that needs two.
+function M.paddingBoundariesMatchIndependentVectors()
+    local vectors = {
+        {55, "d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072"},
+        {56, "04c26261370ee7541549d16dee320c723e3fd14671e66a099afe0a377c16888e"},
+        {57, "ae14a2563ccf969d99aca69ce6bb74981f734bbf9f655f73b8f06db68cab5217"},
+        {63, "75220b47218278e656f2013bb8f0c455a25eaf01e86c64924e9d48d89776d6f2"},
+        {64, "7ce100971f64e7001e8fe5a51973ecdfe1ced42befe7ee8d5fd6219506b5393c"},
+        {65, "9537c5fdf120482f7d58d25e9ed583f52c02b4e304ea814db1633ad565aed7e9"},
+        {119, "000b48d4edf0fa7bee3c6236ecd2785baa5db4eeb8bb54341b029e0d9fa5fb0c"},
+        {120, "13f05a0b594787f5ecd315edc96141bd3243203d1b7d4f0836f37308b276ba98"},
+        {127, "70156a14adbabf98cff3a71c7084b417abf057a8efd27329ca36b7202c87d81f"},
+        {128, "24da1b81d0b16df6428eee73c69fcb2a93c76bc6df706f0c6670fe6bfe800464"},
+        {129, "0ec9eb33e74510bcdd1f2ea55206e82f21649c5c2becbf2b433eb475b34c01bd"},
+    }
+    for _, vector in ipairs(vectors) do
+        check.equal(digest.sha256(("x"):rep(vector[1])), vector[2], "length " .. vector[1])
     end
 end
 

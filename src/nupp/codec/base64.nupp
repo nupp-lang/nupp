@@ -259,6 +259,13 @@ local function decodeAot(text: string, nullValue: any): any
         local c: uint32 = u32(0)
         if padding == 1 then
             c = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(2))))
+            -- The low two bits do not contribute to the final byte. Requiring
+            -- them to be zero keeps one canonical encoding for those bytes.
+            bad = orBits(bad, shl(andBits(c, u32(3)), u32(6)))
+        else
+            -- With two padding characters, the low four bits of the second
+            -- digit are unused and must be zero for canonical base64.
+            bad = orBits(bad, shl(andBits(b, u32(15)), u32(6)))
         end
         bad = orBits(bad, orBits(orBits(a, b), c))
         local value = orBits(orBits(shl(a, u32(18)), shl(b, u32(12))), shl(c, u32(6)))
@@ -291,15 +298,14 @@ function base64.encode(value: string): string
     return encodeAot(value, false) as string
 end
 
---- Decodes standard base64, padded.
+--- Decodes canonical standard base64 with required padding.
 ---
 --- ```nupp
 --- assert(nupp.codec.base64.decode("TnVwcA==") == "Nupp")
 --- ```
 --- @param text the text to decode
 --- @return the decoded bytes
---- @raises string when the length is not a multiple of four, or a character is not in
----     the alphabet
+--- @raises string when the text is not canonical padded base64
 --- @export
 function base64.decode(text: string): string
     if #text % 4 ~= 0 then
@@ -307,7 +313,7 @@ function base64.decode(text: string): string
     end
     local decoded = decodeAot(text, INVALID)
     if decoded == INVALID then
-        error("nupp: base64 input has a character outside the alphabet", 2)
+        error("nupp: base64 input is not canonical padded base64", 2)
     end
 
     return decoded as string
