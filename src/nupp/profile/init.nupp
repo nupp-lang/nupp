@@ -48,14 +48,16 @@ local profile = {}
 
 --- What `profile.sample` collects, and how much of it. Every field is optional.
 type profile.SampleOptions = {
-    --- Milliseconds between samples; 10 by default, which is 100 a second. Below about
-    --- 10 the timer starts taking real time away from the thread it is measuring, so
+    --- Milliseconds between samples; 10 by default, which is 100 a second. Must be
+    --- between 1 and 2147483647, the range LuaJIT's profiler accepts. Below about 10
+    --- the timer starts taking real time away from the thread it is measuring, so
     --- lower it for a short window and read the result knowing that it was paid for.
     intervalMs: integer?,
 
-    --- How many frames to walk per sample; 16 by default. The walk is linear in this
-    --- and it happens on the interrupted thread, so raise it only when a specific
-    --- question needs the depth.
+    --- How many frames to walk per sample; 16 by default. Must be between 1 and
+    --- 2147483647, the range LuaJIT's stack dumper accepts. The walk is linear in
+    --- this and it happens on the interrupted thread, so raise it only when a
+    --- specific question needs the depth.
     stackDepth: integer?,
 
     --- Keep only the samples taken under a zone path starting with this, so
@@ -554,7 +556,7 @@ end
 ---
 --- @param options omitted samples every zone at 10 ms to a depth of 16
 --- @return the handle whose `stop` produces the report
---- @raises string when a sample session is already running
+--- @raises string when a sample session is already running or an option is out of range
 function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     if sampling then
         error("profile.sample: a sample session is already running; stop it first", 2)
@@ -562,12 +564,12 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
 
     local opts: profile.SampleOptions = options or {}
     local intervalMs = opts.intervalMs or 10
-    if intervalMs < 1 then
-        error("profile.sample: intervalMs must be at least 1", 2)
+    if intervalMs < 1 or intervalMs > 2147483647 then
+        error("profile.sample: intervalMs must be between 1 and 2147483647", 2)
     end
     local stackDepth = opts.stackDepth or 16
-    if stackDepth < 1 then
-        error("profile.sample: stackDepth must be at least 1", 2)
+    if stackDepth < 1 or stackDepth > 2147483647 then
+        error("profile.sample: stackDepth must be between 1 and 2147483647", 2)
     end
 
     local session = new profile.SampleSession(

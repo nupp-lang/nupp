@@ -393,7 +393,9 @@ end
 
 function M.sampleRefusesAnIntervalItCannotHonour()
     assert(not pcall(profile.sample, {intervalMs = 0}), "zero milliseconds")
+    assert(not pcall(profile.sample, {intervalMs = 2147483648}), "interval exceeds LuaJIT's signed range")
     assert(not pcall(profile.sample, {stackDepth = 0}), "zero frames")
+    assert(not pcall(profile.sample, {stackDepth = 2147483648}), "depth exceeds LuaJIT's signed range")
     -- Neither attempt may leave the singleton latched.
     local session = profile.sample()
     session:stop()
