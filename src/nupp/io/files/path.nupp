@@ -35,6 +35,9 @@ local function reservedDevice(value: string): boolean
         or base == "NUL"
         or base:match("^COM[1-9]$") ~= nil
         or base:match("^LPT[1-9]$") ~= nil
+        -- Windows treats the ISO-8859-1 superscript digits as device-number
+        -- suffixes too, despite their multibyte UTF-8 representation.
+        or base == "COM¹" or base == "COM²" or base == "COM³" or base == "LPT¹" or base == "LPT²" or base == "LPT³"
 end
 
 local function hex(byte: integer): string

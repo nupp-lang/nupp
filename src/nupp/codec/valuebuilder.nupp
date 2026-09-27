@@ -67,6 +67,15 @@ local function readU32(bytes: string, offset: integer): integer
     return first + second * 0x100 + third * 0x10000 + fourth * 0x1000000
 end
 
+local function sourceSlice(borrows source: any, first: integer, length: integer, what: string): string
+    local text = source as string
+    if first < 0 or length < 0 or first > #text or length > #text - first then
+        error("value stream " .. what .. " range is out of bounds", 0)
+    end
+
+    return text:sub(first + 1, first + length)
+end
+
 --- Resolves one string recipe into a Lua string.
 ---
 --- A recipe is a source range plus whether that range may hold backslash
@@ -79,10 +88,11 @@ end
 --- @param length the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
 --- @return the decoded string
+--- @raises string when the source range is out of bounds
 --- @raises string when an escape is unknown, a `\u` code is not hexadecimal, or a
 ---     surrogate is unpaired or out of range
 local function decodeString(borrows source: any, first: integer, length: integer, escaped: boolean): string
-    local bytes = source:sub(first + 1, first + length)
+    local bytes = sourceSlice(source, first, length, "string")
     if not escaped then
         return bytes
     end
@@ -349,6 +359,9 @@ end
 function valuebuilder.numberToken(builder: any, borrows source: any, start: uint32, limit: uint32): uint32
     local text = source as string
     local at = start as integer
+    if limit > #text or limit >= 2147483648 or start >= limit then
+        return nupp.math.u32.wrap(start + 1)
+    end
 
     -- JSON's grammar, in the order it is written: an optional minus, an
     -- integer part that is either one zero or a digit run not starting with
@@ -372,6 +385,9 @@ function valuebuilder.numberToken(builder: any, borrows source: any, start: uint
     local lead = text:byte(at + 1)
     if lead == 48 then
         at = at + 1
+        if at < limit and text:byte(at + 1) >= 48 and text:byte(at + 1) <= 57 then
+            return nupp.math.u32.wrap(at + 1)
+        end
     elseif lead >= 49 and lead <= 57 then
         digits()
     else
@@ -951,6 +967,7 @@ end
 --- @param length the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
 --- @raises string when outside an object, or when a key is already pending
+--- @raises string when the source range is out of bounds
 --- @raises string when an escape in the range is malformed
 function valuebuilder.key(builder: any, borrows source: any, start: uint32, length: uint32, escaped: boolean): nil
     local frame = builder.stack[#builder.stack]
@@ -969,6 +986,7 @@ end
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
+--- @raises string when the source range is out of bounds
 --- @raises string when an escape in the range is malformed
 --- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.string(builder: any, borrows source: any, start: uint32, length: uint32, escaped: boolean): nil
@@ -996,10 +1014,11 @@ end
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
+--- @raises string when the source range is out of bounds
 --- @raises string when the source range is not a number token
 --- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.numberSlice(builder: any, borrows source: any, start: uint32, length: uint32): nil
-    local value = tonumber(source:sub(start + 1, start + length))
+    local value = tonumber(sourceSlice(source, start, length, "number"))
     if value == nil then
         error("value stream number is invalid", 2)
     end
@@ -1016,10 +1035,15 @@ end
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
+--- @raises string when the source range is out of bounds
 --- @raises string when the source range is not an integer token
 --- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.integerSlice(builder: any, borrows source: any, start: uint32, length: uint32): nil
-    local value = tonumber(source:sub(start + 1, start + length))
+    local bytes = sourceSlice(source, start, length, "integer")
+    if bytes:match("^%-?%d+$") == nil then
+        error("value stream integer is invalid", 2)
+    end
+    local value = tonumber(bytes)
     if value == nil then
         error("value stream integer is invalid", 2)
     end

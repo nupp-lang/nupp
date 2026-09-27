@@ -618,6 +618,7 @@ function M.applicationPathsAreScopedPortableAndStable()
     test.equal(applicationPaths.encodeIdentity("line\nfeed"), "line%0Afeed")
     test.equal(applicationPaths.encodeIdentity("tail."), "tail%2E")
     test.equal(applicationPaths.encodeIdentity("NUL"), "%4EUL")
+    test.equal(applicationPaths.encodeIdentity("COM¹"), "%43OM¹")
     assert(
         applicationPaths.encodeIdentity("/") ~= applicationPaths.encodeIdentity("%2F"),
         "identity escaping remains reversible"
@@ -637,6 +638,8 @@ function M.applicationPathsAreScopedPortableAndStable()
         "NUL",
         "COM1.txt",
         "LPT9",
+        "COM¹",
+        "LPT³.txt",
         "bad?name",
         "bad:name",
         "bad\0name",

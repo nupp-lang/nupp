@@ -274,6 +274,20 @@ local function stream(source: string, tape: string, nullValue: any): (any, uint3
 end
 
 @aot
+local function slicedNumber(source: string, start: uint32, length: uint32, nullValue: any): any
+    local state = valueBuilder.new(nullValue)
+    valueBuilder.numberSlice(state, source, start, length)
+    return valueBuilder.finish(state)
+end
+
+@aot
+local function slicedInteger(source: string, start: uint32, length: uint32, nullValue: any): any
+    local state = valueBuilder.new(nullValue)
+    valueBuilder.integerSlice(state, source, start, length)
+    return valueBuilder.finish(state)
+end
+
+@aot
 local function primitives(source: string, nullValue: any): (any, uint32)
     local scratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
     local bits: uint64 = 0x400000005ULL
@@ -444,6 +458,8 @@ return {
     rows = rows,
     object = object,
     stream = stream,
+    slicedNumber = slicedNumber,
+    slicedInteger = slicedInteger,
     primitives = primitives,
     wrapped = wrapped,
     fixedScratch = fixedScratch,
@@ -3759,6 +3775,28 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     assert(
         native:find("7,8,8,9", 1, true),
         "multiple helper bindings keep their values and distinct temporaries: " .. native
+    )
+    local SLICE_RANGES = [[
+         local builder = require("builder")
+         local exact = builder.slicedNumber("12", 0, 1, {})
+         local empty = pcall(builder.slicedNumber, "", 0, 0, {})
+         local past = pcall(builder.slicedNumber, "12", 1, 2, {})
+         local decimal = pcall(builder.slicedInteger, "1.5", 0, 3, {})
+         local long = builder.slicedInteger("12345678901234567890", 0, 20, {})
+         print(exact, empty, past, decimal, long > 1e19)
+      ]]
+    local ordinarySlices, ordinarySliceDir = builderAnswer("off", SLICE_RANGES)
+    local nativeSlices, nativeSliceDir = builderAnswer("require", SLICE_RANGES)
+    test.equal(
+        nativeSlices,
+        ordinarySlices,
+        (
+            "numeric slices keep exact bounds on both routes (aot=require at %s, aot=off at %s)"
+        ):format(nativeSliceDir, ordinarySliceDir)
+    )
+    assert(
+        nativeSlices:find("1\tfalse\tfalse\tfalse\ttrue", 1, true),
+        builderReport("numeric slice bounds", "require", nativeSliceDir, nativeSlices)
     )
     local primitiveText = builderAnswer(
         "require",

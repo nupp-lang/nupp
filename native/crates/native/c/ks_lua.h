@@ -94,8 +94,15 @@ static int ks_lua_index(lua_State *L, double value, const char *site) {
 static double ks_lua_number_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const char *what) {
     size_t first = (size_t)start, count = (size_t)length;
     if (first > source_length || count > source_length - first) { luaL_error(L, "AOT %s number range is out of bounds", what); return 0.0; }
-    char *end = NULL; double value = strtod((const char *)(source + first), &end);
-    if (end != (char *)(source + first + count)) { luaL_error(L, "AOT %s number is invalid", what); return 0.0; }
+    if (count == 0u) { luaL_error(L, "AOT %s number is invalid", what); return 0.0; }
+    const char *input = (const char *)(source + first), *limit = input + count; char *end = NULL; double value = strtod(input, &end);
+    if (end > limit) {
+        lua_pushlstring(L, input, count); input = lua_tolstring(L, -1, NULL); limit = input + count; end = NULL; value = strtod(input, &end);
+        int exact = end == limit; lua_settop(L, lua_gettop(L) - 1);
+        if (!exact) { luaL_error(L, "AOT %s number is invalid", what); return 0.0; }
+        return value;
+    }
+    if (end != limit) { luaL_error(L, "AOT %s number is invalid", what); return 0.0; }
     return value;
 }
 static double ks_lua_integer_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {
@@ -105,6 +112,8 @@ static double ks_lua_integer_slice(lua_State *L, const unsigned char *source, si
     if (at < count && source[first + at] == '-') { negative = 1; at += 1u; }
     size_t digits = at; while (at < count && source[first + at] >= '0' && source[first + at] <= '9' && at - digits < 15u) { integer = integer * 10u + (uint64_t)(source[first + at] - '0'); at += 1u; }
     if (at == count && at > digits) { double value = (double)integer; return negative ? -value : value; }
+    while (at < count && source[first + at] >= '0' && source[first + at] <= '9') { at += 1u; }
+    if (at != count || at == digits) { luaL_error(L, "AOT value stream integer is invalid"); return 0.0; }
     return ks_lua_number_slice(L, source, source_length, start, length, "value stream integer");
 }
 /* Generated 128-bit significands for powers 5^-342 through 5^308. */
@@ -1474,4 +1483,3 @@ static int ks_lua_builder_finish(lua_State *L, KsLuaBuilder *builder) {
     if (builder->root_index != lua_gettop(L)) { return luaL_error(L, "AOT value stream root is not on top"); }
     return 1;
 }
-
