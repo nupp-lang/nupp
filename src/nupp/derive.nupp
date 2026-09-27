@@ -1,7 +1,9 @@
 module nupp.derive
 
 --[[
-What `@derive` writes, and the runtime the written members call.
+`nupp.derive` supplies the bundled derive providers and the runtime their
+generated members call. It also exposes the closed recipe API for package
+providers.
 
 ```nupp
 @derive(nupp.derive.Debug, nupp.derive.JSON)
@@ -16,13 +18,9 @@ print(point:debug())                     -- Point { x = 1, y = 2 }
 print(Point.fromJSON('{"x":1,"y":2}'))   -- the same point, decoded
 ```
 
-Both halves live here: the comptime providers that decide what a derived member
-is, and the runtime those members call once written.
-
-See [derives.md](docs/reference/derives.md) for what each standard derive
-writes, and
-[reflection.md](docs/learn/language/reflection.md) for the descriptors the JSON
-codec is memoized against.
+See [derives.md](docs/reference/derives.md) for what each standard derive writes,
+and [reflection.md](docs/learn/language/reflection.md) for the descriptors the
+JSON codec is memoized against.
 ]]
 const {type JSONEncodable} = require("nupp.codec.json")
 const {type Buffer} = require("nupp.text")
@@ -344,7 +342,7 @@ local function nativeJsonPlanForSpec(spec: any): any
         local nested = derived[spec.typeKey]
         return nested ~= nil and nativeJsonPlanForEntry(nested) or {kind = "document"}
     elseif kind == "boolean" or kind == "string" or kind == "number" or kind == "float" or kind == "integer" then
-        return {kind = kind == "float" and "number" or kind}
+        return {kind = kind == "float" and "number" or kind, minimum = spec.minimum, maximum = spec.maximum,}
     end
     -- Unions, anonymous shapes and tuples need their complete local document to
     -- select a variant or validate positional arity. They still remain inside the
@@ -1076,15 +1074,20 @@ local function jsonSpec(T: type, contract: type): any
         then
             return {kind = value.name}
         end
-        if value.name == "integer"
-            or value.name == "int8"
-            or value.name == "int16"
-            or value.name == "int32"
-            or value.name == "uint8"
-            or value.name == "uint16"
-            or value.name == "uint32"
-        then
-            return {kind = "integer"}
+        if value.name == "integer" then
+            return {kind = "integer", minimum = -9007199254740991, maximum = 9007199254740991}
+        elseif value.name == "int8" then
+            return {kind = "integer", minimum = -128, maximum = 127}
+        elseif value.name == "int16" then
+            return {kind = "integer", minimum = -32768, maximum = 32767}
+        elseif value.name == "int32" then
+            return {kind = "integer", minimum = -2147483648, maximum = 2147483647}
+        elseif value.name == "uint8" then
+            return {kind = "integer", minimum = 0, maximum = 255}
+        elseif value.name == "uint16" then
+            return {kind = "integer", minimum = 0, maximum = 65535}
+        elseif value.name == "uint32" then
+            return {kind = "integer", minimum = 0, maximum = 4294967295}
         end
     elseif value.kind == "array" then
         local item = jsonSpec(value.element, contract)

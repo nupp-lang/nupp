@@ -1,12 +1,14 @@
 module nupp.compiler.syntax.cst
 
 --[[
-The concrete syntax tree.
+`nupp.compiler.syntax.cst` defines the lossless concrete syntax tree shared by
+the parser and later compiler passes.
 
 A node holds every token it consumed, in source order, in its array part, so
 reprinting that array reproduces the source exactly. Nodes also carry named
-fields, `n.cond` and `n.body` among them, that alias entries of the array part for structured
-access; a named field never owns a token, so nothing is printed twice.
+fields, `n.cond` and `n.body` among them, that alias entries of the array part
+for structured access; a named field never owns a token, so nothing is printed
+twice.
 
 Tokens inserted by error recovery have empty text and are marked missing, so they
 are invisible to reprinting.
@@ -2840,11 +2842,11 @@ end
 
 cst.isToken = isToken
 
---- The remaining ownership helper intrinsics, which the compiler implements rather
---- than declares. Affine construction, release, and destruction are syntax now, so
---- they deliberately do not appear here.
+--- Ownership helper names the compiler recognizes before resolution. This table
+--- describes syntax only; each caller separately rejects shadowed bare names and
+--- validates the selected operation.
 ---
---- Most helpers retain their historical top-level spelling. Pinning is intentionally
+--- Most helpers retain their historical top-level names. Pinning is intentionally
 --- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
@@ -2864,12 +2866,10 @@ local OWNERSHIP_INTRINSICS: {
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.
 ---
---- Whether a spelling is the intrinsic is the caller's question, and the two callers
---- ask
---- it differently: the checker holds scopes and can see a local shadowing the name,
---- while the pass reading parameter modes out of a body runs before any of that and has
---- only the spelling. Both need the spelling read the same way, which is what lives
---- here.
+--- Whether a name is the intrinsic is the caller's question, and the two callers ask
+--- it differently. The checker holds scopes and can see a local shadowing the name;
+--- the pass reading parameter modes out of a body runs before any of that and has only
+--- the source form. Both need the syntax read the same way, which is what lives here.
 ---
 --- @param callee the expression being applied
 --- @return the intrinsic's name, or nil
@@ -2901,7 +2901,7 @@ end
 
 local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {reflect = true, sizeof = true, alignof = true, offsetof = true,}
 
---- The compiler-provided type intrinsic a call spells before name resolution.
+--- The compiler-provided type intrinsic a call names before name resolution.
 ---
 --- @param callee the expression being applied
 --- @return the intrinsic's name, or nil
@@ -3139,7 +3139,7 @@ function cst.exportAssignment(root: cst.Chunk): cst.ExportStmt?
 end
 
 --- The local named by a declared module's `export = value`, including the conventional
---- `export = setmetatable(M, mt)` spelling. Like `returnedLocal`, this is intentionally
+--- `export = setmetatable(M, mt)` form. Like `returnedLocal`, this is intentionally
 --- syntax-only so headers can identify qualified public declarations before checking.
 function cst.exportedLocal(root: cst.Chunk): string?
     local assignment = cst.exportAssignment(root)

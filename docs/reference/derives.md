@@ -343,11 +343,12 @@ secret: string = "redacted"
 
 ### Schemas
 
-Booleans, strings, finite numbers, exactly representable integer widths,
-optionals, arrays, tuples, string-keyed maps, finite shapes, and records
-deriving JSON are all supported. `int64` and `uint64` are rejected, because a
-JSON number cannot round-trip their full range, and the erased `integer` type is
-checked against the safe interval at run time.
+Booleans, strings, finite numbers, `integer`, `int32`, `uint32`, optionals,
+arrays, tuples, string-keyed maps, finite shapes, and records deriving JSON are
+all supported. `int64` and `uint64` are rejected because a JSON number cannot
+round-trip their full range. The erased `integer` type is checked against the
+exact interval from -9,007,199,254,740,991 through 9,007,199,254,740,991 at run
+time.
 
 Strings must be valid UTF-8, and a cycle or excessive nesting fails with the
 JSON path that reached it. Decoding uses Nupp's strict SIMD-accelerated codec and

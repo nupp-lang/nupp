@@ -112,7 +112,8 @@ return {
 end
 
 function M.avoidsCallerConstantsInGeneratedJSONParameters()
-    local result = run([[
+    local result = run(
+        [[
 const text = require("nupp.text")
 const out = "caller output"
 @derive(nupp.derive.JSON)
@@ -127,7 +128,8 @@ local restored = decoded as Message
 restored:writeJSON(writer)
 writer:close()
 return {encoded = buffer:tostring(), outer = out}
-]])
+]]
+    )
     assertEq(result.encoded, '{"value":"forwarded"}')
     assertEq(result.outer, "caller output")
 end
@@ -237,6 +239,62 @@ return {
     assertEq(result.keyedSecret, nil)
     assertEq(result.keyedLabels, nil)
     assertEq(result.text, '{"name":"x"}')
+end
+
+function M.enforcesDerivedJSONIntegerBounds()
+    local result = run(
+        [[
+@derive(nupp.derive.JSON)
+local record Bounded
+    signed: int32
+    count: uint32
+    exact: integer
+end
+
+local valid, validError = Bounded.fromJSON('{"signed":-2147483648,"count":4294967295,"exact":9007199254740991}')
+local signed, signedError = Bounded.fromJSON('{"signed":2147483648,"count":0,"exact":0}')
+local count, countError = Bounded.fromJSON('{"signed":0,"count":4294967296,"exact":0}')
+local exact, exactError = Bounded.fromJSON('{"signed":0,"count":0,"exact":9007199254740992}')
+
+local codec = Bounded.fieldCodec()
+local projected, projectedError = codec:decode({signed = -2147483649, count = 0, exact = 0})
+
+local invalid = new Bounded(signed = 0, count = 0, exact = 0)
+local dynamic = invalid as any
+dynamic.signed = 2147483648
+local encoded, encodeError = pcall(function(): nil
+    local out = require("nupp.text").newBuffer()
+    local writer = nupp.codec.json.writer(out)
+    invalid:writeJSON(writer)
+    writer:close()
+end)
+
+return {
+    valid = valid ~= nil and validError == nil,
+    signed = signed,
+    signedError = signedError,
+    count = count,
+    countError = countError,
+    exact = exact,
+    exactError = exactError,
+    projected = projected,
+    projectedError = projectedError,
+    encoded = encoded,
+    encodeError = tostring(encodeError),
+}
+]]
+    )
+    assertEq(result.valid, true)
+    assertEq(result.signed, nil)
+    assert(result.signedError:find("integer", 1, true), result.signedError)
+    assertEq(result.count, nil)
+    assert(result.countError:find("integer", 1, true), result.countError)
+    assertEq(result.exact, nil)
+    assert(result.exactError:find("integer", 1, true), result.exactError)
+    assertEq(result.projected, nil)
+    assert(result.projectedError:find("$.signed: expected integer in range", 1, true), result.projectedError)
+    assertEq(result.encoded, false)
+    assert(result.encodeError:find("$.signed: integer is out of range", 1, true), result.encodeError)
 end
 
 function M.handlesRecursiveDebugAndJSONGraphs()
@@ -399,6 +457,7 @@ local record Conflict
 end
 ]]
     )
+
     local function hasFix(diagnostics, title)
         for _, diagnostic in ipairs(diagnostics) do
             for _, fix in ipairs(diagnostic.fixes or {}) do
@@ -535,6 +594,7 @@ function M.boundsFieldsAndSemanticRecipeNodesAtTheirExactLimits()
     assertEq(recipeCodec.MAX_OUTPUT_BYTES, 2097152, "production rendered-byte limit")
 
     local limits = {fields = 8, nodes = 64}
+
     local function fixture(fields, deepLast)
         local lines = {"@derive(nupp.derive.Debug)", "local record Bounded"}
         for index = 1, fields do

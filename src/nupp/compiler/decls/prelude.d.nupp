@@ -943,7 +943,7 @@ end
 --- return M
 --- ```
 ---
---- #### What a recipe may say
+--- #### Recipe vocabulary
 ---
 --- The interface owns every generated signature, so a recipe chooses only which runtime
 --- function stands behind a requirement and which values reach it. `forward` names one
