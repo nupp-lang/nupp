@@ -1081,7 +1081,8 @@ function checkMod.check(
             memo = {}
             c.typeFunctionMemo[program.identity] = memo
         end
-        local keyParts, transported, permitted = {program.identity}, {}, {}
+        local keyParts, memoIdentityParts, transported, permitted = {program.identity}, {}, {}, {}
+        local nominalOrdinals, nextNominalOrdinal = {}, 0
         for position, argument in ipairs(arguments) do
             local value = argument.value
             if argument.kind == "type" or argument.kind == "typepack" then
@@ -1089,6 +1090,20 @@ function checkMod.check(
                 keyParts[#keyParts + 1] = argument.kind .. ":" .. descriptor.fingerprint
                 for index, node in ipairs(descriptor.types or {}) do
                     if node.nominal then
+                        local declaration = descriptor.sources[index]
+                        while declaration and declaration.tag == "nominal" and declaration.origin do
+                            declaration = declaration.origin
+                        end
+                        local ordinal = nominalOrdinals[declaration]
+                        if not ordinal then
+                            nextNominalOrdinal = nextNominalOrdinal + 1
+                            ordinal = nextNominalOrdinal
+                            nominalOrdinals[declaration] = ordinal
+                        end
+                        keyParts[#keyParts + 1] = "nominal:" .. tostring(index) .. ":" .. tostring(ordinal)
+                        memoIdentityParts[
+                            #memoIdentityParts + 1
+                        ] = "nominal:" .. tostring(index) .. ":" .. tostring(node.nominalIdentity)
                         permitted[
                             "argument" .. tostring(position) .. ":" .. tostring(index)
                         ] = {source = descriptor.sources[index], fingerprint = node.referenceFingerprint,}
@@ -1116,7 +1131,8 @@ function checkMod.check(
             end
         end
         local key = hash.sha256(table.concat(keyParts, "\0"))
-        local cached = memo[key]
+        local memoKey = hash.sha256(key .. "\0" .. table.concat(memoIdentityParts, "\0"))
+        local cached = memo[memoKey]
         if cached then
             return cached.result, cached.failure
         end
@@ -1125,7 +1141,7 @@ function checkMod.check(
         if persisted then
             local persistedType = typeblueprint.validate(persisted, permitted)
             if persistedType then
-                memo[key] = {result = persistedType}
+                memo[memoKey] = {result = persistedType}
                 return persistedType, nil
             end
         end
@@ -1148,14 +1164,14 @@ function checkMod.check(
             envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)
         end
         if not envelope then
-            memo[key] = {failure = evaluationFailure}
+            memo[memoKey] = {failure = evaluationFailure}
             return nil, evaluationFailure
         end
         local resultType, validationFailure = typeblueprint.validate(envelope, permitted)
         if resultType and persistent then
             persistent.put(key, envelope)
         end
-        memo[key] = {result = resultType, failure = validationFailure}
+        memo[memoKey] = {result = resultType, failure = validationFailure}
 
         return resultType, validationFailure
     end

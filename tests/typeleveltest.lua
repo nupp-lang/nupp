@@ -1723,6 +1723,39 @@ function M.comptimeComparesNominalDeclarationFamilies()
     )
 end
 
+function M.comptimeTypeCachesPreserveNominalIdentity()
+    clean(
+        table.concat(
+            {
+                "@comptime local function Identity(T: type): type return T end",
+                "@comptime local function Exact(A: type, B: type): type",
+                "   return nupp.types.literal(A == B)",
+                "end",
+                "@comptime local function Same(A: type, B: type): type",
+                "   return nupp.types.literal(nupp.types.sameNominal(A, B))",
+                "end",
+                "local record Shared value: string end",
+                "local exact: Exact(Shared, Shared) = true",
+                "local same: Same(Shared, Shared) = true",
+                "local record Item value: string end",
+                "local sameIdentity: Same(Item, Item) = true",
+                "local function first(): nil",
+                "   local record Item value: string end",
+                "   local item: Identity(Item) = new Item(value = 'first')",
+                "end",
+                "local function second(): nil",
+                "   local record Item value: string end",
+                "   local item: Identity(Item) = new Item(value = 'second')",
+                "end",
+                "first()",
+                "second()",
+                "return exact, same, sameIdentity",
+            },
+            "\n"
+        )
+    )
+end
+
 local PACK_QUERY = table.concat(
     {
         "local record Position",

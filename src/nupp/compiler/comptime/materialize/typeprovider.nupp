@@ -9,6 +9,7 @@ the finalized graph through `nupp.compiler.types.typeblueprint`.
 ]]
 
 local hash = require("nupp.compiler.hash")
+local reflection = require("nupp.compiler.reflection")
 local stable = require("nupp.compiler.stable")
 
 ----------------------------------------------------------------------------
@@ -931,8 +932,13 @@ function typeprovider.importDescriptor(
     referencePrefix: string?
 ): any, typeprovider.Failure?
     if type(descriptor) ~= "table"
+        or descriptor.schema ~= reflection.SCHEMA
         or type(descriptor.types) ~= "table"
         or type(descriptor.root) ~= "number"
+        or descriptor.root ~= math.floor(descriptor.root)
+        or descriptor.root < 1
+        or descriptor.root > #descriptor.types
+        or #descriptor.types > typeprovider.MAX_NODES
         or not state.typeHandles
     then
         return nil, failure("NUPP2415", "type-function input has a malformed semantic descriptor")
@@ -963,7 +969,13 @@ function typeprovider.importDescriptor(
         if built[index] then
             return built[index]
         end
-        if active[index] or type(index) ~= "number" or type(nodes[index]) ~= "table" then
+        if active[index]
+            or type(index) ~= "number"
+            or index ~= math.floor(index)
+            or index < 1
+            or index > #nodes
+            or type(nodes[index]) ~= "table"
+        then
             return nil
         end
         active[index] = true
@@ -975,7 +987,7 @@ function typeprovider.importDescriptor(
             or nil
         if node.nominal and (referencedSource or referencePrefix) then
             local referenceFingerprint = node.referenceFingerprint
-                or referencedSource and require("nupp.compiler.reflection").describe(referencedSource).fingerprint
+                or referencedSource and reflection.describe(referencedSource).fingerprint
                 or nil
             if type(referenceFingerprint) ~= "string" then
                 return nil
@@ -985,9 +997,10 @@ function typeprovider.importDescriptor(
                 source = referencedSource,
                 referenceId = referencePrefix and referencePrefix .. ":" .. tostring(index) or nil,
                 fingerprint = referenceFingerprint,
-                key = "reference:" .. (
-                    referencePrefix and referencePrefix .. ":" .. tostring(index) or referenceFingerprint
-                ),
+                key = "reference:" .. (node.nominalIdentity and composeKey("nominal", {
+                    tostring(node.nominalIdentity),
+                    referenceFingerprint
+                }) or referencePrefix and referencePrefix .. ":" .. tostring(index) or referenceFingerprint),
             }
             made = make(state, opaque, "Type", payload, nil)
             built[index] = made
@@ -1127,7 +1140,11 @@ function typeprovider.importDescriptor(
             local readValue = node.readValue and import(node.readValue) or nil
             local writeKey = node.writeKey and import(node.writeKey) or nil
             local writeValue = node.writeValue and import(node.writeValue) or nil
-            if (readKey == nil) == (readValue == nil)
+            if (node.readKey == nil or readKey)
+                and (node.readValue == nil or readValue)
+                and (node.writeKey == nil or writeKey)
+                and (node.writeValue == nil or writeValue)
+                and (readKey == nil) == (readValue == nil)
                 and (writeKey == nil) == (writeValue == nil)
                 and (readKey or writeKey)
             then
@@ -1265,12 +1282,21 @@ function typeprovider.importDescriptor(
             end
         elseif kind == "pack" then
             local headIndices, modes, names = {}, {}, {}
-            for position, member in ipairs(node.head or {}) do
+            if type(node.head) ~= "table" or #node.head > typeprovider.MAX_MEMBERS then
+                return nil
+            end
+            for position, member in ipairs(node.head) do
+                if type(member) ~= "table" then
+                    return nil
+                end
                 headIndices[position] = member.type
                 modes[position] = member.mode or "plain"
                 names[position] = member.name or ""
             end
             local head = list(headIndices, "pack")
+            if node.tail ~= nil and type(node.tail) ~= "table" then
+                return nil
+            end
             local tail = node.tail and node.tail.type and import(node.tail.type) or nil
             if head then
                 local keys = {}
