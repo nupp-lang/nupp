@@ -16,9 +16,9 @@ the caller. The public [](nupp.io.tls) layer drives networking readiness and
 suspension. Verification and negotiated protocol results describe the established
 session rather than the requested policy.
 
-Session destruction releases TLS state. The public connection owner remains
-responsible for the underlying stream's lifecycle. Requiring the facade fixes
-the implementation; individual TLS operations never perform SPI lookups.
+Session destruction releases TLS state and closes the owned stream. The
+public session controls that lifecycle through `destroy`. Requiring the facade
+fixes the implementation; individual TLS operations never perform SPI lookups.
 ]]
 
 local contract = require("nupp.io.tls.spi")

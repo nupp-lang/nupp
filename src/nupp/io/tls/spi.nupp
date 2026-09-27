@@ -15,17 +15,19 @@ completed with verification disabled. ALPN protocol text describes the negotiate
 result; resumed is an optional observation.
 
 closeNotify sends the TLS shutdown notification and may need further progress.
-destroy releases session state; the owning public connection separately controls
-the underlying network stream. No method may resolve or switch providers.
+destroy releases session state and the transport it owns. No method may resolve
+or switch providers.
 ]]
 
 export interface Provider
     @readonly
     priority: integer?
 
-    --- Creates session state over a compatible network handle.
-    --- Certificate, private key, authority, hostname, and ALPN options follow the
-    --- public TLS API. Returns the session or nil and an error.
+    --- Creates session state over a compatible network handle. The provider
+    --- consumes the handle on success and failure.
+    ---
+    --- Certificate, private key, authority, hostname, and ALPN options follow
+    --- the public TLS API. Returns the session or nil and an error.
     @readonly
     wrap: function(
         self: Provider,
@@ -51,11 +53,13 @@ export interface Provider
     @readonly
     resumed: (function(self: Provider, session: any): boolean)?
 
-    --- Returns bytes, nil while pending, an empty string at EOF, or nil and an error.
+    --- Returns at most `wanted` bytes, nil while pending, an empty string at
+    --- EOF, or nil and an error.
     @readonly
     read: function(self: Provider, session: any, wanted: integer): (string?, string?)
 
-    --- Returns bytes accepted, nil while pending, or nil and an error.
+    --- Returns a positive byte count no greater than the input length, nil
+    --- while pending, or nil and an error.
     @readonly
     write: function(self: Provider, session: any, bytes: string): (integer?, string?)
 
@@ -69,7 +73,7 @@ export interface Provider
     @readonly
     closeNotify: function(self: Provider, session: any): (boolean, string?)
 
-    --- Releases TLS session state; the connection owner handles the transport.
+    --- Releases TLS session state and its owned transport.
     @readonly
     destroy: function(self: Provider, session: any): nil
 

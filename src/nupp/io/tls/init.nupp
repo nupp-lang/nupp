@@ -338,6 +338,11 @@ record tls.Session is Reader, Writer
             if got == nil then
                 return false
             end
+            if #got > wanted then
+                failure = "the TLS provider returned more bytes than requested"
+
+                return true
+            end
             chunk = got
             if #got == 0 then
                 self._ended = true
@@ -444,6 +449,11 @@ record tls.Session is Reader, Writer
                 end
                 if moved == nil then
                     return false
+                end
+                if moved < 1 or moved > #remaining or math.floor(moved) ~= moved then
+                    failure = "the TLS provider returned an invalid write count"
+
+                    return true
                 end
                 took = moved
 
@@ -563,7 +573,7 @@ end
 
 --- Encrypts a connection as the server.
 --- @param stream the connection to adopt; it is consumed even when setup fails
---- @param options the certificate to present and what to ask of the client
+--- @param options the server identity and application protocols to present
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @export

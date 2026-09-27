@@ -1,9 +1,8 @@
 -- TLS over real loopback connections.
 --
--- No fake platform here. What is worth checking about TLS is whether a
--- handshake actually completes, whether a certificate is actually verified, and
--- whether refusing an unverifiable peer actually refuses -- and a fake backend
--- would be asserting that the test's own idea of TLS matches itself.
+-- Real connections check whether a handshake completes, a certificate is
+-- verified, and an unverifiable peer is refused. Two narrow fake-provider cases
+-- check the facade's bounds without pretending to implement TLS.
 local net = require("nupp.io.net")
 local tls = require("nupp.io.tls")
 
@@ -75,6 +74,14 @@ local function shake(client, server)
 end
 
 local M = {}
+
+local function boundarySession(provider)
+    local facade = require("providerstate").tls(provider)
+    local session = assert(facade.client({}, {verify = false}))
+    assertTrue(session:handshake(), "the boundary fixture handshake completes")
+
+    return session
+end
 
 -- The platform roots are process-wide. A child whose environment names this
 -- fixture can prove both sides of the nil-versus-empty contract without the
@@ -540,6 +547,67 @@ function M.aProtocolNameIsChecked()
     serverSock:close()
     clientSock:close()
     listener:close()
+end
+
+function M.providerReadsCannotExceedTheRequestedCount()
+    local session = boundarySession({
+        wrap = function()
+            return {}
+        end,
+        handshake = function()
+            return true
+        end,
+        read = function()
+            return "too many"
+        end,
+        connected = function()
+            return true
+        end,
+        flushed = function()
+            return true
+        end,
+        closeNotify = function()
+            return true
+        end,
+        destroy = function()
+        end,
+    })
+    local bytes, why = session:read(2)
+    assertEq(bytes, nil, "an oversized provider read is refused")
+    assertEq(why, "the TLS provider returned more bytes than requested", "the boundary failure is named")
+    session:close()
+end
+
+function M.providerWritesMustMakeValidProgress()
+    local writes = 0
+    local session = boundarySession({
+        wrap = function()
+            return {}
+        end,
+        handshake = function()
+            return true
+        end,
+        write = function()
+            writes = writes + 1
+
+            return writes == 1 and 0 or 3
+        end,
+        connected = function()
+            return true
+        end,
+        flushed = function()
+            return true
+        end,
+        closeNotify = function()
+            return true
+        end,
+        destroy = function()
+        end,
+    })
+    local wrote, why = session:write("abc")
+    assertEq(wrote, false, "an impossible provider write is refused")
+    assertEq(why, "the TLS provider returned an invalid write count", "the boundary failure is named")
+    session:close()
 end
 
 return M

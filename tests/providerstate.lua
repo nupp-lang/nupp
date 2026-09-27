@@ -69,6 +69,33 @@ function M.load(kind, provider)
     })(facade)
 end
 
+function M.tls(provider)
+    setmetatable(provider, {
+        __index = function(_, name)
+            if name == "priority" then
+                return nil
+            end
+            return function()
+                error("fixture does not implement " .. name)
+            end
+        end
+    })
+
+    return instance({["nupp.spi"] = true, ["nupp.io.tls"] = true}, {
+        ["nupp.spi.index"] = {["nupp.io.tls.spi.Provider"] = {"fixture.provider"}},
+        ["fixture.provider"] = provider,
+        ["nupp.io.net"] = {
+            pump = function()
+            end
+        },
+        ["nupp.io.net.internal"] = {
+            takeStreamHandle = function(stream)
+                return stream
+            end
+        },
+    })("nupp.io.tls")
+end
+
 function M.browserHttp(memory)
     local name = "nupp.runtime.browser.http"
     return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)

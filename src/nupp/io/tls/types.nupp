@@ -5,9 +5,10 @@ module nupp.io.tls.types
 local tls = {}
 
 type tls.ClientOptions = {
-    --- The name to expect on the peer's certificate, sent as SNI. Given
-    --- whenever `verify` is on, because a certificate verified against no name
-    --- is a certificate belonging to anybody.
+    --- The DNS name or IP address to expect on the peer's certificate. A DNS
+    --- name is also sent as SNI. Given whenever `verify` is on, because a
+    --- certificate verified against no name is a certificate belonging to
+    --- anybody.
     hostname: string?,
 
     --- Certificates to trust, as PEM. Nil uses the platform's root
