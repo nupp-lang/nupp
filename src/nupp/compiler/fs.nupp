@@ -1,22 +1,17 @@
 module nupp.compiler.fs
 
 --[[
-Paths and the filesystem.
+Filesystem operations shared by the compiler and its tools.
 
-One home for what three parts of the compiler were each carrying a copy of. A
-path here is normalized and forward-slashed whatever the platform wrote it as,
-so the same file compares equal however it was named, and a write is atomic:
-content goes to a temporary beside the destination and is renamed over it, which
-is the only way a build interrupted halfway leaves no half-written module behind.
+Lexical paths use forward slashes. `canonical` asks the path provider for an
+existing path's filesystem identity, while `absolute` also answers for a missing
+path. Writes stage content beside the destination before replacing it, so an
+interrupted build does not expose a half-written module.
 
-Listing a directory goes through [](nupp.io.files), which is why the compiler is
-the first program that cannot be built without its native provider. It used to
-spawn `find` or `dir` per source tree, which was a process per listing and no
-answer at all on a platform without a shell.
-
-Reading and writing stay on `io.open`. A whole-file transfer settles on a worker
-thread, and a build reads thousands of small files, so the handoff would cost
-more than the read.
+Directory operations go through [](nupp.io.files), so the compiler requires
+its native filesystem provider. Whole-file reads and writes stay on `io.open`
+because the provider's transfer lane would add a worker handoff to every small
+compiler file.
 ]]
 const files2 = require("nupp.io.files")
 const path2 = require("nupp.io.path")
@@ -26,6 +21,10 @@ local fs = {}
 local function normalize(path: string): string
     path = path:gsub("\\", "/"):gsub("/+", "/")
     path = path:gsub("^%./", ""):gsub("/%./", "/")
+    if path == "/" or path:match("^[A-Za-z]:/$") then
+        return path
+    end
+
     return (path:gsub("/$", ""))
 end
 
@@ -48,7 +47,19 @@ local function join(left: string?, right: string): string
 end
 
 local function dirname(path: string): string
-    return normalize(path):match("^(.*)/[^/]+$") or "."
+    local normalized = normalize(path)
+    if normalized == "/" or normalized:match("^[A-Za-z]:/$") then
+        return normalized
+    end
+    local parent = normalized:match("^(.*)/[^/]+$")
+    if parent == "" then
+        return "/"
+    end
+    if parent and parent:match("^[A-Za-z]:$") then
+        return parent .. "/"
+    end
+
+    return parent or "."
 end
 
 local function basename(path: string): string
@@ -76,9 +87,15 @@ local function absolute(path: string): string
             parts[#parts + 1] = part
         end
     end
-    local separator = prefix == "/" and "" or (#parts > 0 and "/" or "")
+    local suffix = table.concat(parts, "/")
+    if prefix == "/" then
+        return prefix .. suffix
+    end
+    if prefix ~= "" then
+        return prefix .. "/" .. suffix
+    end
 
-    return prefix .. separator .. table.concat(parts, "/")
+    return suffix
 end
 
 --- Windows's own spelling for a path the system is to take literally.
@@ -239,8 +256,17 @@ local function writeFile(path: string, text: string): boolean?, string?
     if not f then
         return nil, err
     end
-    f:write(text)
-    f:close()
+    local wrote, writeErr = f:write(text)
+    if not wrote then
+        f:close()
+        os.remove(tmp)
+        return nil, writeErr
+    end
+    local closed, closeErr = f:close()
+    if not closed then
+        os.remove(tmp)
+        return nil, closeErr
+    end
     local ok, renameErr = os.rename(tmp, path)
     -- The Windows fallback, where a rename cannot replace an existing file. The
     -- backup is named for this writer for the same reason the staging file is:
@@ -283,7 +309,8 @@ end
 ---
 --- A symbolic link is resolved rather than reported as one, so a source tree
 --- assembled out of links reads the same as one that was copied. That is what
---- `find` did and what the callers were written against.
+--- `find` did and what the callers were written against. A link back to an
+--- ancestor is not followed again.
 ---
 --- A directory that cannot be read contributes nothing rather than failing: a
 --- project may name an include root it has not created yet, and the shell-out
@@ -299,18 +326,35 @@ end
 local function listFiles(path: string, skipDirectory: (function(name: string): boolean?)?): {string}
     local files: {string} = {}
     local pending = {path}
+    local parent: {[string]: string} = {}
     while #pending > 0 do
         local directory = table.remove(pending) as string
         for _, entry in ipairs(files2.list(directory) or {}) do
             local child = join(directory, entry.name)
             local kind = entry.kind
+            local link = kind == "symlink"
             if kind == "symlink" then
                 local resolved = files2.info(child)
                 kind = resolved and resolved.kind or "other"
             end
             if kind == "directory" then
                 if not (skipDirectory and skipDirectory(entry.name)) then
-                    pending[#pending + 1] = child
+                    local cycle = false
+                    if link then
+                        local identity = canonical(child)
+                        local ancestor: string? = directory
+                        while ancestor do
+                            if canonical(ancestor) == identity then
+                                cycle = true
+                                break
+                            end
+                            ancestor = parent[ancestor]
+                        end
+                    end
+                    if not cycle then
+                        parent[child] = directory
+                        pending[#pending + 1] = child
+                    end
                 end
             elseif kind == "file" then
                 files[#files + 1] = normalize(child)
@@ -322,8 +366,6 @@ local function listFiles(path: string, skipDirectory: (function(name: string): b
     return files
 end
 
---- Writes only when the contents would differ, so a file that did not change keeps its
---- modification time and anything watching it stays quiet.
 --- Puts a staged artifact in place: reads what a tool wrote beside its output,
 --- removes it, and writes the output. A tool writes beside its output so that a
 --- failure leaves the last good artifact untouched, and this is the one step that
@@ -342,6 +384,8 @@ local function installStaged(staged: string, output: string): boolean, string?
     return true, nil
 end
 
+--- Writes only when contents differ, so an unchanged file keeps its modification
+--- time and anything watching it stays quiet.
 local function writeFileIfChanged(path: string, text: string): boolean?, string?
     if readFile(path) == text then
         return true

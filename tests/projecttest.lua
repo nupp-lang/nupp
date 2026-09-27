@@ -3671,6 +3671,81 @@ function M.canonicalPathsFollowLinksAndKeepMissingOnesObservable()
     remove(dir)
 end
 
+function M.lexicalRootsRemainAbsolute()
+    assertEq(fs.normalize("/"), "/", "the POSIX root survives normalization")
+    assertEq(fs.join("ignored", "/"), "/", "a joined POSIX root replaces its left side")
+    assertEq(fs.absolute("/"), "/", "the POSIX root does not become the working directory")
+    assertEq(fs.dirname("/file"), "/", "a file directly under the POSIX root has the root as its parent")
+    assertEq(fs.normalize("C:\\"), "C:/", "a drive root survives normalization")
+    assertEq(fs.join("ignored", "C:/"), "C:/", "a joined drive root replaces its left side")
+    assertEq(fs.absolute("C:/"), "C:/", "a drive root remains absolute")
+    assertEq(fs.dirname("C:/file"), "C:/", "a file directly under a drive root has that root as its parent")
+end
+
+function M.fileWalksStopAtSymbolicLinkCycles()
+    if jit.os == "Windows" then
+        return
+    end
+    local dir = tempProject({["root/value.txt"] = "value\n"})
+    assertEq(process.run({"ln", "-s", ".", dir .. "/root/again"}), 0, "the cycle is created")
+    local listed = fs.listFiles(dir .. "/root")
+    assertEq(#listed, 1, "a link to an ancestor is not walked again")
+    assertEq(listed[1], dir .. "/root/value.txt", "the ordinary file remains visible")
+    remove(dir)
+end
+
+function M.stagedWritesKeepTheDestinationAfterStreamFailures()
+    local loaded = package.loaded["nupp.compiler.fs"]
+    local open = io.open
+    local dir = tempProject({output = "old\n"})
+    local failureAt = "write"
+    local ok, failure = pcall(function()
+        io.open = function(path, mode)
+            if mode ~= "wb" then
+                return open(path, mode)
+            end
+            local closes = 0
+            local stream = {}
+            function stream:write()
+                if failureAt == "write" then
+                    return nil, "simulated write failure"
+                end
+
+                return self
+            end
+
+            function stream:close()
+                closes = closes + 1
+                if failureAt == "close" and closes == 1 then
+                    return nil, "simulated close failure"
+                end
+
+                return true
+            end
+
+            return stream
+        end
+        package.loaded["nupp.compiler.fs"] = nil
+        local isolated = require("nupp.compiler.fs")
+        local wrote, reason = isolated.writeFile(dir .. "/output", "new\n")
+        assertEq(wrote, nil, "a failed stream write is reported")
+        assertEq(reason, "simulated write failure", "the write failure is retained")
+        assertEq(read(dir .. "/output"), "old\n", "a failed stream write publishes nothing")
+
+        failureAt = "close"
+        wrote, reason = isolated.writeFile(dir .. "/output", "new\n")
+        assertEq(wrote, nil, "a failed stream close is reported")
+        assertEq(reason, "simulated close failure", "the close failure is retained")
+        assertEq(read(dir .. "/output"), "old\n", "a failed stream close publishes nothing")
+    end)
+    io.open = open
+    package.loaded["nupp.compiler.fs"] = loaded
+    remove(dir)
+    if not ok then
+        error(failure, 0)
+    end
+end
+
 function M.luarocksDependencyInstallsIntoTheProjectTree()
     local files = tinyRockFiles()
     files[
