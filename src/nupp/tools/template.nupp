@@ -420,6 +420,20 @@ local function stringList(value: any, label: string): {string}?, string?
     if type(value) ~= "table" then
         return nil, label .. " must be a list of strings"
     end
+    local count, maximum = 0, 0
+    for index, entry in pairs(value as {[any]: any}) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) then
+            return nil, label .. " must be a dense list of strings"
+        end
+        if type(entry) ~= "string" then
+            return nil, label .. "[" .. index .. "] must be a string"
+        end
+        count = count + 1
+        maximum = math.max(maximum, index)
+    end
+    if count ~= maximum then
+        return nil, label .. " must be a dense list of strings"
+    end
     local list: {string} = {}
     for index, entry in ipairs(value as {any}) do
         if type(entry) ~= "string" then
@@ -470,8 +484,13 @@ local function readVariables(value: any): {[string]: template.Variable}?, string
                 .. " cannot have a default, since the project name"
                 .. " comes from --name or the directory"
         end
-        if entry.pattern ~= nil and type(entry.pattern) ~= "string" then
-            return nil, label .. ".pattern must be a string"
+        for _, key in ipairs({"description", "default", "pattern", "invalid"}) do
+            if entry[key] ~= nil and type(entry[key]) ~= "string" then
+                return nil, label .. "." .. key .. " must be a string"
+            end
+        end
+        if entry.required ~= nil and type(entry.required) ~= "boolean" then
+            return nil, label .. ".required must be a boolean"
         end
         variables[
             name
@@ -503,6 +522,9 @@ function template.manifest(text: string, where: string): template.Manifest?, str
         if key ~= "description" and key ~= "variables" and key ~= "raw" and key ~= "after" then
             return nil, where .. ": " .. tostring(key) .. " is not a template field"
         end
+    end
+    if table_.description ~= nil and type(table_.description) ~= "string" then
+        return nil, where .. ": description must be a string"
     end
     local variables, variablesErr = readVariables(table_.variables)
     if not variables then

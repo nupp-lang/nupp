@@ -51,6 +51,24 @@ end
 
 local M = {}
 
+function M.damagedBuildStateIsAnEmptyCacheRatherThanAnException()
+    local dir = tempProject({})
+    local path = dir .. "/state.json"
+    for _, text in ipairs({
+        [[{"version":5,"modules":"bad","dependencies":{},"outputs":{},"targets":{}}]],
+        [[{"version":5,"modules":{"m":"bad"},"dependencies":{},"outputs":{},"targets":{}}]],
+        [[{"version":5,"modules":{},"dependencies":{},"outputs":{},"targets":{"app":[null,"x"]}}]],
+    }) do
+        local file = assert(io.open(path, "wb"))
+        file:write(text)
+        file:close()
+        local ok, state = pcall(cache.loadState, path)
+        assert(ok, tostring(state))
+        assert(next(state.modules) == nil and next(state.targets) == nil, "damaged state must be discarded")
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.stableTextDoesNotDependOnCollidingKeyInsertionOrder()
     local numberFirst, stringFirst = {}, {}
     numberFirst[2], numberFirst["2"] = "number", "string"

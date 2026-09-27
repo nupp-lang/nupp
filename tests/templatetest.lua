@@ -227,6 +227,27 @@ function M.anUnknownFieldIsRefusedByName()
     assert(err:find("not a template field", 1, true), err)
 end
 
+function M.manifestFieldsKeepTheirDeclaredTypes()
+    for _, case in ipairs({
+        {text = [[return {description = 7}]], field = "description", kind = "string"},
+        {text = [[return {variables = {x = {default = false}}}]], field = "variables.x.default", kind = "string"},
+        {text = [[return {variables = {x = {required = "yes"}}}]], field = "variables.x.required", kind = "boolean"},
+    }) do
+        local manifest, err = template.manifest(case.text, "template.lua")
+        assertEq(manifest, nil, case.field .. " is refused")
+        assert(err:find(case.field, 1, true), err)
+        assert(err:find(case.kind, 1, true), err)
+    end
+end
+
+function M.manifestListsMustBeDense()
+    for _, field in ipairs({"raw", "after"}) do
+        local manifest, err = template.manifest("return {" .. field .. " = {[2] = 'x'}}", "template.lua")
+        assertEq(manifest, nil, field .. " with a hole is refused")
+        assert(err:find("dense list", 1, true), err)
+    end
+end
+
 function M.anUnknownStepIsRefusedWithTheStepsThereAre()
     local _, err = template.manifest([[return {after = {"deploy"}}]], "template.lua")
     assert(err:find("deploy", 1, true), err)

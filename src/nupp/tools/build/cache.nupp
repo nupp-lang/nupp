@@ -65,7 +65,7 @@ type cache.ModuleRecord = {
     }}?,
 
     --- The compiler-recognized runtime features this module needs staging for.
-    effects: {[string]: any}?,
+    effects: {string}?,
 
     --- Where the module's coverage sites were recorded, on a coverage build.
     coverage: {
@@ -266,6 +266,56 @@ local function emptyState(): cache.State
     return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State
 end
 
+local function denseStrings(value: any): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    local count, maximum = 0, 0
+    for index, entry in pairs(value) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) or type(entry) ~= "string" then
+            return false
+        end
+        count = count + 1
+        maximum = math.max(maximum, index)
+    end
+
+    return count == maximum
+end
+
+local function validState(state: any): boolean
+    for _, field in ipairs({"modules", "dependencies", "outputs", "targets"}) do
+        if type(state[field]) ~= "table" then
+            return false
+        end
+    end
+    for name, record in pairs(state.modules) do
+        if type(name) ~= "string"
+            or type(record) ~= "table"
+            or record.output ~= nil and type(record.output) ~= "string"
+            or record.artifactHash ~= nil and type(record.artifactHash) ~= "string"
+        then
+            return false
+        end
+    end
+    for name, record in pairs(state.dependencies) do
+        if type(name) ~= "string" or type(record) ~= "table" then
+            return false
+        end
+    end
+    for output, present in pairs(state.outputs) do
+        if type(output) ~= "string" or type(present) ~= "boolean" then
+            return false
+        end
+    end
+    for name, outputs in pairs(state.targets) do
+        if type(name) ~= "string" or not denseStrings(outputs) then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function loadState(path: string): cache.State
     local text = readFile(path)
     if not text then
@@ -282,6 +332,9 @@ local function loadState(path: string): cache.State
     -- directory, as a bundle and the binary stamped from it naturally do, and each has
     -- to be able to remove its own leftovers without removing the other's.
     state.targets = state.targets or {}
+    if not validState(state) then
+        return emptyState()
+    end
 
     return state
 end
