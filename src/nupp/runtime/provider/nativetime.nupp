@@ -3,7 +3,7 @@
 module nupp.runtime.provider.nativetime
 
 --[[
-Native clocks and cancellable timers for `host.time` API 1.
+Native implementation of [](nupp.time.spi).
 
 `now` reports monotonic milliseconds and `wallTime` reports Unix milliseconds.
 Relative sleeps and absolute deadlines must be finite and non-negative. Waiting

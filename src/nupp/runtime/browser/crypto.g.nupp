@@ -3,7 +3,7 @@
 module nupp.runtime.browser.crypto
 
 --[[
-Browser Web Crypto implementation of `host.crypto` and `data.uuid`.
+Browser Web Crypto implementation for [](nupp.random) and UUID generation.
 
 Requests use the application Worker's effect channel. Random bytes and HMAC
 results cross that channel as base64 and return as byte-preserving Lua strings;

@@ -1,7 +1,7 @@
 module nupp.random
 
 --[[
-Two kinds of random: unpredictable, and reproducible.
+`nupp.random` provides unpredictable bytes and reproducible sequences.
 
 ```nupp
 local random = require("nupp.random")
@@ -18,8 +18,7 @@ print(dice:next())
 key, a nonce, or a token wants. A `Xoshiro128` is the opposite: an independent
 xoshiro128** sequence with nothing hidden in it, so the same seed always draws
 the same numbers. Omitting the seed picks a fixed one rather than reading a
-clock, which is deliberate -- a sequence that varies run to run is something you
-ask for.
+clock. Request a seed explicitly when a sequence must vary between runs.
 
 A seed is one 32-bit word. A generator is mutable and is not safe to share
 between workers; give each lane its own.
@@ -153,6 +152,8 @@ export record Xoshiro128
     end
 
     --- Returns the next value in [low, high), or (high, low] when reversed.
+    ---
+    --- Equal bounds return that bound.
     function range(self, low: number, high: number): number
         return low + self:next() * (high - low)
     end

@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.provider.nativesystem
 
---[[Native host.system API 1 implementation.
+--[[Native implementation of [](nupp.system.spi).
 
 LuaJIT ABI queries supply platform, architecture, byte order, and pointer width.
 The native host estimates usable parallelism with process restrictions accounted

@@ -2,16 +2,17 @@ module nupp.system.spi
 
 --[[Implementation interface for environment facts.
 
-Importing this declaration loads no host implementation. Facts describe the executing Nupp ABI, including
-emulated environments, and remain fixed for the loaded facade. Providers report
-nonempty platform and architecture names, little or big endianness, and a 32- or
-64-bit pointer width. They must agree with the target ABI used by generated code.
+Importing this declaration loads no host implementation. Facts describe the
+executing Nupp ABI, including emulated environments, and remain fixed for the
+loaded facade. Providers report nonempty platform and architecture names,
+little or big endianness, and a 32- or 64-bit pointer width. They must agree
+with the target ABI used by generated code.
 
 availableParallelism estimates the number of execution units usable by this
 process, including host restrictions, and returns an integer of at least one.
 It must not create a worker pool. The browser implementation may suspend while
-requesting host facts. The facade chooses an external implementation by priority, then uses its native
-or browser fallback when discovery is empty.
+requesting host facts. The facade chooses an external implementation by
+priority, then uses its native or browser fallback when discovery is empty.
 ]]
 
 --- Facts and a parallelism query for the executing ABI.

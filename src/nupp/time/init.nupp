@@ -1,7 +1,7 @@
 module nupp.time
 
 --[[
-Clocks and sleeps, from whichever host is running.
+`nupp.time` provides clocks and waits from the current host.
 
 ```nupp
 const time = nupp.time
@@ -16,7 +16,7 @@ print(time.wallTime())       -- milliseconds since the Unix epoch
 `now` is the clock durations and deadlines are measured in. It only moves
 forward and its zero is whatever the host picked, so one reading means nothing
 except against another. `wallTime` is calendar time and may jump backwards when
-the machine's clock is corrected -- never subtract two of those to measure how
+the machine's clock is corrected. Never subtract two of those to measure how
 long something took.
 ]]
 
@@ -40,13 +40,21 @@ export const now: function(): number = provider.now
 --- Answers milliseconds since the Unix epoch.
 export const wallTime: function(): number = provider.wallTime
 
---- Waits for a relative interval through the current suspension context.
+--- Waits for a finite, non-negative interval through the suspension context.
+---
+--- @raises string when the interval is invalid or cannot be scheduled
 export const sleep: function(milliseconds: number): nil = provider.sleep
 
---- Waits until an absolute deadline in the [](now) domain; a deadline already
---- past returns without waiting.
+--- Waits until a non-negative deadline in the [](now) domain.
+---
+--- A deadline already past returns without waiting.
+---
+--- @raises string when the deadline is invalid or cannot be scheduled
 export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
 
---- Schedules one callback for a deadline in the [](now) domain and answers the
---- function that cancels it. Registration itself does not suspend.
+--- Schedules one callback for a non-negative deadline in the [](now) domain.
+---
+--- Answers the function that cancels it. Registration itself does not suspend.
+---
+--- @raises string when the deadline is invalid or cannot be scheduled
 export const wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil = provider.wakeAt

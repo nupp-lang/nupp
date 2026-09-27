@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.provider.nativecrypto
 
---[[Native cryptographic randomness for the host.crypto API 1 contract.
+--[[Native implementation of [](nupp.random.spi).
 
 The native host fills a fresh temporary byte allocation from its secure random
 source. The result is copied into an owned Lua string; no pointer escapes. Counts

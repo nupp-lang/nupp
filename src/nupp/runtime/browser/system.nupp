@@ -1,12 +1,13 @@
 @!internal
 module nupp.runtime.browser.system
 
---[[Browser host.system API 1 implementation for the Wasm32 Nupp ABI.
+--[[Browser implementation of [](nupp.system.spi).
 
-The fixed facts describe browser execution with 32-bit little-endian pointers.
-The parallelism query suspends through the browser response protocol and returns
-the host's estimate, which is an integer of at least one. No worker pool is opened.
-The public system facade retains this query and these values at module load.
+The fixed facts describe the guest instruction set with 32-bit little-endian
+pointers. The parallelism query suspends through the browser response protocol
+and returns the host's estimate, which is an integer of at least one. No worker
+pool is opened. The public system facade retains this query and these values at
+module load.
 ]]
 
 const response = require("nupp.runtime.browser.response")

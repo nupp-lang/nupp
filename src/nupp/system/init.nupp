@@ -1,9 +1,8 @@
 module nupp.system
 
 --[[
-Provides system information about the machine.
-
-Five facts, read once when the module loads.
+`nupp.system` reports four fixed ABI facts and estimates available parallelism.
+It retains the facts and selected query when the module loads.
 
 ```nupp
 const system = nupp.system
@@ -16,8 +15,9 @@ print(system.availableParallelism()) -- 10
 ```
 
 Under emulation these describe the ABI actually executing, not the one being
-emulated, which is the pair generated code was built against. In a browser they
-are `browser`, `wasm32`, `little`, and 32.
+emulated, which is the pair generated code was built against. A browser reports
+the guest instruction set, while its endianness and pointer width remain
+`little` and 32.
 ]]
 
 local spi = require("nupp.spi")
@@ -63,21 +63,24 @@ export const platform = provider.platform
 
 --- The instruction set, by its canonical name.
 ---
---- `aarch64`, `x86_64`, `x86`, or `wasm32`. This is what is executing, so an
---- x86_64 binary under Rosetta answers `x86_64`.
+--- Names include `aarch64`, `x86_64`, `x86`, and `wasm32`. This is what is
+--- executing, so an x86_64 binary under Rosetta answers `x86_64`.
 export const architecture = provider.architecture
 
 --- Byte order: `little` everywhere Nupp runs today, or `big`.
 export const endianness = provider.endianness
 
---- Pointer width: `64` natively, `32` in a browser.
+--- Pointer width for the executing ABI, either `32` or `64`.
+---
+--- The browser ABI is 32-bit even when its guest instruction set is not
+--- `wasm32`.
 export const pointerBits = provider.pointerBits
 
 --- Estimates how many execution units this process may actually use.
 ---
---- At least 1, and counts the host's restrictions rather than the hardware: a
---- container pinned to two cores of a ten-core machine answers 2. It opens no
---- worker pool, so it is a fair default for the `limit` one is opened with.
+--- At least 1. Native hosts include operating-system restrictions in the
+--- estimate, while browser hosts use the value their browser exposes. It opens
+--- no worker pool, so it is a fair default for the `limit` one is opened with.
 ---
 --- ```nupp
 --- with scope = nupp.workers.scope() do

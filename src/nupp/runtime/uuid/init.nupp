@@ -1,8 +1,9 @@
 module nupp.runtime.uuid
 
---[[UUID operations selected once for this artifact's runtime.
+--[[UUID operations come from one provider selected when this module loads.
+
 External implementations advertise the interface in [](nupp.runtime.uuid.spi).
-Public utilities use these same bound functions.]]
+Public utilities use the same retained functions.]]
 
 local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")

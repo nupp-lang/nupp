@@ -5,7 +5,8 @@ title: System information
 
 # System information
 
-`nupp.system` reports facts about the environment executing the Nupp ABI:
+`nupp.system` reports facts about the environment executing the Nupp ABI. Use
+its parallelism estimate to size work without starting the worker scheduler.
 
 ```nupp
 local system = nupp.system
@@ -14,10 +15,12 @@ print(system.endianness, system.pointerBits)
 print(system.availableParallelism())
 ```
 
-Platform names include `macos`, `linux`, `windows` and `browser`.
-Architecture uses names such as `x86_64`, `aarch64` and `wasm32`.
+Platform names include `macos`, `linux`, `windows`, and `browser`.
+Architecture uses names such as `x86_64`, `aarch64`, `x86`, and `wasm32`.
 Endianness is `little` or `big`; pointer width is 32 or 64 bits.
 Under emulation these describe the executing ABI, not the underlying hardware.
+Browser builds report the guest instruction set, while the browser ABI remains
+32-bit and little-endian.
 
 `availableParallelism()` returns an integer of at least one. Native hosts use
 the operating-system estimate exposed by Rust's available_parallelism; browsers

@@ -81,7 +81,10 @@ function M.drawsRangesAndDeterministicPermutations(): nil
         seen[value] = true
         local fraction = generator:range(-2.5, 7.5)
         assert(fraction >= -2.5 and fraction < 7.5)
+        local reversed = generator:range(7.5, -2.5)
+        assert(reversed > -2.5 and reversed <= 7.5)
     end
+    assert(generator:range(4.25, 4.25) == 4.25)
     for value = -3, 3 do
         assert(seen[value] == true)
     end

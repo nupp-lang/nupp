@@ -3,7 +3,7 @@
 module nupp.runtime.browser.time
 
 --[[
-Browser Worker clocks and timers for `host.time` API 1.
+Browser implementation of [](nupp.time.spi).
 
 `now` returns monotonic milliseconds from the Worker time origin; `wallTime`
 returns Unix milliseconds. Clock reads and sleeps use the shared response channel
