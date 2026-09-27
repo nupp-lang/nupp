@@ -1006,6 +1006,7 @@ function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
             end
         end,
     }
+
     local function closer(name)
         return coroutine.create(function()
             local installation = suspension.install(handler)
@@ -1245,6 +1246,26 @@ function M.sharedViewsCompleteAndCloseTheBorrowedStreams()
     assertTrue(backend.state.closed["in"], "and delivers EOF to the child")
     reader:close()
     assertTrue(backend.state.closed["out"], "through the one concrete stream")
+    child:close()
+end
+
+function M.plainLuaInputsAreValidatedBeforeTheyReachTheProvider()
+    local backend = fakeBackend({out = {}, exitAfter = 1})
+    local invalidOptions = {
+        {{args = {[1] = "echo", [3] = "gap"}}, "dense list"},
+        {{args = {"echo"}, cwd = false}, "cwd must be a string or path"},
+        {{args = {"echo"}, env = {GOOD = false}}, "env must have string names and values"},
+        {{args = {"echo"}, clearEnv = "yes"}, "clearEnv must be a boolean"},
+    }
+    for _, case in ipairs(invalidOptions) do
+        local ok, problem = pcall(spawnOn, backend, case[1])
+        assertTrue(not ok and tostring(problem):find(case[2], 1, true), tostring(problem))
+    end
+
+    local child = spawnOn(backend, {args = {"echo"}})
+    local result, reason = child:communicate({maxOutputBytes = 1.5})
+    assertEq(result, nil, "a fractional byte limit is rejected")
+    assertTrue(tostring(reason):find("non%-negative integer") ~= nil, tostring(reason))
     child:close()
 end
 

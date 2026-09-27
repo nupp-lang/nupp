@@ -370,6 +370,25 @@ function M.browserHttpRejectsUnsupportedClientPolicy()
     end
 end
 
+function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
+    local browser = require("providerstate").browserHttp()
+    local uri = require("nupp.io.uri")
+    local messages = require("nupp.io.http.messages")
+
+    local function rejected(fields, expected)
+        local request = setmetatable(fields, messages.Request)
+        local client = browser.client()
+        local ok, problem = pcall(client.send, client, request)
+        client:close()
+        assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
+    end
+
+    rejected({url = assert(uri.newURI("file:///tmp/result"))}, "must use http or https")
+    rejected({url = assert(uri.newURI("https://example.com/")), method = "GET\nX"}, "valid token")
+    rejected({url = assert(uri.newURI("https://example.com/")), headers = {ok = false}}, "valid string")
+    rejected({url = assert(uri.newURI("https://example.com/")), timeoutMs = 1.5}, "integer")
+end
+
 function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     local effects = require("nupp.runtime.browser.effects")
     local ffi = require("ffi")
@@ -402,16 +421,27 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
             end
             assertEq(headers["x-test"], "request")
             assertEq(headers["content-type"], "request/type")
+            assertEq(headers["x-default"], "client")
             local upload = assert(leases[effect.bodyLease])
             assert(not upload.writable and ffi.string(upload.pointer, upload.count) == "upload")
-            resume({ok = true, value = {status = 200, body = 1, bodyBytes = 3, headers = {}}})
+            resume({
+                ok = true,
+                value = {
+                    status = 204,
+                    body = 1,
+                    bodyBytes = 3,
+                    headers = {{"X-Test", "one"}, {"x-test", "two"}, {"Set-Cookie", "first"}, {"set-cookie", "second"}},
+                },
+            })
         end
 
         return function()
         end
     end
     local ok, problem = pcall(function()
-        local client = browser.client({headers = {["X-Test"] = "client", ["Content-Type"] = "client/type"},})
+        local options = {headers = {["X-Test"] = "client", ["Content-Type"] = "client/type", ["X-Default"] = "client"},}
+        local client = browser.client(options)
+        options.headers["X-Default"] = "changed after client construction"
         local closedUpload = false
         local input = "upload"
         local source = {
@@ -434,6 +464,18 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         )
         local response, reason = client:send(request)
         assert(response, reason)
+        assertEq(response.status, 204)
+        assert(response:ok())
+        assertEq(response.version, nil)
+        assertEq(response:header("X-TEST"), "one, two")
+        assertEq(response:header("set-cookie"), "first")
+        local repeated = response:getAll("x-test")
+        assertEq(#repeated, 2)
+        repeated[1] = "changed"
+        assertEq(response:getAll("x-test")[1], "one", "getAll returns a fresh list")
+        local headers = response:headers()
+        headers["x-test"] = "changed"
+        assertEq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
         local destination = require("nupp.io").newBuffer()
         assertEq(response.body:readInto(destination, 0, 2), 2)
         assertEq(destination:getString(), "ab")

@@ -54,7 +54,9 @@ export interface Response is nupp.Closeable
     @readonly
     getAll: function(self: Response, name: string): {string}
 
-    --- Returns the response header mapping exposed by the host.
+    --- Returns a fresh response header mapping keyed by lowercase name.
+    --- Repeated values are joined with `, ` except `set-cookie`, whose first value
+    --- is returned; use `getAll` to preserve every value.
     @readonly
     headers: function(self: Response): {[string]: string}
 end

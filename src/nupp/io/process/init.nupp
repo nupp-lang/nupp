@@ -783,10 +783,22 @@ record process.Process
         local ok, answer = pcall(function(): process.Result
             local given = options or {}
             local input = given.input
-            local pending = input == nil and "" or type(input) == "string" and input as string or input:getString()
+            local pending: string
+            if input == nil then
+                pending = ""
+            elseif type(input) == "string" then
+                pending = input as string
+            elseif type(input) == "table" and type((input as any).getString) == "function" then
+                pending = (input as any):getString()
+                if type(pending) ~= "string" then
+                    error("nupp: process input getString must return a string", 2)
+                end
+            else
+                error("nupp: process input must be a string, Buffer, or ByteView", 2)
+            end
             local maximum = given.maxOutputBytes or 268435456
-            if maximum < 0 then
-                error("nupp: process maximum output must not be negative", 2)
+            if type(maximum) ~= "number" or maximum < 0 or maximum ~= math.floor(maximum) then
+                error("nupp: process maximum output must be a non-negative integer", 2)
             end
             local stdin = nupp.borrow(self.stdin)
             local stdout = nupp.borrow(self.stdout)
@@ -1313,13 +1325,39 @@ end
 -- platform failures remain the nil-and-reason result of `new`.
 validateOptions = function(options: process.Options): nil
     local given: any = options
+    if type(given) ~= "table" then
+        error("nupp: process options must be a table", 3)
+    end
     if type(given.args) ~= "table" or #given.args == 0 then
         error("nupp: process args must contain a program", 3)
+    end
+    local argumentCount = #given.args
+    for key in pairs(given.args) do
+        if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > argumentCount then
+            error("nupp: process args must be a dense list", 3)
+        end
     end
     for index = 1, #given.args do
         if type(given.args[index]) ~= "string" then
             error(("nupp: process argument %d must be a string"):format(index), 3)
         end
+    end
+    if given.cwd ~= nil
+        and type(given.cwd) ~= "string"
+        and (type(given.cwd) ~= "table" or type(given.cwd.toString) ~= "function")
+    then
+        error("nupp: process cwd must be a string or path", 3)
+    end
+    if given.env ~= nil and type(given.env) ~= "table" then
+        error("nupp: process env must be a table", 3)
+    end
+    for name, value in pairs(given.env or {}) do
+        if type(name) ~= "string" or type(value) ~= "string" then
+            error("nupp: process env must have string names and values", 3)
+        end
+    end
+    if given.clearEnv ~= nil and type(given.clearEnv) ~= "boolean" then
+        error("nupp: process clearEnv must be a boolean", 3)
     end
     local streams = {pipe = true, inherit = true, null = true}
     if given.stdin ~= nil and streams[given.stdin] ~= true then

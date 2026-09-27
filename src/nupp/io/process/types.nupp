@@ -54,8 +54,8 @@ type process.CommunicateOptions = {
 }
 
 record process.Exit
-    --- The status it exited with. Zero conventionally means success, and
-    --- `succeeded` is the question worth asking instead.
+    --- The platform status code. A Unix signal is reported as 128 plus its number.
+    --- Zero conventionally means success; use `succeeded` to account for termination.
     exitCode: integer
 
     --- Whether it was terminated rather than exiting on its own.

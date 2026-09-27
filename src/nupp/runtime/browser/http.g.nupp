@@ -61,6 +61,34 @@ http.Request = messages.Request
 
 type http.Body = io.Reader
 
+local function whole(value: any, what: string, minimum: integer): integer
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum then
+        error(("nupp: HTTP %s must be an integer of at least %d"):format(what, minimum), 3)
+    end
+
+    return value as integer
+end
+
+local function copyHeaders(values: any, what: string): {[string]: string}
+    if values ~= nil and type(values) ~= "table" then
+        error("nupp: HTTP " .. what .. " must be a table", 3)
+    end
+    local out: {[string]: string} = {}
+    for name, value in pairs(values or {}) do
+        if type(name) ~= "string"
+            or type(value) ~= "string"
+            or name == ""
+            or name:find("[\r\n:]") ~= nil
+            or value:find("[\r\n]") ~= nil
+        then
+            error("nupp: HTTP headers need valid string names and values", 3)
+        end
+        out[name] = value
+    end
+
+    return out
+end
+
 record http.Response is contracts.Response
     status: integer
     version: http.Version?
@@ -138,7 +166,10 @@ record http.Client is contracts.Client
     _pending: integer
 
     constructor(self, options: http.Options?): http.Client
-        self._options = options or new http.Options()
+        local given: any = options or {}
+        if type(given) ~= "table" then
+            error("nupp: HTTP options must be a table", 2)
+        end
         for _, key in ipairs({
             "userAgent",
             "connectTimeoutMs",
@@ -153,10 +184,15 @@ record http.Client is contracts.Client
             "proxyCredentials",
             "compressed"
         }) do
-            if (self._options as any)[key] ~= nil then
+            if given[key] ~= nil then
                 error("nupp: browser HTTP does not support option " .. key, 2)
             end
         end
+        self._options = new http.Options(
+            headers = copyHeaders(given.headers, "default headers"),
+            timeoutMs = given.timeoutMs == nil and 30000 or whole(given.timeoutMs, "timeoutMs", 1),
+            maxBytes = given.maxBytes == nil and 0 or whole(given.maxBytes, "maxBytes", 0)
+        )
         self._closed = false
         self._pending = 0
     end
@@ -172,6 +208,9 @@ record http.Client is contracts.Client
         if self._closed then
             return nil, "the HTTP client is closed"
         end
+        if type(request) ~= "table" then
+            error("nupp: HTTP request must be a Request", 2)
+        end
         if request.stallTimeoutMs ~= nil then
             return nil, "browser HTTP does not support stallTimeoutMs"
         end
@@ -179,11 +218,19 @@ record http.Client is contracts.Client
         if url == nil or type(url.toString) ~= "function" then
             error("nupp: HTTP request url must be a URI", 2)
         end
+        local scheme = url:scheme()
+        if scheme ~= "http" and scheme ~= "https" then
+            error("nupp: HTTP request URL must use http or https", 2)
+        end
+        local method = request.method or "GET"
+        if type(method) ~= "string" or method == "" or method:find("[^!#$%%&'*+%.^_`|~%w%-]") ~= nil then
+            error("nupp: HTTP method is not a valid token", 2)
+        end
         local headers: {any} = {}
         local headerPositions: {[string]: integer} = {}
 
         local function addHeaders(values: {[string]: string}?): nil
-            for name, value in pairs(values or {}) do
+            for name, value in pairs(copyHeaders(values, "headers")) do
                 local lower = name:lower()
                 local position = headerPositions[lower]
                 if position == nil then
@@ -202,6 +249,12 @@ record http.Client is contracts.Client
         if type(body) == "string" then
             upload = body as string
         elseif body is messages.ReaderBody then
+            if body.length ~= nil then
+                whole(body.length, "reader body length", 0)
+            end
+            if body.contentType ~= nil and type(body.contentType) ~= "string" then
+                error("nupp: HTTP content type must be a string", 2)
+            end
             local chunks: {string} = {}
             local length: integer = 0
             while true do
@@ -231,9 +284,10 @@ record http.Client is contracts.Client
         local descriptor: any = {
             memoryResponse = true,
             url = url:toString(),
-            method = request.method or "GET",
-            timeoutMs = request.timeoutMs or self._options.timeoutMs or 30000,
-            maxBytes = request.maxBytes or self._options.maxBytes or 0,
+            method = method,
+            timeoutMs = request.timeoutMs == nil and self._options.timeoutMs
+            or whole(request.timeoutMs, "timeoutMs", 1),
+            maxBytes = request.maxBytes == nil and self._options.maxBytes or whole(request.maxBytes, "maxBytes", 0),
         }
         if #headers > 0 then
             -- An empty Lua table encodes as a JSON object, which the host cannot
