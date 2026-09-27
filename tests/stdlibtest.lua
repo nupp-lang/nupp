@@ -1309,12 +1309,80 @@ function M.utf8EncodingCoversEveryBoundary()
     }
     for _, case in ipairs(boundaries) do
         assertEq(utf8.encode(case[1]), case[2], ("the encoding of U+%04X"):format(case[1]))
+        if case[1] < 0xD800 or case[1] > 0xDFFF then
+            local codepoint, nextAt = utf8.decodeAt(case[2], 1)
+            assertEq(codepoint, case[1], ("decoding U+%04X"):format(case[1]))
+            assertEq(nextAt, #case[2] + 1, ("the width of U+%04X"):format(case[1]))
+        end
     end
     assertEq(utf8.isValid(utf8.encode(0xD800)), false, "an encoded surrogate half is not valid UTF-8")
     assertEq(utf8.decodeAt(utf8.encode(0x1F600), 1), 0x1F600, "a four-byte scalar decodes back")
     for _, outside in ipairs({-1, 0x110000, 0.5}) do
         assert(not pcall(utf8.encode, outside), tostring(outside) .. " is not a codepoint")
     end
+end
+
+function M.utf8WalkingPreservesEveryByteBoundary()
+    local utf8 = require("nupp.text.utf8")
+    local values = {
+        "",
+        "A\xc2\xa2\xe2\x82\xac\xf0\x9f\x98\x80Z",
+        "\x80",
+        "\xc3(",
+        "\xe2\x82",
+        "\xed\xa0\x80",
+        "\xf4\x90\x80\x80",
+        "A\xc2\x80\x80Z",
+    }
+    for _, value in ipairs(values) do
+        local forward = {}
+        local at = 1
+        while true do
+            local codepoint, nextAt = utf8.decodeAt(value, at)
+            if codepoint == nil then
+                assertEq(nextAt, #value + 1, "forward end offset")
+                break
+            end
+            assert(nextAt > at, "forward decoding always makes progress")
+            forward[#forward + 1] = {codepoint, at, nextAt}
+            at = nextAt
+        end
+        assertEq(utf8.length(value), #forward, "length matches a forward walk")
+
+        at = #value + 1
+        for index = #forward, 1, -1 do
+            local codepoint, startAt = utf8.decodeBefore(value, at)
+            assertEq(codepoint, forward[index][1], "reverse codepoint")
+            assertEq(startAt, forward[index][2], "reverse start offset")
+            at = startAt
+        end
+        local codepoint, startAt = utf8.decodeBefore(value, at)
+        assertEq(codepoint, nil, "reverse start sentinel")
+        assertEq(startAt, 1, "reverse start offset")
+    end
+
+    for _, badOffset in ipairs({0, 2, 1.5}) do
+        assert(not pcall(utf8.decodeAt, "", badOffset), "decodeAt rejects an invalid empty-string offset")
+        assert(not pcall(utf8.decodeBefore, "", badOffset), "decodeBefore rejects an invalid empty-string offset")
+    end
+end
+
+function M.utf8ByteViewsAndBudgetsMatchStrings()
+    local utf8 = require("nupp.text.utf8")
+    local buffer = require("nupp.io").newBuffer("A\xe2\x82\xacZ")
+    local view = buffer:view()
+    assertEq(utf8.length(view), 3, "byte-view length")
+    assertEq(utf8.isValid(view), true, "byte-view validation")
+    assertEq(utf8.validPrefixLength(view, 4), 4, "byte-view prefix")
+    view:drop()
+    buffer:drop()
+
+    assertEq(utf8.validPrefixLength("A", -1), 0, "a negative budget is empty")
+    assertEq(utf8.validPrefixLength("A", 0), 0, "a zero budget is empty")
+    assertEq(utf8.validPrefixLength("A", 2), 1, "a large budget stops at the end")
+    assert(not pcall(utf8.validPrefixLength, "AB", 1.5), "a prefix budget must be an integer")
+    assert(not pcall(utf8.validPrefixLength, "AB", math.huge), "an infinite prefix budget is not an integer")
+    assert(not pcall(utf8.truncate, "AB", 1.5), "a truncate budget must be an integer")
 end
 
 local UTF8_SHAPES = {

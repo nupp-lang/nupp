@@ -14,7 +14,7 @@ assert(utf8.encode(0x20ac) == "€")
 
 `length` counts scalars, replacing each malformed byte with one replacement
 scalar rather than refusing the string. `encode` goes the other way, from one
-scalar value to its bytes.
+codepoint value to its bytes.
 
 ## Byte offsets
 
@@ -85,8 +85,8 @@ assert(utf8.validPrefixLength("A€B", 4) == 4)
 assert(utf8.truncate("A€B", 4) == "A€")
 ```
 
-`truncate` takes a string, since it answers one. Everything else here takes a
-string or a byte view.
+`truncate` takes a string, since it answers one. Operations that read bytes
+accept a string or a byte view.
 
 ::: seealso
 - [](nupp.io#byte-views) for the byte views these operations accept
@@ -387,8 +387,12 @@ end
 --- @param value the bytes to measure
 --- @param maxBytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
+--- @raises string when maxBytes is not an integer
 function utf8.validPrefixLength(value: string | ByteView, maxBytes: integer): integer
     local source = bytes(value)
+    if maxBytes ~= math.floor(maxBytes) or maxBytes == math.huge or maxBytes == -math.huge then
+        error("nupp: UTF-8 byte limit must be an integer", 2)
+    end
 
     return scan(source, math.max(0, math.min(#source, maxBytes)) as integer)
 end
@@ -404,6 +408,7 @@ end
 --- @param text the text to cut
 --- @param maxBytes the most bytes the answer may use
 --- @return the cut text
+--- @raises string when maxBytes is not an integer
 function utf8.truncate(text: string, maxBytes: integer): string
     return text:sub(1, utf8.validPrefixLength(text, maxBytes))
 end
