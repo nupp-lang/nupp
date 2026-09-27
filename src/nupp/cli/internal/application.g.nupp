@@ -164,13 +164,25 @@ export record Application
         local path: {string} = {}
         local index: integer = 1
         while index < request.wordIndex do
-            local child = self:child(command.subject, argv[index])
-            if child == nil then
-                break
+            local word = argv[index]
+            local framework = word == "-h"
+                or word == "--help"
+                or word == "--color"
+                or word == "--no-color"
+                or word == "--color=always"
+                or word == "--color=never"
+                or word == "--color=auto"
+            if framework then
+                index = index + 1
+            else
+                local child = self:child(command.subject, word)
+                if child == nil then
+                    break
+                end
+                command = child
+                path[#path + 1] = child.name
+                index = index + 1
             end
-            command = child
-            path[#path + 1] = child.name
-            index = index + 1
         end
         local prefix = request.prefix or argv[request.wordIndex] or ""
         local children = self:children(command.subject)
@@ -759,11 +771,14 @@ export record Application
             end
         end
         local index = start
+        local literal = false
         while index < cursor do
             local word = argv[index]
             if expecting ~= nil then
                 expecting = nil
-            elseif word ~= "--" and word:sub(1, 1) == "-" then
+            elseif not literal and word == "--" then
+                literal = true
+            elseif not literal and word:sub(1, 1) == "-" then
                 local bare = word:gsub("^%-%-?", "")
                 local equals = bare:find("=", 1, true)
                 local field = byName[equals and bare:sub(1, equals - 1) or bare]
@@ -786,7 +801,7 @@ export record Application
             field = byName[attachedName]
         end
         local out: {any} = {}
-        if field == nil and prefix:sub(1, 1) == "-" then
+        if field == nil and not literal and prefix:sub(1, 1) == "-" then
             for _, candidate in ipairs(schema.fields) do
                 if candidate.role == "option" and not candidate.hidden then
                     for _, shown in ipairs(self:optionSpellings(candidate)) do

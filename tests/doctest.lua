@@ -746,6 +746,16 @@ function M.hidesPrivateCleanupNamesFromSignatures()
             "   return read(text)",
             "end",
             "",
+            "--- Keeps a literal type unchanged.",
+            'function io.literal(value: "affine(Reader, __destroyReader)"): string',
+            "   return value",
+            "end",
+            "",
+            "--- Keeps a long literal type unchanged.",
+            "function io.longLiteral(value: [[affine(Reader, __destroyReader)]]): string",
+            "   return value",
+            "end",
+            "",
             "--- Byte sources.",
             "record io.Bytes",
             "   --- Opens a reader over these bytes.",
@@ -766,6 +776,10 @@ function M.hidesPrivateCleanupNamesFromSignatures()
     assert(opened.returns[1].type == "affine(Reader, _)", opened.returns[1].type)
     local adopted = assert(byName["io.adopt"], "the adopting function was not documented")
     assert(adopted.signature:find("affine(Reader, closeReader)", 1, true), adopted.signature)
+    local literal = assert(byName["io.literal"], "the literal function was not documented")
+    assert(literal.signature:find('"affine(Reader, __destroyReader)"', 1, true), literal.signature)
+    local longLiteral = assert(byName["io.longLiteral"], "the long literal function was not documented")
+    assert(longLiteral.signature:find("[[affine(Reader, __destroyReader)]]", 1, true), longLiteral.signature)
     local bytes = assert(byName["Bytes"], "the record was not documented")
     assert(bytes.signature == "record io.Bytes", bytes.signature)
     local newReader = assert(bytes.members[1], "the record's member was not documented")

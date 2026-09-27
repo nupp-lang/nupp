@@ -1,7 +1,7 @@
 module nupp.tools.doc.extract
 
 --[[
-The CST of one file, read as its documented declarations.
+Extracts one file's documented declarations from its CST.
 
 Every question this asks is answered by the parse alone: what a declaration is
 called, what it is spelled like, which `---` run belongs to it. That is why
@@ -226,8 +226,43 @@ end
 -- Dropping the argument would be worse than printing it, because `affine(T)` is not
 -- `affine(T, cleanup)` with the cleanup left off. It is a different type:
 -- transfer-only, with deliberately no terminal at all. So the argument is replaced
--- rather than removed. `_` keeps the type honest -- this value carries a cleanup
--- obligation -- while saying the name behind it is not the reader's to name.
+-- rather than removed. `_` preserves the cleanup obligation while saying the name
+-- behind it is not the reader's to name.
+local function quotedAt(text: string, limit: integer): boolean
+    local quote = nil
+    local longClose = nil
+    local escaped = false
+    local cursor = 1
+    while cursor < limit do
+        local char = text:sub(cursor, cursor)
+        if longClose then
+            if text:sub(cursor, cursor + #longClose - 1) == longClose then
+                cursor = cursor + #longClose - 1
+                longClose = nil
+            end
+        elseif quote then
+            if escaped then
+                escaped = false
+            elseif char == "\\" then
+                escaped = true
+            elseif char == quote then
+                quote = nil
+            end
+        elseif char == "'" or char == '"' then
+            quote = char
+        elseif char == "[" then
+            local equals = text:sub(cursor):match("^%[(=*)%[")
+            if equals then
+                longClose = "]" .. equals .. "]"
+                cursor = cursor + #equals + 1
+            end
+        end
+        cursor = cursor + 1
+    end
+
+    return quote ~= nil or longClose ~= nil
+end
+
 local function withoutHiddenTerminals(text: string): string
     local pieces: {string} = {}
     local index = 1
@@ -239,7 +274,7 @@ local function withoutHiddenTerminals(text: string): string
         -- `affine` has to be the whole word. A field or function whose name merely ends
         -- in it, `myAffine(x, _y)`, is somebody else's call and is left alone.
         local before = start > 1 and text:sub(start - 1, start - 1) or ""
-        if before:match("[%w_%.:]") ~= nil then
+        if before:match("[%w_%.:]") ~= nil or quotedAt(text, start) then
             pieces[#pieces + 1] = text:sub(index, open)
             index = open + 1
         else
@@ -429,7 +464,7 @@ end
 -- A return pack the parser could not split into a list leaves `rets` empty while the
 -- annotation is still there: `...any` and a union of packs each describe the results
 -- as a whole rather than one per position. Documenting the pack itself is the only
--- honest reading, and the alternative is a signature that says the function returns
+-- complete reading. The alternative is a signature that says the function returns
 -- nothing.
 local function declaredResults(node): {any}
     local rets = node and node.rets or {}

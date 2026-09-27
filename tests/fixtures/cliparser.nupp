@@ -215,11 +215,25 @@ local followingChoices = app:complete({
     environment = {mode = "test"},
 })
 assert(#followingChoices == 1 and followingChoices[1].value == "json")
+local afterFramework = app:complete({
+    argv = {"--color=never", "hello", "A"},
+    wordIndex = 3,
+    prefix = "A",
+    environment = {mode = "test"},
+})
+assert(#afterFramework == 1 and afterFramework[1].value == "AAda")
 assert(app:completion("bash"):match("__complete bash"))
 assert(app:completion("zsh"):match("#compdef greeter"))
 assert(app:completion("fish"):match("complete %-c greeter"))
 
 local hello = cliModule.application(Hello, {name = "hello"})
+local afterTerminator = app:complete({
+    argv = {"hello", "--", "--m"},
+    wordIndex = 3,
+    prefix = "--m",
+    environment = {mode = "test"},
+})
+assert(#afterTerminator == 1 and afterTerminator[1].value == "--mAda")
 local direct, directProblem = hello:resolve({"Ada"})
 assert(direct ~= nil, directProblem and directProblem.message)
 assert(direct.commandType == Hello and #direct.commandPath == 0)

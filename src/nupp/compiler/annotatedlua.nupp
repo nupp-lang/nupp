@@ -1,7 +1,7 @@
 module nupp.compiler.annotatedlua
 
 --[[
-LuaCATS, EmmyLua and typed LuaDoc comments as checker facts.
+Imports LuaCATS, EmmyLua, and typed LuaDoc comments as checker facts.
 
 The runtime tree stays lossless. Imported declarations and annotations are attached
 through semantic fields (`block.stats`, `local.types`, `param.type`, and funcbody
@@ -33,6 +33,10 @@ record annotated.Tag
     col: integer
     offset: integer
     raw: string
+
+    --- The first byte after the containing comment, where migration syntax is inserted.
+    triviaEnd: integer
+
     used: boolean?
 end
 
@@ -40,7 +44,15 @@ local function trim(text: string): string
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-local function appendTag(out: {annotated.Tag}, body: string?, line: integer, col: integer, offset: integer, raw: string)
+local function appendTag(
+    out: {annotated.Tag},
+    body: string?,
+    line: integer,
+    col: integer,
+    offset: integer,
+    raw: string,
+    triviaEnd: integer
+)
     if not body then
         return
     end
@@ -54,7 +66,8 @@ local function appendTag(out: {annotated.Tag}, body: string?, line: integer, col
             line = line,
             col = col,
             offset = offset,
-            raw = raw
+            raw = raw,
+            triviaEnd = triviaEnd
         )
     end
 end
@@ -74,7 +87,8 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                 local body = text:match("^%-%-%-%s*@(.+)$") or text:match("^%-%-%s+@(.+)$")
                 local member = not body and text:match("^%-%-%-%s*|%s*(.+)$") or nil
                 if body then
-                    appendTag(out, body, line, col, offset, text)
+                    local at = assert(text:find("@", 1, true))
+                    appendTag(out, body, line, col + at - 1, offset + at - 1, text:sub(at), offset + #text)
                 elseif member then
                     -- A `---|` line lists one member of the multi-line alias above it.
                     out[
@@ -85,7 +99,8 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                         line = line,
                         col = col,
                         offset = offset,
-                        raw = text
+                        raw = text,
+                        triviaEnd = offset + #text
                     )
                 else
                     local opener = text:match("^(%-%-%[=*%[)")
@@ -102,7 +117,7 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                                 local at = math.floor(offset + #opener + cursor + #matchedPrefix)
                                 local currentCol = currentLine == line and col + #opener + #matchedPrefix
                                     or #matchedPrefix + 1
-                                appendTag(out, blockBody, currentLine, currentCol, at, written)
+                                appendTag(out, blockBody, currentLine, currentCol, at, "@" .. blockBody, offset + #text)
                             end
                             cursor = cursor + #written + 1
                             currentLine = currentLine + 1
@@ -759,7 +774,7 @@ local function decorateBlock(
                         if #parsed.errors == 0 then
                             for _, assertion in ipairs(parsed.root.blocks[1].stats or {}) do
                                 markSynthetic(assertion, tag)
-                                assertion.foreignInsertOffset = tag.offset + #tag.raw
+                                assertion.foreignInsertOffset = tag.triviaEnd
                                 semantic[#semantic + 1] = assertion
                             end
                         end
