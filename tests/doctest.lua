@@ -1,5 +1,6 @@
 local doc = require("nupp.tools.doc")
 local highlight = require("nupp.tools.doc.highlight")
+local urls = require("nupp.tools.doc.urls")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -1778,6 +1779,7 @@ function M.highlightsLjppWithTheNativeLexer()
 end
 
 function M.highlightsCurrentNuppSyntaxWithTheParser()
+    assert(require("nupp.tools.syntaxstyle").spans("local =", "broken.nupp") == nil)
     local html = doc.highlight(
         table.concat(
             {
@@ -1803,6 +1805,16 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
     assert(html:find("keyword-resumes", 1, true), html)
     assert(html:find("keyword-new", 1, true), html)
     assert(html:find("nuppdoc-token-type", 1, true), html)
+end
+
+function M.routedLinksLeaveCodeExamplesUntouched()
+    local page = {source = "docs/start.md", path = "start", title = "Start"}
+    local pages = {page, {source = "docs/guide.md", path = "guide", title = "Guide"},}
+    local markdown = "[Guide](guide.md)\n`[Guide](guide.md)`\n```md\n[Guide](guide.md)\n```\n"
+    local rewritten = urls.rewriteConfiguredPageLinks(markdown, page, pages, "start/index.html")
+    assert(rewritten:find("[Guide](../guide/index.html)", 1, true), rewritten)
+    assert(rewritten:find("`[Guide](guide.md)`", 1, true), rewritten)
+    assert(rewritten:find("```md\n[Guide](guide.md)\n```", 1, true), rewritten)
 end
 
 function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()

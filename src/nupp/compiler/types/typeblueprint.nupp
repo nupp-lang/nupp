@@ -22,7 +22,7 @@ local record typeblueprint
     SCHEMA: integer
     MAX_NODES: integer
     MAX_MEMBERS: integer
-    validate: function(any): (any, typeblueprint.Failure?)
+    validate: function(any, any?): (any, typeblueprint.Failure?)
 end
 
 typeblueprint.SCHEMA = 1
@@ -60,6 +60,46 @@ local function failure(message)
     return {code = "NUPP2415", message = message} as typeblueprint.Failure
 end
 
+local function exactInteger(value): boolean
+    return type(value) == "number" and value == math.floor(value) and value > -math.huge and value < math.huge
+end
+
+-- Worker arrays cross a trust boundary. Lua's length and ipairs both stop at an
+-- implementation-dependent border, so validate every key before either can silently
+-- discard a sparse or named entry.
+local function denseArrayLength(values, limit): integer?
+    if type(values) ~= "table" then
+        return nil
+    end
+    local count = 0
+    for key in pairs(values) do
+        if not exactInteger(key) or key < 1 or key > limit then
+            return nil
+        end
+        count = count + 1
+    end
+    for position = 1, count do
+        if values[position] == nil then
+            return nil
+        end
+    end
+
+    return count as integer
+end
+
+local function sparseArrayKeysFit(values, limit): boolean
+    if type(values) ~= "table" then
+        return false
+    end
+    for key in pairs(values) do
+        if not exactInteger(key) or key < 1 or key > limit then
+            return false
+        end
+    end
+
+    return true
+end
+
 function typeblueprint.validate(envelope: any, permittedReferences: any?): any, typeblueprint.Failure?
     if type(envelope) ~= "table"
         or envelope.kind ~= "type-blueprint"
@@ -72,13 +112,12 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
         return nil, failure("the comptime worker returned a malformed type blueprint envelope")
     end
     local payload, nodes = envelope.payload, envelope.payload.nodes
-    if type(nodes) ~= "table"
-        or #nodes < 1
-        or #nodes > typeblueprint.MAX_NODES
-        or type(payload.root) ~= "number"
-        or payload.root ~= math.floor(payload.root)
+    local nodeCount = denseArrayLength(nodes, typeblueprint.MAX_NODES)
+    if nodeCount == nil
+        or nodeCount < 1
+        or not exactInteger(payload.root)
         or payload.root < 1
-        or payload.root > #nodes
+        or payload.root > nodeCount
     then
         return nil, failure("type blueprint has an invalid graph root or node count")
     end
@@ -91,14 +130,15 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
     local build
 
     local function edge(index, label)
-        if type(index) ~= "number" or index ~= math.floor(index) or index < 1 or index > #nodes then
+        if not exactInteger(index) or index < 1 or index > (nodeCount as integer) then
             return nil, label .. " has an invalid type edge"
         end
         return build(index)
     end
 
     local function edgeArray(values, label)
-        if type(values) ~= "table" or #values > typeblueprint.MAX_MEMBERS then
+        local length = denseArrayLength(values, typeblueprint.MAX_MEMBERS)
+        if length == nil then
             return nil, label .. " has an invalid or oversized member array"
         end
         local out = {}
@@ -181,11 +221,13 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             end
             if base then
                 local kind = type(node.value)
-                if kind ~= "string"
-                    and kind ~= "boolean"
-                    and (kind ~= "number" or node.value ~= math.floor(node.value))
-                then
+                if kind ~= "string" and kind ~= "boolean" and (kind ~= "number" or not exactInteger(node.value)) then
                     why = "type blueprint literal is not a string, boolean, or exact integer"
+                elseif kind == "string" and base ~= T.string
+                    or kind == "boolean" and base ~= T.boolean
+                    or kind == "number" and base ~= T.integer
+                then
+                    why = "type blueprint literal has the wrong primitive base"
                 else
                     value = T.literal(node.value, base)
                 end
@@ -195,6 +237,12 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             base, why = edge(node.inner, "constrained base")
             if base and base.tag == "pack" then
                 why, base = "constrained base is a type pack", nil
+            end
+            if base then
+                if not exactInteger(node.low) or not exactInteger(node.high) or type(node.lengthwise) ~= "boolean" then
+                    why = "type blueprint constraint has invalid bounds"
+                    base = nil
+                end
             end
             if base then
                 -- Rebuilt through the same constructor the resolver uses, so a
@@ -222,9 +270,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 why, element = "C-array element is a type pack", nil
             end
             if element then
-                if node.count ~= nil
-                    and (type(node.count) ~= "number" or node.count ~= math.floor(node.count) or node.count < 0)
-                then
+                if node.count ~= nil and (not exactInteger(node.count) or node.count < 0) then
                     why = "C-array count is not a non-negative exact integer"
                 else
                     value = T.carray(element, node.count)
@@ -312,7 +358,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 end
             end
         elseif node.kind == "shape" then
-            if type(node.fields) ~= "table" or #node.fields > typeblueprint.MAX_MEMBERS then
+            if denseArrayLength(node.fields, typeblueprint.MAX_MEMBERS) == nil then
                 why = "shape has an invalid or oversized field array"
             else
                 local fields, seen = {}, {}
@@ -397,7 +443,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             head, why = edgeArray(node.head, "pack")
             if head then
                 local modes = node.modes or {}
-                if type(modes) ~= "table" or #modes > #head then
+                if not sparseArrayKeysFit(modes, #head) then
                     why = "type blueprint pack modes do not align with its head"
                 else
                     local copiedModes = {}
@@ -424,9 +470,17 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                     end
                     if not why then
                         local names = node.names
-                        if names ~= nil and (type(names) ~= "table" or #names > #head) then
+                        if names ~= nil and not sparseArrayKeysFit(names, #head) then
                             why = "type blueprint pack names do not align with its head"
                         else
+                            for _, name in pairs(names or {}) do
+                                if type(name) ~= "string" then
+                                    why = "type blueprint pack has an invalid parameter name"
+                                    break
+                                end
+                            end
+                        end
+                        if not why then
                             value = T.pack(
                                 head,
                                 tail and {kind = "homogeneous", type = tail} or nil,

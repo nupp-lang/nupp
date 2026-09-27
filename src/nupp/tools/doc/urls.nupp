@@ -50,6 +50,24 @@ local function addSymbolLink(links, ambiguous, name, url)
     end
 end
 
+-- Apply a prose rewrite without treating examples as prose. Inline code and fenced
+-- blocks use the same backtick delimiters, so one pass preserves both.
+local function rewriteOutsideBackticks(markdown: string, rewrite: function(string): string): string
+    local out, position = {}, 1
+    while position <= #markdown do
+        local opening, closing = markdown:find("(`+).-%1", position)
+        if not opening or not closing then
+            out[#out + 1] = rewrite(markdown:sub(position))
+            break
+        end
+        out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
+        out[#out + 1] = markdown:sub(opening, closing)
+        position = closing + 1
+    end
+
+    return table.concat(out)
+end
+
 --- Where documentation lives, for one module and optionally one declaration on it. The
 --- site answers with a page and a fragment; the single markdown document answers with a
 --- fragment alone, because everything it documents is on the one page.
@@ -139,22 +157,7 @@ local function rewriteSymbolLinks(markdown: string, resolve: function(string): s
         end))
     end
 
-    -- Backticked runs are handed through untouched: a reference inside one is a page
-    -- showing the syntax rather than using it, and the same match covers a fenced block
-    -- for the callers that have not already lifted their fences out.
-    local out, position = {}, 1
-    while position <= #markdown do
-        local opening, closing = markdown:find("(`+).-%1", position)
-        if not opening or not closing then
-            out[#out + 1] = rewrite(markdown:sub(position));
-            break
-        end
-        out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
-        out[#out + 1] = markdown:sub(opening, closing)
-        position = closing + 1
-    end
-
-    return table.concat(out)
+    return rewriteOutsideBackticks(markdown, rewrite)
 end
 
 local function symbolLinks(index: urls.Links, module: Module?, prefix: string): urls.Links
@@ -284,16 +287,18 @@ local function rewriteConfiguredPageLinks(
     -- reason to stop.
     local sourceDirectory = candidate.source and dirname(normalize(candidate.source)) or nil
 
-    return (markdown:gsub("%[([^%]]+)%]%(([^%)]+)%)", function(text, target)
-        local written = "[" .. text .. "](" .. target .. ")"
-        local href, title = resolveRoutedLink(target, routes, sourceDirectory, file)
-        if not href then
-            return written
-        end
-        local path = target:match("^([^#]+)") or target
+    return rewriteOutsideBackticks(markdown, function(prose: string): string
+        return (prose:gsub("%[([^%]]+)%]%(([^%)]+)%)", function(text, target)
+            local written = "[" .. text .. "](" .. target .. ")"
+            local href, title = resolveRoutedLink(target, routes, sourceDirectory, file)
+            if not href then
+                return written
+            end
+            local path = target:match("^([^#]+)") or target
 
-        return "[" .. linkText(text, path, title) .. "](" .. href .. ")"
-    end))
+            return "[" .. linkText(text, path, title) .. "](" .. href .. ")"
+        end))
+    end)
 end
 
 -- The same resolution `rewriteConfiguredPageLinks` gives a body of markdown, for a

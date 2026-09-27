@@ -204,7 +204,7 @@ function syntaxstyle.spans(source: string, name: string?): {syntaxstyle.Span}?
     local ok = pcall(function(): nil
         parsed = parser.parse(source, name or "highlight.nupp")
     end)
-    if not ok or parsed == nil then
+    if not ok or parsed == nil or #(parsed.errors or {}) > 0 then
         return nil
     end
     local tokens = parsed.tokens
