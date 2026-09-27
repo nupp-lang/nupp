@@ -21,7 +21,13 @@ end
 local function temporaryRoot()
     local base = os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
     base = base:gsub("\\", "/")
-    return (base:gsub("/$", "")) .. "/nupp-process-test-" .. tostring(os.time()) .. "-" .. tostring(math.random(1, 1e9))
+    -- Suite shards start in the same second with the same random seed. Include
+    -- a per-process address so one shard cannot remove another shard's root.
+    local unique = tostring({}):match("(%x+)$") or "0"
+
+    return (
+        base:gsub("/$", "")
+    ) .. "/nupp-process-test-" .. tostring(os.time()) .. "-" .. unique .. "-" .. tostring(math.random(1, 1e9))
 end
 
 -- The library the provider opens is chosen by `nupp.runtime.native`, which reads
