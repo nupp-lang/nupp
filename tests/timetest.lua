@@ -152,6 +152,55 @@ function M.anAbandonedWaitTakesItsTimerWithIt()
     assertTrue(time.now() - again >= 25, "a later sleep was cut short by a dead timer")
 end
 
+function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
+    local cancelledCalls = 0
+    local cancel = time.wakeAt(time.now(), function()
+        cancelledCalls = cancelledCalls + 1
+    end)
+    cancel()
+    cancel()
+    suspension.poll()
+    assertEq(cancelledCalls, 0, "a cancelled deadline still fired")
+
+    local calls = 0
+    local completed
+    local cancelCompleted = time.wakeAt(time.now(), function(ok)
+        calls = calls + 1
+        completed = ok
+    end)
+    suspension.poll()
+    suspension.poll()
+    cancelCompleted()
+    assertEq(calls, 1, "one deadline fired more than once")
+    assertEq(completed, true, "the native timer did not report completion")
+end
+
+function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
+    -- A coroutine created outside a task child is its own root frame. Leaving one
+    -- parked with a scope open must not make a second coroutine inherit its deadline.
+    local function withOpenScope(deadline)
+        return suspension.create(function()
+            local scope = tasks.open(nil, deadline)
+            coroutine.yield(tasks.deadline())
+            tasks.settle(scope)
+        end)
+    end
+
+    local first = withOpenScope(1000)
+    local second = withOpenScope(100000)
+    local firstOpened, firstDeadline = coroutine.resume(first)
+    local secondOpened, secondDeadline = coroutine.resume(second)
+    assertTrue(firstOpened, "the first coroutine did not open its scope")
+    assertTrue(secondOpened, "the second coroutine did not open its scope")
+    assertTrue(
+        secondDeadline > firstDeadline + 50000,
+        "an independent coroutine inherited another coroutine's deadline"
+    )
+    assertTrue(coroutine.resume(second), "the second coroutine did not settle its scope")
+    assertTrue(coroutine.resume(first), "the first coroutine did not settle its scope")
+    assertEq(tasks.deadline(), nil, "an independent scope leaked onto the main thread")
+end
+
 function M.aSleepInsideAHandlerParksRatherThanBlocking()
     -- The host contract: a handler is asked to park, drives the sources itself, and
     -- the sleeping half of the timer source is never reached.

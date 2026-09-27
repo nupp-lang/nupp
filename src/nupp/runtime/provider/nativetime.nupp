@@ -71,7 +71,8 @@ function time.now(): number
     return assert(tonumber(C.nuppNativeMonotonicNs())) / 1.0e6
 end
 
---- Get number of milliseconds since the Unix epoch, 1970-01-01T00:00:00Z.
+--- Returns the number of milliseconds since the Unix epoch,
+--- 1970-01-01T00:00:00Z.
 ---
 --- @return milliseconds since the Unix epoch
 function time.wallTime(): number
@@ -221,7 +222,7 @@ end
 ---
 --- @param deadline an absolute monotonic reading (same as `now` return value)
 --- @param resume what to call when the deadline passes
---- @return how to cancel it, which is idempotent.
+--- @return how to cancel it, which is idempotent
 --- @raises string when the deadline is invalid or too many timers are pending
 function time.wakeAt(deadline: number, resume: function(boolean)): function(): nil
     deadline = duration(deadline, "deadline")

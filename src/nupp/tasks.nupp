@@ -24,8 +24,9 @@ assert(greeting == "hello world")
 ```
 
 `open` takes a `limit`, which parks `spawn` and `fork` while that many children
-are live, and a `deadline`. A running child cooperates by calling `checkpoint`,
-which is where it learns the scope was cancelled or the deadline passed.
+are live, and a relative `deadline` in milliseconds. A running child cooperates
+by calling `checkpoint`, which is where it learns the scope was cancelled or the
+deadline passed.
 
 ```nupp
 local total = 0
@@ -47,7 +48,7 @@ end
 assert(total == 500500)
 ```
 
-## Why this and not the others
+## Growing task families
 
 [](nupp.suspension)'s combinators own a family that is complete when the call is
 written: `all` cannot be handed a fourth body once it is running. `create` makes
@@ -96,7 +97,7 @@ end
 -- Cancellation identity
 ----------------------------------------------------------------------------
 
---- What a cancelled task raises.
+--- Represents what a cancelled task raises.
 ---
 --- Nominal rather than a string, so `isCancelled` recognizes it without matching
 --- text, and so a program that catches everything still sees something it can ask
@@ -113,7 +114,7 @@ local function cancellation(operation: string, reason: string?): tasks.Cancellat
     return suspensionRuntime.__taskCancellation(operation, reason) as tasks.Cancellation
 end
 
---- Whether a caught value is a task cancellation.
+--- Reports whether a caught value is a task cancellation.
 ---
 --- The one question a `pcall` around task work has to be able to ask, because
 --- cancellation is not a failure and should usually be re-raised rather than
@@ -173,6 +174,7 @@ local type ScopeState = {
     deliberate: boolean,
     soft: boolean,
     openedIn: any,
+    openedRoot: any,
     frame: any
 }
 
@@ -227,7 +229,7 @@ local function TaskType(F: type): type
     })
 end
 
---- The handle one `spawn` answers.
+--- Represents the handle one `spawn` answers.
 ---
 --- Its `await` result pack is the body's, which is why this is derived from the
 --- function type rather than declared once over `any`.
@@ -264,11 +266,10 @@ local function Parameters(F: type): typepack
     return nupp.types.parameters(F)
 end
 
---- The scope a `run` body is handed.
+--- Represents a scope opened by `open`.
 ---
---- Not affine, and deliberately: `run` owns the extent, so there is no obligation
---- for a body to discharge and no way for one to end the scope early. What the body
---- can do is add children to it and reach the worker scope it owns.
+--- `open` wraps this record in the affine settlement obligation held by a `with`
+--- block. The block can add children to the scope and reach the worker scope it owns.
 record tasks.Scope
     --- Private state. Named rather than hidden because the checked surface below is
     --- what callers use, and a record needs somewhere to keep this.
@@ -323,8 +324,22 @@ local function state(borrows scope: tasks.Scope): ScopeState
     return (scope as any)._state as ScopeState
 end
 
---- Scopes opened outside any child, innermost last.
-local rootOpen: {ScopeState} = {}
+--- Scopes opened outside any task child, per coroutine and innermost last.
+---
+--- A suspension coroutine is an independent root frame. Keeping one process-wide
+--- stack would let a scope in one coroutine lend its deadline and cancellation to
+--- another coroutine while the first was parked.
+local rootOpen = setmetatable({}, {__mode = "k"}) as {[any]: {ScopeState}}
+
+local mainRoot = {}
+
+local function rootKey(): any
+    return coroutine.running() or mainRoot
+end
+
+local function currentRootStack(): {ScopeState}?
+    return rootOpen[rootKey()]
+end
 
 --- Whether the running frame is the one that drives this scope.
 ---
@@ -350,8 +365,9 @@ local function currentScope(): ScopeState?
 
         return activeScope as ScopeState?
     end
-    if #rootOpen > 0 then
-        return rootOpen[#rootOpen]
+    const opened = currentRootStack()
+    if opened ~= nil and #opened > 0 then
+        return opened[#opened]
     end
 
     return activeScope as ScopeState?
@@ -1254,7 +1270,7 @@ function tasks.checkpoint(): nil
     end
 end
 
---- The effective deadline of the current task, or nil where there is none.
+--- Returns the effective deadline of the current task, or nil where there is none.
 ---
 --- So a body can size its work rather than discover the bound by being cancelled
 --- part way through it.
@@ -1294,6 +1310,7 @@ local function newScope(deadline: number?, limit: integer?): tasks.Scope
         deliberate = false,
         soft = false,
         openedIn = nil,
+        openedRoot = nil,
         frame = nil,
     }
     -- A private handler so a child's park returns to this driver rather than
@@ -1367,19 +1384,33 @@ local function registerOpen(owner: ScopeState): nil
         opened[#opened + 1] = owner
         owner.openedIn = child
     else
-        rootOpen[#rootOpen + 1] = owner
+        const key = rootKey()
+        local opened = rootOpen[key]
+        if opened == nil then
+            opened = {}
+            rootOpen[key] = opened
+        end
+        opened[#opened + 1] = owner
+        owner.openedRoot = key
     end
 end
 
 local function unregisterOpen(owner: ScopeState): nil
     const child = owner.openedIn as Child?
-    const stack = (child ~= nil and child.openScopes or rootOpen) as {any}
+    const key = owner.openedRoot
+    const stack = (child ~= nil and child.openScopes or rootOpen[key]) as {any}?
+    if stack == nil then
+        return
+    end
     for index = #stack, 1, -1 do
         if stack[index] == owner then
             table.remove(stack, index)
 
             break
         end
+    end
+    if child == nil and #stack == 0 then
+        rootOpen[key] = nil
     end
 end
 
