@@ -159,6 +159,11 @@ function M.browserXor(response)
     })(name)
 end
 
+function M.nativeHttp(native)
+    local name = "nupp.io.http.internal.transport"
+    return instance({[name] = true}, {["nupp.runtime.native"] = native})(name)
+end
+
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
     local facade = "nupp." .. kind

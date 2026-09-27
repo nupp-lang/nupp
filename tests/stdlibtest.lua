@@ -486,6 +486,114 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
     rejected({url = assert(uri.newURI("https://example.com/")), timeoutMs = 1.5}, "integer")
 end
 
+function M.nativeHttpDispatchDrainsAfterAWakerRaises()
+    local ffi = require("ffi")
+    local C = {}
+    local pending = 0
+    local released = {client = 0, transfer = 0}
+
+    function C.nuppNativeHttpClientCreate(_, output)
+        output[0] = 1
+        return 0
+    end
+
+    function C.nuppNativeHttpClientRelease()
+        released.client = released.client + 1
+        return 0
+    end
+
+    function C.nuppNativeHttpClientSend(_, _, output)
+        output[0] = 2
+        return 0
+    end
+
+    function C.nuppNativeHttpClientPending(_, output)
+        output[0] = pending
+        return 0
+    end
+
+    function C.nuppNativeHttpTransferRelease()
+        released.transfer = released.transfer + 1
+        return 0
+    end
+
+    function C.nuppNativeHttpTransferCancel()
+        return 0
+    end
+
+    function C.nuppNativeHttpClientPoll(_, ready, _, count, more)
+        ready[0].transfer = 2
+        ready[0].tokens = 7
+        count[0] = 1
+        more[0] = 0
+
+        return 0
+    end
+
+    local transport = require("providerstate").nativeHttp({
+        C = C,
+        ffi = ffi,
+        requireFeature = function()
+        end,
+        succeeded = function(status)
+            assertEq(status, 0)
+        end,
+    })
+    local client = assert(
+        transport.newClient({
+            connectTimeoutMs = 1,
+            maxRedirects = 0,
+            maxPendingRequests = 1,
+            maxConnections = 1,
+            maxConnectionsPerHost = 1,
+            compressed = false,
+            insecureHosts = {},
+        })
+    )
+    local transfer = assert(
+        client:send({
+            uri = {
+                toString = function()
+                    return "https://example.com/"
+                end
+            },
+            method = "GET",
+            headers = {},
+            bodyKind = 0,
+            timeoutMs = 1,
+            stallTimeoutMs = 0,
+            maxBytes = 0,
+            insecure = false,
+        })
+    )
+    local woke = {head = false, body = false, upload = false}
+    transfer:onHead(function()
+        woke.head = true
+    end)
+    transfer:onHead(function()
+        error("waker failed")
+    end)
+    transfer:onBody(function()
+        woke.body = true
+    end)
+    transfer:onUpload(function()
+        woke.upload = true
+    end)
+
+    local ok, problem = pcall(client.poll, client, 0)
+    assert(not ok and tostring(problem):find("waker failed", 1, true), tostring(problem))
+    assert(woke.head and woke.body and woke.upload, "one failed waker must not strand the others")
+
+    pending = 1
+    client:onAdmission(function()
+        error("admission waker failed")
+    end)
+    ok, problem = pcall(client.close, client)
+    assert(not ok and tostring(problem):find("admission waker failed", 1, true), tostring(problem))
+    assertEq(released.transfer, 1, "transfer releases after an admission waker failure")
+    assertEq(released.client, 1, "client releases after an admission waker failure")
+end
+
 function M.browserCryptoRejectsMalformedHostValues()
     local returned = {}
     local browser = require("providerstate").browserCrypto({

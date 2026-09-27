@@ -203,22 +203,28 @@ local function pending(handle: any): integer
     return tonumber(output[0]) as integer
 end
 
---- Wakes everything waiting on one channel and answers how many moved.
+--- Wakes everything waiting on one channel.
 ---
 --- Backwards, because a woken waiter may add itself again and appending while
---- iterating forwards would wake the new one in the same pass.
-local function dispatch(self: any, field: string): integer
+--- iterating forwards would wake the new one in the same pass. Every waiter is
+--- called even when one raises; the caller re-raises the first failure after it
+--- has drained every ready channel.
+local function dispatch(self: any, field: string): (integer, any?)
     local waiters = self[field]
     if waiters == nil then
-        return 0
+        return 0, nil
     end
     self[field] = nil
     local count = #waiters
+    local failure: any = nil
     for index = count, 1, -1 do
-        waiters[index]()
+        local ok, problem = pcall(waiters[index])
+        if not ok and failure == nil then
+            failure = problem
+        end
     end
 
-    return count
+    return count, failure
 end
 
 --- Wakes the longest-waiting one, and only that one.
@@ -284,18 +290,36 @@ local record Transfer is NativeTransfer
     _uploadWaiters: {function()}?
 
     --- Wakes whatever this event moved, and answers how many waiters that was.
+    --- @raises any whatever a woken waiter raised first, after every ready channel
+    ---     is drained
     function _ready(self: Transfer, tokens: integer): integer
         local moved: integer = 0
+        local failure: any = nil
+        local count: integer
+        local problem: any
         -- A failure is reported as the headers arriving, because that is where the
         -- caller is waiting and the head call is what will report it.
         if bit.band(tokens, TOKEN_HEADERS + TOKEN_FAILED) ~= 0 then
-            moved = moved + dispatch(self, "_headWaiters")
+            count, problem = dispatch(self, "_headWaiters")
+            moved = moved + count
+            failure = problem
         end
         if bit.band(tokens, TOKEN_BODY) ~= 0 then
-            moved = moved + dispatch(self, "_bodyWaiters")
+            count, problem = dispatch(self, "_bodyWaiters")
+            moved = moved + count
+            if problem ~= nil and failure == nil then
+                failure = problem
+            end
         end
         if bit.band(tokens, TOKEN_UPLOAD) ~= 0 then
-            moved = moved + dispatch(self, "_uploadWaiters")
+            count, problem = dispatch(self, "_uploadWaiters")
+            moved = moved + count
+            if problem ~= nil and failure == nil then
+                failure = problem
+            end
+        end
+        if failure ~= nil then
+            error(failure, 0)
         end
 
         return moved
@@ -602,12 +626,14 @@ local record Client is NativeClient
     ---
     --- The transfers are listed before any is closed, because closing one takes it out
     --- of the table being walked.
+    --- @raises any whatever an admission waiter raised first, after every resource
+    ---     is closed
     function close(self: Client): nil
         if self._closed then
             return
         end
         self._closed = true
-        dispatch(self, "_admissionWaiters")
+        local _, failure = dispatch(self, "_admissionWaiters")
         local transfers: {Transfer} = {}
         for _, transfer in pairs(self._byHandle) do
             transfers[#transfers + 1] = transfer
@@ -619,6 +645,9 @@ local record Client is NativeClient
         self._handle = nil
         ffi.gc(handle, nil)
         releaseClient(handle)
+        if failure ~= nil then
+            error(failure, 0)
+        end
     end
 end
 
