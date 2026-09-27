@@ -5,10 +5,10 @@ Typing a C header at compile time, with no import step.
 
 The header is handed to the compiler's own `ffi.cdef`, and the resulting
 declarations are read back out through `ffi.typeinfo`. LuaJIT's C parser is
-therefore the source of truth for what a header declares, rather than a pattern
-matcher of ours, and the sizes it reports are the ones that hold on the machine
-doing the build, so `long` and `size_t` come out right on every platform
-instead of being baked in by whoever generated a bindings file.
+therefore the source of truth for what a header declares rather than a separate
+pattern matcher. The sizes it reports are the ones that hold on the machine
+doing the build, so `long` and `size_t` follow the target platform instead of a
+generated bindings file.
 
 Most headers a project owns need no preprocessing at all: dropping the
 directives is enough for LuaJIT. Headers that pull in a system include closure
@@ -85,9 +85,10 @@ local function nuppType(model, structs, resolver)
     elseif kind == "pointer" then
         local pointee = model.to
         local readOnly = model.const
-        if pointee and pointee.kind == "integer" and pointee.bits == 8 then
-            -- a byte pointer is how C spells text, and LuaJIT fills one straight from a
-            -- Lua string
+        if pointee and pointee.kind == "integer" and pointee.bits == 8 and not pointee.unsigned then
+            -- A plain or signed character pointer is C text, and LuaJIT fills one
+            -- straight from a Lua string. Unsigned character pointers remain byte
+            -- pointers below.
             return T.optional(T.cstring)
         end
         -- Every C pointer may be NULL, and the header does not say which ones are, so
@@ -405,13 +406,6 @@ function cheader.typeFromString(spec: string, resolver: cheader.Resolver?): T.Ty
     local model, err = cdecl.typeFromString(spec)
     if not model then
         return nil, err
-    end
-    -- A literal "unsigned char *" or "uint8_t *" names the bytes of a value rather
-    -- than text: it is indexed, under unsafe, and never handed a Lua string. A header
-    -- keeps the text reading for its parameters, where LuaJIT does convert one.
-    local pointee = model.kind == "pointer" and model.to or nil
-    if pointee and pointee.kind == "integer" and pointee.bits == 8 and pointee.unsigned then
-        return T.optional(T.ptr(T.uint8))
     end
 
     return nuppType(model, nil, adoptingResolver(resolver))

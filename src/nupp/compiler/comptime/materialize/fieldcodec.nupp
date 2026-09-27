@@ -1,8 +1,9 @@
 module nupp.compiler.comptime.materialize.fieldcodec
 
--- A second sealed materializer: keyed record-field projection from nupp.reflect.Info.
+-- Materializes keyed record-field projection from `nupp.reflect.Info`.
 
 local hash = require("nupp.compiler.hash")
+local reflection = require("nupp.compiler.reflection")
 
 type fieldcodec.Failure = {
     @readonly code: string,
@@ -64,17 +65,28 @@ function fieldcodec.finalize(state: any, value: any): any, fieldcodec.Failure?
         end
         seen[name], fields[#fields + 1] = true, name
     end
-    local payload = {fields = fields, typeFingerprint = descriptor.fingerprint, typeName = descriptor.name,}
-    local canonical = table.concat(fields, "\0") .. "\0" .. descriptor.fingerprint .. "\0" .. tostring(descriptor.name)
+    if type(descriptor.name) ~= "string" or type(descriptor.qualifiedName) ~= "string" then
+        return nil, failure("NUPP2418", "keyed field codecs require a named reflected record type")
+    end
+    local payload = {
+        fields = fields,
+        typeFingerprint = descriptor.fingerprint,
+        typeName = descriptor.name,
+        qualifiedName = descriptor.qualifiedName,
+    }
+    local canonical = table.concat(
+        fields,
+        "\0"
+    ) .. "\0" .. descriptor.fingerprint .. "\0" .. descriptor.name .. "\0" .. descriptor.qualifiedName
 
     return {
         kind = "materialized",
         provider = "fieldcodec",
-        schema = 1,
+        schema = 2,
         family = "KeyedCodecBlueprint",
         payload = payload,
         provenance = {entry.provenance},
-        fingerprint = hash.sha256("nupp.fieldcodec\0v1\0" .. canonical),
+        fingerprint = hash.sha256("nupp.fieldcodec\0v2\0" .. canonical),
         summary = ("%d-field keyed codec for %s"):format(#fields, descriptor.name or "record"),
     }, nil
 end
@@ -96,12 +108,13 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
             "write nupp.reflect.FieldCodec<Record> on the declaration initialized by this comptime block"
         )
     end
-    if envelope.schema ~= 1
+    if envelope.schema ~= 2
         or envelope.family ~= "KeyedCodecBlueprint"
         or type(envelope.payload) ~= "table"
         or type(envelope.payload.fields) ~= "table"
         or type(envelope.payload.typeFingerprint) ~= "string"
         or type(envelope.payload.typeName) ~= "string"
+        or type(envelope.payload.qualifiedName) ~= "string"
     then
         return nil, failure("NUPP2415", "field-codec blueprint has the wrong schema")
     end
@@ -116,8 +129,14 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
     local canonical = table.concat(
         fields,
         "\0"
-    ) .. "\0" .. envelope.payload.typeFingerprint .. "\0" .. envelope.payload.typeName
-    if envelope.fingerprint ~= hash.sha256("nupp.fieldcodec\0v1\0" .. canonical) then
+    )
+        .. "\0"
+        .. envelope.payload.typeFingerprint
+        .. "\0"
+        .. envelope.payload.typeName
+        .. "\0"
+        .. envelope.payload.qualifiedName
+    if envelope.fingerprint ~= hash.sha256("nupp.fieldcodec\0v2\0" .. canonical) then
         return nil, failure("NUPP2415", "field-codec blueprint fingerprint does not match")
     end
     local namespace = env and env.globalTypes and env.globalTypes["nupp.reflect"]
@@ -130,6 +149,11 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
         or target.tag ~= "nominal"
         or target.declKind ~= "record"
         or target.name ~= envelope.payload.typeName
+        or (target.runtimePath or target.name) ~= envelope.payload.qualifiedName
+        or reflection.describe(
+            target,
+            target.runtimePath or target.name
+        ).fingerprint ~= envelope.payload.typeFingerprint
     then
         return nil, failure("NUPP2415", "field-codec blueprint needs nupp.reflect.FieldCodec<Record>")
     end
@@ -147,8 +171,12 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
     return {
         tag = "call",
         callee = {tag = "helper", name = "nupp.fieldcodec.keyed"},
-        args = {dataArray(fields), {tag = "literal", value = fingerprint}},
-    }, nil, {backend = "keyed", emitterAbi = 1, helperAbi = 1, runtimeFeatures = {"stdlib.fieldcodec"},}
+        args = {
+            dataArray(fields),
+            {tag = "literal", value = fingerprint},
+            {tag = "typeobject", path = target.runtimePath or envelope.payload.qualifiedName},
+        },
+    }, nil, {backend = "keyed", emitterAbi = 2, helperAbi = 2, runtimeFeatures = {"stdlib.fieldcodec"},}
 end
 
 export = fieldcodec

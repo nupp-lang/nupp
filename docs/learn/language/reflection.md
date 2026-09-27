@@ -216,10 +216,12 @@ generated from it is generated again.
 
 `nupp.reflect.fieldCodec` is a materialization boundary. It produces a
 `nupp.reflect.FieldCodec<R>` for the same nominal record `R` and copies exactly
-that record's declared present fields with `rawget`. Its compatibility
-fingerprint is `t:` followed by those field names in declaration order, and the
-declared codec type must name the same record. Reflection of a runtime value, an
-unresolved type, or a non-record codec input is refused. See [Opaque
+that record's declared present fields with `rawget`. Encoding and decoding are
+shallow; decoding selects the same fields from a keyed table and restores the
+record's runtime identity. Its compatibility fingerprint is `t:` followed by
+those field names in declaration order, and the declared codec type must name
+the same record. Reflection of a runtime value, an unresolved type, or a
+non-record codec input is refused. See [Opaque
 results materialize at a
 declaration](comptime.md#opaque-results-materialize-at-a-declaration) for the
 rule that governs where the result may land.

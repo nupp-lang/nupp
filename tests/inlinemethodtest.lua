@@ -356,6 +356,29 @@ return codec:encode(4) .. "," .. codec:encode({5})
     assertEq(value, "one:4,many:5", "instantiation selects the declaration's stable runtime slot")
 end
 
+function M.overloadsDistinguishGenericNominalsAndCallbackResults()
+    local value = runs(
+        [[
+local record Box<T>
+    value: T
+end
+local record Reader
+    function read(self, box: Box<string>): string return "text:" .. box.value end
+    function read(self, box: Box<integer>): string return "number:" .. tostring(box.value) end
+    function call(self, callback: function(): string): string return callback() end
+    function call(self, callback: function(): integer): string return tostring(callback()) end
+end
+local reader = new Reader()
+return reader:read(new Box<string>(value = "yes"))
+    .. "," .. reader:read(new Box<integer>(value = 3))
+    .. "," .. reader:call(function(): string return "done" end)
+    .. "," .. reader:call(function(): integer return 4 end)
+]],
+        "generic nominal and callback result overloads"
+    )
+    assertEq(value, "text:yes,number:3,done,4", "parameter type identities select distinct slots")
+end
+
 function M.safeNavigationKeepsOverloadSelection()
     local value = runs(
         [[

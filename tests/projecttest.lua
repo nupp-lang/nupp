@@ -361,7 +361,7 @@ return Matcher("ok")
     assertEq(observation.schema, 5, "provider schema")
     assertEq(observation.backend, "auto", "selected backend")
     assert(observation.blueprintSize > 0 and observation.generatedSize > 0, "bounded sizes are reported")
-    assertEq(observation.abis.runtimeExpression, 1, "runtime-expression ABI")
+    assertEq(observation.abis.runtimeExpression, 2, "runtime-expression ABI")
     assertEq(observation.blueprint, nil, "the public record omits the canonical payload")
     assertEq(observation.generated, nil, "the public record omits generated source")
 
@@ -421,7 +421,12 @@ return models
     })
     local cold, coldStats = {}, {}
     assertEq(project.build(dir, {produced = cold, stats = coldStats}), 0)
-    local first = assert(cold.materializations[1]).fingerprint
+    local firstObservation = assert(cold.materializations[1])
+    assertEq(firstObservation.schema, 2, "field-codec provider schema")
+    assertEq(firstObservation.abis.emitter, 2, "field-codec emitter ABI")
+    assertEq(firstObservation.abis.helper, 2, "field-codec helper ABI")
+    assertEq(firstObservation.abis.runtimeExpression, 2, "field-codec runtime-expression ABI")
+    local first = firstObservation.fingerprint
 
     local source = read(dir .. "/src/models.nupp")
     write(dir .. "/src/models.nupp", source:gsub('name = "users"', 'name = "accounts"'))

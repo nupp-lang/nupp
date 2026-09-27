@@ -2311,8 +2311,10 @@ record nupp.reflect
 
     --- A keyed runtime codec materialized from a reflected record.
     ---
-    --- `encode` copies present declared fields into a plain keyed table. The stable
-    --- fingerprint records the field names in declaration order.
+    --- `encode` copies present declared fields into a plain keyed table. `decode`
+    --- selects the same fields from a keyed table and restores the record's runtime
+    --- identity. Both operations are shallow. The stable fingerprint records the
+    --- field names in declaration order.
     ---
     --- ```nupp
     --- local record Position

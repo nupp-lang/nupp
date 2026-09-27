@@ -5,9 +5,9 @@ The closed runtime-expression IR used by comptime materializers.
 
 Providers return data in this vocabulary. They never return Lua source. Validation and
 rendering live here so a malformed worker response cannot smuggle a global lookup,
-statement, declaration, or source fragment into generated code. Local references are
-integer slots; their spellings are allocated here and therefore cannot collide with a
-source binding.
+statement, declaration, or source fragment into generated code. A type-object path is
+the one parent-validated binding reference. Local references are integer slots; their
+names are allocated here and therefore cannot collide with a source binding.
 ]]
 
 local MAX_NODES = 20000
@@ -53,7 +53,7 @@ local record ir
     render: function(any): (string?, ir.Failure?)
 end
 
-ir.ABI = 1
+ir.ABI = 2
 
 local function quote(value)
     local kind = type(value)
@@ -78,6 +78,24 @@ end
 
 local function validName(name)
     return type(name) == "string" and name:find("^[%a_][%w_]*$") ~= nil and not RESERVED[name]
+end
+
+local function validTypePath(path)
+    if type(path) ~= "string"
+        or path == ""
+        or path:sub(1, 1) == "."
+        or path:sub(-1) == "."
+        or path:find("..", 1, true)
+    then
+        return false
+    end
+    for name in path:gmatch("[^.]+") do
+        if not validName(name) then
+            return false
+        end
+    end
+
+    return true
 end
 
 local function list(value: any, description: string): {any}?, string?
@@ -165,6 +183,12 @@ function ir.render(root: any): string?, ir.Failure?
             end
 
             return path
+        elseif tag == "typeobject" then
+            if not validTypePath(node.path) then
+                return nil, ("runtime-expression type object has invalid path %q"):format(tostring(node.path))
+            end
+
+            return node.path
         elseif tag == "table" then
             local parts = {}
             local array, arrayError = list(node.array, "table array")
