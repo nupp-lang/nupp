@@ -986,6 +986,25 @@ return {constants = constants}
     verify.program(program)
 end
 
+function M.entryResultsKeepTheirHelperAbiMapping()
+    local program = lowered(
+        [[
+@aot
+local function identity(value: float): float
+    return value
+end
+return {identity = identity}
+]],
+        "float-result.nupp"
+    )
+    assert(program.resultTypes[1] == "f64", "float result does not use the helper ABI")
+    assert(program.resultSourceTypes[1] == "float", "float result lost its source type")
+    verify.program(program)
+
+    program.resultTypes[1] = "f32"
+    refuses(program, "invalid AOT entry result storage")
+end
+
 function M.mathCallsKeepTheirAdmittedArity()
     local program = lowered(
         [[

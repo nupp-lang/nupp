@@ -189,6 +189,28 @@ local function validStorage(valueType: string, sourceType: string?): boolean
     return admit.STORAGE[storageSource(valueType, sourceType)] == valueType
 end
 
+--- Whether an AOT entry result carries the ABI type assigned by lowering.
+--- Entry values follow the helper ABI rather than physical storage, so source
+--- `float` and `integer` results both cross the boundary as binary64.
+local function validEntryResult(valueType: string, sourceType: string?, entryMode: string?): boolean
+    const results = {
+        ["number"] = "f64",
+        ["float"] = "f64",
+        ["integer"] = "f64",
+        ["uint32"] = "u32",
+        ["int32"] = "i32",
+        ["uint64"] = "u64",
+        ["int64"] = "i64",
+        ["boolean"] = "bool",
+        ["string"] = "lua_string",
+        ["any"] = "lua_value",
+        ["nil"] = "lua_nil",
+    }
+
+    return sourceType ~= nil and results[sourceType] == valueType
+        or valueType == "lua_table" and entryMode == "lua-builder" and sourceType ~= nil and #sourceType > 0
+end
+
 --- The correcting binary32 operations a lane-wise `simd_call` may name, and
 --- how many operands each takes.
 const CORRECTED_LANES = {["f32_min"] = 2, ["f32_max"] = 2, ["f32_fma"] = 3,}
@@ -3522,18 +3544,8 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
             ),
             "invalid AOT entry result type"
         )
-        local sourceType = sourceResults[position]
         holds(
-            verify.NUMERIC[resultType] == true
-            and (validStorage(resultType, sourceType) or resultType == "f64" and sourceType == "integer")
-            or resultType == "bool" and sourceType == "boolean"
-            or resultType == "lua_string" and sourceType == "string"
-            or resultType == "lua_value" and sourceType == "any"
-            or resultType == "lua_nil" and sourceType == "nil"
-            or resultType == "lua_table"
-            and program.entryMode == "lua-builder"
-            and sourceType ~= nil
-            and #sourceType > 0,
+            validEntryResult(resultType, sourceResults[position], program.entryMode),
             "invalid AOT entry result storage"
         )
     end
