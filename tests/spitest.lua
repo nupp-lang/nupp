@@ -672,6 +672,17 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     local call = facade[case.exported or case.member]
                     assert(call == expected[case.member], label)
                     assert(call() == selectedName and call() == selectedName, label)
+                    if case.module == "nupp.suspension" then
+                        local turnAvailable = rawget(facade, "__turnAvailable")
+                        local consumeTurn = rawget(facade, "__consumeTurn")
+                        local deferTurn = rawget(facade, "__deferTurn")
+                        assert(type(turnAvailable) == "function", label .. ": missing turn availability")
+                        assert(type(consumeTurn) == "function", label .. ": missing turn consumption")
+                        assert(type(deferTurn) == "function", label .. ": missing turn deferral")
+                        assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
+                        consumeTurn()
+                        assert(turnAvailable(), label .. ": an unbounded turn must stay available")
+                    end
                 else
                     assert(facade == expected, label)
                 end
@@ -691,6 +702,29 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             end
         end
     end
+end
+
+function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
+    local load = require("providerstate").instance(
+        {['nupp.spi'] = true, ['nupp.suspension'] = true},
+        {
+            ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
+            ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
+        },
+        {
+            ['fixture.suspension'] = function()
+                return {
+                    priority = 1,
+                    __turnAvailable = function()
+                        return true
+                    end,
+                }
+            end,
+        }
+    )
+    local ok, problem = pcall(load, "nupp.suspension")
+    assert(not ok, "a partial turn-budget extension was accepted")
+    assert(tostring(problem):find("every turn-budget operation or none", 1, true), tostring(problem))
 end
 
 function M.moduleStagingDistinguishesTheHostFromTheVm()

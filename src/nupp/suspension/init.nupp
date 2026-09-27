@@ -80,9 +80,29 @@ suspension.delegatedCanPark = provider.delegatedCanPark
 suspension.delegatedPark = provider.delegatedPark
 suspension.canSuspend = provider.canSuspend
 suspension.destroyInstalled = contract.destroyInstalled
-rawset(suspension, "__turnAvailable", (provider as any).__turnAvailable)
-rawset(suspension, "__consumeTurn", (provider as any).__consumeTurn)
-rawset(suspension, "__deferTurn", (provider as any).__deferTurn)
+local providerRuntime = provider as any
+local turnAvailable = providerRuntime.__turnAvailable
+local consumeTurn = providerRuntime.__consumeTurn
+local deferTurn = providerRuntime.__deferTurn
+if turnAvailable == nil and consumeTurn == nil and deferTurn == nil then
+    -- Turn budgeting is a provider optimization rather than part of the public SPI.
+    -- A replacement without it remains correct, with an unbounded aggregate turn.
+    turnAvailable = function(): boolean
+        return true
+    end
+    consumeTurn = function(): nil
+    end
+    deferTurn = function(): nil
+    end
+else
+    assert(
+        type(turnAvailable) == "function" and type(consumeTurn) == "function" and type(deferTurn) == "function",
+        "nupp.suspension: an implementation must provide every turn-budget operation or none of them"
+    )
+end
+rawset(suspension, "__turnAvailable", turnAvailable)
+rawset(suspension, "__consumeTurn", consumeTurn)
+rawset(suspension, "__deferTurn", deferTurn)
 rawset(suspension, "__taskCancellation", cancellation.create)
 rawset(suspension, "__isTaskCancellation", cancellation.is)
 export = suspension
