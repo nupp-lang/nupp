@@ -1,10 +1,22 @@
 module nupp.io.files
 
 --[[
-Portable filesystem access. Native programs may pass ordinary strings or
-[](nupp.io.path.Path) values. Browser programs use an opaque
-`ApplicationPath` obtained from `configurationPath`, `dataPath`, or
-`cachePath`; raw path text is deliberately refused there.
+Portable filesystem access accepts native paths on native hosts and
+application-owned paths on browser hosts. Set an application identity before
+resolving the portable configuration, data, or cache directory.
+
+```nupp
+local files = nupp.io.files
+files.setApplicationIdentity("example", "notes")
+
+local data = assert(files.dataPath())
+assert(files.write(data:join("notes.txt"), "hello"))
+```
+
+Native programs may also pass ordinary strings or [](nupp.io.path.Path)
+values. Browser programs refuse raw path text and use the opaque
+`ApplicationPath` values returned by `configurationPath`, `dataPath`, or
+`cachePath`.
 
 Browser application data lives in the Origin Private File System. It remains
 evictable unless `requestPersistentStorage` succeeds. Capability flags describe
@@ -34,7 +46,7 @@ local provider: contracts.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    if target.dialect ~= "lua51" then
+    if target.host == "native" then
         yield _G.require("nupp.runtime.provider.nativefiles") as contracts.Provider
     end
     yield _G.require("nupp.runtime.browser.files") as contracts.Provider
@@ -126,6 +138,10 @@ local function applicationPath(kind: string): (appPaths.ApplicationPath?, string
     local key = kind .. "\0" .. organization .. "\0" .. application
     local remembered = roots[key]
     if remembered ~= nil then
+        local created, reason = provider.createDirectory(remembered)
+        if not created then
+            return nil, reason
+        end
         return remembered, nil
     end
     local value, reason = provider.applicationPath(kind, organization, application)
@@ -158,12 +174,6 @@ end
 --- @return a failure reason, when unsuccessful
 export function cachePath(): (appPaths.ApplicationPath?, string?)
     return applicationPath("cache")
-end
-
---- Clears application-root memoization for platform-resolution tests.
---- @return nil after clearing the memoized roots
-export function resetApplicationPaths(): nil
-    roots = {}
 end
 
 --- Reports the exact guarantees of the selected filesystem provider.

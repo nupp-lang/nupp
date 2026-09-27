@@ -561,6 +561,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             browser = "nupp.runtime.browser.uri"
         },
         {
+            module = "nupp.io.files",
+            interface = "nupp.io.files.spi.Provider",
+            native = "nupp.runtime.provider.nativefiles",
+            browser = "nupp.runtime.browser.files",
+            member = "capabilities"
+        },
+        {
             module = "nupp.runtime.uuid",
             interface = "nupp.runtime.uuid.spi.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
@@ -736,6 +743,29 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             end
         end
     end
+end
+
+function M.memoizedApplicationPathsAreRecreated()
+    local root = {}
+    local resolved, created = 0, 0
+    local provider = {
+        applicationPath = function()
+            resolved = resolved + 1
+            return root
+        end,
+        createDirectory = function(path)
+            assert(path == root)
+            created = created + 1
+            return true
+        end,
+    }
+    local files = require("providerstate").load("files", provider)
+    files.setApplicationIdentity("example", "application-path-test")
+
+    assert(files.dataPath() == root)
+    assert(files.dataPath() == root)
+    assert(resolved == 1, "the platform root is resolved once")
+    assert(created == 1, "a cached root is recreated if the caller removed it")
 end
 
 function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
