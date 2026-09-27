@@ -3577,14 +3577,35 @@ function M.shellEntryPointsRefuseBoundedOptions()
     local ok, err = pcall(process.run, {"true"}, {timeoutMs = 1000})
     assert(
         not ok and tostring(err):find("captureIsolated", 1, true),
-        "run refuses a timeout it cannot honour: " .. tostring(err)
+        "run refuses a timeout it cannot honor: " .. tostring(err)
     )
     ok, err = pcall(process.capture, {"true"}, {memoryMb = 64})
     assert(
         not ok and tostring(err):find("captureIsolated", 1, true),
-        "capture refuses a memory ceiling it cannot honour: " .. tostring(err)
+        "capture refuses a memory ceiling it cannot honor: " .. tostring(err)
     )
-    assertEq(process.run({"true"}, {cwd = "."}), 0, "cwd is still honoured")
+    assertEq(process.run({"true"}, {cwd = "."}), 0, "cwd is still honored")
+end
+
+function M.startedSessionsRefusePoliciesTheyCannotService()
+    for _, options in ipairs({
+        {timeoutMs = 1000},
+        {
+            pump = function()
+            end
+        },
+        {
+            cancelled = function()
+                return false
+            end
+        },
+    }) do
+        local ok, err = pcall(process.startIsolated, {"true"}, options)
+        assert(
+            not ok and tostring(err):find("session caller", 1, true),
+            "a started session must not silently ignore its policy: " .. tostring(err)
+        )
+    end
 end
 
 function M.generatorDeclarationsAreClosedAndPlainData()

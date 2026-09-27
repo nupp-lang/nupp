@@ -33,7 +33,7 @@ local fingerprint = {}
 --- thousand times faster, because the portable one emulates XXH64's 64-bit
 --- arithmetic over `uint32` halves and this one does not have to. A build puts
 --- every source, every compiler file and every memoized value through it, so the
---- difference is seconds a command rather than a micro-optimisation.
+--- difference is seconds a command rather than a micro-optimization.
 ---
 --- Resolved once. The running compiler cannot grow or lose an FFI while it runs,
 --- and a portable `lua51` session has none to load: `native` false is how a
@@ -174,6 +174,66 @@ local graphAttempted = false
 
 local graphStoredIn: {[string]: boolean} = {}
 
+--- Whether a decoded graph has the complete shape traversal relies on.
+---
+--- The value store verifies its envelope, but its payload is still cache data.
+--- A decodable table with a missing map or a broken edge is a cache miss, not a
+--- reason for a check or build to fail while traversing it.
+local function validGraph(value: any): boolean
+    if type(value) ~= "table"
+        or type(value.files) ~= "table"
+        or type(value.edges) ~= "table"
+        or type(value.digests) ~= "table"
+        or type(value.unknown) ~= "table"
+    then
+        return false
+    end
+    for name, path in pairs(value.files) do
+        if type(name) ~= "string"
+            or type(path) ~= "string"
+            or type(value.digests[name]) ~= "string"
+            or type(value.edges[name]) ~= "table"
+            or type(value.unknown[name]) ~= "boolean"
+        then
+            return false
+        end
+        local count = 0
+        for index, required in pairs(value.edges[name]) do
+            if type(index) ~= "number"
+                or index < 1
+                or index ~= math.floor(index)
+                or type(required) ~= "string"
+                or type(value.files[required]) ~= "string"
+            then
+                return false
+            end
+            count = count + 1
+        end
+        for index = 1, count do
+            if type(value.edges[name][index]) ~= "string" then
+                return false
+            end
+        end
+    end
+    for name in pairs(value.digests) do
+        if type(name) ~= "string" or type(value.files[name]) ~= "string" then
+            return false
+        end
+    end
+    for name in pairs(value.edges) do
+        if type(name) ~= "string" or type(value.files[name]) ~= "string" then
+            return false
+        end
+    end
+    for name in pairs(value.unknown) do
+        if type(name) ~= "string" or type(value.files[name]) ~= "string" then
+            return false
+        end
+    end
+
+    return true
+end
+
 --- The module name a file under `root` provides: the path, without its extension, with
 --- the separators spelled as dots. `init` is how a directory names itself.
 local function moduleNameOf(root: string, path: string): string?
@@ -299,7 +359,7 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
             "nupp.compiler.project.store"
         ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
         local stored = store.value
-        if type(stored) == "table" then
+        if validGraph(stored) then
             graphMemo = stored as fingerprint.ModuleGraph
 
             return graphMemo

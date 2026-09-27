@@ -155,6 +155,30 @@ function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A cache payload can decode successfully while still being incomplete. Traversal
+-- must treat that as a miss, because the cache never gets to turn damage on disk into
+-- a failed check or build.
+function M.aMalformedModuleGraphIsRecomputed()
+    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
+    local cacheCode = source:read("*a")
+    source:close()
+    local dir = tempProject({["nupp/compiler/project/fingerprint.lua"] = cacheCode})
+    local cacheDir = dir .. "/cache"
+    local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
+    local stamp = "modules/2\0" .. isolated.toolFingerprint()
+    local store = require("nupp.compiler.project.store")
+    local damaged = store.openValue(cacheDir .. "/modulegraph.buf", stamp)
+    damaged.set({files = {}})
+    damaged.save()
+
+    local fresh = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
+    local ok, answer = pcall(fresh.subsystemFingerprint, {"nupp.compiler.project.fingerprint"}, cacheDir)
+    assert(ok and type(answer) == "string", tostring(answer))
+    local repaired = store.openValue(cacheDir .. "/modulegraph.buf", stamp).value
+    assert(repaired.files["nupp.compiler.project.fingerprint"], "the malformed graph was not replaced")
+    assert(require("nupp.io.files").remove(dir, true))
+end
+
 -- A module is checked against the carried declarations as much as against the
 -- checker, and they are not modules, so the subsystem stamp never reached them. An
 -- edit to `lua.d.nupp` then left every module's stored diagnostics believed while a

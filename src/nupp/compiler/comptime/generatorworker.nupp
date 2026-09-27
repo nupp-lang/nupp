@@ -1,8 +1,9 @@
 module nupp.compiler.comptime.generatorworker
 
 -- The small process boundary around third-party generator code. The parent owns
--- discovery, inputs, caching, and publication; this child receives one validated
--- request and can only write through the request object into its staging directory.
+-- discovery, inputs, caching, and publication. This child gives the provider a
+-- request API that restricts declared reads and stages supported writes. Process
+-- isolation bounds time and memory; it is not an operating-system sandbox.
 
 local fs = require("nupp.compiler.fs")
 local json = require("nupp.codec.json")

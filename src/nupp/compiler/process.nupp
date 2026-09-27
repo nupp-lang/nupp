@@ -16,14 +16,14 @@ local process = {}
 --- `cwd` and `env` are folded into the command line rather than handed to a spawn
 --- call, because there is no spawn call to hand them to: `cd` and the shell's own
 --- assignment syntax are what a single string can say. They are the only two
---- options `run` and `capture` honour. The rest describe a bounded child, which only
---- `captureIsolated` and `startIsolated` can start; `run` and `capture` refuse them
---- rather than silently run an unbounded child.
+--- options `run` and `capture` honor. The rest describe an isolated child.
+--- `captureIsolated` services and cancels a child while it waits; a caller using
+--- `startIsolated` owns those session policies after the child starts.
 type process.Options = {
     cwd: string?,
     env: {[string]: string}?,
 
-    --- Isolated entry points only: how long the host waits before killing the child.
+    --- `captureIsolated` only: how long the host waits before killing the child.
     timeoutMs: integer?,
 
     --- Isolated entry points only. POSIX child address-space ceiling, used for
@@ -31,8 +31,8 @@ type process.Options = {
     --- ordinary subprocesses.
     memoryMb: integer?,
 
-    --- Isolated entry points only: work the host may service while the child is
-    --- quiet, and a request cancellation predicate checked after each service pass.
+    --- `captureIsolated` only: work the host may service while the child is quiet,
+    --- and a request cancellation predicate checked after each service pass.
     pump: (function(): nil)?,
     cancelled: (function(): boolean)?
 }
@@ -141,11 +141,11 @@ function process.isolatedArguments(argv: {string}): {string}
 end
 
 -- The shell-string entry points can only say `cd` and assignments; a bound they
--- cannot honour is a caller that wanted `captureIsolated`.
+-- cannot honor is a caller that wanted `captureIsolated`.
 local function assertUnbounded(opts: process.Options, entry: string): nil
     assert(
         opts.timeoutMs == nil and opts.memoryMb == nil and opts.pump == nil and opts.cancelled == nil,
-        "process." .. entry .. " honours only cwd and env; use captureIsolated for a bounded child"
+        "process." .. entry .. " honors only cwd and env; use captureIsolated for a bounded child"
     )
 end
 
@@ -355,6 +355,10 @@ end
 --- caller must drain the second pipe; nothing else empties it.
 function process.startIsolated(argv: {string}, opts: process.Options?): (affine(process.IsolatedProcess?), string?)
     opts = (opts or {}) as process.Options
+    assert(
+        opts.timeoutMs == nil and opts.pump == nil and opts.cancelled == nil,
+        "process.startIsolated leaves deadlines and cancellation to the session caller"
+    )
     local args = boundedArgs(argv, opts)
     local native = require("nupp.io.process")
     local nativeOptions: native.Options = {
