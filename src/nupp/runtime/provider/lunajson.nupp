@@ -6,9 +6,10 @@ module nupp.runtime.provider.lunajson
 Portable implementation of `data.json` API 2 using vendored Lunajson.
 
 The independent decoder and encoder factories require neither FFI nor the `io`
-library. Lunajson handles JSON syntax, Unicode, numbers, and escaping; this
-adapter supplies Nupp's array/object markers, projection, verified fragments,
-and the writer backed by the shared [](nupp.text.internal.buffer) contract.
+library. Lunajson handles JSON syntax, numbers, and escaping. This adapter
+validates UTF-8 and supplies Nupp's array/object markers, projection, verified
+fragments, and the writer backed by the shared
+[](nupp.text.internal.buffer) contract.
 
 Import through [](nupp.codec.json). The facade retains this provider's functions
 and marker objects for the lifetime of the loaded module. Markers and verified
@@ -114,14 +115,20 @@ local function classify(value: any): string, integer
     return "object", count
 end
 
-local function container(value: any, nullValue: any?, visiting: {[any]: boolean}): any
+local function container(value: any, nullValue: any?, visiting: {[any]: boolean}, depth: integer): any
     -- A custom sentinel is normalized here because the copy below would lose the
     -- identity the encoder's null check compares against.
     if value == json.NULL or nullValue ~= nil and value == nullValue then
         return json.NULL
     end
+    if type(value) == "string" and not validUtf8(value) then
+        error("cannot encode invalid UTF-8 as JSON", 0)
+    end
     if type(value) ~= "table" then
         return value
+    end
+    if depth >= 1024 then
+        error("JSON serialization nesting exceeds 1024", 0)
     end
     if visiting[value] then
         error("cannot serialize a cyclic Lua table", 0)
@@ -132,14 +139,17 @@ local function container(value: any, nullValue: any?, visiting: {[any]: boolean}
     if kind == "array" then
         out[0] = length
         for index = 1, length do
-            out[index] = container(value[index], nullValue, visiting)
+            out[index] = container(value[index], nullValue, visiting, depth + 1)
         end
     else
         for key, child in pairs(value) do
             if type(key) ~= "string" then
                 error("JSON object keys must be strings", 0)
             end
-            out[key] = container(child, nullValue, visiting)
+            if not validUtf8(key) then
+                error("cannot encode invalid UTF-8 as JSON", 0)
+            end
+            out[key] = container(child, nullValue, visiting, depth + 1)
         end
     end
     visiting[value] = nil
@@ -179,10 +189,17 @@ function json.asArray(value: any): any
     if type(value) ~= "table" then
         error("json.asArray needs a table", 2)
     end
+    local count: integer = 0
+    local highest: integer = 0
     for key in pairs(value) do
-        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or key > #value then
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
             error("an array-marked table must contain consecutive positive indexes", 2)
         end
+        count = count + 1
+        highest = math.max(highest, math.floor(key))
+    end
+    if count ~= highest then
+        error("an array-marked table must contain consecutive positive indexes", 2)
     end
 
     return setmetatable(value, ARRAY_MARKER)
@@ -206,7 +223,7 @@ function json.arrayOf(shape: any?): any
 end
 
 function json.encode(value: any, nullValue: any?): string
-    return core.encode(container(value, nullValue, {}), json.NULL)
+    return core.encode(container(value, nullValue, {}, 0), json.NULL)
 end
 
 json.serialize = json.encode
@@ -227,7 +244,7 @@ function json.isArray(value: any): boolean
     return kind == "array"
 end
 
-local function project(value: any, shape: any): any
+local function project(value: any, shape: any, nullValue: any?): any
     if shape == true then
         return value
     end
@@ -236,23 +253,31 @@ local function project(value: any, shape: any): any
     end
     local itemShape = shape[ARRAY_SHAPE]
     if itemShape ~= nil then
-        if type(value) ~= "table" then
+        if type(value) ~= "table"
+            or value == json.NULL
+            or nullValue ~= nil and value == nullValue
+            or getmetatable(value) ~= ARRAY_MARKER
+        then
             error("pull array shape matched a non-array value", 0)
         end
         local out = json.asArray({})
         for _, item in ipairs(value) do
-            out[#out + 1] = project(item, itemShape)
+            out[#out + 1] = project(item, itemShape, nullValue)
         end
 
         return out
     end
-    if type(value) ~= "table" then
+    if type(value) ~= "table"
+        or value == json.NULL
+        or nullValue ~= nil and value == nullValue
+        or getmetatable(value) ~= OBJECT_MARKER
+    then
         error("pull object shape matched a non-object value", 0)
     end
     local out = json.asObject({})
     for key, childShape in pairs(shape) do
         if value[key] ~= nil then
-            out[key] = project(value[key], childShape)
+            out[key] = project(value[key], childShape, nullValue)
         end
     end
 
@@ -260,7 +285,7 @@ local function project(value: any, shape: any): any
 end
 
 function json.pull(text: string, shape: any, nullValue: any?): any
-    return project(json.decode(text, nullValue), shape)
+    return project(json.decode(text, nullValue), shape, nullValue)
 end
 
 function json.encoded(value: any, nullValue: any?): any
@@ -271,6 +296,9 @@ function json.encodedString(value: string): any
     local prior = encodedStrings[value]
     if prior ~= nil then
         return prior
+    end
+    if not validUtf8(value) then
+        error("cannot encode invalid UTF-8 as JSON", 0)
     end
     local encoded = setmetatable({bytes = core.encode(value),}, ENCODED_STRING)
     encodedStrings[value] = encoded
@@ -361,11 +389,23 @@ function json.writer(exclusive out: Buffer, nullValue: any?): any
         if closed or not frame or frame.kind ~= "object" or frame.value then
             error("key() requires an open object with no pending key", 2)
         end
+        local encoded: string
+        if getmetatable(name) == ENCODED_STRING then
+            encoded = name.bytes
+        else
+            if type(name) ~= "string" then
+                error("JSON object keys must be strings", 2)
+            end
+            if not validUtf8(name) then
+                error("cannot encode invalid UTF-8 as JSON", 0)
+            end
+            encoded = core.encode(name)
+        end
         if not frame.first then
             add(",")
         end
         frame.first = false
-        add(getmetatable(name) == ENCODED_STRING and name.bytes or core.encode(name))
+        add(encoded)
         add(":")
         frame.value = true
 

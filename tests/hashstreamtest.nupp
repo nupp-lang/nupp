@@ -42,6 +42,46 @@ function M.publishedDigestVectors(): nil
     )
 end
 
+function M.wordDigestPaddingBoundariesMatchIndependentVectors(): nil
+    local vectors: {
+        {string}
+    } = {
+        {
+            "md5",
+            "55",
+            "04364420e25c512fd958a70738aa8f72",
+            "56",
+            "668a72d5ba17f08e62dabcafad6db14b",
+            "64",
+            "c1bb4f81d892b2d57947682aeb252456"
+        },
+        {
+            "sha1",
+            "55",
+            "cef734ba81a024479e09eb5a75b6ddae62e6abf1",
+            "56",
+            "901305367c259952f4e7af8323f480d59f81335b",
+            "64",
+            "bb2fa3ee7afb9f54c6dfb5d021f14b1ffe40c163"
+        },
+        {
+            "sha512",
+            "111",
+            "9a2a120825c2319867758ec277924f6faa254968bf752046dacdd948d8ad299b10359fd04bfd7d3810b5fa1b16a294236138baff981cbb85248478053ac4d3dd",
+            "112",
+            "a3722b515ef40c910f2419f6e0da8ca51d410114ce6272faae64045f9e9f630e7fa8dd5a3243c9860b899d148c3da4bc0f9e07454542604d030bb55531fe0d5b",
+            "128",
+            "e2e22f8422b54b06e35c3ea30a383d1de7a8fbc27992923074103117020d8dd7024c3ecf7d6d1a15a6de5a75ff32fb486b9e8ced4c02ffe05822bf2cb734d0e0"
+        }
+    }
+    for _, vector in ipairs(vectors) do
+        for index = 2, #vector, 2 do
+            local length = assert(tonumber(vector[index])) as integer
+            assert(digest.hexDigest(vector[1], string.rep("x", length)) == vector[index + 1])
+        end
+    end
+end
+
 function M.metadataAndIndependentContexts(): nil
     assert(table.concat(digest.algorithms(), ",") == "md5,sha1,sha256,sha512")
     assert(digest.lookup("unknown") == nil)

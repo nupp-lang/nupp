@@ -64,9 +64,9 @@ value is read.
 ## Pulling selected values
 
 `pull` validates the complete document while applying its selection. `true`
-selects a complete value, `false` drops it, an object
-shape selects named fields, and `arrayOf(shape)` applies a shape to every member
-of an array. Missing and unselected fields are omitted:
+selects a complete value, an object shape selects named fields, and
+`arrayOf(shape)` applies a shape to every member of an array. Missing and
+unselected fields are omitted:
 
 ```nupp
 const json = nupp.codec.json

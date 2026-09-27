@@ -309,10 +309,17 @@ function json.asArray(value: any): any
     if type(value) ~= "table" then
         error("json.asArray needs a table", 2)
     end
+    local count: integer = 0
+    local highest: integer = 0
     for key in pairs(value) do
-        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or key > #value then
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
             error("an array-marked table must contain consecutive positive indexes", 2)
         end
+        count = count + 1
+        highest = math.max(highest, math.floor(key))
+    end
+    if count ~= highest then
+        error("an array-marked table must contain consecutive positive indexes", 2)
     end
 
     return setmetatable(value, ARRAY_MARKER)
