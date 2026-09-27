@@ -1,30 +1,10 @@
 #!/usr/bin/env bash
 # Execute the compact native harness packs and owned algorithms at every
-# available requested compiler/tier pair. Missing hardware remains explicit.
+# available requested tier. Missing hardware remains explicit. Every AOT unit
+# is compiled by nupp's own LLVM, the one code generator the matrix records.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo"
-
-# Keep the provisioned host runtime fixed while NUPP_NATIVE_CC selects the
-# compiler for emitted C. The legacy NUPP_CC alias also selects dependency
-# prefixes, so changing it per row can hide the provisioned LPeg tree.
-if [[ -z ${NUPP_CC:-} ]]; then
-  NUPP_CC=${NUPP_NATIVE_CC:-}
-  if [[ -z "$NUPP_CC" ]]; then
-    case $(uname -s) in
-      MINGW*|MSYS*|CYGWIN*) host_compilers=(gcc cc clang) ;;
-      *) host_compilers=(clang cc gcc) ;;
-    esac
-    for candidate in "${host_compilers[@]}"; do
-      if command -v "$candidate" >/dev/null 2>&1; then
-        NUPP_CC=$candidate
-        break
-      fi
-    done
-  fi
-fi
-export NUPP_CC
-: "${NUPP_CC:?No compiler is available for the provisioned host toolchain}"
 . ./scripts/luajit.sh
 select_luajit "$repo"
 if command -v cygpath >/dev/null 2>&1; then
@@ -52,7 +32,7 @@ case $(uname -s) in
   *) printf '%s\n' "${PROCESSOR_IDENTIFIER:-unknown}" > "$output/cpu.txt" ;;
 esac
 
-IFS=, read -r -a compilers <<< "${NUPP_SIMD_COMPILERS:-clang,gcc}"
+compilers=(llvm)
 IFS=, read -r -a algorithms <<< "${NUPP_SIMD_ALGORITHMS:-utf8simd,base64simd,simd-json,fused-json}"
 case $(uname -m) in
   arm64|aarch64) tiers=(neon) ;;
@@ -78,10 +58,8 @@ for compiler in "${compilers[@]}"; do
   mkdir -p "$compiler_dir"
   printf '%s\n' "$compiler" > "$compiler_dir/command.txt"
   if ! {
-    "$compiler" --version > "$compiler_dir/version.txt" &&
-    "$compiler" -dumpmachine > "$compiler_dir/target.txt" &&
-    "$compiler" -std=c11 -O2 -Wall -Wextra -Werror tests/simd/capabilities.c -o "$compiler_dir/capabilities.exe" &&
-    "$compiler_dir/capabilities.exe" | tr -d '\r' > "$compiler_dir/tiers.txt"
+    luajit -e 'print(assert(require("tests.simd.runner").codegen()))' > "$compiler_dir/version.txt" &&
+    luajit -e 'io.write(assert(require("tests.simd.runner").hostTiers()))' > "$compiler_dir/tiers.txt"
   } > "$compiler_dir/setup.log" 2>&1; then
     for tier in "${tiers[@]}"; do
       printf '%s\t%s\t-\t-\tfailed\t%s\n' "$index" "$tier" "$compiler_dir/setup.log" >> "$output/matrix.tsv"
@@ -99,7 +77,7 @@ for compiler in "${compilers[@]}"; do
     directory="$compiler_dir/$tier/packs"
     mkdir -p "$directory"
     echo "$compiler / $tier / compact native packs"
-    if NUPP_NATIVE_CC="$compiler" NUPP_SIMD_TIER="$tier" \
+    if NUPP_SIMD_TIER="$tier" \
         ./bin/nupp test simdprimitivedifferentialtest --jobs=1 --timings=0 --json \
         > "$directory/report.json" 2> "$directory/driver.log"; then
       printf '%s\t%s\tpacks\tcompact\texecuted\t%s\n' "$index" "$tier" \
@@ -116,7 +94,7 @@ for compiler in "${compilers[@]}"; do
       directory="$compiler_dir/$tier/algorithms/$algorithm"
       mkdir -p "$directory"
       echo "$compiler / $tier / algorithm / $algorithm"
-      if NUPP_NATIVE_CC="$compiler" NUPP_SIMD_TIER="$tier" \
+      if NUPP_SIMD_TIER="$tier" \
           luajit tests/simd/run-algorithm.lua "$algorithm" "$directory" > "$directory/driver.log" 2>&1; then
         printf '%s\t%s\talgorithms\t%s\texecuted\t%s\n' "$index" "$tier" "$algorithm" \
           "$directory/matrix-result.json" >> "$output/matrix.tsv"

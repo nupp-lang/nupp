@@ -28,7 +28,7 @@ const entries = manifest.kernels.flatMap(kernel => kernel.entries.map(entry => (
 const symbols = {};
 const executedEntries = [];
 for (const [module, names] of Object.entries(corpus.probes)) {
-  const suffixes = [`/${module}.simd128.c`, `/${module}.g.simd128.c`];
+  const suffixes = [`/${module}.simd128.ll`, `/${module}.g.simd128.ll`];
   const units = manifest.kernels.filter(kernel => suffixes.some(suffix => kernel.source?.endsWith(suffix)));
   if (units.length !== 1) throw new Error(`Missing unique independent Wasm unit for ${module}`);
   for (const name of names) {

@@ -4,8 +4,8 @@ module nupp.compiler.aot.lower
 Turning admitted source into AOT IR.
 
 The front end of the AOT backend: it reads the checked syntax tree and produces
-the IR the verifier proves and the emitter prints. Everything here is about what
-the source said; nothing here decides what the IR means.
+the IR the verifier proves and the code generator lowers. Everything here is
+about what the source said; nothing here decides what the IR means.
 
 The one rule worth stating separately is where a width may change. Ordinary Nupp
 arithmetic is binary64, and `float`, `int32` and `uint32` are establishment facts
@@ -57,8 +57,8 @@ record lower.Context
     --- Compile-time byte tables named so far, by their contents.
     ---
     --- Shared by every entry in the file rather than held per entry, because
-    --- the emitter writes these at file scope: two entries numbering their own
-    --- tables from zero give one translation unit two different `konst_0`. One
+    --- the code generator writes these at module scope: two entries numbering
+    --- their own tables from zero give one module two different `konst_0`. One
     --- table used by two entries is named once here and emitted once there.
     constantNames: {[string]: string} = {}
 
@@ -102,7 +102,7 @@ end
 --- The conversion that takes `value` to `targetType`, if one exists.
 ---
 --- Written into the IR rather than left implicit, because these are the only
---- places a width changes and an emitter that inferred them could infer a
+--- places a width changes and a code generator that inferred them could infer a
 --- different set.
 function lower.conversion(value: scalarIR.Expr, targetType: scalarIR.Type, source: scalarIR.Source?): scalarIR.Expr?
     if value.type == targetType then
@@ -504,8 +504,8 @@ end
 
 --- The layouts one kernel reifies, in the order they were first reached.
 ---
---- Order matters: it is the order the generated C declares the structs in, and
---- a set would not have one.
+--- Order matters: it is the order the structs' layout reporters are generated
+--- and checked in, and a set would not have one.
 record lower.Layouts
     ordered: {scalarIR.Layout}
     byName: {[string]: scalarIR.Layout}
@@ -553,7 +553,12 @@ function lower.layout(
         context.reject(lower.site(declaration), "native structs must be non-generic and have no supertypes")
     end
 
-    local layout = new scalarIR.Layout(name = name, cName = "Ks" .. name, fields = {}, source = lower.site(declaration))
+    local layout = new scalarIR.Layout(
+        name = name,
+        uniqueName = "Ks" .. name,
+        fields = {},
+        source = lower.site(declaration)
+    )
     if context.checked then
         if #(origin.typeParams or {}) > 0 or #(origin.supertypes or {}) > 0 then
             context.reject(lower.site(declaration), "native structs must be non-generic and have no supertypes")
@@ -829,7 +834,7 @@ record lower.Bound
     kind: 'local' | 'uniform' | 'helper_param'
     name: string
     type: scalarIR.Type
-    cName: string?
+    uniqueName: string?
     mutable: boolean?
     lengthOf: string?
     builderMode: ('eager' | 'pull' | 'serde')?
@@ -857,7 +862,7 @@ end
 --- vector body can implement the selected arithmetic contract independently.
 record lower.ReducerState
     name: string
-    cName: string
+    uniqueName: string
     region: integer?
     finalized: boolean
     source: scalarIR.Source
@@ -924,7 +929,7 @@ record lower.Kernel
 
     --- Fixed word buffers by the name they were bound to, and how many words
     --- each holds. An access reads its bound from here, so the comparison the
-    --- emitter writes names a constant rather than a field.
+    --- code generator writes names a constant rather than a field.
     scratchBounds: {[string]: integer}
 
     --- Compile-time byte tables the body reads, by their bytes, and in the
@@ -966,7 +971,7 @@ record lower.Kernel
     --- The loop counter, which is the only index a span access may use.
     index: string
 
-    indexCName: string
+    indexUniqueName: string
 
     --- Assignment severs the visible index from the loop's bounds proof.
     indexAssigned: boolean = false
@@ -1022,8 +1027,6 @@ record lower.Kernel
 
     usesSimd: boolean
 
-    usesNumberToken: boolean
-
     --- Whether lowering reached an operation that requires the VM-aware ABI.
     usesLua: boolean
 
@@ -1037,7 +1040,7 @@ record lower.Kernel
     luaSource: scalarIR.Source?
 
     --- How many locals have been named, so two source scopes using one name get
-    --- two C names.
+    --- two unique names.
     serial: integer
 
     context: lower.Context
@@ -1153,7 +1156,7 @@ end
 
 --- Whether `value` names a rooted string or byte parameter of this kernel,
 --- as the SIMD loads that read one directly require: the local itself, and
---- not a copy or a slice, so the C name the load addresses is the parameter's.
+--- not a copy or a slice, so the unique name the load addresses is the parameter's.
 local function rootedBytesParam(value: scalarIR.Expr, kernel: lower.Kernel): boolean
     if value.op ~= "local" or value.type ~= "lua_string" and value.type ~= "lua_bytes" then
         return false
@@ -1161,7 +1164,10 @@ local function rootedBytesParam(value: scalarIR.Expr, kernel: lower.Kernel): boo
     local rooted = value as scalarIR.Name
     local param = kernel.params[rooted.name]
 
-    return param ~= nil and param.kind == "scalar" and param.type == value.type and rooted.cName == param.cName
+    return param ~= nil
+        and param.kind == "scalar"
+        and param.type == value.type
+        and rooted.uniqueName == param.uniqueName
 end
 
 --- The names a block assigns anywhere inside it, so a loop knows which cursor
@@ -1415,9 +1421,9 @@ local function spanRead(
             op = "element_ref",
             span = spanName as string,
             index = index,
-            indexCName = cursor == nil and kernel.indexCName or nil,
+            indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
-            cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
+            cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
             layout = element.layout.name,
             mutable = param.kind == "write_span",
             type = "ref:" .. element.layout.name,
@@ -1430,9 +1436,9 @@ local function spanRead(
             op = "load",
             span = spanName as string,
             index = index,
-            indexCName = cursor == nil and kernel.indexCName or nil,
+            indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
-            cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
+            cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
             type = element.type,
             sourceType = param.sourceType,
             source = lower.site(node)
@@ -1919,11 +1925,12 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
 
         -- A cursor compared against its bound is the commonest comparison in an
         -- admitted body, and the bound is written as an ordinary literal. Left
-        -- alone the constant stays binary64 and C widens the cursor to meet it,
-        -- so a counted loop converts and compares in floating point once an
-        -- iteration to answer a question about two integers. Narrowing the
-        -- constant where it is exactly representable at the other side's width
-        -- answers the same question in the width it was asked about.
+        -- alone the constant stays binary64 and the comparison widens the
+        -- cursor to meet it, so a counted loop converts and compares in
+        -- floating point once an iteration to answer a question about two
+        -- integers. Narrowing the constant where it is exactly representable at
+        -- the other side's width answers the same question in the width it was
+        -- asked about.
         local narrowedLeft = exactWidthConstant(left, right.type) or left
         local narrowedRight = exactWidthConstant(right, left.type) or right
         -- A whole-vector cursor guard, `cursor + s.lanes <= #span`, is taken
@@ -2194,7 +2201,7 @@ function lower.rearrange(
             ] = new scalarIR.Name(
                 op = "helper_param",
                 name = "row" .. tostring(i),
-                cName = "row" .. tostring(i),
+                uniqueName = "row" .. tostring(i),
                 type = arg.type,
                 source = source
             )
@@ -2220,10 +2227,9 @@ function lower.rearrange(
         end
         helper = new scalarIR.Helper(
             name = "$" .. key,
-            cName = kernel.symbol .. "_" .. key,
+            uniqueName = kernel.symbol .. "_" .. key,
             params = params,
             values = values,
-            resultType = args[1].type,
             resultTypes = resultTypes,
             source = source
         )
@@ -2235,7 +2241,7 @@ function lower.rearrange(
     return new scalarIR.HelperCall(
         op = "helper_call",
         helper = (helper as scalarIR.Helper).name,
-        cName = (helper as scalarIR.Helper).cName,
+        uniqueName = (helper as scalarIR.Helper).uniqueName,
         args = args,
         type = "multi",
         resultTypes = (helper as scalarIR.Helper).resultTypes,
@@ -2530,7 +2536,7 @@ local function call(
             scratch = args[1],
             index = args[2],
             cursor = proved and cursor or nil,
-            cursorCName = proved and (args[2] as scalarIR.Name).cName or nil,
+            cursorUniqueName = proved and (args[2] as scalarIR.Name).uniqueName or nil,
             type = "u32",
             source = lower.site(node)
         )
@@ -2705,7 +2711,7 @@ local function call(
             bytes = args[1],
             index = takesIndex and args[2] or nil,
             cursor = cursor,
-            cursorCName = cursor ~= nil and (args[2] as scalarIR.Name).cName or nil,
+            cursorUniqueName = cursor ~= nil and (args[2] as scalarIR.Name).uniqueName or nil,
             type = "u32",
             source = lower.site(node)
         )
@@ -2755,7 +2761,6 @@ local function call(
             )
         end
         markLua(kernel, lower.site(node))
-        kernel.usesNumberToken = true
         return new scalarIR.LuaBuilderNumberToken(
             op = "lua_builder_number_token",
             builder = args[1],
@@ -2945,9 +2950,9 @@ local function call(
     return new scalarIR.HelperCall(
         op = "helper_call",
         helper = helper.name,
-        cName = helper.cName,
+        uniqueName = helper.uniqueName,
         args = args,
-        type = #helper.resultTypes == 1 and helper.resultType or "multi",
+        type = #helper.resultTypes == 1 and helper.resultTypes[1] or "multi",
         resultTypes = helper.resultTypes,
         source = lower.site(node)
     )
@@ -3029,7 +3034,7 @@ local function maskedContribution(
             #reducers + 1
         ] = new scalarIR.ReducerRegionAccumulator(
             name = reducerState.name,
-            cName = reducerState.cName,
+            uniqueName = reducerState.uniqueName,
             order = reducerOrder as any,
             operation = reducerOperation as any,
             element = reducerElement,
@@ -3125,7 +3130,7 @@ local function laneWiseMap(
     -- A helper takes and returns ordinary Nupp values, so a float species
     -- calls one over binary64 and narrows what comes back.
     local carrier = scalar == "f32" and "f64" or scalar
-    if #helper.params ~= #args or #helper.resultTypes ~= 1 or helper.resultType ~= carrier then
+    if #helper.params ~= #args or #helper.resultTypes ~= 1 or helper.resultTypes[1] ~= carrier then
         context.reject(source, "SIMD map needs a helper over the species' scalar taking one argument per vector")
     end
     for _, param in ipairs(helper.params) do
@@ -3213,7 +3218,7 @@ local function fieldAccess(
     local masked = raw[maskPosition] ~= nil
     local cursor = not masked and provedVectorCursor(offset, spanName, kernel, receiver.type) or nil
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
-    local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
+    local cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil
     local args: {scalarIR.Expr} = {receiver, offset}
     if not reading then
         local stored = lower.expression(raw[4], environment, activeIndex, kernel)
@@ -3239,7 +3244,7 @@ local function fieldAccess(
         field = column == nil and fieldName or nil,
         intrinsic = column ~= nil and method or "field",
         cursor = cursor,
-        cursorCName = cursorCName,
+        cursorUniqueName = cursorUniqueName,
         type = reading and vectorType or "lua_effect",
         source = source
     )
@@ -3279,7 +3284,7 @@ local function rootedLoad(
         context.reject(source, "a rooted byte view carries bytes, so only a uint8 species may load from it")
     end
     -- The binding named the parameter, and only `localStmt` writes one, but the
-    -- load addresses the C names read back here rather than the ones that were
+    -- load addresses the unique names read back here rather than the ones that were
     -- checked there, so they are read off the parameter again.
     local param = kernel.params[bytesName]
     if param == nil or param.kind ~= "scalar" or param.type ~= "lua_string" and param.type ~= "lua_bytes" then
@@ -3289,7 +3294,7 @@ local function rootedLoad(
         op = "local",
         name = bytesName,
         type = param.type,
-        cName = param.cName,
+        uniqueName = param.uniqueName,
         source = source
     )
     local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
@@ -3313,7 +3318,7 @@ local function rootedLoad(
         rooted = rooted as scalarIR.Name,
         intrinsic = "load",
         cursor = cursor,
-        cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
+        cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
         type = vectorType,
         source = source
     )
@@ -3333,9 +3338,8 @@ local INTERLEAVED_NAMES: {[integer]: string} = {[2] = "pairs", [3] = "triples", 
 ---
 --- A load lowers once for each local it binds, as `kernel.interleavedPart`
 --- says, and every result is a load of the whole run: each carries the
---- bounds proof a single load of that width would, and the C compiler
---- merges the identical reads into the one instruction that de-interleaves
---- them.
+--- bounds proof a single load of that width would, and LLVM merges the
+--- identical reads into the one instruction that de-interleaves them.
 local function interleavedAccess(
     node: cst.MethodCall,
     receiver: scalarIR.Expr,
@@ -3383,7 +3387,7 @@ local function interleavedAccess(
     )
     local cursor = provedVectorCursor(offset, spanName, kernel, tostring(receiver.type), ways)
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
-    local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
+    local cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil
     local intrinsic = (reading and "load_" or "store_") .. tostring(INTERLEAVED_NAMES[ways])
     if reading then
         return new scalarIR.Simd(
@@ -3393,7 +3397,7 @@ local function interleavedAccess(
             intrinsic = intrinsic,
             part = part,
             cursor = cursor,
-            cursorCName = cursorCName,
+            cursorUniqueName = cursorUniqueName,
             type = vectorType,
             source = source
         )
@@ -3413,7 +3417,7 @@ local function interleavedAccess(
         span = spanName,
         intrinsic = intrinsic,
         cursor = cursor,
-        cursorCName = cursorCName,
+        cursorUniqueName = cursorUniqueName,
         type = "lua_effect",
         source = source
     )
@@ -3472,7 +3476,7 @@ local function simdMethod(
         if receiver == nil or (receiver as scalarIR.Expr).op ~= "local" then
             kernel.context.reject(source, "a reducer operation must name its scoped reducer binding")
         end
-        local reducerName = (receiver as scalarIR.Name).cName
+        local reducerName = (receiver as scalarIR.Name).uniqueName
         if reducerName == nil then
             kernel.context.reject(source, "a reducer operation must name its scoped reducer binding")
         end
@@ -3744,15 +3748,15 @@ local function simdMethod(
             end
             -- An unmasked access at `cursor + 1` under a dominating `cursor +
             -- s.lanes <= #span` is a whole vector inside the span: it carries
-            -- the cursor so the verifier can hold that and the emitter can
-            -- copy without checking any lane. A masked one keeps its mask.
+            -- the cursor so the verifier can hold that and the code generator
+            -- can copy without checking any lane. A masked one keeps its mask.
             local masked = raw[reading and 3 or 4] ~= nil
             local cursor = not indexed
                 and not masked
                 and provedVectorCursor(offset, spanName, kernel, tostring(receiverType))
                 or nil
             local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
-            local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
+            local cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil
             if reading then
                 local loadArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset}
                 if raw[3] ~= nil then
@@ -3768,7 +3772,7 @@ local function simdMethod(
                     span = spanName,
                     intrinsic = method,
                     cursor = cursor,
-                    cursorCName = cursorCName,
+                    cursorUniqueName = cursorUniqueName,
                     type = vectorType,
                     source = source
                 )
@@ -3791,7 +3795,7 @@ local function simdMethod(
                     span = spanName,
                     intrinsic = method,
                     cursor = cursor,
-                    cursorCName = cursorCName,
+                    cursorUniqueName = cursorUniqueName,
                     type = "lua_effect",
                     source = source
                 )
@@ -4125,13 +4129,13 @@ function lower.constantBytes(value: string, kernel: lower.Kernel, source: scalar
         kernel.constantNames[value] = existing
         kernel.constantOrder[
             #kernel.constantOrder + 1
-        ] = new scalarIR.ConstantBytes(cName = existing as string, value = value)
+        ] = new scalarIR.ConstantBytes(uniqueName = existing as string, value = value)
     end
 
     return new scalarIR.Name(
         op = "local",
         name = existing as string,
-        cName = existing as string,
+        uniqueName = existing as string,
         type = "lua_string",
         source = source
     )
@@ -4194,14 +4198,20 @@ end
 local function temporary(value: scalarIR.Expr, kernel: lower.Kernel, out: {scalarIR.Statement}): scalarIR.Name
     kernel.serial = kernel.serial + 1
     local name = "$value_" .. tostring(kernel.serial)
-    local cName = "__nupp_value_" .. tostring(kernel.serial)
-    local ref = new scalarIR.Name(op = "local", name = name, cName = cName, type = value.type, source = value.source)
+    local uniqueName = "__nupp_value_" .. tostring(kernel.serial)
+    local ref = new scalarIR.Name(
+        op = "local",
+        name = name,
+        uniqueName = uniqueName,
+        type = value.type,
+        source = value.source
+    )
     out[
         #out + 1
     ] = new scalarIR.Let(
         op = "let",
         name = name,
-        cName = cName,
+        uniqueName = uniqueName,
         type = value.type,
         value = value,
         source = value.source
@@ -4228,7 +4238,7 @@ local function firstValue(value: scalarIR.Expr, kernel: lower.Kernel, out: {scal
         ] = new scalarIR.Binding(
             kind = "local",
             name = "$first_" .. suffix,
-            cName = "__nupp_first_" .. suffix,
+            uniqueName = "__nupp_first_" .. suffix,
             type = valueType
         )
     end
@@ -4241,7 +4251,7 @@ local function firstValue(value: scalarIR.Expr, kernel: lower.Kernel, out: {scal
     return new scalarIR.Name(
         op = "local",
         name = first.name,
-        cName = first.cName,
+        uniqueName = first.uniqueName,
         type = first.type,
         source = value.source
     )
@@ -4278,7 +4288,7 @@ local function assignValue(target: scalarIR.Name, value: scalarIR.Expr): scalarI
                 target = new scalarIR.Target(
                     kind = "local",
                     name = target.name,
-                    cName = target.cName,
+                    uniqueName = target.uniqueName,
                     type = target.type
                 ),
                 value = value
@@ -4525,12 +4535,12 @@ local function expressionRaw(
             if activeIndex ~= nil and name == activeIndex and kernel.mapEntry then
                 return new scalarIR.LoopIndex(op = "loop_index", type = "f64", source = lower.site(node))
             end
-            -- A `const` bound to a string literal is a byte table the emitter
-            -- can write out as static data. The checker already resolved it to
-            -- a literal type carrying its value, so nothing has to be folded or
-            -- looked up: what it answers with is a rooted-string name like any
-            -- other, and every reader between here and the emitted load is
-            -- unchanged.
+            -- A `const` bound to a string literal is a byte table the code
+            -- generator can write out as static data. The checker already
+            -- resolved it to a literal type carrying its value, so nothing has
+            -- to be folded or looked up: what it answers with is a
+            -- rooted-string name like any other, and every reader between here
+            -- and the emitted load is unchanged.
             local constant = lower.constantString(node)
             if constant ~= nil then
                 return lower.constantBytes(constant as string, kernel, lower.site(node))
@@ -4586,8 +4596,8 @@ local function expressionRaw(
         -- local unreadable as one.
         -- A helper's parameters are bound as the IR nodes themselves, which carry
         -- `op` where an ordinary binding carries `kind`. Reading only `kind` made
-        -- every reference to a helper parameter lower as an ordinary local. C
-        -- emission cannot tell the two apart so nothing looked wrong, but the lane
+        -- every reference to a helper parameter lower as an ordinary local. Code
+        -- generation cannot tell the two apart so nothing looked wrong, but the lane
         -- rewriter decides what varies by exactly this distinction, so an inlined
         -- helper body read as uniform and the loop lost its lanes.
         local op = bound.kind == "uniform" and "uniform"
@@ -4598,7 +4608,7 @@ local function expressionRaw(
             op = op as any,
             name = name as string,
             type = bound.type,
-            cName = bound.cName,
+            uniqueName = bound.uniqueName,
             mutable = bound.mutable,
             lengthOf = bound.lengthOf,
             builderMode = bound.builderMode,
@@ -5107,7 +5117,7 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
             op = "helper_param",
             name = paramName as string,
             type = paramType as scalarIR.Type,
-            cName = scalarIR.cIdentifier("a", paramName as string),
+            uniqueName = scalarIR.identifier("a", paramName as string),
             source = lower.site(raw)
         )
         params[#params + 1] = param
@@ -5135,10 +5145,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     if native then
         local called = new scalarIR.Helper(
             name = name,
-            cName = scalarIR.privateSymbol(name),
+            uniqueName = scalarIR.privateSymbol(name),
             params = params,
             values = {},
-            resultType = resultTypes[1],
             resultTypes = resultTypes,
             native = true,
             source = lower.site(declaration)
@@ -5162,10 +5171,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
 
     local helper = new scalarIR.Helper(
         name = helperKey,
-        cName = kernel.symbol .. "_helper_" .. scalarIR.privateSymbol(helperKey):sub(4),
+        uniqueName = kernel.symbol .. "_helper_" .. scalarIR.privateSymbol(helperKey):sub(4),
         params = params,
         values = {},
-        resultType = resultTypes[1],
         resultTypes = resultTypes,
         source = lower.site(declaration)
     )
@@ -5204,9 +5212,10 @@ end
 
 --- Introduces one local, refusing a name already in scope.
 ---
---- Shadowing is refused rather than renamed: the generated C has no scope to
---- tell two bindings of one name apart, and quietly renaming would make the
---- source and the C disagree about which one a later read meant.
+--- Shadowing is refused rather than renamed: the code generator keeps one slot
+--- per name and has no scope to tell two bindings of one name apart, and quietly
+--- renaming would make the source and the generated code disagree about which
+--- one a later read meant.
 local function bind(
     name: string,
     valueType: scalarIR.Type,
@@ -5225,7 +5234,7 @@ local function bind(
         name = name,
         type = valueType,
         mutable = mutable,
-        cName = scalarIR.cIdentifier("v" .. tostring(kernel.serial), name),
+        uniqueName = scalarIR.identifier("v" .. tostring(kernel.serial), name),
         source = lower.site(at)
     )
     environment[name] = binding
@@ -5486,7 +5495,7 @@ local function switchLocal(
         ] = new scalarIR.Let(
             op = "let",
             name = names[1].text,
-            cName = resultBinding.cName,
+            uniqueName = resultBinding.uniqueName,
             value = converted,
             type = resultType,
             source = lower.site(stat)
@@ -5501,7 +5510,7 @@ local function switchLocal(
     ] = new scalarIR.Let(
         op = "let",
         name = selectorName,
-        cName = selectorBinding.cName,
+        uniqueName = selectorBinding.uniqueName,
         value = selector,
         type = selector.type,
         source = lower.site(node.selector)
@@ -5509,7 +5518,7 @@ local function switchLocal(
     local selectorRef = new scalarIR.Name(
         op = "local",
         name = selectorName,
-        cName = selectorBinding.cName,
+        uniqueName = selectorBinding.uniqueName,
         type = selector.type,
         source = lower.site(node.selector)
     )
@@ -5559,7 +5568,7 @@ local function switchLocal(
     ] = new scalarIR.Let(
         op = "let",
         name = names[1].text,
-        cName = resultBinding.cName,
+        uniqueName = resultBinding.uniqueName,
         value = zero,
         type = resultType,
         source = lower.site(stat)
@@ -5568,15 +5577,13 @@ local function switchLocal(
     local target = new scalarIR.Target(
         kind = "local",
         name = resultBinding.name,
-        cName = resultBinding.cName,
+        uniqueName = resultBinding.uniqueName,
         type = resultType
     )
     local clauses: {scalarIR.Clause} = {}
     local nativePlan = switchplan.native(nativeLabelsFit and selector.type or "f64")
-    local nativeArms: {scalarIR.SwitchArm} = {}
     for _, lowered in ipairs(arms) do
         local condition: scalarIR.Expr? = nil
-        local nativeLabels: {scalarIR.SwitchLabel} = {}
         for _, caseValue in ipairs(lowered.case.values or {}) do
             local label = switchCaseValue(caseValue, kernel)
             local number = label.op == "constant" and tonumber((label as scalarIR.Constant).value) or nil
@@ -5593,13 +5600,6 @@ local function switchLocal(
                     op = "constant_i32",
                     value = spelling,
                     type = selector.type,
-                    source = lower.site(caseValue)
-                )
-                nativeLabels[
-                    #nativeLabels + 1
-                ] = new scalarIR.SwitchLabel(
-                    value = spelling,
-                    type = selector.type as any,
                     source = lower.site(caseValue)
                 )
             else
@@ -5654,9 +5654,6 @@ local function switchLocal(
             body = lowered.setup,
             source = lower.site(lowered.case)
         )
-        if nativePlan.tag == "NativeIntegerSwitch" then
-            nativeArms[#nativeArms + 1] = new scalarIR.SwitchArm(labels = nativeLabels)
-        end
     end
     local elseBody: {scalarIR.Statement}? = nil
     if otherwise and elseValue and not elseNever then
@@ -5672,23 +5669,7 @@ local function switchLocal(
     if elseNever then
         elseBody = elseSetup
     end
-    local expressionArms = #elseSetup <= 1
-    for _, arm in ipairs(arms) do
-        expressionArms = expressionArms and #arm.setup == 1
-    end
-    local nativeSwitch = expressionArms
-        and nativePlan.tag == "NativeIntegerSwitch"
-        and new scalarIR.NativeSwitch(selector = selectorRef, arms = nativeArms)
-        or nil
-    out[
-        #out + 1
-    ] = new scalarIR.If(
-        op = "if",
-        clauses = clauses,
-        elseBody = elseBody,
-        source = lower.site(node),
-        nativeSwitch = nativeSwitch
-    )
+    out[#out + 1] = new scalarIR.If(op = "if", clauses = clauses, elseBody = elseBody, source = lower.site(node))
     environment[selectorName] = nil
 end
 
@@ -5722,8 +5703,6 @@ local function exitValueLoops(body: {scalarIR.Statement}, done: scalarIR.Name): 
     for _, statement in ipairs(body) do
         if statement.op == "if" then
             local branch = statement as scalarIR.If
-            -- A source break inside a block arm targets a loop, not C's switch.
-            branch.nativeSwitch = nil
             for _, clause in ipairs(branch.clauses) do
                 exitValueLoops(clause.body, done)
             end
@@ -5788,7 +5767,7 @@ function lower.doExpression(node: cst.DoExpr, environment: {[string]: any}, kern
     ] = new scalarIR.Let(
         op = "let",
         name = result.name,
-        cName = result.cName as string,
+        uniqueName = result.uniqueName as string,
         type = result.type,
         value = lower.zeroValue(result.type, lower.site(node), kernel.context),
         source = lower.site(node)
@@ -5828,7 +5807,7 @@ function lower.switchExpression(node: cst.SwitchExpr, environment: {[string]: an
     return new scalarIR.Name(
         op = "local",
         name = bound.name,
-        cName = bound.cName,
+        uniqueName = bound.uniqueName,
         type = bound.type,
         source = lower.site(node)
     )
@@ -5977,7 +5956,7 @@ local function localStmt(
         ] = new scalarIR.Let(
             op = "let",
             name = names[1].text,
-            cName = binding.cName,
+            uniqueName = binding.uniqueName,
             type = "lua_string_buffer",
             value = new scalarIR.LuaStringBuffer(
                 op = "lua_string_buffer",
@@ -6122,11 +6101,11 @@ local function localStmt(
         if value.op == "reducer_init" then
             local state = new lower.ReducerState(
                 name = token.text,
-                cName = binding.cName,
+                uniqueName = binding.uniqueName,
                 finalized = false,
                 source = lower.site(stat)
             )
-            kernel.reducers[binding.cName] = state
+            kernel.reducers[binding.uniqueName] = state
             kernel.reducerOrder[#kernel.reducerOrder + 1] = state
         end
         if value.op == "simd_lanes_generic" and not kernel.reassignedNames[token.text] then
@@ -6139,7 +6118,7 @@ local function localStmt(
             ] = new scalarIR.Let(
                 op = "let",
                 name = token.text,
-                cName = binding.cName,
+                uniqueName = binding.uniqueName,
                 type = expected as scalarIR.Type,
                 value = value,
                 source = lower.site(stat)
@@ -6163,7 +6142,12 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
             context.reject(lower.site(target), "a reducer binding cannot be reassigned")
         end
 
-        return new scalarIR.Target(kind = "local", name = binding.name, cName = binding.cName, type = binding.type)
+        return new scalarIR.Target(
+            kind = "local",
+            name = binding.name,
+            uniqueName = binding.uniqueName,
+            type = binding.type
+        )
     end
 
     local indexed = target as cst.DotIndex
@@ -6239,9 +6223,9 @@ local function soaStore(
         op = "store",
         span = column.name,
         index = address.index,
-        indexCName = address.indexCName,
+        indexUniqueName = address.indexUniqueName,
         cursor = address.cursor,
-        cursorCName = address.cursorCName,
+        cursorUniqueName = address.cursorUniqueName,
         value = lower.convert(value, column.type, lower.site(target), kernel.context),
         source = lower.site(target)
     )
@@ -6283,7 +6267,7 @@ local function assignStmt(
                     buffer = new scalarIR.Name(
                         op = "local",
                         name = binding.name,
-                        cName = binding.cName,
+                        uniqueName = binding.uniqueName,
                         type = "lua_string_buffer",
                         source = lower.site(targets[1])
                     ),
@@ -6319,7 +6303,7 @@ local function assignStmt(
                 table = new scalarIR.Name(
                     op = "local",
                     name = tableBinding.name,
-                    cName = tableBinding.cName,
+                    uniqueName = tableBinding.uniqueName,
                     type = "lua_table",
                     source = lower.site(target.obj)
                 ),
@@ -6386,7 +6370,7 @@ local function assignStmt(
                 table = new scalarIR.Name(
                     op = "local",
                     name = tableBinding.name,
-                    cName = tableBinding.cName,
+                    uniqueName = tableBinding.uniqueName,
                     type = "lua_table",
                     source = lower.site(target.obj)
                 ),
@@ -6418,9 +6402,9 @@ local function assignStmt(
             op = "store",
             span = spanName as string,
             index = cursor == nil and kernel.index or "",
-            indexCName = cursor == nil and kernel.indexCName or nil,
+            indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
-            cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
+            cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
             value = lower.convert(value, output.element.type, lower.site(stat), context),
             source = lower.site(stat)
         )
@@ -6476,7 +6460,7 @@ end
 --- One numeric `for` bound.
 ---
 --- An integer literal stays an integer rather than being written as a double
---- for the emitter to cast back.
+--- for the code generator to cast back.
 local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kernel): scalarIR.Expr
     local literal = bound
     local sign = 1
@@ -6727,7 +6711,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 target = new scalarIR.Name(
                     op = "local",
                     name = frame.done.name .. "_result",
-                    cName = tostring(frame.done.cName) .. "_result",
+                    uniqueName = tostring(frame.done.uniqueName) .. "_result",
                     type = value.type,
                     source = lower.site(stat)
                 )
@@ -7075,7 +7059,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                             new scalarIR.Let(
                                 op = "let",
                                 name = binding.name,
-                                cName = binding.cName,
+                                uniqueName = binding.uniqueName,
                                 type = value.type,
                                 value = value,
                                 source = lower.site(arm)
@@ -7222,11 +7206,11 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             -- A nested loop uses its own bound, together with any entry-guard
             -- facts relating that count to other spans. The enclosing loop's
             -- index proof does not transfer to this induction variable.
-            local previousIndex, previousCName = kernel.index, kernel.indexCName
+            local previousIndex, previousUniqueName = kernel.index, kernel.indexUniqueName
             local previousAssigned = kernel.indexAssigned
             local previousBound, previousMapEntry = kernel.boundSpan, kernel.mapEntry
             kernel.index = binding.name
-            kernel.indexCName = binding.cName
+            kernel.indexUniqueName = binding.uniqueName
             kernel.indexAssigned = reassigned[binding.name] == true
             kernel.boundSpan = bounding
             kernel.mapEntry = false
@@ -7246,7 +7230,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             end
             kernel.cursorBounds = previousBounds
             kernel.index = previousIndex
-            kernel.indexCName = previousCName
+            kernel.indexUniqueName = previousUniqueName
             kernel.indexAssigned = previousAssigned
             kernel.boundSpan = previousBound
             kernel.mapEntry = previousMapEntry
@@ -7353,7 +7337,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                         buffer = new scalarIR.Name(
                             op = "local",
                             name = returnedBinding.name,
-                            cName = returnedBinding.cName,
+                            uniqueName = returnedBinding.uniqueName,
                             type = "lua_string_buffer",
                             source = lower.site(expression)
                         ),
@@ -7396,7 +7380,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             for position = firstStatement, #out do
                 local statement = out[position]
                 local captured = statement.op == "let" and expressionFrame.replacements[statement.value] or nil
-                if captured == nil or (captured as scalarIR.Name).cName ~= (statement as any).cName then
+                if captured == nil or (captured as scalarIR.Name).uniqueName ~= (statement as any).uniqueName then
                     visit.statementExpressions(statement, rewrite)
                 end
             end
@@ -7454,8 +7438,8 @@ end
 ---
 --- Ownership is not inferred from use: a writable span has to be written
 --- `exclusive` and a readable one `borrows`, because the alias facts the
---- generated C rests on are those borrows restated, and a mode this had to guess
---- would be a `restrict` nobody proved.
+--- generated code rests on are those borrows restated, and a mode this had to
+--- guess would be a `noalias` nobody proved.
 function lower.parameters(
     raws: {cst.Param},
     checkedSignature: any?,
@@ -7714,23 +7698,6 @@ end
 ----------------------------------------------------------------------------
 -- Guards
 ----------------------------------------------------------------------------
-
---- The one clause of a guard that does nothing but call `error`.
----
---- Both source forms have this shape, and it is the shape that makes a guard
---- readable: the polarity its condition holds in on fallthrough is only known
---- because the branch that does not fall through cannot return.
-function lower.isGuardStatement(stat: cst.Node?): boolean
-    if stat == nil then
-        return false
-    end
-    if stat.kind == "ifStmt" then
-        return true
-    end
-    local called = stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
-
-    return called ~= nil and called.kind == "call" and (called as cst.Call).aotGuardBuiltin == "assert"
-end
 
 --- Whether dropping one already-evaluated guard argument changes no behavior.
 local function inertGuardArgument(node: cst.Node?): boolean
@@ -8179,9 +8146,9 @@ function lower.loopShape(loop: cst.Node?, signature: lower.Signature): lower.Loo
     if startName == nil or stopName == nil then
         return nil
     end
-    -- The IR carries these two as names the emitted C reads directly, and the
-    -- verifier holds them to `integer`, so a narrower integral uniform may state
-    -- a relation without being admitted as a bound.
+    -- The IR carries these two as names the generated code reads directly, and
+    -- the verifier holds them to `integer`, so a narrower integral uniform may
+    -- state a relation without being admitted as a bound.
     local from = signature.byName[startName as string]
     local to = signature.byName[stopName as string]
     if from == nil
@@ -8710,7 +8677,7 @@ end
 
 --- The lowering environment either entry shape starts from: the
 --- specialization's carriers, then the uniform and scalar parameters, each
---- scalar carrying its positional C name.
+--- scalar carrying its positional unique name.
 local function loweringEnvironment(signature: lower.Signature, specialization: lower.Specialization?): {[string]: any}
     local environment: {[string]: any} = {}
     if specialization ~= nil then
@@ -8721,9 +8688,9 @@ local function loweringEnvironment(signature: lower.Signature, specialization: l
     for position, param in ipairs(signature.params) do
         if param.kind == "uniform" or param.kind == "scalar" then
             if param.kind == "scalar" then
-                (param as any).cName = tostring(position)
+                (param as any).uniqueName = tostring(position)
             else
-                param.cName = "p_" .. param.name
+                param.uniqueName = "p_" .. param.name
             end
             environment[param.name] = specialization ~= nil
                 and (specialization as lower.Specialization).values[param.name]
@@ -8768,14 +8735,13 @@ local function newKernel(
         nextReducerRegion = 0,
         symbol = symbol,
         index = "",
-        indexCName = "",
+        indexUniqueName = "",
         mapEntry = false,
         resultTypes = {},
         cursorBounds = {},
         lengthBounds = {},
         scratchLengthBounds = {},
         usesSimd = false,
-        usesNumberToken = false,
         usesLua = false,
         serial = 0,
         context = context
@@ -8803,9 +8769,9 @@ end
 
 --- Lowers one whole `@aot` function to AOT IR.
 ---
---- The IR is what everything downstream is written from -- the verifier, the C,
---- the wrapper -- so this is where the source stops being consulted. What the
---- function is has been decided by the time this returns.
+--- The IR is what everything downstream is written from -- the verifier, the
+--- code generator, the wrapper -- so this is where the source stops being
+--- consulted. What the function is has been decided by the time this returns.
 function lower.program(
     declarations: lower.Declarations,
     application: lower.Application,
@@ -8953,7 +8919,7 @@ function lower.program(
         if groups.op == "local" then
             for index = #prelude, 1, -1 do
                 local statement = prelude[index]
-                if statement.op == "let" and statement.cName == (groups as scalarIR.Name).cName then
+                if statement.op == "let" and statement.uniqueName == (groups as scalarIR.Name).uniqueName then
                     groups = (statement as scalarIR.Let).value
                     break
                 end
@@ -8996,7 +8962,7 @@ function lower.program(
             new scalarIR.Let(
                 op = "let",
                 name = groupName,
-                cName = groupBinding.cName,
+                uniqueName = groupBinding.uniqueName,
                 type = "u32",
                 value = groupValue,
                 source = lower.site(controllerParams[1])
@@ -9066,14 +9032,11 @@ function lower.program(
                 resultTypes = {},
                 resultSourceTypes = {},
                 usesSimd = false,
-                usesNumberToken = false,
                 workgroup = new scalarIR.Workgroup(
                     prelude = prelude,
                     groups = groups,
                     dispatchSpan = dispatchSpan,
                     size = size as integer,
-                    groupIndex = groupName,
-                    localIndex = "localIndex",
                     shared = kernel.sharedOrder as {scalarIR.Shared},
                     statements = lowered,
                     source = lower.site(workgroupCall)
@@ -9214,7 +9177,6 @@ function lower.program(
             resultTypes = resultTypes,
             resultSourceTypes = resultSourceTypes,
             usesSimd = kernel.usesSimd,
-            usesNumberToken = kernel.usesNumberToken,
             source = lower.site(fn)
         )
 
@@ -9237,7 +9199,7 @@ function lower.program(
         reassignedNames = assignedNames(body.body, {}),
         loopSource = lower.site(loop),
         index = index,
-        indexCName = "i",
+        indexUniqueName = "i",
         mapEntry = true,
         boundSpan = primary.name,
         indexSpans = (function(): {[string]: boolean}
@@ -9291,7 +9253,6 @@ function lower.program(
             resultTypes = {},
             resultSourceTypes = {},
             usesSimd = kernel.usesSimd,
-            usesNumberToken = kernel.usesNumberToken,
             loop = new scalarIR.Loop(
                 index = index,
                 first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,

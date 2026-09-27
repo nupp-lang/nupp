@@ -10,7 +10,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local M = {}
 
 local function localValue(name)
-    return {op = "local", name = name, cName = name, type = "u32"}
+    return {op = "local", name = name, uniqueName = name, type = "u32"}
 end
 
 local function replacement(child)
@@ -288,7 +288,7 @@ end
 -- would pass every mapper check.
 function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
     local function let(name)
-        return {op = "let", name = name, cName = name, value = localValue(name), type = "u32"}
+        return {op = "let", name = name, uniqueName = name, value = localValue(name), type = "u32"}
     end
 
     local program = {
@@ -306,7 +306,7 @@ function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
                 op = "fornum",
                 from = localValue("from"),
                 to = localValue("to"),
-                binding = {name = "i", cName = "i", type = "i32"},
+                binding = {name = "i", uniqueName = "i", type = "i32"},
                 body = {let("inFor")},
             },
             {op = "block", body = {let("inBlock")}},
@@ -316,68 +316,13 @@ function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
     visit.program(program, {
         scalarStatement = function(statement)
             if statement.op == "let" then
-                seen[statement.cName] = true
+                seen[statement.uniqueName] = true
             end
         end
     })
     for _, name in ipairs({"inThen", "inElseif", "inElseFirst", "inElseSecond", "inWhile", "inFor", "inBlock",}) do
         assert(seen[name], "the observing walk missed " .. name)
     end
-end
-
-function M.pointerSpansSeeLoadsBeneathWideArithmetic()
-    local emit = require("nupp.compiler.aot.emit")
-    local program = {
-        body = {
-            {
-                op = "let",
-                name = "wide",
-                cName = "wide",
-                type = "i64",
-                value = {
-                    op = "i64_add",
-                    left = {
-                        op = "numeric_cast",
-                        value = {op = "load", span = "values", index = "i", type = "i32"},
-                        type = "i64",
-                    },
-                    right = {op = "constant_i64", value = "1", type = "i64"},
-                    type = "i64",
-                },
-            }
-        },
-    }
-    local used = emit.pointerSpans(program)
-    assert(used.values == true, "a span read beneath 64-bit arithmetic must count as used")
-end
-
--- A guard may state a precondition about a parameter the body never reads, so
--- the emitter has to know which uniforms the C actually uses. The loop's own
--- bounds are read by the loop header rather than by any IR node, which is why
--- they are added by hand rather than found by the walk.
-function M.pointerSpansSeeUniformReadsAndLoopBounds()
-    local emit = require("nupp.compiler.aot.emit")
-    local program = {
-        rangeGuard = {first = "first", last = "last", count = "out"},
-        loop = {
-            index = "i",
-            first = "first",
-            last = "last",
-            count = "out",
-            statements = {
-                {
-                    op = "store",
-                    span = "out",
-                    index = "i",
-                    value = {op = "uniform", name = "scale", cName = "scale", type = "f64"},
-                }
-            },
-        },
-    }
-    local used = emit.pointerSpans(program)
-    assert(used.scale == true, "a uniform the body reads is used")
-    assert(used.first == true and used.last == true, "so are the bounds the loop header reads")
-    assert(used.rounds == nil, "a uniform only a guard mentioned is not")
 end
 
 function M.theWalkReachesAUniformMultipleBinding()
@@ -387,7 +332,7 @@ function M.theWalkReachesAUniformMultipleBinding()
             {
                 op = "multi_let",
                 call = {op = "helper_call", helper = "pair", args = {localValue("argument")}, type = "multi"},
-                bindings = {{name = "first", cName = "first", type = "u32"}},
+                bindings = {{name = "first", uniqueName = "first", type = "u32"}},
             }
         },
     }
@@ -402,104 +347,70 @@ function M.theWalkReachesAUniformMultipleBinding()
     assert(seen.argument, "the walk reaches the call's arguments")
 end
 
--- C rendering owns its contexts and selections, never fields on semantic IR.
-function M.cEmissionDoesNotMutateHelpersOrLeakBetweenTargets()
-    local emit = require("nupp.compiler.aot.emit")
+-- The LLVM module for hand-built programs, as a Linux x86-64 unit would have it.
+local function llvmModule(programs, tier)
+    local llvmProgram = require("nupp.compiler.aot.llvm.program")
+    local profile = require("nupp.compiler.aot.llvm.profile")
+    return llvmProgram.module(programs, tier or "baseline", assert(profile.of("x86_64-unknown-linux-gnu")))
+end
+
+local function kernelUnit(name, width, body, helpers)
+    return {
+        name = name,
+        symbol = name,
+        entryMode = "kernel",
+        simdWidth = width,
+        params = {},
+        guards = {},
+        resultTypes = {},
+        body = body or {{op = "return", values = {}}},
+        helpers = helpers or {},
+    }
+end
+
+-- Lowering owns its contexts and selections, never fields on semantic IR:
+-- one set of programs is lowered once per tier, so a lowering that wrote back
+-- into the IR, or kept state between modules, would leak one tier's choices
+-- into the next.
+function M.llvmLoweringDoesNotMutateHelpersOrLeakBetweenWidths()
     local json = require("testjson")
 
     local function unit(width, name)
         local vector = "simd_vector_f32_preferred"
-        local value = {op = "helper_param", name = "x", cName = "x", type = vector}
-        return {
-            name = name,
-            symbol = name,
-            entryMode = "kernel",
-            simdWidth = width,
-            params = {},
-            guards = {},
-            resultTypes = {},
-            body = {{op = "return", values = {}}},
-            helpers = {
-                {
-                    name = "pair",
-                    cName = name .. "_pair",
-                    params = {value},
-                    resultType = "multi",
-                    resultTypes = {vector, vector},
-                    values = {value, value}
-                }
-            },
-        }
+        local value = {op = "helper_param", name = "x", uniqueName = "x", type = vector}
+        return kernelUnit(name, width, nil, {
+            {
+                name = "pair",
+                uniqueName = name .. "_pair",
+                params = {value},
+                resultTypes = {vector, vector},
+                values = {value, value}
+            }
+        })
     end
 
     local first, second = unit(16, "first"), unit(32, "second")
     local before = json.encode(first)
-    local rendered = emit.program({first})
-    emit.program({second})
-    assert(emit.program({first}) == rendered, "another width changed a subsequent emission")
-    assert(json.encode(first) == before, "emission mutated semantic IR")
-    assert(rendered:find("ks_scalar_exp_f32x4", 1, true), "scalar helper lost its physical type")
-    assert(rendered:find("ks_exp_f32x4", 1, true), "vector helper lost its physical type")
-    local widest = emit.program({unit(64, "third")})
-    assert(widest:find("#define KS_SIMD_WIDTH 64", 1, true), "a 64-byte program instantiates its own width")
-    assert(widest:find("ks_exp_f32x16", 1, true), "sixteen binary32 lanes fill a 64-byte preferred vector")
-    assert(emit.program({first}) == rendered, "the 64-byte width changed a subsequent emission")
+    local rendered = llvmModule({first})
+    llvmModule({second})
+    assert(llvmModule({first}) == rendered, "another width changed a subsequent lowering")
+    assert(json.encode(first) == before, "lowering mutated semantic IR")
+    assert(rendered:find("{ <4 x float>, <4 x float> } @first_pair(<4 x float> %h_x)", 1, true), rendered)
+    local widest = llvmModule({unit(64, "third")})
+    assert(
+        widest:find("{ <16 x float>, <16 x float> } @third_pair(<16 x float> %h_x)", 1, true),
+        "sixteen binary32 lanes fill a 64-byte preferred vector\n" .. widest
+    )
+    assert(llvmModule({first}) == rendered, "the 64-byte width changed a subsequent lowering")
 end
 
-function M.cControlFlowKeepsRepeatContinuationsInsideTheirOwnLoop()
-    local emit = require("nupp.compiler.aot.emit")
-    local yes = {op = "bool", value = true, type = "bool"}
-    local statements = {
-        {
-            op = "repeat",
-            condition = yes,
-            body = {
-                {op = "block", body = {{op = "continue"}}},
-                {op = "while", condition = yes, body = {{op = "continue"}, {op = "break"}}},
-                {op = "repeat", condition = yes, body = {{op = "continue"}}},
-                {op = "continue"},
-            }
-        }
-    }
-
-    local function render(renderer)
-        return table.concat(renderer(emit.context(), statements, 0, {helpers = {}, layouts = {}}), "\n")
-    end
-
-    local kernel, builder = render(emit.block), render(emit.luaBlock)
-    assert(kernel == builder, "kernel and Lua builder disagree about shared control flow")
-    assert(kernel:find("goto ks_repeat_continue_1;", 1, true))
-    assert(kernel:find("goto ks_repeat_continue_2;", 1, true))
-    assert(kernel:find("        continue;", 1, true), "inner while inherited the outer repeat's continuation")
-    local _, outerJumps = kernel:gsub("goto ks_repeat_continue_1;", "")
-    assert(outerJumps == 2, "nested repeat changed the enclosing repeat's continuation")
-end
-
-function M.cSelectionsPreserveIntegerCountBoundsAndStoreOffsets()
-    local emit = require("nupp.compiler.aot.emit")
-    local cplan = require("nupp.compiler.aot.cplan")
-    local count = {op = "span_count", span = "input", type = "f64"}
-    local signed = {op = "local", name = "cursor", cName = "cursor", type = "i64"}
-    local widened = {op = "int_to_f64", value = signed, type = "f64"}
-    local comparison = {op = "lt", left = count, right = widened, type = "bool"}
-    local offset = {op = "int_to_f64", value = localValue("offset"), type = "f64"}
-    local store = {op = "simd_store", args = {localValue("species"), offset, localValue("value")}, type = "lua_effect"}
-    local context = emit.context()
-    context.expressions = cplan.expressions({{body = {{op = "return", values = {comparison}}, store}, helpers = {}}})
-    assert(emit.scalar(context, comparison) == "ks_gt_i64_u64((int64_t)cursor, (uint64_t)count_input)")
-    assert(emit.spanFirst(context, offset) == "nupp_first_u64((uint64_t)offset)")
-    local common = emit.context(context)
-    common.independentSpanCounts = false
-    assert(emit.scalar(common, comparison) == "ks_gt_i64_u64((int64_t)cursor, (uint64_t)count)")
-end
-
-function M.cStatementsRejectUnsupportedAndUnknownOperations()
-    local emit = require("nupp.compiler.aot.emit")
-    for _, renderer in ipairs({emit.block, emit.luaBlock}) do
-        for _, op in ipairs({"phase", "simd_splat", "future_statement"}) do
-            local ok = pcall(renderer, emit.context(), {{op = op}}, 0, {helpers = {}, layouts = {}})
-            assert(not ok, "C renderer silently accepted " .. op)
-        end
+function M.llvmStatementsRejectUnsupportedAndUnknownOperations()
+    local llvmProgram = require("nupp.compiler.aot.llvm.program")
+    for _, op in ipairs({"phase", "simd_splat", "future_statement"}) do
+        local ok, err = pcall(llvmModule, {kernelUnit("rejects", 16, {{op = op}})})
+        assert(not ok, "the LLVM lowering silently accepted " .. op)
+        assert(llvmProgram.isUnsupported(err), tostring(err))
+        assert(tostring(err):find("statement " .. op, 1, true), tostring(err))
     end
 end
 

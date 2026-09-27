@@ -585,7 +585,9 @@ local function nativeReport(collector, report, sourceName)
                     addLegacy(collector, sourcePrefix, "simd.native.host", {host = host}, sourceName)
                 end
                 addLegacy(collector, sourcePrefix, "simd.native.tier", {tier = row.tier}, sourceName)
-                if row.dialect == "clang" or row.dialect == "gcc" then
+                -- Rows from before the LLVM cutover name the C compiler that
+                -- built them; they prove nothing about the code generator now.
+                if row.dialect == "llvm" then
                     addLegacy(
                         collector,
                         sourcePrefix,

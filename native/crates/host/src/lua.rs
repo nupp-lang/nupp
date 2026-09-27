@@ -342,6 +342,8 @@ impl Lua {
         self.add_feature(c"native-process")?;
         #[cfg(feature = "native-tls")]
         self.add_feature(c"native-tls")?;
+        #[cfg(feature = "native-codegen")]
+        self.add_feature(c"native-codegen")?;
         let _ = open_libraries;
         Ok(())
     }

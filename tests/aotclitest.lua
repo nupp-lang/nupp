@@ -109,17 +109,9 @@ local function run(dir, argv)
     return kept[1], kept[2]
 end
 
--- The NEON instructions of FILE, or nil where this machine cannot read them.
--- Compiling for a triple the machine is not needs a compiler that can target
--- it, which is Clang: GCC answers for the host whatever triple it was given,
--- and the host's instructions say nothing about the aarch64 ones a test
--- asserts on. An aarch64 host reads them with either.
+-- The NEON instructions of FILE. The code generator targets aarch64 from any
+-- host, so every machine reads them.
 local function neonAsm(dir, file)
-    local chain = require("nupp.tools.build.aot").toolchain()
-    local host = require("nupp.compiler.aot.target").hostTriple()
-    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
-        return nil
-    end
     local asm, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm " .. file)
     test.equal(code, 0, asm)
 
@@ -130,8 +122,8 @@ end
 ---
 --- `--emit` prints one artifact and nothing else, so a case that wants two of
 --- them used to start the compiler twice over the same file. `--json` without
---- `--emit` carries the IR, the C and the binding together, and the C in it is
---- byte for byte the C `--emit c` prints. The exit status comes back beside
+--- `--emit` carries the IR, the LLVM IR and the binding together, and the LLVM
+--- IR in it is byte for byte what `--emit llvm` prints. The exit status comes back beside
 --- them, so a single compiler invocation supplies the complete report.
 ---
 --- The command and the directory it ran in come back last, because a project is
@@ -543,7 +535,7 @@ function M.gpuCountedLoopsEmitNativeAndBrowserControlFlow()
         assert(shader:find("break if ", 1, true), shader)
         assert(
             not shader:find("let __", 1, true) and not shader:find("var __", 1, true),
-            "WGSL forbids the C temporary identifier prefix\n" .. shader
+            "WGSL forbids the double-underscore identifier prefix\n" .. shader
         )
     end
 end
@@ -760,7 +752,10 @@ return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
 
     local decoded, raw, code, where = lowered(dir, "--json native-exp.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.c:find("expf(", 1, true), where .. ": the CPU body calls the native exponential: " .. decoded.c)
+    assert(
+        decoded.llvm:find("call float @expf(", 1, true),
+        where .. ": the CPU body calls the native exponential: " .. decoded.llvm
+    )
     assert(
         decoded.ir:find("contract fp-transcendentals(native)", 1, true),
         where .. ": and the IR records the contract that granted it: " .. decoded.ir
@@ -859,11 +854,19 @@ return {
     test.equal(signedCode, 0, signedModule)
     assert(spirvOpcodeCount(signedModule, 114) > 0, "signed storage emitted no OpSConvert")
 
-    local c, cCode = run(dir, "--emit c half.nupp")
-    test.equal(cCode, 0, c)
-    assert(c:find("nupp_f16_to_f32", 1, true), c)
-    assert(c:find("nupp_bf16_to_f32", 1, true), c)
-    assert(c:find("uint16_t *restrict p_packed", 1, true), c)
+    -- The CPU twins take the same conversions, and the packed span keeps its
+    -- sixteen-bit storage rather than widening to the value it carries.
+    local decoded, raw, code, where = lowered(dir, "--json half.nupp")
+    test.equal(code, 0, raw)
+    local llvm = decoded.llvm
+    assert(llvm:find("call float @nupp.f16.to.f32(", 1, true), where .. ": binary16 widens exactly\n" .. llvm)
+    assert(llvm:find("call i32 @nupp.f32.to.f16(", 1, true), where .. ": and narrows back\n" .. llvm)
+    assert(llvm:find("call float @nupp.bf16.to.f32(", 1, true), where .. ": bfloat16 widens exactly\n" .. llvm)
+    assert(llvm:find("call i32 @nupp.f32.to.bf16(", 1, true), where .. ": and narrows back\n" .. llvm)
+    assert(
+        llvm:find("= getelementptr inbounds nuw i16, ptr %%p_packed, i64 %%t%d+\n  store i16 "),
+        where .. ": the packed span is stored as sixteen-bit elements\n" .. llvm
+    )
 end
 
 function M.gpuTargetUsesTheIrPolynomialExponential()
@@ -903,10 +906,23 @@ return {exponential = exponential, exponentialCpu = exponentialCpu}
     assert(not spirvHasExtendedInstruction(module, 27), "IR exponential delegated to GLSL.std.450 Exp")
     assert(spirvDecorationCount(module, 42) >= 8, "IR exponential lost its binary32 contraction barriers")
 
-    local c, cCode = run(dir, "--emit c exp.nupp")
-    test.equal(cCode, 0, c)
-    assert(c:find("nupp_f32_exp", 1, true), c)
-    assert(c:find("nupp_f32_fma(out, y", 1, true), c)
+    -- The CPU twin takes the same polynomial rather than a library call, and
+    -- evaluates it by fused Horner steps.
+    local decoded, raw, code, where = lowered(dir, "--json exp.nupp")
+    test.equal(code, 0, raw)
+    local llvm = decoded.llvm
+    assert(
+        llvm:find("call float @nupp.f32.exp(", 1, true),
+        where .. ": the CPU body calls the IR exponential\n" .. llvm
+    )
+    assert(
+        llvm:find("%%p%d+ = call float @nupp.f32.fma%(float %%p%d+, float %%y, "),
+        where .. ": whose polynomial is a chain of fused steps\n" .. llvm
+    )
+    assert(
+        not llvm:find("@llvm.exp.", 1, true) and not llvm:find("@expf(", 1, true),
+        where .. ": not a library exponential\n" .. llvm
+    )
 end
 
 -- Spans a matrix product relates by dimension, not equality: the guard names
@@ -984,9 +1000,17 @@ end
 return {gather = gather}
 ]],
     })
-    local c, code = run(dir, "--emit c gather.nupp")
-    test.equal(code, 0, c)
-    assert(c:find("p_source[((size_t)v", 1, true), c)
+    local decoded, raw, code, where = lowered(dir, "--json gather.nupp")
+    test.equal(code, 0, raw)
+    assert(
+        decoded.ir:find("guards\n  equal_count out offsets @", 1, true)
+            and not decoded.ir:find("equal_count out source", 1, true),
+        where .. ": only the spans the loop index addresses are guarded equal: " .. decoded.ir
+    )
+    assert(
+        decoded.llvm:match("%%t%d+ = zext i32 %%t%d+ to i64\n  %%t%d+ = getelementptr inbounds nuw float, ptr %%p_source, i64 %%t%d+\n"),
+        where .. ": the other span is read at the widened cursor its own count check proved: " .. decoded.llvm
+    )
 end
 
 -- A proved cursor may still name a guarded-equal span. Such a map shares one
@@ -1017,10 +1041,11 @@ end
 return {copyFirst = copyFirst}
 ]],
     })
-    local c, code = run(dir, "--emit c shared-count.nupp")
-    test.equal(code, 0, c)
-    assert(c:find("(uint64_t)v1_cursor < (uint64_t)count)", 1, true), c)
-    assert(not c:find("count_input", 1, true), c)
+    local llvm, code = run(dir, "--emit llvm shared-count.nupp")
+    test.equal(code, 0, llvm)
+    assert(llvm:find("i64 range(i64 0, 9007199254740993) %count)", 1, true), "the entry takes one shared count: " .. llvm)
+    assert(llvm:find("zext i64 %count to i65", 1, true), "the cursor check reads it: " .. llvm)
+    assert(not llvm:find("count_input", 1, true), llvm)
 end
 
 function M.gpuTargetExposesItsLoopIndexAndUnsignedDivision()
@@ -1068,10 +1093,17 @@ return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
     assert(spirvOpcodeCount(module, 134) > 0, "coordinate row emitted no OpUDiv")
     assert(spirvOpcodeCount(module, 137) > 0, "coordinate column emitted no OpUMod")
 
-    local c, cCode = run(dir, "--emit c coordinates.nupp")
-    test.equal(cCode, 0, c)
-    assert(c:find("nupp_u32_div", 1, true), c)
-    assert(c:find("(i + 1u)", 1, true), c)
+    -- The CPU twin divides unsigned too, and its loop index is the one-based
+    -- source index the body names.
+    local decoded, raw, code, where = lowered(dir, "--json coordinates.nupp")
+    test.equal(code, 0, raw)
+    local llvm = decoded.llvm
+    assert(llvm:find("call i32 @nupp.u32.div(", 1, true), where .. ": the row is an unsigned division\n" .. llvm)
+    assert(llvm:find("call i32 @nupp.u32.mod(", 1, true), where .. ": the column an unsigned remainder\n" .. llvm)
+    assert(
+        llvm:find("= add nuw i64 %%t%d+, 1\n  %%t%d+ = uitofp i64 "),
+        where .. ": the zero-based counter is exposed plus one\n" .. llvm
+    )
 end
 
 local GPU_PHASE_DECLARATIONS = [[
@@ -1541,6 +1573,37 @@ return {saxpy = saxpy}
 --- x86-64 baseline. Left to the host, they would assert the runner's CPU.
 local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
 
+--- One function's definition out of a module of LLVM IR, and the attributes
+--- it carries.
+---
+--- NAME is a pattern for the symbol, because a kernel is emitted once per CPU
+--- tier as `ks_<name>__<tier>`: a case asks for `ks_saxpy__%w+` rather than
+--- spelling the tier it pinned, or the host's when it pinned none.
+local function llvmFunction(llvm, name)
+    local at = ("\n" .. llvm):find("\ndefine [^\n]-@" .. name .. "%(")
+    if at == nil then
+        return nil, nil
+    end
+    local finish = llvm:find("\n}", at, true) or #llvm
+    local body = llvm:sub(at, finish + 1)
+    local group = body:match("^[^\n]* #(%d+) ")
+    local attributes = group and llvm:match("\nattributes #" .. group .. " = { ([^\n]*) }") or ""
+
+    return body, attributes
+end
+
+--- The scalar oracle an explicit SIMD kernel is checked against, asserted
+--- present: the same body emitted beside the kernel as its `_forced_scalar`
+--- twin and kept from the optimizer, so what it answers does not depend on
+--- what the kernel was made into.
+local function assertOracle(llvm, symbol, where)
+    local body, attributes = llvmFunction(llvm, symbol .. "_forced_scalar__%w+")
+    assert(body, where .. ": " .. symbol .. " has its scalar oracle\n" .. llvm)
+    assert(attributes:find("optnone", 1, true), where .. ": which the optimizer leaves as written: " .. attributes)
+
+    return body
+end
+
 local BYTE_CLASSIFIER = [[
 local span = require("nupp.mem.span")
 
@@ -1668,10 +1731,11 @@ function M.assertGuardsReachTheSameKernel()
     local gotReport, got, gotCode, gotWhere = lowered(asserted, PINNED .. "--json compute.nupp")
     test.equal(wantedCode, 0, wanted)
     test.equal(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
+    assert(wantedReport.llvm, "the report carries the LLVM IR\n" .. wanted)
     test.equal(
-        gotReport.c,
-        wantedReport.c,
-        ("both guard forms emit the same C (%s versus %s)"):format(gotWhere, wantedWhere)
+        gotReport.llvm,
+        wantedReport.llvm,
+        ("both guard forms emit the same LLVM IR (%s versus %s)"):format(gotWhere, wantedWhere)
     )
 end
 
@@ -1690,10 +1754,10 @@ end
 
 -- Every one of these says what the admitted form says, and the backend is asked
 -- whether the facts imply the loop's bounds rather than whether the text matches.
--- Byte-identical C is the claim: a source form that reaches a different artifact
--- would be one the backend understood differently.
+-- Byte-identical LLVM IR is the claim: a source form that reaches a different
+-- artifact would be one the backend understood differently.
 function M.equivalentGuardFormsReachTheSameKernel()
-    local wanted, wantedCode = run(project{["compute.nupp"] = COMPUTE}, PINNED .. "--emit c compute.nupp")
+    local wanted, wantedCode = run(project{["compute.nupp"] = COMPUTE}, PINNED .. "--emit llvm compute.nupp")
     test.equal(wantedCode, 0, wanted)
     local forms = {
         reordered = {
@@ -1712,9 +1776,9 @@ function M.equivalentGuardFormsReachTheSameKernel()
     }
     for name, pair in pairs(forms) do
         local source = replaceOnce(COMPUTE_ASSERTED, pair[1], pair[2])
-        local got, code = run(project{["compute.nupp"] = source}, PINNED .. "--emit c compute.nupp")
+        local got, code = run(project{["compute.nupp"] = source}, PINNED .. "--emit llvm compute.nupp")
         test.equal(code, 0, name .. " is admitted\n" .. got)
-        test.equal(got, wanted, name .. " emits the same C as the reference form")
+        test.equal(got, wanted, name .. " emits the same LLVM IR as the reference form")
     end
 end
 
@@ -1779,11 +1843,10 @@ function M.anUnrelatedPreconditionIsCarriedIntoTheWrapper()
     assert(out:find("last > 4096", 1, true), "the wrapper checks it: " .. out)
 end
 
--- The C has no use for a parameter only a guard mentioned, and `-Werror` would
--- refuse the generated translation unit for declaring one. `KS_UNUSED` says the
--- parameter may go unread without saying that it does, so a read the emitter
--- drops is still caught.
-function M.aUniformUsedOnlyByAGuardIsMarkedUnusedInC()
+-- A parameter only a guard mentions is still a parameter of the kernel, and
+-- what the guard says about it reaches LLVM as an assumption rather than as
+-- work the body does. The loop's own uniform is still what the loop reads.
+function M.aUniformUsedOnlyByAGuardBecomesAnAssumption()
     local dir = project{
         [
             "compute.nupp"
@@ -1797,10 +1860,21 @@ function M.aUniformUsedOnlyByAGuardIsMarkedUnusedInC()
     assert(guardOnly >= 1, "guard-only value")]]
         )
     }
-    local out, code = run(dir, PINNED .. "--emit c compute.nupp")
-    test.equal(code, 0, "the precondition is admitted\n" .. out)
-    assert(out:find("p_guardOnly KS_UNUSED", 1, true), "the generated C does not read the wrapper-only value: " .. out)
-    assert(not out:find("p_limit KS_UNUSED", 1, true), "the loop still reads its limit: " .. out)
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
+    test.equal(code, 0, "the precondition is admitted\n" .. raw)
+    assert(decoded.ir:find("  1 <= guardOnly @", 1, true), where .. ": the guard is a relation: " .. decoded.ir)
+    assert(
+        decoded.ir:find("while lt(local:f64 iteration, uniform:i32 limit)", 1, true),
+        where .. ": the loop still reads its limit: " .. decoded.ir
+    )
+    assert(
+        decoded.llvm:find("i32 %p_limit, i32 %p_guardOnly,", 1, true),
+        where .. ": both are kernel parameters: " .. decoded.llvm
+    )
+    assert(
+        decoded.llvm:match("(%%t%d+) = sext i32 %%p_guardOnly to i64\n  (%%t%d+) = add nsw i64 %1, %-1\n  (%%t%d+) = icmp sle i64 0, %2\n  call void @llvm%.assume%(i1 %3%)"),
+        where .. ": the guard-only value reaches LLVM as the fact the guard states: " .. decoded.llvm
+    )
 end
 
 -- A range over spans no equality relates. The length guard used to be what the
@@ -2107,7 +2181,15 @@ return {folds = folds}
         assert(decoded.ir:find("reducer.exact.sum", 1, true), tier .. decoded.ir)
         assert(decoded.ir:find("reducer.add", 1, true), tier .. ": missing scalar contribution")
         assert(not decoded.ir:find("simd_load", 1, true), tier .. ": no inferred vector load")
-        assert(decoded.c:find("ks_reduce_integer_argmax_u64_add", 1, true), tier .. ": missing indexed extremum")
+        assert(decoded.ir:find("reducer.integer.argmax", 1, true), tier .. ": missing indexed extremum")
+        assert(
+            decoded.llvm:find("call void @nupp.reduce.integer.argmax.u64.add(ptr %slot", 1, true),
+            tier .. ": the indexed extremum folds each uint64 at its own width"
+        )
+        assert(
+            decoded.llvm:find("%position = load i64, ptr %positionp", 1, true),
+            tier .. ": and keeps a 64-bit logical position beside it"
+        )
     end
 end
 
@@ -2133,15 +2215,19 @@ function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
         decoded.ir:find("simd_store.store:lua_effect", 1, true),
         where .. ": the masked store is intrinsic\n" .. decoded.ir
     )
-    assert(decoded.c:find("KS_EXP_ELEMENT(32, f32x8, float", 1, true), where .. ": AVX2 selects eight binary32 lanes")
-    assert(decoded.c:find("ks_saxpy_forced_scalar", 1, true), where .. ": the scalar-source oracle remains separate")
-    assert(decoded.c:find("ks_scalar_exp_mul_f32x8", 1, true), where .. ": oracle primitives execute lane by lane")
+    local kernel = llvmFunction(decoded.llvm, "ks_saxpy__%w+")
+    assert(kernel, where .. ": the kernel is emitted\n" .. decoded.llvm)
+    assert(kernel:find("= fmul <8 x float> ", 1, true), where .. ": AVX2 selects eight binary32 lanes\n" .. kernel)
+    assert(kernel:find("= fadd <8 x float> ", 1, true), where .. ": for the addition too\n" .. kernel)
+    -- The oracle is the same body at the same species, so what separates it
+    -- from the kernel is that nothing optimizes it.
+    local oracle = assertOracle(decoded.llvm, "ks_saxpy", where)
+    assert(oracle:find("= fmul <8 x float> ", 1, true), where .. ": and walks the same eight lanes\n" .. oracle)
 end
 
--- AVX-512F is the one tier whose preferred vector is 64 bytes, and it only
--- gets there once every earlier width is compiled with narrower flags: the
--- 64-byte block is instantiated for this tier alone, so no wider vector ever
--- meets a `-mavx2` compilation and the ABI warning that follows.
+-- AVX-512F is the one tier whose preferred vector is 64 bytes, so it is the
+-- one tier whose species, and the kernel and oracle built at it, hold sixteen
+-- binary32 lanes.
 function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
     local targets = require("nupp.compiler.aot.target")
     local host = assert(targets.hostTriple())
@@ -2158,15 +2244,14 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
     local decoded, raw, code, where = lowered(dir, "--target " .. triple .. " --features avx512f --json vectors.nupp")
     test.equal(code, 0, raw)
     assert(
-        decoded.c:find(("#define KS_SIMD_WIDTH %d"):format(width), 1, true),
-        where .. (": AVX-512F selects %d bytes"):format(width)
+        decoded.ir:find(("simd species(uint8,%d)"):format(width), 1, true),
+        where .. (": AVX-512F selects %d bytes\n"):format(width) .. decoded.ir
     )
+    local multiply = ("= fmul <%d x float> "):format(lanes)
+    local kernel = llvmFunction(decoded.llvm, "ks_saxpy__%w+")
+    assert(kernel and kernel:find(multiply, 1, true), (where .. ": %d binary32 lanes\n"):format(lanes) .. decoded.llvm)
     assert(
-        decoded.c:find(("KS_EXP_ELEMENT(%d, f32x%d, float"):format(width, lanes), 1, true),
-        (where .. ": %d binary32 lanes"):format(lanes)
-    )
-    assert(
-        decoded.c:find(("ks_scalar_exp_mul_f32x%d"):format(lanes), 1, true),
+        assertOracle(decoded.llvm, "ks_saxpy", where):find(multiply, 1, true),
         (where .. ": the oracle walks %d lanes"):format(lanes)
     )
     local asm, asmCode = run(dir, "--target " .. triple .. " --features avx512f --emit asm vectors.nupp")
@@ -2194,10 +2279,11 @@ end
 return {quotes = quotes, twice = twice}
 ]]
     }
-    local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit c mixed.nupp")
+    local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit llvm mixed.nupp")
     test.equal(mixedCode, 0, mixed)
-    local scanner = ("ks_exp_u8x%d"):format(width)
-    assert(mixed:find(scanner, 1, true), "byte vectors keep the " .. scanner .. " scanner: " .. mixed)
+    local scanner = llvmFunction(mixed, "ks_quotes__%w+")
+    local load = ("= load <%d x i8>, ptr %%t"):format(width)
+    assert(scanner and scanner:find(load, 1, true), "byte vectors keep the " .. load .. " scanner: " .. mixed)
 end
 
 function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
@@ -2208,7 +2294,11 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     end
     assert(out:find("fmul.4s", 1, true), "binary32 multiplication remains a vector operation: " .. out)
     assert(out:find("fadd.4s", 1, true), "binary32 addition remains a vector operation: " .. out)
-    assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
+    -- The C lowering's oracle walked lanes one at a time. The LLVM route's is
+    -- the same IR left unoptimized, and the Lua body is the reference.
+    if not out:find("; codegen ", 1, true) then
+        assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
+    end
 end
 
 function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
@@ -2234,12 +2324,19 @@ return {increment = increment}
     local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json narrow.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_vector_u8_preferred", 1, true), where .. ": physical byte identity reaches IR")
-    assert(decoded.c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t", 1, true), where .. ": NEON retains sixteen byte lanes")
+    local kernel = llvmFunction(decoded.llvm, "ks_increment__%w+")
+    assert(
+        kernel and kernel:find("= add <16 x i8> ", 1, true),
+        where .. ": NEON retains sixteen byte lanes\n" .. decoded.llvm
+    )
 
     local asm = neonAsm(dir, "narrow.nupp")
     if asm ~= nil then
         assert(asm:find("add.16b", 1, true), "byte addition remains a vector operation: " .. asm)
-        assert(asm:find("0 vector", 1, true), "the narrow scalar oracle has no vector instructions: " .. asm)
+        -- As for the float kernels: the oracle is the same IR left unoptimized.
+        if not asm:find("; codegen ", 1, true) then
+            assert(asm:find("0 vector", 1, true), "the narrow scalar oracle has no vector instructions: " .. asm)
+        end
     end
 end
 
@@ -2277,11 +2374,9 @@ return {nibbles = nibbles}
 ]]
     local dir = project{["nibbles.nupp"] = source}
     local asm = neonAsm(dir, "nibbles.nupp")
-    if asm ~= nil then
-        assert(asm:find("ushr.16b", 1, true), "the shift stays a byte vector operation: " .. asm)
-        assert(asm:find("and.16b", 1, true), "the and stays a byte vector operation: " .. asm)
-        assert(asm:find("tbl.16b", 1, true), "and the nibble indexes a table: " .. asm)
-    end
+    assert(asm:find("ushr.16b", 1, true), "the shift stays a byte vector operation: " .. asm)
+    assert(asm:find("and.16b", 1, true), "the and stays a byte vector operation: " .. asm)
+    assert(asm:find("tbl.16b", 1, true), "and the nibble indexes a table: " .. asm)
 
     local mismatched = source:gsub(
         "local low = entries:swizzle%(%(bytes & 15%) %+ 1%)",
@@ -2315,7 +2410,7 @@ return {count = count}
 ]]
             ):format(lanes)
         }
-        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c fixed-count.nupp")
+        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit ir fixed-count.nupp")
         test.equal(code, 1, out)
         assert(out:find("fixed-count.nupp:5:", 1, true), out)
         assert(out:find("integer lane count between 2 and 64", 1, true), out)
@@ -2370,8 +2465,10 @@ return {transform = transform}
     }) do
         assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
     end
-    assert(decoded.c:find("ks_scalar_exp_compress_u8x8", 1, true), where .. ": compress has scalar semantics")
-    assert(decoded.c:find("ks_scalar_exp_prefix_xor_u8x8", 1, true), where .. ": scan has scalar semantics")
+    local kernel = llvmFunction(decoded.llvm, "ks_transform__%w+")
+    assert(kernel, where .. ": the kernel is emitted\n" .. decoded.llvm)
+    assert(kernel:find("= xor <8 x i8> ", 1, true), where .. ": the scan stays on the eight byte lanes\n" .. kernel)
+    assertOracle(decoded.llvm, "ks_transform", where)
 
     local asm = neonAsm(dir, "structural.nupp")
     if asm ~= nil then
@@ -2397,11 +2494,15 @@ return {convert = convert}
 
 function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
     local dir = project{["convert.nupp"] = CONVERT_SIMD}
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_convert.convert", 1, true), decoded.ir)
-    assert(decoded.c:find("__builtin_convertvector(ks_cast_d, ks_cast_int64)", 1, true), decoded.c)
-    assert(decoded.c:find("ks_cast_result.lane[ks_cast_i]", 1, true), "independent scalar conversion")
+    local kernel = llvmFunction(decoded.llvm, "ks_convert__%w+")
+    assert(
+        kernel and kernel:find("= fptosi <8 x double> %%t%d+ to <8 x i64>"),
+        where .. ": the conversion is one vector conversion\n" .. decoded.llvm
+    )
+    assertOracle(decoded.llvm, "ks_convert", where)
     local host = assert(require("nupp.compiler.aot.target").hostTriple())
     local neon = neonAsm(dir, "convert.nupp")
     if neon ~= nil then
@@ -2422,7 +2523,7 @@ function M.numericSimdConversionsRejectLaneAndBitWidthMismatches()
         {source = CONVERT_SIMD:gsub("target:convert", "target:reinterpret"), reason = "equal element widths"},
     }) do
         local dir = project{["convert.nupp"] = case.source}
-        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c convert.nupp")
+        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm convert.nupp")
         test.equal(code, 1, out)
         assert(out:find(case.reason, 1, true), out)
     end
@@ -2473,7 +2574,7 @@ end
 function M.scatterRefusesUnprovedUniquenessWithoutARuntimeFallback()
     local source = INDEXED_SIMD:gsub("scatterUnchecked", "scatter")
     local dir = project{["indexed.nupp"] = source}
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
     test.equal(code, 1, out)
     assert(out:find("provably unique indices", 1, true), out)
     assert(out:find("scatterUnchecked", 1, true), out)
@@ -2483,45 +2584,27 @@ end
 -- the fixture names are one partial chunk of it and the gather still reaches
 -- the native instruction through that chunk's contiguous lanes.
 function M.indexedSimdUsesNativeAvx512MemoryInstructions()
-    local targets = require("nupp.compiler.aot.target")
-    local host = assert(targets.hostTriple())
-    local triple = host:gsub("^[^-]+", "x86_64")
-    -- The gather and scatter this asserts address their lanes through a
-    -- 64-byte vector of addresses, so a target whose frame will not carry one
-    -- does not get them at all. The triple follows the host, so on Windows
-    -- there is nothing here to assert and the rest of the case still is.
-    local native = targets.vectorCeiling({triple = triple, architecture = "x86_64", tier = "avx512f"}) == nil
+    -- Pinned rather than following the host: LLVM reaches this target from
+    -- any of them, and a Windows target's frame ceiling would narrow the tier.
+    local target = "--target x86_64-unknown-linux-gnu --features avx512f "
     for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub(", 8%)", ", 4)"))}) do
         local dir = project{["indexed.nupp"] = source}
-        local c, cCode = run(dir, "--target " .. triple .. " --features avx512f --emit c indexed.nupp")
-        test.equal(cCode, 0, c)
-        if native then
-            assert(c:find("#define KS_SIMD_WIDTH 64", 1, true), c)
-        end
-        local asm, code = run(dir, "--target " .. triple .. " --features avx512f --emit asm indexed.nupp")
-        test.equal(code, 0, asm)
-        if native then
-            assert(asm:find("vpgather", 1, true), asm)
-            assert(asm:find("vpscatter", 1, true), asm)
-        end
-
-        -- The lanes these walk are ordinary arrays, and a Windows worker died
-        -- on one: GCC widened it to the register it moved it with, and the
-        -- frame it sat in was sixteen-byte aligned, which is all the calling
-        -- convention leaves and all the prologue makes. Each one says what it
-        -- is aligned to, which narrows the choice without settling it -- MinGW
-        -- GCC widens one of these with the attribute on it. What settles it is
-        -- that a Windows target builds no value wider than its frame carries,
-        -- and this path is not emitted there at all.
-        local staging = {"ks_index", "ks_mask", "ks_value"}
-        if native then
-            staging[#staging + 1] = "ks_offsets"
-            staging[#staging + 1] = "ks_batch"
-        end
-        for _, staged in ipairs(staging) do
-            local declaration = c:match(staged .. "%[%d+%] ([%w_]+)%(")
-            test.equal(declaration, "KS_LANE_ARRAY_ALIGN", staged .. " is held to its element's alignment:\n" .. c)
-        end
+        local decoded, raw, code, where = lowered(dir, target .. "--json indexed.nupp")
+        test.equal(code, 0, raw)
+        assert(decoded.ir:find("simd species(uint8,64)", 1, true), where .. ": the tier holds 64 bytes\n" .. decoded.ir)
+        local kernel = llvmFunction(decoded.llvm, "ks_move__%w+")
+        assert(
+            kernel and kernel:find("call <%d+ x %a+> @llvm%.masked%.gather%."),
+            where .. ": the gather is one masked gather\n" .. decoded.llvm
+        )
+        assert(
+            kernel:find("call void @llvm%.masked%.scatter%."),
+            where .. ": the scatter one masked scatter\n" .. kernel
+        )
+        local asm, asmCode = run(dir, target .. "--emit asm indexed.nupp")
+        test.equal(asmCode, 0, asm)
+        assert(asm:find("v%a*gather"), asm)
+        assert(asm:find("v%a*scatter"), asm)
     end
 end
 
@@ -2535,13 +2618,13 @@ function M.scatterProvesAConstantNonWrappingProgression()
     local reversed = project{["indexed.nupp"] = descending}
     local reverseOut, reverseStatus = run(
         reversed,
-        "--target aarch64-apple-darwin --features neon --emit c indexed.nupp"
+        "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp"
     )
     test.equal(reverseStatus, 0, reverseOut)
     for _, progression in ipairs({"1, 0", "4294967295, 1", "1, 4294967295"}) do
         local rejected = source:gsub("positions:iota%(1, 2%)", "positions:iota(" .. progression .. ")")
         local failed = project{["indexed.nupp"] = rejected}
-        local out, status = run(failed, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+        local out, status = run(failed, "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
         test.equal(status, 1, out)
         assert(out:find("provably unique indices", 1, true), out)
     end
@@ -2553,7 +2636,7 @@ function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
         (INDEXED_SIMD:gsub("Span<float>", "Span<number>"):gsub("array.float", "array.number"):gsub(", 8%)", ")")),
     }) do
         local dir = project{["indexed.nupp"] = source}
-        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
+        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
         test.equal(code, 1, out)
         assert(out:find("integer indices with the same logical lane count", 1, true), out)
     end
@@ -2596,24 +2679,20 @@ return {horizontal = horizontal}
     }) do
         assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
     end
-    assert(
-        decoded.c:find("ks_exp_horizontal_pairwise_sum_f32x8", 1, true),
-        where .. ": fixed production semantics are emitted"
-    )
-    assert(
-        decoded.c:find("ks_scalar_exp_horizontal_pairwise_sum_f32x8", 1, true),
-        where .. ": the scalar executable reference is emitted"
-    )
-    assert(decoded.c:find("fmaf", 1, true), where .. ": only the named algebraic dot helper requests contraction")
+    local kernel = llvmFunction(decoded.llvm, "ks_horizontal__%w+")
+    assert(kernel, where .. ": fixed production semantics are emitted\n" .. decoded.llvm)
+    assertOracle(decoded.llvm, "ks_horizontal", where)
+    -- Eight lanes, so one fused step per lane of the one dot that asks for
+    -- them, and none for the pairwise dot beside it.
+    local _, fused = kernel:gsub("call float @llvm%.fma%.f32%(", "")
+    test.equal(fused, 8, where .. ": only the algebraic dot requests contraction\n" .. kernel)
 end
 
 -- Contraction is a separate choice from reassociation, and only `algebraicDot`
--- makes it. Reading it out of the C is not enough on its own: every horizontal
--- helper is a prelude macro, so `fmaf` is in the text of every artifact whether
--- or not the program reached it. The instructions are where the claim is
--- decided, and they are decidable here because the build pins
--- `-ffp-contract=off`, so an `a * b + c` the source did not write as a
--- contraction cannot become one behind it.
+-- makes it. The instructions are where the claim is decided, and they are
+-- decidable here because the LLVM IR carries no `contract` flag on an ordinary
+-- multiply or add, so an `a * b + c` the source did not write as a contraction
+-- cannot become one behind it.
 function M.onlyTheAlgebraicDotContractsItsMultiplyAndAdd()
     local source = [[
 local array = require("nupp.mem.array")
@@ -2640,13 +2719,6 @@ end
 return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
 ]]
     local dir = project{["dots.nupp"] = source}
-    local chain = require("nupp.tools.build.aot").toolchain()
-    local host = require("nupp.compiler.aot.target").hostTriple()
-    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
-        test.skip("reading NEON instructions needs Clang or an aarch64 host")
-
-        return
-    end
 
     local function fusedIn(name)
         local asm, code = run(
@@ -2693,17 +2765,18 @@ return {masks = masks, shifted = shifted}
         assert(decoded.ir:find(op, 1, true), where .. ": missing opcode " .. op .. "\n" .. decoded.ir)
     end
     assert(
-        decoded.c:find("(uint64_t)(p_a) & (uint64_t)(p_b)", 1, true),
-        where .. ": the pattern keeps its width rather than narrowing to 32 bits\n" .. decoded.c
+        decoded.llvm:match("%%t%d+ = and i64 %%t%d+, %%t%d+\n"),
+        where .. ": the pattern keeps its width rather than narrowing to 32 bits\n" .. decoded.llvm
     )
-    local shiftC = decoded.c
+    local shiftLlvm = decoded.llvm
     if equivalenceMutation.active("shift-masking") then
         local count
-        shiftC, count = shiftC:gsub("UINT64_C%(63%)", "UINT64_C(31)")
+        shiftLlvm, count = shiftLlvm:gsub("(and i64 %%t%d+), 63\n", "%1, 31\n")
         assert(count > 0, "equivalence mutation fixture did not match shift-masking")
     end
     assert(
-        shiftC:find("UINT64_C(63)", 1, true),
+        shiftLlvm:match("(%%t%d+) = and i64 %%t%d+, 63\n  %%t%d+ = shl i64 %%t%d+, %1\n")
+            and shiftLlvm:match("(%%t%d+) = and i64 %%t%d+, 63\n  %%t%d+ = lshr i64 %%t%d+, %1\n"),
         equivalenceMutation.active("shift-masking") and equivalenceMutation.marker("shift-masking", "wrong-result")
         or where .. ": a shift count is masked one bit wider than the 32-bit pair"
     )
@@ -2735,24 +2808,30 @@ return {sum = sum}
         "--target x86_64-unknown-linux-gnu --features baseline --json composite.nupp"
     )
     test.equal(code, 0, raw)
-    local compositeC = decoded.c
+    -- Seventeen lanes are one `<17 x i32>` value, which LLVM legalizes into
+    -- native registers itself. Lane 2 is read out of that whole value, never
+    -- out of a chunk the backend split off it.
+    local composite = assert(
+        decoded.llvm:match("define i32 @ks_sum__baseline%(.-\n}\n"),
+        where .. ": the kernel is emitted\n" .. decoded.llvm
+    )
     if equivalenceMutation.active("gcc-sra") then
         local count
-        compositeC, count = compositeC:gsub(
-            "ks_exp_extract_i32x4%(simd_value_1%.chunk%[0%], 1%)",
-            "simd_value_1.chunk[0][0]"
+        composite, count = composite:gsub(
+            "extractelement <17 x i32> (%%t%d+), i32 1\n",
+            "extractelement <4 x i32> %1, i32 1\n"
         )
         assert(count == 1, "equivalence mutation fixture did not match gcc-sra")
     end
     assert(
-        compositeC:find("ks_exp_extract_i32x4(simd_value_1.chunk[0], 1)", 1, true),
+        composite:match("extractelement <17 x i32> %%t%d+, i32 1\n"),
         equivalenceMutation.active("gcc-sra") and equivalenceMutation.marker("gcc-sra", "wrong-result")
-        or where .. ": composite extraction split a native vector\n" .. compositeC
+        or where .. ": composite extraction split a native vector\n" .. composite
     )
     assert(
-        not compositeC:find("simd_value_1.chunk[0][", 1, true),
+        not composite:find("x <4 x i32>", 1, true) and not composite:find("extractelement <4 x i32>", 1, true),
         equivalenceMutation.active("gcc-sra") and equivalenceMutation.marker("gcc-sra", "wrong-result")
-        or where .. ": composite extraction directly indexed a native vector\n" .. compositeC
+        or where .. ": composite extraction directly indexed a native vector\n" .. composite
     )
 end
 
@@ -2794,14 +2873,18 @@ return {lookup = lookup}
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_permute.swizzle", 1, true), where .. ": the lookup is one permutation\n" .. decoded.ir)
     assert(
-        decoded.c:find("ks_exp_swizzle_u8x16", 1, true) and decoded.c:find("ks_scalar_exp_swizzle_u8x16", 1, true),
+        decoded.llvm:find("define void @ks_lookup__neon(", 1, true)
+            and decoded.llvm:find("define void @ks_lookup_forced_scalar__neon(", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
     assert(
-        decoded.c:find("vqtbl1q_u8", 1, true),
+        decoded.llvm:find("call <16 x i8> @llvm.aarch64.neon.tbl1.v16i8(", 1, true),
         where .. ": a byte table reaches the target instruction rather than a lane loop"
     )
-    assert(decoded.c:find("indices - 1", 1, true), where .. ": one-based lane numbering is adapted once, not per lane")
+    assert(
+        decoded.llvm:match("(%%t%d+) = sub <16 x i8> %%t%d+, splat %(i8 1%)\n  %%t%d+ = call <16 x i8> @llvm%.aarch64%.neon%.tbl1%.v16i8%(<16 x i8> %%t%d+, <16 x i8> %1%)"),
+        where .. ": one-based lane numbering is adapted once, not per lane"
+    )
 end
 
 function M.aPairedSwizzleNumbersBothVectorsInOneRun()
@@ -2831,12 +2914,12 @@ return {joined = joined}
         where .. ": the paired form is its own intrinsic\n" .. decoded.ir
     )
     assert(
-        decoded.c:find("ks_exp_swizzle_pair_u8x16", 1, true)
-        and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
+        decoded.llvm:find("define void @ks_joined__neon(", 1, true)
+            and decoded.llvm:find("define void @ks_joined_forced_scalar__neon(", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
     assert(
-        decoded.c:find("vqtbl2q_u8", 1, true),
+        decoded.llvm:find("call <16 x i8> @llvm.aarch64.neon.tbl2.v16i8(", 1, true),
         where .. ": two byte tables reach the two-register table instruction rather than a lane loop"
     )
 end
@@ -2910,61 +2993,38 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
     }) do
         assert(decoded.ir:find(intrinsic, 1, true), where .. ": missing intrinsic " .. intrinsic .. "\n" .. decoded.ir)
     end
+    local llvm = decoded.llvm
+    local extrema = llvmFunction(llvm, "ks_extrema__%w+")
+    assert(extrema, where .. ": the production extremum is emitted\n" .. llvm)
+    assertOracle(llvm, "ks_extrema", where)
     assert(
-        decoded.c:find("ks_exp_horizontal_propagating_min_f32x8", 1, true),
-        where .. ": the production extremum is emitted"
+        extrema:find("= fcmp uno float %%t%d+, %%t%d+\n")
+        and extrema:find("= select i1 %%t%d+, float 0x7FF8000000000000, float %%t%d+\n"),
+        where .. ": the propagating contract answers a canonical NaN when either side is one\n" .. extrema
     )
     assert(
-        decoded.c:find("ks_scalar_exp_horizontal_number_arg_max_f32x8", 1, true),
-        where .. ": the scalar executable reference is emitted"
+        extrema:find("= bitcast float %%t%d+ to i32\n  %%t%d+ = icmp slt i32 %%t%d+, 0\n"),
+        where .. ": and orders the two zeros by sign\n" .. extrema
     )
-    -- The extremum bodies are authored C in ks_simd.h, instantiated for a
-    -- fixed species by one line the compiler emits after the width block.
-    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
+    local missing = llvmFunction(llvm, "ks_ignoring_missing__%w+")
     assert(
-        decoded.c:find("KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)", 1, true),
-        where .. ": the f32x8 helpers are instantiated\n" .. decoded.c
+        missing and missing:find("= fcmp uno <8 x float> (%%t%d+), %1\n"),
+        where .. ": the number-preferring contract asks which side is the NaN\n" .. llvm
     )
     assert(
-        header:find("KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, CHUNKED)", 1, true),
-        "a fixed species takes its extrema from the shared bodies"
+        missing:find("= icmp slt <8 x i32> %%t%d+, splat %(i32 0%)\n"),
+        where .. ": and orders the two zeros by sign too\n" .. missing
     )
-    assert(
-        header:find(
-            "ks_##P##_propagating_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); }",
-            1,
-            true
-        ),
-        "the propagating contract answers a canonical NaN"
-    )
-    assert(
-        header:find(
-            "ks_##P##_number_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; }",
-            1,
-            true
-        )
-        and header:find("KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, number, min)", 1, true)
-        and decoded.c:find("ks_exp_number_min_f32x8(", 1, true),
-        "the number-preferring contract is a separate body"
-    )
-    assert(header:find("signbit", 1, true), "both contracts order the two zeros by sign")
+    local counted = llvmFunction(llvm, "ks_counted__%w+")
     assert(
         decoded.ir:find("simd_horizontal.propagating_min", 1, true)
-        and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
-        where .. ": an extremum is defined at an integer element a sum is refused at\n" .. decoded.c
+        and counted
+        and counted:find("call i32 @llvm.smin.i32(", 1, true),
+        where .. ": an extremum is defined at an integer element a sum is refused at\n" .. llvm
     )
     assert(
-        decoded.c:find("KS_EXP_FIXED(i32x8, int32_t, int32_t, 8, i32x4, 4, 2, INT)", 1, true),
-        where .. ": the i32x8 helpers are instantiated\n" .. decoded.c
-    )
-    assert(
-        header:find(
-            "ks_##P##_##contract##_##which##2_##ELEM(CTYPE left, CTYPE right) { return left op right ? left : right; }",
-            1,
-            true
-        )
-        and not decoded.c:find("ks_exp_nan_i32x", 1, true),
-        where .. ": an integer extremum carries no NaN case"
+        not counted:find("fcmp", 1, true) and not counted:find("0x7FF8", 1, true),
+        where .. ": an integer extremum carries no NaN case\n" .. counted
     )
 end
 
@@ -3017,10 +3077,13 @@ return {total = total}
         where .. ": the scalar contribution retains its order\n" .. decoded.ir
     )
     assert(
-        decoded.c:find("ks_compensated_f64_add", 1, true),
+        decoded.llvm:find("call void @nupp.compensated.add(ptr %slot", 1, true),
         where .. ": the compensated state has its own native form"
     )
-    assert(decoded.c:find("KsCompensatedF64", 1, true), where .. ": the accumulator is more than one double")
+    assert(
+        decoded.llvm:find("alloca { double, double }", 1, true),
+        where .. ": the accumulator is more than one double"
+    )
     assert(decoded.functions[1].regions == nil, where .. ": no inferred SIMD region")
 end
 
@@ -3029,23 +3092,17 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
     -- is the point: nothing else at the call site says which one it built.
     local source = GENERIC_EXPLICIT_SIMD:gsub("array%.float%)", "array.float, 8)", 1)
     local dir = project{["vectors.nupp"] = source}
-    local c, cCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c vectors.nupp")
-    test.equal(cCode, 0, c)
+    local llvm, llvmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm vectors.nupp")
+    test.equal(llvmCode, 0, llvm)
+    local kernel = assert(llvm:match("define void @ks_saxpy__neon%(.-\n}\n"), "the kernel is emitted: " .. llvm)
     assert(
-        c:find("KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)", 1, true),
-        "Fixed<8> uses a wide vector lowered to NEON registers: " .. c
-    )
-    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
-    assert(
-        header:find("typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));", 1, true),
-        "a complete fixed species can use a wide vector"
+        kernel:find("fadd <8 x float>", 1, true) and not kernel:find("<4 x float>", 1, true),
+        "Fixed<8> is one eight-lane vector, whatever the register holds: " .. kernel
     )
 
     local asm = neonAsm(dir, "vectors.nupp")
-    if asm ~= nil then
-        local _, adds = asm:gsub("fadd%.4s", "")
-        assert(adds >= 2, "both logical halves execute as vector additions: " .. asm)
-    end
+    local _, adds = asm:gsub("fadd%.4s", "")
+    assert(adds >= 2, "both logical halves execute as vector additions in NEON registers: " .. asm)
 end
 
 function M.provedFixedVectorsCopyOnlyTheirLogicalLanes()
@@ -3072,16 +3129,30 @@ end
 return {copy = copy}
 ]]
     local dir = project{["copy.nupp"] = source}
-    local c, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c copy.nupp")
-    test.equal(code, 0, c)
-    assert(c:find("ks_exp_load_at_f32x5(p_input + (size_t)", 1, true), c)
-    assert(c:find("ks_exp_store_at_f32x5(p_output + (size_t)", 1, true), c)
-    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
-    assert(header:find("ks_exp_load_part_##NATIVE(source +", 1, true), "partial final chunk reads exactly one lane")
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json copy.nupp")
+    test.equal(code, 0, raw)
+    local kernel = llvmFunction(decoded.llvm, "ks_copy__%w+")
+    assert(kernel, where .. ": the kernel is emitted\n" .. decoded.llvm)
+    -- The proved access is taken unconditionally, and is exactly five lanes wide.
     assert(
-        header:find("ks_exp_store_part_##NATIVE(destination +", 1, true),
-        "partial final chunk writes exactly one lane"
+        kernel:find(
+            "= getelementptr inbounds nuw float, ptr %%p_input, i64 %%t%d+\n"
+            .. "  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\n"
+            .. "simd%.yes%.%d+:\n  %%t%d+ = load <5 x float>, ptr "
+        ),
+        where .. ": the proved load reads the input's five lanes\n" .. kernel
     )
+    assert(
+        kernel:find(
+            "= getelementptr inbounds nuw float, ptr %%p_output, i64 %%t%d+\n"
+            .. "  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\n"
+            .. "simd%.yes%.%d+:\n  store <5 x float> "
+        ),
+        where .. ": the proved store writes the output's five lanes\n" .. kernel
+    )
+    for lanes in kernel:gmatch("<(%d+) x float>") do
+        test.equal(lanes, "5", where .. ": no access is widened past the logical lanes\n" .. kernel)
+    end
 end
 
 function M.readOnlySoaRowsHaveContiguousExplicitLoads()
@@ -3114,10 +3185,15 @@ end
 return {sumX = sumX}
 ]]
     local dir = project{["soa.nupp"] = source}
-    local c, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c soa.nupp")
-    test.equal(code, 0, c)
-    assert(c:find("ks_exp_load_at_f32x4(p_rows + (size_t)", 1, true), c)
-    assert(not c:find("ks_exp_gather_", 1, true), c)
+    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json soa.nupp")
+    test.equal(code, 0, raw)
+    local kernel = llvmFunction(decoded.llvm, "ks_sum_x__%w+")
+    assert(
+        kernel
+        and kernel:find("= getelementptr inbounds nuw float, ptr %%p_rows, i64 %%t%d+\n.-= load <4 x float>, ptr "),
+        where .. ": the x column is read as one contiguous vector\n" .. decoded.llvm
+    )
+    assert(not decoded.llvm:find("gather", 1, true), where .. ": not gathered row by row\n" .. decoded.llvm)
 end
 
 function M.explicitSimdValuesCannotCrossAnEntryAbi()
@@ -3139,7 +3215,10 @@ return {leaked = leaked}
     assert(out:find("cannot cross an AOT entry result ABI", 1, true), out)
 end
 
-function M.genericHelpersPreserveSpeciesAndKeepASeparateScalarTwin()
+-- The oracle is the kernel's own body left unoptimized, so it calls the same
+-- specialized helper rather than a scalar twin of it, and the helper is typed
+-- at the species' vector for both.
+function M.genericHelpersPreserveSpeciesInTheKernelAndItsOracle()
     local source = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
@@ -3168,14 +3247,15 @@ return {apply = apply}
         decoded.ir:find("twice_simd_vector_f32_preferred", 1, true),
         where .. ": helper specialization retains species"
     )
-    local scalarTwin = decoded.c:match(
-        "static inline KS_UNUSED ks_scalar_exp_f32x4 ([%w_]+_forced_scalar)%(ks_scalar_exp_f32x4 a_value%);"
+    local llvm = decoded.llvm
+    local helper = llvm:match(
+        "define internal <4 x float> (@ks_apply_helper_twice_simd_vector_f32_preferred_returns_simd_vector_f32_preferred[%w_]*%()<4 x float> "
     )
-    assert(scalarTwin, where .. ": scalar oracle gets a type-correct helper twin")
-    assert(
-        decoded.c:find(scalarTwin .. "(ks_scalar_exp_load_f32x4", 1, true),
-        where .. ": scalar oracle calls its helper twin"
-    )
+    assert(helper, where .. ": the helper takes and returns the species' vector\n" .. llvm)
+    local call = "call <4 x float> " .. helper
+    local kernel = llvmFunction(llvm, "ks_apply__%w+")
+    assert(kernel and kernel:find(call, 1, true), where .. ": the kernel calls it\n" .. llvm)
+    assert(assertOracle(llvm, "ks_apply", where):find(call, 1, true), where .. ": and so does its oracle")
 end
 
 function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()
@@ -3206,7 +3286,20 @@ return {inspect = inspect}
     assert(decoded.ir:find("simd_extract.extract", 1, true), where .. ": extraction remains intrinsic")
     assert(decoded.ir:find("u64_popcount", 1, true), where .. ": uint64 population count remains intrinsic")
     assert(decoded.ir:find("u64_ctz", 1, true), where .. ": bit zero maps back to lane one")
-    assert(decoded.c:find("(uint32_t)lane - 1u", 1, true), where .. ": C uses the documented one-based lane convention")
+    -- Lane 2 of the source is position 1 of the LLVM vector, for the insert
+    -- and for the extract.
+    assert(
+        decoded.llvm:match("(%%t%d+) = fptrunc double 0x4008000000000000 to float\n  %%t%d+ = insertelement <8 x float> %%t%d+, float %1, i32 1\n"),
+        where .. ": insert uses the documented one-based lane convention\n" .. decoded.llvm
+    )
+    assert(
+        decoded.llvm:match("%%t%d+ = extractelement <8 x float> %%t%d+, i32 1\n  %%t%d+ = fpext float"),
+        where .. ": and so does extract\n" .. decoded.llvm
+    )
+    assert(
+        decoded.llvm:match("(%%t%d+) = call i64 @llvm%.cttz%.i64%(i64 %%t%d+, i1 false%)\n  (%%t%d+) = trunc i64 %1 to i32\n  %%t%d+ = add i32 %2, 1\n"),
+        where .. ": bit zero is lane one\n" .. decoded.llvm
+    )
 end
 
 function M.uint64MaskBitsReplaceTheFixedSixtyFourBitHelperSurface()
@@ -3240,8 +3333,12 @@ return {inspect = inspect}
     for _, op in ipairs({"u64_or", "u64_not", "u64_shl", "u64_prefix_xor", "u64_popcount", "u64_ctz"}) do
         assert(decoded.ir:find(op, 1, true), where .. ": missing uint64 operation " .. op .. "\n" .. decoded.ir)
     end
-    assert(decoded.c:find("ks_bits ^= ks_bits << 32u", 1, true), where .. ": the native contract executes all 64 bits")
-    assert(decoded.c:find("ks_inspect_forced_scalar", 1, true), where .. ": the independent scalar oracle remains")
+    local kernel = llvmFunction(decoded.llvm, "ks_inspect__%w+")
+    assert(
+        kernel and kernel:find("(%%t%d+) = shl i64 (%%t%d+), 32\n  %%t%d+ = xor i64 %2, %1\n"),
+        where .. ": the native contract executes all 64 bits\n" .. decoded.llvm
+    )
+    assertOracle(decoded.llvm, "ks_inspect", where)
 end
 
 function M.aLoopRefusesASpanNothingProvesIsLongEnough()
@@ -3291,28 +3388,34 @@ function M.oneCompiledEntryCallsAnotherAsARealCall()
     -- it". A callee compiled once, reached through its own symbol, is the answer
     -- rather than a second copy inlined into every caller.
     local dir = project{["pair.nupp"] = ENTRY_CALL}
-    local out, code = run(dir, PINNED .. "--emit c pair.nupp")
+    local out, code = run(dir, PINNED .. "--emit llvm pair.nupp")
     test.equal(code, 0, out)
-    assert(out:find("ks_scale(", 1, true), "the caller reaches the callee's own symbol: " .. out)
+    local caller = llvmFunction(out, "ks_apply__%w+")
     assert(
-        out:find("static inline double ks_scale", 1, true) == nil,
-        "the callee is the entry it already is, not a second inlined copy: " .. out
+        caller and caller:find("= call double @ks_scale__%w+%("),
+        "the caller reaches the callee's own symbol: " .. out
     )
-    assert(out:find("KS_API double ks_scale", 1, true), "and it keeps its own exported definition: " .. out)
+    local _, definitions = out:gsub("\ndefine [^\n]-@[%w_]*scale[%w_]*%(", "")
+    test.equal(definitions, 1, "the callee is the entry it already is, not a second inlined copy: " .. out)
+    assert(out:find("\ndefine double @ks_scale__%w+%("), "and it keeps its own exported definition: " .. out)
 end
 
-function M.emitPrintsTheGeneratedC()
+function M.emitPrintsTheGeneratedLlvmIr()
     local dir = project{["compute.nupp"] = COMPUTE}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
     test.equal(code, 0, raw)
 
-    local out = decoded.c
-    assert(out:find("void ks_escapes(", 1, true), where .. ": the exported symbol is defined: " .. out)
+    local out = decoded.llvm
+    local body = out:match("define void @ks_escapes__avx2%(.-\n}\n")
+    assert(body, where .. ": the exported symbol is defined: " .. out)
     assert(
-        out:find("*restrict", 1, true),
-        where .. ": the writable span carries the disjointness ownership proved: " .. out
+        body:find("(ptr noalias captures(none) %p_out, ", 1, true),
+        where .. ": the writable span carries the disjointness ownership proved: " .. body
     )
-    assert(not out:find("ks_exp_select_f64x4", 1, true), where .. ": no inferred vector select: " .. out)
+    assert(not body:find(" x double>", 1, true), where .. ": no inferred vector: " .. body)
+    local llvm, llvmCode = run(dir, PINNED .. "--emit llvm compute.nupp")
+    test.equal(llvmCode, 0, llvm)
+    test.equal(llvm, out, where .. ": `--emit llvm` prints the IR the report carries")
 end
 
 -- A result the wrapper has to establish. `loadlib` hands back `any`, so a
@@ -3355,37 +3458,23 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
     assert(decoded.ir, where .. ": and the checked run still reports the IR it judged: " .. raw)
 end
 
--- Whether the instructions can be read on this machine at all. The condition is
--- a C compiler, which is what produces them; a machine without one is missing a
--- build dependency rather than failing.
-local function hasToolchain()
-    return (require("nupp.tools.build.aot").toolchain()) ~= nil
-end
-
--- Deliberately not `PINNED`. Instructions come from a real compilation, and
--- compiling for a triple this machine is not needs that target's headers, so
--- these ask for the host and assert what holds on either architecture.
-function M.emitAsmShowsWhatTheCCompilerMadeOfTheBody()
-    if not hasToolchain() then
-        test.skip("reading instructions needs a C compiler")
-    end
+-- Instructions come from LLVM's code generator, linked into nupp, which targets
+-- any of its triples from any host; `PINNED` makes them the same everywhere.
+function M.emitAsmShowsWhatLlvmMadeOfTheBody()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--emit asm compute.nupp")
+    local out, code = run(dir, PINNED .. "--emit asm compute.nupp")
     test.equal(code, 0, out)
     assert(
-        out:match("^%-%- compute%.nupp, [^,]+, [^,]+, .+\n") ~= nil,
-        "the header names the file, the target, the tier and the compiler: " .. out
+        out:match("^%-%- compute%.nupp, x86_64%-unknown%-linux%-gnu, avx2, llvm [^\n]+\n") ~= nil,
+        "the header names the file, the target, the tier and the code generator: " .. out
     )
     assert(out:find("ks_escapes (escapes), kernel:", 1, true), "the compiled body is named by both spellings: " .. out)
     assert(not out:find("forced_scalar", 1, true), "scalar loops have no generated oracle: " .. out)
 end
 
 function M.asmShowsOneFunctionWhenOneIsNamed()
-    if not hasToolchain() then
-        test.skip("reading instructions needs a C compiler")
-    end
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--emit asm --function ks_escapes compute.nupp")
+    local out, code = run(dir, PINNED .. "--emit asm --function ks_escapes compute.nupp")
     test.equal(code, 0, out)
     assert(out:find("ks_escapes (escapes), kernel:", 1, true), out)
     assert(not out:find("forced_scalar", 1, true), "only the symbol that was named is listed: " .. out)
@@ -3394,11 +3483,8 @@ end
 -- A name nothing matches is the common mistake -- the source spells it one way
 -- and the symbol another -- so the refusal says what it would have taken.
 function M.asmSaysWhatItWouldHaveAccepted()
-    if not hasToolchain() then
-        test.skip("reading instructions needs a C compiler")
-    end
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--emit asm --function escape compute.nupp")
+    local out, code = run(dir, PINNED .. "--emit asm --function escape compute.nupp")
     test.equal(code, 1, out)
     assert(out:find("escapes", 1, true) and out:find("ks_escapes", 1, true), out)
 end
@@ -3406,23 +3492,20 @@ end
 -- The counts are the part two runs are compared on, so they have to be over the
 -- listing rather than beside it.
 function M.asmJsonCountsWhatItLists()
-    if not hasToolchain() then
-        test.skip("reading instructions needs a C compiler")
-    end
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--json --emit asm compute.nupp")
+    local out, code = run(dir, PINNED .. "--json --emit asm compute.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     local asm = decoded.asm
-    assert(asm.toolchain.version ~= "" and asm.toolchain.command ~= "", "the compiler that answered is named: " .. out)
+    test.equal(asm.toolchain.command, "<llvm>", "the code generator answered: " .. out)
+    assert(asm.toolchain.version ~= "", "and is named: " .. out)
     local flags = table.concat(asm.flags, " ")
-    assert(flags:find("-O3", 1, true), "the flags are the ones an artifact is built with: " .. flags)
-    -- The two that make every exact floating differential mean anything. Losing
-    -- either one is visible as a low bit that moved in some other suite, a long
-    -- way from the line that caused it, so it is named here as well.
-    for _, flag in ipairs({"-ffp-contract=off", "-fno-fast-math"}) do
-        assert(flags:find(flag, 1, true), "the numeric contract is on the command line: " .. flags)
-    end
+    -- The options are the code generator's, and the numeric contract is in
+    -- the IR -- no instruction carries a fast-math flag the source did not
+    -- relax -- so none of them may loosen it.
+    assert(flags:find("opt=3", 1, true), "the flags are the ones an artifact is built with: " .. flags)
+    assert(flags:find("triple=x86_64-unknown-linux-gnu", 1, true), "for the target asked for: " .. flags)
+    assert(not flags:lower():find("fast", 1, true), "no option relaxes the numeric contract: " .. flags)
 
     local kernel = nil
     for _, listing in ipairs(asm.functions) do
@@ -3484,20 +3567,24 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     )
     assert(not ir:find("simd_load", 1, true), where .. ": scalar byte loads are not rewritten: " .. ir)
 
-    local c = equivalenceMutation.text(
+    local llvm = equivalenceMutation.text(
         "narrow-scalar-mapping",
-        decoded.c,
-        "uint8_t %*restrict p_flags",
-        "uint32_t *restrict p_flags"
+        decoded.llvm,
+        "nuw i8, ptr %%p_flags",
+        "nuw i32, ptr %%p_flags"
     )
     assert(
-        c:find("uint8_t *restrict p_flags", 1, true),
+        llvm:find("= getelementptr inbounds nuw i8, ptr %p_flags, ", 1, true),
         equivalenceMutation.active("narrow-scalar-mapping")
         and equivalenceMutation.marker("narrow-scalar-mapping", "wrong-result")
-        or where .. ": the output pointer retains byte storage: " .. c
+        or where .. ": the output is addressed as byte storage: " .. llvm
     )
-    assert(c:find("const uint8_t *p_bytes", 1, true), where .. ": the input pointer retains const byte storage: " .. c)
-    assert(not c:find("ks_exp_store_full_u8x8(p_flags", 1, true), where .. ": no inferred vector store: " .. c)
+    assert(
+        llvm:find("readonly %p_bytes", 1, true)
+        and llvm:find("= getelementptr inbounds nuw i8, ptr %p_bytes, ", 1, true),
+        where .. ": the input is addressed as read-only byte storage: " .. llvm
+    )
+    assert(not llvm:find("store <", 1, true), where .. ": no inferred vector store: " .. llvm)
 
     local binding, bindingCode = run(dir, "--emit binding bytes.nupp")
     test.equal(bindingCode, 0, binding)
@@ -3577,11 +3664,13 @@ function M.onlySinglePublishEntriesReuseAByteScratch()
     )
 
     -- And that the emitter acts on the proof rather than deciding again.
-    local c = decoded.c
-    local _, cached = c:gsub("ks_lua_scratch_u8_cached%(L,", "")
-    local _, plain = c:gsub("= ks_lua_scratch_u8%(L,", "")
-    test.equal(cached, 1, "one entry takes the cached buffer: " .. c)
-    test.equal(plain, 1, "the other allocates its own: " .. c)
+    local llvm = decoded.llvm
+    local onceBody = llvmFunction(llvm, "ks_once__%w+_lua") or ""
+    local twiceBody = llvmFunction(llvm, "ks_twice__%w+_lua") or ""
+    assert(onceBody:find("call void %rt.scratch_u8_cached.", 1, true), "one entry takes the cached buffer: " .. llvm)
+    assert(twiceBody:find("call void %rt.scratch_u8.", 1, true), "the other allocates its own: " .. llvm)
+    local _, cached = llvm:gsub("call void %%rt%.scratch_u8_cached%.", "")
+    test.equal(cached, 1, "and only the one: " .. llvm)
 end
 
 function M.blockKernelsAppendUnderDominatingCapacityChecks()
@@ -3589,10 +3678,17 @@ function M.blockKernelsAppendUnderDominatingCapacityChecks()
     local decoded, raw, code = lowered(dir, "--json delimiters.nupp")
     test.equal(code, 0, raw)
 
-    local c = decoded.c
-    assert(c:find("uint32_t ks_delimiters(", 1, true), "the scalar result crosses the native ABI: " .. c)
-    assert(c:find("size_t count_source, size_t count_offsets", 1, true), "the two spans keep independent counts: " .. c)
-    assert(c:find("p_offsets[((size_t)v", 1, true), "the proved zero-based cursor directly indexes the output: " .. c)
+    local llvm = decoded.llvm
+    local signature = llvm:match("define i32 @ks_delimiters__%w+%(([^\n]*)%)")
+    assert(signature, "the scalar result crosses the native ABI: " .. llvm)
+    assert(
+        signature:find("%count_source, ", 1, true) and signature:find("%count_offsets", 1, true),
+        "the two spans keep independent counts: " .. signature
+    )
+    assert(
+        llvm:match("(%%t%d+) = zext i32 %%t%d+ to i64\n  (%%t%d+) = getelementptr inbounds nuw i32, ptr %%p_offsets, i64 %1\n  store i32 %%t%d+, ptr %2,"),
+        "the proved zero-based cursor directly indexes the output: " .. llvm
+    )
 
     local ir = decoded.ir
     assert(ir:find("store offsets[written+1]", 1, true), "inspection preserves the checked append relationship: " .. ir)
@@ -3620,9 +3716,12 @@ function M.aCountedLoopIndexReachesAnEntryConversion()
     )
 
     -- Span counts retain binary64 induction values rather than narrowing to
-    -- int32. Explicit wrap therefore keeps its modular conversion in C.
-    local c = decoded.c
-    assert(c:find("nupp_wrap_u32(v", 1, true), "the C preserves the requested modular conversion: " .. c)
+    -- int32. Explicit wrap therefore keeps its modular conversion.
+    local llvm = decoded.llvm
+    assert(
+        llvm:match("(%%t%d+) = load double, ptr %%slot%d+\n  %%t%d+ = call i32 @nupp%.wrap%.u32%(double %1%)"),
+        "the LLVM IR preserves the requested modular conversion of the binary64 index: " .. llvm
+    )
 end
 
 -- Narrowing is the direction that would invent establishment the source never
@@ -3669,15 +3768,33 @@ end
 
 function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
     local dir = project{["simd.nupp"] = SCOPED_SIMD}
-    local baseline, baselineCode = run(dir, "--target x86_64-unknown-linux-gnu --emit c simd.nupp")
-    test.equal(baselineCode, 0, baseline)
-    assert(baseline:find("#define KS_SIMD_WIDTH 16", 1, true), baseline)
-    assert(baseline:find("ks_exp_load_full_u8x16", 1, true), baseline)
+    local baseline, baselineRaw, baselineCode, baselineWhere = lowered(
+        dir,
+        "--target x86_64-unknown-linux-gnu --json simd.nupp"
+    )
+    test.equal(baselineCode, 0, baselineRaw)
+    assert(baseline.ir:find("simd species(uint8,16)", 1, true), baselineWhere .. "\n" .. baseline.ir)
+    local narrow = llvmFunction(baseline.llvm, "ks_quotes__%w+")
+    assert(
+        narrow and narrow:find("= load <16 x i8>, ptr %%t%d+, align 1\n") and not narrow:find("<32 x i8>", 1, true),
+        baselineWhere .. ": the baseline reads sixteen bytes at a time\n" .. baseline.llvm
+    )
 
-    local avx, avxCode = run(dir, "--target x86_64-unknown-linux-gnu --features avx2 --emit c simd.nupp")
-    test.equal(avxCode, 0, avx)
-    assert(avx:find("#define KS_SIMD_WIDTH 32", 1, true), avx)
-    assert(avx:find("ks_exp_bits_u8x32", 1, true), avx)
+    local avx, avxRaw, avxCode, avxWhere = lowered(
+        dir,
+        "--target x86_64-unknown-linux-gnu --features avx2 --json simd.nupp"
+    )
+    test.equal(avxCode, 0, avxRaw)
+    assert(avx.ir:find("simd species(uint8,32)", 1, true), avxWhere .. "\n" .. avx.ir)
+    local wide = llvmFunction(avx.llvm, "ks_quotes__%w+")
+    assert(
+        wide and wide:find("= load <32 x i8>, ptr %%t%d+, align 1\n"),
+        avxWhere .. ": AVX2 reads thirty-two\n" .. avx.llvm
+    )
+    assert(
+        wide:find("= bitcast <32 x i1> %%t%d+ to i32\n"),
+        avxWhere .. ": and takes all thirty-two lanes' bits at once\n" .. wide
+    )
 
     local neon, neonCode = run(dir, "--target aarch64-unknown-linux-gnu --emit ir simd.nupp")
     test.equal(neonCode, 0, neon)
@@ -3785,17 +3902,31 @@ return {quotes = quotes}
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_load.load", 1, true), where .. "\n" .. decoded.ir)
     assert(decoded.ir:find("span:source", 1, true), where .. ": the parameter is the load's root\n" .. decoded.ir)
+    -- The parameter's pointer and length, as the entry takes them off the stack.
+    local llvm = decoded.llvm
+    local bytes, length = llvm:match(
+        "\nlua%.bytes%.%d+:\n  (%%t%d+) = load ptr, ptr %%slot%d+\n  (%%t%d+) = load i64, "
+    )
+    assert(bytes, where .. ": the entry reads the parameter's bytes\n" .. llvm)
+    bytes, length = bytes:gsub("%%", "%%%%"), length:gsub("%%", "%%%%")
     assert(
-        decoded.c:find("ks_exp_load_at_u8x16(ks_bytes_1 + (size_t)", 1, true),
-        where .. ": the guarded load reads the parameter's own bytes unchecked\n" .. decoded.c
+        llvm:find(
+            "= getelementptr inbounds nuw i8, ptr " .. bytes .. ", i64 %%t%d+\n"
+            .. "  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\n"
+            .. "simd%.yes%.%d+:\n  %%t%d+ = load <%d+ x i8>, ptr "
+        ),
+        where .. ": the guarded load reads the parameter's own bytes unchecked\n" .. llvm
     )
     assert(
-        decoded.c:find("ks_exp_load_full_u8x16(ks_bytes_1, ks_length_1", 1, true),
-        where .. ": an unproved load keeps the parameter's length\n" .. decoded.c
+        llvm:find("= icmp ult i64 %%t%d+, " .. length .. "\n.-= getelementptr inbounds i8, ptr " .. bytes .. ", i64 "),
+        where .. ": an unproved load is clamped to the parameter's length\n" .. llvm
     )
 end
 
-function M.fixedWidthSwitchesEmitNativeCDispatch()
+-- A switch over a fixed-width selector compares it at its own width, with
+-- each label, the extremes included, the exact constant of that width. How the
+-- comparisons are then dispatched is the code generator's to decide.
+function M.fixedWidthSwitchesCompareAtTheSelectorsWidth()
     local source = [[
 local span = require("nupp.mem.span")
 
@@ -3848,20 +3979,23 @@ end
 return {signed = signed, unsigned = unsigned, Signed = Signed, Unsigned = Unsigned}
 ]]
     local dir = project{["switch.nupp"] = source}
-    local out, code = run(dir, "--emit c switch.nupp")
+    local out, code = run(dir, "--emit llvm switch.nupp")
     test.equal(code, 0, out)
-    local first = assert(out:find("switch (", 1, true), out)
-    assert(out:find("switch (", first + 1, true), "both exact-width selectors use native switch: " .. out)
+    local signed = assert(llvmFunction(out, "ks_signed__%w+"), out)
+    local unsigned = assert(llvmFunction(out, "ks_unsigned__%w+"), out)
+    assert(signed:find("= icmp eq i32 %%t%d+, %-2147483648\n"), "int32 minimum is its exact constant: " .. signed)
     assert(
-        out:find("case (-INT32_C(2147483647) - INT32_C(1)):", 1, true),
-        "int32 minimum has an exact C spelling: " .. out
+        signed:find("= icmp eq i32 %%t%d+, 1\n") and signed:find("= icmp eq i32 %%t%d+, 2\n"),
+        "grouped labels remain separate comparisons: " .. signed
     )
-    assert(
-        out:find("case INT32_C(1):", 1, true) and out:find("case INT32_C(2):", 1, true),
-        "grouped labels remain separate C labels: " .. out
-    )
-    assert(out:find("case INT32_C(2):\n        {", 1, true), "native switch arms scope conversion temporaries: " .. out)
-    assert(out:find("case UINT32_C(4294967295):", 1, true), "uint32 maximum has an exact C spelling: " .. out)
+    assert(unsigned:find("= icmp eq i32 %%t%d+, 4294967295\n"), "uint32 maximum is its exact constant: " .. unsigned)
+    assert(unsigned:find("= icmp eq i32 %%t%d+, 0\n"), unsigned)
+    for _, body in ipairs({signed, unsigned}) do
+        assert(
+            not body:find("fcmp", 1, true) and not body:find("to double", 1, true),
+            "neither selector is widened to binary64 to be compared: " .. body
+        )
+    end
 end
 
 function M.binary64SwitchesKeepComparisonBranches()
@@ -3897,10 +4031,17 @@ end
 return {classify = classify, Value = Value}
 ]]
     }
-    local out, code = run(dir, "--emit c switch.nupp")
-    test.equal(code, 0, out)
-    test.equal(out:find("switch (", 1, true), nil, "binary64 is not converted for native switch")
-    assert(out:find("if (", 1, true), out)
+    local decoded, raw, code, where = lowered(dir, "--json switch.nupp")
+    test.equal(code, 0, raw)
+    assert(
+        decoded.ir:find("if eq(local:f64 $switch_selector_", 1, true),
+        where .. ": the arms are binary64 comparisons: " .. decoded.ir
+    )
+    test.equal(decoded.llvm:find("\n  switch ", 1, true), nil, "binary64 is not converted for native switch")
+    assert(
+        decoded.llvm:match("%%t%d+ = fcmp oeq double %%t%d+, 0x3FF0000000000000\n  br i1 "),
+        where .. ": each arm is a comparison branch: " .. decoded.llvm
+    )
 end
 
 function M.jsonReportsAScalarLoop()
@@ -3919,7 +4060,7 @@ function M.jsonReportsAScalarLoop()
     test.equal(only.loops[1].kind, "map")
     test.equal(only.loops[1].outcome, "scalar")
     assert(only.loops[1].nodes > 0)
-    assert(decoded.ir and decoded.c and decoded.binding, "all three artifacts are carried")
+    assert(decoded.ir and decoded.llvm and decoded.binding, "all three artifacts are carried")
 end
 
 -- Two scalar functions over one struct and two arithmetic widths.
@@ -3993,10 +4134,10 @@ function M.everyAotFunctionInAFileIsCompiled()
     test.equal(decoded.functions[2].regions, nil)
 
     -- One struct declared once, with each function bringing its own body.
-    local c = decoded.c
-    test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
+    local llvm = decoded.llvm
+    test.equal(select(2, llvm:gsub("%%struct%.KsSample = type ", "")), 1, "the shared struct is declared once")
     for _, symbol in ipairs({"ks_scale", "ks_brighten"}) do
-        assert(c:find("void " .. symbol .. "(", 1, true), symbol .. " is defined")
+        assert(llvm:find("define void @" .. symbol .. "__avx2(", 1, true), symbol .. " is defined")
     end
 
     local binding = decoded.binding
@@ -4086,8 +4227,13 @@ return {object = object}
     assert(only.registrar:match("^ks_register_[0-9a-f]+$"), only.registrar)
     assert(decoded.ir:find("entry lua-builder", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.new_table", 1, true), decoded.ir)
-    assert(decoded.c:find("static int ks_object_lua(lua_State *L)", 1, true), decoded.c)
-    assert(decoded.c:find("lua_rawset(L", 1, true), decoded.c)
+    local entry = llvmFunction(decoded.llvm, "ks_object__%w+_lua")
+    assert(
+        entry and entry:find("^define internal i32 @[%w_]+%(ptr %%L%)"),
+        "the entry takes the VM's own calling convention\n" .. decoded.llvm
+    )
+    assert(entry:find("call void @lua_rawset(ptr %L, ", 1, true), entry)
+    assert(llvmFunction(decoded.llvm, only.registrar .. "__%w+"), "the registrar is defined\n" .. decoded.llvm)
     assert(decoded.binding:find("package", 1, true) and decoded.binding:find(only.registrar, 1, true), decoded.binding)
 end
 
@@ -4122,8 +4268,18 @@ return {label = label}
     }) do
         assert(decoded.ir:find(operation, 1, true), operation .. " is absent from:\n" .. decoded.ir)
     end
-    assert(decoded.c:find("lua_rawgeti", 1, true), decoded.c)
-    assert(decoded.c:find("luaL_addlstring", 1, true), decoded.c)
+    local entry = assert(llvmFunction(decoded.llvm, "ks_label__%w+_lua"), decoded.llvm)
+    for _, call in ipairs({
+        "call void @lua_createtable(ptr %L, ",
+        "call void @lua_rawseti(ptr %L, ",
+        "= call double %rt.table_number.",
+        "call void %rt.string_buffer_init.",
+        "call void %rt.string_buffer_append_slice.",
+        "call void %rt.string_buffer_append.",
+        "call void %rt.string_buffer_finish.",
+    }) do
+        assert(entry:find(call, 1, true), call .. " is absent from:\n" .. entry)
+    end
 end
 
 function M.aStringAccumulatorKeepsTheVmStackAboveItsChunksTemporary()
@@ -4239,18 +4395,46 @@ return {decode = decode}
     assert(decoded.ir:find("u64_mul", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_builder_integer64", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_builder_decimal64", 1, true), decoded.ir)
-    assert(decoded.c:find("KsLuaBuilder", 1, true), decoded.c)
-    assert(decoded.c:find("uint32_t inline_words[32]", 1, true), decoded.c)
-    assert(decoded.c:find("lua_rawget(L, -10000)", 1, true), decoded.c)
-    assert(decoded.c:find("static const char", 1, true), decoded.c)
-    assert(decoded.c:find("KsLuaScratchU32", 1, true), decoded.c)
-    assert(decoded.c:find("KsLuaScratchU8", 1, true), decoded.c)
-    assert(decoded.c:find("ks_bytes_1", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lua_builder_number_slice", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lua_builder_integer64", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lua_builder_decimal64", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lua_builder_escaped_string", 1, true), decoded.c)
-    assert(decoded.c:find("always_inline", 1, true), decoded.c)
+    local llvm = decoded.llvm
+    local entry = assert(llvmFunction(llvm, "ks_decode__%w+_lua"), llvm)
+    -- One stream, built in place on the machine stack and handed to each event.
+    local stream = entry:match("call void %%rt%.builder_init%.%d+%(ptr %%L, ptr (%%slot%d+), ")
+    assert(stream, "the stream is initialized in place:\n" .. entry)
+    assert(entry:find("\n  " .. stream .. " = alloca [", 1, true), entry)
+    stream = stream:gsub("%p", "%%%0")
+    -- The word scratch keeps its first words inline, and caches the rest
+    -- under a key private to this entry.
+    assert(entry:find("= alloca { [^\n]*%[32 x i32%] }"), "the word scratch keeps 32 words inline:\n" .. entry)
+    local key = llvm:match("\n(@ks%.key%.ks_decode%.[%w_.]+) = internal global i8 0\n")
+    assert(key, "the scratch cache has a private key:\n" .. llvm)
+    assert(entry:find("call void %%rt%.scratch_u32%.%d+%([^\n]*, ptr " .. key:gsub("%p", "%%%0") .. "%)"), entry)
+    assert(entry:find("call void %rt.scratch_u8.", 1, true), entry)
+    -- Rooted reads and slices take the source parameter's own bytes.
+    local bytes = entry:match("(%%t%d+) = call ptr @luaL_checklstring%(ptr %%L, i32 1, ")
+    assert(bytes, "the source is read off the stack:\n" .. entry)
+    local source = ("ptr " .. bytes .. ", i64 %t"):gsub("%p", "%%%0")
+    for _, slot in ipairs({
+        "builder_number_slice",
+        "builder_integer_slice",
+        "builder_integer64",
+        "builder_decimal64",
+        "builder_open",
+        "builder_close",
+        "builder_finish",
+    }) do
+        assert(entry:find("call void %rt." .. slot .. ".", 1, true), slot .. " is absent from:\n" .. entry)
+    end
+    for _, slot in ipairs({"builder_number_slice", "builder_integer_slice", "builder_decimal64"}) do
+        assert(
+            entry:find("call void %%rt%." .. slot .. "%.%d+%(ptr %%L, ptr " .. stream .. ", " .. source),
+            slot .. " reads the source parameter's bytes:\n" .. entry
+        )
+    end
+    -- A key is a string event flagged as a key, carrying its escape flag.
+    assert(
+        entry:find("call void %%rt%.builder_string%.%d+%(ptr %%L, ptr " .. stream .. ", " .. source .. "[^\n]*, i64 1, i64 1%)"),
+        "the key goes to the string event as a key:\n" .. entry
+    )
     assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
 end
 
@@ -4306,8 +4490,14 @@ return {
     assert(decoded.ir:find("lua.builder(eager", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.builder(pull", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.builder(serde", 1, true), decoded.ir)
-    assert(decoded.c:find("= ks_lua_eager_builder_new(L", 1, true), decoded.c)
-    assert(decoded.c:find("= ks_lua_builder_new(L", 1, true), decoded.c)
+    -- The mode is the constant last argument the stream is started with.
+    for name, eager in pairs({eager = "1", pull = "0", serde = "0"}) do
+        local entry = llvmFunction(decoded.llvm, "ks_" .. name .. "__%w+_lua")
+        assert(
+            entry and entry:find("call void %%rt%.builder_init%.%d+%([^\n]*, i64 " .. eager .. "%)\n"),
+            name .. " starts its stream with eager = " .. eager .. ":\n" .. decoded.llvm
+        )
+    end
     assert(decoded.functions[1].builderMode == "eager")
     assert(decoded.functions[2].builderMode == "pull")
     assert(decoded.functions[3].builderMode == "serde")
@@ -4374,14 +4564,14 @@ end
 return {entry = entry}
 ]]
     }
-    local out, code = run(dir, PINNED .. "--emit c classes.g.nupp")
+    local out, code = run(dir, PINNED .. "--emit llvm classes.g.nupp")
     test.equal(code, 0, out)
     assert(
-        out:find("ks_bytes_konst_0[] = {1,2,34,92}", 1, true),
+        out:find('constant [5 x i8] c"\\01\\02\\22\\5C\\00"', 1, true),
         "an escaped constant is placed as the four bytes it denotes: " .. out
     )
     assert(
-        out:find("ks_bytes_konst_1[] = {97,34,98}", 1, true),
+        out:find('constant [4 x i8] c"a\\22b\\00"', 1, true),
         "and one holding a quote is placed rather than refused: " .. out
     )
 end
@@ -4470,12 +4660,16 @@ return {entry = entry}
         local dialect = selection[4] and " --dialect " .. selection[4] or ""
         local out, code = run(
             dir,
-            "--target " .. selection[1] .. " --features " .. selection[2] .. dialect .. " --emit c entry.nupp"
+            "--target " .. selection[1] .. " --features " .. selection[2] .. dialect .. " --emit llvm entry.nupp"
         )
         test.equal(code, 0, out)
-        local normalized = out:find("== (double)nupp_wrap_i32(ks_for_last_", 1, true) ~= nil
+        -- LuaJIT's dual-number VM starts a loop whose bound is an integer at
+        -- an integer zero, so `-0.0` becomes `0.0` exactly there.
+        local normalized = out:match(
+            "(%%t%d+) = call i32 @nupp%.wrap%.u32%(double %%t%d+%)\n  (%%t%d+) = sitofp i32 %1 to double\n  (%%t%d+) = fcmp oeq double %%t%d+, %2\n"
+        ) ~= nil
         test.equal(normalized, selection[3] == "luajit-dual", selection[1] .. " dual-number entry")
-        local prepared = out:match("ks_for_counter_%d+ = %(ks_for_counter_%d+ %- 1%.0%) %+ 1%.0;") ~= nil
+        local prepared = out:match("fsub double %%t%d+, 1%.0\n") ~= nil
         test.equal(prepared, false, selection[1] .. " uses LuaJIT loop entry")
     end
 end
@@ -4493,7 +4687,7 @@ end
 return {entry = entry, enabled = enabled}
 ]]
     }
-    local target = "--target wasm32-unknown-emscripten --emit c "
+    local target = "--target wasm32-unknown-emscripten --emit llvm "
     local accepted, acceptedCode = run(dir, target .. "--dialect luajit caller.nupp")
     test.equal(acceptedCode, 0, accepted)
     local refused, refusedCode = run(dir, target .. "--dialect lua51 caller.nupp")
@@ -4533,9 +4727,14 @@ end
 return {total = total}
 ]]
     }
-    local c, code = run(dir, "--target x86_64-unknown-linux-gnu --features baseline --emit c unrolled.nupp")
-    test.equal(code, 0, c)
-    assert(not c:find("ks_for_counter_", 1, true), "the fixture really unrolls its counted loop")
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target x86_64-unknown-linux-gnu --features baseline --json unrolled.nupp"
+    )
+    test.equal(code, 0, raw)
+    test.equal(decoded.functions[1].optimization.unrolledLoops, 1, where .. ": the fixture really unrolls its counted loop")
+    local _, steps = decoded.ir:gsub("set result = add%(", "")
+    test.equal(steps, 2, where .. ": into one step per iteration\n" .. decoded.ir)
     local out, bindingCode = run(
         dir,
         "--target x86_64-unknown-linux-gnu --features baseline --emit binding unrolled.nupp"
@@ -4560,10 +4759,15 @@ end
 return {acc = acc}
 ]]
     }
-    local out, code = run(dir, "--emit c bigbound.nupp")
-    test.equal(code, 0, "a binary64 counted bound is not narrowed\n" .. out)
-    assert(out:find("3000000000.0", 1, true), out)
-    assert(out:find("double ks_for_counter_", 1, true), out)
+    local decoded, raw, code, where = lowered(dir, "--json bigbound.nupp")
+    test.equal(code, 0, "a binary64 counted bound is not narrowed\n" .. raw)
+    assert(decoded.ir:find(".. constant:f64 3000000000 ", 1, true), where .. ": " .. decoded.ir)
+    -- 0x41E65A0BC0000000 is 3000000000.0: the counter is a double compared
+    -- against the bound's own value.
+    assert(
+        decoded.llvm:match("%%t%d+ = fcmp ole double %%t%d+, 0x41E65A0BC0000000\n"),
+        where .. ": " .. decoded.llvm
+    )
 end
 
 function M.aLengthAliasDoesNotOutliveItsScope()
@@ -4634,9 +4838,12 @@ end
 return {rows = rows}
 ]]
     local dir = project{["nested.nupp"] = body:gsub("BOUND", "#weights"), ["literal.nupp"] = body:gsub("BOUND", "10"),}
-    local out, code = run(dir, "--emit c nested.nupp")
+    local out, code = run(dir, "--emit llvm nested.nupp")
     test.equal(code, 0, out)
-    assert(out:find("count_weights", 1, true), "the nested loop counts the span it reads: " .. out)
+    assert(
+        out:match("%%t%d+ = icmp ule i64 %%t%d+, %%count_weights\n"),
+        "the nested loop counts the span it reads: " .. out
+    )
 
     out, code = run(dir, "literal.nupp")
     test.equal(code, 1, "a literal bound proves nothing about the span\n" .. out)
@@ -4670,9 +4877,15 @@ end
 return {neg = neg, negFixed = negFixed}
 ]],
     }
-    local out, code = run(dir, "--emit c neg.nupp")
+    local out, code = run(dir, "--emit llvm neg.nupp")
     test.equal(code, 0, out)
-    assert(out:find("(-(((double)p_value)))", 1, true), "the operand is widened, then negated: " .. out)
+    for name, widen in pairs({neg = "fpext float", negFixed = "uitofp i32"}) do
+        local body = llvmFunction(out, "ks_" .. (name == "neg" and "neg" or "neg_fixed") .. "__%w+")
+        assert(
+            body and body:find("= " .. widen .. " %%t%d+ to double\n  %%t%d+ = fneg double %%t%d+\n"),
+            name .. ": the operand is widened, then negated: " .. out
+        )
+    end
 end
 
 function M.aShadowedStringIsNotThePreludes()
@@ -4783,9 +4996,10 @@ return {scan = scan}
 end
 
 function M.moduloIsFlooredLikeLuas()
-    -- Lua's `%` takes the divisor's sign: `-1 % 3` is 2. C's `fmod` truncates
-    -- and says -1, so a kernel that rendered `%` as `fmod` disagreed with the
-    -- same source on the interpreter for every negative operand.
+    -- Lua's `%` takes the divisor's sign: `-1 % 3` is 2. LLVM's `frem`, like
+    -- C's `fmod`, truncates and says -1, so a kernel that rendered `%` as
+    -- `frem` alone disagreed with the same source on the interpreter for every
+    -- negative operand.
     local dir = project{
         [
             "mod.nupp"
@@ -4798,13 +5012,26 @@ end
 return {wrap = wrap}
 ]],
     }
-    local out, code = run(dir, "--emit c mod.nupp")
+    local out, code = run(dir, "--emit llvm mod.nupp")
     test.equal(code, 0, out)
-    assert(out:find("nupp_mod(p_value, p_modulus)", 1, true), "the operator is a floored helper: " .. out)
+    local wrap = llvmFunction(out, "ks_wrap__%w+")
     assert(
-        out:find("double r = fmod(a, b); if ((r < 0) != (b < 0) && r != 0) { r += b; } return r;", 1, true),
-        "which corrects the truncated remainder toward the divisor's sign: " .. out
+        wrap and wrap:find("= call double @nupp.mod(double %t", 1, true),
+        "the operator is a floored helper: " .. out
     )
+    local helper = assert(llvmFunction(out, "nupp%.mod"), out)
+    for _, step in ipairs({
+        "%r = frem double %a, %b\n",
+        "%rn = fcmp olt double %r, 0.0\n",
+        "%bn = fcmp olt double %b, 0.0\n",
+        "%differ = xor i1 %rn, %bn\n",
+        "%nonzero = fcmp une double %r, 0.0\n",
+        "%fix = and i1 %differ, %nonzero\n",
+        "%moved = fadd double %r, %b\n",
+        "%out = select i1 %fix, double %moved, double %r\n",
+    }) do
+        assert(helper:find(step, 1, true), "which corrects the truncated remainder toward the divisor's sign: " .. helper)
+    end
 end
 
 function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
@@ -4842,11 +5069,21 @@ return {rearrange = rearrange, preferred = preferred}
     }) do
         local decoded, raw, code = lowered(dir, tier .. " --json rearrange.nupp")
         test.equal(code, 0, raw)
+        local kernel = assert(llvmFunction(decoded.llvm, "ks_rearrange__%w+"), decoded.llvm)
+        local oracle = assertOracle(decoded.llvm, "ks_rearrange", tier)
         for _, op in ipairs({"interleave", "deinterleave", "transpose"}) do
-            assert(decoded.ir:find("rearrange_" .. op .. "_simd_vector_f32_fixed4", 1, true), decoded.ir)
-            assert(decoded.c:find("rearrange_" .. op .. "_simd_vector_f32_fixed4_forced_scalar", 1, true), decoded.c)
+            local helper = "rearrange_" .. op .. "_simd_vector_f32_fixed4"
+            assert(decoded.ir:find(helper, 1, true), decoded.ir)
+            -- Each rearrangement answers its rows as vectors, in registers.
+            local body = llvmFunction(decoded.llvm, "ks_rearrange_" .. helper)
+            assert(
+                body and body:find("^define internal { <4 x float>, <4 x float>[^\n]*} @"),
+                tier .. ": " .. helper .. " returns its rows as vectors\n" .. decoded.llvm
+            )
+            assert(kernel:find("@ks_rearrange_" .. helper .. "(", 1, true), tier .. ": the kernel calls " .. helper)
+            assert(oracle:find("@ks_rearrange_" .. helper .. "(", 1, true), tier .. ": and so does its oracle")
         end
-        assert(not decoded.c:find("malloc(", 1, true), "rearrangements must not allocate")
+        assert(not decoded.llvm:find("call [^\n]*@malloc%("), "rearrangements must not allocate")
     end
     local asm, code = run(dir, "--emit asm rearrange.nupp")
     test.equal(code, 0, asm)
@@ -4907,19 +5144,45 @@ end
 return {scan = scan}
 ]]
 
-local function scanBody(c)
-    local body = c:match("KS_API double ks_scan%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
+--- The LLVM definition of the entry `symbol` compiles to, at whatever tier:
+--- `@ks_scan__neon`, never its `_forced_scalar` oracle twin.
+local function kernelBody(llvm, symbol)
+    local body = llvm:match("define [^\n]- @" .. symbol .. "__%w+%(.-\n}\n")
+    assert(body, "the kernel " .. symbol .. " is emitted:\n" .. llvm)
     return body
+end
+
+--- The oracle twin of `symbol`, which LLVM is told not to optimize.
+local function oracleBody(llvm, symbol)
+    local body = llvm:match("define [^\n]- @" .. symbol .. "_forced_scalar__%w+%(.-\n}\n")
+    assert(body, "the oracle of " .. symbol .. " is emitted:\n" .. llvm)
+    local group = assert(body:match("^[^\n]- #(%d+) {\n"), body)
+    assert(
+        llvm:find("\nattributes #" .. group .. " = { noinline optnone ", 1, true),
+        "the oracle of " .. symbol .. " is left unoptimized:\n" .. llvm
+    )
+    return body
+end
+
+--- Whether `body` reads or writes `span` at an offset a proof holds in bounds:
+--- a `nuw` element address, which a checked access never takes.
+local function provenAccess(body, span)
+    return body:match("getelementptr inbounds nuw [%w]+, ptr %%p_" .. span .. ", ") ~= nil
+end
+
+--- Whether `body` measures the room left in `span` before touching it, as a
+--- checked access does.
+local function checkedAccess(body, span)
+    return body:find("sub i64 %count_" .. span .. ", ", 1, true) ~= nil
 end
 
 function M.aSpeciesBindingIsDecidedPerTier()
     -- `if species = simd.species(array.uint32) then` is the vector loop on
     -- a tier that has vectors and nothing at all on one that does not; the
-    -- scalar tail that follows is the same C on every tier, its span read
+    -- scalar tail that follows is the same code on every tier, its span read
     -- proved by the left of the `and` it sits under.
     local dir = project{["scan.nupp"] = CONDITIONAL_SCAN}
-    local tail = "while ((((uint64_t)v1_cursor < (uint64_t)count_cps) && (p_cps[((size_t)v1_cursor)] > UINT32_C(15))))"
+    local tail = "%%t%d+ = getelementptr inbounds nuw i32, ptr %%p_cps, i64 %%t%d+\n  %%t%d+ = load i32, ptr %%t%d+, align 4\n  %%t%d+ = icmp ugt i32 %%t%d+, 15\n"
     for _, tier in ipairs({
         {args = "--target aarch64-apple-darwin --features neon", lanes = 4},
         {args = "--target x86_64-unknown-linux-gnu --features baseline", lanes = 4},
@@ -4928,39 +5191,43 @@ function M.aSpeciesBindingIsDecidedPerTier()
     }) do
         local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
         test.equal(code, 0, raw)
-        local body = scanBody(decoded.c)
+        local body = kernelBody(decoded.llvm, "ks_scan")
         assert(
-            body:find("ks_exp_load_at_u32x" .. tier.lanes .. "(p_cps + (size_t)v1_cursor)", 1, true),
+            body:match(
+                "(%%t%d+) = getelementptr inbounds nuw i32, ptr %%p_cps, i64 %%t%d+\n.-= load <"
+                .. tier.lanes .. " x i32>, ptr %1, align 4\n"
+            ),
             tier.args .. ": the arm is the vector loop\n" .. body
         )
         assert(
-            body:find("<= (uint64_t)count_cps)", 1, true) and body:find("UINT32_C(" .. tier.lanes .. "))", 1, true),
+            body:match("zext i32 " .. tier.lanes .. " to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_cps\n"),
             tier.args .. ": species.lanes is the tier's constant\n" .. body
         )
         assert(
-            body:find("uint32_t v3_first = ks_exp_first_u32x" .. tier.lanes .. "(", 1, true),
+            body:match("= call i64 @llvm%.cttz%.i64%(.-\n  %%t%d+ = trunc i64 %%t%d+ to i32\n  store i32 "),
             tier.args .. ": first() is a uint32\n" .. body
         )
-        assert(body:find(tail, 1, true), tier.args .. ": the scalar tail follows\n" .. body)
+        assert(body:match(tail), tier.args .. ": the scalar tail follows\n" .. body)
     end
 
     local decoded, raw, code = lowered(dir, "--target wasm32-unknown-emscripten --features scalar --json scan.nupp")
     test.equal(code, 0, raw)
-    local body = scanBody(decoded.c)
-    assert(not body:find("ks_exp_", 1, true), "the scalar tier drops the arm\n" .. body)
-    assert(body:find(tail, 1, true), "and keeps the tail\n" .. body)
+    local body = kernelBody(decoded.llvm, "ks_scan")
+    assert(not body:find(" x i32>", 1, true), "the scalar tier drops the arm\n" .. body)
+    assert(body:match(tail), "and keeps the tail\n" .. body)
     assert(not decoded.ir:find("species", 1, true), "nothing of the test survives lowering\n" .. decoded.ir)
 end
 
 function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
     -- `cursor + s.lanes <= #span`, taken exactly in u64, is the guard that
     -- proves a whole vector at `cursor + 1` lies inside the span. Under it
-    -- an unmasked load or store is the `_at` helper: one memcpy the C
-    -- compiler turns into the vector instruction. An overflow guard retains
-    -- the checked helper for wrapping uint32 indices on very large spans.
-    -- The tail is a checked prefix access of the lanes its mask names, and
-    -- moves its partial vector through general registers rather than a
-    -- stack array. Nothing in the loop goes through a double.
+    -- an unmasked load or store is one vector access at the cursor. Where
+    -- every span fits in 32 bits the index cannot wrap and the loop runs
+    -- that way throughout; elsewhere each pass proves its index does not
+    -- wrap, and one that might keeps the checked access. The tail is a
+    -- checked prefix access of the lanes its mask names, the lane count
+    -- taken once, and moves its partial vector through registers rather
+    -- than a stack array. Nothing in the loop goes through a double.
     local dir = project{
         [
             "map.nupp"
@@ -4987,163 +5254,64 @@ return {add = add}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json map.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_add%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
-    local loop = body:match("while %(.-\n    }\n")
+    local body = kernelBody(decoded.llvm, "ks_add")
+    assert(
+        body:find("icmp ule i64 %count_input, 4294967295\n", 1, true)
+            and body:find("icmp ule i64 %count_output, 4294967295\n", 1, true),
+        "the loop is versioned on whether its spans fit in 32 bits\n" .. body
+    )
+    local loop = body:match("\nwhile%.head%.%d+:\n.-\nwhile%.end%.%d+:\n")
     assert(loop, "the vector loop\n" .. body)
-    assert(
-        loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_input)", 1, true)
-        and loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_output)", 1, true),
-        "the guard is exact and compares the count as an integer\n" .. body
-    )
-    assert(
-        loop:find("ks_exp_store_at_u8x16(p_output + (size_t)v2_cursor, ", 1, true)
-        and loop:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
-        "the proven load and store are bare copies\n" .. body
-    )
-    assert(not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
-    assert(loop:find("<= UINT32_MAX)", 1, true), "the unchecked path proves its index does not wrap\n" .. body)
-    assert(
-        loop:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first", 1, true),
-        "wrapping indices keep the original checked access\n" .. body
-    )
-    -- A `tail(n)` mask activates the first n lanes, so the tail is a prefix
-    -- access of n elements, still bounded by the span's count.
-    assert(
-        body:find("ks_exp_load_prefix_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "the tail load is a checked prefix\n" .. body
-    )
-    assert(
-        body:find("ks_exp_store_prefix_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
-        "and so is the tail store\n" .. body
-    )
-    assert(
-        body:find("_active_prefix KS_UNUSED = ", 1, true),
-        "the lane count is taken once, where the mask is\n" .. body
-    )
-
-    -- The helpers themselves are authored C, carried as ks_simd.h and
-    -- instantiated per element by macro, so their shape is read from the
-    -- header rather than from the emitted text.
-    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
-    assert(
-        c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t, int8_t, 16, 1, INT)", 1, true),
-        "the u8x16 helpers are instantiated\n" .. c
-    )
-    assert(
-        header:find(
-            "ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; }",
-            1,
-            true
+    for _, span in ipairs({"input", "output"}) do
+        assert(
+            loop:match("zext i32 16 to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_" .. span .. "\n"),
+            "the guard is exact and compares the count as an integer\n" .. loop
         )
-        and header:find(
-            "ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); }",
-            1,
-            true
-        ),
-        "a proven vector is one copy"
-    )
-    assert(
-        header:find("ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) {", 1, true)
-        and header:find("if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
-        "a checked whole vector is still one copy"
-    )
-    assert(
-        header:find("#if KS_WORD_TAIL", 1, true)
-        and header:find(
-            "switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }",
-            1,
-            true
-        ),
-        "a partial vector gathers into words"
-    )
-    assert(
-        header:find(
-            "case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;",
-            1,
-            true
-        )
-        and header:find(
-            "static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(",
-            1,
-            true
-        ),
-        "and scatters from them, with the lane loop cold"
-    )
-    assert(
-        header:find(
-            "bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM active) { ks_exp_mask_##ELEM inactive = (ks_exp_mask_##ELEM)(active == (ks_exp_mask_##ELEM){0});",
-            1,
-            true
-        ),
-        "all-active is a vector compare"
-    )
-    assert(
-        header:find(
-            "ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { if (active > LANES##u) active = LANES##u;",
-            1,
-            true
-        )
-        and header:find("return (ks_exp_mask_##ELEM)(lane < limit); }", 1, true),
-        "and so is a tail mask"
-    )
-
-    -- Nothing wider than a vector may cross a call boundary by value, and no
-    -- type may ask for more alignment than the narrowest calling convention
-    -- gives a by-reference argument temporary. Windows x64 allocates that
-    -- temporary in the caller's frame with sixteen bytes of alignment, and GCC
-    -- neither rounds it up for an over-aligned type nor declines to move it
-    -- with an instruction that requires the wider alignment -- so a
-    -- thirty-two byte vector handed to a function it did not inline faults on
-    -- whichever half of the calls find the frame sixteen-byte aligned. The
-    -- cold lane loop is the one helper here that is never inlined, so it takes
-    -- what it reads by pointer; a declared object is aligned correctly where
-    -- an argument temporary is not.
-    assert(
-        header:find(
-            "void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active)",
-            1,
-            true
-        )
-        and header:find("ks_exp_store_masked_part_##ELEM(destination, room, &value, &active);", 1, true),
-        "the cold lane loop takes its vector and its mask by pointer"
-    )
-    assert(
-        header:find("typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM;", 1, true)
-        and not header:find("aligned(", 1, true),
-        "and no type in the prelude asks for an alignment a caller does not give it"
-    )
-
-    -- Pointers close the boundaries this header writes. The one it does not
-    -- write is the hidden pointer a by-value vector is returned through, which
-    -- appears whenever the compiler splits a cold path out of an inline helper
-    -- into a real call -- its own choice, made again on every version. On
-    -- Windows the slot that pointer names is the caller's frame, sixteen-byte
-    -- aligned, and GCC stores a vector into it with `vmovdqa`. Every vector
-    -- here says its alignment is one there, which is what leaves the compiler
-    -- no aligned move to reach for; every other target keeps the natural one.
-    assert(
-        header:find(
-            "#if defined(_WIN32) || defined(_WIN64)\n#define KS_VECTOR_ABI_ALIGN , __aligned__(1)\n#else\n#define KS_VECTOR_ABI_ALIGN\n#endif",
-            1,
-            true
-        ),
-        "the Windows calling convention caps what a vector claims about its address"
-    )
-    for _, vector in ipairs({
-        "typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
-        "typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
-    }) do
-        assert(header:find(vector, 1, true), "and every vector carries that cap: " .. vector)
     end
+    assert(
+        loop:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  %%t%d+ = load <16 x i8>, ptr %1, align 1\n")
+            and loop:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  store <16 x i8> %%t%d+, ptr %1, align 1\n"),
+        "the proven load and store are bare vector accesses\n" .. loop
+    )
+    assert(not loop:find("double", 1, true), "nothing in the loop goes through a double\n" .. loop)
+    assert(
+        body:match("add nuw i64 %%t%d+, 16\n  %%t%d+ = icmp ule i64 %%t%d+, 4294967295\n"),
+        "where a span may not fit, the unchecked path proves its index does not wrap\n" .. body
+    )
+    assert(
+        loop:match("%%t%d+ = icmp ult i64 %%t%d+, %%count_input\n  %%t%d+ = sub i64 %%count_input, %%t%d+\n"),
+        "wrapping indices keep the original checked access\n" .. loop
+    )
+
+    -- A `tail(n)` mask activates the first n lanes, so the tail is a prefix
+    -- access of at most n elements, still bounded by the span's count.
+    local tail = assert(body:match("\ncursors%.done%.%d+:\n.*"), body)
+    local prefixes = {}
+    local room = "icmp ult i64 %%t%d+, %%count_(%w+)\n  %%t%d+ = sub i64 %%count_%w+, %%t%d+\n"
+    for span, active in tail:gmatch(room .. ".-icmp ult i32 (%%t%d+), %%t%d+\n") do
+        prefixes[#prefixes + 1] = {span = span, active = active}
+    end
+    test.equal(#prefixes, 2, "the tail load and store are each a checked prefix\n" .. tail)
+    test.equal(prefixes[1].span, "input", tail)
+    test.equal(prefixes[2].span, "output", tail)
+    test.equal(prefixes[1].active, prefixes[2].active, "the lane count is taken once, where the mask is\n" .. tail)
+    assert(
+        tail:match("switch i32 %%t%d+, label %%tail%.done%.%d+ %[")
+            and tail:find("= insertelement <16 x i8> ", 1, true)
+            and tail:find("= extractelement <16 x i8> ", 1, true),
+        "a partial vector is gathered into and scattered from a register\n" .. tail
+    )
+    assert(
+        not body:match("alloca %[%d+ x i8%]"),
+        "and never goes through a stack array\n" .. body
+    )
 end
 
 function M.aProofNeedsTheGuardAndTheCursorItLeft()
     -- A guard for one span proves nothing about another; a masked access
     -- keeps its mask and its checks; a cursor moved between the guard and
-    -- the access is no longer the one the guard was about. Each stays on
-    -- the checked `_full` helper.
+    -- the access is no longer the one the guard was about. Each stays a
+    -- checked access, measuring the room its span has left.
     local dir = project{
         [
             "unproven.nupp"
@@ -5191,29 +5359,22 @@ return {other = other, masked = masked, moved = moved}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unproven.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local other = c:match("KS_API void ks_other%(.-\n}\n")
+    local other = kernelBody(decoded.llvm, "ks_other")
     assert(
-        other and other:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
-        "the unguarded span is checked\n" .. c
+        checkedAccess(other, "output") and not provenAccess(other, "output"),
+        "the unguarded span is checked\n" .. other
     )
+    assert(provenAccess(other, "input"), "while the guarded one is proven\n" .. other)
+    local masked = kernelBody(decoded.llvm, "ks_masked")
     assert(
-        other:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
-        "while the guarded one is proven\n" .. c
+        checkedAccess(masked, "input") and masked:find("select <16 x i1> ", 1, true),
+        "a masked access keeps its mask and its checks\n" .. masked
     )
-    local masked = c:match("KS_API uint32_t ks_masked%(.-\n}\n")
+    local moved = kernelBody(decoded.llvm, "ks_moved")
+    assert(checkedAccess(moved, "input"), "a moved cursor loses the proof\n" .. moved)
     assert(
-        masked and masked:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "a masked access keeps its checks\n" .. c
-    )
-    local moved = c:match("KS_API uint32_t ks_moved%(.-\n}\n")
-    assert(
-        moved and moved:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "a moved cursor loses the proof\n" .. c
-    )
-    assert(
-        not moved:find("load_at_", 1, true) and not masked:find("load_at_", 1, true),
-        "no bare copy without a proof\n" .. c
+        not provenAccess(moved, "input") and not provenAccess(masked, "input"),
+        "no bare access without a proof\n" .. decoded.llvm
     )
 end
 
@@ -5270,25 +5431,18 @@ return {equal = equal, longer = longer, shorter = shorter}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json related.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local equal = c:match("KS_API void ks_equal%(.-\n}\n")
-    assert(equal, "the kernel is emitted:\n" .. c)
+    local vectorStore = "(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n.-store <4 x double> %%t%d+, ptr %1, "
+    local equal = kernelBody(decoded.llvm, "ks_equal")
+    assert(equal:match(vectorStore), "an equal span is proven\n" .. equal)
     assert(
-        equal:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true),
-        "an equal span is proven\n" .. equal
+        equal:match("(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  store double %%t%d+, ptr %1, "),
+        "and so is its scalar tail\n" .. equal
     )
-    assert(equal:find("p_output[((size_t)v2_cursor)] = ", 1, true), "and so is its scalar tail\n" .. equal)
-    local longer = c:match("KS_API void ks_longer%(.-\n}\n")
-    assert(
-        longer and longer:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true),
-        "a span held no shorter is proven\n" .. c
-    )
-    local shorter = c:match("KS_API void ks_shorter%(.-\n}\n")
-    assert(
-        shorter and shorter:find("ks_exp_store_full_f64x4(p_output, count_output, ", 1, true),
-        "a span that may be shorter stays checked\n" .. c
-    )
-    assert(not shorter:find("store_at_", 1, true), "with no bare copy\n" .. shorter)
+    local longer = kernelBody(decoded.llvm, "ks_longer")
+    assert(longer:match(vectorStore), "a span held no shorter is proven\n" .. longer)
+    local shorter = kernelBody(decoded.llvm, "ks_shorter")
+    assert(checkedAccess(shorter, "output"), "a span that may be shorter stays checked\n" .. shorter)
+    assert(not provenAccess(shorter, "output"), "with no bare access\n" .. shorter)
 
     local refused = project{
         [
@@ -5313,13 +5467,14 @@ return {tail = tail}
     assert(out:find("span stores need a counted-loop index or cursor + 1 under cursor < #span", 1, true), out)
 end
 
-function M.aGuardedCursorLoopCarriesItsCursorIn64Bits()
-    -- Under `cursor + s.lanes <= #input` with one `cursor = cursor + s.lanes`,
-    -- the cursor cannot wrap once `#input` fits in 32 bits, so that copy of
-    -- the loop carries it in 64, runs two iterations' bodies per pass (about
-    -- 64 bytes), and skips the wrap check on its accesses. A larger span runs
-    -- the loop as written. A cursor written twice is not versioned. The
-    -- guards make the two counts one, so the loop names only one of them.
+function M.aGuardedCursorLoopIsVersionedWhereItsCursorCannotWrap()
+    -- Under `cursor + s.lanes <= #input` the cursor cannot wrap once `#input`
+    -- fits in 32 bits, so that copy of the loop skips the wrap check on its
+    -- accesses and runs two iterations' bodies per pass (about 64 bytes). A
+    -- larger span runs the loop as written, checking each pass. The guards
+    -- make the two counts one, so the loop names only one of them. A cursor
+    -- written twice is an ordinary 32-bit value the guard reads again every
+    -- pass, so it compiles too. The oracle is the loop as written everywhere.
     local dir = project{
         [
             "wide.nupp"
@@ -5355,45 +5510,41 @@ return {scale = scale, twice = twice}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json wide.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local scale = c:match("KS_API void ks_scale%(.-\n}\n")
-    assert(scale, "the kernel is emitted:\n" .. c)
-    assert(scale:find("if ((uint64_t)(count_output) <= UINT32_MAX) {", 1, true), "the loop is versioned\n" .. scale)
-    assert(scale:find("uint64_t v2_cursor = ks_wide_", 1, true), "onto a 64-bit cursor\n" .. scale)
+    local llvm = decoded.llvm
+    local scale = kernelBody(llvm, "ks_scale")
     assert(
-        scale:find("uint64_t as1 = (uint64_t)v2_cursor + (uint64_t)UINT32_C(4);", 1, true),
-        "whose increment is not truncated\n" .. scale
+        scale:match("(%%t%d+) = icmp ule i64 %%count_output, 4294967295\n.-br i1 %%t%d+, label %%cursors%.wide%.%d+, label %%cursors%.narrow%.%d+\n"),
+        "the loop is versioned on the count fitting in 32 bits\n" .. scale
     )
+    local fits = assert(scale:match("\ncursors%.wide%.%d+:\n.-\ncursors%.narrow%.%d+:\n"), scale)
+    local larger = assert(scale:match("\ncursors%.narrow%.%d+:\n.-\ncursors%.done%.%d+:\n"), scale)
     assert(
-        scale:find(
-            "while ((uint64_t)v2_cursor + UINT64_C(2) * (uint64_t)UINT32_C(4) <= (uint64_t)(count_output)) {",
-            1,
-            true
-        ),
-        "and a 32-byte vector runs two bodies a pass\n" .. scale
+        fits:match("getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  br i1 true, ")
+            and not fits:find("4294967295", 1, true),
+        "the copy that fits has no wrap check on its accesses\n" .. fits
     )
+    local loopId = fits:match("br label %%while%.head%.%d+, !llvm%.loop (!%d+)\n")
+    local hint = loopId and llvm:match("\n" .. loopId .. " = distinct !{" .. loopId .. ", (!%d+)}\n")
     assert(
-        scale:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true)
-        and not scale:match("uint64_t v2_cursor = ks_wide_1;\n%s*while[^\n]*\n%s*{\n%s*%(%(%(uint64_t%)v2_cursor"),
-        "with no wrap check on its accesses\n" .. scale
+        hint and llvm:find("\n" .. hint .. ' = !{!"llvm.loop.unroll.count", i32 2}\n', 1, true),
+        "and a 32-byte vector runs two bodies a pass\n" .. llvm
     )
-    assert(scale:find("} else {\n        while (", 1, true), "a larger span runs the loop as written\n" .. scale)
+    assert(not fits:find("%count_input", 1, true), "the loop names one of the two equal counts\n" .. fits)
     assert(
-        scale:match("uint32_t as%d+ = %(%(uint32_t%)%(v2_cursor %+ UINT32_C%(4%)%)%);"),
-        "with its wrapping cursor\n" .. scale
+        larger:match("add nuw i64 %%t%d+, 4\n  %%t%d+ = icmp ule i64 %%t%d+, 4294967295\n"),
+        "a larger span runs the loop as written, checking each pass\n" .. larger
     )
-    local twice = c:match("KS_API void ks_twice%(.-\n}\n")
-    assert(twice and not twice:find("ks_wide_", 1, true), "a cursor written twice is not versioned\n" .. c)
-    local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("ks_wide_", 1, true), "the oracle is not versioned\n" .. c)
-    assert(oracle:find("count_input", 1, true), "and checks each span against its own count\n" .. oracle)
+    assert(larger:match("= add i32 %%t%d+, 4\n"), "with its wrapping cursor\n" .. larger)
+    kernelBody(llvm, "ks_twice")
+    local oracle = oracleBody(llvm, "ks_scale")
+    assert(not oracle:find("cursors.wide", 1, true), "the oracle is not versioned\n" .. oracle)
 end
 
-function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagIsAnInt()
+function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagStaysAFlag()
     -- `(x >= c):any()` over integer lanes asks one horizontal question of
     -- `x`, and `(x ~= 0):any()` whether any bit is set; neither forms the mask.
-    -- A boolean the loop reassigns is an `int` in C, which clang keeps as a
-    -- flag rather than rebuilding from the comparison every pass.
+    -- A boolean the loop reassigns is a variable of its own, kept as a flag
+    -- rather than rebuilt from the comparison every pass.
     local dir = project{
         [
             "scan.nupp"
@@ -5424,26 +5575,28 @@ return {scan = scan}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json scan.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API uint32_t ks_scan%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
-    assert(body:find("ks_exp_any_ge_u8x16(", 1, true), "a compare against a bound is one reduction\n" .. body)
-    assert(body:find("ks_exp_any_nonzero_u8x16(", 1, true), "and so is a test for any set bit\n" .. body)
-    assert(body:find("int v%d+_ascii = ") or body:match("int v%d+_ascii = "), "the flag is an int\n" .. body)
+    local body = kernelBody(decoded.llvm, "ks_scan")
+    local reduction = "call i32 @llvm%%.aarch64%%.neon%%.u[maxin]+v%%.i32%%.v16i8%%(<16 x i8> %s%%)"
+    assert(not body:find("icmp uge <16 x i8>", 1, true), "neither forms the mask\n" .. body)
+    assert(not body:find("icmp ne <16 x i8>", 1, true), "neither forms the mask\n" .. body)
     assert(
-        c:find(
-            "#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return __builtin_reduce_##REDUCE(value) OP bound;",
-            1,
-            true
-        ),
-        "aarch64 answers it with a horizontal max or min\n"
+        body:match("(%%t%d+) = call i32 @llvm%.aarch64%.neon%.umaxv%.i32%.v16i8%(<16 x i8> %%t%d+%)\n.-icmp uge i32 "),
+        "aarch64 answers a compare against a bound with one horizontal max\n" .. body
+    )
+    local bits = body:match("(%%t%d+) = xor <16 x i8> %%t%d+, %%t%d+\n")
+    assert(bits, "the bits under test\n" .. body)
+    local _, reductions = body:gsub(reduction:format((bits:gsub("%%", "%%%%"))), "")
+    test.equal(reductions, 1, "a test for any set bit is one reduction too\n" .. body)
+    assert(
+        body:find("alloca i1, ", 1, true) and body:find("store i1 false, ptr %slot", 1, true),
+        "the flag is a variable of its own\n" .. body
     )
 end
 
 function M.aByteLookupOverFourTablesIsOneTableInstruction()
     -- `swizzle` with three or four tables continues one run of lanes; on a
     -- sixteen-lane byte species NEON answers it with `tbl` over three or four
-    -- registers, and the scalar oracle walks the lanes.
+    -- registers.
     local dir = project{
         [
             "lookup.nupp"
@@ -5468,24 +5621,26 @@ return {lookup = lookup}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json lookup.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_lookup%(.-\n}\n")
-    assert(body and body:find("ks_exp_swizzle_triple_u8x16(", 1, true), "three tables\n" .. c)
-    assert(body:find("ks_exp_swizzle_quad_u8x16(", 1, true), "four tables\n" .. body)
+    local body = kernelBody(decoded.llvm, "ks_lookup")
+    local _, triples = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl3%.v16i8%(", "")
+    local _, quads = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl4%.v16i8%(", "")
+    test.equal(triples, 1, "three tables are one NEON table instruction\n" .. body)
+    test.equal(quads, 1, "and so are four\n" .. body)
+    oracleBody(decoded.llvm, "ks_lookup")
+
+    local asm = neonAsm(dir, "lookup.nupp")
     assert(
-        c:find("vqtbl3q_u8(t, x)", 1, true) and c:find("vqtbl4q_u8(t, x)", 1, true),
-        "one NEON table instruction each\n"
+        asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+ }, v%d+") and asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+, v%d+ }, v%d+"),
+        "which reach the target as `tbl` over three and four registers\n" .. asm
     )
-    local oracle = c:match("KS_API void ks_lookup_forced_scalar%(.-\n}\n")
-    assert(oracle and oracle:find("ks_scalar_exp_swizzle_quad_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
 end
 
 function M.anInterleavedLoadIsOneLd3AndTheStoreOneSt4()
-    -- Each result of `loadTriples` is its own load of the whole run, proved by
-    -- the loop condition like a load of three vectors; clang reads the run
-    -- once, with `ld3`. `storeQuads` is one store of four vectors, `st4`.
-    -- Outside the proof both take their checked forms, and the scalar oracle
-    -- walks the lanes.
+    -- Each result of `loadTriples` is its own strided view of one load of the
+    -- whole run, proved by the loop condition like a load of three vectors;
+    -- LLVM reads the run once, with `ld3`. `storeQuads` is one store of four
+    -- vectors interleaved, `st4`. Outside the proof both take their checked
+    -- forms, and the oracle is left unoptimized.
     local dir = project{
         [
             "records.nupp"
@@ -5520,27 +5675,35 @@ return {widen = widen}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json records.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API uint32_t ks_widen%(.-\n}\n")
-    assert(body, "the entry\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_widen")
+    assert(
+        body:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n.-= load <48 x i8>, ptr %1, align 1\n"),
+        "a proved run is one load\n" .. body
+    )
     for part = 0, 2 do
-        assert(body:find("ks_exp_load_ways_at_u8x16(p_input + (size_t)v", 1, true), "a proved run\n" .. body)
-        assert(body:find(", 3u, " .. part .. "u)", 1, true), "part " .. part .. "\n" .. body)
+        local stride = "shufflevector <48 x i8> %%t%d+, <48 x i8> poison, <16 x i32> <i32 "
+            .. part .. ", i32 " .. part + 3 .. ", i32 " .. part + 6 .. ", "
+        assert(body:match(stride), "part " .. part .. " is every third byte of it\n" .. body)
     end
-    assert(body:find("ks_exp_store_ways_at_u8x16(p_output + (size_t)v", 1, true), "a proved store\n" .. body)
-    assert(body:find("ks_exp_load_ways_u8x16(p_input, count_input, ", 1, true), "an unproved run is checked\n" .. body)
-    assert(body:find("ks_exp_store_ways_u8x16(p_output, count_output, ", 1, true), "and so is its store\n" .. body)
-    local oracle = c:match("KS_API uint32_t ks_widen_forced_scalar%(.-\n}\n")
-    assert(oracle and oracle:find("ks_scalar_exp_load_ways_at_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
-    assert(not oracle:find("ks_exp_load_ways", 1, true), "and never takes the native form\n" .. oracle)
+    assert(
+        body:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n.-store <64 x i8> %%t%d+, ptr %1, align 1\n"),
+        "a proved store is one store\n" .. body
+    )
+    assert(checkedAccess(body, "input"), "an unproved run is checked\n" .. body)
+    assert(checkedAccess(body, "output"), "and so is its store\n" .. body)
+    oracleBody(decoded.llvm, "ks_widen")
 
     local asm = neonAsm(dir, "records.nupp")
-    if asm ~= nil then
-        local _, reads = asm:gsub("ld3%.16b", "")
-        assert(reads >= 1, "the run is read with ld3\n" .. asm)
-        assert(asm:find("st4.16b", 1, true), "and written with st4\n" .. asm)
-        assert(asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true), "pairs are ld2 and st2\n" .. asm)
-    end
+    local _, reads = asm:gsub("ld3%.16b", "")
+    assert(reads >= 1, "the run is read with ld3\n" .. asm)
+    assert(asm:find("st4.16b", 1, true), "and written with st4\n" .. asm)
+    -- Swapping each pair back is one `rev16` where LLVM sees the load and
+    -- store together; the checked path still interleaves with st2.
+    assert(
+        asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true)
+            or asm:find("rev16.16b", 1, true) and asm:find("st2.16b", 1, true),
+        "pairs are ld2 and st2, or one pair swap\n" .. asm
+    )
 
     -- A result is only ever a local's initializer.
     local refused = project{
@@ -5563,11 +5726,12 @@ return {misplaced = misplaced}
     assert(refusedCode ~= 0 and out:find("initializes up to 2 locals", 1, true), out)
 end
 
-function M.anUnrolledLoopReadsEveryCopyBeforeItWrites()
-    -- The unrolled copies of a versioned loop read the spans they never write
-    -- first, every copy at its own cursor, and then do their work; a store no
-    -- longer separates one copy from the next copy's loads. A span the body
-    -- writes keeps its reads in place, and the scalar oracle is not unrolled.
+function M.anUnrolledLoopChecksItsBoundOncePerGroup()
+    -- Where the guard's room covers the cursor's step the step cannot wrap, so
+    -- the versioned loop's trip count is known and its unrolled copies run
+    -- back to back under one bound check, whether or not the body writes the
+    -- span it reads. Ordering the copies' loads is left to the processor. The
+    -- scalar oracle is not unrolled.
     local dir = project{
         [
             "unrolled.nupp"
@@ -5601,23 +5765,38 @@ return {scale = scale, double = double}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unrolled.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_scale%(.-\n}\n")
-    assert(body, "the entry\n" .. c)
-    local first = body:find("_1_1 = ks_exp_load_at_f64x4(p_input", 1, true)
-    local second = body:find("_2_1 = ks_exp_load_at_f64x4(p_input", 1, true)
-    local store = body:find("ks_exp_store_at_f64x4(p_output", 1, true)
-    assert(first and second and store and first < second and second < store, "both copies read first\n" .. body)
-    local inPlace = c:match("KS_API void ks_double%(.-\n}\n")
-    assert(inPlace and not inPlace:find("ks_unroll_", 1, true), "a written span keeps its reads\n" .. c)
-    local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("ks_unroll_", 1, true), "the oracle is not unrolled\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_scale")
+    assert(body:find(", !llvm.loop !", 1, true), "the versioned loop is unrolled\n" .. body)
+    local oracle = oracleBody(decoded.llvm, "ks_scale")
+    assert(not oracle:find("!llvm.loop", 1, true), "the oracle is not unrolled\n" .. oracle)
+
+    assert(body:find("add nuw i32 ", 1, true), "the cursor's step cannot wrap\n" .. body)
+
+    -- The first loop of each entry: two copies of the body, and nothing that
+    -- compares or branches between them.
+    local function checkedOnce(symbol)
+        local asm, asmCode = run(
+            dir,
+            "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " unrolled.nupp"
+        )
+        test.equal(asmCode, 0, asm)
+        local first = asm:find("\n%s+stp%s+q")
+        local second = first and asm:find("\n%s+stp%s+q", first + 1)
+        assert(first and second, symbol .. " has two copies of its body\n" .. asm)
+        local between = asm:sub(first + 1, second)
+        assert(
+            not between:find("\n%s+cmp%s") and not between:find("\n%s+b%.") and not between:find("\nLBB"),
+            symbol .. " checks once per group\n" .. asm
+        )
+    end
+    checkedOnce("ks_scale")
+    checkedOnce("ks_double")
 end
 
 function M.aLoopCarriedMaskStaysInItsRegister()
-    -- A mask a loop reassigns is kept in its vector register, so the C
-    -- compiler does not carry it as one bit a lane. The scalar oracle has no
-    -- register to keep.
+    -- A mask a loop reassigns is carried lane-wide and pinned to its vector
+    -- registers, so LLVM does not carry it as one bit a lane, and the loop
+    -- tests that register rather than rebuilding it.
     local dir = project{
         [
             "halve.nupp"
@@ -5647,13 +5826,79 @@ return {halve = halve}
     }
     local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json halve.nupp")
     test.equal(code, 0, raw)
-    local c = decoded.c
-    local body = c:match("KS_API void ks_halve%(.-\n}\n")
-    assert(body, "the kernel is emitted:\n" .. c)
-    assert(body:find("_live = ks_exp_keep_mask_f64x4(as", 1, true), "the carried mask is kept\n" .. body)
-    assert(not body:find("= ks_exp_keep_mask_f64x4(ks_exp_gt", 1, true), "its first definition is not\n" .. body)
-    local oracle = c:match("KS_API void ks_halve_forced_scalar%(.-\n}\n")
-    assert(oracle and not oracle:find("keep_mask", 1, true), "the oracle keeps nothing\n" .. c)
+    local body = kernelBody(decoded.llvm, "ks_halve")
+    local slot = body:match("(%%slot%d+) = alloca <4 x i64>\n")
+    assert(slot, "the carried mask has a lane-wide slot\n" .. body)
+    assert(not body:find("alloca <4 x i1>", 1, true), "and no slot of one bit a lane\n" .. body)
+    local escaped = slot:gsub("%%", "%%%%")
+    local _, pinned = body:gsub(
+        'call <2 x i64> asm "", "=w,0"%(<2 x i64> %%t%d+%)\n  %%t%d+ = shufflevector <2 x i64> %%t%d+, <2 x i64> %%t%d+, <4 x i32> <i32 0, i32 1, i32 2, i32 3>\n  store <4 x i64> %%t%d+, ptr '
+            .. escaped .. "\n",
+        ""
+    )
+    local _, stores = body:gsub("store <4 x i64> %%t%d+, ptr " .. escaped .. "\n", "")
+    assert(pinned >= 2, "its definitions are pinned to their registers\n" .. body)
+    test.equal(pinned, stores, "every one of them\n" .. body)
+    assert(
+        body:match("\nwhile%.head%.%d+:\n  %%t%d+ = load <4 x i64>, ptr " .. escaped .. "\n.-umaxp"),
+        "and the loop tests the register it carries\n" .. body
+    )
+end
+
+-- On SSE2 a four-lane double mask spans two registers and has no one-bit
+-- form. Carried lane-wide, selected with and/and-not/or, and recombined from
+-- its compares lane-wide, it stays the two registers its compares fill: the
+-- loop never packs it into one register's narrower lanes (`shufps`) or widens
+-- it back from a lane's sign (`pslld`/`psrad`).
+function M.aBaselineMaskAcrossRegistersIsNeverRepacked()
+    local dir = project{
+        [
+            "refine.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function refine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local value = s:load(input, cursor + 1)
+        local rounds = s:splat(0.0)
+        local live = value > 1
+        while live:any() do
+            value = live:select(value * 0.5, value)
+            rounds = live:select(rounds + 1, rounds)
+            live = (value > 1) & (rounds < 32)
+        end
+        s:store(output, cursor + 1, value + rounds)
+        cursor = cursor + s.lanes
+    end
+end
+return {refine = refine}
+]],
+    }
+    local asm, code = run(
+        dir,
+        "--target x86_64-unknown-linux-gnu --features baseline --emit asm --function ks_refine refine.nupp"
+    )
+    test.equal(code, 0, asm)
+    -- The inner loop: the block that branches back to itself.
+    local loop
+    for label in asm:gmatch("\n(%.LBB%d+_%d+):\n") do
+        local body = asm:match("\n" .. label:gsub("%.", "%%.") .. ":\n(.-\n%s+jne%s+" .. label:gsub("%.", "%%.") .. ")\n")
+        if body and body:find("mulpd", 1, true) then
+            loop = body
+        end
+    end
+    assert(loop, "the refining loop branches back to itself\n" .. asm)
+    for _, instruction in ipairs({"shufps", "pslld", "psrad", "pshufd"}) do
+        assert(not loop:find("%s" .. instruction .. "%s"), "the loop does not " .. instruction .. " its mask\n" .. loop)
+    end
+    local _, compares = loop:gsub("cmpltpd", "")
+    test.equal(compares, 4, "two compares a register, combined as they are\n" .. loop)
 end
 
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
@@ -5775,11 +6020,16 @@ return {total = total}
             tier.args .. ": the preferred shape\n" .. decoded.ir
         )
         assert(decoded.ir:find("simd_vector_f32_fixed8", 1, true), tier.args .. ": the fixed shape\n" .. decoded.ir)
+        local body = kernelBody(decoded.llvm, "ks_total")
         assert(
-            decoded.c:find("KS_EXP_ELEMENT(" .. tier.lanes * 4 .. ", f32x" .. tier.lanes .. ", float", 1, true),
-            tier.args .. ": the tier's width\n" .. decoded.c
+            body:find("= load <" .. tier.lanes .. " x float>, ptr %t", 1, true),
+            tier.args .. ": the tier's width\n" .. body
         )
-        assert(not decoded.c:find("assert", 1, true), tier.args .. ": nothing of the assert survives\n" .. decoded.c)
+        assert(body:find("<8 x float>", 1, true), tier.args .. ": and the fixed one\n" .. body)
+        assert(
+            not decoded.llvm:find("needs vectors", 1, true),
+            tier.args .. ": nothing of the assert survives\n" .. decoded.llvm
+        )
     end
 
     local out, code = run(dir, "--target wasm32-unknown-emscripten --features scalar required.nupp")
@@ -5843,29 +6093,88 @@ end
 
 function M.inspectionFindsNestedProjectAndCarriesSourcePositions()
     local dir = project{["nested/nupp.lua"] = 'return {include={"src"}}', ["nested/src/compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--source-locations --json --emit c nested/src/compute.nupp")
+    local out, code = run(dir, "--json --emit asm nested/src/compute.nupp")
     test.equal(code, 0, out)
-    local decoded = require("testjson").decode(out)
-    assert(decoded.c:find('#line ', 1, true), "inspection C carries authored positions")
-    assert(decoded.c:find('nested/src/compute.nupp', 1, true), "C names the source file")
-    if hasToolchain() then
-        out, code = run(dir, "--json --emit asm nested/src/compute.nupp")
-        test.equal(code, 0, out)
-        local found, attributed = false, false
-        for _, listing in ipairs(require("testjson").decode(out).asm.functions) do
-            if listing.role == "kernel" then
-                for _, instruction in ipairs(listing.instructions) do
-                    if instruction.sourceFile and instruction.sourceFile:find("compute.nupp", 1, true) then
-                        assert(instruction.sourceLine > 0)
-                        found = true
-                        attributed = attributed or #(instruction.loopIds or {}) > 0
-                    end
+    local found, attributed = false, false
+    for _, listing in ipairs(require("testjson").decode(out).asm.functions) do
+        if listing.role == "kernel" then
+            for _, instruction in ipairs(listing.instructions) do
+                if instruction.sourceFile and instruction.sourceFile:find("compute.nupp", 1, true) then
+                    assert(instruction.sourceLine > 0)
+                    found = true
+                    attributed = attributed or #(instruction.loopIds or {}) > 0
                 end
             end
         end
-        assert(found, "native kernel instructions retain authored locations")
-        assert(attributed, "native instructions identify their originating IR loops")
     end
+    assert(found, "native kernel instructions retain authored locations")
+    assert(attributed, "native instructions identify their originating IR loops")
+end
+
+-- Loading each field of a struct that is a run of one scalar type reads the
+-- elements whole: on NEON the sibling loads become one de-interleaving `ld2`
+-- or `ld3`, where a lane-by-lane gather would insert each lane. A struct with
+-- a field of another type is still gathered.
+function M.siblingFieldLoadsBecomeOneDeinterleavingLoad()
+    local dir = project{
+        [
+            "fields.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+local struct Pair
+    x: float
+    y: float
+end
+
+local struct Triple
+    a: uint32
+    b: uint32
+    c: uint32
+end
+
+@aot
+local function lengths(exclusive out: span.WriteSpan<float>, borrows points: span.Span<Pair>): nil
+    assert(#out == #points)
+    local s = assert(simd.species(array.float, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #points do
+        local x = s:load(points, (cursor + 1) as integer, "x")
+        local y = s:load(points, (cursor + 1) as integer, "y")
+        s:store(out, cursor + 1, x * x + y * y)
+        cursor = cursor + s.lanes
+    end
+end
+
+@aot
+local function sums(exclusive out: span.WriteSpan<uint32>, borrows points: span.Span<Triple>): nil
+    assert(#out == #points)
+    local s = assert(simd.species(array.uint32, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #points do
+        local a = s:load(points, (cursor + 1) as integer, "a")
+        local b = s:load(points, (cursor + 1) as integer, "b")
+        local c = s:load(points, (cursor + 1) as integer, "c")
+        s:store(out, cursor + 1, a + b + c)
+        cursor = cursor + s.lanes
+    end
+end
+return {lengths = lengths, sums = sums}
+]],
+    }
+    for symbol, instruction in pairs({ks_lengths = "ld2.4s", ks_sums = "ld3.4s"}) do
+        local asm, code = run(
+            dir,
+            "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " fields.nupp"
+        )
+        test.equal(code, 0, asm)
+        assert(asm:find("\n%s+" .. instruction:gsub("%.", "%%.") .. "%s"), symbol .. " reads its elements whole\n" .. asm)
+    end
+    local oracle = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm fields.nupp")
+    local body = oracleBody(oracle, "ks_lengths")
+    assert(body:find("llvm.masked.gather", 1, true), "the oracle still gathers each lane\n" .. body)
 end
 
 return M

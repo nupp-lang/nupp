@@ -159,7 +159,7 @@ local function emitProgram(
     expression = function(value: any): string
         local op = value.op
         if op == "local" or op == "helper_param" then
-            return identifier(value.cName or value.name)
+            return identifier(value.uniqueName or value.name)
         elseif op == "uniform" then
             return INTERNAL .. "uniforms." .. identifier(value.name)
         elseif op == "loop_index" then
@@ -201,7 +201,7 @@ local function emitProgram(
             if statement.op == "assign" then
                 for _, assignment in ipairs(statement.values) do
                     if assignment.target.kind == "local" then
-                        mutable[identifier(assignment.target.cName or assignment.target.name)] = true
+                        mutable[identifier(assignment.target.uniqueName or assignment.target.name)] = true
                     end
                 end
             elseif statement.op == "if" then
@@ -235,9 +235,9 @@ local function emitProgram(
                 line(
                     depth,
                     (
-                        mutable[identifier(statement.cName)] == true and "var " or "let "
+                        mutable[identifier(statement.uniqueName)] == true and "var " or "let "
                     ) .. identifier(
-                        statement.cName
+                        statement.uniqueName
                     ) .. ": " .. typeName(statement.type) .. " = " .. expression(statement.value) .. ";"
                 )
             elseif op == "assign" then
@@ -248,7 +248,7 @@ local function emitProgram(
                 line(
                     depth,
                     identifier(
-                        assignment.target.cName or assignment.target.name
+                        assignment.target.uniqueName or assignment.target.name
                     ) .. " = " .. expression(assignment.value) .. ";"
                 )
             elseif op == "store" then
@@ -283,7 +283,7 @@ local function emitProgram(
                 line(depth + 1, "var " .. done .. ": bool = false;")
                 line(depth + 1, "loop {")
                 line(depth + 2, "if (" .. counter .. " > " .. last .. ") { break; }")
-                line(depth + 2, "var " .. identifier(statement.binding.cName) .. ": i32 = " .. counter .. ";")
+                line(depth + 2, "var " .. identifier(statement.binding.uniqueName) .. ": i32 = " .. counter .. ";")
                 statements(statement.body, depth + 2)
                 line(depth + 2, "continuing {")
                 -- Explicit state preserves the pre-increment decision even

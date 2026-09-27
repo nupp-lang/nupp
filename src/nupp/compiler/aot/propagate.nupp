@@ -17,15 +17,15 @@ const propagate.RULE = "propagate.local-constant"
 ---
 --- Returns the stored node object itself, never a copy: the let and every
 --- substituted use site deliberately alias one node, which is safe exactly
---- because the environment admits only leaf literals. The lookup uses the C
---- identity when one exists and the source name otherwise; the optimizer
---- inserts under the C identity.
+--- because the environment admits only leaf literals. The lookup uses the
+--- unique name when one exists and the source name otherwise; the optimizer
+--- inserts under the unique name.
 function propagate.apply(node: scalarIR.Expr, constants: propagate.Constants): scalarIR.Expr?, string?
     if node.op ~= "local" then
         return nil, nil
     end
     local named = node as scalarIR.Name
-    local replacement = constants[tostring(named.cName or named.name)]
+    local replacement = constants[tostring(named.uniqueName or named.name)]
     if replacement == nil then
         return nil, nil
     end

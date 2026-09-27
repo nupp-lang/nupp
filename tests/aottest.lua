@@ -25,7 +25,7 @@ local browserGpuEnv = envMod.new(HERE .. "/..", {
 
 local M = {}
 
-function M.cIdentifiersPreserveDistinctSourceNames()
+function M.privateSymbolsPreserveDistinctSourceNames()
     assert(
         scalarIR.privateSymbol("fooBar") ~= scalarIR.privateSymbol("foo_bar"),
         "camel-case and underscore names have distinct symbols"

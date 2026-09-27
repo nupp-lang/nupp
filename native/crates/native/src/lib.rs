@@ -7,6 +7,8 @@ use std::ffi::c_char;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(feature = "codegen")]
+mod codegen;
 #[cfg(feature = "compression")]
 mod compression;
 #[cfg(any(feature = "files", feature = "filesystem"))]
@@ -35,6 +37,8 @@ const FEATURE_FILES: u64 = 1 << 7;
 const FEATURE_NET: u64 = 1 << 8;
 const FEATURE_TLS: u64 = 1 << 9;
 const FEATURE_COMPRESSION: u64 = 1 << 10;
+const FEATURE_CODEGEN: u64 = 1 << 11;
+const FEATURE_AOT_RUNTIME: u64 = 1 << 12;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -131,6 +135,35 @@ pub extern "C" fn nuppNativeFeatures() -> u64 {
         } else {
             0
         }
+        | if cfg!(feature = "codegen") {
+            FEATURE_CODEGEN
+        } else {
+            0
+        }
+        | if cfg!(nupp_aot_runtime) {
+            FEATURE_AOT_RUNTIME
+        } else {
+            0
+        }
+}
+
+#[cfg(nupp_aot_runtime)]
+unsafe extern "C" {
+    static ks_rt_table: [*const std::ffi::c_void; 1];
+    fn ks_rt_bind() -> std::ffi::c_int;
+}
+
+/// The AOT runtime's table (`c/ks_rt.c`): what an LLVM-compiled Lua-builder
+/// module's registrar is handed, and calls the runtime through. Null when the
+/// runtime cannot find the Lua API in this process (Windows binds it here).
+#[cfg(nupp_aot_runtime)]
+#[unsafe(no_mangle)]
+pub extern "C" fn nuppAotRuntime() -> *const std::ffi::c_void {
+    // SAFETY: binding only reads the loaded modules' export tables.
+    if unsafe { ks_rt_bind() } == 0 {
+        return std::ptr::null();
+    }
+    std::ptr::addr_of!(ks_rt_table).cast()
 }
 
 #[unsafe(no_mangle)]

@@ -245,7 +245,8 @@ local RESOURCES = {
     -- `nupp.compiler.bundled` is the one place anything carried is read from.
     {source = "src/nupp/tools/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
     {source = "src/nupp/tools/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
-    "src/nupp/compiler/aot/include/*.h",
+    "src/nupp/compiler/aot/llvm/wasm/*.ll",
+    "src/nupp/compiler/aot/llvm/lua/*.ll",
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/bench/init.nupp", output = "nupp/compiler/nupp/bench/init.nupp"},
     {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},

@@ -825,7 +825,7 @@ return read
     )
     assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
     local program = programs[1]
-    assertEq(program.params[5].cName, "p_cursor", "cursor names the actual native parameter")
+    assertEq(program.params[5].uniqueName, "p_cursor", "cursor names the actual native parameter")
     aotVerify.program(program)
     program.body[1].clauses[1].condition.op = "le"
     local ok, why = pcall(aotVerify.program, program)

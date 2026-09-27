@@ -77,6 +77,16 @@ return {
     -- the structural checks which keep the replacement corpus bounded.
     ["simd-conformance"] = {"aotsimdconditiontest", "simd*test"},
 
+    -- The Wasm packs through wasmtime and the browser: a cargo-built host and
+    -- hundreds of modules, a quarter of an hour on a fast machine. The SIMD
+    -- conformance workflow runs the same harness sharded, so the per-push
+    -- matrix leaves these to it.
+    ["wasm-conformance"] = {
+        "simdwasmtimeconformancetest",
+        "simdwasmalgorithmdifferentialtest",
+        "simdwasmbrowsersmoketest",
+    },
+
     -- Packaging and release delivery.
     ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "rocktest", "spipackagetest", "spitest",},
 

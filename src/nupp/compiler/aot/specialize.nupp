@@ -45,7 +45,7 @@ function specialize.copy(value: any, replacements: {[string]: scalarIR.Expr}): a
         return value
     end
     if value.op == "helper_param" then
-        local identity = tostring(value.cName or value.name)
+        local identity = tostring(value.uniqueName or value.name)
         if replacements[identity] ~= nil then
             return specialize.copy(replacements[identity], {})
         end
@@ -79,7 +79,7 @@ function specialize.propose(node: scalarIR.Expr, context: specialize.Context): s
             return nil
         end
         local param = helper.params[position]
-        replacements[tostring(param.cName or param.name)] = argument
+        replacements[tostring(param.uniqueName or param.name)] = argument
     end
     local replacement = specialize.copy(helper.values[1], replacements) as scalarIR.Expr
 

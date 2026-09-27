@@ -17,11 +17,10 @@ local cases = test.cases(
     end,
     function(row)
         local capabilities = wasmtime.capabilities()
-        test.requireCapability("compiler.emscripten", capabilities.emscripten.available, capabilities.emscripten)
+        test.requireCapability("compiler.wasm", capabilities.wasm.available, capabilities.wasm)
         test.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
         test.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
         test.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
-        wasmtime.prepareToolchain(test, capabilities)
         local hostLibrary, host = wasmtime.host(test, capabilities)
         local generated = row.pack == "species" and packs.species() or packs.semantics({target = "wasm"})
         local key = wasmtime.fixtureKey(row.pack, generated, capabilities, host)

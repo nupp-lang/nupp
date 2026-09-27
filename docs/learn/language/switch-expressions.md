@@ -456,14 +456,10 @@ what the native backend accepts.
 
 ::: deepdive
 An ahead-of-time switch whose selector has an established `int32` or `uint32`
-representation lowers to a native C `switch`, leaving the C compiler to choose
-branches, a search tree, bit tests, or a jump table. The backend gets there by
-annotating the `If` that lowering already emits with the normalized integer
-labels, rather than by adding a scalar-IR switch op. Lowering already produces
-exactly the shape a native switch needs, so the emitter reads a fact instead of
-reconstructing one, and a new op would have needed cases at seven `op == "if"`
-sites plus verification, text, and emission. Dropping the
-annotation is always safe, which is what makes the lane path desugar before
+representation lowers to comparison branches on that integer, and the code
+generator's optimizer turns those into a native switch, choosing branches, a
+search tree, bit tests, or a jump table. Lowering already produces exactly that
+shape, so no scalar-IR switch op exists, and the lane path can desugar before
 rewriting.
 :::
 

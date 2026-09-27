@@ -18,7 +18,6 @@ Node.js and the pinned browser guest package:
 
 ```sh
 export NUPP_SOURCE=/path/to/nupp
-export NUPP_WASM_CC=/path/to/emsdk/upstream/emscripten/emcc
 export NUPP_BROWSER_GUEST_DIR=/path/to/browser-guest
 
 nupp task package

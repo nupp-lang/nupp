@@ -1,0 +1,77 @@
+module nupp.compiler.aot.llvm.dwarf
+
+--[[
+Line tables: which authored line each instruction came from.
+
+A unit compiled with a source file gets a compile unit, a subprogram per entry
+and a location on every instruction whose statement carries one, which is what
+LLVM needs to write `.loc` directives and DWARF line tables and nothing more:
+no types and no variables, the equivalent of clang's `-gline-tables-only`. An
+inlined helper's instructions take the location of the call they were inlined
+into.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local text = require("nupp.compiler.aot.llvm.text")
+
+local dwarf = {}
+
+--- The file and compile unit one module's locations are in.
+record dwarf.Unit
+    file: string
+    unit: string
+end
+
+--- A compile unit for `path`, registered in `module`.
+function dwarf.unit(module: builder.Module, path: string, dwarfVersion: integer): dwarf.Unit
+    local directory, name = path:match("^(.*)/([^/]+)$")
+    local file = builder.metadata(
+        module,
+        (
+            '!DIFile(filename: "%s", directory: "%s")'
+        ):format(text.bytes(tostring(name or path)), text.bytes(tostring(directory or "")))
+    )
+    local unit = builder.distinct(
+        module,
+        (
+            '!DICompileUnit(language: DW_LANG_C11, file: %s, producer: "nupp", isOptimized: true, '
+            .. "runtimeVersion: 0, emissionKind: LineTablesOnly)"
+        ):format(file)
+    )
+    local version = builder.metadata(module, ('!{i32 7, !"Dwarf Version", i32 %d}'):format(dwarfVersion))
+    local info = builder.metadata(module, '!{i32 2, !"Debug Info Version", i32 3}')
+    builder.named(module, "llvm.dbg.cu", unit)
+    builder.named(module, "llvm.module.flags", version)
+    builder.named(module, "llvm.module.flags", info)
+
+    return new dwarf.Unit(file = file, unit = unit)
+end
+
+--- A subprogram for the function `name` starting at `line`.
+function dwarf.subprogram(module: builder.Module, unit: dwarf.Unit, name: string, line: integer): string
+    local signature = builder.metadata(module, "!DISubroutineType(types: !{})")
+
+    return builder.distinct(
+        module,
+        (
+            '!DISubprogram(name: "%s", scope: %s, file: %s, line: %d, type: %s, scopeLine: %d, '
+            .. "spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: %s)"
+        ):format(text.bytes(name), unit.file, unit.file, line, signature, line, unit.unit)
+    )
+end
+
+--- Points `f`'s following instructions at `source` inside `scope`; nothing
+--- changes when there is no scope or no source.
+function dwarf.at(f: builder.Function, scope: string?, source: scalarIR.Source?): nil
+    if scope == nil or source == nil then
+        return
+    end
+    local at = source as scalarIR.Source
+    f.location = builder.metadata(
+        f.module,
+        ("!DILocation(line: %d, column: %d, scope: %s)"):format(at.line, at.column, scope as string)
+    )
+end
+
+export = dwarf

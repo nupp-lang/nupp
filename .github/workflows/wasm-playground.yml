@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  # The browser guest it calls fetches the pinned LLVM artifact.
+  actions: read
 
 jobs:
   candidate:

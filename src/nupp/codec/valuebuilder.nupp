@@ -563,8 +563,8 @@ end
 --- Reach for it where the buffer is a table of a size the source knows -- a
 --- message schedule, a state vector, a lookup -- and for the appending one
 --- where the size is the input's. The checks are the same and refuse the same
---- indexes; what changes is that a fixed buffer's bound is a number the C
---- compiler has rather than a field it must load, which is what lets it
+--- indexes; what changes is that a fixed buffer's bound is a number the code
+--- generator has rather than a field it must load, which is what lets it
 --- discharge the comparison itself in a counted loop. `bench/sha256` measures
 --- `nupp.digest.internal.sha256` at 0.849x the hand-written C before and 0.963x after.
 ---

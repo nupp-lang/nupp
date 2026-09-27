@@ -13,21 +13,11 @@ local targets = {
 local selected = assert(targets[name], "unknown algorithm corpus")
 local tier = assert(os.getenv("NUPP_SIMD_TIER"), "an exact tier is required")
 assert(tier == "baseline" or tier == "avx2" or tier == "avx512f" or tier == "neon")
-local compiler = assert(os.getenv("NUPP_NATIVE_CC"), "a native compiler is required")
 local root, q = runner.root(), runner.quote
 local workspace = directory .. "/workspace"
 local project = workspace .. "/bench/" .. name
 runner.command("test ! -e " .. q(workspace) .. " && mkdir -p " .. q(workspace), directory .. "/prepare.log")
-runner.command(
-    q(
-        compiler
-    ) .. " -std=c11 -O2 -Wall -Wextra -Werror " .. q(
-        root .. "/tests/simd/capabilities.c"
-    ) .. " -o " .. q(directory .. "/capabilities.exe"),
-    directory .. "/capabilities-build.log"
-)
-local capabilities = runner.command(q(directory .. "/capabilities.exe"), directory .. "/capabilities.log")
-    :gsub("\r\n", "\n")
+local capabilities = assert(runner.hostTiers())
 assert(("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true), "requested algorithm tier is unavailable")
 local projectPath = "bench/" .. name
 local listed = runner.command(
@@ -92,11 +82,7 @@ end
 
 runner.write(project .. "/nupp.lua", "return " .. lua(manifest) .. "\n")
 runner.command(
-    "cd " .. q(
-        project
-    ) .. " && NUPP_NATIVE_CC=" .. q(
-        compiler
-    ) .. " " .. q(root .. "/bin/nupp") .. " build --target " .. q(selected.target),
+    "cd " .. q(project) .. " && " .. q(root .. "/bin/nupp") .. " build --target " .. q(selected.target),
     directory .. "/build.log"
 )
 local units = runner.json(project .. "/build/aot/units.json")
@@ -119,7 +105,7 @@ assert(calls > 0 and checks > 0)
 local digest = "if command -v sha256sum >/dev/null 2>&1; then digest=sha256sum; flags=; else digest=shasum; flags='-a 256'; fi; find "
     .. q(
         project .. "/build"
-    ) .. [[ -type f \( -name '*.c' -o -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -exec "$digest" $flags {} +]]
+    ) .. [[ -type f \( -name '*.ll' -o -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -exec "$digest" $flags {} +]]
 runner.command(digest, directory .. "/artifacts.sha256")
 local report = {
     ok = true,
@@ -130,7 +116,7 @@ local report = {
     cases = checks,
     generatedUnits = actual,
     units = units,
-    compiler = compiler,
+    compiler = "llvm",
     capabilities = capabilities,
     executionLog = directory .. "/execution.log",
     artifacts = directory .. "/artifacts.sha256"

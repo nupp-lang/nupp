@@ -748,8 +748,6 @@ end
 function M.windowsCiInstallsMatchingRustToolchains()
     local compiler = read(ROOT .. "/.github/workflows/compiler.yml")
     local release = read(ROOT .. "/.github/workflows/release.yml")
-    local pack = read(ROOT .. "/.github/scripts/build-compiler-pack-windows.sh")
-    local packJob = assert(release:match("\n  build%-compiler%-pack%-windows:(.-)\n  catalog:"))
     local gnu = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal'
     local gnullvm = 'rustup toolchain install "${channel}-x86_64-pc-windows-gnullvm" --profile minimal'
     local measurements = read(ROOT .. "/.github/workflows/measurements.yml")
@@ -761,13 +759,7 @@ function M.windowsCiInstallsMatchingRustToolchains()
         "the Windows native runtime, reification, and GPU provider measurements do not provision GNU Rust"
     )
     assert(releaseInstalls == 1, "the ordinary Windows release host does not provision GNU Rust")
-    assert(countOccurrences(release, gnullvm) == 1, "the LLVM-MinGW compiler-pack job does not provision gnullvm Rust")
-    assert(packJob:find(gnullvm, 1, true), "the compiler-pack job provisions gnullvm in a different Windows job")
-    assert(not packJob:find(gnu, 1, true), "the compiler-pack job still provisions GNU Rust for LLVM-MinGW")
-    assert(
-        pack:find("NUPP_RUST_WINDOWS_ABI=gnullvm", 1, true),
-        "the LLVM-MinGW compiler-pack build does not select its provisioned Rust ABI"
-    )
+    assert(not release:find(gnullvm, 1, true), "a release job still provisions gnullvm Rust")
 end
 
 function M.pagesCiInstallsThePinnedRustToolchain()

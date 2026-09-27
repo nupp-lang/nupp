@@ -1,0 +1,318 @@
+module nupp.compiler.aot.llvm.codegen
+
+--[[
+The code generator linked into the host: LLVM and lld, reached through the
+versioned native provider.
+
+Everything here is a thin call. What goes in is LLVM IR text and `key=value`
+options, and what comes out is an object, a report, and optionally the
+assembly; the crate behind it knows nothing about Nupp. A host built without
+the pinned LLVM answers `available()` with the reason.
+]]
+
+local native = require("nupp.runtime.native")
+
+local codegen = {}
+
+--- The provider's feature bit for the code generator.
+const CODEGEN_FEATURE = 2048
+
+local declared = false
+
+local function declare(): nil
+    if declared then
+        return
+    end
+    declared = true
+    local ffi: any = native.ffi
+    ffi.cdef[[
+uint32_t nuppCodegenAvailable(void);
+int32_t nuppCodegenVersion(uint64_t *result);
+int32_t nuppCodegenCompile(
+    const char *ir, size_t irLength,
+    const char *name, size_t nameLength,
+    const char *options, size_t optionsLength,
+    uint64_t *object, uint64_t *report, uint64_t *assembly, uint64_t *optimizedIr);
+int32_t nuppCodegenLink(const char *argv, size_t length, uint64_t *messages);
+int32_t nuppCodegenUnexitable(void);
+void nuppCodegenEndProcess(int32_t code);
+int32_t nuppCodegenImportLibrary(
+    const char *dll, size_t dllLength,
+    const char *path, size_t pathLength,
+    const char *names, size_t namesLength);
+int32_t nuppCodegenCompileFiles(const char *jobs, size_t length, uint32_t width, uint64_t *results);
+int32_t nuppCodegenArchive(
+    const char *path, size_t pathLength,
+    const char *members, size_t membersLength,
+    int32_t kind);
+int32_t nuppCodegenKitFetch(
+    const char *url, size_t urlLength,
+    const char *path, size_t pathLength,
+    const char *sha256, size_t sha256Length,
+    uint64_t size);
+int32_t nuppCodegenKitUnpack(
+    const char *archive, size_t archiveLength,
+    const char *sha256, size_t sha256Length,
+    uint64_t size,
+    const char *root, size_t rootLength);
+]]
+end
+
+--- Whether this process has the code generator, and if not, why not.
+function codegen.available(): (boolean, string?)
+    local ok, answer = pcall(function(): boolean
+        declare()
+        local C: any = native.C
+        if (C.nuppNativeFeatures() as integer) % (CODEGEN_FEATURE * 2) < CODEGEN_FEATURE then
+            return false
+        end
+
+        return C.nuppCodegenAvailable() ~= 0
+    end)
+    if not ok then
+        return false, "the native provider could not be loaded: " .. tostring(answer)
+    end
+    if answer ~= true then
+        return false, "this nupp was built without the LLVM code generator; run scripts/toolchain llvm and rebuild"
+    end
+
+    return true, nil
+end
+
+--- `"llvm <version>; codegen <n>"`: part of every artifact's key.
+--- @raises string when the code generator is unavailable
+function codegen.version(): string
+    declare()
+    local ffi: any = native.ffi
+    local C: any = native.C
+    local handle = ffi.new("uint64_t[1]")
+    native.succeeded(C.nuppCodegenVersion(handle), 2)
+
+    return native.bytes(handle[0])
+end
+
+--- The contents of a byte handle, or nil for the zero handle.
+local function take(handle: any): string?
+    local ffi: any = native.ffi
+    if ffi.cast("uint64_t", handle) == 0 then
+        return nil
+    end
+
+    return native.bytes(handle)
+end
+
+--- One compiled module.
+record codegen.Compiled
+    object: string
+    report: string
+    assembly: string?
+    optimizedIr: string?
+end
+
+--- `key=value` lines from an options table, in a stable order.
+local function optionText(options: {[string]: string}): string
+    local keys: {string} = {}
+    for key in pairs(options) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local lines: {string} = {}
+    for _, key in ipairs(keys) do
+        lines[#lines + 1] = key .. "=" .. (options[key] as string)
+    end
+
+    return table.concat(lines, "\n")
+end
+
+--- Compiles LLVM IR text. Options: `triple` (required), `cpu`, `features`,
+--- `opt` (0-3), `assembly`, `optimized-ir`, `verify` ("1" to enable).
+--- @return the compiled module, or nil and why not
+function codegen.compile(ir: string, name: string, options: {[string]: string}): (codegen.Compiled?, string?)
+    local ok, result = pcall(function(): codegen.Compiled
+        declare()
+        local ffi: any = native.ffi
+        local C: any = native.C
+        local text = optionText(options)
+        local object = ffi.new("uint64_t[1]")
+        local report = ffi.new("uint64_t[1]")
+        local assembly = ffi.new("uint64_t[1]")
+        local optimized = ffi.new("uint64_t[1]")
+        native.succeeded(
+            C.nuppCodegenCompile(ir, #ir, name, #name, text, #text, object, report, assembly, optimized),
+            2
+        )
+
+        return new codegen.Compiled(
+            object = take(object[0]) or "",
+            report = take(report[0]) or "",
+            assembly = take(assembly[0]),
+            optimizedIr = take(optimized[0])
+        )
+    end)
+    if not ok then
+        return nil, tostring(result)
+    end
+
+    return result as codegen.Compiled, nil
+end
+
+--- One module `codegen.compileFiles` compiles.
+record codegen.Job
+    ir: string
+    object: string
+    options: {[string]: string}
+end
+
+--- One job's outcome: its report, or why it failed.
+record codegen.Outcome
+    report: string?
+    error: string?
+end
+
+--- Compiles IR files to objects, `width` at a time, each where LLVM's
+--- ending the process on an internal error ends only that job: a job that
+--- crashes is an outcome with an error, and the build goes on to report it.
+--- @return one outcome per job, in order, or nil and why none ran
+function codegen.compileFiles(jobs: {codegen.Job}, width: integer): ({codegen.Outcome}?, string?)
+    local ok, result = pcall(function(): {codegen.Outcome}
+        declare()
+        local ffi: any = native.ffi
+        local C: any = native.C
+        local records: {string} = {}
+        for position, job in ipairs(jobs) do
+            records[position] = job.ir .. "\31" .. job.object .. "\31" .. optionText(job.options)
+        end
+        local joined = table.concat(records, "\0") .. "\0"
+        local handle = ffi.new("uint64_t[1]")
+        native.succeeded(C.nuppCodegenCompileFiles(joined, #joined, width, handle), 2)
+        local text = take(handle[0]) or ""
+        local outcomes: {codegen.Outcome} = {}
+        for record in text:gmatch("([^%z]*)%z") do
+            local kind, body = record:match("^(%a+)\31(.*)$")
+            outcomes[#outcomes + 1] = kind == "ok" and new codegen.Outcome(report = body, error = nil)
+                or new codegen.Outcome(report = nil, error = body or record)
+        end
+
+        return outcomes
+    end)
+    if not ok then
+        return nil, tostring(result)
+    end
+
+    return result as {codegen.Outcome}, nil
+end
+
+--- Ends this process with `code` when a link left it unable to exit through
+--- its static destructors, which on a Windows host an ELF, Mach-O or Wasm link
+--- does; returns otherwise. The process's own buffered output is flushed
+--- first, since nothing after this runs.
+function codegen.endIfUnexitable(code: integer): nil
+    if not declared then
+        return
+    end
+    local C: any = native.C
+    local ok, unexitable = pcall(function(): boolean
+        return C.nuppCodegenUnexitable() ~= 0
+    end)
+    if ok and unexitable then
+        io.stdout:flush()
+        io.stderr:flush()
+        C.nuppCodegenEndProcess(code)
+    end
+end
+
+--- Runs lld in process. `argv[1]` picks the flavor: `ld64.lld`, `ld.lld`,
+--- `lld-link`, `wasm-ld`.
+--- @return lld's messages on success, or nil and the failure
+function codegen.link(argv: {string}): (string?, string?)
+    local ok, result = pcall(function(): string
+        declare()
+        local ffi: any = native.ffi
+        local C: any = native.C
+        local joined = table.concat(argv, "\0") .. "\0"
+        local messages = ffi.new("uint64_t[1]")
+        native.succeeded(C.nuppCodegenLink(joined, #joined, messages), 2)
+
+        return take(messages[0]) or ""
+    end)
+    if not ok then
+        return nil, tostring(result)
+    end
+
+    return result as string, nil
+end
+
+--- Writes a MinGW import library naming `dll` as the provider of `names`;
+--- an entry `{name, export}` imports `name` under `export`.
+--- @return nil, or why it could not be written
+function codegen.importLibrary(dll: string, path: string, names: {{string}}): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        local entries: {string} = {}
+        for position, entry in ipairs(names) do
+            entries[position] = entry[2] ~= nil and entry[1] .. "\t" .. entry[2] or entry[1]
+        end
+        local joined = table.concat(entries, "\0") .. "\0"
+        native.succeeded(C.nuppCodegenImportLibrary(dll, #dll, path, #path, joined, #joined), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+--- The archive formats `codegen.archive` writes.
+const ARCHIVE: {[string]: integer} = {gnu = 0, bsd = 1, darwin = 2, coff = 3}
+
+--- Writes the indexed static archive `path` of `members` in `format`:
+--- `gnu`, `bsd`, `darwin` or `coff`.
+--- @return nil, or why it could not be written
+function codegen.archive(path: string, members: {string}, format: string): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        local joined = table.concat(members, "\0") .. "\0"
+        native.succeeded(C.nuppCodegenArchive(path, #path, joined, #joined, ARCHIVE[format] or 0), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+--- Fetches the link kit archive at the HTTPS `url` into `path`, which is
+--- written only once the body is `size` bytes with SHA-256 `sha256`.
+--- @return nil, or why it could not be fetched
+function codegen.fetchKit(url: string, path: string, sha256: string, size: integer): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        native.succeeded(C.nuppCodegenKitFetch(url, #url, path, #path, sha256, #sha256, size), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+--- Checks the link kit archive at `archive` against `size` and `sha256` and
+--- unpacks it into the existing directory `root`.
+--- @return nil, or why it could not be unpacked
+function codegen.unpackKit(archive: string, sha256: string, size: integer, root: string): string?
+    local ok, err = pcall(function(): nil
+        declare()
+        local C: any = native.C
+        native.succeeded(C.nuppCodegenKitUnpack(archive, #archive, sha256, #sha256, size, root, #root), 2)
+    end)
+    if not ok then
+        return tostring(err)
+    end
+
+    return nil
+end
+
+export = codegen

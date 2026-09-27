@@ -1,0 +1,266 @@
+module nupp.tools.build.kits
+
+--[[
+Link kits: what a standalone program with AOT code is linked against for one
+platform -- the runtime archive, stubs for the system libraries, and a
+`kit.json` naming the target it links for. Linking needs no C toolchain or SDK,
+so a kit is all a build needs to produce a program for another platform.
+
+A kit is found, in order:
+
+1. in `NUPP_KIT_DIR`, which names one kit or a directory of kits, one per
+   platform;
+2. through the stub catalog's record for the platform: the per-user cache, then
+   the archive in `NUPP_STUB_DIR`, then the release that published it, fetched
+   over HTTPS. The catalog's digest authenticates the bytes, wherever they came
+   from;
+3. built by a source checkout, for its own platform only, when no catalog has
+   a kit for it.
+
+Nothing is fetched until a build links for that platform.
+]]
+
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.hash")
+local packaging = require("nupp.tools.build.package")
+local stubs = require("nupp.tools.build.stubs")
+
+local kits = {}
+
+--- A catalog's record of one platform's kit.
+type kits.Record = {
+    catalogRelease: string,
+    platform: string,
+    hostAbi: integer,
+    artifact: string,
+    sha256: string,
+    size: integer,
+    hostFeatures: {string},
+    url: string?,
+    [string]: unknown
+}
+
+local function manifest(directory: string): any?
+    local text = fs.readFile(fs.join(directory, "kit.json"))
+    if text == nil then
+        return nil
+    end
+    local json = require("nupp.codec.json")
+    local ok, value = pcall(json.decode, text as string, json.NULL)
+    if not ok or type(value) ~= "table" then
+        return nil
+    end
+
+    return value
+end
+
+--- The platform a kit directory links for, or nil when it is not a kit.
+function kits.target(directory: string): string?
+    local value = manifest(directory)
+    if value == nil or type(value.target) ~= "string" then
+        return nil
+    end
+
+    return value.target as string
+end
+
+--- The features a kit's runtime carries.
+local function features(directory: string): {[string]: boolean}
+    local carried: {[string]: boolean} = {}
+    local value = manifest(directory)
+    if value ~= nil and type(value.features) == "string" then
+        for name in (value.features as string):gmatch("[^,%s]+") do
+            carried[name] = true
+        end
+    end
+
+    return carried
+end
+
+--- Why the kit at `directory` cannot serve a program needing `required`, or nil.
+local function lacking(directory: string, required: {string}): string?
+    local carried = features(directory)
+    for _, name in ipairs(required) do
+        if not carried[name] then
+            return "the link kit at " .. directory .. " was built without host feature " .. name
+        end
+    end
+
+    return nil
+end
+
+--- The kit for `platform` in the directory `NUPP_KIT_DIR` names: the kit
+--- itself, or a directory holding one kit per platform.
+function kits.named(directory: string, platform: string): (string?, string?)
+    local own = kits.target(directory)
+    if own == platform then
+        return directory, nil
+    end
+    local nested = fs.join(directory, platform)
+    if kits.target(nested) == platform then
+        return nested, nil
+    end
+    if own ~= nil then
+        return nil, "NUPP_KIT_DIR names a kit for " .. own .. ", not " .. platform
+    end
+
+    return nil, "NUPP_KIT_DIR (" .. directory .. ") holds no link kit for " .. platform
+end
+
+--- Where verified kits are unpacked for this user, one per release,
+--- platform and digest. `NUPP_KIT_CACHE` names another place.
+function kits.cacheRoot(): string
+    local named = os.getenv("NUPP_KIT_CACHE")
+    if named ~= nil and named ~= "" then
+        return named as string
+    end
+    local appData = os.getenv("LOCALAPPDATA")
+    if appData ~= nil and appData ~= "" then
+        return fs.join(appData as string, "nupp/kits")
+    end
+    local home = os.getenv("HOME") or "."
+    local host = require("nupp.compiler.targetlayout").hostKey()
+    if host ~= nil and (host as string):match("%-apple%-darwin$") ~= nil then
+        return fs.join(home, "Library/Caches/nupp/kits")
+    end
+    local xdg = os.getenv("XDG_CACHE_HOME")
+
+    return fs.join((xdg ~= nil and xdg ~= "") and xdg as string or fs.join(home, ".cache"), "nupp/kits")
+end
+
+--- The catalog's record of `platform`'s kit, checked, or why there is none.
+function kits.record(platform: string): (kits.Record?, string?)
+    local catalog, catalogErr = stubs.catalog()
+    if catalog == nil then
+        return nil, catalogErr
+    end
+    local record = type(catalog.kits) == "table" and catalog.kits[platform] or nil
+    if record == nil then
+        return nil, "the stub catalog " .. tostring(catalog.catalogRelease) .. " has no link kit for " .. platform
+    end
+    local where = "kit record for " .. platform
+    if type(record) ~= "table" or record.platform ~= platform then
+        return nil, where .. " claims platform " .. tostring(type(record) == "table" and record.platform or nil)
+    end
+    if record.catalogRelease ~= catalog.catalogRelease or record.hostAbi ~= packaging.hostAbiVersion then
+        return nil, where .. " belongs to another release"
+    end
+    if not stubs.safeComponent(record.artifact) then
+        return nil, where .. " has an unsafe artifact name"
+    end
+    if type(record.sha256) ~= "string" or #record.sha256 ~= 64 or not record.sha256:match("^[0-9a-f]+$") then
+        return nil, where .. " requires a lowercase SHA-256"
+    end
+    if type(record.size) ~= "number" or record.size < 1 or record.size ~= math.floor(record.size) then
+        return nil, where .. " requires a positive integer size"
+    end
+    if type(record.hostFeatures) ~= "table" then
+        return nil, where .. " requires hostFeatures"
+    end
+    if record.url ~= nil and (type(record.url) ~= "string" or not record.url:match("^https://")) then
+        return nil, where .. " requires an HTTPS url"
+    end
+
+    return record as kits.Record, nil
+end
+
+--- Unpacks the verified archive at `archive` as the cache entry `entry`.
+local function unpack(record: kits.Record, archive: string, entry: string): string?
+    local codegen = require("nupp.compiler.aot.llvm.codegen")
+    local nonce = hash.sha256(entry .. tostring({}) .. tostring(os.clock())):sub(1, 16)
+    local staging = entry .. ".tmp-" .. nonce
+    fs.mkdir(staging)
+    local err = codegen.unpackKit(archive, record.sha256, record.size, staging)
+    if err ~= nil then
+        return "cannot unpack the link kit " .. record.artifact .. ": " .. err
+    end
+    if kits.target(staging) ~= record.platform then
+        return "the link kit " .. record.artifact .. " does not link for " .. record.platform
+    end
+    -- Another build may have installed the same entry meanwhile; its bytes
+    -- passed the same digest, so either copy serves.
+    local renamed = os.rename(staging, entry)
+    if not renamed and kits.target(entry) ~= record.platform then
+        return "cannot install the link kit at " .. entry
+    end
+
+    return nil
+end
+
+--- The unpacked kit a catalog record names, installed in the per-user cache
+--- from `NUPP_STUB_DIR` or, failing that, from the record's URL.
+function kits.install(record: kits.Record): (string?, string?)
+    local directory = fs.join(kits.cacheRoot(), fs.join(record.catalogRelease, fs.join(record.platform, record.sha256)))
+    if kits.target(directory) == record.platform then
+        return directory, nil
+    end
+    fs.mkdir(fs.dirname(directory))
+    local stubDir = os.getenv("NUPP_STUB_DIR")
+    local archive = stubDir ~= nil and stubDir ~= "" and fs.join(stubDir as string, record.artifact) or nil
+    if archive == nil or not fs.exists(archive as string) then
+        if record.url == nil then
+            return nil, (
+                "the link kit %s for %s is not cached and its record names no URL; put it in NUPP_STUB_DIR"
+            ):format(record.artifact, record.platform)
+        end
+        archive = directory .. ".download"
+        local codegen = require("nupp.compiler.aot.llvm.codegen")
+        local fetchErr = codegen.fetchKit(record.url as string, archive as string, record.sha256, record.size)
+        if fetchErr ~= nil then
+            return nil, "cannot fetch the link kit for " .. record.platform .. ": " .. fetchErr
+        end
+    end
+    local unpackErr = unpack(record, archive as string, directory)
+    if archive == directory .. ".download" then
+        os.remove(archive as string)
+    end
+    if unpackErr ~= nil then
+        return nil, unpackErr
+    end
+
+    return directory, nil
+end
+
+--- The kit that links a program for `platform` whose runtime needs the host
+--- features `required`. `build` builds this checkout's own kit, or is nil
+--- where there is no checkout or `platform` is not this machine's.
+function kits.resolve(
+    platform: string,
+    required: {string},
+    build: (function(): (string?, string?))?
+): (string?, string?)
+    local named = os.getenv("NUPP_KIT_DIR")
+    local found: string? = nil
+    if named ~= nil and named ~= "" then
+        local kit, err = kits.named(named as string, platform)
+        if kit == nil then
+            return nil, err
+        end
+        found = kit
+    else
+        local record, recordErr = kits.record(platform)
+        if record ~= nil then
+            local kit, installErr = kits.install(record as kits.Record)
+            if kit == nil then
+                return nil, installErr
+            end
+            found = kit
+        elseif build ~= nil then
+            local kit, err = (build as function(): (string?, string?))()
+            if kit == nil then
+                return nil, "cannot build the link kit:\n" .. tostring(err)
+            end
+            found = kit
+        else
+            return nil, tostring(recordErr) .. "; name a kit with NUPP_KIT_DIR"
+        end
+    end
+    local short = lacking(found as string, required)
+    if short ~= nil then
+        return nil, short
+    end
+
+    return found, nil
+end
+
+export = kits

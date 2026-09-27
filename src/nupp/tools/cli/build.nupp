@@ -167,8 +167,8 @@ local REPORT_SCHEMA = {
                     .. "aot:compile and aot:link -- respectively testing whether a completed policy "
                     .. "may be reused, checking the sources that carry an @aot body, "
                     .. "lowering them, optimizing the lowered IR, "
-                    .. "writing the C and the bindings, deciding what may be reused, "
-                    .. "running the external C or Emscripten compiler, and archiving or "
+                    .. "writing the LLVM IR and the bindings, deciding what may be reused, "
+                    .. "compiling objects or Wasm modules in process, and archiving or "
                     .. "linking what it produced. Plain aot is whatever the policy did "
                     .. "besides those.",
                     items = {
@@ -186,7 +186,7 @@ local REPORT_SCHEMA = {
                     properties = {
                         units = {
                             type = "integer",
-                            description = "Translation units the policy emitted, one per source and target tier.",
+                            description = "LLVM IR units the policy emitted, one per source and target tier.",
                         },
                         checkedSources = {
                             type = "integer",
@@ -202,7 +202,7 @@ local REPORT_SCHEMA = {
                         },
                         emittedUnits = {
                             type = "integer",
-                            description = "Source-tier C units emitted by the AOT policy in this build.",
+                            description = "Source-tier LLVM IR units emitted by the AOT policy in this build.",
                         },
                         reusedObjects = {
                             type = "integer",
@@ -210,13 +210,16 @@ local REPORT_SCHEMA = {
                         },
                         compiledObjects = {
                             type = "integer",
-                            description = "Native objects the external C compiler produced.",
+                            description = "Native objects the code generator compiled in this build.",
                         },
                         reusedModules = {
                             type = "integer",
-                            description = "Wasm side modules taken from the last build unchanged.",
+                            description = "Wasm modules taken from the last build unchanged.",
                         },
-                        compiledModules = {type = "integer", description = "Wasm side modules Emscripten produced.",},
+                        compiledModules = {
+                            type = "integer",
+                            description = "Wasm modules the code generator compiled in this build.",
+                        },
                         linked = {type = "boolean", description = "Whether an archiver or a linker ran.",},
                         externalCommands = {
                             type = "integer",

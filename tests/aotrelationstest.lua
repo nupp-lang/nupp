@@ -199,7 +199,7 @@ end
 -- nothing else, so a map entry over a guarded sub-range reached the module with
 -- its range unchecked.
 function M.theWasmWrapperChecksTheSameRelations()
-    local text = wasmbinding.replacement(program(), "unit")
+    local text = wasmbinding.replacement(program(), {"unit"})
     assert(text:find("first < 1", 1, true), "the range reaches the Wasm boundary too: " .. text)
     assert(text:find("last > #out", 1, true), text)
 end

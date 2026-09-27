@@ -10,7 +10,6 @@ local bindingRules = require("nupp.compiler.aot.binding")
 local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
-local emit = require("nupp.compiler.aot.emit")
 local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local lower = require("nupp.compiler.aot.lower")
@@ -65,10 +64,7 @@ record compile.Artifacts
     --- The IR's readable form.
     irText: string
 
-    --- The C.
-    c: string
-
-    --- The Nupp module that stands in front of the compiled C.
+    --- The Nupp module that stands in front of the compiled code.
     binding: string
 
     --- Shader artifacts by logical program symbol. CPU programs have no entry.
@@ -95,12 +91,19 @@ local REFUSED = {}
 
 --- Every emitted symbol lives in the process-wide C namespace when an archive
 --- is linked statically. Qualify by source before either shared or static
---- linkage is selected, so C emission and its cache have one identity.
+--- linkage is selected, so code generation and its cache have one identity.
 local function qualifySymbols(programs: {scalarIR.Program}, filename: string): nil
     local identity = hash.digest(filename):sub(1, 16)
     local registrars: {[string]: string} = {}
+    local prefix = "ks_" .. identity .. "_"
     for _, program in ipairs(programs) do
-        program.symbol = "ks_" .. identity .. "_" .. program.symbol:sub(4)
+        program.symbol = prefix .. program.symbol:sub(4)
+        -- A call to another entry of this file names that entry's symbol.
+        for _, helper in ipairs(program.helpers or {}) do
+            if helper.native == true and helper.uniqueName:sub(1, #prefix) ~= prefix then
+                helper.uniqueName = prefix .. helper.uniqueName:sub(4)
+            end
+        end
         if program.registrar ~= nil then
             local registrar = program.registrar as string
             local qualified = registrars[registrar]
@@ -641,7 +644,6 @@ function compile.constSpecializations(
             optimizations = optimizations,
             loops = loopReports,
             irText = text.programs(programs),
-            c = emit.program(programs, symbolTier),
             binding = "",
             gpu = {},
             sites = {},
@@ -817,17 +819,17 @@ function compile.artifacts(
 
     -- Logical names survive lowering and verification. A project can then
     -- link several source files into one library or archive, so both forms
-    -- need distinct C symbols for identically named private declarations.
+    -- need distinct symbols for identically named private declarations.
     -- Inspection artifacts retain readable names unless linkage asks for
-    -- qualification; the emitted C and binding always change together.
+    -- qualification; the generated code and binding always change together.
     if qualifyLinkage then
         qualifySymbols(cpuPrograms, filename)
     end
 
     -- A file with no CPU program has no binding module to stand in front of
-    -- the C, so the GPU replacements are the whole binding. Beside CPU
-    -- programs they are not part of it: the build rewrites each GPU
-    -- declaration in place from `gpu` instead.
+    -- compiled code, so the GPU replacements are the whole binding. Beside CPU
+    -- programs they are not part of it: the build rewrites each GPU declaration
+    -- in place from `gpu` instead.
     step("emit")
     local generatedBinding = bindingRules.module(cpuPrograms, library)
     if #cpuPrograms == 0 then
@@ -848,7 +850,6 @@ function compile.artifacts(
         optimizations = optimizations,
         loops = loopReports,
         irText = text.programs(programs),
-        c = emit.program(cpuPrograms, symbolTier),
         binding = generatedBinding,
         gpu = gpu,
         sites = sites,

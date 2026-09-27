@@ -507,11 +507,10 @@ end
 ```
 
 A target's `aot` build policy says what happens with it: `off`, the default,
-does nothing; `emit-c` writes the generated C beside the build; `require`
-compiles that C into the project's own shared library and fails the build when
-it cannot. Lua 5.1 targets use `emit-wasm` to package pointer kernels and
-Lua-building entries as Wasm side modules, or `require-wasm` to replace their
-bodies with checked calls into those modules. See
+does nothing; `require` compiles it into the project's own shared library and
+fails the build when it cannot. Lua 5.1 targets use `emit-wasm` to package
+pointer kernels as Wasm modules, or `require-wasm` to replace their bodies with
+checked calls into those modules. See
 [wasm-aot.md](../learn/performance/ahead-of-time/wasm.md) for that host and its limits.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
@@ -544,7 +543,7 @@ boundary through bounded Wasm-memory transfer leases. See
 [gpu.md](../learn/performance/ahead-of-time/gpu.md#browser-gpu-kernels) for a complete
 browser target and source example.
 
-`aot = "off"` or `emit-c` retain the ordinary function value. `nupp aot --emit
+`aot = "off"` retains the ordinary function value. `nupp aot --emit
 spirv FILE` writes the native WGPU module; WGPU performs platform shader
 translation internally.
 

@@ -136,6 +136,25 @@ end
 
 local M = {}
 
+
+-- Sets or clears a variable of this process's own environment, which the
+-- build it then runs in process reads: POSIX `setenv`, or the Windows C
+-- runtime's `_putenv_s`, where an empty value clears it.
+local function setEnvironment(name, value)
+    local ffi = require("ffi")
+    if package.config:sub(1, 1) == "\\" then
+        pcall(ffi.cdef, "int _putenv_s(const char *, const char *);")
+        ffi.C._putenv_s(name, value or "")
+    else
+        pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
+        if value == nil then
+            ffi.C.unsetenv(name)
+        else
+            ffi.C.setenv(name, value, 1)
+        end
+    end
+end
+
 function M.sha256KnownVectors()
     assertEq(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     assertEq(hash.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -2585,16 +2604,215 @@ print(triangular(4))
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/app")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir)
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
     assert(exists(dir .. "/out/lib/libdefault_aot.a"), "standalone AOT emits a static archive")
     assert(not exists(dir .. "/out/lib/" .. libraryName("default_aot")), "standalone AOT emits no loadable sidecar")
     local code, text = process.capture({dir .. "/out/app"})
     assertEq(code, 0, text)
     assertEq(text:match("[^\r\n]+"), "10", "the executable resolves its AOT entry internally")
+    remove(dir)
+end
+
+--- A standalone program with AOT code links from a link kit with lld in
+--- process: no C compiler, system linker or SDK is run, and the program
+--- carries no LLVM of its own.
+function M.standaloneAotLinksFromAKitWithoutACToolchain()
+    local posix = jit.os ~= "Windows"
+    local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
+    local code, answer = process.capture(
+        posix and {root .. "/scripts/toolchain", "kit", ""} or {"sh.exe", root .. "/scripts/toolchain", "kit", ""}
+    )
+    assertEq(code, 0, answer)
+    local kit = answer:match("([^\r\n]+)%s*$")
+    local dir = tempProject({
+        [
+            "src/main.nupp"
+        ] = [[
+@aot
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do
+      result = result + index
+   end
+   return result
+end
+
+print(triangular(4))
+]],
+    })
+    write(
+        dir .. "/nupp.lua",
+        (
+            [=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]
+        ):format(dir .. "/out", dir .. "/out/app")
+    )
+    -- Every tool a C link would reach for fails, and says so.
+    local fake = dir .. "/fakebin"
+    assert(os.execute("mkdir -p '" .. fake .. "'") == 0)
+    for _, tool in ipairs({"cc", "clang", "gcc", "ld", "ld.lld", "xcrun", "c++", "clang++", "ar", "ranlib", "libtool"}) do
+        write(fake .. "/" .. tool, "#!/bin/sh\necho \"$0\" >> '" .. dir .. "/invoked'\nexit 99\n")
+        assert(os.execute("chmod +x '" .. fake .. "/" .. tool .. "'") == 0)
+    end
+    local windows = package.config:sub(1, 1) == "\\"
+    local path = os.getenv("PATH") or ""
+    setEnvironment("PATH", fake .. (windows and ";" or ":") .. path)
+    setEnvironment("NUPP_KIT_DIR", kit)
+    local ok, built = pcall(project.build, dir)
+    setEnvironment("PATH", path)
+    setEnvironment("NUPP_KIT_DIR", nil)
+    assert(ok, built)
+    assertEq(built, 0)
+    assert(not exists(dir .. "/invoked"), "no C toolchain was run")
+    local program = dir .. "/out/app"
+    if windows and not exists(program) then
+        program = program .. ".exe"
+    end
+    local ran, text = process.capture({program})
+    assertEq(ran, 0, text)
+    assertEq(text:match("[^\r\n]+"), "10", "the program runs its AOT entry")
+    local _, symbols = process.capture({"nm", program})
+    assert(not symbols:find("ZN4llvm", 1, true), "the program carries no LLVM")
+    remove(dir)
+end
+
+--- A kit the stub catalog records is installed from its archive -- checked
+--- against the catalog's digest, unpacked into the per-user cache -- and
+--- linked from there; the next build needs neither the archive nor the network,
+--- and an archive that does not match its record is refused.
+function M.standaloneAotLinksFromACatalogKit()
+    if jit.os ~= "OSX" and jit.os ~= "Linux" then
+        return
+    end
+    local root = debug.getinfo(1, "S").source:match("^@(.*)/tests/[^/]+$") or "."
+    local dir = tempProject({
+        [
+            "src/main.nupp"
+        ] = [[
+@aot
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do
+      result = result + index
+   end
+   return result
+end
+
+print(triangular(5))
+]],
+    })
+    write(
+        dir .. "/nupp.lua",
+        (
+            [=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]
+        ):format(dir .. "/out", dir .. "/out/app")
+    )
+    assert(os.execute("mkdir -p '" .. dir .. "/kits'") == 0)
+    local archive = dir .. "/kits/nupp-kit.tar.gz"
+    local code, answer = process.capture({root .. "/scripts/toolchain", "kit-archive", "", archive})
+    assertEq(code, 0, answer)
+    local bytes = read(archive)
+    local host = assert(require("nupp.tools.build.platform").hostKey())
+    local hostAbi = require("nupp.tools.build.package").hostAbiVersion
+    local function catalog(digest)
+        write(
+            dir .. "/catalog.json",
+            (
+                [[{"catalogRelease": "test", "hostAbi": %d, "stubs": {}, "kits": {"%s": {
+  "platform": "%s", "catalogRelease": "test", "hostAbi": %d, "artifact": "nupp-kit.tar.gz",
+  "sha256": "%s", "size": %d, "hostFeatures": [], "url": "https://kits.invalid/nupp-kit.tar.gz"}}}]]
+            ):format(hostAbi, host, host, hostAbi, digest, #bytes)
+        )
+    end
+    catalog(require("nupp.compiler.hash").sha256(bytes))
+    local names = {"NUPP_STUB_CATALOG", "NUPP_STUB_DIR", "NUPP_KIT_CACHE"}
+    setEnvironment("NUPP_STUB_CATALOG", dir .. "/catalog.json")
+    setEnvironment("NUPP_STUB_DIR", dir .. "/kits")
+    setEnvironment("NUPP_KIT_CACHE", dir .. "/cache")
+    local function build()
+        local ok, built = pcall(project.build, dir)
+        assert(ok, built)
+        return built
+    end
+    local first = build()
+    local installed = exists(dir .. "/cache/test/" .. host .. "/" .. require("nupp.compiler.hash").sha256(bytes) .. "/kit.json")
+    os.remove(archive)
+    assert(os.execute("rm -rf '" .. dir .. "/out'") == 0)
+    local second = build()
+    local ran, text = process.capture({dir .. "/out/app"})
+    -- The digest is what authenticates a kit, so one that does not match is
+    -- refused before anything is unpacked.
+    write(archive, bytes)
+    catalog(string.rep("0", 64))
+    assert(os.execute("rm -rf '" .. dir .. "/out'") == 0)
+    local tampered = build()
+    for _, name in ipairs(names) do
+        setEnvironment(name, nil)
+    end
+    assertEq(first, 0)
+    assert(installed, "the kit is unpacked into the per-user cache")
+    assertEq(second, 0, "the cached kit serves without its archive")
+    assertEq(ran, 0, text)
+    assertEq(text:match("[^\r\n]+"), "15", "the program runs its AOT entry")
+    assert(tampered ~= 0, "an archive that does not match its record is refused")
+    remove(dir)
+end
+
+--- One `@aot` entry calling another of the same file reaches that entry's own
+--- symbol, qualified by its file and spelled for the tier being built. The
+--- call used to name an unqualified symbol nothing defined, so the program
+--- failed to link.
+function M.anAotEntryCallsAnotherEntryOfItsFile()
+    if jit.os == "Windows" then
+        return
+    end
+    local dir = tempProject({
+        [
+            "src/main.nupp"
+        ] = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+
+@aot
+local function curve(x: number): number
+   return x * x + 1
+end
+
+@aot
+local function total(borrows values: span.Span<float>): number
+   local sum = 0.0
+   for index = 1, #values do
+      sum = sum + curve(values[index])
+   end
+   return sum
+end
+
+local values = array.scalar(array.float, 4)
+do
+   local writable = values:write()
+   for index = 1, 4 do
+      writable[index] = index
+   end
+   nupp.drop(writable)
+end
+print(curve(3), total(values:read()))
+]],
+    })
+    write(
+        dir .. "/nupp.lua",
+        (
+            [=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]
+        ):format(dir .. "/out", dir .. "/out/app")
+    )
+    assertEq(project.build(dir), 0)
+    local ran, text = process.capture({dir .. "/out/app" .. (jit.os == "Windows" and ".exe" or "")})
+    assertEq(ran, 0, text)
+    assertEq(text:match("[^\r\n]+"), "10\t34", "the calling entry reached the called one")
     remove(dir)
 end
 
@@ -2620,10 +2838,6 @@ return {triangular = triangular}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir);
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
     assert(exists(dir .. "/out/lib/libdefault_aot.a"), "static component AOT emits an archive")
     assert(not read(dir .. "/out/component.lua"):find('from"@lib/', 1, true), "static component binds through ffi.C")
@@ -2646,10 +2860,6 @@ return {make = make}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir);
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
     local component = read(dir .. "/out/component.lua")
     assert(component:find("__nuppAotBuilderModules", 1, true), "static builder reads host registration")
@@ -2691,10 +2901,6 @@ return {triangular = triangular}
       output = %q, entries = {"main"}}}]=]
         ):format(dir .. "/out", dir .. "/out/component.lua")
     )
-    if require("nupp.tools.build.aot").toolchain() == nil then
-        remove(dir);
-        return require("assert").skip("C compiler is unavailable")
-    end
     assertEq(project.build(dir), 0)
 
     local link = json.decode(assert(read(dir .. "/out/aot/link.json")))
@@ -2707,10 +2913,10 @@ return {triangular = triangular}
     assert(#link.symbols.kernels > 0, "so is every kernel")
     assert(#link.retain.forceLoad > 0, "a desktop linker extracts nothing from an archive nothing references")
 
-    local c = assert(read(dir .. "/out/aot/archive.c"))
-    assert(c:find("uint64_t " .. probe .. "(void)", 1, true), c)
+    local ir = assert(read(dir .. "/out/aot/archive.ll"), "the probe is emitted as LLVM IR")
+    assert(ir:find("define i64 @" .. probe .. "()", 1, true), ir)
     assert(
-        c:find("return UINT64_C(" .. ("%d"):format(link.fingerprint.value) .. ");", 1, true),
+        ir:find("ret i64 " .. ("%d"):format(link.fingerprint.value), 1, true),
         "the probe returns exactly what the manifest says it does"
     )
 

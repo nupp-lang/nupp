@@ -4,34 +4,30 @@ order: 635
 
 # AOT builds and artifacts
 
-A target policy decides whether AOT is disabled, emitted for inspection, or
-required as part of the deliverable. Required builds compile and validate the
-artifact instead of retaining a silent source fallback.
+A target policy decides whether AOT is disabled or required as part of the
+deliverable. Required builds compile and validate the artifact instead of
+retaining a silent source fallback.
 
 A build selects one policy, and an artifact records the one it was built under:
 
 ```lua
 targets = {
-   game = {kind = "modules", entries = {"game"}, outDir = "build/game", aot = "emit-c"},
+   game = {kind = "modules", entries = {"game"}, outDir = "build/game", aot = "require"},
 }
 ```
 
-- `off` does nothing. It is the default, so a project that has not asked for
-  native code never needs a C compiler.
-- `emit-c` verifies the IR and writes the C to `<outDir>/aot/`, without
-  compiling it.
-- `require` does everything `emit-c` does, then compiles the result into
-  `<outDir>/lib/`, and fails the build when it cannot.
-- `emit-wasm` compiles admitted entries into content-addressed Wasm side modules
+- `off` does nothing. It is the default.
+- `require` verifies the IR, compiles it into `<outDir>/lib/`, and fails the
+  build when it cannot.
+- `emit-wasm` compiles admitted entries into content-addressed Wasm modules
   while retaining their ordinary Lua bodies.
 - `require-wasm` packages those modules and replaces the Lua bodies with calls
-  through the Lua-in-Wasm binding.
+  into them.
 
-`emit-c` adds an artifact; it does not replace one. The ordinary Lua body is
-still emitted and is still what runs. A module with no `@aot` function produces
-no artifact at all, and a project with no `@aot` function anywhere builds
-successfully under `require` with no library. The policy says what to do with
-compiled code, not that there must be some.
+A module with no `@aot` function produces no artifact at all, and a project
+with no `@aot` function anywhere builds successfully under `require` with no
+library. The policy says what to do with compiled code, not that there must be
+some.
 
 Under `require`, calls reach the compiled code. The build replaces each `@aot`
 function with the generated wrapper where it was written, so every call in the
@@ -46,38 +42,21 @@ packaging, never an answer, and a policy that silently fell back per function
 would make a benchmark unattributable and a numeric contract unenforceable.
 :::
 
-## Accepting a C compiler
+## The code generator
 
-Selecting `require` is how a project takes on a C compiler as a dependency.
-Nothing else in Nupp makes it one, which is why `off` is the default.
+`nupp` compiles AOT code itself. LLVM and its linker, lld, are part of the
+`nupp` binary: the verified IR is lowered to LLVM IR, optimized, compiled to an
+object for the selected target and feature tier, and linked, all in process. No
+C compiler, assembler, system linker or SDK is run, and none has to be
+installed. The programs it produces carry no LLVM of their own.
 
-The build looks for `NUPP_AOT_CC` first, then the legacy `NUPP_NATIVE_CC`
-alias, then `clang`, `cc` and `gcc` in that
-order:
+A `nupp` built from source without the code generator refuses `require` and
+says so; `scripts/toolchain llvm` provides the pinned LLVM a checkout links in.
 
-```bash
-NUPP_AOT_CC=/usr/bin/clang-18 nupp build
-```
-
-Clang leads because the emitter's contraction pragma is Clang's; GCC compiles
-the same C correctly and declines to contract, which is slower and never
-wrong. Naming a compiler that cannot build this C is an error rather than
-a reason to look elsewhere, because a build that quietly used a different
-compiler than it was told to would produce an artifact nobody could account for.
-
-The generated C needs `__attribute__((vector_size))` and
-`__builtin_convertvector`: GCC 9 and later, and every Clang. **MSVC has
-neither.**
-
-That is a statement about a compiler, not about a platform. Windows is an
-ordinary target: Clang and MinGW GCC both run there, both have the two
-extensions, and a Windows project with either needs nothing further. The same
-`aot = "require"` builds a `.dll` beside the artifact and the same wrapper loads
-it. CI runs the lane-versus-scalar differential on Windows for exactly this
-reason, rather than reasoning about it from the other two platforms.
-
-A project whose only compiler is MSVC selects `emit-c` and hands the C to it,
-which is what `emit-c` is for.
+The numeric contract is the code generator's too. No fast-math flag is ever
+set, a multiply and an add fuse only inside a function that asked for it with
+`@relax("fp-contract")`, and reassociation is allowed only for the algebraic
+reducers that name it. See [numeric semantics](numeric-semantics.md).
 
 ## Building for another machine
 
@@ -89,7 +68,7 @@ targets = {
    handheld = {
       kind = "modules",
       entries = {"game"},
-      aot = "emit-c",
+      aot = "require",
       aotTarget = "x86_64-unknown-linux-gnu",
       aotFeatures = {minimum = "baseline", maximum = "avx2"},
    },
@@ -97,58 +76,27 @@ targets = {
 ```
 
 The triple decides the available tiers, how a shared library is produced and
-what it is called, so a Windows target gets a `.dll` and no `-lm` whether or not
-the build is running on Windows. Each bound of the feature range is checked
-against that target's architecture, so asking aarch64 for `avx2` is refused
-where it is written.
+what it is called, so a Windows target gets a `.dll` whether or not the build is
+running on Windows. Each bound of the feature range is checked against that
+target's architecture, so asking aarch64 for `avx2` is refused where it is
+written.
 
-`emit-c` needs nothing installed for the target: it writes one C file per
-`(source, tier)`, the baseline feature detector where selection is needed, and
-`aot/units.json`. The manifest names every unit's tier and required instruction
-flag, which is the handoff when the compiler for a platform is somebody else's.
-A compiler-owned unit carries a `role` saying which one it is; `detector` stays
-true for the feature detector alone. Static linkage adds an `archive-probe`
-unit and `aot/link.json` beside it, described under
+Compiling for another target needs nothing installed: the code generator has
+every target's backend, so `require` builds the other machine's library on this
+one. Beside it the build writes one LLVM IR unit per `(source, tier)`, the
+baseline feature detector where selection is needed, and `aot/units.json`, which
+names every unit's tier and the options it compiled with. A compiler-owned unit
+carries a `role` saying which one it is; `detector` stays true for the feature
+detector alone. Static linkage adds an `archive-probe` unit and `aot/link.json`
+beside it, described under
 [static AOT components](../../projects/build.md#static-aot-components).
 
-`aot = "require"` cross-compiles too, and then it needs the target's headers and
-libraries the way any cross build does. Give them through `aotCflags`, which is
-appended after the fixed flags and is part of what the library is keyed on:
-
-```lua
-aotCflags = {"--sysroot=/opt/sysroots/linux-x86_64"},
-```
-
-The build owns CPU instruction and LTO flags when it carries several tiers.
-`aotCflags` therefore refuses `-march`, `-mcpu`, AVX/SSE/FMA switches, `/arch:`
-and `-flto`; any of those could put optional instructions in the baseline
-fallback or optimize across the object boundary.
-
-Without one, the failure names the missing thing rather than leaving you with
-the compiler's own message about a missing `math.h`.
-
-The flags are fixed:
-
-```text
--std=c11 -O3 -ffp-contract=off -fno-fast-math -Wall -Wextra -Werror
-```
-
-`-Werror` is deliberate. This is compiler-generated C, so a warning in it is a
-defect in the backend rather than a style opinion about someone's source. The
-warning that matters most is `-Wpsabi`, which is how a vector with no register
-class announces itself, and silencing it would make the target model pointless.
-`-ffp-contract=off` is the numeric contract's floor; a body that asked for
-contraction carries its own pragma.
-
-That pragma is Clang's. Under GCC, `@relax("fp-contract")` compiles correctly
-and does not contract, so the body is as accurate as the unrelaxed one and
-slower than the same body under Clang. It is correct either way, and the
-difference is worth knowing about before benchmarking across compilers.
+A standalone program for another platform links from that platform's link kit;
+see [distribution](../../../reference/distribution.md).
 
 Code is linked, never mapped at run time. A shared library the loader already
 brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
 code retirement, all of which exist only because code is mapped at run time.
-They return if and when direct machine-code emission does.
 
 ## Library dispatch
 
@@ -186,13 +134,12 @@ cannot smuggle in something the language would refuse.
 It is written where the declaration was, which is necessarily after the struct
 it reifies, and under the same name with the same signature. The struct layout
 is compared against what the compiled object reports before the module finishes
-loading, so a C compiler that laid the struct out differently is a load error
+loading, so an object that laid the struct out differently is a load error
 rather than a silent misread.
 
 The module is hashed on the text that was compiled rather than the file on disk,
 so a rebuild never reuses an artifact built from a different body. `nupp check`
-does none of this: it answers a question about the source as written, and never
-needs a C compiler.
+does none of this: it answers a question about the source as written.
 
 ## Shipping a shared artifact
 
@@ -244,8 +191,9 @@ the loader has already proved that path works from wherever the program started.
 
 Each artifact is recorded under a key covering everything that can change its
 bytes: the verified IR, the version of the IR vocabulary, the numeric-contract
-version, the target triple and feature tier, the backend, and the compiler's own
-fingerprint. A rebuild that computes the same key leaves the file alone.
+version, the target triple and feature tier, the code generator's identity and
+the facts it states, and the compiler's own fingerprint. A rebuild that computes
+the same key leaves the file alone.
 
 The key is over the IR rather than the source, so two sources that lower to one
 program share one artifact and a comment edit is not a rebuild. The
@@ -259,45 +207,35 @@ file it describes is still on disk with the bytes it claims; a deleted or edited
 artifact is written again rather than believed because a digest agreed. Losing
 the record costs one rebuild and changes no answer.
 
-The linked library gets its own key, over every tier's artifact key and compile
-flags plus the detector, compiler, and final linkage. Each translation unit is
-compiled to an object under its own tier flag, then those objects are linked
-without a higher-tier flag. Changing compilers relinks; rebuilding an unchanged
-project does not. The C itself is deliberately not keyed on the toolchain,
-because the C is the same C whoever compiles it. The library is validated the same
-way and is just as disposable, so deleting it costs one relink.
+The linked library gets its own key, over every tier's artifact key and the
+options each compiled with, plus the detector and the linkage. Each unit is
+compiled to an object for its own tier, then those objects are linked. A new
+code generator relinks; rebuilding an unchanged project does not. The library
+is validated the same way and is just as disposable, so deleting it costs one
+relink.
 
 ## Object reuse
 
-Every object file carries a key of its own, over its translation unit's artifact
-key, its feature tier, what the C compiler said about itself, and every flag it
-was given. The library key says a link is owed; the object keys say which objects
-it is owed for. Editing one `@aot` body therefore compiles that body's objects --
-one per feature tier where a target has several -- and relinks, rather than
-compiling everything the library contains. Adding a project flag through
-`aotCflags` compiles all of them, because the flag is in every object's key even
-though it is in no artifact's.
+Every object file carries a key of its own, over its unit's artifact key, its
+feature tier, the code generator and the options it compiles that tier with.
+The library key says a link is owed; the object keys say which objects it is
+owed for. Editing one `@aot` body therefore compiles that body's objects -- one
+per feature tier where a target has several -- and relinks, rather than
+compiling everything the library contains. A Wasm policy keys its modules the
+same way and compiles only the ones that moved.
 
 Objects are validated the way artifacts are: the key is compared and then the
-file it names has to still be there, so a deleted object is compiled again rather
-than believed. A Wasm policy keys its side modules the same way, over the
-generated source, the tier, Emscripten's identity and the flags, and compiles
-only the ones that moved.
+file it names has to still be there, so a deleted object is compiled again
+rather than believed.
 
 Objects that have to be compiled are compiled side by side, at most one per
-processor. `NUPP_AOT_JOBS` sets that bound directly, for a machine that is
-sharing its processors with something else. Order does not depend on the width:
-a build that refuses generated C reports the first unit in emission order that
-the compiler refused, whichever process happened to finish first.
+processor, each in a process of its own, so a unit the code generator cannot
+handle fails that unit's build with a message rather than taking `nupp` down.
+`NUPP_AOT_JOBS` sets that bound directly, for a machine that is sharing its
+processors with something else. Order does not depend on the width: a build
+reports the first failing unit in emission order, whichever process happened
+to finish first.
 
-An unchanged build starts no external process at all -- not even to ask a
-compiler its version. The version text is what an object is keyed on, so a build
-records it beside the path and length of the executable that said it, and
-believes it again while those still describe what is there. A compiler replaced
-with an executable of a different length is seen. One replaced with an executable
-of exactly the same length, or reached through a launcher that dispatches
-elsewhere, is not: an unchanged project keeps the library it already has until
-something else about it changes, and the next change re-reads the version and
-recompiles every object under it. `build --json` reports what a build reused,
-what it compiled, and how many external processes its ahead-of-time policy
-started, so "no compiler ran" is a number rather than an absence.
+An unchanged build compiles and links nothing. `build --json` reports what a
+build reused, what it compiled, and how many external processes its
+ahead-of-time policy started, which is zero.

@@ -29,4 +29,10 @@ require("nupp.tools.jitlimits").apply()
 -- loads the way it always did.
 require("nupp.tools.bytecodecache").install()
 
-os.exit(require("nupp.tools.cli").main(arg))
+local code = require("nupp.tools.cli").main(arg)
+-- Only a process that loaded the code generator can have linked anything.
+local codegen = package.loaded["nupp.compiler.aot.llvm.codegen"]
+if codegen ~= nil then
+    codegen.endIfUnexitable(code)
+end
+os.exit(code)

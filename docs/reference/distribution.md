@@ -393,11 +393,12 @@ A distributed binary is deliberately none of these things.
   explicit exception: Nupp relinks its compiler-owned host with static C and
   AOT archives before stamping. It refuses a dependency or native feature for
   which no static implementation exists rather than quietly leaving a sidecar.
-- **Release compiler packs are currently native Linux and Windows assets.** The
-  tagged x86-64 archives carry and test their matching LLVM-based pack. macOS
-  arm64 native source builds still require local Xcode command-line tools, and
-  tagged releases do not yet publish cross-target compiler packs. Prebuilt
-  target-indexed C archives remain usable without compiling their sources.
+- **AOT code needs no toolchain; C dependencies still need a C compiler.**
+  `nupp` compiles and links `@aot` code itself, and a standalone program with
+  AOT code links from its target's link kit, for this platform or another,
+  with nothing installed. A project C dependency built from sources still needs
+  a C compiler on the machine; prebuilt target-indexed C archives remain usable
+  without one.
 
   Nupp's compiler payload detects one native module, and its compiler-owned
   host links exactly that feature: LPeg, which backs direct LPeg patterns and every
@@ -410,8 +411,8 @@ A distributed binary is deliberately none of these things.
   payload selects whatever its own code and bundled dependencies need; the
   format has no opinion.
 - **It does not make Nupp a C project either.** The production host and native
-  resource owners are Rust. LuaJIT, LPeg, protected VM shims, and generated C
-  AOT remain deliberate native boundaries; the complete ownership and support
+  resource owners are Rust. LuaJIT, LPeg, protected VM shims, and compiled AOT
+  code remain deliberate native boundaries; the complete ownership and support
   matrix is in [Native runtime and support](native-runtime.md).
 
 ::: seealso

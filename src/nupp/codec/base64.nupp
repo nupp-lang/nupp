@@ -16,8 +16,9 @@ Both entries are `@aot`, and both work a word at a time rather than a byte at a
 time: twelve input bytes are three aligned words and four twenty-four bit
 groups, and four output bytes are one word. The alphabet and its inverse are
 `const` strings, so a compiled entry reads them out of static arrays whose
-bounds the C compiler holds rather than out of a rooted argument whose length it
-has to load. With `aot = "off"` this is the same source running on LuaJIT.
+bounds the code generator holds rather than out of a rooted argument whose
+length it has to load. With `aot = "off"` this is the same source running on
+LuaJIT.
 
 `bench/base64` measures what that is worth, and measures it against the
 vectorized C it could have been.

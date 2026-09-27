@@ -27,7 +27,7 @@ local function integer(value, valueType)
 end
 
 local function named(name, valueType)
-   return {op = "local", name = name, cName = name, type = valueType}
+   return {op = "local", name = name, uniqueName = name, type = valueType}
 end
 
 local function ruleCount(stats, wanted)
@@ -60,7 +60,7 @@ function M.foldsConstantsAndRemovesDeadPureDeclarations()
       {
          op = "let",
          name = "unused",
-         cName = "unused_1",
+         uniqueName = "unused_1",
          type = "f64",
          value = {op = "add", left = constant(2), right = constant(3), type = "f64"},
       },
@@ -68,7 +68,7 @@ function M.foldsConstantsAndRemovesDeadPureDeclarations()
          op = "return",
          values = {{op = "sub", left = constant(9), right = constant(4), type = "f64"}},
       },
-      {op = "let", name = "unreachable", cName = "unreachable_2", type = "f64", value = constant(1)},
+      {op = "let", name = "unreachable", uniqueName = "unreachable_2", type = "f64", value = constant(1)},
    })
 
    local stats = optimize.program(ir)
@@ -97,23 +97,23 @@ function M.optimizesWorkgroupRegionsWithoutCrossingPhaseBoundaries()
       helpers = {},
       workgroup = {
          prelude = {{
-            op = "let", name = "groups", cName = "groups_1", type = "u32", value = groups,
+            op = "let", name = "groups", uniqueName = "groups_1", type = "u32", value = groups,
          }},
          groups = groups,
          statements = {
             {
-               op = "let", name = "controller", cName = "controller_1", type = "u32",
+               op = "let", name = "controller", uniqueName = "controller_1", type = "u32",
                value = integer(7, "u32"),
             },
             {
                op = "phase",
                body = {
                   {
-                     op = "let", name = "width", cName = "width_1", type = "u32",
+                     op = "let", name = "width", uniqueName = "width_1", type = "u32",
                      value = {op = "numeric_cast", value = constant(64), type = "u32"},
                   },
                   {
-                     op = "let", name = "unused", cName = "unused_1", type = "u32",
+                     op = "let", name = "unused", uniqueName = "unused_1", type = "u32",
                      value = {
                         op = "u32_mul", left = named("width", "u32"), right = integer(2, "u32"), type = "u32",
                      },
@@ -124,7 +124,7 @@ function M.optimizesWorkgroupRegionsWithoutCrossingPhaseBoundaries()
                op = "phase",
                body = {{
                   op = "shared_store", shared = "scratch", index = integer(0, "u32"),
-                  value = {op = "local", name = "controller", cName = "controller_1", type = "u32"},
+                  value = {op = "local", name = "controller", uniqueName = "controller_1", type = "u32"},
                }},
             },
             {
@@ -153,7 +153,7 @@ function M.optimizesWorkgroupRegionsWithoutCrossingPhaseBoundaries()
    assert(ir.workgroup.statements[2].op == "phase" and #ir.workgroup.statements[2].body == 0,
       "a phase remains even when its private work simplifies away")
    local store = ir.workgroup.statements[3].body[1]
-   assert(store.op == "shared_store" and store.value.op == "local" and store.value.cName == "controller_1",
+   assert(store.op == "shared_store" and store.value.op == "local" and store.value.uniqueName == "controller_1",
       "controller constants do not propagate across a phase boundary")
    local indexed = ir.workgroup.statements[4].body[1].value.index
    assert(indexed.op == "u32_sub", "phase cleanup preserves scratch-bounds proof shapes")
@@ -180,19 +180,19 @@ end
 local function assignTo(name, valueType, value)
    return {
       op = "assign",
-      values = {{target = {kind = "local", name = name, cName = name, type = valueType}, value = value}},
+      values = {{target = {kind = "local", name = name, uniqueName = name, type = valueType}, value = value}},
    }
 end
 
 -- A specialised branch can fold away the only read of a variable and leave
--- its writes behind; the C compiler then refuses the unit under -Werror for
--- a variable that is set but never used.
+-- its writes behind: a variable that is set but never used, whose stores
+-- the optimizer drops rather than leave for the code generator.
 function M.removesALetThatIsOnlyEverAssigned()
    local function ir(write)
       return program({
-         {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
-         {op = "let", name = "count", cName = "count", type = "u32", value = integer(0, "u32"), assigned = true},
-         {op = "let", name = "kept", cName = "kept", type = "u32", value = integer(0, "u32"), assigned = true},
+         {op = "let", name = "iteration", uniqueName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
+         {op = "let", name = "count", uniqueName = "count", type = "u32", value = integer(0, "u32"), assigned = true},
+         {op = "let", name = "kept", uniqueName = "kept", type = "u32", value = integer(0, "u32"), assigned = true},
          {
             op = "while",
             condition = {op = "lt", left = named("iteration", "i32"), right = named("limit", "i32"), type = "bool"},
@@ -209,9 +209,9 @@ function M.removesALetThatIsOnlyEverAssigned()
                }),
             },
             carried = {
-               {name = "count", cName = "count", type = "u32"},
-               {name = "iteration", cName = "iteration", type = "i32"},
-               {name = "kept", cName = "kept", type = "u32"},
+               {name = "count", uniqueName = "count", type = "u32"},
+               {name = "iteration", uniqueName = "iteration", type = "i32"},
+               {name = "kept", uniqueName = "kept", type = "u32"},
             },
          },
          {op = "return", values = {named("kept", "u32")}},
@@ -230,7 +230,7 @@ function M.removesALetThatIsOnlyEverAssigned()
 
    local raising = ir({
       op = "lua_string_byte",
-      bytes = {op = "local", name = "input", cName = "input_0", type = "lua_string"},
+      bytes = {op = "local", name = "input", uniqueName = "input_0", type = "lua_string"},
       index = {op = "constant_i32", value = "0", type = "u32"},
       type = "u32",
    })
@@ -244,7 +244,7 @@ function M.keepsUnusedLuaAllocationsAndMayRaiseReads()
       {
          op = "let",
          name = "table",
-         cName = "table_1",
+         uniqueName = "table_1",
          type = "lua_table",
          value = {
             op = "lua_new_table",
@@ -256,11 +256,11 @@ function M.keepsUnusedLuaAllocationsAndMayRaiseReads()
       {
          op = "let",
          name = "byte",
-         cName = "byte_2",
+         uniqueName = "byte_2",
          type = "u32",
          value = {
             op = "lua_string_byte",
-            bytes = {op = "local", name = "input", cName = "input_0", type = "lua_string"},
+            bytes = {op = "local", name = "input", uniqueName = "input_0", type = "lua_string"},
             index = {op = "constant_i32", value = "0", type = "u32"},
             type = "u32",
          },
@@ -281,7 +281,7 @@ function M.foldsWidthEstablishmentAndSpecializesConstantHelpers()
             {
                op = "helper_call",
                helper = "increment",
-               cName = "increment",
+               uniqueName = "increment",
                args = {{op = "numeric_cast", value = constant(41), type = "u32"}},
                resultTypes = {"u32"},
                type = "u32",
@@ -292,17 +292,16 @@ function M.foldsWidthEstablishmentAndSpecializesConstantHelpers()
    ir.helpers = {
       {
          name = "increment",
-         cName = "increment",
-         params = {{op = "helper_param", name = "value", cName = "value_1", type = "u32"}},
+         uniqueName = "increment",
+         params = {{op = "helper_param", name = "value", uniqueName = "value_1", type = "u32"}},
          values = {
             {
                op = "u32_add",
-               left = {op = "helper_param", name = "value", cName = "value_1", type = "u32"},
+               left = {op = "helper_param", name = "value", uniqueName = "value_1", type = "u32"},
                right = {op = "constant_i32", value = "1", type = "u32"},
                type = "u32",
             },
          },
-         resultType = "u32",
          resultTypes = {"u32"},
       },
    }
@@ -507,7 +506,7 @@ function M.sameAndReassociationRejectUnavailableOrRaisingHelpers()
    local argument = named("value", "u32")
    local function call()
       return {
-         op = "helper_call", helper = "unavailable", cName = "unavailable",
+         op = "helper_call", helper = "unavailable", uniqueName = "unavailable",
          args = {argument}, resultTypes = {"u32"}, type = "u32",
       }
    end
@@ -547,7 +546,7 @@ end
 function M.floatingCountedLoopsKeepTheirProgressionAndLiteralType()
    local function loop(first, last)
       return {
-         op = "fornum", binding = {kind = "local", name = "round", cName = "round", type = "f64"},
+         op = "fornum", binding = {kind = "local", name = "round", uniqueName = "round", type = "f64"},
          from = constant(first), to = constant(last), carried = {},
          body = {assignTo("value", "f64", named("round", "f64"))},
       }
@@ -581,18 +580,18 @@ function M.unrollsOnlySmallLiteralTripCountsWithinOneGrowthBudget()
    local function loop(last)
       return {
          op = "fornum",
-         binding = {kind = "local", name = "round", cName = "round_1", type = "i32"},
+         binding = {kind = "local", name = "round", uniqueName = "round_1", type = "i32"},
          from = {op = "constant_i32", value = "1", type = "i32"},
          to = {op = "constant_i32", value = tostring(last), type = "i32"},
          body = {
             {
                op = "assign",
                values = {{
-                  target = {kind = "local", name = "value", cName = "value_0", type = "f64"},
+                  target = {kind = "local", name = "value", uniqueName = "value_0", type = "f64"},
                   value = {
                      op = "add",
-                     left = {op = "local", name = "value", cName = "value_0", type = "f64"},
-                     right = {op = "int_to_f64", value = {op = "local", name = "round", cName = "round_1", type = "i32"}, type = "f64"},
+                     left = {op = "local", name = "value", uniqueName = "value_0", type = "f64"},
+                     right = {op = "int_to_f64", value = {op = "local", name = "round", uniqueName = "round_1", type = "i32"}, type = "f64"},
                      type = "f64",
                   },
                }},
@@ -638,14 +637,14 @@ local function breakResultProgram()
    local setEscaped = {
       op = "assign",
       values = {{
-         target = {kind = "local", name = "escaped", cName = "escaped", type = "i32"},
+         target = {kind = "local", name = "escaped", uniqueName = "escaped", type = "i32"},
          value = integer(1, "i32"),
       }},
    }
    local iterationStep = {
       op = "assign",
       values = {{
-         target = {kind = "local", name = "iteration", cName = "iteration", type = "i32"},
+         target = {kind = "local", name = "iteration", uniqueName = "iteration", type = "i32"},
          value = {
             op = "i32_add",
             left = named("iteration", "i32"),
@@ -655,8 +654,8 @@ local function breakResultProgram()
       }},
    }
    return program({
-      {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
-      {op = "let", name = "escaped", cName = "escaped", type = "i32", value = integer(0, "i32"), assigned = true},
+      {op = "let", name = "iteration", uniqueName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
+      {op = "let", name = "escaped", uniqueName = "escaped", type = "i32", value = integer(0, "i32"), assigned = true},
       {
          op = "while",
          condition = condition,
@@ -668,8 +667,8 @@ local function breakResultProgram()
             iterationStep,
          },
          carried = {
-            {name = "escaped", cName = "escaped", type = "i32"},
-            {name = "iteration", cName = "iteration", type = "i32"},
+            {name = "escaped", uniqueName = "escaped", type = "i32"},
+            {name = "iteration", uniqueName = "iteration", type = "i32"},
          },
       },
       {op = "return", values = {named("escaped", "i32")}},
@@ -690,7 +689,7 @@ function M.derivesABreakFlagFromTheFinalLoopCondition()
    local derived = ir.body[4]
    assert(derived.op == "if" and derived.clauses[1].condition.op == "lt")
    local assignment = derived.clauses[1].body[1].values[1]
-   assert(assignment.target.cName == "escaped" and assignment.value.value == "1")
+   assert(assignment.target.uniqueName == "escaped" and assignment.value.value == "1")
 end
 
 function M.derivesBreakFlagsOnlyWhenTheFinalConditionProvesThem()
@@ -742,7 +741,7 @@ end
 
 function M.propagatesAndFoldsInOneIterationThenGoesQuiet()
    local ir = program({
-      {op = "let", name = "x", cName = "x", value = integer(2, "u32"), type = "u32"},
+      {op = "let", name = "x", uniqueName = "x", value = integer(2, "u32"), type = "u32"},
       {op = "return", values = {{
          op = "u32_add", left = named("x", "u32"), right = integer(3, "u32"), type = "u32",
       }}},
@@ -764,11 +763,11 @@ function M.propagationReadsTheLetsOwnFlagAndStopsAtAProof()
    local function use(name)
       return {op = "u32_add", left = named(name, "u32"), right = integer(1, "u32"), type = "u32"}
    end
-   local before = {op = "let", name = "early", cName = "early", value = use("cursor"), type = "u32"}
-   local guarded = {op = "let", name = "inside", cName = "inside", value = use("cursor"), type = "u32"}
+   local before = {op = "let", name = "early", uniqueName = "early", value = use("cursor"), type = "u32"}
+   local guarded = {op = "let", name = "inside", uniqueName = "inside", value = use("cursor"), type = "u32"}
    local ir = program({
-      {op = "let", name = "cursor", cName = "cursor", value = integer(0, "u32"), type = "u32"},
-      {op = "let", name = "counter", cName = "counter", value = integer(0, "u32"), type = "u32", assigned = true},
+      {op = "let", name = "cursor", uniqueName = "cursor", value = integer(0, "u32"), type = "u32"},
+      {op = "let", name = "counter", uniqueName = "counter", value = integer(0, "u32"), type = "u32", assigned = true},
       before,
       {
          op = "if",
@@ -778,7 +777,7 @@ function M.propagationReadsTheLetsOwnFlagAndStopsAtAProof()
             body = {guarded},
          }},
       },
-      {op = "assign", values = {{target = {kind = "local", name = "counter", cName = "counter", type = "u32"}, value = integer(1, "u32")}}},
+      {op = "assign", values = {{target = {kind = "local", name = "counter", uniqueName = "counter", type = "u32"}, value = integer(1, "u32")}}},
       {op = "return", values = {use("counter"), named("early", "u32"), named("inside", "u32")}},
    })
    optimize.program(ir)
@@ -795,7 +794,7 @@ function M.propagationInsertsTheSharedValueNodeItself()
    local value = integer(2, "u32")
    local use = {op = "return", values = {named("x", "u32")}}
    local ir = program({
-      {op = "let", name = "x", cName = "x", value = value, type = "u32"},
+      {op = "let", name = "x", uniqueName = "x", value = value, type = "u32"},
       use,
    })
    optimize.program(ir)
@@ -805,22 +804,22 @@ end
 
 function M.helperValuesFoldWithoutTheBodyEnvironment()
    local ir = program({
-      {op = "let", name = "m", cName = "m", value = integer(7, "u32"), type = "u32"},
+      {op = "let", name = "m", uniqueName = "m", value = integer(7, "u32"), type = "u32"},
       {op = "return", values = {
          named("m", "u32"),
          {
-            op = "helper_call", helper = "bump", cName = "bump",
+            op = "helper_call", helper = "bump", uniqueName = "bump",
             args = {named("q", "u32")}, resultTypes = {"u32"}, type = "u32",
          },
       }},
    })
    ir.helpers = {{
-      name = "bump", cName = "bump",
-      params = {{op = "helper_param", name = "value", cName = "value_1", type = "u32"}},
+      name = "bump", uniqueName = "bump",
+      params = {{op = "helper_param", name = "value", uniqueName = "value_1", type = "u32"}},
       values = {{
          op = "u32_add", left = named("m", "u32"), right = integer(1, "u32"), type = "u32",
       }},
-      resultType = "u32", resultTypes = {"u32"},
+      resultTypes = {"u32"},
    }}
    local stats = optimize.program(ir)
    assert(stats.specializedHelperCalls == 0, "a nonliteral argument blocks specialization")
@@ -833,22 +832,22 @@ function M.specializedReplacementsWaitForTheNextPassToPropagate()
    local body = {}
    for index = 1, 10 do
       body[index] = {
-         op = "let", name = "pad" .. index, cName = "pad" .. index,
+         op = "let", name = "pad" .. index, uniqueName = "pad" .. index,
          value = integer(index, "u32"), type = "u32",
       }
    end
-   body[#body + 1] = {op = "let", name = "m", cName = "m", value = integer(7, "u32"), type = "u32"}
+   body[#body + 1] = {op = "let", name = "m", uniqueName = "m", value = integer(7, "u32"), type = "u32"}
    body[#body + 1] = {op = "return", values = {{
-      op = "helper_call", helper = "bump", cName = "bump", args = {},
+      op = "helper_call", helper = "bump", uniqueName = "bump", args = {},
       resultTypes = {"u32"}, type = "u32",
    }}}
    local ir = program(body)
    ir.helpers = {{
-      name = "bump", cName = "bump", params = {},
+      name = "bump", uniqueName = "bump", params = {},
       values = {{
          op = "u32_add", left = named("m", "u32"), right = integer(1, "u32"), type = "u32",
       }},
-      resultType = "u32", resultTypes = {"u32"},
+      resultTypes = {"u32"},
    }}
    local stats = optimize.program(ir)
    assert(stats.specializedHelperCalls == 1)
@@ -866,15 +865,15 @@ function M.declinedSpecializationChangesNothing()
    end
    local ir = program({
       {op = "return", values = {{
-         op = "helper_call", helper = "wide", cName = "wide",
+         op = "helper_call", helper = "wide", uniqueName = "wide",
          args = {integer(1, "u32")}, resultTypes = {"u32"}, type = "u32",
       }}},
    })
    ir.helpers = {{
-      name = "wide", cName = "wide",
-      params = {{op = "helper_param", name = "value", cName = "value", type = "u32"}},
+      name = "wide", uniqueName = "wide",
+      params = {{op = "helper_param", name = "value", uniqueName = "value", type = "u32"}},
       values = {chain},
-      resultType = "u32", resultTypes = {"u32"},
+      resultTypes = {"u32"},
    }}
    local stats = optimize.program(ir)
    assert(stats.specializedHelperCalls == 0, "growth beyond the budget declines")
@@ -889,7 +888,7 @@ local function simd(op, intrinsic, valueType, ...)
 end
 
 local function uniform(name)
-   return {op = "uniform", name = name, cName = name, type = "f64"}
+   return {op = "uniform", name = name, uniqueName = name, type = "f64"}
 end
 
 -- A vector loop that adds `splat(scale)` to a carried accumulator, once in its
@@ -913,9 +912,9 @@ local function splatLoop(extra)
       body[#body + 1] = statement
    end
    return program({
-      {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
+      {op = "let", name = "iteration", uniqueName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
       {
-         op = "let", name = "acc", cName = "acc", type = VECTOR, assigned = true,
+         op = "let", name = "acc", uniqueName = "acc", type = VECTOR, assigned = true,
          value = simd("simd_splat", "splat", VECTOR, constant(0)),
       },
       {
@@ -923,8 +922,8 @@ local function splatLoop(extra)
          condition = {op = "lt", left = named("iteration", "i32"), right = integer(8, "i32"), type = "bool"},
          body = body,
          carried = {
-            {name = "acc", cName = "acc", type = VECTOR},
-            {name = "iteration", cName = "iteration", type = "i32"},
+            {name = "acc", uniqueName = "acc", type = VECTOR},
+            {name = "iteration", uniqueName = "iteration", type = "i32"},
          },
       },
       {op = "return", values = {simd("simd_horizontal", "sum", "f64", named("acc", VECTOR))}},
@@ -941,14 +940,14 @@ function M.hoistsAnInvariantSplatOutOfItsLoopOnce()
    assert(hoisted.op == "let" and hoisted.assigned == nil)
    assert(hoisted.type == VECTOR and hoisted.value.op == "simd_splat")
    assert(hoisted.value.args[1].op == "uniform")
-   assert(hoisted.name ~= "acc" and hoisted.cName ~= "acc" and hoisted.cName ~= "iteration")
+   assert(hoisted.name ~= "acc" and hoisted.uniqueName ~= "acc" and hoisted.uniqueName ~= "iteration")
 
    local loop = ir.body[4]
    assert(loop.op == "while")
    local added = loop.body[1].values[1].value.args[2]
-   assert(added.op == "local" and added.cName == hoisted.cName and added.type == VECTOR)
+   assert(added.op == "local" and added.uniqueName == hoisted.uniqueName and added.type == VECTOR)
    local multiplied = loop.body[2].clauses[1].body[1].values[1].value.args[2]
-   assert(multiplied.op == "local" and multiplied.cName == hoisted.cName, "a nested branch reads the same binding")
+   assert(multiplied.op == "local" and multiplied.uniqueName == hoisted.uniqueName, "a nested branch reads the same binding")
    assert(ir.body[2].value.op == "simd_splat", "a declaration outside every loop stays where it is")
 end
 

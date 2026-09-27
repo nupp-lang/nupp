@@ -19,7 +19,7 @@ end
 
 local function canonicalPack()
     local capabilities = wasmtime.capabilities()
-    test.requireCapability("compiler.emscripten", capabilities.emscripten.available, capabilities.emscripten)
+    test.requireCapability("compiler.wasm", capabilities.wasm.available, capabilities.wasm)
     test.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
     test.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
     test.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)

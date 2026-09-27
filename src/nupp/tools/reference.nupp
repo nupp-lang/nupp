@@ -1918,8 +1918,8 @@ C must live in a function disabled with `jit.off`, or it reports `NUPP2707`.
 `@aot` reserves a required whole-function ahead-of-time compilation contract on
 a top-level local function declaration. A target's `aot` policy says what a
 build does with it: `off`, the default, does
-nothing; `emit-c` writes the generated C beside the build; `require` compiles
-that C into the project's own shared library and fails the build when it cannot.
+nothing; `require` compiles it into the project's own shared library and fails
+the build when it cannot.
 Under `require` the function is replaced where it was written by a checked
 wrapper that calls the compiled entry, so every call to it reaches native code
 and the struct layouts are compared against the object's own before the module
@@ -1964,7 +1964,7 @@ kernel and writes the species loop, masks, and tail explicitly; a loop without
 those operations is scalar. Its vector and mask
 values cannot escape the kernel and have no boxed Lua representation.
 `simd.species` answers `nil` with `aot = "off"`, so the source can supply an
-ordinary scalar continuation. `nupp aot --emit c` and `--emit asm` expose the
+ordinary scalar continuation. `nupp aot --emit llvm` and `--emit asm` expose the
 chosen implementation for inspection.
 
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
@@ -1976,8 +1976,8 @@ resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The generated `compile(...)` call carries the target provider's artifact and
 entrypoint: SPIR-V for native WGPU, or WGSL for browser WebGPU.
-The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
-ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
+The Wasm policies refuse GPU IR, and `aot = "off"` retains the ordinary
+function value. `nupp aot --emit spirv FILE` writes the canonical
 binary module, and `--emit wgsl` prints the `webgpu-int32` artifact when the
 kernel lies inside that profile. WGPU performs platform shader translation.
 

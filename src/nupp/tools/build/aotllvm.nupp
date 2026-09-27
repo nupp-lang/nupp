@@ -1,0 +1,652 @@
+module nupp.tools.build.aotllvm
+
+--[[
+The AOT build's code generator: emitting a unit as LLVM IR, compiling it in
+process, and linking the objects with lld. A build that needs it on a `nupp`
+built without it is refused.
+]]
+
+local codegen = require("nupp.compiler.aot.llvm.codegen")
+local facts = require("nupp.compiler.aot.llvm.facts")
+local fs = require("nupp.compiler.fs")
+local llvmDetector = require("nupp.compiler.aot.llvm.detector")
+local llvmProgram = require("nupp.compiler.aot.llvm.program")
+local llvmProfile = require("nupp.compiler.aot.llvm.profile")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local toolruns = require("nupp.tools.build.toolruns")
+
+local aotllvm = {}
+
+--- What produced an artifact, for its key: the backend, the code generator's
+--- version, and the lowering's.
+const aotllvm.BACKEND = "llvm"
+
+--- Whether this nupp can compile AOT code: true, or nil and why not (it was
+--- built without the code generator, or NUPP_AOT_FACTS is malformed).
+function aotllvm.selected(): (boolean?, string?)
+    local available, why = codegen.available()
+    if not available then
+        return nil, tostring(why)
+    end
+    local _, factsErr = aotllvm.facts()
+    if factsErr ~= nil then
+        return nil, "NUPP_AOT_FACTS: " .. tostring(factsErr)
+    end
+
+    return true, nil
+end
+
+--- The proved facts this build states: `NUPP_AOT_FACTS`, `all` when unset
+--- (see `nupp.compiler.aot.llvm.facts`), or nil and why the value is wrong.
+function aotllvm.facts(): (facts.Facts?, string?)
+    return facts.parse(os.getenv("NUPP_AOT_FACTS") or "all")
+end
+
+--- The fact selection as it goes into an artifact's key.
+function aotllvm.factsKey(): string
+    local selected = aotllvm.facts()
+
+    return selected ~= nil and facts.key(selected as facts.Facts) or "all"
+end
+
+--- Whether independent Wasm entries call their kernels' unoptimized scalar
+--- twins (`NUPP_AOT_WASM_ORACLE=1`): the reference build the Wasm SIMD
+--- suites compare the optimized one against.
+function aotllvm.wasmOracle(): boolean
+    return os.getenv("NUPP_AOT_WASM_ORACLE") == "1"
+end
+
+--- The code generator, facts and oracle switch a build lowers with, as text
+--- a remembered build is compared against.
+function aotllvm.selection(): string
+    return "llvm " .. aotllvm.version() .. " facts=" .. aotllvm.factsKey() .. (
+        aotllvm.wasmOracle() and " wasm-oracle" or ""
+    )
+end
+
+--- The code generator's identity, which every LLVM artifact is keyed on, or
+--- `unavailable` in a nupp built without it: a build that compiles nothing on
+--- the CPU needs none, and one that does says so where it would compile.
+function aotllvm.version(): string
+    if not codegen.available() then
+        return "unavailable"
+    end
+
+    return codegen.version()
+end
+
+--- Appends one line to the report NUPP_AOT_LLVM_REPORT names, if any: each
+--- unit the code generator compiled, and where the time went.
+function aotllvm.note(line: string): nil
+    local path = os.getenv("NUPP_AOT_LLVM_REPORT")
+    if path == nil or path == "" then
+        return
+    end
+    local file = io.open(path as string, "a")
+    if file ~= nil then
+        file:write(line, "\n")
+        file:close()
+    end
+end
+
+--- One unit's programs as LLVM IR, or nil and why this backend cannot emit
+--- them (the build then fails, naming the unit). `logical` keeps each entry's
+--- logical symbol rather than its tier's, the way an inspection names them,
+--- and `sourceFile` gives the unit line tables pointing into that file.
+--- @raises string when emission fails for a reason other than coverage: a
+---   defect in the backend, which must not be reported as a missing feature
+function aotllvm.emit(
+    programs: {scalarIR.Program},
+    tier: string,
+    triple: string,
+    logical: boolean?,
+    sourceFile: string?
+): (string?, string?)
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return nil, profileErr
+    end
+    local cpu: {scalarIR.Program} = {}
+    for _, program in ipairs(programs) do
+        if program.executionTarget ~= "gpu" then
+            cpu[#cpu + 1] = program
+        end
+    end
+    -- A Wasm module's entries are numbered by position among all of the
+    -- unit's programs, as the bridge metadata the loaders read numbers them.
+    local bridges: {[string]: integer} = {}
+    for position, program in ipairs(programs) do
+        bridges[program.symbol] = position
+    end
+    local ok, module = pcall(
+        llvmProgram.module,
+        cpu,
+        tier,
+        selected as llvmProfile.Profile,
+        (aotllvm.facts()),
+        sourceFile,
+        logical,
+        bridges,
+        aotllvm.wasmOracle()
+    )
+    if not ok then
+        if llvmProgram.isUnsupported(module) then
+            return nil, tostring(module)
+        end
+        error(module, 0)
+    end
+
+    return module as string, nil
+end
+
+--- The baseline feature detector as LLVM IR, or nil when this backend has no
+--- profile for `triple` (the build then fails).
+function aotllvm.detector(triple: string): string?
+    local selected = llvmProfile.of(triple)
+    if selected == nil then
+        return nil
+    end
+
+    return llvmDetector.module((selected as llvmProfile.Profile).functionAttributes)
+end
+
+--- Whether a library built for `triple` is handed the provider's runtime table
+--- when it loads. A target whose libraries link the runtime in (the browser
+--- guest, which has no provider) is not.
+function aotllvm.takesRuntime(triple: string?): boolean
+    local selected = triple ~= nil and llvmProfile.of(triple as string) or nil
+
+    return selected == nil or (selected as llvmProfile.Profile).linkedRuntime == nil
+end
+
+--- The options a tier's unit is compiled with, as the strings its key holds.
+function aotllvm.flags(triple: string, tier: string): {string}
+    local selected = llvmProfile.of(triple)
+    if selected == nil then
+        return {"triple=" .. triple, "tier=" .. tier}
+    end
+    local options = llvmProfile.options(selected as llvmProfile.Profile, tier)
+    local keys: {string} = {}
+    for key in pairs(options) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local flags: {string} = {}
+    for _, key in ipairs(keys) do
+        flags[#flags + 1] = key .. "=" .. (options[key] as string)
+    end
+
+    return flags
+end
+
+--- One unit's programs as target assembly, or nil and why not: the IR
+--- this backend emits for them, compiled as a build would.
+function aotllvm.assembly(
+    programs: {scalarIR.Program},
+    tier: string,
+    triple: string,
+    sourceFile: string?
+): (string?, string?)
+    local ir, why = aotllvm.emit(programs, tier, triple, true, sourceFile)
+    if ir == nil then
+        return nil, why
+    end
+    local selected = llvmProfile.of(triple) as llvmProfile.Profile
+    local options = llvmProfile.options(selected, tier)
+    options.assembly = "1"
+    local compiled, err = codegen.compile(ir as string, "<aot>", options)
+    if compiled == nil or compiled.assembly == nil then
+        return nil, "compiling the LLVM IR failed: " .. tostring(err)
+    end
+
+    return compiled.assembly as string, nil
+end
+
+--- One emitted unit to compile: its IR file, and the object to install.
+record aotllvm.Unit
+    ir: string
+    triple: string
+    tier: string
+    object: string
+end
+
+--- Compiles `units` side by side, each isolated so that LLVM ending on an
+--- internal error fails that unit rather than the build's process.
+--- @return nil, or the first unit's failure
+function aotllvm.compileMany(units: {aotllvm.Unit}): string?
+    local jobs: {codegen.Job} = {}
+    for position, unit in ipairs(units) do
+        local selected, profileErr = llvmProfile.of(unit.triple)
+        if selected == nil then
+            return profileErr
+        end
+        jobs[
+            position
+        ] = new codegen.Job(
+            ir = unit.ir,
+            object = unit.object .. ".tmp",
+            options = llvmProfile.options(selected as llvmProfile.Profile, unit.tier)
+        )
+    end
+    local outcomes, err = codegen.compileFiles(jobs, toolruns.width(#jobs))
+    if outcomes == nil then
+        return "compiling the LLVM units failed: " .. tostring(err)
+    end
+    local failure: string? = nil
+    for position, outcome in ipairs(outcomes as {codegen.Outcome}) do
+        local unit = units[position]
+        if outcome.error ~= nil then
+            os.remove(jobs[position].object)
+            failure = failure or "compiling " .. unit.ir .. " with LLVM failed: " .. tostring(outcome.error)
+        else
+            local timings = (tostring(outcome.report):match("^(.-)object%-bytes") or ""):gsub("\n", " ")
+            aotllvm.note(("compile\t%s\t%s"):format(unit.ir, timings))
+            local installed, installErr = fs.installStaged(jobs[position].object, unit.object)
+            if not installed then
+                failure = failure or tostring(installErr)
+            end
+        end
+    end
+
+    return failure
+end
+
+--- The object of the runtime a `selected` library links in, compiled once
+--- per runtime and code generator into `directory`, or nil when the target
+--- has a provider to hand modules the runtime.
+--- @return the object's path, or nil and why not
+local function linkedRuntime(selected: llvmProfile.Profile, directory: string): (string?, string?)
+    local carried = selected.linkedRuntime
+    if carried == nil then
+        return nil, nil
+    end
+    local text = require("nupp.compiler.bundled").source(carried as string)
+    if text == nil then
+        return nil, "this compiler carries no runtime " .. tostring(carried)
+    end
+    local digest = require("nupp.compiler.hash").digest((text as string) .. "\0" .. aotllvm.version())
+    local object = directory .. "/runtime." .. digest:sub(1, 16) .. ".o"
+    if fs.exists(object) then
+        return object, nil
+    end
+    local ir = directory .. "/runtime." .. digest:sub(1, 16) .. ".ll"
+    local wrote, writeErr = fs.writeFile(ir, text as string)
+    if not wrote then
+        return nil, tostring(writeErr)
+    end
+    local err = aotllvm.compileMany({
+        new aotllvm.Unit(ir = ir, triple = selected.public, tier = "baseline", object = object)
+    })
+    os.remove(ir)
+    if err ~= nil then
+        return nil, err
+    end
+
+    return object, nil
+end
+
+--- What a Windows DLL links beside its units (`nupp.compiler.aot.llvm.coff`):
+--- the binding object and the import libraries, made once per code generator
+--- into `directory`.
+--- @return the files to link, or nil and why not
+local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({string}?, string?)
+    local coff = require("nupp.compiler.aot.llvm.coff")
+    local names = require("nupp.compiler.aot.llvm.lua.runtime").apiNames()
+    local ir = coff.binding(selected.llvmTriple, names)
+    local digest = require(
+        "nupp.compiler.hash"
+    ).digest(
+        ir .. "\0" .. table.concat(coff.CRT, ",") .. "\0" .. table.concat(coff.UCRT, ",") .. "\0" .. aotllvm.version()
+    )
+        :sub(1, 16)
+    local object = directory .. "/luabind." .. digest .. ".o"
+    local crt = directory .. "/msvcrt." .. digest .. ".a"
+    local kernel32 = directory .. "/kernel32." .. digest .. ".a"
+    local ucrt = directory .. "/ucrtmath." .. digest .. ".a"
+    if not fs.exists(object) then
+        local source = directory .. "/luabind." .. digest .. ".ll"
+        local wrote, writeErr = fs.writeFile(source, ir)
+        if not wrote then
+            return nil, tostring(writeErr)
+        end
+        local err = aotllvm.compileMany({
+            new aotllvm.Unit(ir = source, triple = selected.public, tier = "baseline", object = object)
+        })
+        os.remove(source)
+        if err ~= nil then
+            return nil, err
+        end
+    end
+    for _, library in ipairs({
+        {"msvcrt.dll", crt, coff.CRT},
+        {coff.UCRT_MODULE, ucrt, coff.UCRT},
+        {"kernel32.dll", kernel32, coff.KERNEL32}
+    }) do
+        if not fs.exists(library[2] as string) then
+            local entries: {{string}} = {}
+            for _, name in ipairs(library[3] as {string}) do
+                entries[#entries + 1] = {name}
+            end
+            local err = codegen.importLibrary(library[1] as string, library[2] as string, entries)
+            if err ~= nil then
+                return nil, "cannot write the import library for " .. tostring(library[1]) .. ": " .. err
+            end
+        end
+    end
+
+    return {object, crt, ucrt, kernel32}, nil
+end
+
+--- Links `objects` into the shared library `output` with lld.
+--- @return nil, or what went wrong
+function aotllvm.link(triple: string, objects: {string}, output: string): string?
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return profileErr
+    end
+    -- A DLL records the file name it was linked as, so a Windows library is
+    -- staged under its own name beside the objects, in the build's own
+    -- directory, rather than beside itself with a suffix.
+    local staged = output .. ".tmp"
+    if (selected as llvmProfile.Profile).format == "coff" and objects[1] ~= nil then
+        staged = fs.dirname(objects[1]) .. "/" .. fs.basename(output)
+    end
+    os.remove(staged)
+    local linked: {string} = {}
+    for _, object in ipairs(objects) do
+        linked[#linked + 1] = object
+    end
+    local runtimeObject, runtimeErr = linkedRuntime(selected as llvmProfile.Profile, fs.dirname(objects[1] or output))
+    if runtimeErr ~= nil then
+        return runtimeErr
+    end
+    if runtimeObject ~= nil then
+        linked[#linked + 1] = runtimeObject as string
+    end
+    local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, linked, fs.basename(output))
+    if (selected as llvmProfile.Profile).format == "coff" then
+        local glue, glueErr = windowsGlue(selected as llvmProfile.Profile, fs.dirname(objects[1] or output))
+        if glue == nil then
+            return glueErr
+        end
+        for position, argument in ipairs(argv) do
+            if argument == "/noentry" then
+                argv[position] = "/entry:" .. require("nupp.compiler.aot.llvm.coff").ENTRY
+            end
+        end
+        for _, file in ipairs(glue as {string}) do
+            argv[#argv + 1] = file
+        end
+    end
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(staged)
+
+        return "linking the LLVM objects failed: " .. tostring(err)
+    end
+    local installed, installErr = fs.installStaged(staged, output)
+    if not installed then
+        return tostring(installErr)
+    end
+
+    return nil
+end
+
+--- Archives `objects` into the static library `output`, indexed, in the
+--- format the target's linkers read.
+--- @return nil, or what went wrong
+function aotllvm.archive(triple: string, objects: {string}, output: string): string?
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return profileErr
+    end
+    local staged = output .. ".tmp"
+    os.remove(staged)
+    local format = (selected as llvmProfile.Profile).format == "macho" and "darwin" or "gnu"
+    local err = codegen.archive(staged, objects, format)
+    if err ~= nil then
+        os.remove(staged)
+
+        return "archiving the LLVM objects failed: " .. tostring(err)
+    end
+    local installed, installErr = fs.installStaged(staged, output)
+    if not installed then
+        return tostring(installErr)
+    end
+
+    return nil
+end
+
+--- The Wasm libm's object under `directory`, compiled once per libm and
+--- code generator: its name carries the digest of both.
+--- @return the object's path, or nil and why not
+function aotllvm.wasmLibm(directory: string): (string?, string?)
+    local text = require("nupp.compiler.bundled").source("/aot/llvm/wasm/libm.ll")
+    if text == nil then
+        return nil, "this compiler carries no Wasm libm"
+    end
+    local digest = require("nupp.compiler.hash").digest((text as string) .. "\0" .. aotllvm.version())
+    local object = directory .. "/libm." .. digest:sub(1, 16) .. ".o"
+    if fs.exists(object) then
+        return object, nil
+    end
+    local ir = directory .. "/libm." .. digest:sub(1, 16) .. ".ll"
+    local wrote, writeErr = fs.writeFile(ir, text as string)
+    if not wrote then
+        return nil, tostring(writeErr)
+    end
+    local err = aotllvm.compileMany({
+        new aotllvm.Unit(ir = ir, triple = "wasm32-unknown-emscripten", tier = "scalar", object = object)
+    })
+    os.remove(ir)
+    if err ~= nil then
+        return nil, err
+    end
+
+    return object, nil
+end
+
+--- Links one Wasm object into the independent module `output` with lld:
+--- no entry point, exactly `exports` plus the allocator exported, and the
+--- memory the loaders expect -- 4 MiB to start, growable to 64 MiB.
+--- @return nil, or what went wrong
+function aotllvm.linkWasm(object: string, output: string, exports: {string}, libm: string?): string?
+    -- The reference build's unoptimized twins keep every vector on the
+    -- stack, so they start with 32 MiB rather than 4.
+    local oracle = aotllvm.wasmOracle()
+    local argv: {
+        string
+    } = {
+        "wasm-ld",
+        "--no-entry",
+        oracle and "--initial-memory=33554432" or "--initial-memory=4194304",
+        "--max-memory=67108864",
+        "-z",
+        oracle and "stack-size=16777216" or "stack-size=65536",
+        "--export=malloc",
+        "--export=free",
+    }
+    for _, name in ipairs(exports) do
+        argv[#argv + 1] = "--export=" .. name
+    end
+    argv[#argv + 1] = "-o"
+    argv[#argv + 1] = output
+    argv[#argv + 1] = object
+    if libm ~= nil then
+        argv[#argv + 1] = libm as string
+    end
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the Wasm module failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
+--- The ELF half of `linkStandalone`: a position-independent executable from
+--- the kit's startup objects, the runtime and `archives` whole, the kit's
+--- library stubs, and libgcc, bound to the dynamic linker the kit names.
+local function linkLinux(
+    kit: string,
+    manifest: any,
+    machine: string,
+    output: string,
+    archives: {string},
+    flags: {string}
+): string?
+    local argv: {
+        string
+    } = {
+        "ld.lld",
+        "-m",
+        machine,
+        "-pie",
+        "--eh-frame-hdr",
+        "-z",
+        "noexecstack",
+        "--hash-style=gnu",
+        "--build-id",
+        "-dynamic-linker",
+        tostring(manifest.interpreter),
+        "-o",
+        output,
+    }
+    for _, object in ipairs(manifest.startup) do
+        argv[#argv + 1] = kit .. "/" .. tostring(object)
+    end
+    argv[#argv + 1] = "--whole-archive"
+    argv[#argv + 1] = kit .. "/" .. tostring(manifest.runtime)
+    for _, archive in ipairs(archives) do
+        argv[#argv + 1] = archive
+    end
+    argv[#argv + 1] = "--no-whole-archive"
+    for _, library in ipairs(manifest.libraries) do
+        argv[#argv + 1] = kit .. "/" .. tostring(library)
+    end
+    for _, flag in ipairs(flags) do
+        argv[#argv + 1] = flag
+    end
+    for _, object in ipairs(manifest.finish) do
+        argv[#argv + 1] = kit .. "/" .. tostring(object)
+    end
+    -- The program's native code finds the runtime's entry points by name.
+    argv[#argv + 1] = "--export-dynamic"
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the standalone program failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
+--- A Windows kit records the link MinGW's driver ran for a probe program;
+--- lld's MinGW driver replays it with this program's archives, loaded whole,
+--- where the probe's object was.
+local function linkWindows(kit: string, manifest: any, output: string, archives: {string}, flags: {string}): string?
+    if type(manifest.argv) ~= "table" then
+        return "the link kit at " .. kit .. " records no link"
+    end
+    local argv: {string} = {"ld.lld"}
+    for _, token in ipairs(manifest.argv as {string}) do
+        if token == "{output}" then
+            argv[#argv + 1] = output
+        elseif token == "{runtime}" then
+            argv[#argv + 1] = kit .. "/" .. tostring(manifest.runtime)
+        elseif token == "{archives}" then
+            argv[#argv + 1] = "--whole-archive"
+            for _, archive in ipairs(archives) do
+                argv[#argv + 1] = archive
+            end
+            argv[#argv + 1] = "--no-whole-archive"
+            for _, flag in ipairs(flags) do
+                argv[#argv + 1] = flag
+            end
+        elseif token:sub(1, 6) == "{kit}/" then
+            argv[#argv + 1] = kit .. token:sub(6)
+        else
+            argv[#argv + 1] = token
+        end
+    end
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the standalone program failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
+--- Links a standalone program `output` from the link kit at `kit`: its
+--- runtime and `archives` loaded whole (a program reaches native code by
+--- name, which no archive scan sees), against the kit's stubs for the system
+--- libraries, with lld in process.
+--- @return nil, or what went wrong
+function aotllvm.linkStandalone(kit: string, output: string, archives: {string}, flags: {string}): string?
+    local text = fs.readFile(kit .. "/kit.json")
+    if text == nil then
+        return "the link kit at " .. kit .. " has no kit.json"
+    end
+    local json = require("nupp.codec.json")
+    local ok, manifest = pcall(json.decode, text as string, json.NULL)
+    if not ok or type(manifest) ~= "table" or manifest.schemaVersion ~= 1 then
+        return "the link kit at " .. kit .. " has an unreadable kit.json"
+    end
+    -- The kit says what it links for; the host running nupp has no say.
+    local selected = type(manifest.target) == "string" and llvmProfile.of(manifest.target as string) or nil
+    if selected == nil then
+        return "the link kit at " .. kit .. " names no target this nupp can link for"
+    end
+    local machine = (selected as llvmProfile.Profile).machine
+    if manifest.platform == "linux" then
+        return linkLinux(kit, manifest, machine, output, archives, flags)
+    elseif manifest.platform == "windows" then
+        return linkWindows(kit, manifest, output, archives, flags)
+    elseif manifest.platform ~= "macos" then
+        return "the link kit at " .. kit .. " is for " .. tostring(manifest.platform) .. ", which this nupp cannot link"
+    end
+    local minimum = tostring(manifest.minimum)
+    local argv: {
+        string
+    } = {
+        "ld64.lld",
+        "-arch",
+        machine,
+        "-platform_version",
+        "macos",
+        minimum,
+        minimum,
+        "-syslibroot",
+        kit .. "/" .. tostring(manifest.syslibroot),
+        "-o",
+        output,
+        "-force_load",
+        kit .. "/" .. tostring(manifest.runtime),
+    }
+    for _, archive in ipairs(archives) do
+        argv[#argv + 1] = "-force_load"
+        argv[#argv + 1] = archive
+    end
+    for _, library in ipairs(manifest.libraries) do
+        argv[#argv + 1] = tostring(library)
+    end
+    for _, flag in ipairs(flags) do
+        argv[#argv + 1] = flag
+    end
+    -- The program's native code finds the runtime's entry points by name.
+    argv[#argv + 1] = "-export_dynamic"
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(output)
+
+        return "linking the standalone program failed: " .. tostring(err)
+    end
+
+    return nil
+end
+
+export = aotllvm

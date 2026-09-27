@@ -101,12 +101,15 @@ local narrow = nupp.math.f32.add(nupp.math.f32.narrow(wide), nupp.math.f32.narro
 outputs[i].value = narrow + doubled
 ```
 
-```c [Generated C]
-double v1_wide = ((double)((&p_inputs[i])->value));
-double v2_doubled = (v1_wide + v1_wide);
-float v3_narrow = ((float)((float)(v1_wide)) + (float)((float)(v1_wide)));
-float as1 = (float)((((double)v3_narrow) + v2_doubled));
-((&p_outputs[i])->value) = as1;
+```llvm [LLVM IR]
+%wide = fpext float %value to double
+%doubled = fadd double %wide, %wide
+%a = fptrunc double %wide to float
+%b = fptrunc double %wide to float
+%narrow = fadd float %a, %b
+%promoted = fpext float %narrow to double
+%sum = fadd double %promoted, %doubled
+%stored = fptrunc double %sum to float
 ```
 :::
 
@@ -172,8 +175,8 @@ Do not use those values as a portable overflow test. This does not promise the
 same exceptional integer that a particular LuaJIT build happens to return.
 
 Conversions lower to vector operations, with target-dependent instruction
-counts; some targets must decompose 64-bit conversions. Generated C guards
-floating inputs before any potentially undefined integer conversion.
+counts; some targets must decompose 64-bit conversions. The generated code
+guards floating inputs before any potentially undefined integer conversion.
 Reinterpretation does no numeric work and preserves NaN payloads and signed
 zero as bits.
 
@@ -207,7 +210,7 @@ empty seeds and first-index ties. Those fixtures select cases where association
 cannot change the expected classification; a reassociation that overflows an
 intermediate is not silently compared as a small finite rounding error.
 
-Generated C is a backend representation and not the safety boundary. Every span
+The generated code is a backend representation and not the safety boundary. Every span
 access, region relationship, conversion and lane operation is verified in the IR
 before anything is emitted, so a rewrite that produced something invalid is a
 compiler bug caught before it becomes a miscompilation.
@@ -326,8 +329,8 @@ and contents with the literal. Comparisons preserve embedded NUL bytes, do not
 allocate case strings, and use byte equality rather than locale rules. Type
 patterns still report the ordinary subset boundary.
 Block arms use ordinary branches so that `break` still targets the authored
-loop. The C compiler chooses the physical native dispatch; Nupp does not force
-a jump table or synthesize a C perfect hash.
+loop. The code generator chooses the physical native dispatch; Nupp does not
+force a jump table or synthesize a perfect hash.
 
 A [do expression](../../language/do-expressions.md) may contain locals, branches,
 and supported loops. `yield` supplies its result and exits the nearest value

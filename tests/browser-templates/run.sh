@@ -5,7 +5,6 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$script_dir/../.." && pwd)
 temporary=${RUNNER_TEMP:-/tmp}
 lua_source=${NUPP_LUA51_SOURCE:-$temporary/nupp-portable-compiler/lua-5.1.5/src}
-emcc_command=${NUPP_WASM_CC:-${EMCC:-emcc}}
 port=${NUPP_BROWSER_TEMPLATE_PORT:-8792}
 work=$(mktemp -d "${TMPDIR:-/tmp}/nupp-browser-templates.XXXXXX")
 server_pid=
@@ -33,7 +32,6 @@ for project in "$plain" "$simd"; do
     NUPP_SOURCE="$repo" \
     NUPP_BROWSER_RUNTIME="$runtime" \
     NUPP_LUA51_SOURCE="$lua_source" \
-    NUPP_WASM_CC="$emcc_command" \
       "$repo/bin/nupp" task package >/dev/null
   )
 done

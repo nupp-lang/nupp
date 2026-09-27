@@ -1,0 +1,32 @@
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+
+@aot
+local function triangular(count: integer): number
+    local result = 0.0
+    for index = 1, count do
+        result = result + index
+    end
+
+    return result
+end
+
+@aot
+local function total(borrows values: span.Span<float>): number
+    local sum = 0.0
+    for index = 1, #values do
+        sum = sum + values[index]
+    end
+
+    return sum
+end
+
+local values = array.scalar(array.float, 8)
+do
+    local writable = values:write()
+    for index = 1, 8 do
+        writable[index] = 0.5
+    end
+    nupp.drop(writable)
+end
+print(triangular(5), total(values:read()))

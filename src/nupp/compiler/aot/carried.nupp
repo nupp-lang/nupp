@@ -20,7 +20,7 @@ record carried.Frame
 end
 
 record carried.State
-    --- The loop nesting depth each name was declared at, by C name.
+    --- The loop nesting depth each name was declared at, by unique name.
     depth: {[string]: integer}
 
     --- What declared each name: a `let`, or the `multi_let` or `fornum`
@@ -32,24 +32,24 @@ end
 
 local walk: function({scalarIR.Statement}, carried.State): nil
 
-local function declare(state: carried.State, cName: string, declared: any): nil
-    state.depth[cName] = #state.frames
+local function declare(state: carried.State, uniqueName: string, declared: any): nil
+    state.depth[uniqueName] = #state.frames
     declared.assigned = nil
-    state.declared[cName] = declared
+    state.declared[uniqueName] = declared
 end
 
 --- An assignment to a local: the declaring `let` is a variable from here, and
 --- every loop entered since it was declared carries the name.
 local function assigned(state: carried.State, target: scalarIR.Target): nil
-    if target.kind ~= "local" or target.cName == nil then
+    if target.kind ~= "local" or target.uniqueName == nil then
         return
     end
-    local cName = target.cName as string
-    local declared = state.declared[cName]
+    local uniqueName = target.uniqueName as string
+    local declared = state.declared[uniqueName]
     if declared ~= nil then
         declared.assigned = true
     end
-    local from = state.depth[cName]
+    local from = state.depth[uniqueName]
     if from == nil then
         return
     end
@@ -59,11 +59,15 @@ local function assigned(state: carried.State, target: scalarIR.Target): nil
     end
     for level = (from as integer) + 1, #state.frames do
         local frame = state.frames[level]
-        if not frame.present[cName] then
-            frame.present[cName] = true
+        if not frame.present[uniqueName] then
+            frame.present[uniqueName] = true
             frame.order[
                 #frame.order + 1
-            ] = new scalarIR.Carried(name = target.name as string, cName = cName, type = type as scalarIR.Type)
+            ] = new scalarIR.Carried(
+                name = target.name as string,
+                uniqueName = uniqueName,
+                type = type as scalarIR.Type
+            )
         end
     end
 end
@@ -72,7 +76,7 @@ local function loop(state: carried.State, node: any, body: {scalarIR.Statement},
     local frame = new carried.Frame(node = node, order = {}, present = {})
     state.frames[#state.frames + 1] = frame
     if binding ~= nil then
-        declare(state, (binding as scalarIR.Binding).cName, binding)
+        declare(state, (binding as scalarIR.Binding).uniqueName, binding)
     end
     if node.op == "while" and node.conditionBody ~= nil then
         walk(node.conditionBody, state)
@@ -90,10 +94,10 @@ walk = function(statements: {scalarIR.Statement}, state: carried.State): nil
         local op = statement.op
         if op == "let" then
             local declared = statement as scalarIR.Let
-            declare(state, declared.cName, declared)
+            declare(state, declared.uniqueName, declared)
         elseif op == "multi_let" then
             for _, bound in ipairs((statement as scalarIR.MultiLet).bindings) do
-                declare(state, bound.cName, bound)
+                declare(state, bound.uniqueName, bound)
             end
         elseif op == "assign" then
             for _, entry in ipairs((statement as scalarIR.Assign).values) do

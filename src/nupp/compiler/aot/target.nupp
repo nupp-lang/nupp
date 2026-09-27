@@ -221,7 +221,7 @@ function target.buildTiers(triple: string?, features: any, dialect: string?): ({
     return selected, nil
 end
 
---- A tier's stable C-symbol suffix.
+--- A tier's stable symbol suffix.
 function target.symbol(symbol: string, tier: string): string
     return symbol .. "__" .. tier:gsub("[^%w_]", "_")
 end

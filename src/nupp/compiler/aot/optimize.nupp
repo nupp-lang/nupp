@@ -224,7 +224,7 @@ local function repeatable(value: scalarIR.Expr): boolean
 end
 
 local function localIdentity(value: any): string
-    return tostring(value.cName or value.name)
+    return tostring(value.uniqueName or value.name)
 end
 
 local function sameLiteral(left: scalarIR.Expr, right: scalarIR.Expr): boolean
@@ -487,7 +487,7 @@ local function deriveBreakResults(statements: {scalarIR.Statement}, state: optim
                 -- stays assigned, by the derivation below.
                 local stillCarried: {scalarIR.Carried} = {}
                 for _, entry in ipairs(loop.carried) do
-                    if entry.cName ~= found.identity then
+                    if entry.uniqueName ~= found.identity then
                         stillCarried[#stillCarried + 1] = entry
                     end
                 end
@@ -527,20 +527,20 @@ local function inheritConstants(values: {[string]: scalarIR.Expr}): {[string]: s
     return copied
 end
 
---- Constant propagation over one block: the literal `let`s in scope, by C
---- name, and the C name each source name currently denotes.
+--- Constant propagation over one block: the literal `let`s in scope, by unique
+--- name, and the unique name each source name currently denotes.
 record optimize.Propagation
     constants: {[string]: scalarIR.Expr}
-    cNames: {[string]: string}
+    uniqueNames: {[string]: string}
 end
 
 local function inheritPropagation(inherited: optimize.Propagation): optimize.Propagation
-    local cNames: {[string]: string} = {}
-    for name, cName in pairs(inherited.cNames) do
-        cNames[name] = cName
+    local uniqueNames: {[string]: string} = {}
+    for name, uniqueName in pairs(inherited.uniqueNames) do
+        uniqueNames[name] = uniqueName
     end
 
-    return new optimize.Propagation(constants = inheritConstants(inherited.constants), cNames = cNames)
+    return new optimize.Propagation(constants = inheritConstants(inherited.constants), uniqueNames = uniqueNames)
 end
 
 --- A proof names the local whose value the dominating comparison checked.
@@ -549,9 +549,9 @@ end
 --- proof is about stops propagating from the statement carrying the proof.
 local function retainProved(proved: scalarIR.CursorBounds?, propagation: optimize.Propagation): nil
     for name in pairs(proved or {}) do
-        local cName = propagation.cNames[name]
-        if cName ~= nil then
-            propagation.constants[cName as string] = nil
+        local uniqueName = propagation.uniqueNames[name]
+        if uniqueName ~= nil then
+            propagation.constants[uniqueName as string] = nil
         end
     end
 end
@@ -580,9 +580,9 @@ propagateBlock = function(statements: {scalarIR.Statement}, inherited: optimize.
         if statement.op == "let" then
             -- A `let` that is never assigned is a value: what it binds is
             -- what every later read sees.
-            propagation.cNames[statement.name] = statement.cName
+            propagation.uniqueNames[statement.name] = statement.uniqueName
             if statement.assigned ~= true and fold.isLiteral(statement.value) then
-                constants[statement.cName] = statement.value
+                constants[statement.uniqueName] = statement.value
             end
         elseif statement.op == "if" then
             -- The statement walk above already rewrote every clause condition
@@ -715,7 +715,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                             new scalarIR.Let(
                                 op = "let",
                                 name = loop.binding.name,
-                                cName = loop.binding.cName,
+                                uniqueName = loop.binding.uniqueName,
                                 value = value,
                                 type = loop.binding.type,
                                 assigned = loop.binding.assigned,
@@ -766,13 +766,13 @@ local function countUses(value: any, reads: {[string]: integer}, writes: {[strin
         return
     end
     if value.op == "local" then
-        local identity = tostring(value.cName or value.name)
+        local identity = tostring(value.uniqueName or value.name)
         reads[identity] = (reads[identity] or 0) + 1
     end
     if value.op == "assign" then
         for _, assignment in ipairs(value.values or {}) do
-            if assignment.target.kind == "local" and assignment.target.cName ~= nil then
-                local identity = tostring(assignment.target.cName)
+            if assignment.target.kind == "local" and assignment.target.uniqueName ~= nil then
+                local identity = tostring(assignment.target.uniqueName)
                 local written = writes[identity] or {}
                 written[#written + 1] = assignment.value as scalarIR.Expr
                 writes[identity] = written
@@ -780,7 +780,12 @@ local function countUses(value: any, reads: {[string]: integer}, writes: {[strin
         end
     end
     for key, child in pairs(value) do
-        if key ~= "source" and key ~= "cName" and key ~= "name" and key ~= "cursorCName" and key ~= "indexCName" then
+        if key ~= "source"
+            and key ~= "uniqueName"
+            and key ~= "name"
+            and key ~= "cursorUniqueName"
+            and key ~= "indexUniqueName"
+        then
             countUses(child, reads, writes)
         end
     end
@@ -804,7 +809,9 @@ removeWrites = function(
             local remaining: {scalarIR.Assignment} = {}
             for _, assignment in ipairs(assign.values) do
                 local target = assignment.target
-                if not (target.kind == "local" and target.cName ~= nil and dead[tostring(target.cName)] == true) then
+                if not (
+                    target.kind == "local" and target.uniqueName ~= nil and dead[tostring(target.uniqueName)] == true
+                ) then
                     remaining[#remaining + 1] = assignment
                 end
             end
@@ -828,7 +835,7 @@ removeWrites = function(
             local loop = statement as any
             local stillCarried: {scalarIR.Carried} = {}
             for _, entry in ipairs(loop.carried as {scalarIR.Carried}) do
-                if dead[entry.cName] ~= true then
+                if dead[entry.uniqueName] ~= true then
                     stillCarried[#stillCarried + 1] = entry
                 end
             end
@@ -895,7 +902,7 @@ local function removeDead(
         local unread = false
         local identity = ""
         if statement.op == "let" then
-            identity = (statement as scalarIR.Let).cName
+            identity = (statement as scalarIR.Let).uniqueName
             if reads[identity] == nil and fold.discardable(statement.value, state.foldContext) then
                 unread = true
                 for _, written in ipairs(writes[identity] or {}) do
@@ -1045,7 +1052,7 @@ record optimize.Hoisting
     --- -- in one body, or by two loops in one block -- is bound once.
     byShape: {[string]: scalarIR.Let}
 
-    --- Every name and C name the program uses, so a new binding takes neither.
+    --- Every source and unique name the program uses, so a new binding takes neither.
     taken: {[string]: boolean}
 
     serial: integer
@@ -1055,7 +1062,8 @@ end
 --- real work -- a splat, a constant table, a conversion -- where a scalar
 --- invariant is one instruction any backend keeps in a register. Leaving
 --- scalars in place also keeps every cursor, count and lanes expression where
---- the verifier's bounds proofs and the emitter's loop versioning look for it.
+--- the verifier's bounds proofs and the code generator's loop versioning look
+--- for it.
 local function hoistableType(type: scalarIR.Type): boolean
     local name = tostring(type)
 
@@ -1126,7 +1134,7 @@ local function collectNames(value: any, taken: {[string]: boolean}): nil
         return nil
     end
     for key, child in pairs(value) do
-        if (key == "name" or key == "cName") and type(child) == "string" then
+        if (key == "name" or key == "uniqueName") and type(child) == "string" then
             taken[child as string] = true
         elseif key ~= "source" then
             collectNames(child, taken)
@@ -1142,18 +1150,18 @@ local function hoist(value: scalarIR.Expr, hoisting: optimize.Hoisting, state: o
     local binding = hoisting.byShape[key]
     if binding == nil then
         local name: string
-        local cName: string
+        local uniqueName: string
         repeat
             hoisting.serial = hoisting.serial + 1
             name = "hoisted_" .. tostring(hoisting.serial)
-            cName = scalarIR.cIdentifier("ks", name)
-        until not hoisting.taken[name] and not hoisting.taken[cName]
+            uniqueName = scalarIR.identifier("ks", name)
+        until not hoisting.taken[name] and not hoisting.taken[uniqueName]
         hoisting.taken[name] = true
-        hoisting.taken[cName] = true
+        hoisting.taken[uniqueName] = true
         binding = new scalarIR.Let(
             op = "let",
             name = name,
-            cName = cName,
+            uniqueName = uniqueName,
             value = value,
             type = value.type,
             source = value.source
@@ -1167,7 +1175,7 @@ local function hoist(value: scalarIR.Expr, hoisting: optimize.Hoisting, state: o
     return new scalarIR.Name(
         op = "local",
         name = bound.name,
-        cName = bound.cName,
+        uniqueName = bound.uniqueName,
         type = bound.type,
         source = value.source
     )
@@ -1177,8 +1185,8 @@ end
 --- operand stays spelled where it is. Memory operations carry their index and
 --- mask into bounds and scatter-uniqueness proofs (`simdindices.unique` wants
 --- the literal `iota`); `any_compare` stands for a comparison directly under
---- `any()`, which the emitter answers without forming a mask only when the
---- bound is still a literal splat.
+--- `any()`, which the code generator answers without forming a mask only when
+--- the bound is still a literal splat.
 local PINNED_OPERANDS: {
     [string]: boolean
 } = {simd_load = true, simd_store = true, simd_field_load = true, simd_field_store = true, any_compare = true,}
@@ -1193,8 +1201,8 @@ local hoistWithin: function(
 
 --- Replaces the largest invariant SIMD values under `value`, whose parent is
 --- `parent`. A bare read is already as cheap as the binding that would
---- replace it, and a tail mask is a bounds fact the emitter recognises by its
---- `let`.
+--- replace it, and a tail mask is a bounds fact the code generator recognises
+--- by its `let`.
 hoistWithin = function(
     value: scalarIR.Expr,
     parent: string,
@@ -1276,9 +1284,9 @@ end
 --- Binds each loop's invariant SIMD values once, immediately before the loop.
 ---
 --- `outer` holds the values in scope that never change: unassigned `let`s,
---- by C name. A splat of a parameter inside a vector loop is the case this is
---- for; a C compiler hoists it at -O2, but a backend that lowers this IR
---- directly would otherwise rebuild it on every iteration. Loops are handled
+--- by unique name. A splat of a parameter inside a vector loop is the case this is
+--- for; LLVM hoists it itself, but a backend that lowers this IR directly
+--- would otherwise rebuild it on every iteration. Loops are handled
 --- outermost first, so a value invariant in both an outer and an inner loop
 --- leaves both, and an inner loop then takes what depends only on its outer
 --- body's own values.
@@ -1318,7 +1326,7 @@ hoistBlock = function(
             hoistFromBody(value.body as {scalarIR.Statement}, outer, hoisting, state)
             for _, binding in ipairs(hoisting.lets) do
                 rewritten[#rewritten + 1] = binding
-                outer[binding.cName] = true
+                outer[binding.uniqueName] = true
                 state.changed = true
             end
         end
@@ -1348,7 +1356,7 @@ hoistBlock = function(
         end
         rewritten[#rewritten + 1] = statement
         if statement.op == "let" and (statement as scalarIR.Let).assigned ~= true then
-            outer[(statement as scalarIR.Let).cName] = true
+            outer[(statement as scalarIR.Let).uniqueName] = true
         end
     end
 
@@ -1389,7 +1397,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         end
         if program.loop ~= nil then
             local loop = program.loop as scalarIR.Loop
-            propagateBlock(loop.statements, new optimize.Propagation(constants = {}, cNames = {}), state)
+            propagateBlock(loop.statements, new optimize.Propagation(constants = {}, uniqueNames = {}), state)
             loop.statements = optimizeBlock(loop.statements, state)
             loop.statements = removeDead(loop.statements, state)
         elseif program.workgroup ~= nil then
@@ -1410,7 +1418,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
             -- every controller statement and phase node verbatim.
             optimizePhaseBodies(workgroup.statements, state)
         else
-            propagateBlock(program.body or {}, new optimize.Propagation(constants = {}, cNames = {}), state)
+            propagateBlock(program.body or {}, new optimize.Propagation(constants = {}, uniqueNames = {}), state)
             program.body = optimizeBlock(program.body or {}, state)
             program.body = removeDead(program.body or {}, state)
         end

@@ -320,18 +320,18 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
         op = "assign",
         values = {
             {
-                target = {kind = "local", name = "cursor", cName = cursor.cName, type = "u32"},
+                target = {kind = "local", name = "cursor", uniqueName = cursor.uniqueName, type = "u32"},
                 value = {op = "constant_i32", value = "1", type = "u32"},
             }
         },
     }
     cursor.assigned = true
-    local direct = {name = "direct", cName = read.values[1].target.cName, type = "u32"}
+    local direct = {name = "direct", uniqueName = read.values[1].target.uniqueName, type = "u32"}
     local loop = {
         op = "while",
         condition = {op = "bool", value = true, type = "bool"},
         body = {read, advance},
-        carried = {direct, {name = "cursor", cName = cursor.cName, type = "u32"}},
+        carried = {direct, {name = "cursor", uniqueName = cursor.uniqueName, type = "u32"}},
     }
     branch.clauses[1].body = {loop}
     refuses(program, "direct rooted byte read lacks a bounds proof")
@@ -404,7 +404,7 @@ function M.aLoopNamesExactlyTheOuterLocalsItsBodyAssigns()
     local entries = loop.carried
     loop.carried = {entries[1]}
     refuses(program, "a loop assigns a local it does not carry")
-    loop.carried = {entries[1], entries[2], {name = "values", cName = "values", type = "u32"}}
+    loop.carried = {entries[1], entries[2], {name = "values", uniqueName = "values", type = "u32"}}
     refuses(program, "a loop carries a local it cannot see")
     loop.carried = nil
     refuses(program, "a loop without its carried list")
@@ -511,7 +511,7 @@ function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
         op = "assign",
         values = {
             {
-                target = {kind = "local", name = "cursor", cName = "v1_cursor", type = "u32"},
+                target = {kind = "local", name = "cursor", uniqueName = "v1_cursor", type = "u32"},
                 value = condition.right.left,
             }
         },
@@ -671,7 +671,7 @@ function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
         op = "assign",
         values = {
             {
-                target = {kind = "local", name = "cursor", cName = store.cursorCName, type = "u32"},
+                target = {kind = "local", name = "cursor", uniqueName = store.cursorUniqueName, type = "u32"},
                 value = {op = "constant_i32", value = "1", type = "u32"},
             }
         },
@@ -693,11 +693,11 @@ function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
     local other = find(program.body, function(statement)
         return statement.op == "let" and statement.name == "n"
     end)
-    read.index = {op = "local", name = "n", cName = other.cName, type = "u32", source = read.index.source}
+    read.index = {op = "local", name = "n", uniqueName = other.uniqueName, type = "u32", source = read.index.source}
     refuses(program, "direct rooted byte read lacks a bounds proof")
 end
 
-local NATIVE_SWITCH = [[
+local INT32_SWITCH = [[
 @aot
 local function classify(value: int32): number
     local selected = switch value do
@@ -711,27 +711,33 @@ end
 return {classify = classify}
 ]]
 
-function M.aNativeSwitchSaysWhatItsBranchesSay()
-    -- The emitter dispatches on the switch and never reads the clause
-    -- conditions, so a switch that disagrees with them is a program that means
-    -- one thing in the IR and another in the C.
-    local program = lowered(NATIVE_SWITCH, "switch.nupp")
+function M.anInt32SwitchLowersToExactInt32Comparisons()
+    -- The code generator emits a switch as the comparison chain it lowers to,
+    -- so the chain alone has to say what each case means: one clause per case,
+    -- each condition `selector == label` over that case's labels in order,
+    -- joined by `or`, and compared as int32 rather than as binary64.
+    local program = lowered(INT32_SWITCH, "switch.nupp")
     local branch = find(program.body, function(statement)
-        return statement.op == "if" and statement.nativeSwitch ~= nil
+        return statement.op == "if" and #statement.clauses == 2
     end)
-    assert(branch, "an int32 selector lowers to a native switch")
-    local arms = branch.nativeSwitch.arms
-    assert(#arms == 2 and #arms[2].labels == 2, "one arm per clause, with its labels")
-
-    local kept = arms[2].labels[2].value
-    arms[2].labels[2].value = "3"
-    refuses(program, "native switch label does not match its clause condition")
-    arms[2].labels[2].value = kept
-    verify.program(program)
-
-    local dropped = table.remove(arms)
-    refuses(program, "native switch arms do not match the branch clauses")
-    arms[#arms + 1] = dropped
+    assert(branch, "an int32 selector lowers to one branch")
+    local selector
+    local function labels(condition, out)
+        if condition.op == "or" then
+            labels(condition.left, out)
+            labels(condition.right, out)
+            return out
+        end
+        assert(condition.op == "eq", "each case label is an equality test")
+        assert(condition.left.op == "local" and condition.left.type == "i32", "the selector is an int32 local")
+        selector = selector or condition.left.uniqueName
+        assert(condition.left.uniqueName == selector, "every label tests the one selector")
+        assert(condition.right.op == "constant_i32" and condition.right.type == "i32", "labels are exact int32")
+        out[#out + 1] = condition.right.value
+        return out
+    end
+    assert(table.concat(labels(branch.clauses[1].condition, {}), ",") == "0", "first case tests its label")
+    assert(table.concat(labels(branch.clauses[2].condition, {}), ",") == "1,2", "second case tests both labels in order")
     verify.program(program)
 end
 
@@ -1137,9 +1143,8 @@ return {lanes = lanes}
             #program.helpers + 1
         ] = {
             name = "laneHelper",
-            cName = "ks_lane_helper",
+            uniqueName = "ks_lane_helper",
             params = {},
-            resultType = "f64",
             resultTypes = {"f64"},
             values = {
                 {

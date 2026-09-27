@@ -3,7 +3,7 @@
 This benchmark is the evidence gate for the view and span lowering pass.
 It compares the existing handwritten-guard kernel shape, a semantics-preserving
 adoption of `indexed.range` with `OPT-6` disabled and enabled, handwritten direct
-FFI access, and forced-scalar AOT context. The first three are checked Nupp; the
+FFI access, and AOT context. The first three are checked Nupp; the
 handwritten form is confined to the Lua benchmark driver. AOT is reported
 separately and is not the pass's acceptance target.
 

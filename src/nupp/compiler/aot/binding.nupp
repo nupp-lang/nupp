@@ -3,18 +3,18 @@ module nupp.compiler.aot.binding
 --[[
 The Nupp module that stands in front of a compiled `@aot` function.
 
-Generated C is not callable from Nupp on its own: something has to declare the
-symbol, hand a span's pointer across, and say what the caller may pass. That is
-this, and it is written from the same program the C was, so the two cannot
+Compiled code is not callable from Nupp on its own: something has to declare
+the symbol, hand a span's pointer across, and say what the caller may pass. That
+is this, and it is written from the same program the code was, so the two cannot
 drift apart.
 
 Three things happen here that are worth stating outright.
 
 A struct crossing the boundary is checked, not trusted. The wrapper asks
 `layoutof` for the size and offset of every field and compares them against what
-the compiled object reports, at load, before anything is callable. A C compiler
-that laid the struct out differently is a load error rather than a silent
-misread of memory.
+the compiled object reports, at load, before anything is callable. A code
+generator that laid the struct out differently is a load error rather than a
+silent misread of memory.
 
 The unsafe call and immediate unpacking are one block wide. Everything around it -- the range check,
 the length agreement between spans -- is ordinary checked Nupp, and the `@unsafe
@@ -30,6 +30,12 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
 
 local binding = {}
+
+--- Whether a builder loader hands its registrar the AOT runtime's table. Set by
+--- the build for the target it selected; a library that links the runtime in
+--- has no use for it. Carried in generated Lua, so the module the table comes
+--- from is a dependency a build can see.
+binding.passRuntime = false
 
 --- The Nupp source name for each storage type.
 const binding.SOURCE_TYPE = {
@@ -75,10 +81,10 @@ local function from(library: string?): string
 end
 
 local function resultName(program: scalarIR.Program): string
-    return scalarIR.cIdentifier("KsResult", program.symbol)
+    return scalarIR.identifier("KsResult", program.symbol)
 end
 
---- The private aggregate a multi-result C entry returns.
+--- The private aggregate a multi-result native entry returns.
 function binding.resultStruct(program: scalarIR.Program): {string}
     local lines: {string} = {"cdef struct " .. resultName(program)}
     for position, resultType in ipairs(program.resultTypes or {}) do
@@ -103,7 +109,7 @@ end
 --- Declaring what the compiled object says one struct's layout is.
 ---
 --- The object exports a function per measurement rather than a table of
---- numbers, so the answers come from the C compiler that actually laid the
+--- numbers, so the answers come from the code generator that actually laid the
 --- struct out.
 function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string?): {string}
     local prefix = "cdef function " .. symbol .. "_layout_" .. layout.name
@@ -120,7 +126,7 @@ end
 ---
 --- Every field, both offset and size, and the struct's own size. A mismatch
 --- raises before the wrapper is returned, so a module that loads is a module
---- whose struct the C compiler agreed with.
+--- whose struct the code generator agreed with.
 function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
     -- Named after the symbol as well as the struct. Two `@aot` functions in one
     -- file that reify the same struct each check it against their own object's
@@ -150,8 +156,8 @@ end
 --- The foreign declaration of the kernel itself.
 ---
 --- Spans arrive as pointers and either a shared count or their independent
---- counts, exactly as the generated C takes them. The ownership annotations
---- are carried across so the unsafe call is still governed by them.
+--- counts, exactly as the compiled function takes them. The ownership
+--- annotations are carried across so the unsafe call is still governed by them.
 function binding.foreign(program: scalarIR.Program, library: string?, symbol: string?): {string}
     local params: {string} = {}
     for _, param in ipairs(program.params) do
@@ -175,13 +181,18 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
         params[#params + 1] = "count: uint64"
     end
 
+    local resultTypes = program.resultTypes or {}
+    -- Several results come back through a caller-provided block rather than
+    -- a returned struct, whose convention differs by platform.
+    if #resultTypes > 1 then
+        params[#params + 1] = "ks_result: " .. resultName(program) .. "*"
+    end
     local lines: {string} = {"cdef function " .. (symbol or program.symbol) .. "("}
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
-    local resultTypes = program.resultTypes or {}
-    local result = #resultTypes == 0 and ""
-        or ": " .. (#resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32"))
+    local result = (#resultTypes == 0 or #resultTypes > 1) and ""
+        or ": " .. tostring(binding.ABI_TYPE[resultTypes[1]] or "int32")
     lines[#lines + 1] = ")" .. result .. " " .. from(library)
 
     return lines
@@ -373,11 +384,18 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
         end
     end
 
-    local lines: {string} = {"local function " .. program.name .. "("}
+    local resultSourceTypes = program.resultSourceTypes or {}
+    local lines: {string} = {}
+    local block = scalarIR.identifier("ks_result_block", program.symbol)
+    if #resultSourceTypes > 1 then
+        -- One result block per wrapper, reused by every call: a kernel never
+        -- re-enters Lua, so nothing can call it again before it is read.
+        lines[#lines + 1] = "local " .. block .. " = new " .. resultName(program) .. "()"
+    end
+    lines[#lines + 1] = "local function " .. program.name .. "("
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
-    local resultSourceTypes = program.resultSourceTypes or {}
     local result = #resultSourceTypes == 0 and "nil"
         or #resultSourceTypes == 1 and resultSourceTypes[1]
         or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
@@ -393,16 +411,19 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
     end
     lines[#lines + 1] = "    @unsafe do"
     if #resultSourceTypes > 1 then
+        local withBlock: {string} = {}
+        for position, argument in ipairs(arguments) do
+            withBlock[position] = argument
+        end
+        withBlock[#withBlock + 1] = block
         lines[
             #lines + 1
-        ] = "        local nativeResult = " .. (
-            nativeSymbol or program.symbol
-        ) .. "(" .. table.concat(arguments, ", ") .. ")"
+        ] = "        " .. (nativeSymbol or program.symbol) .. "(" .. table.concat(withBlock, ", ") .. ")"
         local values: {string} = {}
         for position in ipairs(resultSourceTypes) do
             values[
                 position
-            ] = "nativeResult.v" .. tostring(
+            ] = block .. ".v" .. tostring(
                 position
             ) .. (resultSourceTypes[position] == "integer" and " as integer" or "")
         end
@@ -532,7 +553,8 @@ function binding.builderLoader(
         "            local loadlib = rawget(package, \"loadlib\")",
         "            local open, why = loadlib(path, " .. prefix .. "Registrar)",
         "            if not open then error(\"cannot register AOT builder: \" .. tostring(why), 0) end",
-        "            registered = open()",
+        binding.passRuntime and '            registered = open(require("nupp.runtime.aotruntime").table())'
+        or "            registered = open()",
         "            if type(registered) ~= \"table\" or type(registered[\""
         .. program.name
         .. "\"]) ~= \"function\" then error(\"malformed AOT builder registration\", 0) end",
@@ -963,7 +985,7 @@ end
 function binding.module(programs: {scalarIR.Program}, library: string?): string
     local lines: {
         string
-    } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.mem.span\")", "",}
+    } = {"-- Generated from verified test-only native IR.", "", "local span = require(\"nupp.mem.span\")", "",}
 
     local function append(more: {string}): nil
         for _, line in ipairs(more) do

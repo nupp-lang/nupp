@@ -22,6 +22,7 @@ on:
   workflow_call:
 permissions:
   contents: read
+  actions: read
 jobs:
   guest:
     runs-on: ubuntu-24.04
@@ -50,17 +51,26 @@ jobs:
           python3 tests/luajit-browser/cold_checkout_test.py
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+      # LLVM is restored from its own cache below and never saved in this one.
       - uses: actions/cache@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            !.nupp-cache/toolchain/llvm
+            !.nupp-cache/toolchain/sources/llvm-project-*
           key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
           restore-keys: browser-guest-${{ runner.os }}-
+      # The code generator the packaged applications' AOT is compiled with.
+      - name: Fetch the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
       - name: Build the pinned guest and matching sources
         run: |
           guest=$(./scripts/toolchain browser-guest)
           mkdir -p build/browser-guest
           cp -R "$guest/." build/browser-guest/
       - name: Build the LuaJIT compiler and native response oracle
+        env:
+          NUPP_REQUIRE_CODEGEN: '1'
         run: |
           ./scripts/toolchain --all
           ./bin/nupp build
@@ -90,16 +100,19 @@ jobs:
         run: |
           node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest
           tar -czf release/nupp-luajit-browser-runtime.tar.gz -C release/browser-luajit .
+      # Wasm kernels and the guest's i686 AOT are compiled and linked by nupp
+      # itself. Emscripten and the C compiler are replaced by commands that
+      # fail, so reaching either for an application fails the step.
       - name: Verify consumers of the extracted release archive
         env:
+          NUPP_WASM_CC: 'false'
+          NUPP_AOT_CC: 'false'
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
         run: |
           consumer="$RUNNER_TEMP/luajit-runtime-consumer"
           node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
           node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
-          NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py "$consumer/guest" build/browser-native-toolchain)
-          export NUPP_BROWSER_NATIVE_CC
           node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
           node bench/luajit-browser/serve.mjs "$consumer/site" 8113 &
           server=$!

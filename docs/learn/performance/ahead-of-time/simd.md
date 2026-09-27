@@ -34,7 +34,7 @@ The full-vector guard makes the main loop's accesses safe without per-lane bound
 
 ## Inspecting generated code
 
-Use `nupp aot --emit c FILE` to inspect the C and `nupp aot --emit asm --function NAME FILE` to inspect the selected machine code. Benchmark the complete exported function, including setup, tails, and reducer finalization, against its scalar form before committing to the vector one.
+Use `nupp aot --emit llvm FILE` to inspect the LLVM IR and `nupp aot --emit asm --function NAME FILE` to inspect the selected machine code. Benchmark the complete exported function, including setup, tails, and reducer finalization, against its scalar form before committing to the vector one.
 
 ## Species, masks, and tails
 
@@ -144,7 +144,7 @@ local velocity = species:load(rows, cursor + 1, "velocity", active)
 species:store(rows, cursor + 1, "x", x + velocity * dt, active)
 ```
 
-A writable row view supplies exclusive ownership; sibling column pointers retain their disjointness proof and `restrict` qualifiers in generated C. The row view's count bounds every column, including a slice. Whole-row vector values, dynamic field selection, and construction of a row view inside a native kernel remain unsupported. See [structure of arrays](../../runtime/data/structure-of-arrays.md).
+A writable row view supplies exclusive ownership; sibling column pointers retain their disjointness proof as `noalias` in the generated code. The row view's count bounds every column, including a slice. Whole-row vector values, dynamic field selection, and construction of a row view inside a native kernel remain unsupported. See [structure of arrays](../../runtime/data/structure-of-arrays.md).
 
 ## Targets and portability
 

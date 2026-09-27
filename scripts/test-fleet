@@ -9,7 +9,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shutil
 import signal
 import subprocess
 import sys
@@ -439,16 +438,6 @@ def worker(request_path, cache_path):
     environment["NUPP_TOOLCHAIN_DIR"] = str(toolchain)
     environment["NUPP_RUST_BUILD_DIR"] = str(cache / "rust")
     environment["NUPP_CACHE_DIR"] = str(cache / "compiler")
-    wasm_compiler = shutil.which(environment.get("NUPP_WASM_CC", environment.get("EMCC", "emcc")), path=environment.get("PATH"))
-    if wasm_compiler:
-        environment["NUPP_WASM_CC"] = str(Path(wasm_compiler).resolve())
-    compiler_family = (job.get("target") or {}).get("compiler")
-    if compiler_family:
-        prepared = subprocess.check_output(
-            [sys.executable, str(workspace / "scripts/prepare-simd-compiler.py"), compiler_family],
-            cwd=workspace, env=environment, text=True,
-        )
-        environment.update(json.loads(prepared)["env"])
     command = list(job["argv"])
     rerun = request.get("rerunReport")
     if rerun is not None:

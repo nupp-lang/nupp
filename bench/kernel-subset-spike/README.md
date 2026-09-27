@@ -1,8 +1,8 @@
-# Checked AOT-to-C subset spike
+# Checked AOT subset spike
 
 Scalar `@aot` kernels and the small harnesses that build and inspect them.
 `kernel_compiler.lua` drives Nupp's real parser, checker and AOT lowering, and
-`generate.sh` writes one source's C, binding and fallback module. Use
+`generate.sh` writes one source's LLVM IR, object, library and binding. Use
 `bench/simd11` for SIMD measurements.
 
 ## Running it
@@ -13,17 +13,14 @@ The Tecs-shaped `kernels.nupp` workload supports four build modes:
 # Required host library, checked wrapper, and ordinary oracle.
 bench/kernel-subset-spike/build.sh
 
-# Ordinary Nupp only; no C generator or C compiler.
+# Ordinary Nupp only; no AOT compilation.
 NUPP_NATIVE_MODE=off bench/kernel-subset-spike/build.sh
 
-# Verify and emit private C without compiling it.
-NUPP_NATIVE_MODE=emit-c bench/kernel-subset-spike/build.sh
+# Verify and emit the LLVM IR without linking it.
+NUPP_NATIVE_MODE=emit-llvm bench/kernel-subset-spike/build.sh
 
-# Compile an object with a caller-selected target compiler and sysroot.
-NUPP_NATIVE_MODE=object \
-NUPP_NATIVE_CC=aarch64-none-elf-clang \
-NUPP_NATIVE_CFLAGS="--sysroot=/path/to/sdk" \
-bench/kernel-subset-spike/build.sh
+# Compile the host's object without linking it.
+NUPP_NATIVE_MODE=object bench/kernel-subset-spike/build.sh
 ```
 
 `mandelbrot.sh NAME` builds any other kernel here the same way, into
@@ -31,7 +28,7 @@ bench/kernel-subset-spike/build.sh
 
 ```sh
 bench/kernel-subset-spike/mandelbrot.sh mandelbrot
-NUPP_NATIVE_MODE=emit-c bench/kernel-subset-spike/mandelbrot.sh columns
+NUPP_NATIVE_MODE=emit-llvm bench/kernel-subset-spike/mandelbrot.sh columns
 ```
 
 ## Kernels

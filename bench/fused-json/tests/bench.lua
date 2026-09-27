@@ -58,7 +58,7 @@ local function proveCompiled(decoder, artifactPath)
     proof.artifact = path
     proof.artifactBytes = #artifact
     assert(
-        artifact:find("ks___nupp_const_decode_fused", 1, true),
+        artifact:find("___nupp_const_decode_fused", 1, true),
         "the loaded artifact carries no generated binding: the decoder was not compiled ahead of time"
     )
     assert(artifact:find("__nuppAotCompiled", 1, true), "the loaded artifact records no ahead-of-time replacement")

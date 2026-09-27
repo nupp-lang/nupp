@@ -13,12 +13,12 @@ it, and a module boundary that took `any` instead would put every one of these
 rules back in the consumer's hands -- which `--strict` refuses outright, and is
 right to.
 
-Numeric meaning is written down here rather than left to whatever a C compiler
-does. Ordinary Nupp arithmetic is binary64; `float`, `int32` and `uint32` are
-storage and establishment facts, so a physical load widens and a physical store
-narrows, and neither is an operator's business. The `f32_` and `i32_` operations
-are the released fixed-width surface, where the source asked for a width
-explicitly and the answer changes accordingly.
+Numeric meaning is written down here rather than left to whatever a code
+generator does. Ordinary Nupp arithmetic is binary64; `float`, `int32` and
+`uint32` are storage and establishment facts, so a physical load widens and a
+physical store narrows, and neither is an operator's business. The `f32_` and
+`i32_` operations are the released fixed-width surface, where the source asked
+for a width explicitly and the answer changes accordingly.
 
 `Program.usesSimd` records explicit vector work. Target legalization sets
 `Program.simdWidth` and `Program.vectorCeiling` before emission.
@@ -30,7 +30,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 42
+const scalarIR.VERSION = 43
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -46,13 +46,13 @@ type scalarIR.EntryMode = 'kernel' | 'lua-builder'
 --- another. Bumped when the meaning changes, never when the spelling does.
 const scalarIR.NUMERIC_CONTRACT = 4
 
---- The C symbol one `@aot` function exports.
+--- The symbol one `@aot` function exports.
 ---
 --- Derived rather than chosen, and derived in one place, because the generated
---- C, the foreign declaration, and the layout reporters all have to agree about
---- it and none of them is in a position to check the others. A name outside the
---- canonical lower-camel form carries its source bytes, so distinct names cannot
---- collapse onto one snake-case symbol.
+--- code, the foreign declaration, and the layout reporters all have to agree
+--- about it and none of them is in a position to check the others. A name
+--- outside the canonical lower-camel form carries its source bytes, so distinct
+--- names cannot collapse onto one snake-case symbol.
 local function identifierTail(name: string): string
     local snake = name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2")
     snake = snake:gsub("[^%w_]", "_"):lower()
@@ -74,9 +74,11 @@ function scalarIR.privateSymbol(name: string): string
     return "ks_" .. identifierTail(name)
 end
 
---- The C name of one local, which is not its source name: two source scopes may
---- use one name and C has no scope to tell them apart.
-function scalarIR.cIdentifier(prefix: string, name: string): string
+--- `name` under `prefix`, spelled so it is a valid symbol: the unique name of
+--- one local, which is not its source name because two source scopes may use
+--- one name and generated code has no scope to tell them apart, and the names
+--- a binding derives from a program's symbol.
+function scalarIR.identifier(prefix: string, name: string): string
     return prefix .. "_" .. name:gsub("[^%w_]", "_")
 end
 
@@ -106,8 +108,8 @@ type scalarIR.Type = 'f64' | 'f32' | 'i32' | 'u32' | 'i64' | 'u64' | 'bool' | 'm
 record scalarIR.Constant
     op: 'constant'
 
-    --- Kept as written, so the emitter reproduces the literal rather than a
-    --- reformatting of it.
+    --- Kept as written, so the code generator reproduces the literal rather
+    --- than a reformatting of it.
     value: string
 
     type: scalarIR.Type
@@ -124,7 +126,8 @@ end
 
 --- An exact integer literal wider than the lane transform's 32-bit constants.
 --- Introduced by partial evaluation only when binary64 represented the source
---- integer exactly, so the decimal spelling reaches C without a second round.
+--- integer exactly, so the decimal spelling reaches LLVM IR without a second
+--- round.
 record scalarIR.Int64Constant
     op: 'constant_i64'
     value: string
@@ -149,17 +152,16 @@ end
 
 --- Bytes an admitted body reads that are known when it is compiled.
 ---
---- A `const` bound to a string literal, reached from inside the body. The
---- emitter writes these out as static C data, so a table an author keeps in a
+--- A `const` bound to a string literal, reached from inside the body. The code
+--- generator writes these out as static data, so a table an author keeps in a
 --- packed string is indexed as one rather than read back out of a rooted Lua
 --- string the backend knows nothing about -- which is the difference between a
 --- load it can align and fold and a `memcpy` from a pointer it cannot.
 record scalarIR.ConstantBytes
-    --- The name the emitted array takes, which the reads already spell as
-    --- `ks_bytes_<cName>` and `ks_length_<cName>`, exactly as they do for a
-    --- rooted argument. That is why nothing between here and the read had to
-    --- learn about this.
-    cName: string
+    --- The name the emitted array takes, which a read looks the bytes up by
+    --- exactly as it does a rooted argument's. That is why nothing between
+    --- here and the read had to learn about this.
+    uniqueName: string
 
     value: string
 end
@@ -246,11 +248,11 @@ record scalarIR.LuaField
     source: scalarIR.Source?
 end
 
---- A fresh, unpublished Lua table rooted on the C entry's Lua stack.
+--- A fresh, unpublished Lua table rooted on the native entry's Lua stack.
 ---
 --- This is an effectful expression and is consequently admitted only as the
---- value of a `let`. The verifier rejects it anywhere an emitter could evaluate
---- it twice or move it across another allocation.
+--- value of a `let`. The verifier rejects it anywhere a code generator could
+--- evaluate it twice or move it across another allocation.
 record scalarIR.LuaNewTable
     op: 'lua_new_table'
     arrayCapacity: scalarIR.Expr
@@ -295,13 +297,14 @@ record scalarIR.LuaScratchU32
     --- What this buys is not a check removed -- the check is still emitted, and
     --- still refuses an index outside the buffer. It is that the bound stops
     --- being a load. A write through the buffer may alias its length field as
-    --- far as the C compiler can tell, so it reloads the bound after every
+    --- far as the optimizer can tell, so it reloads the bound after every
     --- store; a constant it cannot alias, and it discharges the comparison
     --- itself wherever the index is a counted loop's.
     ---
-    --- That is worth more than deleting the checks. Ablated on `bench/sha256`'s
-    --- generated C: 0.847x the hand-written C as emitted, 0.919x with the
-    --- checks gone entirely, 0.940x with them kept against a literal bound.
+    --- That is worth more than deleting the checks. Ablated on `bench/sha256`
+    --- when AOT code was still compiled through C: 0.847x the hand-written C
+    --- as emitted, 0.919x with the checks gone entirely, 0.940x with them kept
+    --- against a literal bound.
     fixed: integer?
 
     type: 'lua_scratch_u32'
@@ -319,7 +322,7 @@ record scalarIR.LuaScratchU32Get
     --- word directly; the verifier re-establishes the proof from the branch.
     cursor: string?
 
-    cursorCName: string?
+    cursorUniqueName: string?
 
     --- The fixed buffer's word count, carried to the access so the emitted
     --- comparison names a constant.
@@ -346,12 +349,12 @@ record scalarIR.LuaScratchU8
     --- than a length that grows. Absent for an appending buffer.
     ---
     --- What it buys is what the same field buys on a word buffer -- a bound the
-    --- C compiler can discharge rather than a field it has to reload after
-    --- every store -- and one thing more, because a byte buffer's storage is
+    --- optimizer can discharge rather than a field it has to reload after every
+    --- store -- and one thing more, because a byte buffer's storage is
     --- allocated per call where a word buffer's small enough was already
-    --- inline: a fixed capacity is a literal, so the storage can be a C array
-    --- at the call site and nothing is allocated at all. `bench/sha256` put the
-    --- two together at about a hundred nanoseconds of a short digest.
+    --- inline: a fixed capacity is a literal, so the storage can be a stack
+    --- array in the entry and nothing is allocated at all. `bench/sha256` put
+    --- the two together at about a hundred nanoseconds of a short digest.
     fixed: integer?
 
     type: 'lua_scratch_u8'
@@ -377,7 +380,7 @@ record scalarIR.LuaBytes
     bytes: scalarIR.Expr
     index: scalarIR.Expr?
     cursor: string?
-    cursorCName: string?
+    cursorUniqueName: string?
     type: 'u32'
     source: scalarIR.Source?
 end
@@ -428,9 +431,10 @@ record scalarIR.Name
     op: 'local' | 'uniform' | 'helper_param'
     name: string
 
-    --- The name this takes in generated C, which is not the source name: two
-    --- source scopes may use one name and C has no scope to tell them apart.
-    cName: string?
+    --- The name this takes in generated code, which is not the source name: two
+    --- source scopes may use one name and generated code has no scope to tell
+    --- them apart.
+    uniqueName: string?
 
     mutable: boolean?
     lengthOf: string?
@@ -482,13 +486,13 @@ record scalarIR.Load
     --- The loop index. Only the loop's own consecutive index is admitted.
     index: string
 
-    indexCName: string?
+    indexUniqueName: string?
 
     --- A zero-based append/read cursor authorized by a dominating
     --- `cursor < #span` branch. The source access is `cursor + 1`.
     cursor: string?
 
-    cursorCName: string?
+    cursorUniqueName: string?
 
     type: scalarIR.Type
     sourceType: string?
@@ -500,9 +504,9 @@ record scalarIR.ElementRef
     op: 'element_ref'
     span: string
     index: string
-    indexCName: string?
+    indexUniqueName: string?
     cursor: string?
-    cursorCName: string?
+    cursorUniqueName: string?
     layout: string
 
     --- Whether this element may be written, which follows from whether its span
@@ -692,7 +696,7 @@ end
 record scalarIR.HelperCall
     op: 'helper_call'
     helper: string
-    cName: string
+    uniqueName: string
     args: {scalarIR.Expr}
 
     --- One entry per result. More than one makes the call's own type `multi`.
@@ -703,7 +707,7 @@ record scalarIR.HelperCall
 end
 
 --- One source-visible SIMD operation. Its abstract vector and mask types are
---- specialized to the selected artifact tier only when C is emitted.
+--- specialized to the selected artifact tier only when code is generated.
 record scalarIR.Simd
     op: 'simd_species'
         | 'simd_lanes_generic'
@@ -741,10 +745,10 @@ record scalarIR.Simd
     intrinsic: string?
 
     --- On a `simd_load` through a rooted byte view, the string or buffer
-    --- parameter whose pointer and length the load addresses. `span` names
-    --- that same parameter, because it is what the bounds proof is stated
-    --- against; this carries the C name the emitter writes, which a copy of
-    --- the parameter would not share.
+    --- parameter whose pointer and length the load addresses. `span` names that
+    --- same parameter, because it is what the bounds proof is stated against;
+    --- this carries the `uniqueName` the code generator writes, which a copy of the
+    --- parameter would not share.
     rooted: scalarIR.Name?
 
     --- On `simd_field_load` and `simd_field_store`, the reified layout of the
@@ -753,7 +757,7 @@ record scalarIR.Simd
 
     field: string?
 
-    --- On `simd_call`, the C name of the pure helper applied per lane.
+    --- On `simd_call`, the generated name of the pure helper applied per lane.
     helper: string?
 
     --- On a `simd_load` or `simd_store` at `cursor + 1`, the cursor a
@@ -761,7 +765,7 @@ record scalarIR.Simd
     --- vector is in the span and the access is one copy with no lane check.
     cursor: string?
 
-    cursorCName: string?
+    cursorUniqueName: string?
 
     --- On a `simd_load` of `loadPairs`, `loadTriples` or `loadQuads`, which
     --- of the interleaved runs this result is, from zero. Each result is a
@@ -853,7 +857,7 @@ end
 --- One reducer a `reducer_region` accumulates.
 record scalarIR.ReducerRegionAccumulator
     name: string
-    cName: string
+    uniqueName: string
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
     operation: 'sum'
         | 'product'
@@ -972,7 +976,7 @@ type scalarIR.Expr = scalarIR.Constant
 record scalarIR.Target
     kind: 'local' | 'field'
     name: string?
-    cName: string?
+    uniqueName: string?
     object: scalarIR.Expr?
     layout: string?
     field: string?
@@ -990,7 +994,7 @@ end
 record scalarIR.Let
     op: 'let'
     name: string
-    cName: string
+    uniqueName: string
     value: scalarIR.Expr
     type: scalarIR.Type
 
@@ -1013,7 +1017,7 @@ end
 --- retires; a name not listed here is the same on every iteration.
 record scalarIR.Carried
     name: string
-    cName: string
+    uniqueName: string
     type: scalarIR.Type
 end
 
@@ -1024,7 +1028,7 @@ end
 record scalarIR.Binding
     kind: 'local'
     name: string
-    cName: string
+    uniqueName: string
     type: scalarIR.Type
 
     --- Whether what it was bound to may be written through, which is how a
@@ -1061,18 +1065,18 @@ record scalarIR.Store
     op: 'store'
     span: string
     index: string
-    indexCName: string?
+    indexUniqueName: string?
     cursor: string?
-    cursorCName: string?
+    cursorUniqueName: string?
     value: scalarIR.Expr
     source: scalarIR.Source?
 end
 
 --- A raw-equivalent write into a fresh unpublished Lua table.
 ---
---- The target remains a rooted logical handle. The C backend maps it to a Lua
---- stack slot and uses the public raw-set API, which performs the VM barrier
---- without invoking a metatable.
+--- The target remains a rooted logical handle. The code generator maps it to a
+--- Lua stack slot and uses the public raw-set API, which performs the VM
+--- barrier without invoking a metatable.
 record scalarIR.LuaSet
     op: 'lua_set_index' | 'lua_set_key'
     table: scalarIR.Expr
@@ -1184,30 +1188,11 @@ record scalarIR.Clause
     source: scalarIR.Source?
 end
 
---- One exact label on an AOT switch annotation. It is data on an ordinary `If`,
---- not a statement opcode: every consumer which ignores it retains the comparison
---- chain's complete semantics.
-record scalarIR.SwitchLabel
-    value: string
-    type: 'i32' | 'u32'
-    source: scalarIR.Source?
-end
-
-record scalarIR.SwitchArm
-    labels: {scalarIR.SwitchLabel}
-end
-
-record scalarIR.NativeSwitch
-    selector: scalarIR.Expr
-    arms: {scalarIR.SwitchArm}
-end
-
 record scalarIR.If
     op: 'if'
     clauses: {scalarIR.Clause}
     elseBody: {scalarIR.Statement}?
     source: scalarIR.Source?
-    nativeSwitch: scalarIR.NativeSwitch?
 end
 
 record scalarIR.While
@@ -1255,8 +1240,9 @@ record scalarIR.Fornum
     carried: {scalarIR.Carried}
 
     --- The span whose count is this loop's inclusive upper bound. Present only
-    --- when `from` is one and `to` is that span's checked count; it is the proof
-    --- that accesses through this induction variable are in bounds.
+    --- when `from` is a constant integer of at least one and `to` is that
+    --- span's checked count; it is the proof that accesses through this
+    --- induction variable are in bounds.
     boundSpan: string?
 
     source: scalarIR.Source?
@@ -1354,11 +1340,11 @@ end
 
 --- A reified struct a span holds elements of.
 ---
---- The C name is carried rather than derived, so the generated module and the
---- generated C cannot disagree about what to call it.
+--- The `uniqueName` is carried rather than derived, so the generated binding and the
+--- generated code cannot disagree about what to call it.
 record scalarIR.Layout
     name: string
-    cName: string
+    uniqueName: string
     fields: {scalarIR.Field}
 
     --- The same fields by name, filled in when the layout is verified so a
@@ -1429,8 +1415,9 @@ end
 
 --- One parameter of an admitted signature.
 ---
---- `type` describes physical storage for C and the foreign declaration;
---- `sourceType` preserves the authored type in the checked wrapper.
+--- `type` is the physical storage the code generator and the foreign
+--- declaration use; `sourceType` preserves the authored type in the checked
+--- wrapper.
 record scalarIR.Param
     kind: 'write_span' | 'read_span' | 'uniform' | 'scalar'
     name: string
@@ -1445,9 +1432,9 @@ record scalarIR.Param
     --- A scalar column expanded from one authored SoA row-view parameter.
     soa: scalarIR.SoaColumn?
 
-    --- Uniforms use their C parameter name; Lua-builder scalars use their
-    --- positive VM stack index.
-    cName: string?
+    --- Uniforms use their parameter's unique name; Lua-builder scalars use
+    --- their positive VM stack index.
+    uniqueName: string?
 
     --- Spans only: the borrow region this parameter is, which alias facts and
     --- region declarations refer to by name.
@@ -1482,9 +1469,9 @@ end
 --- What ownership settled about one pair of regions.
 ---
 --- Two shared borrows may overlap; anything involving an exclusive one may not.
---- This is where that becomes a fact the C compiler is allowed to use, and the
+--- This is where that becomes a fact the optimizer is allowed to use, and the
 --- verifier requires the matrix to be complete rather than partial: a pair with
---- no fact would be a pair whose `restrict` nobody justified.
+--- no fact would be a pair whose `noalias` nobody justified.
 record scalarIR.AliasFact
     relation: 'disjoint' | 'may_alias'
     left: string
@@ -1503,7 +1490,7 @@ end
 --- One visible pure helper the body may call.
 record scalarIR.Helper
     name: string
-    cName: string
+    uniqueName: string
     params: {scalarIR.Name}
 
     --- One expression per result. A helper is a return list and nothing else,
@@ -1512,11 +1499,10 @@ record scalarIR.Helper
     values: {scalarIR.Expr}
 
     --- Whether this names another compiled entry rather than a body to inline.
-    --- The call becomes an ordinary C call to that entry's own symbol, so the
-    --- callee is compiled once and keeps its own contract.
+    --- The call becomes an ordinary native call to that entry's own symbol, so
+    --- the callee is compiled once and keeps its own contract.
     native: boolean?
 
-    resultType: scalarIR.Type
     resultTypes: {scalarIR.Type}
 
     source: scalarIR.Source?
@@ -1553,8 +1539,6 @@ record scalarIR.Workgroup
     groups: scalarIR.Expr
     dispatchSpan: string
     size: integer
-    groupIndex: string
-    localIndex: string
     shared: {scalarIR.Shared}
     statements: {scalarIR.Statement}
     source: scalarIR.Source?
@@ -1566,7 +1550,7 @@ end
 
 --- One whole admitted `@aot` function.
 ---
---- Everything downstream -- the generated C, the generated wrapper, the
+--- Everything downstream -- the generated code, the generated wrapper, the
 --- verifier -- is written from this and only this, so none of them can disagree
 --- about what the function is.
 record scalarIR.Program
@@ -1589,7 +1573,7 @@ record scalarIR.Program
     entryMode: scalarIR.EntryMode
 
     --- The execution family selected by the source annotation. CPU is the
-    --- established native C path; GPU programs are consumed by a shader emitter.
+    --- established native path; GPU programs are consumed by a shader emitter.
     executionTarget: ('cpu' | 'gpu')?
 
     --- The single stream-builder contract proved for this entry. Unlike the
@@ -1597,8 +1581,8 @@ record scalarIR.Program
     --- for kernels and VM-aware entries which do not use a value stream.
     builderMode: ('eager' | 'pull' | 'serde')?
 
-    --- The byte scratch this entry may take from the reuse cache, by its C
-    --- name, or nothing when none may.
+    --- The byte scratch this entry may take from the reuse cache, by its
+    --- unique name, or nothing when none may.
     ---
     --- A reused buffer is handed back where the entry publishes it, which is
     --- only sound when nothing writes it afterwards. That is a fact about this
@@ -1649,8 +1633,6 @@ record scalarIR.Program
     --- Whether the source used the explicit SIMD vocabulary.
     usesSimd: boolean?
 
-    usesNumberToken: boolean?
-
     --- The preferred vector width selected for this target.
     simdWidth: integer?
 
@@ -1685,6 +1667,11 @@ function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): bo
         and left.soa.layout == right.soa.layout
 end
 
+--- Whether `param` is a span the entry receives as a pointer and a count.
+function scalarIR.isSpan(param: scalarIR.Param): boolean
+    return param.kind == "write_span" or param.kind == "read_span"
+end
+
 --- Whether the native ABI carries independent span/view counts.
 ---
 --- A block kernel always does. A map kernel may share its primary count only
@@ -1696,7 +1683,7 @@ function scalarIR.independentCounts(program: scalarIR.Program): boolean
     end
     local spans = 0
     for _, param in ipairs(program.params) do
-        if param.kind == "write_span" or param.kind == "read_span" then
+        if scalarIR.isSpan(param) then
             spans = spans + 1
         end
     end

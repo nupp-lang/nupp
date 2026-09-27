@@ -112,15 +112,6 @@
           "guarantees": ["the external parser oracle and the C importer"]
         },
         {
-          "name": "Build and load an aot = \"require\" project through GCC",
-          "platforms": ["linux"],
-          "suites": ["aotbuildtest"],
-          "compilerModes": ["gcc"],
-          "guarantees": [
-            "the AOT build's own command line under the other C compiler"
-          ]
-        },
-        {
           "name": "Run the compiler suite",
           "excludes": {
             "groups": ["external-corpus", "windows-preflight", "rust-native-gate"],

@@ -180,7 +180,7 @@ binary64 conversion fallback.
 
 ## Registrar and loading
 
-Every builder in one generated C file shares one digest-named registrar. For
+Every builder in one compiled source shares one digest-named registrar. For
 the default shared-library linkage, the generated module resolves its sidecar,
 opens that registrar with `package.loadlib`, validates the returned closure
 table, and caches that table for the Lua state:

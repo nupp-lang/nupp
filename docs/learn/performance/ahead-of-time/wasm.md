@@ -19,7 +19,8 @@ app = {
 independent Wasm kernels, worker entry, and matching sources and notices. Linux
 builds the pinned guest; other hosts set `NUPP_BROWSER_GUEST_DIR` to a verified
 source-built guest package. Install the `editors/playground` Node dependencies
-before packaging. Set `NUPP_WASM_CC` when Emscripten is not on `PATH`.
+before packaging. The Wasm kernels are compiled and linked by `nupp` itself;
+no Emscripten is needed.
 
 ## Independent Wasm kernels
 
@@ -49,9 +50,10 @@ app = {
 }
 ```
 
-Set `NUPP_BROWSER_NATIVE_CC` to an i386/musl cross compiler when packaging.
-The modeled triple describes the C layout; the library must link against the
-guest's musl, not glibc. The packager verifies i386 ELF identity and installs
+`nupp` compiles and links the guest's library itself, with the AOT runtime
+linked in, because the guest has no native provider to hand it one. The modeled
+triple describes the layout; the library is built for the guest's musl, not
+glibc. The packager verifies i386 ELF identity and installs
 adjacent shared libraries before application or worker startup. Native libraries
 are limited to one MiB combined and share the seven-MiB startup budget with the
 application.

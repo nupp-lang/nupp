@@ -40,10 +40,18 @@ local function endsWith(value, suffix)
     return value:sub(-#suffix) == suffix
 end
 
-local function lowered(name)
-    return (name:gsub("%u", function(letter)
-        return "_" .. letter:lower()
-    end):gsub("_+", "_"))
+-- The symbol tail the compiler gives a source name (scalarIR.privateSymbol):
+-- a name that does not round-trip through snake case carries its bytes in hex.
+local function symbolTail(name)
+    local snake = name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2"):gsub("[^%w_]", "_"):lower()
+    local canonical = snake:gsub("_([%l%d])", string.upper)
+    if canonical == name then
+        return snake
+    end
+
+    return snake .. "__" .. name:gsub(".", function(character)
+        return ("%02x"):format(character:byte())
+    end)
 end
 
 local function executedEntries(manifest, probes)
@@ -55,10 +63,10 @@ local function executedEntries(manifest, probes)
         local matches = {}
         for _, unit in ipairs(manifest.units) do
             local sourceName = unit.source or ""
-            if endsWith(sourceName, "/" .. module .. ".simd128.c")
-                or endsWith(sourceName, "/" .. module .. ".g.simd128.c")
-                or sourceName == module .. ".simd128.c"
-                or sourceName == module .. ".g.simd128.c"
+            if endsWith(sourceName, "/" .. module .. ".simd128.ll")
+                or endsWith(sourceName, "/" .. module .. ".g.simd128.ll")
+                or sourceName == module .. ".simd128.ll"
+                or sourceName == module .. ".g.simd128.ll"
             then
                 matches[#matches + 1] = unit
             end
@@ -67,7 +75,7 @@ local function executedEntries(manifest, probes)
         for _, name in ipairs(names) do
             local candidates = {}
             for _, entry in ipairs(matches[1].bridge and matches[1].bridge.entries or {}) do
-                if endsWith(entry.symbol, "_" .. name) or endsWith(entry.symbol, "_" .. lowered(name)) then
+                if endsWith(entry.symbol, "_" .. symbolTail(name)) then
                     candidates[#candidates + 1] = entry
                 end
             end

@@ -15,11 +15,11 @@ nupp test
 
 ## Build both Wasm variants
 
-Packaging needs a Nupp source checkout, Node.js, Emscripten 6.0.8, and the pinned browser guest package:
+Packaging needs a Nupp source checkout, Node.js, and the pinned browser guest
+package. `nupp` compiles the Wasm kernels itself:
 
 ```sh
 export NUPP_SOURCE=/path/to/nupp
-export NUPP_WASM_CC=/path/to/emsdk/upstream/emscripten/emcc
 export NUPP_BROWSER_GUEST_DIR=/path/to/browser-guest
 
 nupp task package

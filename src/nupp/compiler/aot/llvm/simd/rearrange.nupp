@@ -1,0 +1,276 @@
+module nupp.compiler.aot.llvm.simd.rearrange
+
+--[[
+Moving lanes: extracting and inserting one, and the permutations.
+
+Every lane number the source writes is 1-based. A permutation fixed at compile
+time is one `shufflevector`; a swizzle's indices are values, so each result
+lane selects among the tables' lanes, and an index outside every table answers
+0. Compress and expand depend on the mask, so they are unrolled over the
+lanes with a running position.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local expressions = require("nupp.compiler.aot.llvm.expressions")
+local lanes = require("nupp.compiler.aot.llvm.simd.lanes")
+local prelude = require("nupp.compiler.aot.llvm.prelude")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local species = require("nupp.compiler.aot.llvm.simd.species")
+local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
+
+local rearrange = {}
+
+--- @raises string always
+--- One `shufflevector` of `first` (and `second`, lanes N.. of the pair)
+--- picking `picks`, zero-based.
+local function shuffle(
+    ctx: context.Context,
+    found: species.Species,
+    first: string,
+    second: string?,
+    picks: {integer}
+): string
+    local mask: {string} = {}
+    for position, pick in ipairs(picks) do
+        mask[position] = "i32 " .. tostring(pick)
+    end
+
+    return context.value(
+        ctx,
+        (
+            "shufflevector %s %s, %s %s, <%d x i32> <%s>"
+        ):format(found.vector, first, found.vector, second or "poison", #picks, table.concat(mask, ", "))
+    )
+end
+
+local function extract(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local found = lanes.of(ctx, tostring(simd.args[1].type))
+    local vector = expressions.operand(ctx, simd.args[1])
+    local lane = vectors.constantInteger(simd.args[2])
+    local value = lanes.extract(ctx, found, vector, lane - 1)
+
+    return lanes.fromLane(ctx, found, value)
+end
+
+local function insert(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    local vector = expressions.operand(ctx, simd.args[1])
+    local lane = vectors.constantInteger(simd.args[2])
+    local value, t = expressions.value(ctx, simd.args[3])
+
+    return lanes.insert(ctx, found, vector, lanes.toLane(ctx, found, value, t), lane - 1), typeName
+end
+
+--- Lane i of the result is lane `at_i` of the tables laid end to end, where
+--- `at_i` is the i-th index minus one as a u32; past the tables it is 0.
+local function swizzle(ctx: context.Context, found: species.Species, simd: scalarIR.Simd): string
+    local tables: {string} = {expressions.operand(ctx, simd.args[1])}
+    for position = 3, #simd.args do
+        tables[#tables + 1] = expressions.operand(ctx, simd.args[position])
+    end
+    local indices = expressions.operand(ctx, simd.args[2])
+    local count = found.lanes
+    if ctx.vectorRegister == "w" and found.bits == 8 and count == 16 and #tables <= 4 then
+        -- NEON's table lookup is this operation: `tbl1`..`tbl4` over up to
+        -- four sixteen-byte tables, 0 for an index past them. Taking one off
+        -- in bytes sends index 0, every negative and every index past 64 to
+        -- a byte of at least 64, which the lookup answers 0 for.
+        local zeroBased = context.value(ctx, ("sub <16 x i8> %s, splat (i8 1)"):format(indices))
+        local operands: {string} = {}
+        for _, table in ipairs(tables) do
+            operands[#operands + 1] = "<16 x i8> " .. table
+        end
+        operands[#operands + 1] = "<16 x i8> " .. zeroBased
+        local signature: {string} = {}
+        for _ = 1, #operands do
+            signature[#signature + 1] = "<16 x i8>"
+        end
+        local callee = prelude.intrinsic(
+            ctx.module,
+            "llvm.aarch64.neon.tbl" .. tostring(#tables) .. ".v16i8",
+            "<16 x i8> @NAME(" .. table.concat(signature, ", ") .. ")"
+        )
+        return context.value(ctx, ("call <16 x i8> %s(%s)"):format(callee, table.concat(operands, ", ")))
+    end
+    local i32s = "<" .. tostring(count) .. " x i32>"
+    local widened = indices
+    if found.bits < 32 then
+        widened = context.value(
+            ctx,
+            ("%s %s %s to %s"):format(found.signed and "sext" or "zext", found.vector, indices, i32s)
+        )
+    elseif found.bits > 32 then
+        widened = context.value(ctx, ("trunc %s %s to %s"):format(found.vector, indices, i32s))
+    end
+    local at = context.value(ctx, ("sub %s %s, splat (i32 1)"):format(i32s, widened))
+    local out = "poison"
+    for index = 0, count - 1 do
+        local position = context.value(ctx, ("extractelement %s %s, i32 %d"):format(i32s, at, index))
+        local lane = "0"
+        for table = #tables, 1, -1 do
+            local within = context.value(ctx, ("sub i32 %s, %d"):format(position, (table - 1) * count))
+            local inside = context.value(ctx, ("icmp ult i32 %s, %d"):format(within, count))
+            local safe = context.value(ctx, ("select i1 %s, i32 %s, i32 0"):format(inside, within))
+            local read = lanes.extract(ctx, found, tables[table], safe)
+            lane = context.value(
+                ctx,
+                ("select i1 %s, %s %s, %s %s"):format(inside, found.scalar, read, found.scalar, lane)
+            )
+        end
+        out = lanes.insert(ctx, found, out, lane, index)
+    end
+
+    return out
+end
+
+--- One result of a two-row interleave or deinterleave, or one column of a
+--- square transpose, as `emit.rearrange` defined them.
+local function rearranged(ctx: context.Context, found: species.Species, simd: scalarIR.Simd): string
+    local rows: {string} = {}
+    for position = 1, #simd.args - 1 do
+        rows[position] = expressions.operand(ctx, simd.args[position])
+    end
+    local part = vectors.constantInteger(simd.args[#simd.args])
+    local width = found.lanes
+    if simd.intrinsic == "interleave" or simd.intrinsic == "deinterleave" then
+        local picks: {integer} = {}
+        for index = 0, width - 1 do
+            local row = 0
+            local lane = 0
+            if simd.intrinsic == "interleave" then
+                local position = part * width + index
+                row = position % 2
+                lane = math.floor(position / 2) as integer
+            else
+                local position = index * 2 + part
+                row = math.floor(position / width) as integer
+                lane = position % width
+            end
+            picks[#picks + 1] = row * width + lane
+        end
+        return shuffle(ctx, found, rows[1], rows[2], picks)
+    end
+    -- Transpose: lane i of column `part` is lane `part` of row i.
+    local out = "poison"
+    for index = 0, width - 1 do
+        local value = lanes.extract(ctx, found, rows[index + 1], part)
+        out = lanes.insert(ctx, found, out, value, index)
+    end
+
+    return out
+end
+
+local function permute(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    local intrinsic = tostring(simd.intrinsic)
+    local n = found.lanes
+    if intrinsic == "reverse" then
+        local picks: {integer} = {}
+        for index = 0, n - 1 do
+            picks[#picks + 1] = n - 1 - index
+        end
+        return shuffle(ctx, found, expressions.operand(ctx, simd.args[1]), nil, picks), typeName
+    elseif intrinsic == "rotate_left" or intrinsic == "rotate_right" then
+        local by = vectors.constantInteger(simd.args[2]) % n
+        local picks: {integer} = {}
+        for index = 0, n - 1 do
+            picks[#picks + 1] = intrinsic == "rotate_left" and (index + by) % n or (index + n - by) % n
+        end
+        return shuffle(ctx, found, expressions.operand(ctx, simd.args[1]), nil, picks), typeName
+    elseif intrinsic == "align" then
+        local previous = expressions.operand(ctx, simd.args[1])
+        local current = expressions.operand(ctx, simd.args[2])
+        local by = math.min(vectors.constantInteger(simd.args[3]), n)
+        local picks: {integer} = {}
+        for index = 0, n - 1 do
+            -- Lanes of `current` are N.. of the pair.
+            picks[#picks + 1] = index < by and n - by + index or n + index - by
+        end
+        return shuffle(ctx, found, previous, current, picks), typeName
+    elseif intrinsic:match("^swizzle") ~= nil then
+        return swizzle(ctx, found, simd), typeName
+    elseif intrinsic == "interleave" or intrinsic == "deinterleave" or intrinsic == "transpose" then
+        return rearranged(ctx, found, simd), typeName
+    end
+
+    expressions.unsupported("permutation " .. intrinsic)
+end
+
+--- The active lanes of `v`, in order, packed from lane 0; the rest are 0.
+---
+--- Branch-free through a buffer one lane longer than the vector: every lane
+--- is written at the running position, which only an active lane advances,
+--- so an inactive lane is overwritten by the next active one or left past
+--- the count, where the final select zeroes it.
+local function compress(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    local value = expressions.operand(ctx, simd.args[1])
+    local mask = expressions.operand(ctx, simd.args[2])
+    local slots = "[" .. tostring(found.lanes + 1) .. " x " .. found.scalar .. "]"
+    local buffer = builder.alloca(ctx.f, slots, 16)
+    local at = "0"
+    for index = 0, found.lanes - 1 do
+        local active = context.value(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
+        local lane = lanes.extract(ctx, found, value, index)
+        local place = context.value(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %s"):format(slots, buffer, at))
+        context.emit(ctx, ("store %s %s, ptr %s"):format(found.scalar, lane, place))
+        local step = context.value(ctx, ("zext i1 %s to i32"):format(active))
+        at = context.value(ctx, ("add nuw i32 %s, %s"):format(at, step))
+    end
+    local packed = context.value(ctx, ("load %s, ptr %s, align 16"):format(found.vector, buffer))
+    local bound = lanes.splat(ctx, found.lanes, "i32", at)
+    local kept = context.value(ctx, ("icmp ult %s, %s"):format(lanes.indices(found.lanes, "i32"), bound))
+
+    return context.value(
+        ctx,
+        ("select %s %s, %s %s, %s zeroinitializer"):format(found.mask, kept, found.vector, packed, found.vector)
+    ), typeName
+end
+
+--- Lane i takes the next unread lane of `v` when active, 0 otherwise: `v`
+--- stored once and read back at the running position.
+local function expand(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    local value = expressions.operand(ctx, simd.args[1])
+    local mask = expressions.operand(ctx, simd.args[2])
+    local buffer = builder.alloca(ctx.f, found.vector, 16)
+    context.emit(ctx, ("store %s %s, ptr %s, align 16"):format(found.vector, value, buffer))
+    local out = "zeroinitializer"
+    local at = "0"
+    local zero = found.float and "0.0" or "0"
+    for index = 0, found.lanes - 1 do
+        local active = context.value(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
+        -- `at` never passes `index`, so the read stays inside the buffer.
+        local place = context.value(ctx, ("getelementptr inbounds %s, ptr %s, i32 %s"):format(found.scalar, buffer, at))
+        local lane = context.value(ctx, ("load %s, ptr %s"):format(found.scalar, place))
+        local chosen = context.value(
+            ctx,
+            ("select i1 %s, %s %s, %s %s"):format(active, found.scalar, lane, found.scalar, zero)
+        )
+        out = lanes.insert(ctx, found, out, chosen, index)
+        local step = context.value(ctx, ("zext i1 %s to i32"):format(active))
+        at = context.value(ctx, ("add nuw i32 %s, %s"):format(at, step))
+    end
+
+    return out, typeName
+end
+
+rearrange.EXPRESSIONS = {
+    ["simd_extract"] = extract,
+    ["simd_insert"] = insert,
+    ["simd_permute"] = permute,
+    ["simd_compress"] = compress,
+    ["simd_expand"] = expand,
+} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
+
+export = rearrange

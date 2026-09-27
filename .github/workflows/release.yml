@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build-luajit-browser-runtime:
@@ -88,8 +89,59 @@ jobs:
           path: release/nupp-browser-runtime.tar.gz
           if-no-files-found: error
 
+  # Each platform's universal link kit, built where that platform's libraries
+  # are. A kit needs no nupp, so it is built first and its record is compiled
+  # into every nupp this release builds: that is what lets a released nupp
+  # fetch it, check it against the recorded digest, and link a standalone
+  # program for the platform without a C toolchain.
+  kits:
+    name: ${{ matrix.name }} link kit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86-64
+            os: ubuntu-24.04
+            platform: x86_64-unknown-linux-gnu
+          - name: macOS arm64
+            os: macos-14
+            platform: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Build pinned host dependencies
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Build and record the link kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          kit="nupp-kit-${{ matrix.platform }}.tar.gz"
+          ./scripts/toolchain kit-archive \
+            lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers \
+            "release/$kit"
+          ./bin/nupp run scripts/release.nupp kit-record \
+            "${{ matrix.platform }}" "$GITHUB_SHA" "release/$kit" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$kit" \
+            "release/kit-${{ matrix.platform }}.json"
+
+      - name: Upload the link kit and its record
+        uses: actions/upload-artifact@v4
+        with:
+          name: kit-${{ matrix.platform }}
+          path: |
+            release/nupp-kit-${{ matrix.platform }}.tar.gz
+            release/kit-${{ matrix.platform }}.json
+          if-no-files-found: error
+
   build-unix:
     name: ${{ matrix.name }}
+    needs: kits
     strategy:
       fail-fast: false
       matrix:
@@ -105,10 +157,15 @@ jobs:
             upload_artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # A cold LLVM cache means building LLVM before anything else.
+    timeout-minutes: 180
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+
+      # The nupp binary links the pinned LLVM (the AOT code generator).
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
 
       # Compiling Nupp evaluates `@comptime` code, and the compiler evaluates that by
       # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
@@ -117,6 +174,23 @@ jobs:
       - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
+
+      - name: Download the link kits
+        uses: actions/download-artifact@v4
+        with:
+          path: release/kits
+          pattern: kit-*
+          merge-multiple: true
+
+      # Before anything is compiled, so every nupp this release builds carries
+      # the same catalog.
+      - name: Compile the link kits' records into the catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./bin/nupp run scripts/release.nupp kit-catalog \
+            "$GITHUB_SHA" release/kits src/nupp/tools/build/stub-catalog.json \
+            release/kits/kit-*.json
 
       # A tag must prove the exact Rust artifacts on the same runner that will
       # package them. The compiler matrix is a separate workflow and cannot be
@@ -172,6 +246,8 @@ jobs:
       - name: Build Nupp
         env:
           ARTIFACT_NAME: ${{ matrix.artifact }}
+          # The code generator is part of the binary, never silently left out.
+          NUPP_REQUIRE_CODEGEN: "1"
           MACOS_RELEASE_SIGNING: ${{ steps.macos-signing.outputs.enabled }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         shell: bash
@@ -281,6 +357,26 @@ jobs:
               exit 1
             fi
           fi
+
+      # The released nupp, with no checkout behind it, links a standalone AOT
+      # program for each platform from the kits its catalog records. The
+      # archives come from NUPP_STUB_DIR rather than the release, which does
+      # not exist yet; the digest check is the same either way.
+      - name: Link standalone AOT programs from the recorded kits
+        shell: bash
+        run: |
+          set -euo pipefail
+          released="$PWD/release/verify-${{ matrix.platform }}/nupp"
+          cd tests/fixtures/cross-aot
+          for platform in x86_64-unknown-linux-gnu aarch64-apple-darwin; do
+            env -u NUPP_NATIVE_LIBRARY -u NUPP_COMPILER_ROOT \
+              NUPP_STUB_DIR="$GITHUB_WORKSPACE/release/kits" \
+              NUPP_KIT_CACHE="$RUNNER_TEMP/kit-cache" \
+              "$released" build --platform "$platform"
+          done
+          program="build/default/${{ matrix.platform }}/default"
+          if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - "$program"; fi
+          [ "$("$program")" = "$(printf '15\t4')" ]
 
       - name: Stage the platform-independent payload
         if: runner.os == 'Linux'
@@ -465,155 +561,6 @@ jobs:
             release/stub-x86_64-pc-windows-msvc.json
           if-no-files-found: error
 
-  build-compiler-pack-linux:
-    name: Linux x86-64 compiler pack
-    needs: build-unix
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Download the base Linux compiler
-        uses: actions/download-artifact@v4
-        with:
-          name: base-nupp-linux-x86_64
-          path: release/base
-
-      - name: Build the authenticated LLVM pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x scripts/compiler-pack .github/scripts/build-compiler-pack-linux.sh
-          .github/scripts/build-compiler-pack-linux.sh \
-            "$GITHUB_WORKSPACE/release/nupp-compiler-pack-linux-x86_64.tar.gz"
-
-      - name: Exercise C FFI and AOT without an ambient compiler
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release/package release/pack project poison
-          tar -xzf release/base/nupp-linux-x86_64.tar.gz -C release/package
-          tar -xzf release/nupp-compiler-pack-linux-x86_64.tar.gz -C release/package
-          cp -R tests/fixtures/release-compiler-pack/. project/
-          for command in cc gcc clang ar ld ld.lld; do
-            printf '#!/bin/sh\nexit 97\n' > "poison/$command"
-            chmod +x "poison/$command"
-          done
-          (cd project && \
-            PATH="$GITHUB_WORKSPACE/poison:$PATH" \
-            "$GITHUB_WORKSPACE/release/package/nupp" build \
-            --format json > "$GITHUB_WORKSPACE/release/compiler-pack-linux-result.json")
-          test "$(project/build/pack-smoke)" = 15
-          test ! -e project/build/lib/libtiny.so
-          test ! -e project/build/lib/libdefault_aot.so
-
-      - name: Repack Nupp with its native compiler pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar -czf release/nupp-linux-x86_64.tar.gz -C release/package .
-
-      - name: Upload the compiler and pack
-        uses: actions/upload-artifact@v4
-        with:
-          name: nupp-linux-x86_64
-          path: |
-            release/nupp-linux-x86_64.tar.gz
-            release/nupp-compiler-pack-linux-x86_64.tar.gz
-            release/compiler-pack-linux-result.json
-          if-no-files-found: error
-
-  build-compiler-pack-windows:
-    name: Windows x86-64 compiler pack
-    needs: build-windows
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Install the ABI-compatible Rust toolchain
-        shell: bash
-        run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnullvm" --profile minimal
-
-      - name: Download the base Windows compiler
-        uses: actions/download-artifact@v4
-        with:
-          name: base-nupp-windows-x86_64
-          path: release/base
-
-      - name: Build the authenticated llvm-mingw pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x scripts/compiler-pack .github/scripts/build-compiler-pack-windows.sh
-          .github/scripts/build-compiler-pack-windows.sh \
-            "$GITHUB_WORKSPACE/release/nupp-compiler-pack-windows-x86_64.zip"
-
-      - name: Exercise C FFI and AOT without an ambient compiler
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force release/package, project, poison | Out-Null
-          Expand-Archive release/base/nupp-windows-x86_64.zip release/package
-          Expand-Archive release/nupp-compiler-pack-windows-x86_64.zip release/package
-          Copy-Item tests/fixtures/release-compiler-pack/* project -Recurse
-          foreach ($command in @("cc", "gcc", "clang", "ar", "ld", "lld-link")) {
-            "@exit /b 97" | Set-Content "poison/$command.cmd"
-          }
-          $readelf = Join-Path $env:GITHUB_WORKSPACE (
-            "release/package/lib/nupp/compiler-packs/" +
-            "x86_64-pc-windows-msvc/x86_64-pc-windows-msvc/" +
-            "toolchain/bin/llvm-readelf.exe"
-          )
-          if (-not (Test-Path -LiteralPath $readelf)) {
-            throw "installed compiler pack has no PE reader at $readelf"
-          }
-          $env:PATH = "$env:GITHUB_WORKSPACE\poison;$env:PATH"
-          Push-Location project
-          & "$env:GITHUB_WORKSPACE\release\package\nupp.exe" build --format json |
-            Set-Content "$env:GITHUB_WORKSPACE\release\compiler-pack-windows-result.json"
-          if ($LASTEXITCODE -ne 0) { throw "installed compiler-pack build failed" }
-          $imports = & $readelf --coff-imports build/pack-smoke.exe 2>&1
-          $status = $LASTEXITCODE
-          $imports | Write-Output
-          if ($status -ne 0) {
-            throw "could not inspect compiler-pack output imports (exit $status)"
-          }
-          $importText = $imports -join "`n"
-          foreach ($runtime in @("libunwind.dll", "libc++.dll", "libwinpthread-1.dll", "libgcc_s_")) {
-            if ($importText -match [regex]::Escape($runtime)) {
-              throw "standalone compiler-pack output imports $runtime"
-            }
-          }
-          $answer = & build/pack-smoke.exe
-          $status = $LASTEXITCODE
-          if ($status -ne 0 -or $answer -ne "15") {
-            throw "standalone compiler-pack output failed (exit $status): $answer"
-          }
-          if ((Test-Path build/lib/tiny.dll) -or (Test-Path build/lib/default_aot.dll)) {
-            throw "standalone compiler-pack output retained a native sidecar"
-          }
-          Pop-Location
-
-      - name: Repack Nupp with its native compiler pack
-        shell: pwsh
-        run: |
-          Compress-Archive -Path release/package/* `
-            -DestinationPath release/nupp-windows-x86_64.zip
-
-      - name: Upload the compiler and pack
-        uses: actions/upload-artifact@v4
-        with:
-          name: nupp-windows-x86_64
-          path: |
-            release/nupp-windows-x86_64.zip
-            release/nupp-compiler-pack-windows-x86_64.zip
-            release/compiler-pack-windows-result.json
-          if-no-files-found: error
-
   stage-zero:
     name: Stage-zero compiler
     runs-on: ubuntu-latest
@@ -672,6 +619,13 @@ jobs:
           pattern: stub-*
           merge-multiple: true
 
+      - name: Download the link kits and their records
+        uses: actions/download-artifact@v4
+        with:
+          path: release/stubs
+          pattern: kit-*
+          merge-multiple: true
+
       - name: Download the built Linux compiler
         uses: actions/download-artifact@v4
         with:
@@ -687,7 +641,7 @@ jobs:
             -C release/catalog-runner
           release/catalog-runner/nupp run scripts/release.nupp catalog \
             "$GITHUB_SHA" release/stubs release/stub-catalog.json \
-            release/stubs/stub-*.json
+            release/stubs/stub-*.json release/stubs/kit-*.json
 
       - name: Upload the catalog
         uses: actions/upload-artifact@v4
@@ -812,8 +766,6 @@ jobs:
       - cold-browser-checkout
       - build-unix
       - build-windows
-      - build-compiler-pack-linux
-      - build-compiler-pack-windows
       - stage-zero
       - catalog
       - verify-cross-unix
@@ -832,6 +784,15 @@ jobs:
           pattern: nupp-*
           merge-multiple: true
 
+      # The Linux and Windows archives, as built: nupp compiles AOT code
+      # itself, so no compiler pack is added to them any more.
+      - name: Download the Linux and Windows archives
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: base-nupp-*
+          merge-multiple: true
+
       - name: Download immutable native stubs
         uses: actions/download-artifact@v4
         with:
@@ -844,6 +805,20 @@ jobs:
         with:
           name: stub-catalog
           path: release
+
+      # The URL each kit record names.
+      - name: Download the link kits
+        uses: actions/download-artifact@v4
+        with:
+          path: release/kits
+          pattern: kit-*
+          merge-multiple: true
+
+      - name: Stage the link kit archives
+        shell: bash
+        run: |
+          mv release/kits/nupp-kit-*.tar.gz release/
+          rm -rf release/kits
 
       - name: Create or update the tagged release
         env:

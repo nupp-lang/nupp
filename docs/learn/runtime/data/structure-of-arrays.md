@@ -295,7 +295,7 @@ end
 
 Set the build's `aot` policy to `"require"` to require native execution.
 The field loads address contiguous columns, including slices; a writable view
-keeps per-column `restrict` in generated C. Ordinary
+keeps per-column `noalias` in the generated code. Ordinary
 length guards can relate separate views, and shared views may overlap. The
 existing ownership rules still reject incompatible exclusive overlaps.
 

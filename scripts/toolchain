@@ -34,12 +34,13 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source stage0
+Components: luajit luarocks lpeg lpeg-source stage0 llvm
             browser-sources browser-emulator browser-guest
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
             host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
+            kit FEATURES, kit-archive FEATURES OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
 not already cached. --all builds every component and prints nothing. --prefix
@@ -55,6 +56,10 @@ Environment:
   NUPP_HOST_SOURCE_DIR       a directory of already-downloaded pinned archives.
   NUPP_HOST_SOURCE_BASE_URL  a flat mirror to fetch archives from.
   NUPP_HOST_OFFLINE          refuse to reach the network.
+  NUPP_LLVM_PREFIX           an existing build of the pinned LLVM to use as is.
+
+`llvm --available` prints the pinned LLVM's prefix if it is already built (or
+named by NUPP_LLVM_PREFIX) and exits 1 otherwise, building nothing.
 USAGE
     exit 2
 }
@@ -158,7 +163,7 @@ sha256() { sha256_stdin < "$1"; }
 # than a cache generation.
 pins_digest() {
     grep '^[A-Z][A-Z0-9_]*=' "$ROOT/scripts/toolchain.pins" \
-        | grep -v -e '^STAGE0_' -e '^BROWSER_' | sha256_stdin
+        | grep -v -e '^STAGE0_' -e '^BROWSER_' -e '^LLVM_' | sha256_stdin
 }
 
 # Public embedding headers are staged beside the Rust libraries rather than
@@ -184,7 +189,7 @@ rust_sources_digest() {
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates -type f \
-            \( -name '*.rs' -o -name '*.c' -o -name '*.h' \
+            \( -name '*.rs' -o -name '*.c' -o -name '*.cpp' -o -name '*.h' \
                 -o -name 'Cargo.toml' -o -name 'build.rs' \) \
             2>/dev/null) || true
     } | LC_ALL=C sort | {
@@ -667,13 +672,55 @@ provision_rust_vendor() {
 # Rust entry points are content-addressed under the checkout's build/rust tree.
 # They always build the locked workspace with default features disabled so the
 # compiler-selected feature union is the dependency union.
+# A feature list naming the code generator needs the pinned LLVM: it is built
+# (or found) first, handed to cargo, and folded into the artifact's key, since
+# the LLVM pin is deliberately not part of the ordinary native key.
+# Whether a feature list's code generator is built in: when the pinned LLVM is
+# already built, or when NUPP_REQUIRE_CODEGEN=1 asks for it (a release, which
+# builds LLVM if it must). Otherwise the build goes ahead without it, the way
+# bin/nupp's own provider does, so a checkout or CI shard that never compiles
+# AOT code never waits an hour for LLVM. `@aot` then says what is missing.
+codegen_wanted() {
+    [ "${NUPP_REQUIRE_CODEGEN:-}" = 1 ] && return 0
+    (build_llvm available) >/dev/null 2>&1 && return 0
+    note "building without the code generator: the pinned LLVM is not built (scripts/toolchain llvm)"
+    return 1
+}
+
+# The Rust feature list without `codegen` when codegen_wanted declines it.
+optional_codegen() {
+    case ",$1," in
+        *,codegen,*)
+            if codegen_wanted; then
+                printf '%s\n' "$1"
+            else
+                printf '%s\n' "$1" | tr ',' '\n' | grep -v '^codegen$' | tr '\n' ',' | sed 's/,$//'
+            fi
+            ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+llvm_for_features() {
+    RUST_LLVM_MATERIAL=
+    case ",$1," in
+        *,codegen,*|*,native-codegen,*)
+            build_llvm
+            NUPP_LLVM_PREFIX=$LLVM_OUT
+            export NUPP_LLVM_PREFIX
+            RUST_LLVM_MATERIAL="llvm $LLVM_VERSION $LLVM_SHA256 $LLVM_OUT"
+            ;;
+    esac
+}
+
 build_rust_native() {
-    sorted=$(normalize_rust_features "${1:-}")
+    sorted=$(optional_codegen "$(normalize_rust_features "${1:-}")")
     select_rust_tools
+    llvm_for_features "$sorted"
     rust_environment=$(rust_environment_material)
     digest=$({
-        printf '%s|%s|%s|%s|%s\n' \
-            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
+        printf '%s|%s|%s|%s|%s|%s\n' \
+            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY" "$RUST_LLVM_MATERIAL"
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/native/$digest"
@@ -752,6 +799,11 @@ select_host_features() {
             native-compression|compression)
                 host_cargo_features="$host_cargo_features,native-compression"
                 ;;
+            native-codegen|codegen)
+                if codegen_wanted; then
+                    host_cargo_features="$host_cargo_features,native-codegen"
+                fi
+                ;;
             base) ;;
             *) die "unknown host feature $feature" ;;
         esac
@@ -762,7 +814,22 @@ select_host_features() {
 host_export_arguments() {
     case "$PLATFORM" in
         darwin) printf '%s\n' '-C' 'link-arg=-Wl,-export_dynamic' ;;
-        windows) printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols' ;;
+        windows)
+            printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols'
+            # A PE image holds at most 65535 exports, and exporting all of
+            # LLVM's would pass it. Nothing looks for LLVM, lld, the glue
+            # around them or libstdc++ by name, so their archives stay out.
+            case ",$host_cargo_features," in
+                *,native-codegen,*)
+                    # Colon-separated: -Wl splits its argument at commas.
+                    excluded=libstdc++.a:libnupp_codegen_glue.a
+                    for archive in "$LLVM_OUT"/lib/lib*.a; do
+                        [ -f "$archive" ] && excluded="$excluded:${archive##*/}"
+                    done
+                    printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs=$excluded"
+                    ;;
+            esac
+            ;;
         *) printf '%s\n' '-C' 'link-arg=-Wl,-E' ;;
     esac
 }
@@ -781,11 +848,12 @@ build_rust_host() {
     # dependencies whose archives that Rust host would be unable to consume.
     select_rust_tools
     select_host_features "${2:-}"
+    llvm_for_features "$host_cargo_features"
     rust_environment=$(rust_environment_material)
     digest=$({
-        printf '%s|%s|%s|%s|%s\n' \
+        printf '%s|%s|%s|%s|%s|%s\n' \
             nupp-native-host "$host_kind" "$host_cargo_features" \
-            "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)|$KEY"
+            "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)|$KEY" "$RUST_LLVM_MATERIAL"
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/host-$host_kind/$digest"
@@ -1403,6 +1471,450 @@ EOF
     native_path "$output"
 }
 
+# --- Link kits ----------------------------------------------------------------
+
+# What AOT objects may reference from the C library beyond what the runtime
+# does: the libm functions the backend emits, and the memory functions LLVM
+# lowers copies to. A kit's C-library stubs carry them whether or not the
+# runtime itself uses them.
+KIT_AOT_SYMBOLS="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma fmaf
+floor ceil trunc round sqrt memcpy memmove memset bzero memcmp bcmp memchr strtod"
+# Windows has no `bzero` or `bcmp`, and LLVM emits neither for it.
+KIT_AOT_SYMBOLS_WINDOWS="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma
+fmaf floor ceil trunc round sqrt memcpy memmove memset memcmp memchr strtod"
+
+# Stages the link kit for one host feature set: the runtime archive, stubs for
+# every system library it and AOT code bind to, and kit.json naming them, so
+# `nupp` links a standalone program with lld and nothing else. The stubs name
+# symbols and install names only, taken from a probe link against this
+# machine's SDK; no SDK file is copied.
+# The public Nupp platform a kit built on this machine links for.
+kit_target() {
+    case "$PLATFORM-$(uname -s)-$(uname -m 2>/dev/null)" in
+        windows-*-x86_64) echo x86_64-pc-windows-msvc ;;
+        darwin-*-arm64) echo aarch64-apple-darwin ;;
+        darwin-*-x86_64) echo x86_64-apple-darwin ;;
+        posix-Linux-x86_64) echo x86_64-unknown-linux-gnu ;;
+        posix-Linux-aarch64|posix-Linux-arm64) echo aarch64-unknown-linux-gnu ;;
+        *) die "no link kit target for $PLATFORM on $(uname -m)" ;;
+    esac
+}
+
+# The oldest macOS a kit's programs run on: LuaJIT's deployment floor.
+kit_minimum() {
+    case "$(uname -m 2>/dev/null)" in
+        x86_64) echo 10.14 ;;
+        *) echo 11.0 ;;
+    esac
+}
+
+build_kit() {
+    features=${1:-}
+    build_host stub "$features"
+    host_out=$HOST_OUT
+    digest=$(printf 'kit-3|%s' "$(basename "$host_out")" | sha256_stdin | cut -c1-16)
+    out="$PREFIX/kits/$digest"
+    KIT_OUT=$out
+    take_lock "kit-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    case "$PLATFORM-$(uname -s)" in
+        darwin-*) ;;
+        posix-Linux) build_kit_linux "$features" "$host_out" "$out"; release_lock; return 0 ;;
+        windows-*) build_kit_windows "$features" "$host_out" "$out"; release_lock; return 0 ;;
+        *) die "link kits are built on macOS, Linux and Windows" ;;
+    esac
+    note "staging the link kit"
+    rm -rf "$out"
+    mkdir -p "$out/sdk"
+    cp "$host_out/libnupp-host.a" "$out/libnupp-runtime.a"
+
+    probe="$out/probe"
+    {
+        for name in $KIT_AOT_SYMBOLS; do printf 'extern char %s[];\n' "$name"; done
+        printf 'void *nupp_kit_probe[] = {\n'
+        for name in $KIT_AOT_SYMBOLS; do printf '    %s,\n' "$name"; done
+        printf '};\n'
+    } > "$probe-aot.c"
+    "$CC" -c -w -fno-builtin -o "$probe-aot.o" "$probe-aot.c"
+    set -- "$CC" -o "$probe" "-Wl,-force_load,$out/libnupp-runtime.a" "-Wl,-force_load,$probe-aot.o"
+    host_system_flags "$features" > "$probe-flags"
+    while IFS= read -r flag; do
+        [ -z "$flag" ] || set -- "$@" "$flag"
+    done < "$probe-flags"
+    set -- "$@" -Wl,-export_dynamic
+    "$@" >&2
+
+    # Which library each symbol binds to, and what each library is.
+    nm -m "$probe" | sed -n 's/^ *(undefined) [a-z ]*external \([^ ]*\) (from \([^)]*\)).*/\2 \1/p' \
+        | sort -u > "$out/binds"
+    otool -L "$probe" | sed -n '2,$p' > "$out/libraries"
+    : > "$out/flags"
+    while read -r path rest; do
+        name=$(basename "$path")
+        case "$path" in
+            */Frameworks/*.framework/*)
+                short=$name
+                stub="$out/sdk/System/Library/Frameworks/$name.framework/$name.tbd"
+                printf '%s\n' "-framework" "$name" >> "$out/flags"
+                ;;
+            *)
+                short=$(printf '%s' "$name" | sed 's/\.dylib$//; s/\.[A-Z]$//')
+                stub="$out/sdk/usr/lib/$short.tbd"
+                printf '%s\n' "-l${short#lib}" >> "$out/flags"
+                ;;
+        esac
+        compatibility=$(printf '%s' "$rest" | sed -n 's/.*compatibility version \([0-9.]*\).*/\1/p')
+        current=$(printf '%s' "$rest" | sed -n 's/.*current version \([0-9.]*\).*/\1/p')
+        mkdir -p "$(dirname "$stub")"
+        {
+            printf -- '--- !tapi-tbd\ntbd-version: 4\ntargets: [ arm64-macos, x86_64-macos ]\n'
+            printf "install-name: '%s'\n" "$path"
+            printf 'current-version: %s\ncompatibility-version: %s\n' "$current" "$compatibility"
+            printf 'exports:\n  - targets: [ arm64-macos, x86_64-macos ]\n    symbols: [ '
+            awk -v lib="$short" '$1 == lib { printf "%s\x27%s\x27", (n++ ? ", " : ""), $2 }' "$out/binds"
+            # The lazy-binding helper a linker binds itself, never named.
+            [ "$short" != libSystem ] || printf ", 'dyld_stub_binder'"
+            printf ' ]\n...\n'
+        } > "$stub"
+    done < "$out/libraries"
+
+    {
+        printf '{\n  "schemaVersion": 1,\n  "platform": "macos",\n  "target": "%s",\n' "$(kit_target)"
+        printf '  "minimum": "%s",\n' "$(kit_minimum)"
+        printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n  "syslibroot": "sdk",\n' "$features"
+        printf '  "libraries": ['
+        awk '{ printf "%s\"%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/flags"
+        printf ']\n}\n'
+    } > "$out/kit.json"
+    rm -f "$probe" "$probe-aot.c" "$probe-aot.o" "$probe-flags" "$out/binds" "$out/libraries" "$out/flags"
+    printf 'ok\n' > "$out/.complete"
+    release_lock
+}
+
+# The Windows (MinGW) kit: the link the C compiler's driver would run for a
+# program, recorded with every object and library it names copied into the
+# kit -- the CRT startup objects, the MinGW and libgcc archives, and the
+# system DLLs' import libraries, all MinGW-w64's own -- so lld's MinGW driver
+# replays it with the program's objects in place of the probe's.
+build_kit_windows() {
+    features=$1
+    host_out=$2
+    out=$3
+    note "staging the link kit"
+    rm -rf "$out"
+    mkdir -p "$out/lib"
+    cp "$host_out/libnupp-host.a" "$out/libnupp-runtime.a"
+    cp "$host_out/libnupp-host-imports.a" "$out/lib/libnupp-host-imports.a"
+
+    probe="$out/probe"
+    {
+        for name in $KIT_AOT_SYMBOLS_WINDOWS; do printf 'extern char %s[];\n' "$name"; done
+        printf 'void *nupp_kit_probe[] = {\n'
+        for name in $KIT_AOT_SYMBOLS_WINDOWS; do printf '    %s,\n' "$name"; done
+        printf '};\n'
+    } > "$probe-aot.c"
+    "$CC" -c -w -fno-builtin -o "$probe-aot.o" "$probe-aot.c"
+    set -- "$CC" -v -o "$probe.exe" "$probe-aot.o" "$out/libnupp-runtime.a"
+    while IFS= read -r flag; do
+        set -- "$@" "$flag"
+    done <<EOF
+$(host_system_flags "$features")
+EOF
+    set -- "$@" "$out/lib/libnupp-host-imports.a" -Wl,--export-all-symbols
+    "$@" > "$out/probe.log" 2>&1 || { tail -n 40 "$out/probe.log" >&2; die "the kit's probe link failed"; }
+    line=$(grep -E '(collect2|ld)(\.exe)?"? ' "$out/probe.log" | tail -n 1)
+    [ -n "$line" ] || die "the C compiler's driver did not say how it links"
+
+    # One argument per line: the linker itself dropped, search directories
+    # used to find each -l, then dropped; the probe's own inputs replaced by
+    # placeholders; each object or library copied in and named relative to
+    # the kit. Argument order is the link's, which one-pass archives need.
+    : > "$out/dirs"
+    for word in $line; do
+        case "$word" in -L*) printf '%s\n' "${word#-L}" >> "$out/dirs" ;; esac
+    done
+    : > "$out/argv"
+    first=1
+    for word in $line; do
+        word=${word%\"}
+        word=${word#\"}
+        if [ "$first" = 1 ]; then first=0; continue; fi
+        case "$word" in
+            -plugin|-plugin-opt=*|--sysroot=*|-L*) continue ;;
+            */liblto_plugin*) continue ;;
+            # By name: the driver prints its arguments as Windows paths.
+            probe.exe|*/probe.exe|*\\probe.exe) printf '{output}\n' >> "$out/argv" ;;
+            */probe-aot.o|*\\probe-aot.o) printf '{archives}\n' >> "$out/argv" ;;
+            */libnupp-runtime.a|*\\libnupp-runtime.a) printf '{runtime}\n' >> "$out/argv" ;;
+            */libnupp-host-imports.a|*\\libnupp-host-imports.a)
+                printf '{kit}/lib/libnupp-host-imports.a\n' >> "$out/argv"
+                ;;
+            -l*)
+                name=${word#-l}
+                found=""
+                while IFS= read -r dir; do
+                    for candidate in "$dir/lib$name.a" "$dir/lib$name.dll.a" "$dir/$name.lib"; do
+                        if [ -z "$found" ] && [ -f "$candidate" ]; then found=$candidate; fi
+                    done
+                done < "$out/dirs"
+                [ -n "$found" ] || die "the probe link names -l$name, which no search directory holds"
+                base=$(basename "$found")
+                [ -f "$out/lib/$base" ] || cp "$found" "$out/lib/$base"
+                printf '{kit}/lib/%s\n' "$base" >> "$out/argv"
+                ;;
+            *.o|*.obj|*.a)
+                base=$(basename "$word")
+                [ -f "$out/lib/$base" ] || cp "$word" "$out/lib/$base"
+                printf '{kit}/lib/%s\n' "$base" >> "$out/argv"
+                ;;
+            *) printf '%s\n' "$word" >> "$out/argv" ;;
+        esac
+    done
+    grep -q '^{archives}$' "$out/argv" || die "the probe link did not name the probe object"
+
+    {
+        printf '{\n  "schemaVersion": 1,\n  "platform": "windows",\n  "target": "%s",\n' "$(kit_target)"
+        printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n' "$features"
+        printf '  "argv": ['
+        awk '{ gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "%s\"%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/argv"
+        printf ']\n}\n'
+    } > "$out/kit.json"
+    rm -f "$probe.exe" "$probe-aot.c" "$probe-aot.o" "$out/probe.log" "$out/dirs" "$out/argv"
+    printf 'ok\n' > "$out/.complete"
+}
+
+# The Linux (glibc) kit: the runtime, the C runtime's startup objects and
+# libgcc, and a stub for every shared library the probe link needs -- same
+# SONAME, each symbol at the version the probe bound it to, data objects at
+# their real size -- so lld links against glibc's ABI without glibc's files.
+build_kit_linux() {
+    features=$1
+    host_out=$2
+    out=$3
+    note "staging the link kit"
+    rm -rf "$out"
+    mkdir -p "$out/lib" "$out/stubs"
+    cp "$host_out/libnupp-host.a" "$out/libnupp-runtime.a"
+    for object in Scrt1.o crti.o crtbeginS.o crtendS.o crtn.o; do
+        found=$("$CC" -print-file-name="$object")
+        [ -f "$found" ] || die "the C compiler has no $object"
+        cp "$found" "$out/lib/$object"
+    done
+    cp "$("$CC" -print-libgcc-file-name)" "$out/lib/libgcc.a"
+
+    probe="$out/probe"
+    {
+        for name in $KIT_AOT_SYMBOLS; do printf 'extern char %s[];\n' "$name"; done
+        printf 'void *nupp_kit_probe[] = {\n'
+        for name in $KIT_AOT_SYMBOLS; do printf '    %s,\n' "$name"; done
+        printf '};\n'
+    } > "$probe-aot.c"
+    "$CC" -c -w -fno-builtin -fPIC -o "$probe-aot.o" "$probe-aot.c"
+    set -- "$CC" -pie -o "$probe" -Wl,--whole-archive "$out/libnupp-runtime.a" "$probe-aot.o" -Wl,--no-whole-archive
+    host_system_flags "$features" > "$probe-flags"
+    while IFS= read -r flag; do
+        [ -z "$flag" ] || set -- "$@" "$flag"
+    done < "$probe-flags"
+    set -- "$@" -Wl,-E
+    "$@" >&2
+
+    # NEEDED libraries, the dynamic linker, and each undefined symbol with
+    # its version and type.
+    readelf -d "$probe" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' > "$out/needed"
+    interpreter=$(readelf -l "$probe" | sed -n 's/.*Requesting program interpreter: \(.*\)]/\1/p')
+    readelf -V -W "$probe" | awk '
+        /File: / { for (i = 1; i <= NF; i++) if ($i == "File:") file = $(i + 1) }
+        /Name: / && file != "" { for (i = 1; i <= NF; i++) if ($i == "Name:") print $(i + 1), file }
+    ' | sort -u > "$out/versions"
+    readelf --dyn-syms -W "$probe" | awk '$7 == "UND" && $8 != "" { print $4, $8 }' | sort -u > "$out/undefined"
+    : > "$out/flags"
+    while IFS= read -r soname; do
+        # Where the real library is, for data symbols' sizes.
+        real=$("$CC" -print-file-name="$soname")
+        [ -f "$real" ] || real=$(ldconfig -p 2>/dev/null | awk -v n="$soname" '$1 == n { print $NF; exit }')
+        stub="$out/stubs/$soname"
+        : > "$stub.c"
+        : > "$stub.map"
+        awk -v lib="$soname" '$2 == lib { print $1 }' "$out/versions" | while IFS= read -r version; do
+            printf '%s {\n' "$version" >> "$stub.map"
+            awk -v v="$version" '{ split($2, parts, "@"); if (parts[2] == v) print $1, parts[1] }' "$out/undefined" \
+                | while read -r kind symbol; do
+                    printf '  %s;\n' "$symbol" >> "$stub.map"
+                    if [ "$kind" = OBJECT ] || [ "$kind" = TLS ]; then
+                        size=$(readelf --dyn-syms -W "$real" 2>/dev/null \
+                            | awk -v s="$symbol@@$version" -v t="$symbol@$version" '$8 == s || $8 == t { print $3; exit }')
+                        [ -n "$size" ] || size=8
+                        if [ "$kind" = TLS ]; then
+                            printf '__thread char %s[%s];\n' "$symbol" "$size" >> "$stub.c"
+                        else
+                            printf 'char %s[%s];\n' "$symbol" "$size" >> "$stub.c"
+                        fi
+                    else
+                        printf 'void %s(void) {}\n' "$symbol" >> "$stub.c"
+                    fi
+                done
+            printf '};\n' >> "$stub.map"
+        done
+        "$CC" -shared -nostdlib -fPIC -w -fno-builtin -o "$out/lib/$soname" "$stub.c" \
+            -Wl,--version-script="$stub.map" -Wl,-soname,"$soname"
+        printf '%s\n' "$soname" >> "$out/flags"
+    done < "$out/needed"
+
+    {
+        printf '{\n  "schemaVersion": 1,\n  "platform": "linux",\n  "target": "%s",\n' "$(kit_target)"
+        printf '  "features": "%s",\n  "runtime": "libnupp-runtime.a",\n' "$features"
+        printf '  "interpreter": "%s",\n' "$interpreter"
+        printf '  "startup": ["lib/Scrt1.o", "lib/crti.o", "lib/crtbeginS.o"],\n'
+        printf '  "finish": ["lib/libgcc.a", "lib/crtendS.o", "lib/crtn.o"],\n'
+        printf '  "libraries": ['
+        awk '{ printf "%s\"lib/%s\"", (NR > 1 ? ", " : ""), $0 }' "$out/flags"
+        printf ']\n}\n'
+    } > "$out/kit.json"
+    rm -rf "$probe" "$probe-aot.c" "$probe-aot.o" "$probe-flags" "$out/needed" "$out/versions" \
+        "$out/undefined" "$out/flags" "$out/stubs"
+    printf 'ok\n' > "$out/.complete"
+}
+
+# --- LLVM ---------------------------------------------------------------------
+
+# The configuration of the pinned LLVM. Every line decides what the libraries
+# contain, so the list is part of the cache key: change a line and the next
+# request builds beside the old tree rather than over it.
+llvm_cmake_options() {
+    cat <<'OPTIONS'
+-DCMAKE_BUILD_TYPE=MinSizeRel
+-DLLVM_TARGETS_TO_BUILD=AArch64;X86;WebAssembly
+-DLLVM_ENABLE_PROJECTS=lld
+-DLLD_BUILD_TOOLS=OFF
+-DLLVM_BUILD_TOOLS=OFF
+-DLLVM_INCLUDE_TESTS=OFF
+-DLLVM_INCLUDE_EXAMPLES=OFF
+-DLLVM_INCLUDE_BENCHMARKS=OFF
+-DLLVM_INCLUDE_DOCS=OFF
+-DLLVM_INCLUDE_UTILS=OFF
+-DLLVM_ENABLE_BINDINGS=OFF
+-DLLVM_ENABLE_ASSERTIONS=OFF
+-DLLVM_ENABLE_ZLIB=OFF
+-DLLVM_ENABLE_ZSTD=OFF
+-DLLVM_ENABLE_LIBXML2=OFF
+-DLLVM_ENABLE_LIBEDIT=OFF
+-DLLVM_ENABLE_TERMINFO=OFF
+-DLLVM_ENABLE_Z3_SOLVER=OFF
+OPTIONS
+    # The deployment floor LuaJIT is built for; the libraries link into the
+    # same binary and must not ask for a newer macOS than it does.
+    if [ "$PLATFORM" = darwin ]; then
+        case "$(uname -m 2>/dev/null)" in
+            x86_64) printf '%s\n' -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14 ;;
+            *)      printf '%s\n' -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 ;;
+        esac
+    fi
+    # MinGW's runtime DLLs are whichever PATH finds first, and on a runner
+    # that is often another toolchain's: tablegen then dies at load
+    # (0xC0000139). Tools linked statically carry their own.
+    if [ "$PLATFORM" = windows ]; then
+        printf '%s\n' -DCMAKE_EXE_LINKER_FLAGS=-static
+    fi
+}
+
+llvm_key() {
+    {
+        printf '%s\n%s\n' "$LLVM_VERSION" "$LLVM_SHA256"
+        llvm_cmake_options
+        printf '%s\n%s\n' "$CC" "$CXX"
+        "$CC" --version 2>&1 | head -n 2 || true
+        "$CXX" --version 2>&1 | head -n 2 || true
+        printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
+    } | sha256_stdin | cut -c1-16
+}
+
+# A usable tree answers llvm-config and carries lld's libraries.
+llvm_complete() {
+    tree=$1
+    [ -f "$tree/.complete" ] || [ -n "${NUPP_LLVM_PREFIX:-}" ] || return 1
+    [ -x "$tree/bin/llvm-config" ] || [ -x "$tree/bin/llvm-config.exe" ] || return 1
+    for library in lldCommon lldMachO lldELF lldCOFF lldMinGW lldWasm; do
+        [ -f "$tree/lib/lib$library.a" ] || return 1
+    done
+    return 0
+}
+
+# The pins spell their templates the way the other components' do.
+LLVM_DIRECTORY=$(eval "printf '%s' \"$LLVM_DIRECTORY\"")
+LLVM_URL=$(eval "printf '%s' \"$LLVM_URL\"")
+
+# The source, extracted once per machine beside the other pinned sources.
+llvm_source() {
+    tree="$SOURCES/$LLVM_DIRECTORY"
+    if [ -f "$tree/llvm/CMakeLists.txt" ] && [ -f "$tree/lld/CMakeLists.txt" ]; then
+        printf '%s\n' "$tree"
+        return 0
+    fi
+    file=$(archive "$LLVM_DIRECTORY" "$LLVM_URL" "$LLVM_SHA256" .tar.xz)
+    mkdir -p "$SOURCES"
+    staging="$SOURCES/.$LLVM_DIRECTORY.$$"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    # mlgo-utils holds symlinks MSYS2 cannot create, and nothing builds from it.
+    tar -xJf "$file" -C "$staging" --exclude='*/mlgo-utils' \
+        "$LLVM_DIRECTORY/llvm" "$LLVM_DIRECTORY/cmake" "$LLVM_DIRECTORY/third-party" \
+        "$LLVM_DIRECTORY/libc" "$LLVM_DIRECTORY/lld" "$LLVM_DIRECTORY/libunwind/include" \
+        || die "$LLVM_DIRECTORY.tar.xz did not extract"
+    [ -f "$staging/$LLVM_DIRECTORY/llvm/CMakeLists.txt" ] \
+        || die "$LLVM_DIRECTORY.tar.xz did not extract llvm/CMakeLists.txt"
+    rm -rf "$tree"
+    mv "$staging/$LLVM_DIRECTORY" "$tree"
+    rm -rf "$staging"
+    printf '%s\n' "$tree"
+}
+
+# The pinned LLVM, as a build tree: `bin/llvm-config`, `lib/*.a`, generated
+# headers under `include`, and the source's headers found through llvm-config.
+# NUPP_LLVM_PREFIX names an existing tree to use as is (it is checked, not
+# built). Sets LLVM_OUT.
+build_llvm() {
+    if [ -n "${NUPP_LLVM_PREFIX:-}" ]; then
+        llvm_complete "$NUPP_LLVM_PREFIX" \
+            || die "NUPP_LLVM_PREFIX names $NUPP_LLVM_PREFIX, which has no llvm-config or lld libraries"
+        LLVM_OUT=$NUPP_LLVM_PREFIX
+        return 0
+    fi
+    out="$CACHE/llvm/$(llvm_key)"
+    LLVM_OUT=$out
+    LLVM_SOURCE="$SOURCES/$LLVM_DIRECTORY"
+    llvm_complete "$out" && return 0
+    [ "${1:-}" = available ] && return 1
+    for tool in cmake ninja; do
+        command -v "$tool" >/dev/null 2>&1 \
+            || die "building LLVM needs $tool on PATH (and Python 3)"
+    done
+    take_lock "llvm-$(llvm_key)" "$out/.complete" || return 0
+    llvm_complete "$out" && { release_lock; return 0; }
+    source=$(llvm_source)
+    LLVM_SOURCE=$source
+    jobs=${NUPP_LLVM_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 4)}
+    note "building LLVM $LLVM_VERSION with $CC/$CXX, $jobs jobs (this takes a while)"
+    rm -rf "$out"
+    mkdir -p "$out"
+    set -- cmake -G Ninja -S "$(native_path "$source/llvm")" -B "$(native_path "$out")" \
+        -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX"
+    while IFS= read -r option; do
+        set -- "$@" "$option"
+    done <<EOF
+$(llvm_cmake_options)
+EOF
+    started=$(date +%s)
+    "$@" > "$out/configure.log" 2>&1 \
+        || { tail -n 40 "$out/configure.log" >&2; die "configuring LLVM failed; see $out/configure.log"; }
+    # llvm-config is a tool, outside `all` when LLVM_BUILD_TOOLS is off.
+    ninja -C "$(native_path "$out")" -j "$jobs" all llvm-config > "$out/build.log" 2>&1 \
+        || { tail -n 40 "$out/build.log" >&2; die "building LLVM failed; see $out/build.log"; }
+    printf 'LLVM %s built in %ss with %s jobs\n' "$LLVM_VERSION" "$(( $(date +%s) - started ))" "$jobs" \
+        > "$out/.complete"
+    note "$(cat "$out/.complete")"
+    release_lock
+}
+
 # --- entry ------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
@@ -1451,10 +1963,35 @@ case "$1" in
         link_host "$host_link_features" "$host_link_output" "$@"
         exit 0
         ;;
+    kit)
+        build_kit "${2:-}"
+        native_path "$KIT_OUT"
+        exit 0
+        ;;
+    kit-archive)
+        # The kit as a release carries it: a gzip'd POSIX tar of the kit's
+        # files, which nupp unpacks itself after checking the catalog's digest.
+        [ "$#" -eq 3 ] || die "usage: scripts/toolchain kit-archive FEATURES OUTPUT"
+        build_kit "$2"
+        output=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
+        (cd "$KIT_OUT" && find . -type f ! -name .complete | LC_ALL=C sort | sed 's|^\./||' \
+            | COPYFILE_DISABLE=1 tar --format ustar -cf - -T - | gzip -9n > "$output")
+        native_path "$output"
+        exit 0
+        ;;
     browser-sources|browser-emulator|browser-guest)
         browser_component=$1
         shift
         exec "${NUPP_PYTHON:-python3}" "$ROOT/scripts/browser-toolchain.py" "$browser_component" "$CACHE" "$@"
+        ;;
+    llvm)
+        if [ "${2:-}" = --available ]; then
+            build_llvm available || exit 1
+        else
+            build_llvm
+        fi
+        native_path "$LLVM_OUT"
+        exit 0
         ;;
     -h|--help) usage ;;
 esac
@@ -1465,6 +2002,7 @@ for component in "$@"; do
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
         lpeg-source) native_path "$(lpeg_source)" ;;
+        llvm)     build_llvm;     native_path "$LLVM_OUT" ;;
         stage0)   stage0 ;;
         *) note "unknown component $component"; usage ;;
     esac

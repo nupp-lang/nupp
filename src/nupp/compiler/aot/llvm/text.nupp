@@ -1,0 +1,148 @@
+module nupp.compiler.aot.llvm.text
+
+--[[
+Spelling values in LLVM's textual IR.
+
+LLVM accepts a decimal floating-point literal only when it is exactly
+representable, so every constant is written as the 64-bit hexadecimal form of
+its IEEE-754 binary64 value -- the form LLVM uses for `float` too, which it
+requires to be exactly representable in binary32. The conversion is plain Lua
+5.1 arithmetic, because the compiler runs where there is no FFI to reinterpret
+bits with.
+]]
+
+local text = {}
+
+local HEX = "0123456789ABCDEF"
+
+--- `value` (a non-negative integer below 2^32) as eight hex digits.
+local function hex32(value: number): string
+    local digits: {string} = {}
+    local rest = value
+    for position = 8, 1, -1 do
+        local digit = rest % 16
+        digits[position] = HEX:sub(digit + 1, digit + 1)
+        rest = (rest - digit) / 16
+    end
+
+    return table.concat(digits)
+end
+
+--- The binary64 encoding of `value` as its high and low 32-bit words.
+function text.doubleWords(value: number): (number, number)
+    if value ~= value then
+        return 0x7FF80000, 0
+    end
+    if value == math.huge then
+        return 0x7FF00000, 0
+    elseif value == -math.huge then
+        return 0xFFF00000, 0
+    end
+    local sign = (value < 0 or (value == 0 and 1 / value < 0)) and 0x80000000 or 0
+    local magnitude = math.abs(value)
+    if magnitude == 0 then
+        return sign, 0
+    end
+    local fraction, exponent = math.frexp(magnitude)
+    -- magnitude = fraction * 2^exponent, 0.5 <= fraction < 1, so the biased
+    -- exponent of 1.f * 2^(exponent - 1) is exponent + 1022.
+    local biased = exponent + 1022
+    local mantissa: number
+    if biased <= 0 then
+        -- Subnormal: the significand counts units of 2^-1074 exactly.
+        biased = 0
+        mantissa = magnitude / 2 ^ -1074
+    else
+        mantissa = (fraction * 2 - 1) * 2 ^ 52
+    end
+    local low = mantissa % 2 ^ 32
+    local high = sign + biased * 2 ^ 20 + (mantissa - low) / 2 ^ 32
+
+    return high, low
+end
+
+--- A double as LLVM's exact hexadecimal literal.
+function text.double(value: number): string
+    local high, low = text.doubleWords(value)
+
+    return "0x" .. hex32(high) .. hex32(low)
+end
+
+--- The literal a decimal spelling from the source denotes: C's and Lua's
+--- nearest-binary64 reading of it.
+--- @raises string when the spelling is not a number
+function text.decimal(spelling: string): string
+    local value = tonumber(spelling)
+    if value == nil then
+        error("not a numeric literal: " .. spelling, 0)
+    end
+
+    return text.double(value as number)
+end
+
+--- A binary32 value (already rounded) as LLVM's literal, which is the
+--- binary64 form of the same value.
+function text.float(value: number): string
+    return text.double(value)
+end
+
+--- Rounds a binary64 value to the nearest binary32, ties to even, the way
+--- `fptrunc` would. Needed to spell an `f32` constant.
+function text.roundToFloat(value: number): number
+    if value ~= value or value == 0 or value == math.huge or value == -math.huge then
+        return value
+    end
+    local magnitude = math.abs(value)
+    local _, exponent = math.frexp(magnitude)
+    -- 24 significant bits; below the normal range the unit is 2^-149.
+    local unit = 2 ^ math.max(exponent - 24, -149)
+    local scaled = magnitude / unit
+    local floor = math.floor(scaled)
+    local rest = scaled - floor
+    local rounded = floor
+    if rest > 0.5 or (rest == 0.5 and floor % 2 == 1) then
+        rounded = floor + 1
+    end
+    local result = rounded * unit
+    if result >= 2 ^ 128 then
+        result = math.huge
+    end
+
+    return value < 0 and -result or result
+end
+
+--- Bytes as an LLVM `c"..."` string body (without the NUL LLVM does not add).
+function text.bytes(value: string): string
+    local parts: {string} = {}
+    for index = 1, #value do
+        local byte = value:byte(index)
+        if byte >= 32 and byte < 127 and byte ~= 34 and byte ~= 92 then
+            parts[#parts + 1] = string.char(byte)
+        else
+            parts[
+                #parts + 1
+            ] = "\\" .. HEX:sub(
+                math.floor(byte / 16) + 1,
+                math.floor(byte / 16) + 1
+            ) .. HEX:sub(byte % 16 + 1, byte % 16 + 1)
+        end
+    end
+
+    return table.concat(parts)
+end
+
+--- A global or local name, quoted when LLVM's identifier syntax needs it.
+function text.name(sigil: string, value: string): string
+    if value:match("^[%a_$.][%w_$.]*$") ~= nil then
+        return sigil .. value
+    end
+
+    return sigil .. '"' .. text.bytes(value) .. '"'
+end
+
+--- An integer constant, which LLVM spells in decimal whatever its width.
+function text.integer(value: number): string
+    return ("%.0f"):format(value)
+end
+
+export = text
