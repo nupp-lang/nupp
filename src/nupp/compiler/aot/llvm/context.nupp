@@ -73,15 +73,15 @@ record context.Lua
     --- Whether the value stream is eager, which every event passes on.
     eager: boolean
 
-    --- Each Lua-owned local's absolute stack index, as an i32 value, by C
-    --- name. A string argument's C name is its position, so it needs none.
+    --- Each Lua-owned local's absolute stack index, as an i32 value, by unique
+    --- name. A string argument's unique name is its position, so it needs none.
     handles: {[string]: string}
 
-    --- Bytes read in place, by the C name a read spells them with.
+    --- Bytes read in place, by the unique name a read spells them with.
     bytes: {[string]: context.Bytes}
 
     --- The native block behind each builder, string buffer and scratch
-    --- buffer, by C name.
+    --- buffer, by unique name.
     blocks: {[string]: string}
 
     --- The one byte scratch whose buffer may be offered back to the cache.
@@ -106,7 +106,7 @@ record context.Context
     --- Each visible helper's LLVM function, by IR name.
     helpers: {[string]: string}
 
-    --- Helper parameters' values while a helper body is emitted, by C name.
+    --- Helper parameters' values while a helper body is emitted, by unique name.
     helperParams: {[string]: string}
 
     --- Reified layouts by IR name.
@@ -142,11 +142,11 @@ record context.Context
     --- (`w` on AArch64, `x` on x86), or empty where there is none to use.
     vectorRegister: string
 
-    --- The i64 counters of numeric `for` loops over a span, by the C name of
-    --- their binding: an access through the binding indexes from these.
+    --- The i64 counters of numeric `for` loops over a span, by the unique name
+    --- of their binding: an access through the binding indexes from these.
     spanCounters: {[string]: string}
 
-    --- The lane counts of masks bound once to `species:tail(n)`, by C name:
+    --- The lane counts of masks bound once to `species:tail(n)`, by unique name:
     --- such a mask is exactly the first `n` lanes, as an i32 value.
     tailCounts: {[string]: string}
 

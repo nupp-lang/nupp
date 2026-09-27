@@ -5155,7 +5155,7 @@ for count = 0, 19 do
     for i=0,count-1 do local n,_,v=oracle(tonumber(lo[i]),tonumber(hi[i]),4);equal(tonumber(out[i]),v==0 and 1/v or n+v,"wide vector") end
 end
 for name, fn in pairs(m) do
-    if compiled[fn] then assert(nativeCalls[fn], name .. " did not execute its native C entry") end
+    if compiled[fn] then assert(nativeCalls[fn], name .. " did not execute its native entry") end
 end
 print("COUNTED-OK " .. checked)
 ]=]

@@ -35,10 +35,10 @@ local function emit(ctx: context.Context, instruction: string): nil
     builder.emit(ctx.f, instruction)
 end
 
---- A slot for `cName` holding IR type `typeName`, created on first binding.
+--- A slot for `uniqueName` holding IR type `typeName`, created on first binding.
 --- A loop body's `let` binds the same name every iteration; one slot serves.
-function statements.slot(ctx: context.Context, cName: string, typeName: string, carried: boolean?): context.Slot
-    local existing = ctx.locals[cName]
+function statements.slot(ctx: context.Context, uniqueName: string, typeName: string, carried: boolean?): context.Slot
+    local existing = ctx.locals[uniqueName]
     if existing ~= nil then
         return existing as context.Slot
     end
@@ -49,7 +49,7 @@ function statements.slot(ctx: context.Context, cName: string, typeName: string, 
         type = typeName,
         carried = carried == true
     )
-    ctx.locals[cName] = slot
+    ctx.locals[uniqueName] = slot
 
     return slot
 end
@@ -93,18 +93,18 @@ local function spanFor(ctx: context.Context, statement: scalarIR.Fornum): nil
     builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(continues, bodyLabel, exit))
     builder.start(f, bodyLabel)
     local bindingType = statement.binding.type == "i32" and "i32" or "f64"
-    local slot = statements.slot(ctx, statement.binding.cName, bindingType)
+    local slot = statements.slot(ctx, statement.binding.uniqueName, bindingType)
     assignLocal(ctx, slot, current, "u64")
-    local saved = ctx.spanCounters[statement.binding.cName]
+    local saved = ctx.spanCounters[statement.binding.uniqueName]
     if statement.binding.assigned ~= true then
-        ctx.spanCounters[statement.binding.cName] = counter
+        ctx.spanCounters[statement.binding.uniqueName] = counter
     end
     loop(ctx, exit, latch, function(): nil
         statements.block(ctx, statement.body)
     end)
     -- An outer loop's binding of the same name comes back into view.
     local counters = ctx.spanCounters as {[string]: string?}
-    counters[statement.binding.cName] = saved
+    counters[statement.binding.uniqueName] = saved
     builder.start(f, latch)
     local again = builder.value(f, ("load i64, ptr %s"):format(counter))
     local stepped = builder.value(f, ("add nuw i64 %s, 1"):format(again))
@@ -161,7 +161,7 @@ local function fornum(ctx: context.Context, statement: scalarIR.Fornum): nil
     builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(continues, bodyLabel, exit))
     builder.start(f, bodyLabel)
     local bindingType = statement.binding.type == "i32" and "i32" or "f64"
-    local slot = statements.slot(ctx, statement.binding.cName, bindingType)
+    local slot = statements.slot(ctx, statement.binding.uniqueName, bindingType)
     assignLocal(ctx, slot, current, control)
     loop(ctx, exit, latch, function(): nil
         statements.block(ctx, statement.body)
@@ -337,7 +337,7 @@ local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits:
             if left.op ~= "local" or left.type ~= "u32" then
                 return nil
             end
-            local named = (left as scalarIR.Name).cName
+            local named = (left as scalarIR.Name).uniqueName
             if cursor ~= nil and named ~= cursor then
                 return nil
             end
@@ -355,7 +355,7 @@ local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits:
         new visit.Visitor(scalarStatement = function(node: scalarIR.Statement): nil
             if node.op == "assign" then
                 for _, target in ipairs((node as scalarIR.Assign).values) do
-                    if target.target.cName == cursor then
+                    if target.target.uniqueName == cursor then
                         writes = writes + 1
                     end
                 end
@@ -369,10 +369,10 @@ local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits:
         if child.op == "assign" and #(child as scalarIR.Assign).values == 1 then
             local only = (child as scalarIR.Assign).values[1]
             local step = only.value
-            if only.target.cName == cursor
+            if only.target.uniqueName == cursor
                 and step.op == "u32_add"
                 and (step as scalarIR.Fixed).left.op == "local"
-                and ((step as scalarIR.Fixed).left as scalarIR.Name).cName == cursor
+                and ((step as scalarIR.Fixed).left as scalarIR.Name).uniqueName == cursor
             then
                 for _, width in ipairs(widths) do
                     if not withinRoom((step as scalarIR.Fixed).right, width) then
@@ -512,7 +512,7 @@ local function spanStore(ctx: context.Context, statement: scalarIR.Store): nil
     local storage = types.storage(elementType, param.sourceType)
     local converted = expressions.convert(ctx, value, t, elementType)
     local stored = expressions.narrow(ctx, converted, elementType, storage)
-    local index = expressions.index(ctx, statement.indexCName, statement.cursorCName)
+    local index = expressions.index(ctx, statement.indexUniqueName, statement.cursorUniqueName)
     local address = expressions.element(ctx, statement.span, index, storage)
     emit(
         ctx,
@@ -528,7 +528,7 @@ local function assign(ctx: context.Context, statement: scalarIR.Assign): nil
     local computed: {{string}} = {}
     local wide: {[integer]: boolean} = {}
     for position, entry in ipairs(statement.values) do
-        local slot = entry.target.kind == "local" and ctx.locals[tostring(entry.target.cName)] or nil
+        local slot = entry.target.kind == "local" and ctx.locals[tostring(entry.target.uniqueName)] or nil
         local lanes = slot ~= nil
             and statements.wideMask ~= nil
             and (
@@ -547,12 +547,12 @@ local function assign(ctx: context.Context, statement: scalarIR.Assign): nil
         local value, t = computed[position][1], computed[position][2]
         local target = entry.target
         if wide[position] then
-            local slot = ctx.locals[tostring(target.cName)] as context.Slot
+            local slot = ctx.locals[tostring(target.uniqueName)] as context.Slot
             context.storeWide(ctx, slot, value)
         elseif target.kind == "local" then
-            local slot = ctx.locals[tostring(target.cName)]
+            local slot = ctx.locals[tostring(target.uniqueName)]
             if slot == nil then
-                error("assignment to unbound local " .. tostring(target.cName), 0)
+                error("assignment to unbound local " .. tostring(target.uniqueName), 0)
             end
             assignLocal(ctx, slot as context.Slot, value, t)
         else
@@ -671,21 +671,21 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
                 ctx.f,
                 ("icmp ult <%d x i32> <%s>, %s"):format(found.lanes, table.concat(indices, ", "), bound)
             )
-            local slot = statements.slot(ctx, statement.cName, tostring(statement.type))
+            local slot = statements.slot(ctx, statement.uniqueName, tostring(statement.type))
             context.storeSlot(ctx, slot, mask)
-            ctx.tailCounts[statement.cName] = lanes
+            ctx.tailCounts[statement.uniqueName] = lanes
             return
         end
         local binder = statements.binders[statement.value.op]
         if binder ~= nil then
-            binder(ctx, statements.slot(ctx, statement.cName, tostring(statement.type)), statement.value)
+            binder(ctx, statements.slot(ctx, statement.uniqueName, tostring(statement.type)), statement.value)
             return
         end
         local value, t = expressions.value(ctx, statement.value)
         -- A struct element binds its address; everything else its value.
         local slot = statements.slot(
             ctx,
-            statement.cName,
+            statement.uniqueName,
             t == "ptr" and "ptr" or tostring(statement.type),
             statement.assigned == true
         )
@@ -716,7 +716,12 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
         local resultType = expressions.helperResult(ctx, statement.call.resultTypes as {scalarIR.Type})
         for position, bound in ipairs(statement.bindings) do
             local value = builder.value(ctx.f, ("extractvalue %s %s, %d"):format(resultType, aggregate, position - 1))
-            assignLocal(ctx, statements.slot(ctx, bound.cName, bound.type, bound.assigned == true), value, bound.type)
+            assignLocal(
+                ctx,
+                statements.slot(ctx, bound.uniqueName, bound.type, bound.assigned == true),
+                value,
+                bound.type
+            )
         end
     else
         unsupported("statement " .. tostring(operation))

@@ -53,19 +53,25 @@ local function saturate(ctx: context.Context, value: string, to: string): string
 end
 
 --- The span name rooted bytes are read through by a vector load.
-function entry.rootedSpan(cName: string): string
-    return "ks_bytes_" .. cName
+function entry.rootedSpan(uniqueName: string): string
+    return "ks_bytes_" .. uniqueName
 end
 
 --- Records bytes read in place, as bytes and as a span vector loads use.
-local function root(ctx: context.Context, cName: string, pointer: string, length: string, param: scalarIR.Param): nil
+local function root(
+    ctx: context.Context,
+    uniqueName: string,
+    pointer: string,
+    length: string,
+    param: scalarIR.Param
+): nil
     local lua = runtime.lua(ctx)
-    lua.bytes[cName] = new context.Bytes(pointer = pointer, length = length)
+    lua.bytes[uniqueName] = new context.Bytes(pointer = pointer, length = length)
     local span = new context.Span(pointer = pointer, param = param)
     local count = lua.size == "i64" and length or e(ctx, ("zext %s %s to i64"):format(lua.size, length))
     -- Under the name a vector load's view is rewritten to, and under the
     -- parameter's own, which the bounds around such a load name.
-    for _, name in ipairs({entry.rootedSpan(cName), param.name}) do
+    for _, name in ipairs({entry.rootedSpan(uniqueName), param.name}) do
         ctx.spans[name] = span
         ctx.counts[name] = count
     end
@@ -129,7 +135,7 @@ local function arguments(ctx: context.Context, program: scalarIR.Program): nil
                 pointer = runtime.api(ctx, "luaL_checklstring", {state, index, "ptr " .. length}) as string
             end
             local loaded = e(ctx, ("load %s, ptr %s"):format(lua.size, length))
-            root(ctx, tostring(param.cName or tostring(position)), pointer, loaded, param)
+            root(ctx, tostring(param.uniqueName or tostring(position)), pointer, loaded, param)
         elseif param.kind == "scalar" and typeName == "lua_value" then
             -- Referenced by its position; nothing to decode.
         else
@@ -154,7 +160,7 @@ local function roots(ctx: context.Context, program: scalarIR.Program): nil
                 or typeName == "lua_table"
                 or typeName == "lua_value"
                 then
-                    local name = (statement as scalarIR.Let).cName
+                    local name = (statement as scalarIR.Let).uniqueName
                     if not seen[name] then
                         seen[name] = true
                         slots[#slots + 1] = name
@@ -180,8 +186,8 @@ local function constants(ctx: context.Context, program: scalarIR.Program): nil
         -- One NUL past the end, which the length does not count, so a
         -- parse the runtime hands to the C library stops there.
         local global = builder.bytes(ctx.module, constant.value .. "\0", 4)
-        local param = new scalarIR.Param(kind = "scalar", name = constant.cName, type = "lua_string")
-        root(ctx, constant.cName, global, tostring(#constant.value), param)
+        local param = new scalarIR.Param(kind = "scalar", name = constant.uniqueName, type = "lua_string")
+        root(ctx, constant.uniqueName, global, tostring(#constant.value), param)
     end
 end
 

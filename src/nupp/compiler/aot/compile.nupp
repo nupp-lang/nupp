@@ -100,8 +100,8 @@ local function qualifySymbols(programs: {scalarIR.Program}, filename: string): n
         program.symbol = prefix .. program.symbol:sub(4)
         -- A call to another entry of this file names that entry's symbol.
         for _, helper in ipairs(program.helpers or {}) do
-            if helper.native == true and helper.cName:sub(1, #prefix) ~= prefix then
-                helper.cName = prefix .. helper.cName:sub(4)
+            if helper.native == true and helper.uniqueName:sub(1, #prefix) ~= prefix then
+                helper.uniqueName = prefix .. helper.uniqueName:sub(4)
             end
         end
         if program.registrar ~= nil then
@@ -819,7 +819,7 @@ function compile.artifacts(
 
     -- Logical names survive lowering and verification. A project can then
     -- link several source files into one library or archive, so both forms
-    -- need distinct C symbols for identically named private declarations.
+    -- need distinct symbols for identically named private declarations.
     -- Inspection artifacts retain readable names unless linkage asks for
     -- qualification; the generated code and binding always change together.
     if qualifyLinkage then

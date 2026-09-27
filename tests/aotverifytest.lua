@@ -320,18 +320,18 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
         op = "assign",
         values = {
             {
-                target = {kind = "local", name = "cursor", cName = cursor.cName, type = "u32"},
+                target = {kind = "local", name = "cursor", uniqueName = cursor.uniqueName, type = "u32"},
                 value = {op = "constant_i32", value = "1", type = "u32"},
             }
         },
     }
     cursor.assigned = true
-    local direct = {name = "direct", cName = read.values[1].target.cName, type = "u32"}
+    local direct = {name = "direct", uniqueName = read.values[1].target.uniqueName, type = "u32"}
     local loop = {
         op = "while",
         condition = {op = "bool", value = true, type = "bool"},
         body = {read, advance},
-        carried = {direct, {name = "cursor", cName = cursor.cName, type = "u32"}},
+        carried = {direct, {name = "cursor", uniqueName = cursor.uniqueName, type = "u32"}},
     }
     branch.clauses[1].body = {loop}
     refuses(program, "direct rooted byte read lacks a bounds proof")
@@ -404,7 +404,7 @@ function M.aLoopNamesExactlyTheOuterLocalsItsBodyAssigns()
     local entries = loop.carried
     loop.carried = {entries[1]}
     refuses(program, "a loop assigns a local it does not carry")
-    loop.carried = {entries[1], entries[2], {name = "values", cName = "values", type = "u32"}}
+    loop.carried = {entries[1], entries[2], {name = "values", uniqueName = "values", type = "u32"}}
     refuses(program, "a loop carries a local it cannot see")
     loop.carried = nil
     refuses(program, "a loop without its carried list")
@@ -511,7 +511,7 @@ function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
         op = "assign",
         values = {
             {
-                target = {kind = "local", name = "cursor", cName = "v1_cursor", type = "u32"},
+                target = {kind = "local", name = "cursor", uniqueName = "v1_cursor", type = "u32"},
                 value = condition.right.left,
             }
         },
@@ -671,7 +671,7 @@ function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
         op = "assign",
         values = {
             {
-                target = {kind = "local", name = "cursor", cName = store.cursorCName, type = "u32"},
+                target = {kind = "local", name = "cursor", uniqueName = store.cursorUniqueName, type = "u32"},
                 value = {op = "constant_i32", value = "1", type = "u32"},
             }
         },
@@ -693,7 +693,7 @@ function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
     local other = find(program.body, function(statement)
         return statement.op == "let" and statement.name == "n"
     end)
-    read.index = {op = "local", name = "n", cName = other.cName, type = "u32", source = read.index.source}
+    read.index = {op = "local", name = "n", uniqueName = other.uniqueName, type = "u32", source = read.index.source}
     refuses(program, "direct rooted byte read lacks a bounds proof")
 end
 
@@ -730,8 +730,8 @@ function M.anInt32SwitchLowersToExactInt32Comparisons()
         end
         assert(condition.op == "eq", "each case label is an equality test")
         assert(condition.left.op == "local" and condition.left.type == "i32", "the selector is an int32 local")
-        selector = selector or condition.left.cName
-        assert(condition.left.cName == selector, "every label tests the one selector")
+        selector = selector or condition.left.uniqueName
+        assert(condition.left.uniqueName == selector, "every label tests the one selector")
         assert(condition.right.op == "constant_i32" and condition.right.type == "i32", "labels are exact int32")
         out[#out + 1] = condition.right.value
         return out
@@ -1143,7 +1143,7 @@ return {lanes = lanes}
             #program.helpers + 1
         ] = {
             name = "laneHelper",
-            cName = "ks_lane_helper",
+            uniqueName = "ks_lane_helper",
             params = {},
             resultTypes = {"f64"},
             values = {

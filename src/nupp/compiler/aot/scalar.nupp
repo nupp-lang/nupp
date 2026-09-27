@@ -57,9 +57,11 @@ function scalarIR.privateSymbol(name: string): string
     return "ks_" .. snake:gsub("[^%w_]", "_"):lower()
 end
 
---- The generated name of one local, which is not its source name: two source
---- scopes may use one name and generated code has no scope to tell them apart.
-function scalarIR.cIdentifier(prefix: string, name: string): string
+--- `name` under `prefix`, spelled so it is a valid symbol: the unique name of
+--- one local, which is not its source name because two source scopes may use
+--- one name and generated code has no scope to tell them apart, and the names
+--- a binding derives from a program's symbol.
+function scalarIR.identifier(prefix: string, name: string): string
     return prefix .. "_" .. name:gsub("[^%w_]", "_")
 end
 
@@ -139,11 +141,10 @@ end
 --- string the backend knows nothing about -- which is the difference between a
 --- load it can align and fold and a `memcpy` from a pointer it cannot.
 record scalarIR.ConstantBytes
-    --- The name the emitted array takes, which the reads already spell as
-    --- `ks_bytes_<cName>` and `ks_length_<cName>`, exactly as they do for a
-    --- rooted argument. That is why nothing between here and the read had to
-    --- learn about this.
-    cName: string
+    --- The name the emitted array takes, which a read looks the bytes up by
+    --- exactly as it does a rooted argument's. That is why nothing between
+    --- here and the read had to learn about this.
+    uniqueName: string
 
     value: string
 end
@@ -304,7 +305,7 @@ record scalarIR.LuaScratchU32Get
     --- word directly; the verifier re-establishes the proof from the branch.
     cursor: string?
 
-    cursorCName: string?
+    cursorUniqueName: string?
 
     --- The fixed buffer's word count, carried to the access so the emitted
     --- comparison names a constant.
@@ -362,7 +363,7 @@ record scalarIR.LuaBytes
     bytes: scalarIR.Expr
     index: scalarIR.Expr?
     cursor: string?
-    cursorCName: string?
+    cursorUniqueName: string?
     type: 'u32'
     source: scalarIR.Source?
 end
@@ -416,7 +417,7 @@ record scalarIR.Name
     --- The name this takes in generated code, which is not the source name: two
     --- source scopes may use one name and generated code has no scope to tell
     --- them apart.
-    cName: string?
+    uniqueName: string?
 
     mutable: boolean?
     lengthOf: string?
@@ -468,13 +469,13 @@ record scalarIR.Load
     --- The loop index. Only the loop's own consecutive index is admitted.
     index: string
 
-    indexCName: string?
+    indexUniqueName: string?
 
     --- A zero-based append/read cursor authorized by a dominating
     --- `cursor < #span` branch. The source access is `cursor + 1`.
     cursor: string?
 
-    cursorCName: string?
+    cursorUniqueName: string?
 
     type: scalarIR.Type
     sourceType: string?
@@ -486,9 +487,9 @@ record scalarIR.ElementRef
     op: 'element_ref'
     span: string
     index: string
-    indexCName: string?
+    indexUniqueName: string?
     cursor: string?
-    cursorCName: string?
+    cursorUniqueName: string?
     layout: string
 
     --- Whether this element may be written, which follows from whether its span
@@ -678,7 +679,7 @@ end
 record scalarIR.HelperCall
     op: 'helper_call'
     helper: string
-    cName: string
+    uniqueName: string
     args: {scalarIR.Expr}
 
     --- One entry per result. More than one makes the call's own type `multi`.
@@ -729,7 +730,7 @@ record scalarIR.Simd
     --- On a `simd_load` through a rooted byte view, the string or buffer
     --- parameter whose pointer and length the load addresses. `span` names that
     --- same parameter, because it is what the bounds proof is stated against;
-    --- this carries the `cName` the code generator writes, which a copy of the
+    --- this carries the `uniqueName` the code generator writes, which a copy of the
     --- parameter would not share.
     rooted: scalarIR.Name?
 
@@ -747,7 +748,7 @@ record scalarIR.Simd
     --- vector is in the span and the access is one copy with no lane check.
     cursor: string?
 
-    cursorCName: string?
+    cursorUniqueName: string?
 
     --- On a `simd_load` of `loadPairs`, `loadTriples` or `loadQuads`, which
     --- of the interleaved runs this result is, from zero. Each result is a
@@ -839,7 +840,7 @@ end
 --- One reducer a `reducer_region` accumulates.
 record scalarIR.ReducerRegionAccumulator
     name: string
-    cName: string
+    uniqueName: string
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
     operation: 'sum'
         | 'product'
@@ -958,7 +959,7 @@ type scalarIR.Expr = scalarIR.Constant
 record scalarIR.Target
     kind: 'local' | 'field'
     name: string?
-    cName: string?
+    uniqueName: string?
     object: scalarIR.Expr?
     layout: string?
     field: string?
@@ -976,7 +977,7 @@ end
 record scalarIR.Let
     op: 'let'
     name: string
-    cName: string
+    uniqueName: string
     value: scalarIR.Expr
     type: scalarIR.Type
 
@@ -999,7 +1000,7 @@ end
 --- retires; a name not listed here is the same on every iteration.
 record scalarIR.Carried
     name: string
-    cName: string
+    uniqueName: string
     type: scalarIR.Type
 end
 
@@ -1010,7 +1011,7 @@ end
 record scalarIR.Binding
     kind: 'local'
     name: string
-    cName: string
+    uniqueName: string
     type: scalarIR.Type
 
     --- Whether what it was bound to may be written through, which is how a
@@ -1047,9 +1048,9 @@ record scalarIR.Store
     op: 'store'
     span: string
     index: string
-    indexCName: string?
+    indexUniqueName: string?
     cursor: string?
-    cursorCName: string?
+    cursorUniqueName: string?
     value: scalarIR.Expr
     source: scalarIR.Source?
 end
@@ -1322,11 +1323,11 @@ end
 
 --- A reified struct a span holds elements of.
 ---
---- The `cName` is carried rather than derived, so the generated binding and the
+--- The `uniqueName` is carried rather than derived, so the generated binding and the
 --- generated code cannot disagree about what to call it.
 record scalarIR.Layout
     name: string
-    cName: string
+    uniqueName: string
     fields: {scalarIR.Field}
 
     --- The same fields by name, filled in when the layout is verified so a
@@ -1414,9 +1415,9 @@ record scalarIR.Param
     --- A scalar column expanded from one authored SoA row-view parameter.
     soa: scalarIR.SoaColumn?
 
-    --- Uniforms use their C parameter name; Lua-builder scalars use their
-    --- positive VM stack index.
-    cName: string?
+    --- Uniforms use their parameter's unique name; Lua-builder scalars use
+    --- their positive VM stack index.
+    uniqueName: string?
 
     --- Spans only: the borrow region this parameter is, which alias facts and
     --- region declarations refer to by name.
@@ -1472,7 +1473,7 @@ end
 --- One visible pure helper the body may call.
 record scalarIR.Helper
     name: string
-    cName: string
+    uniqueName: string
     params: {scalarIR.Name}
 
     --- One expression per result. A helper is a return list and nothing else,
@@ -1563,8 +1564,8 @@ record scalarIR.Program
     --- for kernels and VM-aware entries which do not use a value stream.
     builderMode: ('eager' | 'pull' | 'serde')?
 
-    --- The byte scratch this entry may take from the reuse cache, by its C
-    --- name, or nothing when none may.
+    --- The byte scratch this entry may take from the reuse cache, by its
+    --- unique name, or nothing when none may.
     ---
     --- A reused buffer is handed back where the entry publishes it, which is
     --- only sound when nothing writes it afterwards. That is a fact about this

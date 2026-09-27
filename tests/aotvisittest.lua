@@ -10,7 +10,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local M = {}
 
 local function localValue(name)
-    return {op = "local", name = name, cName = name, type = "u32"}
+    return {op = "local", name = name, uniqueName = name, type = "u32"}
 end
 
 local function replacement(child)
@@ -283,7 +283,7 @@ end
 -- would pass every mapper check.
 function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
     local function let(name)
-        return {op = "let", name = name, cName = name, value = localValue(name), type = "u32"}
+        return {op = "let", name = name, uniqueName = name, value = localValue(name), type = "u32"}
     end
 
     local program = {
@@ -301,7 +301,7 @@ function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
                 op = "fornum",
                 from = localValue("from"),
                 to = localValue("to"),
-                binding = {name = "i", cName = "i", type = "i32"},
+                binding = {name = "i", uniqueName = "i", type = "i32"},
                 body = {let("inFor")},
             },
             {op = "block", body = {let("inBlock")}},
@@ -311,7 +311,7 @@ function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
     visit.program(program, {
         scalarStatement = function(statement)
             if statement.op == "let" then
-                seen[statement.cName] = true
+                seen[statement.uniqueName] = true
             end
         end
     })
@@ -327,7 +327,7 @@ function M.theWalkReachesAUniformMultipleBinding()
             {
                 op = "multi_let",
                 call = {op = "helper_call", helper = "pair", args = {localValue("argument")}, type = "multi"},
-                bindings = {{name = "first", cName = "first", type = "u32"}},
+                bindings = {{name = "first", uniqueName = "first", type = "u32"}},
             }
         },
     }
@@ -372,11 +372,11 @@ function M.llvmLoweringDoesNotMutateHelpersOrLeakBetweenWidths()
 
     local function unit(width, name)
         local vector = "simd_vector_f32_preferred"
-        local value = {op = "helper_param", name = "x", cName = "x", type = vector}
+        local value = {op = "helper_param", name = "x", uniqueName = "x", type = vector}
         return kernelUnit(name, width, nil, {
             {
                 name = "pair",
-                cName = name .. "_pair",
+                uniqueName = name .. "_pair",
                 params = {value},
                 resultTypes = {vector, vector},
                 values = {value, value}

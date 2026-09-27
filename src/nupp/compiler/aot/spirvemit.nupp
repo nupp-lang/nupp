@@ -831,19 +831,19 @@ function spirv.program(
         for _, statement in ipairs(statements) do
             if statement.op == "let" and not statement.type:match("^ref:") then
                 local pointer = id()
-                localPointers[statement.cName] = pointer
+                localPointers[statement.uniqueName] = pointer
                 instruction(functions, OP.Variable, {
                     pointerType(STORAGE.Function, valueType(statement.type)),
                     pointer,
                     STORAGE.Function
                 })
-                name(pointer, statement.cName)
+                name(pointer, statement.uniqueName)
             elseif statement.op == "fornum" then
                 local binding, counter = id(), id()
-                localPointers[statement.binding.cName] = binding
-                forCounters[statement.binding.cName] = counter
+                localPointers[statement.binding.uniqueName] = binding
+                forCounters[statement.binding.uniqueName] = counter
                 local done = id()
-                forDone[statement.binding.cName] = done
+                forDone[statement.binding.uniqueName] = done
                 instruction(functions, OP.Variable, {pointerType(STORAGE.Function, boolType), done, STORAGE.Function})
                 for _, pointer in ipairs({binding, counter}) do
                     instruction(functions, OP.Variable, {
@@ -852,7 +852,7 @@ function spirv.program(
                         STORAGE.Function
                     })
                 end
-                name(binding, statement.binding.cName)
+                name(binding, statement.binding.uniqueName)
                 collect(statement.body)
             elseif statement.op == "while"
                 or statement.op == "repeat"
@@ -951,7 +951,7 @@ function spirv.program(
     local function bufferPointer(value: any): (integer, integer)
         local indexId = dispatch
         if value.cursor ~= nil then
-            local pointer = assert(localPointers[value.cursorCName])
+            local pointer = assert(localPointers[value.cursorUniqueName])
             indexId = id()
             instruction(functions, OP.Load, {u32Type, indexId, pointer})
         end
@@ -974,9 +974,10 @@ function spirv.program(
         local op = value.op
         if op == "local" then
             if value.type:match("^ref:") then
-                return assert(references[value.cName or value.name]), layoutTypes[value.type:match("^ref:(.+)$")] or 0
+                return assert(references[value.uniqueName or value.name]), layoutTypes[value.type:match("^ref:(.+)$")]
+                    or 0
             end
-            local pointer = assert(localPointers[value.cName or value.name])
+            local pointer = assert(localPointers[value.uniqueName or value.name])
             local typeId = valueType(value.type)
             local loaded = id()
             instruction(functions, OP.Load, {typeId, loaded, pointer})
@@ -1025,7 +1026,7 @@ function spirv.program(
             local fieldIndex = assert(assert(layoutFields[value.layout])[value.field])
             local storedKey = physical(value.type, value.sourceType)
             local storedType = scalarType(storedKey)
-            local referenceName = value.object.op == "local" and (value.object.cName or value.object.name) or nil
+            local referenceName = value.object.op == "local" and (value.object.uniqueName or value.object.name) or nil
             local loaded: integer
             if referenceName ~= nil and readonlyReferences[referenceName as string] == true then
                 local whole = readonlyReferenceValues[referenceName as string]
@@ -1270,12 +1271,12 @@ function spirv.program(
             local op = statement.op
             if op == "let" then
                 if statement.type:match("^ref:") then
-                    references[statement.cName] = bufferPointer(statement.value)
-                    readonlyReferences[statement.cName] = statement.value.mutable ~= true
-                    readonlyReferenceValues[statement.cName] = nil
+                    references[statement.uniqueName] = bufferPointer(statement.value)
+                    readonlyReferences[statement.uniqueName] = statement.value.mutable ~= true
+                    readonlyReferenceValues[statement.uniqueName] = nil
                 else
                     local value = expression(statement.value)
-                    instruction(functions, OP.Store, {assert(localPointers[statement.cName]), value})
+                    instruction(functions, OP.Store, {assert(localPointers[statement.uniqueName]), value})
                 end
             elseif op == "assign" then
                 assert(#statement.values == 1, "SPIR-V subset does not emit parallel assignment")
@@ -1283,7 +1284,7 @@ function spirv.program(
                 local value = expression(assignment.value)
                 if assignment.target.kind == "local" then
                     instruction(functions, OP.Store, {
-                        assert(localPointers[assignment.target.cName or assignment.target.name]),
+                        assert(localPointers[assignment.target.uniqueName or assignment.target.name]),
                         value
                     })
                 elseif assignment.target.kind == "field" then
@@ -1375,9 +1376,9 @@ function spirv.program(
                 readonlyReferenceValues = {}
             elseif op == "fornum" then
                 readonlyReferenceValues = {}
-                local binding = assert(localPointers[statement.binding.cName])
-                local counter = assert(forCounters[statement.binding.cName])
-                local completion = assert(forDone[statement.binding.cName])
+                local binding = assert(localPointers[statement.binding.uniqueName])
+                local counter = assert(forCounters[statement.binding.uniqueName])
+                local completion = assert(forDone[statement.binding.uniqueName])
                 local first, firstType = expression(statement.from)
                 local last, lastType = expression(statement.to)
                 assert(firstType == i32Type and lastType == i32Type, "GPU counted loop bounds must be int32")

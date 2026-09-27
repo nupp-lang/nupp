@@ -199,14 +199,14 @@ end
 
 --- The proof of `simd`'s access, or nil when it carries none.
 local function proved(ctx: context.Context, simd: scalarIR.Simd, found: species.Species, ways: integer): memory.Proof?
-    if simd.cursor == nil or simd.cursorCName == nil then
+    if simd.cursor == nil or simd.cursorUniqueName == nil then
         return nil
     end
     local base, _, count = simdbounds.offset(simd.args[2])
-    if base == nil or (base as scalarIR.Name).cName ~= simd.cursorCName then
+    if base == nil or (base as scalarIR.Name).uniqueName ~= simd.cursorUniqueName then
         return nil
     end
-    local slot = ctx.locals[tostring(simd.cursorCName)]
+    local slot = ctx.locals[tostring(simd.cursorUniqueName)]
     local span = ctx.spans[tostring(simd.span)]
     if slot == nil or span == nil then
         return nil
@@ -534,7 +534,7 @@ local function tailCount(ctx: context.Context, mask: scalarIR.Expr?): string?
         return nil
     end
 
-    return ctx.tailCounts[tostring(((mask as scalarIR.Expr) as scalarIR.Name).cName)]
+    return ctx.tailCounts[tostring(((mask as scalarIR.Expr) as scalarIR.Name).uniqueName)]
 end
 
 --- `window`'s room narrowed to the first `count` lanes.
@@ -813,7 +813,7 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
         for key, value in pairs(simd as any) do
             viewed[key] = value
         end
-        viewed.span = "ks_bytes_" .. tostring((simd.rooted as scalarIR.Name).cName)
+        viewed.span = "ks_bytes_" .. tostring((simd.rooted as scalarIR.Name).uniqueName)
         viewed.rooted = nil
         simd = viewed as scalarIR.Simd
     end

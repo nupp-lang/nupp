@@ -186,7 +186,7 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
         -- A native call reaches another entry of this file, which this unit
         -- defines for its tier: a call LLVM can inline, with the callee's own
         -- attributes in view.
-        local name = "@" .. (helper.native == true and physical(helper.cName, unit.tier) or helper.cName)
+        local name = "@" .. (helper.native == true and physical(helper.uniqueName, unit.tier) or helper.uniqueName)
         local params: {string} = {}
         local paramTypes: {string} = {}
         for _, param in ipairs(helper.params) do
@@ -195,7 +195,7 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
             if named == nil or (named as any).family ~= "species" then
                 local t = context.llvmType(ctx, tostring(param.type))
                 paramTypes[#paramTypes + 1] = t
-                params[#params + 1] = t .. " %h_" .. tostring(param.cName)
+                params[#params + 1] = t .. " %h_" .. tostring(param.uniqueName)
             end
         end
         local result = expressions.helperResult(ctx, helper.resultTypes)
@@ -215,7 +215,7 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
             local inner = context.new(module, f, program, unit.facts)
             inner.helpers = ctx.helpers
             for _, param in ipairs(helper.params) do
-                inner.helperParams[tostring(param.cName)] = "%h_" .. tostring(param.cName)
+                inner.helperParams[tostring(param.uniqueName)] = "%h_" .. tostring(param.uniqueName)
             end
             local returned = "undef"
             for position, resultType in ipairs(helper.resultTypes) do

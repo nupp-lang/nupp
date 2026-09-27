@@ -262,7 +262,7 @@ local function carriedMask(ctx: context.Context, node: scalarIR.Expr, found: spe
     if node.op ~= "local" or ctx.vectorRegister == "" or ctx.tier ~= "baseline" then
         return nil
     end
-    local slot = ctx.locals[tostring((node as scalarIR.Name).cName)]
+    local slot = ctx.locals[tostring((node as scalarIR.Name).uniqueName)]
     if slot == nil or not (slot as context.Slot).carried then
         return nil
     end
@@ -334,7 +334,7 @@ function vectors.wideMask(ctx: context.Context, node: scalarIR.Expr, slot: conte
 
     local function leaf(value: scalarIR.Expr): string
         if value.op == "local" then
-            local held = ctx.locals[tostring((value as scalarIR.Name).cName)]
+            local held = ctx.locals[tostring((value as scalarIR.Name).uniqueName)]
             if held ~= nil
                 and (held as context.Slot).carried
                 and context.slotType(ctx, (held as context.Slot).type, true) == wide

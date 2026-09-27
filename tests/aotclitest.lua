@@ -122,8 +122,8 @@ end
 ---
 --- `--emit` prints one artifact and nothing else, so a case that wants two of
 --- them used to start the compiler twice over the same file. `--json` without
---- `--emit` carries the IR, the C and the binding together, and the C in it is
---- byte for byte the C `--emit c` prints. The exit status comes back beside
+--- `--emit` carries the IR, the LLVM IR and the binding together, and the LLVM
+--- IR in it is byte for byte what `--emit llvm` prints. The exit status comes back beside
 --- them, so a single compiler invocation supplies the complete report.
 ---
 --- The command and the directory it ran in come back last, because a project is

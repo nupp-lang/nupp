@@ -461,7 +461,7 @@ function visit.program(program: scalarIR.Program, visitor: visit.Visitor): nil
     end
 end
 
---- The byte scratch this program may take from the reuse cache, by C name.
+--- The byte scratch this program may take from the reuse cache, by unique name.
 ---
 --- A reused buffer is handed back where the entry publishes it, so reuse is
 --- sound only when nothing writes the buffer afterwards. The rule is
@@ -516,7 +516,7 @@ function visit.reusableScratch(program: scalarIR.Program): string?
         return nil
     end
 
-    return (candidate as scalarIR.Name).cName
+    return (candidate as scalarIR.Name).uniqueName
 end
 
 export = visit

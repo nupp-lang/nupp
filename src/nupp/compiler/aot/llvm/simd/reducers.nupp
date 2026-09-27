@@ -40,9 +40,9 @@ end
 --- @raises string when the reducer was never bound
 local function slotOf(ctx: context.Context, node: scalarIR.Expr): context.Slot
     local named = node as scalarIR.Name
-    local slot = ctx.locals[tostring(named.cName)]
+    local slot = ctx.locals[tostring(named.uniqueName)]
     if slot == nil then
-        error("no reducer " .. tostring(named.cName), 0)
+        error("no reducer " .. tostring(named.uniqueName), 0)
     end
 
     return slot as context.Slot
@@ -235,7 +235,7 @@ local function region(ctx: context.Context, node: scalarIR.Statement): nil
     ctx.accumulators = saved
     for _, reducer in ipairs(parallel) do
         local acc = accumulators[reducer.name] as context.Accumulator
-        local slot = ctx.locals[reducer.cName] as context.Slot
+        local slot = ctx.locals[reducer.uniqueName] as context.Slot
         local vector = acc.vector
         local final = e(ctx, ("load %s, ptr %s"):format(vector, acc.pointer))
         local count = tonumber(vector:match("^<(%d+) x")) as integer

@@ -24,7 +24,7 @@ local function sourceType(param: scalarIR.Param): string
 end
 
 local function typeName(prefix: string, program: scalarIR.Program): string
-    return scalarIR.cIdentifier(prefix, program.symbol)
+    return scalarIR.identifier(prefix, program.symbol)
 end
 
 local function append(lines: {string}, value: string): nil
@@ -81,10 +81,10 @@ end
 
 --- What stands in for one authored `@aot(target = "gpu")` declaration.
 function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
-    local runtime = scalarIR.cIdentifier("gpuRuntime", program.symbol)
-    local implementation = scalarIR.cIdentifier("gpuImplementation", program.symbol)
-    local native = scalarIR.cIdentifier("gpuNative", program.symbol)
-    local uniformType = scalarIR.cIdentifier("gpuUniformType", program.symbol)
+    local runtime = scalarIR.identifier("gpuRuntime", program.symbol)
+    local implementation = scalarIR.identifier("gpuImplementation", program.symbol)
+    local native = scalarIR.identifier("gpuNative", program.symbol)
+    local uniformType = scalarIR.identifier("gpuUniformType", program.symbol)
     local specType = typeName("GpuSpec", program)
     local kernelType = typeName("GpuKernel", program)
     local bindingType = typeName("GpuBinding", program)

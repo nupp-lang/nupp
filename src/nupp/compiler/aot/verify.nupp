@@ -334,7 +334,7 @@ local function inheritBounds(bounds: scalarIR.CursorBounds): scalarIR.CursorBoun
 end
 
 --- Whether a direct read at `index` is proved by a cursor: the index is that
---- very cursor local -- by name and by the C name generated code addresses --
+--- very cursor local -- by name and by the unique name generated code addresses --
 --- the cursor is a uint32, and a dominating check bounded it against `root`.
 ---
 --- One rule for every read that names a cursor, so the scratch read and the
@@ -342,18 +342,18 @@ end
 local function cursorRead(
     index: scalarIR.Expr,
     cursor: string?,
-    cursorCName: string?,
+    cursorUniqueName: string?,
     root: string,
     values: {[string]: string},
     scope: verify.Scope
 ): boolean
-    if cursor == nil or cursorCName == nil or index.op ~= "local" then
+    if cursor == nil or cursorUniqueName == nil or index.op ~= "local" then
         return false
     end
     local named = index as scalarIR.Name
 
     return named.name == cursor
-        and named.cName == cursorCName
+        and named.uniqueName == cursorUniqueName
         and values[cursor as string] == "u32"
         and boundRoom(scope.cursorBounds, cursor, root) ~= nil
 end
@@ -530,7 +530,7 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
                 span.soa ~= nil and span.soa.view or node.span,
                 scope.countBounds
             )
-            and node.cursorCName ~= nil,
+            and node.cursorUniqueName ~= nil,
             "unbounded cursor load"
         )
     else
@@ -567,7 +567,7 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
         and node.index == ""
         and values[node.cursor as string] == "u32"
         and simdbounds.boundedThrough(scope.cursorBounds, node.cursor as string, node.span, scope.countBounds)
-        and node.cursorCName ~= nil
+        and node.cursorUniqueName ~= nil
         or node.cursor == nil
         and node.index == scope.index
         and values[ASSIGNED .. node.index] == nil
@@ -724,8 +724,8 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
 
     return named ~= nil
         and (named as scalarIR.Name).name == cursor
-        and (named as scalarIR.Name).cName == access.cursorCName
-        and access.cursorCName ~= nil
+        and (named as scalarIR.Name).uniqueName == access.cursorUniqueName
+        and access.cursorUniqueName ~= nil
         and values[cursor] == "u32"
         and (species == nil or simdbounds.covers(species, wanted))
         and simdbounds.coveredThrough(
@@ -1220,8 +1220,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     and rooted.op == "local"
                     and rooted.name == simd.span
                     and rooted.type == (span as scalarIR.Param).type
-                    and rooted.cName ~= nil
-                    and rooted.cName == (span as scalarIR.Param).cName,
+                    and rooted.uniqueName ~= nil
+                    and rooted.uniqueName == (span as scalarIR.Param).uniqueName,
                     "invalid rooted SIMD load root"
                 )
                 scalarWalk(rooted, values, scope)
@@ -1608,11 +1608,11 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         holds(loaded.index.type == "u32", "scratch read index is not uint32")
         holds(
-            loaded.cursor == nil and loaded.cursorCName == nil
+            loaded.cursor == nil and loaded.cursorUniqueName == nil
             or cursorRead(
                 loaded.index,
                 loaded.cursor,
-                loaded.cursorCName,
+                loaded.cursorUniqueName,
                 (loaded.scratch as scalarIR.Name).name,
                 values,
                 scope
@@ -1675,7 +1675,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     cursorRead(
                         bytes.index as scalarIR.Expr,
                         bytes.cursor,
-                        bytes.cursorCName,
+                        bytes.cursorUniqueName,
                         rooted.name,
                         values,
                         scope
@@ -2113,7 +2113,7 @@ local function block(
                     param ~= nil and param.soa ~= nil and param.soa.view or statement.span,
                     scope.countBounds
                 )
-                and statement.cursorCName ~= nil
+                and statement.cursorUniqueName ~= nil
                 or statement.cursor == nil
                 and statement.index == scope.index
                 and values[ASSIGNED .. statement.index] == nil
@@ -2758,7 +2758,7 @@ end
 local function layoutsByName(program: scalarIR.Program): {[string]: scalarIR.Layout}
     local layouts: {[string]: scalarIR.Layout} = {}
     for _, layout in ipairs(program.layouts or {}) do
-        holds(layouts[layout.name] == nil and layout.cName ~= nil and #layout.fields > 0, "invalid native layout")
+        holds(layouts[layout.name] == nil and layout.uniqueName ~= nil and #layout.fields > 0, "invalid native layout")
 
         local fields: {[string]: scalarIR.Type} = {}
         local sources: {[string]: string} = {}
@@ -3096,8 +3096,8 @@ local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
         -- not, which made an ordinary `const` read inside a helper fail this
         -- invariant rather than compile.
         for _, constant in ipairs(program.constants or {}) do
-            holds(values[constant.cName] == nil, "an IR constant table shadows a helper parameter")
-            values[constant.cName] = "lua_string"
+            holds(values[constant.uniqueName] == nil, "an IR constant table shadows a helper parameter")
+            values[constant.uniqueName] = "lua_string"
         end
         holds(helper.native == true or #helper.values == #helper.resultTypes, "helper result mismatch")
         for position, value in ipairs(helper.values) do
@@ -3310,7 +3310,7 @@ end
 --- @raises string when anything about it is not well formed
 function verify.program(program: scalarIR.Program): scalarIR.Program
     loopFrames = {}
-    holds(program.version == scalarIR.VERSION, "unknown native C IR version")
+    holds(program.version == scalarIR.VERSION, "unknown native IR version")
     holds(
         program.numericForRuntime == nil
         or program.numericForRuntime == "luajit-single"
@@ -3478,10 +3478,10 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     -- name over one and that every reader finds it typed.
     local constantNames: {[string]: boolean} = {}
     for _, constant in ipairs(program.constants or {}) do
-        holds(constantNames[constant.cName] == nil, "duplicate IR constant table")
-        holds(uniforms[constant.cName] == nil, "an IR constant table shadows a parameter")
-        constantNames[constant.cName] = true
-        uniforms[constant.cName] = "lua_string"
+        holds(constantNames[constant.uniqueName] == nil, "duplicate IR constant table")
+        holds(uniforms[constant.uniqueName] == nil, "an IR constant table shadows a parameter")
+        constantNames[constant.uniqueName] = true
+        uniforms[constant.uniqueName] = "lua_string"
     end
 
     -- The reuse claim, re-derived rather than trusted. A program carrying a

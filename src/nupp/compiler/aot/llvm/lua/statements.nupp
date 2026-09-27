@@ -34,15 +34,15 @@ local function emit(ctx: context.Context, instruction: string): nil
     builder.emit(ctx.f, instruction)
 end
 
---- The entry-block block of `type` behind local `cName`, created once.
-local function block(ctx: context.Context, cName: string, type: string, align: integer): string
+--- The entry-block block of `type` behind local `uniqueName`, created once.
+local function block(ctx: context.Context, uniqueName: string, type: string, align: integer): string
     local lua = runtime.lua(ctx)
-    local existing = lua.blocks[cName]
+    local existing = lua.blocks[uniqueName]
     if existing ~= nil then
         return existing as string
     end
     local pointer = builder.alloca(ctx.f, type, align)
-    lua.blocks[cName] = pointer
+    lua.blocks[uniqueName] = pointer
 
     return pointer
 end
@@ -64,8 +64,8 @@ local function header(ctx: context.Context, scratch: string, structType: string,
 end
 
 --- A per-site registry key: its address, distinct from every other site's.
-local function siteKey(ctx: context.Context, cName: string): string
-    local name = ("@ks.key.%s.%s"):format(ctx.program.symbol, cName)
+local function siteKey(ctx: context.Context, uniqueName: string): string
+    local name = ("@ks.key.%s.%s"):format(ctx.program.symbol, uniqueName)
     builder.once(ctx.module, "key " .. name, name .. " = internal global i8 0")
 
     return name
@@ -89,7 +89,7 @@ local function stringBufferAppend(ctx: context.Context, buffer: string, value: s
             values.substringOperands(ctx, value as scalarIR.LuaSubstring)
         })
         return
-    elseif value.op == "local" and runtime.lua(ctx).bytes[tostring((value as scalarIR.Name).cName)] ~= nil then
+    elseif value.op == "local" and runtime.lua(ctx).bytes[tostring((value as scalarIR.Name).uniqueName)] ~= nil then
         runtime.call(ctx, "string_buffer_append", {state, "ptr " .. buffer, values.byteOperands(ctx, value)})
         return
     end
@@ -110,7 +110,7 @@ end
 
 local function bindStream(ctx: context.Context, statement: scalarIR.Let): nil
     local started = statement.value as scalarIR.LuaBuilder
-    local stream = block(ctx, statement.cName, ("[%d x i8]"):format(runtime.BUILDER_BYTES), 16)
+    local stream = block(ctx, statement.uniqueName, ("[%d x i8]"):format(runtime.BUILDER_BYTES), 16)
     local maxDepth = started.maxDepth ~= nil and values.wide(ctx, started.maxDepth as scalarIR.Expr) or "i64 1024"
     local capacity = started.stringCapacity ~= nil and values.wide(ctx, started.stringCapacity as scalarIR.Expr)
         or "i64 0"
@@ -131,12 +131,12 @@ end
 
 local function bindWordScratch(ctx: context.Context, statement: scalarIR.Let): nil
     local started = statement.value as scalarIR.LuaScratchU32
-    local scratch = block(ctx, statement.cName, runtime.SCRATCH_U32, 8)
+    local scratch = block(ctx, statement.uniqueName, runtime.SCRATCH_U32, 8)
     local capacity = values.operand(ctx, started.capacity, "u32")
     local fixed = started.fixed
     if fixed ~= nil and (fixed as integer) <= STACK_SCRATCH_WORDS then
         -- Small enough for the machine stack: nothing for Lua to own.
-        local storage = block(ctx, statement.cName .. ".storage", ("[%d x i32]"):format(fixed as integer), 16)
+        local storage = block(ctx, statement.uniqueName .. ".storage", ("[%d x i32]"):format(fixed as integer), 16)
         zero(ctx, storage, (fixed as integer) * 4)
         emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
         header(ctx, scratch, runtime.SCRATCH_U32, {capacity, capacity, "0", "0"})
@@ -146,23 +146,23 @@ local function bindWordScratch(ctx: context.Context, statement: scalarIR.Let): n
         runtime.state(ctx),
         "ptr " .. scratch,
         "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity)),
-        "ptr " .. siteKey(ctx, statement.cName)
+        "ptr " .. siteKey(ctx, statement.uniqueName)
     })
 end
 
 local function bindByteScratch(ctx: context.Context, statement: scalarIR.Let): nil
     local started = statement.value as scalarIR.LuaScratchU8
-    local scratch = block(ctx, statement.cName, runtime.SCRATCH_U8, 8)
+    local scratch = block(ctx, statement.uniqueName, runtime.SCRATCH_U8, 8)
     local capacity = values.operand(ctx, started.capacity, "u32")
     local fixed = started.fixed
     if fixed ~= nil and (fixed as integer) <= STACK_SCRATCH_BYTES then
-        local storage = block(ctx, statement.cName .. ".storage", ("[%d x i8]"):format(fixed as integer), 16)
+        local storage = block(ctx, statement.uniqueName .. ".storage", ("[%d x i8]"):format(fixed as integer), 16)
         zero(ctx, storage, fixed as integer)
         emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
         header(ctx, scratch, runtime.SCRATCH_U8, {capacity, capacity, "0", "0"})
         return
     end
-    local cached = runtime.lua(ctx).reusableScratch == statement.cName
+    local cached = runtime.lua(ctx).reusableScratch == statement.uniqueName
     runtime.call(ctx, cached and "scratch_u8_cached" or "scratch_u8", {
         runtime.state(ctx),
         "ptr " .. scratch,
@@ -182,7 +182,7 @@ local function letStatement(ctx: context.Context, node: scalarIR.Statement): boo
     local statement = node as scalarIR.Let
     local typeName = tostring(statement.type)
     if typeName == "lua_string_buffer" then
-        local buffer = block(ctx, statement.cName, ("[%d x i8]"):format(runtime.STRING_BUFFER_BYTES), 16)
+        local buffer = block(ctx, statement.uniqueName, ("[%d x i8]"):format(runtime.STRING_BUFFER_BYTES), 16)
         runtime.call(ctx, "string_buffer_init", {runtime.state(ctx), "ptr " .. buffer})
         stringBufferAppend(ctx, buffer, (statement.value as scalarIR.LuaStringBuffer).initial)
     elseif typeName == "lua_builder" then
@@ -193,9 +193,9 @@ local function letStatement(ctx: context.Context, node: scalarIR.Statement): boo
         bindByteScratch(ctx, statement)
     elseif typeName == "lua_table" or typeName == "lua_string" or typeName == "lua_nil" or typeName == "lua_value" then
         values.push(ctx, statement.value)
-        local handle = runtime.lua(ctx).handles[statement.cName]
+        local handle = runtime.lua(ctx).handles[statement.uniqueName]
         if handle == nil then
-            error("no root slot for " .. statement.cName, 0)
+            error("no root slot for " .. statement.uniqueName, 0)
         end
         runtime.api(ctx, "lua_replace", {runtime.state(ctx), "i32 " .. tostring(handle)})
     else
@@ -443,9 +443,9 @@ local function assignStatement(ctx: context.Context, node: scalarIR.Statement): 
         error("mixed or multiple Lua string assignment reached emission", 0)
     end
     values.push(ctx, only.value)
-    local handle = runtime.lua(ctx).handles[tostring(only.target.cName)]
+    local handle = runtime.lua(ctx).handles[tostring(only.target.uniqueName)]
     if handle == nil then
-        error("no root slot for " .. tostring(only.target.cName), 0)
+        error("no root slot for " .. tostring(only.target.uniqueName), 0)
     end
     runtime.api(ctx, "lua_replace", {runtime.state(ctx), "i32 " .. tostring(handle)})
 

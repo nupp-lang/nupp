@@ -12,7 +12,7 @@ states outright:
 - a comparison of two numbers of different types compares their values, never
   their bit patterns, so a signed and an unsigned integer are compared as
   mathematical integers and anything involving a float in binary64;
-- `!=` on floats is unordered-or-unequal, as C's is, and the ordered
+- `!=` on floats is unordered-or-unequal, as Lua's `~=` is, and the ordered
   comparisons are false for NaN;
 - conversions from floating point to an integer saturate rather than leave the
   out-of-range case undefined, and the modular `wrap` is LuaJIT's own
@@ -52,8 +52,9 @@ end
 -- Conversions
 ----------------------------------------------------------------------------
 
---- Converts `value` of IR type `from` to IR type `to`, with C's value
---- semantics (saturating where C leaves overflow undefined).
+--- Converts `value` of IR type `from` to IR type `to`: an integer truncates
+--- or extends by its own signedness, and a float out of an integer type's
+--- range saturates rather than being undefined.
 function expressions.convert(ctx: context.Context, value: string, from: string, to: string): string
     if from == to then
         return value
@@ -110,7 +111,7 @@ local function toDouble(ctx: context.Context, value: string, from: string): stri
     return expressions.convert(ctx, value, from, "f64")
 end
 
---- `value` as C's `nupp_u32` sees it: an integer's low 32 bits, or a double
+--- `value` as a uint32 operand: an integer's low 32 bits, or a double
 --- reduced the way LuaJIT's `tobit` reduces it.
 local function u32Bits(ctx: context.Context, value: string, from: string): string
     if from == "i32" or from == "u32" then
@@ -127,7 +128,7 @@ local function u32Bits(ctx: context.Context, value: string, from: string): strin
     return emit(ctx, ("call i32 %s(double %s)"):format(wrap, value))
 end
 
---- `value` as a 64-bit unsigned operand, the way `(uint64_t)(x)` reads it.
+--- `value` as a 64-bit unsigned operand.
 local function u64Bits(ctx: context.Context, value: string, from: string): string
     return expressions.convert(ctx, value, from, "u64")
 end
@@ -161,7 +162,7 @@ function expressions.compare(
         return emit(ctx, ("icmp %s i1 %s, %s"):format(SIGNED_PREDICATE[operation] as string, left, right))
     end
     if types.isFloat(leftType) or types.isFloat(rightType) then
-        -- C promotes to the wider floating type; binary64 holds every value of
+        -- Compare in the wider floating type; binary64 holds every value of
         -- every type here, so comparing there is exact.
         local a, b = toDouble(ctx, left, leftType), toDouble(ctx, right, rightType)
 
@@ -269,32 +270,32 @@ end
 --- The zero-based element index a span access names, as an i64.
 --- @raises string when the index names no bound local, or the map index is
 ---   read outside the map loop
-function expressions.index(ctx: context.Context, indexCName: string?, cursorCName: string?): string
-    if cursorCName ~= nil then
-        local slot = ctx.locals[cursorCName as string]
+function expressions.index(ctx: context.Context, indexUniqueName: string?, cursorUniqueName: string?): string
+    if cursorUniqueName ~= nil then
+        local slot = ctx.locals[cursorUniqueName as string]
         if slot == nil then
-            error("no local " .. tostring(cursorCName), 0)
+            error("no local " .. tostring(cursorUniqueName), 0)
         end
         local cursor = emit(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer))
 
         return expressions.convert(ctx, cursor, slot.type, "u64")
     end
-    if indexCName == "i" then
+    if indexUniqueName == "i" then
         if ctx.mapIndex == nil then
             error("map index read outside the map loop", 0)
         end
 
         return ctx.mapIndex as string
     end
-    local counter = ctx.spanCounters[tostring(indexCName)]
+    local counter = ctx.spanCounters[tostring(indexUniqueName)]
     if counter ~= nil then
         -- A span loop's own counter, 1-based and proved in bounds.
         local current = emit(ctx, ("load i64, ptr %s"):format(counter as string))
         return emit(ctx, ("sub %si64 %s, 1"):format(ctx.facts.bounds and "nuw " or "", current))
     end
-    local slot = ctx.locals[tostring(indexCName)]
+    local slot = ctx.locals[tostring(indexUniqueName)]
     if slot == nil then
-        error("no local " .. tostring(indexCName), 0)
+        error("no local " .. tostring(indexUniqueName), 0)
     end
     local loaded = emit(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer))
     if types.isFloat(slot.type) then
@@ -390,7 +391,7 @@ function expressions.layoutType(ctx: context.Context, layoutName: string): strin
     if layout == nil then
         error("no layout " .. layoutName, 0)
     end
-    local name = "%struct." .. layout.cName
+    local name = "%struct." .. layout.uniqueName
     local fields: {string} = {}
     for position, field in ipairs(layout.fields) do
         fields[position] = types.storage(field.type, field.sourceType)
@@ -675,13 +676,13 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             -- A species reads as its lane count.
             return tostring((found as any).lanes), nodeType
         end
-        local param = ctx.helperParams[tostring(named.cName)]
+        local param = ctx.helperParams[tostring(named.uniqueName)]
         if param ~= nil then
             return param as string, nodeType
         end
-        local slot = ctx.locals[tostring(named.cName)]
+        local slot = ctx.locals[tostring(named.uniqueName)]
         if slot == nil then
-            error("no local " .. tostring(named.cName), 0)
+            error("no local " .. tostring(named.uniqueName), 0)
         end
 
         return context.loadSlot(ctx, slot), slot.type
@@ -699,7 +700,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif operation == "load" then
         local loaded = node as scalarIR.Load
         local storage = types.storage(nodeType, loaded.sourceType)
-        local index = expressions.index(ctx, loaded.indexCName, loaded.cursorCName)
+        local index = expressions.index(ctx, loaded.indexUniqueName, loaded.cursorUniqueName)
         local address = expressions.element(ctx, loaded.span, index, storage)
         local raw = emit(
             ctx,
@@ -710,7 +711,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif operation == "element_ref" then
         local referenced = node as scalarIR.ElementRef
         local structType = expressions.layoutType(ctx, referenced.layout)
-        local index = expressions.index(ctx, referenced.indexCName, referenced.cursorCName)
+        local index = expressions.index(ctx, referenced.indexUniqueName, referenced.cursorUniqueName)
 
         return expressions.element(ctx, referenced.span, index, structType), "ptr"
     elseif operation == "field_load" then

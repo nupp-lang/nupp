@@ -205,7 +205,7 @@ local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, st
     -- register itself rather than compare it back to i1 and widen it again.
     local carried: string? = nil
     if laneWide and simd.args[1].op == "local" then
-        local slot = ctx.locals[tostring((simd.args[1] as scalarIR.Name).cName)]
+        local slot = ctx.locals[tostring((simd.args[1] as scalarIR.Name).uniqueName)]
         if slot ~= nil and (slot as context.Slot).carried then
             carried = e(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
         end

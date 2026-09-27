@@ -54,24 +54,24 @@ end
 --- The absolute stack index of a Lua-owned local or argument, as an i32.
 --- @raises string when the name is neither
 function values.handle(ctx: context.Context, node: scalarIR.Expr): string
-    local cName = tostring((node as scalarIR.Name).cName)
-    local found = runtime.lua(ctx).handles[cName]
+    local uniqueName = tostring((node as scalarIR.Name).uniqueName)
+    local found = runtime.lua(ctx).handles[uniqueName]
     if found ~= nil then
         return found as string
     end
-    if cName:match("^%d+$") ~= nil then
-        return cName
+    if uniqueName:match("^%d+$") ~= nil then
+        return uniqueName
     end
-    error("no Lua stack slot for " .. cName, 0)
+    error("no Lua stack slot for " .. uniqueName, 0)
 end
 
 --- The bytes a rooted string argument or a constant is read through.
 --- @raises string when the name has none
 function values.bytes(ctx: context.Context, node: scalarIR.Expr): context.Bytes
-    local cName = tostring((node as scalarIR.Name).cName)
-    local found = runtime.lua(ctx).bytes[cName]
+    local uniqueName = tostring((node as scalarIR.Name).uniqueName)
+    local found = runtime.lua(ctx).bytes[uniqueName]
     if found == nil then
-        error("no rooted bytes for " .. cName, 0)
+        error("no rooted bytes for " .. uniqueName, 0)
     end
 
     return found as context.Bytes
@@ -87,10 +87,10 @@ end
 --- The native block behind a builder, buffer or scratch local.
 --- @raises string when the name has none
 function values.block(ctx: context.Context, node: scalarIR.Expr): string
-    local cName = tostring((node as scalarIR.Name).cName)
-    local found = runtime.lua(ctx).blocks[cName]
+    local uniqueName = tostring((node as scalarIR.Name).uniqueName)
+    local found = runtime.lua(ctx).blocks[uniqueName]
     if found == nil then
-        error("no native block for " .. cName, 0)
+        error("no native block for " .. uniqueName, 0)
     end
 
     return found as string
@@ -285,9 +285,9 @@ end
 local function stringByteAt(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local loaded = node as scalarIR.LuaBytes
     local bytes = values.bytes(ctx, loaded.bytes)
-    local slot = ctx.locals[tostring(loaded.cursorCName)]
+    local slot = ctx.locals[tostring(loaded.cursorUniqueName)]
     if slot == nil then
-        error("no cursor " .. tostring(loaded.cursorCName), 0)
+        error("no cursor " .. tostring(loaded.cursorUniqueName), 0)
     end
     local cursor = expressions.convert(
         ctx,
@@ -431,10 +431,10 @@ end
 
 --- The value of a proved cursor local, as a u32.
 --- @raises string when the cursor is not a bound local
-local function cursorValue(ctx: context.Context, cName: string): string
-    local slot = ctx.locals[cName]
+local function cursorValue(ctx: context.Context, uniqueName: string): string
+    local slot = ctx.locals[uniqueName]
     if slot == nil then
-        error("no cursor " .. cName, 0)
+        error("no cursor " .. uniqueName, 0)
     end
 
     return expressions.convert(ctx, context.loadSlot(ctx, slot as context.Slot), (slot as context.Slot).type, "u32")
@@ -445,7 +445,7 @@ local function scratchWordGet(ctx: context.Context, node: scalarIR.Expr): (strin
     local block = values.block(ctx, loaded.scratch)
     local escape = loaded.op == "lua_scratch_u32_escape_get"
     if loaded.cursor ~= nil then
-        local cursor = cursorValue(ctx, tostring(loaded.cursorCName))
+        local cursor = cursorValue(ctx, tostring(loaded.cursorUniqueName))
         if escape then
             local capacity = values.u32Field(ctx, block, runtime.SCRATCH_U32, 1)
             local last = e(ctx, ("sub i32 %s, 1"):format(capacity))

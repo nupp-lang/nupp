@@ -1,4 +1,4 @@
--- Reading instructions out of what the C compiler wrote.
+-- Reading instructions out of what the code generator wrote.
 --
 -- Over fixed assembly rather than over a compilation, because what is being
 -- tested is the rules: which mnemonics are a load, which operands make an
@@ -274,7 +274,7 @@ function M.aLayoutReporterIsClaimedByTheBodyItReportsFor()
 end
 
 -- What the reader came for goes first. The compiler emits the oracle before the
--- body it is the oracle for, which is an artifact of how the C was assembled.
+-- body it is the oracle for, which is an artifact of how the module was assembled.
 function M.listingsAreOrderedByRole()
     local ordered = instructions.order({
         {symbol = "a", role = "helper"},

@@ -83,10 +83,10 @@ local function from(library: string?): string
 end
 
 local function resultName(program: scalarIR.Program): string
-    return scalarIR.cIdentifier("KsResult", program.symbol)
+    return scalarIR.identifier("KsResult", program.symbol)
 end
 
---- The private aggregate a multi-result C entry returns.
+--- The private aggregate a multi-result native entry returns.
 function binding.resultStruct(program: scalarIR.Program): {string}
     local lines: {string} = {"cdef struct " .. resultName(program)}
     for position, resultType in ipairs(program.resultTypes or {}) do
@@ -388,7 +388,7 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
 
     local resultSourceTypes = program.resultSourceTypes or {}
     local lines: {string} = {}
-    local block = scalarIR.cIdentifier("ks_result_block", program.symbol)
+    local block = scalarIR.identifier("ks_result_block", program.symbol)
     if #resultSourceTypes > 1 then
         -- One result block per wrapper, reused by every call: a kernel never
         -- re-enters Lua, so nothing can call it again before it is read.
@@ -983,7 +983,7 @@ end
 function binding.module(programs: {scalarIR.Program}, library: string?): string
     local lines: {
         string
-    } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.mem.span\")", "",}
+    } = {"-- Generated from verified test-only native IR.", "", "local span = require(\"nupp.mem.span\")", "",}
 
     local function append(more: {string}): nil
         for _, line in ipairs(more) do
