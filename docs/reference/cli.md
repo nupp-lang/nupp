@@ -1285,7 +1285,7 @@ Arguments:
   CODE  Diagnostic code to explain.
 
 Options:
-  --list          List the codes with a worked example.
+  --list          List the codes with dedicated explanations.
   --format FORMAT, --json, --text
                   Select the report representation.
   --schema        Print the JSON Schema of JSON output and exit.

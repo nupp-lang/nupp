@@ -262,6 +262,27 @@ function M.explainOutputMatchesItsSchema()
     local decoded = agrees(nil, "explain NUPP2119")
     assert(decoded.code == "NUPP2119", "the code is echoed")
     assert(decoded.docs, "and its reference given")
+
+    local listed = agrees(nil, "explain --list")
+    assert(#listed.codes > 0, "the list contains dedicated explanations")
+    for index = 2, #listed.codes do
+        assert(listed.codes[index - 1] < listed.codes[index], "the list is sorted without duplicates")
+    end
+end
+
+function M.reportEncodingSortsKeysWithoutChangingValues()
+    local report = require("nupp.tools.cli.report")
+    local first = {text = "line\nbreak", number = 1.25, flag = true, list = {3, 2}, nested = {z = "last", a = "first"},}
+    local second = {
+        nested = {a = "first", z = "last"},
+        list = {3, 2},
+        flag = true,
+        number = 1.25,
+        text = "line\nbreak",
+    }
+    local expected = [[{"flag":true,"list":[3,2],"nested":{"a":"first","z":"last"},"number":1.25,"text":"line\nbreak"}]]
+    assert(report.encode(first) == expected, report.encode(first))
+    assert(report.encode(second) == expected, report.encode(second))
 end
 
 --- Every name a schema requires is one it also describes, at every depth. A

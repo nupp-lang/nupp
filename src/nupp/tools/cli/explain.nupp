@@ -185,7 +185,7 @@ end
 @cli("explain")
 @derive(cliModule.Command)
 local record Explain
-    --- List the codes with a worked example.
+    --- List the codes with dedicated explanations.
     list: boolean = false
 
     --- Select the report representation.

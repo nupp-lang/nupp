@@ -144,6 +144,24 @@ function M.everyCodeResolvesThroughItsFamilyAtLeast()
          code .. " resolves without a rule or a reference")
    end
    assert(not explain.lookup("WAT1234"), "a code from no family does not resolve")
+   for _, code in ipairs({"NUPP2", "NUPP2oops", "NUPP20000", "OPT", "OPT-", "OPT-nope"}) do
+      assert(not explain.lookup(code), code .. " is not a diagnostic code")
+      assert(not explain.anchor(code), code .. " has no reference anchor")
+   end
+end
+
+function M.catalogCodesAreUniqueSortedAndConnected()
+   local previous
+   for _, code in ipairs(explain.codes()) do
+      assert(not previous or previous < code, code .. " is duplicated or out of order")
+      previous = code
+      local entry = assert(explain.lookup(code), code .. " does not resolve")
+      assert(entry.code == code and entry.family == false, code .. " does not resolve to its own entry")
+      assert(explain.anchor(code) == entry.docs, code .. " disagrees with its reference anchor")
+      for _, related in ipairs(entry.related) do
+         assert(explain.lookup(related), code .. " names unknown related code " .. related)
+      end
+   end
 end
 
 function M.everyCodeTheCompilerCanEmitHasAReference()
@@ -178,6 +196,39 @@ function M.listRefusesACodeItWouldIgnore()
    pipe:close()
    assert(out:find("__exit__:2", 1, true), "a code beside --list is a usage error: " .. out)
    assert(out:find("does not take one", 1, true), "and says why: " .. out)
+end
+
+function M.malformedCodeIsAUsageErrorOnStderr()
+   local stdout, stderr = os.tmpname(), os.tmpname()
+   local status = os.execute(
+      ("'%s' explain NUPP2wat >'%s' 2>'%s'"):format(NUPP, stdout, stderr))
+   local outFile = assert(io.open(stdout, "rb"))
+   local out = outFile:read("*a")
+   outFile:close()
+   local errFile = assert(io.open(stderr, "rb"))
+   local err = errFile:read("*a")
+   errFile:close()
+   os.remove(stdout)
+   os.remove(stderr)
+
+   assert(status ~= 0, "a malformed code fails")
+   assert(out == "", "a usage error writes no stdout: " .. out)
+   assert(err:find("unknown diagnostic code NUPP2wat", 1, true), "stderr identifies the code: " .. err)
+end
+
+function M.jsonAndSchemaOutputAreByteStable()
+   local function output(arguments)
+      local pipe = assert(io.popen(("'%s' explain %s 2>/dev/null"):format(NUPP, arguments)))
+      local out = pipe:read("*a")
+      pipe:close()
+      return out
+   end
+
+   for _, arguments in ipairs({"NUPP2149 --json", "--list --json", "--schema"}) do
+      local first = output(arguments)
+      local second = output(arguments)
+      assert(first == second, arguments .. " changes bytes between processes")
+   end
 end
 
 function M.traceReasonsResolveThroughTheCommand()

@@ -14,8 +14,8 @@ really does report the code it is filed under, so an example cannot quietly stop
 demonstrating the thing it was written to demonstrate.
 
 A code with no entry of its own still resolves, through its family: the rule and
-the reference are the family's, and what is missing is the pair of examples. That
-is honest about what is known rather than inventing a program to fit a code.
+the reference are the family's, and what is missing is the pair of examples. The
+result states what is known instead of inventing a program to fit a code.
 ]]
 
 local explain = {}
@@ -763,7 +763,7 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/do-expressions.md#do-expressions",
     },
     {
-        code = "NUPP2146",
+        code = "NUPP2149",
         summary = "An operand's results cannot be read by an exit suffix",
         rule = "`or return`, `or break` and `or continue` read the operand's first "
         .. "result as both the discriminator and the value. That needs a fixed "
@@ -797,7 +797,7 @@ local ENTRIES: {any} = {
         .. "    local left, right = pair()\n    if left == nil then\n"
         .. "        return nil, nil\n    end\n    return left, right\nend\n"
         .. "return both()\n",
-        related = {"NUPP2146"},
+        related = {"NUPP2149"},
         docs = "docs/learn/language/exit-suffixes.md#exit-suffixes",
     },
     {
@@ -2378,10 +2378,14 @@ ENTRIES[
 
 local byCode: {[string]: any} = {}
 for _, entry in ipairs(ENTRIES) do
+    assert(not byCode[entry.code], "duplicate diagnostic explanation " .. entry.code)
     byCode[entry.code] = entry
 end
 
 local function familyFor(code: string): any
+    if not code:match("^NUPP%d%d%d%d$") and not code:match("^OPT%-%d+$") then
+        return nil
+    end
     for _, family in ipairs(FAMILIES) do
         if code:sub(1, #family.prefix) == family.prefix then
             return family

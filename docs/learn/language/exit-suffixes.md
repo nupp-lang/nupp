@@ -36,10 +36,10 @@ becomes `true` — no second test is needed to use it.
 
 The checker admits an operand whose result count is fixed, whose results are
 not a correlated pack union, and whose first result can be both falsy and a
-value. Anything else reports `NUPP2146` and keeps the explicit conditional:
+value. Anything else is refused and keeps the explicit conditional:
 
 ```nupp
-local always = nonOptional() or return  -- NUPP2146: never nil or false
+local always = nonOptional() or return  -- NUPP2149: never nil or false
 ```
 
 No slot after the first may carry an owner, because the successful path

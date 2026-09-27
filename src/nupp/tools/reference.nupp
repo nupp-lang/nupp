@@ -1079,7 +1079,7 @@ return m
 
     new reference.Section(
         title = "Exit suffixes",
-        codes = {"NUPP1005", "NUPP2002", "NUPP2146", "NUPP2208", "NUPP2517", "NUPP2605"},
+        codes = {"NUPP1005", "NUPP2002", "NUPP2149", "NUPP2208", "NUPP2517", "NUPP2605"},
         body = [=[
 `e or return`, `e or break` and `e or continue` are a contextual suffix at the
 `or` tier. The operand runs once; its first result both decides and is the
@@ -1102,9 +1102,9 @@ bound from a suffix is always nil, which the `exit-suffix-binding` lint reports;
 a caller wanting the other results writes the explicit conditional.
 
 The operand's result count must be fixed and must not be a pack union, and its
-first result must admit both a falsy and a successful value, or `NUPP2146`
-reports. A direct `pcall` or `xpcall` is refused by that rule: they lead with a
-discriminator rather than a result. [](nupp.util.pcallse) and
+first result must admit both a falsy and a successful value. The checker refuses
+any other operand. A direct `pcall` or `xpcall` is refused by that rule: they lead
+with a discriminator rather than a result. [](nupp.util.pcallse) and
 [](nupp.util.xpcallse) answer the conventional layout instead. No slot after the
 first may be ownership-bearing, since the successful path discards every one of
 them.

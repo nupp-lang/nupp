@@ -467,7 +467,7 @@ function M.unreadableOperandsReport()
         "local function always(): integer\n    return 1\nend\n"
         .. "local function f(): integer?\n    local value = always() or return\n    return value\nend\n"
         .. "return f()\n",
-        "NUPP2146",
+        "NUPP2149",
         "never falsy"
     )
     -- A first result that can never be a value: the suffix would always exit.
@@ -475,7 +475,7 @@ function M.unreadableOperandsReport()
         "local function never_(): nil\n    return nil\nend\n"
         .. "local function f(): integer?\n    local value = never_() or return\n    return 1\nend\n"
         .. "return f()\n",
-        "NUPP2146",
+        "NUPP2149",
         "never a value"
     )
     -- An operand with no results at all.
@@ -483,7 +483,7 @@ function M.unreadableOperandsReport()
         "local function nothing(): nil\nend\n"
         .. "local function f(): integer?\n    local value = nothing() or return\n    return 1\nend\n"
         .. "return f()\n",
-        "NUPP2146",
+        "NUPP2149",
         "no value"
     )
     -- An unfixed result count.
@@ -491,7 +491,7 @@ function M.unreadableOperandsReport()
         "local function spread(...: integer): (integer?, ...integer)\n    return 1, ...\nend\n"
         .. "local function f(): integer?\n    local value = spread(1) or return\n    return value\nend\n"
         .. "return f()\n",
-        "NUPP2146",
+        "NUPP2149",
         "an unfixed width"
     )
 end
@@ -508,7 +508,7 @@ function M.protectedBuiltinsAreRefusedByName()
                 .. "    return value, nil\nend\n"
                 .. "return f()\n"
             ):format(call),
-            "NUPP2146",
+            "NUPP2149",
             builtin
         )
         assert(diagnostic.help and diagnostic.help:find("nupp.util." .. builtin .. "se", 1, true), diagnostic.help)

@@ -773,7 +773,7 @@ function expr.install(c: state.Checker): nil
         if pack.alternatives then
             local builtin = protectedBuiltin(operand)
             c.diag(
-                "NUPP2146",
+                "NUPP2149",
                 at,
                 "this operand's results are a correlated pack union, which the suffix cannot read",
                 nil,
@@ -789,11 +789,11 @@ function expr.install(c: state.Checker): nil
             return T.any
         end
         if #pack.head == 0 and not pack.tail then
-            c.diag("NUPP2146", at, "this operand produces no value to test", nil, {help = explicitForm(exitKind)})
+            c.diag("NUPP2149", at, "this operand produces no value to test", nil, {help = explicitForm(exitKind)})
             return T.any
         end
         if pack.tail then
-            c.diag("NUPP2146", at, "this operand's result count is not fixed", nil, {help = explicitForm(exitKind)})
+            c.diag("NUPP2149", at, "this operand's result count is not fixed", nil, {help = explicitForm(exitKind)})
             return T.any
         end
 
@@ -802,7 +802,7 @@ function expr.install(c: state.Checker): nil
         local failure = falsyPart(primary)
         if failure == T.never then
             c.diag(
-                "NUPP2146",
+                "NUPP2149",
                 at,
                 ("this operand's first result is %s, which is never nil or false"):format(T.tostring(primary)),
                 nil,
@@ -812,7 +812,7 @@ function expr.install(c: state.Checker): nil
         end
         if success == T.never then
             c.diag(
-                "NUPP2146",
+                "NUPP2149",
                 at,
                 ("this operand's first result is %s, which is never a value"):format(T.tostring(primary)),
                 nil,

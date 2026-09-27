@@ -107,12 +107,46 @@ local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknow
     return copied
 end
 
+local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): string
+    if type(value) ~= "table" then
+        return json.encode(value)
+    end
+    visiting = visiting or {}
+    if visiting[value] then
+        error("cannot serialize a cyclic Lua table", 0)
+    end
+    visiting[value] = true
+    local parts: {string} = {}
+    if json.isArray(value) then
+        for index, item in ipairs(value as {unknown}) do
+            parts[index] = stableEncode(item, visiting)
+        end
+        visiting[value] = nil
+
+        return "[" .. table.concat(parts, ",") .. "]"
+    end
+    local keys: {string} = {}
+    for key in pairs(value as {[any]: any}) do
+        if type(key) ~= "string" then
+            error("JSON object keys must be strings", 0)
+        end
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    for index, key in ipairs(keys) do
+        parts[index] = json.encode(key) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
+    end
+    visiting[value] = nil
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 --- Encodes a value the way every `--json` command encodes one. Every empty field in
 --- this reporting model is a list, so the copy marks those lists explicitly without
---- mutating the compiler data it was handed.
+--- mutating the compiler data it was handed. Object keys are sorted so the same
+--- report has the same bytes in separate processes.
 function report.encode(value: unknown): string
-    local encoder = require("nupp.codec.json")
-    return encoder.encode(withArrayEmpties(value))
+    return stableEncode(withArrayEmpties(value))
 end
 
 --- Lays compact JSON out over lines, two spaces per level of nesting.

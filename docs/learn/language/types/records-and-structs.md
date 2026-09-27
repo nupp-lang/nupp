@@ -258,8 +258,8 @@ local head: Node<integer> = new Node(value = 1, next = tail)
 ```
 
 `next: Node<T>?` says the same thing. Everywhere else the parameters are
-written out, and an application that writes the wrong number of them reports
-[NUPP2146](#).
+written out, and an application that writes the wrong number of them is
+refused where the generic name appears.
 
 Records may nest other declarations, which reach through the table their owner
 sits on:
