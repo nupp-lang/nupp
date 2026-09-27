@@ -1422,11 +1422,7 @@ function M.theDefaultPolicyEmitsNothing()
     local dir = project(nil)
     local out, code = build(dir)
     test.equal(code, 0, out)
-    test.equal(
-        read(tieredUnit(dir, firstHostTier())),
-        nil,
-        "a project that did not ask for native code gets none"
-    )
+    test.equal(read(tieredUnit(dir, firstHostTier())), nil, "a project that did not ask for native code gets none")
     assert(read(dir .. "/build/native/kernel.lua"), "the ordinary Lua body is still what was built")
 end
 
@@ -1661,10 +1657,7 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
         ir:find("%struct.KsSample = type { i32 }", 1, true),
         "the checked nominal field layout, not alias text, selects physical storage"
     )
-    assert(
-        ir:find("add i32 ", 1, true),
-        "the fixed-width operation aliased through a local reaches native IR"
-    )
+    assert(ir:find("add i32 ", 1, true), "the fixed-width operation aliased through a local reaches native IR")
 end
 
 function M.signedWideOverflowExecutesWithWrappingSemantics()
@@ -1876,12 +1869,14 @@ function M.theFeatureTierReachesTheBackend()
     -- it again bought nothing.
     local unnamed = builtFixture("require")
     local beforeTiers = buildTiers(nil, nil)
+
     -- An LLVM unit's line tables name the directory its source sits in, which
     -- is the one thing two copies of a project may not share.
     local function unit(path)
         local text = read(path)
         return text and (text:gsub('(!DIFile%([^)]-directory: )"[^"]*"', '%1""'))
     end
+
     local baseline = assert(unit(tieredUnit(unnamed, beforeTiers[1].tier)))
     local before = assert(unit(tieredUnit(unnamed, beforeTiers[#beforeTiers].tier)))
 
@@ -1914,10 +1909,7 @@ function M.theFeatureTierReachesTheBackend()
 
     if widens then
         assert(ceiling ~= nil or after ~= baseline, "and the ceiling also carries the wide unit")
-        assert(
-            read(dir .. "/build/native/aot/features.ll"),
-            "several tiers bring one baseline runtime detector"
-        )
+        assert(read(dir .. "/build/native/aot/features.ll"), "several tiers bring one baseline runtime detector")
     else
         test.equal(after, before, "naming the only tier an architecture has changes nothing")
     end
@@ -2255,7 +2247,8 @@ function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
     test.equal(code, 0, out)
     local script = dir .. "/run.mjs"
     local handle = assert(io.open(script, "wb"))
-    handle:write([=[
+    handle:write(
+        [=[
 import fs from 'fs';
 const root = process.argv[2] + '/build/native/aot/';
 const unit = JSON.parse(fs.readFileSync(root + 'units.json')).units.find(u => u.wasm);
@@ -2276,7 +2269,8 @@ api[entry.call](a, r);
 console.log(JSON.stringify({imports: imports.length, total: view().getFloat64(r, true),
   first: view().getUint32(r + 8, true), second: view().getUint32(r + 16, true),
   memory: api.memory.buffer.byteLength}));
-]=])
+]=]
+    )
     handle:close()
     local pipe = assert(io.popen(("node %q %q 2>&1"):format(script, dir)))
     local answer = pipe:read("*a")
@@ -2326,7 +2320,9 @@ function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
     test.equal(#candidates, 2, "both tiers are named at the call site: " .. call)
     local script = dir .. "/fallback.mjs"
     local handle = assert(io.open(script, "wb"))
-    handle:write(([=[
+    handle:write(
+        (
+            [=[
 import fs from 'fs';
 import {createKernels} from %q;
 const root = process.argv[2] + '/build/native/aot/';
@@ -2361,7 +2357,9 @@ async function run(simd) {
   return {total: results.getFloat64(0, true), first: results.getUint32(8, true), second: results.getUint32(16, true)};
 }
 console.log(JSON.stringify({widest: tierOf.get(candidates[0]), simd: await run(true), scalar: await run(false)}));
-]=]):format(fileUrl(HERE .. "/../runtime/luajit/aot.mjs"), table.concat(candidates, ", ")))
+]=]
+        ):format(fileUrl(HERE .. "/../runtime/luajit/aot.mjs"), table.concat(candidates, ", "))
+    )
     handle:close()
     local run = assert(io.popen(("node %q %q 2>&1"):format(script, dir)))
     local answer = run:read("*a")
@@ -2411,8 +2409,10 @@ end
 function M.everyBuilderShapeLinksIntoAWindowsDll()
     local dir = builderProject("require")
     local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write([[return {include = {"src"}, build = {targets = {native = {kind = "modules",
-   entries = {"builder"}, outDir = "build/native", aot = "require", aotTarget = "x86_64-pc-windows-msvc"}}}}]])
+    manifest:write(
+        [[return {include = {"src"}, build = {targets = {native = {kind = "modules",
+   entries = {"builder"}, outDir = "build/native", aot = "require", aotTarget = "x86_64-pc-windows-msvc"}}}}]]
+    )
     manifest:close()
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -2428,7 +2428,8 @@ function M.aWindowsBuilderDllBindsLuaWhenItLoads()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
     local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    source:write([[
+    source:write(
+        [[
 @aot
 local function rows(count: integer): {number}
     local result = table.new(count, 0)
@@ -2439,11 +2440,14 @@ local function rows(count: integer): {number}
 end
 
 return {rows = rows}
-]])
+]]
+    )
     source:close()
     local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write([[return {include = {"src"}, build = {targets = {native = {kind = "modules",
-   entries = {"kernel"}, outDir = "build/native", aot = "require", aotTarget = "x86_64-pc-windows-msvc"}}}}]])
+    manifest:write(
+        [[return {include = {"src"}, build = {targets = {native = {kind = "modules",
+   entries = {"kernel"}, outDir = "build/native", aot = "require", aotTarget = "x86_64-pc-windows-msvc"}}}}]]
+    )
     manifest:close()
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -2609,6 +2613,7 @@ end
 function M.wasmConstFamiliesBindEveryKernelSpecializationAndRefuseBuilders()
     local environment = envMod.new(HERE .. "/..")
     local selected = assert(targets.select("wasm32-unknown-emscripten", "simd128"))
+
     local function lowered(source)
         local tree = parser.parse(source, "wasmconst.nupp")
         for _, problem in ipairs(compilerCheck.check(tree, "wasmconst.nupp", environment)) do
@@ -2616,10 +2621,12 @@ function M.wasmConstFamiliesBindEveryKernelSpecializationAndRefuseBuilders()
         end
         local artifacts, problems = aotCompile.artifacts(source, "wasmconst.nupp", tree, nil, selected)
         assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
+
         return artifacts
     end
 
-    local withBuilder = lowered([=[
+    local withBuilder = lowered(
+        [=[
 module wasmconst
 local valueBuilder = require("nupp.codec.valuebuilder")
 local {type Buffer} = require("nupp.text")
@@ -2631,7 +2638,8 @@ local function apply(borrows source: string | Buffer): uint32
     return measured(source, 1)
 end
 export = {apply=apply, measured=measured}
-]=])
+]=]
+    )
     local refused = require("nupp.compiler.aot.wasmbridge").validate(withBuilder.programs)
     assert(refused and refused:find("cannot bind Lua-builder entry", 1, true), tostring(refused))
 
@@ -2725,6 +2733,8 @@ function M.wasmReplacementRecordsItsCompiledClosure()
             name = "copy",
             symbol = "ks_copy",
             params = {},
+            guards = {},
+            relations = {},
             layouts = {},
             resultSourceTypes = {},
         },
@@ -6687,7 +6697,14 @@ function M.explicitFieldLoadsReadTheirOwnElementAtEveryTail()
     local dir = project("require")
     local variants = {
         {name = "Pair", element = "float", array = "float", ctype = "float", lanes = 4, fields = {"x", "y"}},
-        {name = "Triple", element = "uint32", array = "uint32", ctype = "uint32_t", lanes = 4, fields = {"a", "b", "c"}},
+        {
+            name = "Triple",
+            element = "uint32",
+            array = "uint32",
+            ctype = "uint32_t",
+            lanes = 4,
+            fields = {"a", "b", "c"}
+        },
         {name = "Wide", element = "number", array = "number", ctype = "double", lanes = 2, fields = {"p", "q"}},
         {
             name = "Mixed",
@@ -6721,7 +6738,10 @@ function M.explicitFieldLoadsReadTheirOwnElementAtEveryTail()
             whole[#whole + 1] = ('s:load(points, (cursor + 1) as integer, "%s") * %d'):format(field, weight)
             masked[#masked + 1] = ('s:load(points, (cursor + 1) as integer, "%s", active) * %d'):format(field, weight)
         end
-        source[#source + 1] = ([[
+        source[
+            #source + 1
+        ] = (
+            [[
 local struct %s
 %s
 end
@@ -6739,7 +6759,8 @@ local function sum%s(exclusive output: span.WriteSpan<%s>, borrows points: span.
         end
         cursor = cursor + s.lanes
     end
-end]]):format(
+end]]
+        ):format(
             v.name,
             table.concat(members, "\n"),
             v.name,
@@ -6770,13 +6791,9 @@ end]]):format(
             table.insert(members, 2, ("%s %s;"):format(v.extra[3], v.extra[1]))
         end
         ffi.cdef(
-            ("typedef struct { %s } NuppFieldRun%s; void %s(%s *, const NuppFieldRun%s *, size_t);"):format(
-                table.concat(members, " "),
-                v.name,
-                symbol,
-                v.ctype,
-                v.name
-            )
+            (
+                "typedef struct { %s } NuppFieldRun%s; void %s(%s *, const NuppFieldRun%s *, size_t);"
+            ):format(table.concat(members, " "), v.name, symbol, v.ctype, v.name)
         )
         for count = 0, 13 do
             -- One element past the span holds values that would show if read.
