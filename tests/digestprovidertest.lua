@@ -1,5 +1,7 @@
 local state = require("providerstate")
 local builtin = require("nupp.digest.internal.builtin")
+local checksumBuiltin = require("nupp.checksum.internal.builtin")
+local checksumProvider = require("nupp.runtime.provider.checksum")
 local M = {}
 
 local function selected(kind, algorithms)
@@ -70,6 +72,33 @@ function M.providerFailureClosesAndDoesNotFallBack()
     assert(closed == 1, "failed finalization closes exactly once")
 end
 
+function M.checksumProviderFailureClosesAndDoesNotFallBack()
+    local closed = 0
+    local load = selected("checksum", {
+        crc32c = {
+            name = "crc32c",
+            width = 32,
+            create = function()
+                return {
+                    update = function()
+                        error("test checksum provider failure")
+                    end,
+                    value = function()
+                        error("must not read failed state")
+                    end,
+                    close = function()
+                        closed = closed + 1
+                    end,
+                }
+            end,
+        },
+    })
+    local checksum = load("nupp.checksum")
+    local ok, problem = pcall(checksum.value, "crc32c", "abc")
+    assert(not ok and tostring(problem):find("test checksum provider failure", 1, true))
+    assert(closed == 1, "failed checksum update closes exactly once")
+end
+
 function M.invalidDescriptorsFailAtRequireTime()
     for _, case in ipairs({
         {"digest", "sha256", "digestSize", 31},
@@ -110,6 +139,23 @@ function M.emptyDiscoveryRetainsBuiltinsAndIndependentListings()
         assert(#names > 0)
         names[1] = "mutated"
         assert(api.algorithms()[1] ~= "mutated", "listing must not expose retained storage")
+    end
+end
+
+function M.builtinChecksumProviderRetainsCanonicalDescriptors()
+    local expected = checksumBuiltin.names()
+    assert(table.concat(expected, ",") == "adler32,crc32-ieee,crc32c,crc64-ecma")
+    expected[1] = "changed"
+    assert(checksumBuiltin.names()[1] == "adler32", "name lists must be independent")
+
+    for _, name in ipairs(checksumBuiltin.names()) do
+        local descriptor = assert(checksumProvider.algorithms[name])
+        assert(descriptor == checksumBuiltin.lookup(name), name .. " descriptor identity changed")
+        local first = descriptor:create()
+        local second = descriptor:create()
+        assert(first ~= second, name .. " factory reused state")
+        first:close()
+        second:close()
     end
 end
 
