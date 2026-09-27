@@ -39,7 +39,8 @@ function specialize.nodes(value: any): integer
     return count as integer
 end
 
---- Deep copy with helper parameters replaced; `source` fields are shared.
+--- Deep copy with helper parameters replaced by semantic name; `source` fields
+--- are shared.
 function specialize.copy(value: any, replacements: {[string]: scalarIR.Expr}): any
     if type(value) ~= "table" then
         return value
@@ -79,7 +80,11 @@ function specialize.propose(node: scalarIR.Expr, context: specialize.Context): s
             return nil
         end
         local param = helper.params[position]
-        replacements[tostring(param.uniqueName or param.name)] = argument
+        local identity = tostring(param.uniqueName or param.name)
+        if replacements[identity] ~= nil then
+            return nil
+        end
+        replacements[identity] = argument
     end
     local replacement = specialize.copy(helper.values[1], replacements) as scalarIR.Expr
 

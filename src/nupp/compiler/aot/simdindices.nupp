@@ -4,6 +4,35 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 local fold = require("nupp.compiler.aot.fold")
 local indices = {}
 
+const MAX_VECTOR_BITS = 512
+
+local function indexElement(element: string?): boolean
+    return element == "i32" or element == "u32" or element == "i64" or element == "u64"
+end
+
+local function speciesElement(element: string?): boolean
+    return element == "f32"
+        or element == "f64"
+        or element == "i8"
+        or element == "u8"
+        or element == "i16"
+        or element == "u16"
+        or indexElement(element)
+end
+
+local function logicalLanes(element: string, shape: string): integer?
+    local bits = tonumber(element:sub(2))
+    if shape == "preferred" then
+        return bits ~= nil and math.floor(MAX_VECTOR_BITS / (bits as number)) as integer or nil
+    end
+    local lanes = tonumber(shape:match("^fixed(%d+)$"))
+    if lanes == nil or lanes < 2 or lanes > 64 or shape ~= "fixed" .. tostring(lanes) then
+        return nil
+    end
+
+    return lanes as integer
+end
+
 local function exactIndex(value: scalarIR.Expr): number?
     if value.op == "numeric_cast" then
         local converted = value as scalarIR.Convert
@@ -32,7 +61,7 @@ function indices.matches(indexType: string, speciesType: string): boolean
     if element == nil or targetElement == nil or shape ~= targetShape then
         return false
     end
-    if element ~= "i32" and element ~= "u32" and element ~= "i64" and element ~= "u64" then
+    if not indexElement(element) or not speciesElement(targetElement) or logicalLanes(element, shape) == nil then
         return false
     end
 
@@ -48,7 +77,7 @@ function indices.unique(value: scalarIR.Expr): boolean
         return false
     end
     local element, shape = value.type:match("^simd_vector_([iu]%d+)_(.+)$")
-    if element == nil then
+    if not indexElement(element) then
         return false
     end
     local args = (value as scalarIR.Simd).args
@@ -56,8 +85,8 @@ function indices.unique(value: scalarIR.Expr): boolean
         return false
     end
     local first, step = exactIndex(args[1]), exactIndex(args[2])
-    local lanes = shape == "preferred" and 64 or tonumber((shape or ""):match("^fixed(%d+)$"))
-    if first == nil or step == nil or step == 0 or lanes == nil or lanes < 2 or lanes > 64 then
+    local lanes = logicalLanes(element as string, shape as string)
+    if first == nil or step == nil or step == 0 or lanes == nil then
         return false
     end
     local bits = tonumber(element:sub(2)) or 0
