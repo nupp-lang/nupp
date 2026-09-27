@@ -30,7 +30,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 42
+const scalarIR.VERSION = 43
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -1170,30 +1170,11 @@ record scalarIR.Clause
     source: scalarIR.Source?
 end
 
---- One exact label on an AOT switch annotation. It is data on an ordinary `If`,
---- not a statement opcode: every consumer which ignores it retains the comparison
---- chain's complete semantics.
-record scalarIR.SwitchLabel
-    value: string
-    type: 'i32' | 'u32'
-    source: scalarIR.Source?
-end
-
-record scalarIR.SwitchArm
-    labels: {scalarIR.SwitchLabel}
-end
-
-record scalarIR.NativeSwitch
-    selector: scalarIR.Expr
-    arms: {scalarIR.SwitchArm}
-end
-
 record scalarIR.If
     op: 'if'
     clauses: {scalarIR.Clause}
     elseBody: {scalarIR.Statement}?
     source: scalarIR.Source?
-    nativeSwitch: scalarIR.NativeSwitch?
 end
 
 record scalarIR.While
@@ -1504,7 +1485,6 @@ record scalarIR.Helper
     --- the callee is compiled once and keeps its own contract.
     native: boolean?
 
-    resultType: scalarIR.Type
     resultTypes: {scalarIR.Type}
 
     source: scalarIR.Source?
@@ -1541,8 +1521,6 @@ record scalarIR.Workgroup
     groups: scalarIR.Expr
     dispatchSpan: string
     size: integer
-    groupIndex: string
-    localIndex: string
     shared: {scalarIR.Shared}
     statements: {scalarIR.Statement}
     source: scalarIR.Source?
@@ -1636,8 +1614,6 @@ record scalarIR.Program
 
     --- Whether the source used the explicit SIMD vocabulary.
     usesSimd: boolean?
-
-    usesNumberToken: boolean?
 
     --- The preferred vector width selected for this target.
     simdWidth: integer?

@@ -378,7 +378,6 @@ function M.llvmLoweringDoesNotMutateHelpersOrLeakBetweenWidths()
                 name = "pair",
                 cName = name .. "_pair",
                 params = {value},
-                resultType = "multi",
                 resultTypes = {vector, vector},
                 values = {value, value}
             }

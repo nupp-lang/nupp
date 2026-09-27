@@ -1022,8 +1022,6 @@ record lower.Kernel
 
     usesSimd: boolean
 
-    usesNumberToken: boolean
-
     --- Whether lowering reached an operation that requires the VM-aware ABI.
     usesLua: boolean
 
@@ -2224,7 +2222,6 @@ function lower.rearrange(
             cName = kernel.symbol .. "_" .. key,
             params = params,
             values = values,
-            resultType = args[1].type,
             resultTypes = resultTypes,
             source = source
         )
@@ -2756,7 +2753,6 @@ local function call(
             )
         end
         markLua(kernel, lower.site(node))
-        kernel.usesNumberToken = true
         return new scalarIR.LuaBuilderNumberToken(
             op = "lua_builder_number_token",
             builder = args[1],
@@ -2948,7 +2944,7 @@ local function call(
         helper = helper.name,
         cName = helper.cName,
         args = args,
-        type = #helper.resultTypes == 1 and helper.resultType or "multi",
+        type = #helper.resultTypes == 1 and helper.resultTypes[1] or "multi",
         resultTypes = helper.resultTypes,
         source = lower.site(node)
     )
@@ -3126,7 +3122,7 @@ local function laneWiseMap(
     -- A helper takes and returns ordinary Nupp values, so a float species
     -- calls one over binary64 and narrows what comes back.
     local carrier = scalar == "f32" and "f64" or scalar
-    if #helper.params ~= #args or #helper.resultTypes ~= 1 or helper.resultType ~= carrier then
+    if #helper.params ~= #args or #helper.resultTypes ~= 1 or helper.resultTypes[1] ~= carrier then
         context.reject(source, "SIMD map needs a helper over the species' scalar taking one argument per vector")
     end
     for _, param in ipairs(helper.params) do
@@ -5138,7 +5134,6 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
             cName = scalarIR.privateSymbol(name),
             params = params,
             values = {},
-            resultType = resultTypes[1],
             resultTypes = resultTypes,
             native = true,
             source = lower.site(declaration)
@@ -5165,7 +5160,6 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         cName = kernel.symbol .. "_helper_" .. scalarIR.privateSymbol(helperKey):sub(4),
         params = params,
         values = {},
-        resultType = resultTypes[1],
         resultTypes = resultTypes,
         source = lower.site(declaration)
     )
@@ -5574,10 +5568,8 @@ local function switchLocal(
     )
     local clauses: {scalarIR.Clause} = {}
     local nativePlan = switchplan.native(nativeLabelsFit and selector.type or "f64")
-    local nativeArms: {scalarIR.SwitchArm} = {}
     for _, lowered in ipairs(arms) do
         local condition: scalarIR.Expr? = nil
-        local nativeLabels: {scalarIR.SwitchLabel} = {}
         for _, caseValue in ipairs(lowered.case.values or {}) do
             local label = switchCaseValue(caseValue, kernel)
             local number = label.op == "constant" and tonumber((label as scalarIR.Constant).value) or nil
@@ -5594,13 +5586,6 @@ local function switchLocal(
                     op = "constant_i32",
                     value = spelling,
                     type = selector.type,
-                    source = lower.site(caseValue)
-                )
-                nativeLabels[
-                    #nativeLabels + 1
-                ] = new scalarIR.SwitchLabel(
-                    value = spelling,
-                    type = selector.type as any,
                     source = lower.site(caseValue)
                 )
             else
@@ -5655,9 +5640,6 @@ local function switchLocal(
             body = lowered.setup,
             source = lower.site(lowered.case)
         )
-        if nativePlan.tag == "NativeIntegerSwitch" then
-            nativeArms[#nativeArms + 1] = new scalarIR.SwitchArm(labels = nativeLabels)
-        end
     end
     local elseBody: {scalarIR.Statement}? = nil
     if otherwise and elseValue and not elseNever then
@@ -5673,23 +5655,7 @@ local function switchLocal(
     if elseNever then
         elseBody = elseSetup
     end
-    local expressionArms = #elseSetup <= 1
-    for _, arm in ipairs(arms) do
-        expressionArms = expressionArms and #arm.setup == 1
-    end
-    local nativeSwitch = expressionArms
-        and nativePlan.tag == "NativeIntegerSwitch"
-        and new scalarIR.NativeSwitch(selector = selectorRef, arms = nativeArms)
-        or nil
-    out[
-        #out + 1
-    ] = new scalarIR.If(
-        op = "if",
-        clauses = clauses,
-        elseBody = elseBody,
-        source = lower.site(node),
-        nativeSwitch = nativeSwitch
-    )
+    out[#out + 1] = new scalarIR.If(op = "if", clauses = clauses, elseBody = elseBody, source = lower.site(node))
     environment[selectorName] = nil
 end
 
@@ -5723,9 +5689,6 @@ local function exitValueLoops(body: {scalarIR.Statement}, done: scalarIR.Name): 
     for _, statement in ipairs(body) do
         if statement.op == "if" then
             local branch = statement as scalarIR.If
-            -- A source break inside a block arm targets a loop, not the native
-            -- switch.
-            branch.nativeSwitch = nil
             for _, clause in ipairs(branch.clauses) do
                 exitValueLoops(clause.body, done)
             end
@@ -8777,7 +8740,6 @@ local function newKernel(
         lengthBounds = {},
         scratchLengthBounds = {},
         usesSimd = false,
-        usesNumberToken = false,
         usesLua = false,
         serial = 0,
         context = context
@@ -9068,14 +9030,11 @@ function lower.program(
                 resultTypes = {},
                 resultSourceTypes = {},
                 usesSimd = false,
-                usesNumberToken = false,
                 workgroup = new scalarIR.Workgroup(
                     prelude = prelude,
                     groups = groups,
                     dispatchSpan = dispatchSpan,
                     size = size as integer,
-                    groupIndex = groupName,
-                    localIndex = "localIndex",
                     shared = kernel.sharedOrder as {scalarIR.Shared},
                     statements = lowered,
                     source = lower.site(workgroupCall)
@@ -9216,7 +9175,6 @@ function lower.program(
             resultTypes = resultTypes,
             resultSourceTypes = resultSourceTypes,
             usesSimd = kernel.usesSimd,
-            usesNumberToken = kernel.usesNumberToken,
             source = lower.site(fn)
         )
 
@@ -9293,7 +9251,6 @@ function lower.program(
             resultTypes = {},
             resultSourceTypes = {},
             usesSimd = kernel.usesSimd,
-            usesNumberToken = kernel.usesNumberToken,
             loop = new scalarIR.Loop(
                 index = index,
                 first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,

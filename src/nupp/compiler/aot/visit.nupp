@@ -372,10 +372,6 @@ function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.Sca
             for _, clause in ipairs(value.clauses) do
                 clause.condition = rewrite(clause.condition)
             end
-            if value.nativeSwitch ~= nil then
-                local nativeSwitch = value.nativeSwitch as scalarIR.NativeSwitch
-                nativeSwitch.selector = rewrite(nativeSwitch.selector)
-            end
             yield nil
         end
         case "while" -> do

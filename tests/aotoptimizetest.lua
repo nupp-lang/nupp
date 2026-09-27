@@ -301,7 +301,6 @@ function M.foldsWidthEstablishmentAndSpecializesConstantHelpers()
                type = "u32",
             },
          },
-         resultType = "u32",
          resultTypes = {"u32"},
       },
    }
@@ -812,7 +811,7 @@ function M.helperValuesFoldWithoutTheBodyEnvironment()
       values = {{
          op = "u32_add", left = named("m", "u32"), right = integer(1, "u32"), type = "u32",
       }},
-      resultType = "u32", resultTypes = {"u32"},
+      resultTypes = {"u32"},
    }}
    local stats = optimize.program(ir)
    assert(stats.specializedHelperCalls == 0, "a nonliteral argument blocks specialization")
@@ -840,7 +839,7 @@ function M.specializedReplacementsWaitForTheNextPassToPropagate()
       values = {{
          op = "u32_add", left = named("m", "u32"), right = integer(1, "u32"), type = "u32",
       }},
-      resultType = "u32", resultTypes = {"u32"},
+      resultTypes = {"u32"},
    }}
    local stats = optimize.program(ir)
    assert(stats.specializedHelperCalls == 1)
@@ -866,7 +865,7 @@ function M.declinedSpecializationChangesNothing()
       name = "wide", cName = "wide",
       params = {{op = "helper_param", name = "value", cName = "value", type = "u32"}},
       values = {chain},
-      resultType = "u32", resultTypes = {"u32"},
+      resultTypes = {"u32"},
    }}
    local stats = optimize.program(ir)
    assert(stats.specializedHelperCalls == 0, "growth beyond the budget declines")

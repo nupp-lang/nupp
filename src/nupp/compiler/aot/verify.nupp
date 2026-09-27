@@ -1156,9 +1156,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 -- species calls one over binary64.
                 local carrier = scalar == "f32" and "f64" or scalar
                 holds(
-                    #helper.params == #args
-                    and helper.resultType == carrier
-                    and (helper.resultTypes == nil or #(helper.resultTypes as {scalarIR.Type}) == 1),
+                    #helper.params == #args and #helper.resultTypes == 1 and helper.resultTypes[1] == carrier,
                     "generic SIMD lane-wise helper does not take the element"
                 )
                 for _, param in ipairs(helper.params) do
@@ -1759,7 +1757,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
 
         local helper = found as scalarIR.Helper
         holds(
-            #node.args == #helper.params and (node.type == helper.resultType or node.type == "multi"),
+            #node.args == #helper.params and (node.type == helper.resultTypes[1] or node.type == "multi"),
             "invalid helper call"
         )
         for position, argument in ipairs(node.args) do
@@ -1956,57 +1954,6 @@ local function proveCursorBounds(
     end
 
     return cursorBounds
-end
-
---- Flattens an `or` chain into the conditions it joins, in order.
-local function disjuncts(condition: scalarIR.Expr, out: {scalarIR.Expr}): {scalarIR.Expr}
-    if condition.op == "or" then
-        local pair = condition as scalarIR.Binary
-        disjuncts(pair.left, out)
-        disjuncts(pair.right, out)
-    else
-        out[#out + 1] = condition
-    end
-
-    return out
-end
-
---- Holds a native switch to the branch chain it stands in for.
----
---- The code generator dispatches on the switch wherever one is present and
---- never reads the clause conditions, so the two have to say one thing: an arm
---- per clause, and each clause's condition exactly `selector == label` over
---- that arm's labels in order, joined by `or`.
-local function nativeSwitch(statement: scalarIR.If, values: {[string]: string}, scope: verify.Scope): nil
-    local switch = statement.nativeSwitch as scalarIR.NativeSwitch
-    scalarWalk(switch.selector, values, scope)
-    holds(
-        switch.selector.op == "local" and (switch.selector.type == "i32" or switch.selector.type == "u32"),
-        "native switch selector is not a fixed-width local"
-    )
-    holds(#switch.arms == #statement.clauses, "native switch arms do not match the branch clauses")
-    local selector = switch.selector as scalarIR.Name
-    for position, arm in ipairs(switch.arms) do
-        local tests = disjuncts(statement.clauses[position].condition, {})
-        holds(#arm.labels > 0 and #tests == #arm.labels, "native switch arm does not match its clause")
-        for index, label in ipairs(arm.labels) do
-            local test = tests[index]
-            local equal = test.op == "eq" and test as scalarIR.Binary or nil
-            local left = equal ~= nil and equal.left.op == "local" and equal.left as scalarIR.Name or nil
-            local right = equal ~= nil and equal.right.op == "constant_i32" and equal.right as scalarIR.IntConstant
-                or nil
-            holds(
-                label.type == selector.type
-                and left ~= nil
-                and left.name == selector.name
-                and left.cName == selector.cName
-                and right ~= nil
-                and right.type == label.type
-                and right.value == label.value,
-                "native switch label does not match its clause condition"
-            )
-        end
-    end
 end
 
 --- Retires from `scope` every cursor bound the nested block retired.
@@ -2669,9 +2616,6 @@ local function block(
             scalarWalk(statement as scalarIR.Expr, values, scope)
         elseif statement.op == "if" then
             local invalidated: {[string]: boolean} = {}
-            if statement.nativeSwitch ~= nil then
-                nativeSwitch(statement, values, scope)
-            end
             for _, clause in ipairs(statement.clauses) do
                 holds(clause.condition.type == "bool", "non-boolean branch")
                 scalarWalk(clause.condition, values, scope)
@@ -3155,11 +3099,7 @@ local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
             holds(values[constant.cName] == nil, "an IR constant table shadows a helper parameter")
             values[constant.cName] = "lua_string"
         end
-        holds(
-            helper.native == true
-            or #helper.values == #helper.resultTypes and helper.resultType == helper.resultTypes[1],
-            "helper result mismatch"
-        )
+        holds(helper.native == true or #helper.values == #helper.resultTypes, "helper result mismatch")
         for position, value in ipairs(helper.values) do
             holds(value.type == helper.resultTypes[position], "helper result type mismatch")
             scalarWalk(value, values, scope)
