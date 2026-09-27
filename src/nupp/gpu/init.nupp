@@ -1,7 +1,7 @@
 module nupp.gpu
 
 --[[
-Resident compute buffers over the selected GPU provider.
+`nupp.gpu` manages resident compute buffers over the selected GPU provider.
 
 The context owns every buffer and compiled kernel created from it. Buffers and
 kernels borrow that context, so checked code cannot close the device while one
@@ -32,8 +32,8 @@ upload/download only where the program asks for them.
 
 `context:tensor(element, shape)` allocates dense row-major storage. A checked
 `gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
-applied with `gpu.view(buffer, layout)` without allocating. Transfers remain dense;
-layout-aware kernels consume the explicit metadata.
+applied with `gpu.view(buffer, layout)` without allocating device storage.
+Transfers remain dense; layout-aware kernels consume the explicit metadata.
 ]]
 
 local spi = require("nupp.spi")
@@ -84,18 +84,31 @@ export const workgroups: function(
 --- Opens a compute device through the selected provider.
 export const open: function(): affine(api.Context, api.destroyContext) = provider.open
 
+--- Returns the canonical tensor layout for a buffer or view.
+--- @param buffer the buffer or view to describe
+--- @return the buffer's layout
 export function bufferLayout<T>(borrows buffer: api.Buffer<T>): tensorlayout.Layout
     return buffer:layout()
 end
 
+--- Reports whether a buffer or view occupies one dense element range.
+--- @param buffer the buffer or view to inspect
+--- @return true when its elements are dense
 export function bufferIsDense<T>(borrows buffer: api.Buffer<T>): boolean
     return tensorlayout.isDense(buffer:layout())
 end
 
+--- Reports whether every logical element maps to a distinct storage element.
+--- @param buffer the buffer or view to inspect
+--- @return true when its element mapping is injective
 export function bufferIsInjective<T>(borrows buffer: api.Buffer<T>): boolean
     return tensorlayout.isInjective(buffer:layout())
 end
 
+--- Creates a checked view over a buffer's root allocation without copying.
+--- @param buffer the buffer whose allocation the view uses
+--- @param layout the checked layout to apply
+--- @return the new view
 export function view<T>(borrows buffer: api.Buffer<T>, layout: tensorlayout.Layout): api.Buffer<T> borrows (buffer)
     return buffer:view(layout)
 end

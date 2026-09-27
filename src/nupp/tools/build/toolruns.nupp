@@ -34,6 +34,15 @@ function toolruns.count(): integer
 end
 
 local processorMemo: integer? = nil
+local MAX_SAFE_INTEGER = 9007199254740991
+
+local function finite(value: number?): number?
+    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+        return nil
+    end
+
+    return value
+end
 
 --- How many compilations this machine should run at once.
 ---
@@ -48,16 +57,16 @@ function toolruns.processors(): integer
     end
     local found: integer? = nil
     if windows then
-        found = tonumber(os.getenv("NUMBER_OF_PROCESSORS") or "") as integer?
+        found = finite(tonumber(os.getenv("NUMBER_OF_PROCESSORS") or "")) as integer?
     else
         local handle = io.popen("getconf _NPROCESSORS_ONLN 2>/dev/null")
         if handle ~= nil then
             local line = (handle as LuaFile):read("*l");
             (handle as LuaFile):close()
-            found = tonumber(line or "") as integer?
+            found = finite(tonumber(line or "")) as integer?
         end
     end
-    if found == nil or (found as integer) < 1 then
+    if found == nil or (found as integer) < 1 or (found as integer) > MAX_SAFE_INTEGER then
         found = 4
     end
     processorMemo = math.floor(found as integer) as integer
@@ -67,13 +76,13 @@ end
 
 --- The width to run `jobs` compilations at.
 ---
---- `NUPP_AOT_JOBS` overrules it, which is what a machine sharing its processors
+--- `NUPP_AOT_JOBS` overrides it, which is what a machine sharing its processors
 --- with something else wants, and what a measurement of the bound needs.
 function toolruns.width(jobs: integer): integer
     if windows or jobs <= 1 then
         return 1
     end
-    local asked = tonumber(os.getenv("NUPP_AOT_JOBS") or "")
+    local asked = finite(tonumber(os.getenv("NUPP_AOT_JOBS") or ""))
     local bound = asked ~= nil and math.floor(asked as number) or toolruns.processors()
     if bound < 1 then
         bound = 1

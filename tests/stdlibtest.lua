@@ -359,6 +359,53 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     assertEq(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
 end
 
+function M.httpBodyHelpersRejectMalformedRuntimeInputs()
+    local http = require("nupp.io.http")
+
+    for _, invalid in ipairs({
+        false,
+        7,
+        {},
+        {
+            toString = function()
+                return "file.txt"
+            end,
+        }
+    }) do
+        local ok, problem = pcall(http.file, invalid)
+        assert(not ok and tostring(problem):find("needs a path", 1, true), tostring(problem))
+    end
+
+    for _, invalid in ipairs({
+        false,
+        7,
+        {},
+        {
+            read = function()
+            end,
+        },
+        {
+            close = function()
+            end,
+        }
+    }) do
+        local ok, problem = pcall(http.reader, invalid)
+        assert(not ok and tostring(problem):find("needs a reader", 1, true), tostring(problem))
+    end
+
+    local source = {
+        read = function()
+            return ""
+        end,
+        close = function()
+        end,
+    }
+    for _, invalid in ipairs({false, "1", -1, 1.5, math.huge, 0 / 0}) do
+        local ok, problem = pcall(http.reader, source, invalid)
+        assert(not ok and tostring(problem):find("nonnegative integer", 1, true), tostring(problem))
+    end
+end
+
 function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
     local effects = require("nupp.runtime.browser.effects")
     local ffi = require("ffi")

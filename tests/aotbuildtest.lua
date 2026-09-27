@@ -6,6 +6,7 @@
 local test = require("assert")
 local equivalenceMutation = require("tests.simd.equivalence-mutation")
 local aot = require("nupp.tools.build.aot")
+local toolruns = require("nupp.tools.build.toolruns")
 local aotCompile = require("nupp.compiler.aot.compile")
 local compilerCheck = require("nupp.compiler.check")
 local diagnosticMod = require("nupp.compiler.diagnostics")
@@ -1175,6 +1176,21 @@ local function firstHostTier()
 end
 
 local M = {}
+
+function M.malformedAotWidthFallsBackToAPositiveInteger()
+    local getenv = os.getenv
+    os.getenv = function(name)
+        if name == "NUPP_AOT_JOBS" then
+            return "nan"
+        end
+
+        return getenv(name)
+    end
+    local ok, width = pcall(toolruns.width, 8)
+    os.getenv = getenv
+    assert(ok, width)
+    assert(type(width) == "number" and width == math.floor(width) and width >= 1 and width <= 8)
+end
 
 -- Read from the shared linking fixture: what is being asked is what its build
 -- staged, and the cases that mutate it take its library away and put it back
