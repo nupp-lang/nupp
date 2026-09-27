@@ -5,12 +5,12 @@ local spi = require("nupp.spi")
 local contracts = require("nupp.runtime.representation.spi")
 local representation = require("nupp.runtime.representation")
 
--- Kept optional because a module
--- carrying 64-bit integer code requires this one from its preamble, before any of
--- that code runs. `nupp.compiler.runtime.math` is such a module and the portable
--- compiler bundle carries it on stock Lua 5.1, which has no integer provider at
--- all. Loading the bundle there has to work; calling `nupp.math.u64` is the part
--- that cannot, so absence is held until a member is actually read.
+-- The provider remains optional because a module carrying 64-bit integer code
+-- requires this one from its preamble, before any of that code runs.
+-- `nupp.compiler.runtime.math` is such a module and the portable compiler bundle
+-- carries it on stock Lua 5.1, which has no integer provider at all. Loading the
+-- bundle there has to work; calling `nupp.math.u64` is the part that cannot, so
+-- absence is held until a member is actually read.
 local provider: contracts.Int64Provider? = do
     local chosen: contracts.Int64Provider?
     local tied = false
