@@ -276,14 +276,90 @@ const verify.FIXED_CORRECTED = {
 --- scalar call per lane: anything the scalar rules admit is admissible in lanes
 --- by construction, and a second list would only be a chance for the two to
 --- disagree.
-local MATH: {[string]: boolean} = (function(): {[string]: boolean}
-    local names: {[string]: boolean} = {}
+local MATH: {[string]: admit.Math} = (function(): {[string]: admit.Math}
+    local names: {[string]: admit.Math} = {}
     for _, entry in pairs(admit.MATH) do
-        names[entry.name] = true
+        names[entry.name] = entry
     end
 
     return names
 end)()
+
+--- Whether one math operation carries the argument count its admitted source
+--- call has. The scalar and lane-wise forms share this rule because the latter
+--- emits one ordinary math call per lane.
+local function mathArity(intrinsic: string?, count: integer): boolean
+    local rule = intrinsic ~= nil and MATH[intrinsic as string] or nil
+
+    return rule ~= nil
+        and count >= (rule as admit.Math).min
+        and ((rule as admit.Math).max == nil or count <= ((rule as admit.Math).max as integer))
+end
+
+--- Whether a wide integer literal is one C can represent in the IR type. The
+--- spelling reaches the integer macro unchanged, so this check is textual and
+--- does not round through binary64 at the 64-bit boundary.
+local function integerMagnitude(value: string, decimalLimit: string, hexLimit: string): boolean
+    local decimal = value:match("^(%d+)$")
+    local hexadecimal = value:match("^0[xX](%x+)$")
+    local digits, limit = decimal, decimalLimit
+    if decimal == nil then
+        digits, limit = hexadecimal, hexLimit
+    end
+    if digits == nil then
+        return false
+    end
+    digits = (digits as string):gsub("^0+", "")
+    if digits == "" then
+        digits = "0"
+    end
+    digits = (digits as string):lower()
+
+    return #digits < #limit or #digits == #limit and digits <= limit
+end
+
+local function validInteger64(value: string, valueType: string): boolean
+    local negative = value:sub(1, 1) == "-"
+    local magnitude = negative and value:sub(2) or value
+    if valueType == "u64" then
+        return not negative and integerMagnitude(magnitude, "18446744073709551615", "ffffffffffffffff")
+    end
+
+    return negative and integerMagnitude(magnitude, "9223372036854775808", "8000000000000000")
+        or not negative and integerMagnitude(magnitude, "9223372036854775807", "7fffffffffffffff")
+end
+
+--- Whether one finite-number token has a source form the lowerer can carry.
+--- Int32 constants are rendered back as canonical decimal, while binary64
+--- constants retain this text, but neither admits whitespace or a sign that
+--- would have been a separate unary source node.
+local function numericSpelling(value: string): boolean
+    local sign, body = value:match("^(-?)(.+)$")
+    if sign == nil or body == nil then
+        return false
+    end
+    if (body as string):match("^0[xX]") ~= nil then
+        if (body as string):match("^0[xX]%x+$") ~= nil then
+            return true
+        end
+        local mantissa, exponent = (body as string):match("^(0[xX].-)[pP]([+-]?%d+)$")
+        if mantissa == nil or exponent == nil then
+            return false
+        end
+        local digits = (mantissa as string):sub(3)
+
+        return digits:match("^%x+%.?%x*$") ~= nil or digits:match("^%.%x+$") ~= nil
+    end
+
+    local mantissa, exponent = (body as string):match("^(.-)[eE]([+-]?%d+)$")
+    if mantissa == nil then
+        mantissa = body
+    elseif exponent == nil then
+        return false
+    end
+
+    return (mantissa as string):match("^%d+%.?%d*$") ~= nil or (mantissa as string):match("^%.%d+$") ~= nil
+end
 
 --- One walk, declared before it is written, because several of the helpers it
 --- reaches call back into it.
@@ -1158,7 +1234,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 end
             else
                 holds(
-                    (element == "f32" or element == "f64") and MATH[tostring(simd.intrinsic)] == true,
+                    (element == "f32" or element == "f64") and mathArity(simd.intrinsic, #args),
                     "invalid generic SIMD lane-wise math"
                 )
             end
@@ -1447,11 +1523,32 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif verify.FIXED_CORRECTED[tostring(op)] ~= nil then
         corrected(node as scalarIR.Corrected, values, scope)
     elseif op == "constant_i32" then
-        holds(node.type == "i32" or node.type == "u32", "integer constant type")
+        local number = tonumber(node.value)
+        holds(
+            (node.type == "i32" or node.type == "u32")
+            and numericSpelling(node.value)
+            and number ~= nil
+            and number % 1 == 0
+            and number >= (node.type == "u32" and 0 or -2147483648)
+            and number <= (node.type == "u32" and 4294967295 or 2147483647),
+            "invalid 32-bit integer constant"
+        )
     elseif op == "constant_i64" then
-        holds(node.type == "i64" or node.type == "u64", "wide integer constant type")
+        holds(
+            (node.type == "i64" or node.type == "u64") and validInteger64(node.value, node.type),
+            "invalid 64-bit integer constant"
+        )
     elseif op == "constant" then
-        holds(node.type == "f64" and tonumber(node.value) ~= nil, "invalid constant")
+        local number = tonumber(node.value)
+        holds(
+            node.type == "f64"
+            and numericSpelling(node.value)
+            and number ~= nil
+            and number == number
+            and number ~= math.huge
+            and number ~= -math.huge,
+            "invalid constant"
+        )
     elseif op == "bool" then
         holds(node.type == "bool" and type(node.value) == "boolean", "invalid boolean")
     elseif op == "lua_nil" then
@@ -1734,13 +1831,15 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local operand = (node as scalarIR.Unary).value
         scalarWalk(operand, values, scope)
         local expected = op == "neg" and "f64" or op == "not" and "bool" or "i32"
-        holds(node.type == expected, "invalid unary result")
+        holds(node.type == expected, "invalid unary operation")
         if op == "bnot" then
             holds(bitOperand(operand), "invalid bitwise operand")
+        else
+            holds(operand.type == expected, "invalid unary operation")
         end
     elseif op == "math" then
         holds(node.type == "f64", "invalid math result")
-        holds(MATH[node.intrinsic] == true, "unknown math intrinsic")
+        holds(mathArity(node.intrinsic, #node.args), "unknown math intrinsic or arity")
         for _, argument in ipairs(node.args) do
             holds(argument.type == "f64", "invalid math argument")
             scalarWalk(argument, values, scope)
@@ -1750,10 +1849,16 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         holds(found ~= nil, "invalid helper call")
 
         local helper = found as scalarIR.Helper
+        local resultTypes = node.resultTypes or {}
         holds(
-            #node.args == #helper.params and (node.type == helper.resultTypes[1] or node.type == "multi"),
+            #node.args == #helper.params
+            and #resultTypes == #helper.resultTypes
+            and node.type == (#helper.resultTypes == 1 and helper.resultTypes[1] or "multi"),
             "invalid helper call"
         )
+        for position, resultType in ipairs(resultTypes) do
+            holds(resultType == helper.resultTypes[position], "invalid helper call result")
+        end
         for position, argument in ipairs(node.args) do
             holds(argument.type == helper.params[position].type, "invalid helper argument")
             scalarWalk(argument, values, scope)
@@ -3093,6 +3198,7 @@ local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
             holds(values[constant.uniqueName] == nil, "an IR constant table shadows a helper parameter")
             values[constant.uniqueName] = "lua_string"
         end
+        holds(#helper.resultTypes > 0, "helper result mismatch")
         holds(helper.native == true or #helper.values == #helper.resultTypes, "helper result mismatch")
         for position, value in ipairs(helper.values) do
             holds(value.type == helper.resultTypes[position], "helper result type mismatch")
@@ -3403,7 +3509,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     local resultTypes = program.resultTypes or {}
     local sourceResults = program.resultSourceTypes or {}
     holds(#resultTypes == #sourceResults, "invalid AOT entry results")
-    for _, resultType in ipairs(resultTypes) do
+    for position, resultType in ipairs(resultTypes) do
         holds(
             verify.NUMERIC[resultType] == true
             or resultType == "bool"
@@ -3415,6 +3521,20 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
                 or resultType == "lua_value"
             ),
             "invalid AOT entry result type"
+        )
+        local sourceType = sourceResults[position]
+        holds(
+            verify.NUMERIC[resultType] == true
+            and (validStorage(resultType, sourceType) or resultType == "f64" and sourceType == "integer")
+            or resultType == "bool" and sourceType == "boolean"
+            or resultType == "lua_string" and sourceType == "string"
+            or resultType == "lua_value" and sourceType == "any"
+            or resultType == "lua_nil" and sourceType == "nil"
+            or resultType == "lua_table"
+            and program.entryMode == "lua-builder"
+            and sourceType ~= nil
+            and #sourceType > 0,
+            "invalid AOT entry result storage"
         )
     end
     if program.usesSimd == true then

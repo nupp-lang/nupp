@@ -864,6 +864,187 @@ local function findExpr(node, predicate)
     return nil
 end
 
+function M.scalarOperatorsKeepTheirOperandContracts()
+    local program = lowered(
+        [[
+@aot
+local function unary(value: number, flag: boolean): (number, boolean)
+    return -value, not flag
+end
+return {unary = unary}
+]],
+        "unary.nupp"
+    )
+    local negated = assert(
+        findExpr(program.body, function(node)
+            return node.op == "neg"
+        end)
+    )
+    local originalNegated = negated.value
+    negated.value = {op = "bool", value = true, type = "bool"}
+    refuses(program, "invalid unary operation")
+    negated.value = originalNegated
+
+    local inverted = assert(
+        findExpr(program.body, function(node)
+            return node.op == "not"
+        end)
+    )
+    local originalInverted = inverted.value
+    inverted.value = {op = "constant", value = "1", type = "f64"}
+    refuses(program, "invalid unary operation")
+    inverted.value = originalInverted
+    verify.program(program)
+end
+
+function M.constantsKeepFiniteExactRepresentableValues()
+    local integerProgram = lowered(
+        [[
+@aot
+local function counted(): number
+    local total = 0.0
+    for index = 1, 3 do
+        total = total + index
+    end
+    return total
+end
+return {counted = counted}
+]],
+        "integer-constants.nupp"
+    )
+    local narrow = assert(
+        findExpr(integerProgram.body, function(node)
+            return node.op == "constant_i32"
+        end)
+    )
+    local original = narrow.value
+    narrow.value = "not-a-number"
+    refuses(integerProgram, "invalid 32-bit integer constant")
+    narrow.value = " 1"
+    refuses(integerProgram, "invalid 32-bit integer constant")
+    narrow.value = "+1"
+    refuses(integerProgram, "invalid 32-bit integer constant")
+    narrow.value = "2147483648"
+    refuses(integerProgram, "invalid 32-bit integer constant")
+    narrow.value = "1e2"
+    verify.program(integerProgram)
+    narrow.value = "0x10"
+    verify.program(integerProgram)
+    narrow.value = original
+    verify.program(integerProgram)
+
+    local program = lowered(
+        [[
+@aot
+local function constants(): (uint64, number)
+    return 8ULL, 1.0
+end
+return {constants = constants}
+]],
+        "constants.nupp"
+    )
+    local wide = assert(
+        findExpr(program.body, function(node)
+            return node.op == "constant_i64"
+        end)
+    )
+    local number = assert(
+        findExpr(program.body, function(node)
+            return node.op == "constant"
+        end)
+    )
+
+    original = wide.value
+    wide.value = "18446744073709551616"
+    refuses(program, "invalid 64-bit integer constant")
+    wide.value = "0x10000000000000000"
+    refuses(program, "invalid 64-bit integer constant")
+    wide.type = "i64"
+    program.resultTypes[1] = "i64"
+    program.resultSourceTypes[1] = "int64"
+    wide.value = "-9223372036854775808"
+    verify.program(program)
+    wide.value = "-9223372036854775809"
+    refuses(program, "invalid 64-bit integer constant")
+    wide.value = "9223372036854775807"
+    verify.program(program)
+    wide.value = "9223372036854775808"
+    refuses(program, "invalid 64-bit integer constant")
+    wide.type = "u64"
+    program.resultTypes[1] = "u64"
+    program.resultSourceTypes[1] = "uint64"
+    wide.value = original
+
+    program.resultSourceTypes[1] = "int64"
+    refuses(program, "invalid AOT entry result storage")
+    program.resultSourceTypes[1] = "uint64"
+
+    original = number.value
+    number.value = "1e999"
+    refuses(program, "invalid constant")
+    number.value = original
+    verify.program(program)
+end
+
+function M.mathCallsKeepTheirAdmittedArity()
+    local program = lowered(
+        [[
+@aot
+local function identity(value: number): number
+    return value
+end
+return {identity = identity}
+]],
+        "math-arity.nupp"
+    )
+    local returned = assert(
+        find(program.body, function(statement)
+            return statement.op == "return"
+        end)
+    )
+    local argument = returned.values[1]
+    local call = {op = "math", intrinsic = "sqrt", args = {argument}, type = "f64"}
+    returned.values[1] = call
+    verify.program(program)
+    call.args = {}
+    refuses(program, "unknown math intrinsic or arity")
+    call.args = {argument, argument}
+    refuses(program, "unknown math intrinsic or arity")
+    call.args = {argument}
+    verify.program(program)
+end
+
+function M.helperCallsKeepTheirDeclaredResults()
+    local program = lowered(
+        [[
+local function pair(value: number): (number, boolean)
+    return value, value > 0
+end
+@aot
+local function paired(value: number): (number, boolean)
+    local first, positive = pair(value)
+    return first, positive
+end
+return {paired = paired}
+]],
+        "helper-results.nupp"
+    )
+    local declaration = assert(
+        find(program.body, function(statement)
+            return statement.op == "multi_let"
+        end)
+    )
+    local call = declaration.call
+    local resultTypes = call.resultTypes
+    call.resultTypes = {resultTypes[1], "f64"}
+    refuses(program, "invalid helper call result")
+    call.resultTypes = resultTypes
+    call.type = "f64"
+    refuses(program, "invalid helper call")
+    call.type = "multi"
+    verify.program(program)
+end
+
 function M.aLaneWiseCallTakesOnlyLocalsOfItsSpecies()
     -- The per-lane expansion names each operand once per lane, so only a
     -- local reads the same every time.
@@ -918,6 +1099,9 @@ return {mapped = mapped}
         end)
     )
     math_.intrinsic = "select"
+    refuses(program, "invalid generic SIMD lane-wise math")
+    math_.intrinsic = "sqrt"
+    math_.args[#math_.args + 1] = math_.args[1]
     refuses(program, "invalid generic SIMD lane-wise math")
 end
 
