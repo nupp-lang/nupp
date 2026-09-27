@@ -359,6 +359,99 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     assertEq(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
 end
 
+function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
+    local effects = require("nupp.runtime.browser.effects")
+    local ffi = require("ffi")
+    local prior = effects.request
+    local calls, leases, nextLease = {}, {}, 0
+    local written
+    local memory = {
+        lease = function(pointer, count, writable)
+            nextLease = nextLease + 1
+            leases[nextLease] = {pointer = pointer, count = count, writable = writable}
+            return nextLease
+        end,
+        releaseLease = function(id)
+            leases[id] = nil
+        end,
+    }
+    local response = {
+        open = {handle = 7},
+        ["file-seek"] = {position = 3},
+        ["file-size"] = {size = 12},
+        ["file-close"] = {closed = true},
+        info = {kind = "file", size = 12, modified = 0},
+    }
+    effects.request = function(_, request, resume)
+        calls[#calls + 1] = request
+        if request.operation == "file-read" then
+            local lease = assert(leases[request.lease])
+            assert(lease.writable and lease.count == 3)
+            ffi.copy(lease.pointer, "abc", 3)
+            resume({ok = true, value = {bytes = 3}})
+        elseif request.operation == "file-write" then
+            local lease = assert(leases[request.lease])
+            assert(not lease.writable and lease.count == 2)
+            written = ffi.string(lease.pointer, lease.count)
+            resume({ok = true, value = {bytes = lease.count}})
+        else
+            resume({ok = true, value = response[request.operation]})
+        end
+
+        return function()
+        end
+    end
+    local ok, problem = pcall(function()
+        local browser = require("providerstate").browserFiles(memory)
+        local paths = require("nupp.io.files.path")
+        local path = paths.browser("data", "nupp", "files-test"):join("value.bin")
+
+        local before = #calls
+        local opened, invalidMode = pcall(browser.open, path, "sideways")
+        assert(not opened and tostring(invalidMode):find("no mode named", 1, true), tostring(invalidMode))
+        assertEq(#calls, before, "an invalid mode must not reach the host")
+
+        local file = assert(browser.open(path, "r+"))
+        assertEq(calls[#calls].operation, "open")
+        assertEq(assert(file:seek(3)), 3)
+        local validCalls = #calls
+        local sought, invalidOffset = pcall(file.seek, file, math.huge, "set")
+        assert(not sought and tostring(invalidOffset):find("must be an integer", 1, true), tostring(invalidOffset))
+        assertEq(#calls, validCalls, "an invalid seek must not reach the host")
+        local reader = file:newReader()
+        local read, invalidCount = pcall(reader.read, reader, math.huge)
+        assert(not read and tostring(invalidCount):find("must be an integer", 1, true), tostring(invalidCount))
+        assertEq(assert(reader:read(3)), "abc")
+        reader:close()
+        local writer = file:newWriter()
+        assert(writer:write("xy"))
+        assertEq(written, "xy")
+        writer:close()
+        assert(next(leases) == nil, "file transfers must release memory leases")
+
+        response["file-size"] = {size = math.huge}
+        local size, sizeReason = file:size()
+        assertEq(size, nil)
+        assert(tostring(sizeReason):find("invalid size", 1, true), tostring(sizeReason))
+
+        response.info = 7
+        assert(not browser.exists(path), "malformed metadata must not report a path")
+        response.list = 7
+        local listed, listReason = browser.list(path)
+        assertEq(listed, nil)
+        assert(tostring(listReason):find("invalid directory listing", 1, true), tostring(listReason))
+        response.persist = {granted = "yes"}
+        local persisted, persistReason = browser.requestPersistentStorage()
+        assert(not persisted)
+        assert(tostring(persistReason):find("invalid persistence result", 1, true), tostring(persistReason))
+
+        assert(file:close())
+        assertEq(calls[#calls].operation, "file-close")
+    end)
+    effects.request = prior
+    assert(ok, problem)
+end
+
 function M.browserHttpRejectsUnsupportedClientPolicy()
     local browser = require("providerstate").browserHttp()
     for _, options in ipairs({{userAgent = "nupp-test"}, {connectTimeoutMs = 10}}) do

@@ -81,6 +81,10 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
     controller.abort(new Error('Application closed'));
     guest.close();
     options.httpBodies?.clear();
+    for (const file of options.files?.handles?.values() || []) {
+      try { file.access.close(); } catch {}
+    }
+    options.files?.handles?.clear();
     for (const resource of options.gpuRuntime?.buffers?.values() || []) resource.buffer?.destroy();
     if (options.gpuDevice) Promise.resolve(options.gpuDevice).then(device => device.destroy()).catch(() => {});
     signal?.removeEventListener('abort', abort);
@@ -111,12 +115,14 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
       await verified(manifest.workers.lane);
       pool = createWorkerPool({laneUrl: new URL(manifest.workers.lane, base).href,
         manifestUrl: address.href, maxLanes: manifest.workers.maxLanes || 2,
-        limits: options.limits || manifest.limits});
+        limits: options.limits || manifest.limits,
+        requestPersistentStorage: options.requestPersistentStorage});
     }
     return await runNuppLuaJITApp({...options, app, initialize,
       manifestUrl: new URL(manifest.guest, base).href,
       limits: options.limits || manifest.limits,
       storageName: options.storageName || `nupp-${manifest.assets[manifest.app].sha256.slice(0,24)}`,
+      requestPersistentStorage: options.requestPersistentStorage,
       effectHandlers: {...options.effectHandlers, aot: kernels, ...(pool ? {workers: effect => pool.perform(effect)} : {})}});
   } finally { pool?.close(); }
 }

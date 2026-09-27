@@ -556,6 +556,23 @@ function M.argumentsAreCheckedAtTheCallSite()
         end,
         "prefix must be a string"
     )
+    assert(files.write(inRoot("integer-boundary"), "x"))
+    local file = assert(files.open(inRoot("integer-boundary")))
+    test.raises(
+        function()
+            file:seek(math.huge)
+        end,
+        "must be an integer"
+    )
+    local reader = file:newReader()
+    test.raises(
+        function()
+            reader:read(math.huge)
+        end,
+        "must be an integer"
+    )
+    reader:close()
+    file:close()
 end
 
 function M.aPathObjectIsAcceptedWhereverAStringIs()

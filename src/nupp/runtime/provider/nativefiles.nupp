@@ -17,7 +17,8 @@ A file's bytes move through the same `Reader` and `Writer` contracts a buffer
 uses, so a parser written against [byte I/O](nupp.io) works over a file without
 knowing one is there.
 
-A path argument is a string or a [](nupp.io.path.Path); a path result is a
+A path argument is a string, a [](nupp.io.path.Path), or an application path
+returned by `configurationPath`, `dataPath`, or `cachePath`; a path result is a
 string. An operation that fails because of the environment answers nil or false
 with a reason, and a malformed argument raises at the call site.
 
@@ -423,6 +424,7 @@ local MODES = {r = 0, w = 1, a = 2, ["r+"] = 3, ["w+"] = 4, ["a+"] = 5,}
 local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
 
 local READ_SIZE: integer = 65536
+local MAX_EXACT_INTEGER: integer = 9007199254740991
 local PENDING: integer = 0
 local READY: integer = 1
 local FAILED: integer = 2
@@ -504,7 +506,10 @@ end
 
 --- @raises string when value is not an integer
 local function whole(value: any, what: string, level: integer): integer
-    if type(value) ~= "number" or value ~= math.floor(value as number) then
+    if type(value) ~= "number"
+        or value ~= math.floor(value as number)
+        or math.abs(value as number) > MAX_EXACT_INTEGER
+    then
         error("nupp: io.files " .. what .. " must be an integer", level)
     end
 

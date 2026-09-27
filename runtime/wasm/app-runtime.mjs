@@ -584,9 +584,24 @@ async function performHttpEffect(effect, options) {
   }
 }
 
-function filesState(options) {
+function filesState(options, requireAvailable = true) {
+  if (!options.files) {
+    const storage = options.storage || globalThis.navigator?.storage;
+    options.files = {
+      storage,
+      available: typeof storage?.getDirectory === "function",
+      persistentAvailable: typeof options.requestPersistentStorage === "function" ||
+        typeof storage?.persist === "function",
+      requestPersistentStorage: options.requestPersistentStorage ||
+        (typeof storage?.persist === "function" ? () => storage.persist() : undefined),
+      handles: new Map(),
+      nextHandle: 1,
+    };
+  }
   const state = options.files;
-  if (!state?.available) throw new Error("Origin Private File System is unavailable");
+  state.handles ||= new Map();
+  state.nextHandle ||= 1;
+  if (requireAvailable && !state.available) throw new Error("Origin Private File System is unavailable");
   return state;
 }
 
@@ -620,11 +635,84 @@ async function directoryAt(state, parts, create, through = parts.length) {
   return directory;
 }
 
-async function performFilesEffect(effect, options) {
-  const state = filesState(options);
+function openFile(state, value) {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error("browser file handle is invalid");
+  const file = state.handles.get(value);
+  if (!file) throw new Error("browser file handle is closed or unknown");
+  return file;
+}
+
+async function performFilesEffectNow(effect, options) {
+  const state = filesState(options, effect.operation !== "capabilities");
+  if (effect.operation === "capabilities") {
+    return {available: state.available === true, persistentAvailable: state.persistentAvailable === true};
+  }
   if (effect.operation === "persist") {
     if (!state.requestPersistentStorage) throw new Error("the browser host has no main-thread persistence relay");
     return {granted: await state.requestPersistentStorage() === true};
+  }
+  if (effect.operation === "file-close") {
+    const file = openFile(state, effect.handle);
+    state.handles.delete(effect.handle);
+    file.access.close();
+    return {closed: true};
+  }
+  if (effect.operation === "file-size") {
+    const size = openFile(state, effect.handle).access.getSize();
+    if (!Number.isSafeInteger(size) || size < 0) throw new Error("browser file size is invalid");
+    return {size};
+  }
+  if (effect.operation === "file-seek") {
+    const file = openFile(state, effect.handle);
+    if (!Number.isSafeInteger(effect.offset) || ![0, 1, 2].includes(effect.origin)) {
+      throw new Error("browser file seek is invalid");
+    }
+    const base = effect.origin === 0 ? 0 : effect.origin === 1 ? file.cursor : file.access.getSize();
+    const position = Math.max(0, base + effect.offset);
+    if (!Number.isSafeInteger(position)) throw new Error("browser file position exceeds the exact integer range");
+    file.cursor = position;
+    return {position};
+  }
+  if (effect.operation === "file-read") {
+    const file = openFile(state, effect.handle);
+    if (!file.readable) throw new Error("file is not open for reading");
+    if (!Number.isSafeInteger(effect.count) || effect.count < 1) throw new Error("browser file read count is invalid");
+    const lease = memoryLease(effect, options, effect.count, true);
+    try {
+      const bytes = file.access.read(lease.view, {at: file.cursor});
+      if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > effect.count) {
+        throw new Error("browser file read returned an invalid byte count");
+      }
+      file.cursor += bytes;
+      return {bytes};
+    } finally {
+      releaseEffectLease(effect, options);
+    }
+  }
+  if (effect.operation === "file-write") {
+    const file = openFile(state, effect.handle);
+    if (!file.writable) throw new Error("file is not open for writing");
+    if (!Number.isSafeInteger(effect.count) || effect.count < 0) throw new Error("browser file write count is invalid");
+    const lease = memoryLease(effect, options, effect.count);
+    try {
+      if (file.appending) file.cursor = file.access.getSize();
+      let bytes = 0;
+      while (bytes < effect.count) {
+        const wrote = file.access.write(lease.view.subarray(bytes), {at: file.cursor});
+        if (!Number.isSafeInteger(wrote) || wrote < 1 || wrote > effect.count - bytes) {
+          throw new Error("browser file write returned an invalid byte count");
+        }
+        bytes += wrote;
+        file.cursor += wrote;
+      }
+      return {bytes};
+    } finally {
+      releaseEffectLease(effect, options);
+    }
+  }
+  if (effect.operation === "file-flush") {
+    openFile(state, effect.handle).access.flush();
+    return {flushed: true};
   }
   const parts = fileParts(effect);
   if (effect.operation === "create-directory") {
@@ -687,6 +775,16 @@ async function performFilesEffect(effect, options) {
     return entries;
   }
   throw new Error(`unsupported browser file operation ${effect.operation}`);
+}
+
+async function performFilesEffect(effect, options) {
+  // File cleanup is queued from a non-suspending ownership terminal. Preserve
+  // request order so a close and a later open in one effect batch cannot race.
+  const state = filesState(options, false);
+  const previous = state.operations || Promise.resolve();
+  const current = previous.catch(() => {}).then(() => performFilesEffectNow(effect, options));
+  state.operations = current;
+  return current;
 }
 
 export async function handleBrowserEffects(message, options = {}) {

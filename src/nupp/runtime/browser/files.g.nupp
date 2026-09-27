@@ -8,13 +8,14 @@ local appPaths = require("nupp.io.files.path")
 local io = require("nupp.io")
 local span = require("nupp.mem.span")
 local suspension = require("nupp.suspension")
-local memory = require("nupp.runtime.wasm") as any
-local host = assert(rawget(_G, "__nuppWasmFilesHost"), "nupp.io.files: browser file host is unavailable") as any
+local memory = require("nupp.runtime.browser.memory") as any
 
 local files = {}
 local pending: integer = 0
 local READ_SIZE: integer = 65536
 local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
+local MODES = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true,}
+local MAX_EXACT_INTEGER: integer = 9007199254740991
 
 local function unavailable(operation: string): string
     return "browser files do not support " .. operation
@@ -30,6 +31,51 @@ local function descriptor(value: any, level: integer): any
     end
 
     return {root = described.root, parts = described.parts,}
+end
+
+local function whole(value: any, what: string, level: integer): integer
+    if type(value) ~= "number"
+        or value ~= math.floor(value as number)
+        or math.abs(value as number) > MAX_EXACT_INTEGER
+    then
+        error("nupp: io.files " .. what .. " must be an integer", level)
+    end
+
+    return value as integer
+end
+
+local function positive(value: any, what: string, level: integer): integer
+    local answer = whole(value, what, level + 1)
+    if answer < 1 then
+        error("nupp: io.files " .. what .. " must be positive", level)
+    end
+
+    return answer
+end
+
+local function counted(value: any, what: string, level: integer): integer
+    local answer = whole(value, what, level + 1)
+    if answer < 0 then
+        error("nupp: io.files " .. what .. " must not be negative", level)
+    end
+
+    return answer
+end
+
+local function protocol(value: any, field: string, minimum: integer): (integer?, string?)
+    if type(value) ~= "table" then
+        return nil, "browser file host returned no " .. field
+    end
+    local answer = (value as any)[field]
+    if type(answer) ~= "number"
+        or answer ~= math.floor(answer as number)
+        or (answer as number) < minimum
+        or (answer as number) > MAX_EXACT_INTEGER
+    then
+        return nil, "browser file host returned an invalid " .. field
+    end
+
+    return answer as integer, nil
 end
 
 local function effect(operation: string, path: any?, extra: any?, discard: (function(any): nil)?): (any?, string?)
@@ -49,8 +95,11 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
         return nil, tostring(suspended)
     end
     local answer = suspended as any
+    if type(answer) ~= "table" or type(answer.ok) ~= "boolean" then
+        return nil, "browser file host returned an invalid response"
+    end
     if not answer.ok then
-        return nil, answer.error or "browser file operation failed"
+        return nil, type(answer.error) == "string" and answer.error or "browser file operation failed"
     end
 
     return answer.value, nil
@@ -60,7 +109,8 @@ local newReaderOver: function(borrows file: File): affine(FileReader) borrows (f
 local newWriterOver: function(borrows file: File): affine(FileWriter) borrows (file)
 
 function files.capabilities(): messages.Capabilities
-    local available = host.available() == true
+    local value = effect("capabilities", nil)
+    local available = type(value) == "table" and value.available == true
     return new messages.Capabilities(
         available = available,
         arbitraryPaths = false,
@@ -74,7 +124,7 @@ function files.capabilities(): messages.Capabilities
         currentDirectory = false,
         userFolders = false,
         executableDirectory = false,
-        persistentStorageRequest = available and host.persistentAvailable() == true
+        persistentStorageRequest = available and value.persistentAvailable == true
     )
 end
 
@@ -84,9 +134,12 @@ function files.applicationPath(
     application: string
 ): (appPaths.ApplicationPath?, string?)
     local path = appPaths.browser(kind, organization, application)
-    local _, reason = effect("create-directory", path)
+    local value, reason = effect("create-directory", path)
     if reason ~= nil then
         return nil, reason
+    end
+    if type(value) ~= "table" or value.created ~= true then
+        return nil, "browser file host returned an invalid create result"
     end
 
     return path, nil
@@ -98,21 +151,37 @@ function files.info(path: any): (messages.Info?, string?)
         return nil, reason
     end
 
-    return new messages.Info(kind = value.kind, size = value.size, modified = value.modified, readOnly = false), nil
+    local kind = type(value) == "table" and value.kind or nil
+    local size = type(value) == "table" and value.size or nil
+    local modified = type(value) == "table" and value.modified or nil
+    if (kind ~= "file" and kind ~= "directory")
+        or type(size) ~= "number"
+        or size ~= math.floor(size as number)
+        or (size as number) < 0
+        or (size as number) > MAX_EXACT_INTEGER
+        or type(modified) ~= "number"
+        or modified ~= modified
+        or modified == math.huge
+        or modified == -math.huge
+    then
+        return nil, "browser file host returned invalid metadata"
+    end
+
+    return new messages.Info(kind = kind, size = size, modified = modified, readOnly = false), nil
 end
 
 function files.exists(path: any): boolean
-    local value = effect("info", path)
+    local value = files.info(path)
     return value ~= nil
 end
 
 function files.isFile(path: any): boolean
-    local value = effect("info", path)
+    local value = files.info(path)
     return value ~= nil and value.kind == "file"
 end
 
 function files.isDirectory(path: any): boolean
-    local value = effect("info", path)
+    local value = files.info(path)
     return value ~= nil and value.kind == "directory"
 end
 
@@ -139,12 +208,22 @@ end
 
 function files.createDirectory(path: any): (boolean, string?)
     local value, reason = effect("create-directory", path)
-    return value ~= nil, reason
+    if value == nil then
+        return false, reason
+    end
+
+    return type(value) == "table" and value.created == true, type(value) == "table" and value.created == true and nil
+        or "browser file host returned an invalid create result"
 end
 
 function files.remove(path: any, recursive: boolean?): (boolean, string?)
     local value, reason = effect("remove", path, {recursive = recursive == true,})
-    return value ~= nil, reason
+    if value == nil then
+        return false, reason
+    end
+
+    return type(value) == "table" and value.removed == true, type(value) == "table" and value.removed == true and nil
+        or "browser file host returned an invalid remove result"
 end
 
 function files.rename(from: any, to: any): (boolean, string?)
@@ -158,8 +237,18 @@ function files.list(path: any): ({messages.Entry}?, string?)
     if value == nil then
         return nil, reason
     end
+    if type(value) ~= "table" then
+        return nil, "browser file host returned an invalid directory listing"
+    end
     local entries: {messages.Entry} = {}
     for _, entry in ipairs(value) do
+        if type(entry) ~= "table"
+            or type(entry.name) ~= "string"
+            or entry.name == ""
+            or (entry.kind ~= "file" and entry.kind ~= "directory")
+        then
+            return nil, "browser file host returned an invalid directory entry"
+        end
         entries[#entries + 1] = new messages.Entry(name = entry.name, kind = entry.kind)
     end
 
@@ -195,7 +284,12 @@ local record File
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
-        return host.size(self._handle)
+        local value, reason = effect("file-size", nil, {handle = self._handle,})
+        if value == nil then
+            return nil, reason
+        end
+
+        return protocol(value, "size", 0)
     end
 
     function seek(exclusive self, offset: integer?, origin: messages.Origin?): (integer?, string?)
@@ -207,7 +301,16 @@ local record File
             error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
         end
 
-        return host.seek(self._handle, offset or 0, whence)
+        local value, reason = effect("file-seek", nil, {
+            handle = self._handle,
+            offset = whole(offset or 0, "seek offset", 2),
+            origin = whence,
+        })
+        if value == nil then
+            return nil, reason
+        end
+
+        return protocol(value, "position", 0)
     end
 
     function position(exclusive self): (integer?, string?)
@@ -218,7 +321,15 @@ local record File
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
-        return host.flush(self._handle)
+        local value, reason = effect("file-flush", nil, {handle = self._handle,})
+        if value == nil then
+            return false, reason
+        end
+        if type(value) ~= "table" or value.flushed ~= true then
+            return false, "browser file host returned an invalid flush result"
+        end
+
+        return true, nil
     end
 
     function isReleased(borrows self): boolean
@@ -243,15 +354,26 @@ local record FileReader is io.Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        if type(count) ~= "number" or count ~= math.floor(count) or count < 1 then
-            error("nupp: io.files FileReader:read count must be positive", 2)
-        end
+        local wanted = math.min(positive(count, "FileReader:read count", 2), READ_SIZE)
         local file = self._file as File
         if file._closed then
             return nil, "the file is closed"
         end
+        local destination = io.newBuffer(wanted)
+        local lease = destination:reserveWrite(0, wanted)
+        local got: integer?
+        local reason: string?
+        do
+            local output = lease:span()
+            got, reason = self:readSpan(output)
+            nupp.drop(output)
+        end
+        lease:commit(got or 0)
+        if got == nil then
+            return nil, reason
+        end
 
-        return host.read(file._handle, count)
+        return destination:getString(), nil
     end
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
@@ -262,22 +384,30 @@ local record FileReader is io.Reader
         if file._closed then
             return nil, "the file is closed"
         end
-        local pointer, count = destination:ref()
+        local pointer, capacity = destination:ref()
+        local count = positive(math.min(capacity, READ_SIZE), "FileReader:readSpan destination length", 2)
         local leaseRead = memory.lease as function(
             exclusive pointer: uint8[?],
             count: integer,
             writable: boolean?
         ): integer
         local lease = leaseRead(pointer, count, true)
-        local value, reason = host.readLease(file._handle, lease, count)
+        local value, reason = effect("file-read", nil, {handle = file._handle, lease = lease, count = count,})
         memory.releaseLease(lease)
+        if value == nil then
+            return nil, reason
+        end
+        local got, invalid = protocol(value, "bytes", 0)
+        if got ~= nil and got > count then
+            return nil, "browser file host returned an invalid byte count"
+        end
 
-        return value, reason
+        return got, invalid
     end
 
     function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
-        local from = offset or 0
-        local wanted = count or READ_SIZE
+        local from = counted(offset or 0, "FileReader:readInto offset", 2)
+        local wanted = math.min(positive(count or READ_SIZE, "FileReader:readInto count", 2), READ_SIZE)
         local lease = destination:reserveWrite(from, wanted)
         local got: integer?
         local reason: string?
@@ -333,9 +463,16 @@ local record FileWriter is io.Writer
         if file._closed then
             return false, "the file is closed"
         end
-        local wrote, reason = host.write(file._handle, bytes)
+        local source = span.fromString(bytes)
+        local wrote, reason = self:writeSpan(source)
+        if wrote == nil then
+            return false, reason
+        end
+        if wrote ~= #bytes then
+            return false, "browser file host performed a short write"
+        end
 
-        return wrote ~= nil and wrote == #bytes, reason
+        return true, nil
     end
 
     function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
@@ -346,17 +483,33 @@ local record FileWriter is io.Writer
         if file._closed then
             return nil, "the file is closed"
         end
-        local pointer, count = source:ref()
-        local leaseWrite = memory.lease as function(
-            borrows pointer: const uint8[?],
-            count: integer,
-            writable: boolean?
-        ): integer
-        local lease = leaseWrite(pointer, count, false)
-        local value, reason = host.writeLease(file._handle, lease, count)
-        memory.releaseLease(lease)
+        local total: integer = 0
+        while total < #source do
+            local count = math.min(READ_SIZE, #source - total)
+            local chunk = source:slice(total + 1, total + count)
+            local pointer = chunk:ref()
+            local leaseWrite = memory.lease as function(
+                borrows pointer: const uint8[?],
+                count: integer,
+                writable: boolean?
+            ): integer
+            local lease = leaseWrite(pointer, count, false)
+            local value, reason = effect("file-write", nil, {handle = file._handle, lease = lease, count = count,})
+            memory.releaseLease(lease)
+            if value == nil then
+                return nil, reason
+            end
+            local wrote, invalid = protocol(value, "bytes", 0)
+            if wrote == nil then
+                return nil, invalid
+            end
+            if wrote ~= count then
+                return nil, "browser file host performed a short write"
+            end
+            total = total + wrote
+        end
 
-        return value, reason
+        return total, nil
     end
 
     function flush(self): (boolean, string?)
@@ -378,7 +531,8 @@ function File.drop(takes self: File): nil
         return
     end
     state._closed = true
-    host.close(state._handle)
+    effects.request("files", {operation = "file-close", handle = state._handle,}, function(): nil
+    end)
 end
 
 function FileReader.drop(takes self: FileReader): nil
@@ -403,18 +557,31 @@ end
 -- OPFS access handle is exclusive: without this the file stays locked until the
 -- run ends, because no File was ever built to close it.
 local function closeOrphan(response: any): nil
-    if response.ok and response.value ~= nil and response.value.handle ~= nil then
-        host.close(response.value.handle)
+    if type(response) == "table"
+        and response.ok
+        and type(response.value) == "table"
+        and response.value.handle ~= nil
+    then
+        effects.request("files", {operation = "file-close", handle = response.value.handle,}, function(): nil
+        end)
     end
 end
 
 function files.open(path: any, mode: messages.Mode?): (affine(File?, contracts.destroyOwner), string?)
-    local value, reason = effect("open", path, {mode = mode or "r",}, closeOrphan)
+    local selected = mode or "r"
+    if MODES[selected] == nil then
+        error("nupp: io.files has no mode named " .. tostring(mode), 2)
+    end
+    local value, reason = effect("open", path, {mode = selected,}, closeOrphan)
     if value == nil then
         return nil, reason
     end
+    local handle, invalid = protocol(value, "handle", 1)
+    if handle == nil then
+        return nil, invalid
+    end
 
-    return new File(_handle = value.handle, _closed = false), nil
+    return new File(_handle = handle, _closed = false), nil
 end
 
 local function wholeRead(path: any): (string?, string?)
@@ -427,7 +594,9 @@ local function wholeRead(path: any): (string?, string?)
     local file = opened as File
     local pieces: {string} = {}
     while true do
-        local chunk, failure = host.read(file._handle, READ_SIZE)
+        local reader = file:newReader()
+        local chunk, failure = reader:read(READ_SIZE)
+        reader:drop()
         if chunk == nil then
             file:drop()
             pending = pending - 1
@@ -460,11 +629,13 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
         return false, reason
     end
     local file = opened as File
-    local wrote, failure = host.write(file._handle, text)
+    local writer = file:newWriter()
+    local wrote, failure = writer:write(text)
+    writer:drop()
     file:drop()
     pending = pending - 1
 
-    return wrote == #text, failure
+    return wrote, failure
 end
 
 function files.write(path: any, bytes: any): (boolean, string?)
@@ -540,12 +711,12 @@ function files.executableDirectory(): (string?, string?)
 end
 
 function files.requestPersistentStorage(): (boolean, string?)
-    if host.persistentAvailable() ~= true then
-        return false, "the browser host has no main-thread persistence relay"
-    end
     local value, reason = effect("persist", nil)
     if value == nil then
         return false, reason
+    end
+    if type(value) ~= "table" or type(value.granted) ~= "boolean" then
+        return false, "browser file host returned an invalid persistence result"
     end
 
     return value.granted == true, value.granted == true and nil or "persistent storage was not granted"

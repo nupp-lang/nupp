@@ -74,6 +74,11 @@ function M.browserHttp(memory)
     return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)
 end
 
+function M.browserFiles(memory)
+    local name = "nupp.runtime.browser.files"
+    return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)
+end
+
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
     local facade = "nupp." .. kind

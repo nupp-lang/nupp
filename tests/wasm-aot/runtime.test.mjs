@@ -135,14 +135,61 @@ test("browser file effects acquire OPFS paths and retain synchronous handles", a
   const locked = await request(3, "open", ["data", "nupp", "example", "save.bin"], {mode: "r"});
   assert.equal(locked.ok, false);
   assert.match(locked.error, /locked/);
-  files.handles.get(opened.value.handle).access.close();
-  files.handles.delete(opened.value.handle);
-  assert.equal((await request(4, "open", ["data", "nupp", "example", "save.bin"], {mode: "r"})).ok, true);
-  assert.deepEqual((await request(5, "list")).value, [{name: "save.bin", kind: "file"}]);
+  const transferred = (bytes, writable) => {
+    const lease = {view: bytes, bytes: bytes.length, released: false};
+    return {
+      lease(_id, expected, needsWrite) {
+        assert.equal(expected, bytes.length);
+        assert.equal(needsWrite === true, writable);
+        return lease;
+      },
+      release() { lease.released = true; },
+      get released() { return lease.released; },
+    };
+  };
+  let transfers = transferred(Uint8Array.of(1, 2, 3, 4), false);
+  let result = await handleBrowserEffects({kind: "effects", requests: [{
+    id: 4, kind: "files", operation: "file-write", handle: opened.value.handle, lease: 1, count: 4,
+  }]}, {files, transfers});
+  assert.deepEqual(result.responses[0].value, {bytes: 4});
+  assert.equal(transfers.released, true);
+  assert.deepEqual((await request(5, "file-size", [], {handle: opened.value.handle})).value, {size: 4});
+  assert.deepEqual((await request(6, "file-seek", [], {
+    handle: opened.value.handle, offset: 1, origin: 0,
+  })).value, {position: 1});
+  const output = new Uint8Array(3);
+  transfers = transferred(output, true);
+  result = await handleBrowserEffects({kind: "effects", requests: [{
+    id: 7, kind: "files", operation: "file-read", handle: opened.value.handle, lease: 2, count: 3,
+  }]}, {files, transfers});
+  assert.deepEqual(result.responses[0].value, {bytes: 3});
+  assert.deepEqual([...output], [2, 3, 4]);
+  assert.equal(transfers.released, true);
+  assert.equal((await request(8, "file-flush", [], {handle: opened.value.handle})).ok, true);
+  result = await handleBrowserEffects({kind: "effects", requests: [
+    {id: 9, kind: "files", operation: "file-close", handle: opened.value.handle},
+    {id: 10, kind: "files", operation: "open", root: "data",
+      parts: ["data", "nupp", "example", "save.bin"], mode: "r"},
+  ]}, {files});
+  assert.equal(result.responses[0].ok, true);
+  assert.equal(result.responses[1].ok, true, "queued cleanup precedes a later open in the same batch");
+  assert.deepEqual((await request(11, "list")).value, [{name: "save.bin", kind: "file"}]);
   const persisted = await handleBrowserEffects({kind: "effects", requests: [{
-    id: 6, kind: "files", operation: "persist",
+    id: 12, kind: "files", operation: "persist",
   }]}, {files});
   assert.deepEqual(persisted.responses[0].value, {granted: true});
+});
+
+test("browser file effects initialize their default OPFS state", async () => {
+  const {storage} = fakeOpfs();
+  const options = {storage};
+  const result = await handleBrowserEffects({kind: "effects", requests: [{
+    id: 1, kind: "files", operation: "create-directory",
+    root: "cache", parts: ["cache", "nupp", "example"],
+  }]}, options);
+  assert.equal(result.responses[0].ok, true);
+  assert.equal(options.files.available, true);
+  assert.equal(options.files.handles.size, 0);
 });
 
 test("browser file effects retry a storage root that refused once", async () => {
