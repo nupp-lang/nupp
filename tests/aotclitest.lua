@@ -120,11 +120,11 @@ end
 
 --- Every artifact one file lowers to, out of one command.
 ---
---- `--emit` prints one artifact and nothing else, so a case that wants two of
---- them used to start the compiler twice over the same file. `--json` without
---- `--emit` carries the IR, the LLVM IR and the binding together, and the LLVM
---- IR in it is byte for byte what `--emit llvm` prints. The exit status comes back beside
---- them, so a single compiler invocation supplies the complete report.
+--- `--emit` prints one artifact and nothing else, so a case that wants two of them used
+--- to start the compiler twice over the same file. `--json` without `--emit` carries
+--- the IR, the LLVM IR and the binding together, and the LLVM IR in it is byte for byte
+--- what `--emit llvm` prints. The exit status comes back beside them, so a single
+--- compiler invocation supplies the complete report.
 ---
 --- The command and the directory it ran in come back last, because a project is
 --- now shared between the cases that ask about the same sources and a failure
@@ -650,6 +650,47 @@ return reservedNames
     assert(binding:find("uniforms.uniform_1 = count", 1, true), binding)
 end
 
+function M.gpuBindingNamesCannotCollideWithSourceParameters()
+    local dir = project({
+        [
+            "gpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function bindingNames(
+    exclusive raw: span.WriteSpan<uint32>,
+    borrows gpuImplementation_ks_binding_names: span.Span<uint32>,
+    scalars: uint32,
+    uniforms: uint32,
+    self: uint32
+): nil
+    assert(#raw == #gpuImplementation_ks_binding_names, "length mismatch")
+    for i = 1, #raw do
+        raw[i] = nupp.math.u32.add(
+            gpuImplementation_ks_binding_names[i],
+            nupp.math.u32.add(scalars, nupp.math.u32.add(uniforms, self))
+        )
+    end
+end
+return bindingNames
+]],
+    })
+    local native, nativeCode = run(dir, "--emit binding gpu.nupp")
+    test.equal(nativeCode, 0, native)
+    assert(native:find("local gpuImplementation_ks_binding_names_ = require", 1, true), native)
+    assert(native:find("local raw_ = gpuImplementation_ks_binding_names_.bindKernel", 1, true), native)
+    assert(native:find("raw_:setWrite(0, raw, true)", 1, true), native)
+    assert(native:find("uniforms_.uniform_2 = uniforms", 1, true), native)
+    assert(native:find("uniforms_.uniform_3 = gpuParameter", 1, true), native)
+
+    local browser, browserCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
+    test.equal(browserCode, 0, browser)
+    assert(browser:find("local scalars_: {uint32} = {}", 1, true), browser)
+    assert(browser:find("nupp.math.u32.wrap(scalars as integer)", 1, true), browser)
+    assert(browser:find("nupp.math.u32.wrap(gpuParameter as integer)", 1, true), browser)
+end
+
 function M.loopFreeScalarExplainsWhyLanesDoNotApply()
     local dir = project({
         ["scalar.nupp"] = [[
@@ -1004,11 +1045,13 @@ return {gather = gather}
     test.equal(code, 0, raw)
     assert(
         decoded.ir:find("guards\n  equal_count out offsets @", 1, true)
-            and not decoded.ir:find("equal_count out source", 1, true),
+        and not decoded.ir:find("equal_count out source", 1, true),
         where .. ": only the spans the loop index addresses are guarded equal: " .. decoded.ir
     )
     assert(
-        decoded.llvm:match("%%t%d+ = zext i32 %%t%d+ to i64\n  %%t%d+ = getelementptr inbounds nuw float, ptr %%p_source, i64 %%t%d+\n"),
+        decoded.llvm:match(
+            "%%t%d+ = zext i32 %%t%d+ to i64\n  %%t%d+ = getelementptr inbounds nuw float, ptr %%p_source, i64 %%t%d+\n"
+        ),
         where .. ": the other span is read at the widened cursor its own count check proved: " .. decoded.llvm
     )
 end
@@ -1043,7 +1086,10 @@ return {copyFirst = copyFirst}
     })
     local llvm, code = run(dir, "--emit llvm shared-count.nupp")
     test.equal(code, 0, llvm)
-    assert(llvm:find("i64 range(i64 0, 9007199254740993) %count)", 1, true), "the entry takes one shared count: " .. llvm)
+    assert(
+        llvm:find("i64 range(i64 0, 9007199254740993) %count)", 1, true),
+        "the entry takes one shared count: " .. llvm
+    )
     assert(llvm:find("zext i64 %count to i65", 1, true), "the cursor check reads it: " .. llvm)
     assert(not llvm:find("count_input", 1, true), llvm)
 end
@@ -1872,7 +1918,9 @@ function M.aUniformUsedOnlyByAGuardBecomesAnAssumption()
         where .. ": both are kernel parameters: " .. decoded.llvm
     )
     assert(
-        decoded.llvm:match("(%%t%d+) = sext i32 %%p_guardOnly to i64\n  (%%t%d+) = add nsw i64 %1, %-1\n  (%%t%d+) = icmp sle i64 0, %2\n  call void @llvm%.assume%(i1 %3%)"),
+        decoded.llvm:match(
+            "(%%t%d+) = sext i32 %%p_guardOnly to i64\n  (%%t%d+) = add nsw i64 %1, %-1\n  (%%t%d+) = icmp sle i64 0, %2\n  call void @llvm%.assume%(i1 %3%)"
+        ),
         where .. ": the guard-only value reaches LLVM as the fact the guard states: " .. decoded.llvm
     )
 end
@@ -2297,7 +2345,10 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     -- The C lowering's oracle walked lanes one at a time. The LLVM route's is
     -- the same IR left unoptimized, and the Lua body is the reference.
     if not out:find("; codegen ", 1, true) then
-        assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
+        assert(
+            out:find("0 vector", 1, true),
+            "the separately reported scalar oracle has no vector instructions: " .. out
+        )
     end
 end
 
@@ -2776,7 +2827,7 @@ return {masks = masks, shifted = shifted}
     end
     assert(
         shiftLlvm:match("(%%t%d+) = and i64 %%t%d+, 63\n  %%t%d+ = shl i64 %%t%d+, %1\n")
-            and shiftLlvm:match("(%%t%d+) = and i64 %%t%d+, 63\n  %%t%d+ = lshr i64 %%t%d+, %1\n"),
+        and shiftLlvm:match("(%%t%d+) = and i64 %%t%d+, 63\n  %%t%d+ = lshr i64 %%t%d+, %1\n"),
         equivalenceMutation.active("shift-masking") and equivalenceMutation.marker("shift-masking", "wrong-result")
         or where .. ": a shift count is masked one bit wider than the 32-bit pair"
     )
@@ -2874,7 +2925,7 @@ return {lookup = lookup}
     assert(decoded.ir:find("simd_permute.swizzle", 1, true), where .. ": the lookup is one permutation\n" .. decoded.ir)
     assert(
         decoded.llvm:find("define void @ks_lookup__neon(", 1, true)
-            and decoded.llvm:find("define void @ks_lookup_forced_scalar__neon(", 1, true),
+        and decoded.llvm:find("define void @ks_lookup_forced_scalar__neon(", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
     assert(
@@ -2882,7 +2933,9 @@ return {lookup = lookup}
         where .. ": a byte table reaches the target instruction rather than a lane loop"
     )
     assert(
-        decoded.llvm:match("(%%t%d+) = sub <16 x i8> %%t%d+, splat %(i8 1%)\n  %%t%d+ = call <16 x i8> @llvm%.aarch64%.neon%.tbl1%.v16i8%(<16 x i8> %%t%d+, <16 x i8> %1%)"),
+        decoded.llvm:match(
+            "(%%t%d+) = sub <16 x i8> %%t%d+, splat %(i8 1%)\n  %%t%d+ = call <16 x i8> @llvm%.aarch64%.neon%.tbl1%.v16i8%(<16 x i8> %%t%d+, <16 x i8> %1%)"
+        ),
         where .. ": one-based lane numbering is adapted once, not per lane"
     )
 end
@@ -2915,7 +2968,7 @@ return {joined = joined}
     )
     assert(
         decoded.llvm:find("define void @ks_joined__neon(", 1, true)
-            and decoded.llvm:find("define void @ks_joined_forced_scalar__neon(", 1, true),
+        and decoded.llvm:find("define void @ks_joined_forced_scalar__neon(", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
     assert(
@@ -3289,7 +3342,9 @@ return {inspect = inspect}
     -- Lane 2 of the source is position 1 of the LLVM vector, for the insert
     -- and for the extract.
     assert(
-        decoded.llvm:match("(%%t%d+) = fptrunc double 0x4008000000000000 to float\n  %%t%d+ = insertelement <8 x float> %%t%d+, float %1, i32 1\n"),
+        decoded.llvm:match(
+            "(%%t%d+) = fptrunc double 0x4008000000000000 to float\n  %%t%d+ = insertelement <8 x float> %%t%d+, float %1, i32 1\n"
+        ),
         where .. ": insert uses the documented one-based lane convention\n" .. decoded.llvm
     )
     assert(
@@ -3297,7 +3352,9 @@ return {inspect = inspect}
         where .. ": and so does extract\n" .. decoded.llvm
     )
     assert(
-        decoded.llvm:match("(%%t%d+) = call i64 @llvm%.cttz%.i64%(i64 %%t%d+, i1 false%)\n  (%%t%d+) = trunc i64 %1 to i32\n  %%t%d+ = add i32 %2, 1\n"),
+        decoded.llvm:match(
+            "(%%t%d+) = call i64 @llvm%.cttz%.i64%(i64 %%t%d+, i1 false%)\n  (%%t%d+) = trunc i64 %1 to i32\n  %%t%d+ = add i32 %2, 1\n"
+        ),
         where .. ": bit zero is lane one\n" .. decoded.llvm
     )
 end
@@ -3686,7 +3743,9 @@ function M.blockKernelsAppendUnderDominatingCapacityChecks()
         "the two spans keep independent counts: " .. signature
     )
     assert(
-        llvm:match("(%%t%d+) = zext i32 %%t%d+ to i64\n  (%%t%d+) = getelementptr inbounds nuw i32, ptr %%p_offsets, i64 %1\n  store i32 %%t%d+, ptr %2,"),
+        llvm:match(
+            "(%%t%d+) = zext i32 %%t%d+ to i64\n  (%%t%d+) = getelementptr inbounds nuw i32, ptr %%p_offsets, i64 %1\n  store i32 %%t%d+, ptr %2,"
+        ),
         "the proved zero-based cursor directly indexes the output: " .. llvm
     )
 
@@ -3911,7 +3970,9 @@ return {quotes = quotes}
     bytes, length = bytes:gsub("%%", "%%%%"), length:gsub("%%", "%%%%")
     assert(
         llvm:find(
-            "= getelementptr inbounds nuw i8, ptr " .. bytes .. ", i64 %%t%d+\n"
+            "= getelementptr inbounds nuw i8, ptr "
+            .. bytes
+            .. ", i64 %%t%d+\n"
             .. "  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\n"
             .. "simd%.yes%.%d+:\n  %%t%d+ = load <%d+ x i8>, ptr "
         ),
@@ -4432,7 +4493,9 @@ return {decode = decode}
     end
     -- A key is a string event flagged as a key, carrying its escape flag.
     assert(
-        entry:find("call void %%rt%.builder_string%.%d+%(ptr %%L, ptr " .. stream .. ", " .. source .. "[^\n]*, i64 1, i64 1%)"),
+        entry:find(
+            "call void %%rt%.builder_string%.%d+%(ptr %%L, ptr " .. stream .. ", " .. source .. "[^\n]*, i64 1, i64 1%)"
+        ),
         "the key goes to the string event as a key:\n" .. entry
     )
     assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
@@ -4732,7 +4795,11 @@ return {total = total}
         "--target x86_64-unknown-linux-gnu --features baseline --json unrolled.nupp"
     )
     test.equal(code, 0, raw)
-    test.equal(decoded.functions[1].optimization.unrolledLoops, 1, where .. ": the fixture really unrolls its counted loop")
+    test.equal(
+        decoded.functions[1].optimization.unrolledLoops,
+        1,
+        where .. ": the fixture really unrolls its counted loop"
+    )
     local _, steps = decoded.ir:gsub("set result = add%(", "")
     test.equal(steps, 2, where .. ": into one step per iteration\n" .. decoded.ir)
     local out, bindingCode = run(
@@ -4764,10 +4831,7 @@ return {acc = acc}
     assert(decoded.ir:find(".. constant:f64 3000000000 ", 1, true), where .. ": " .. decoded.ir)
     -- 0x41E65A0BC0000000 is 3000000000.0: the counter is a double compared
     -- against the bound's own value.
-    assert(
-        decoded.llvm:match("%%t%d+ = fcmp ole double %%t%d+, 0x41E65A0BC0000000\n"),
-        where .. ": " .. decoded.llvm
-    )
+    assert(decoded.llvm:match("%%t%d+ = fcmp ole double %%t%d+, 0x41E65A0BC0000000\n"), where .. ": " .. decoded.llvm)
 end
 
 function M.aLengthAliasDoesNotOutliveItsScope()
@@ -5030,7 +5094,10 @@ return {wrap = wrap}
         "%moved = fadd double %r, %b\n",
         "%out = select i1 %fix, double %moved, double %r\n",
     }) do
-        assert(helper:find(step, 1, true), "which corrects the truncated remainder toward the divisor's sign: " .. helper)
+        assert(
+            helper:find(step, 1, true),
+            "which corrects the truncated remainder toward the divisor's sign: " .. helper
+        )
     end
 end
 
@@ -5161,6 +5228,7 @@ local function oracleBody(llvm, symbol)
         llvm:find("\nattributes #" .. group .. " = { noinline optnone ", 1, true),
         "the oracle of " .. symbol .. " is left unoptimized:\n" .. llvm
     )
+
     return body
 end
 
@@ -5195,12 +5263,17 @@ function M.aSpeciesBindingIsDecidedPerTier()
         assert(
             body:match(
                 "(%%t%d+) = getelementptr inbounds nuw i32, ptr %%p_cps, i64 %%t%d+\n.-= load <"
-                .. tier.lanes .. " x i32>, ptr %1, align 4\n"
+                .. tier.lanes
+                .. " x i32>, ptr %1, align 4\n"
             ),
             tier.args .. ": the arm is the vector loop\n" .. body
         )
         assert(
-            body:match("zext i32 " .. tier.lanes .. " to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_cps\n"),
+            body:match(
+                "zext i32 "
+                .. tier.lanes
+                .. " to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_cps\n"
+            ),
             tier.args .. ": species.lanes is the tier's constant\n" .. body
         )
         assert(
@@ -5257,20 +5330,28 @@ return {add = add}
     local body = kernelBody(decoded.llvm, "ks_add")
     assert(
         body:find("icmp ule i64 %count_input, 4294967295\n", 1, true)
-            and body:find("icmp ule i64 %count_output, 4294967295\n", 1, true),
+        and body:find("icmp ule i64 %count_output, 4294967295\n", 1, true),
         "the loop is versioned on whether its spans fit in 32 bits\n" .. body
     )
     local loop = body:match("\nwhile%.head%.%d+:\n.-\nwhile%.end%.%d+:\n")
     assert(loop, "the vector loop\n" .. body)
     for _, span in ipairs({"input", "output"}) do
         assert(
-            loop:match("zext i32 16 to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_" .. span .. "\n"),
+            loop:match(
+                "zext i32 16 to i64\n  %%t%d+ = add i64 %%t%d+, %%t%d+\n  %%t%d+ = icmp ule i64 %%t%d+, %%count_"
+                .. span
+                .. "\n"
+            ),
             "the guard is exact and compares the count as an integer\n" .. loop
         )
     end
     assert(
-        loop:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  %%t%d+ = load <16 x i8>, ptr %1, align 1\n")
-            and loop:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  store <16 x i8> %%t%d+, ptr %1, align 1\n"),
+        loop:match(
+            "(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  %%t%d+ = load <16 x i8>, ptr %1, align 1\n"
+        )
+        and loop:match(
+            "(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n  br i1 true, label %%simd%.yes%.%d+, label %%simd%.no%.%d+\nsimd%.yes%.%d+:\n  store <16 x i8> %%t%d+, ptr %1, align 1\n"
+        ),
         "the proven load and store are bare vector accesses\n" .. loop
     )
     assert(not loop:find("double", 1, true), "nothing in the loop goes through a double\n" .. loop)
@@ -5297,14 +5378,11 @@ return {add = add}
     test.equal(prefixes[1].active, prefixes[2].active, "the lane count is taken once, where the mask is\n" .. tail)
     assert(
         tail:match("switch i32 %%t%d+, label %%tail%.done%.%d+ %[")
-            and tail:find("= insertelement <16 x i8> ", 1, true)
-            and tail:find("= extractelement <16 x i8> ", 1, true),
+        and tail:find("= insertelement <16 x i8> ", 1, true)
+        and tail:find("= extractelement <16 x i8> ", 1, true),
         "a partial vector is gathered into and scattered from a register\n" .. tail
     )
-    assert(
-        not body:match("alloca %[%d+ x i8%]"),
-        "and never goes through a stack array\n" .. body
-    )
+    assert(not body:match("alloca %[%d+ x i8%]"), "and never goes through a stack array\n" .. body)
 end
 
 function M.aProofNeedsTheGuardAndTheCursorItLeft()
@@ -5435,7 +5513,9 @@ return {equal = equal, longer = longer, shorter = shorter}
     local equal = kernelBody(decoded.llvm, "ks_equal")
     assert(equal:match(vectorStore), "an equal span is proven\n" .. equal)
     assert(
-        equal:match("(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  store double %%t%d+, ptr %1, "),
+        equal:match(
+            "(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  store double %%t%d+, ptr %1, "
+        ),
         "and so is its scalar tail\n" .. equal
     )
     local longer = kernelBody(decoded.llvm, "ks_longer")
@@ -5513,14 +5593,16 @@ return {scale = scale, twice = twice}
     local llvm = decoded.llvm
     local scale = kernelBody(llvm, "ks_scale")
     assert(
-        scale:match("(%%t%d+) = icmp ule i64 %%count_output, 4294967295\n.-br i1 %%t%d+, label %%cursors%.wide%.%d+, label %%cursors%.narrow%.%d+\n"),
+        scale:match(
+            "(%%t%d+) = icmp ule i64 %%count_output, 4294967295\n.-br i1 %%t%d+, label %%cursors%.wide%.%d+, label %%cursors%.narrow%.%d+\n"
+        ),
         "the loop is versioned on the count fitting in 32 bits\n" .. scale
     )
     local fits = assert(scale:match("\ncursors%.wide%.%d+:\n.-\ncursors%.narrow%.%d+:\n"), scale)
     local larger = assert(scale:match("\ncursors%.narrow%.%d+:\n.-\ncursors%.done%.%d+:\n"), scale)
     assert(
         fits:match("getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n  br i1 true, ")
-            and not fits:find("4294967295", 1, true),
+        and not fits:find("4294967295", 1, true),
         "the copy that fits has no wrap check on its accesses\n" .. fits
     )
     local loopId = fits:match("br label %%while%.head%.%d+, !llvm%.loop (!%d+)\n")
@@ -5630,7 +5712,8 @@ return {lookup = lookup}
 
     local asm = neonAsm(dir, "lookup.nupp")
     assert(
-        asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+ }, v%d+") and asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+, v%d+ }, v%d+"),
+        asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+ }, v%d+")
+        and asm:match("tbl%.16b v%d+, { v%d+, v%d+, v%d+, v%d+ }, v%d+"),
         "which reach the target as `tbl` over three and four registers\n" .. asm
     )
 end
@@ -5677,16 +5760,27 @@ return {widen = widen}
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_widen")
     assert(
-        body:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n.-= load <48 x i8>, ptr %1, align 1\n"),
+        body:match(
+            "(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_input, i64 %%t%d+\n.-= load <48 x i8>, ptr %1, align 1\n"
+        ),
         "a proved run is one load\n" .. body
     )
     for part = 0, 2 do
         local stride = "shufflevector <48 x i8> %%t%d+, <48 x i8> poison, <16 x i32> <i32 "
-            .. part .. ", i32 " .. part + 3 .. ", i32 " .. part + 6 .. ", "
+            .. part
+            .. ", i32 "
+            .. part
+            + 3
+            .. ", i32 "
+            .. part
+            + 6
+            .. ", "
         assert(body:match(stride), "part " .. part .. " is every third byte of it\n" .. body)
     end
     assert(
-        body:match("(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n.-store <64 x i8> %%t%d+, ptr %1, align 1\n"),
+        body:match(
+            "(%%t%d+) = getelementptr inbounds nuw i8, ptr %%p_output, i64 %%t%d+\n.-store <64 x i8> %%t%d+, ptr %1, align 1\n"
+        ),
         "a proved store is one store\n" .. body
     )
     assert(checkedAccess(body, "input"), "an unproved run is checked\n" .. body)
@@ -5701,7 +5795,7 @@ return {widen = widen}
     -- store together; the checked path still interleaves with st2.
     assert(
         asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true)
-            or asm:find("rev16.16b", 1, true) and asm:find("st2.16b", 1, true),
+        or asm:find("rev16.16b", 1, true) and asm:find("st2.16b", 1, true),
         "pairs are ld2 and st2, or one pair swap\n" .. asm
     )
 
@@ -5789,6 +5883,7 @@ return {scale = scale, double = double}
             symbol .. " checks once per group\n" .. asm
         )
     end
+
     checkedOnce("ks_scale")
     checkedOnce("ks_double")
 end
@@ -5833,7 +5928,8 @@ return {halve = halve}
     local escaped = slot:gsub("%%", "%%%%")
     local _, pinned = body:gsub(
         'call <2 x i64> asm "", "=w,0"%(<2 x i64> %%t%d+%)\n  %%t%d+ = shufflevector <2 x i64> %%t%d+, <2 x i64> %%t%d+, <4 x i32> <i32 0, i32 1, i32 2, i32 3>\n  store <4 x i64> %%t%d+, ptr '
-            .. escaped .. "\n",
+        .. escaped
+        .. "\n",
         ""
     )
     local _, stores = body:gsub("store <4 x i64> %%t%d+, ptr " .. escaped .. "\n", "")
@@ -5888,7 +5984,9 @@ return {refine = refine}
     -- The inner loop: the block that branches back to itself.
     local loop
     for label in asm:gmatch("\n(%.LBB%d+_%d+):\n") do
-        local body = asm:match("\n" .. label:gsub("%.", "%%.") .. ":\n(.-\n%s+jne%s+" .. label:gsub("%.", "%%.") .. ")\n")
+        local body = asm:match(
+            "\n" .. label:gsub("%.", "%%.") .. ":\n(.-\n%s+jne%s+" .. label:gsub("%.", "%%.") .. ")\n"
+        )
         if body and body:find("mulpd", 1, true) then
             loop = body
         end
@@ -6170,7 +6268,10 @@ return {lengths = lengths, sums = sums}
             "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " fields.nupp"
         )
         test.equal(code, 0, asm)
-        assert(asm:find("\n%s+" .. instruction:gsub("%.", "%%.") .. "%s"), symbol .. " reads its elements whole\n" .. asm)
+        assert(
+            asm:find("\n%s+" .. instruction:gsub("%.", "%%.") .. "%s"),
+            symbol .. " reads its elements whole\n" .. asm
+        )
     end
     local oracle = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm fields.nupp")
     local body = oracleBody(oracle, "ks_lengths")

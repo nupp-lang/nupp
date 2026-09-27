@@ -48,11 +48,18 @@ local function parameterNames(params: {scalarIR.Param}): string
     return "{" .. table.concat(names, ", ") .. "}"
 end
 
---- The failed form of one span-count relation in generated binding source.
-local function relationRefusal(relation: scalarIR.Relation): string
+local function parameterName(names: {[string]: string}, name: string?): string
+    local generated = name ~= nil and names[name as string] or nil
+    assert(generated ~= nil, "GPU binding parameter has no generated name")
+
+    return generated as string
+end
+
+--- Returns the failed form of one span-count relation.
+local function relationRefusal(relation: scalarIR.Relation, names: {[string]: string}): string
     assert(relation.left.kind == "count" and relation.right.kind == "count", "GPU binding relation is not over counts")
-    local left = tostring(relation.left.name) .. ".count"
-    local right = tostring(relation.right.name) .. ".count"
+    local left = parameterName(names, relation.left.name) .. ".count"
+    local right = parameterName(names, relation.right.name) .. ".count"
     if relation.offset == 0 then
         return left .. " > " .. right
     elseif relation.offset > 0 then
@@ -63,10 +70,10 @@ local function relationRefusal(relation: scalarIR.Relation): string
 end
 
 --- Checks every authored count relation when the resident buffers are bound.
-local function relationChecks(program: scalarIR.Program): {string}
+local function relationChecks(program: scalarIR.Program, names: {[string]: string}): {string}
     local conditions: {string} = {}
     for _, relation in ipairs(program.relations or {}) do
-        conditions[#conditions + 1] = relationRefusal(relation)
+        conditions[#conditions + 1] = relationRefusal(relation, names)
     end
     if #conditions == 0 then
         return {}
@@ -79,15 +86,47 @@ local function relationChecks(program: scalarIR.Program): {string}
     }
 end
 
---- What stands in for one authored `@aot(target = "gpu")` declaration.
+local function freshName(reserved: {[string]: boolean}, preferred: string): string
+    local name = preferred
+    while reserved[name] do
+        name = name .. "_"
+    end
+    reserved[name] = true
+
+    return name
+end
+
+--- Replaces one authored `@aot(target = "gpu")` declaration.
 function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
-    local runtime = scalarIR.identifier("gpuRuntime", program.symbol)
-    local implementation = scalarIR.identifier("gpuImplementation", program.symbol)
-    local native = scalarIR.identifier("gpuNative", program.symbol)
-    local uniformType = scalarIR.identifier("gpuUniformType", program.symbol)
-    local specType = typeName("GpuSpec", program)
-    local kernelType = typeName("GpuKernel", program)
-    local bindingType = typeName("GpuBinding", program)
+    local reserved: {[string]: boolean} = {[program.name] = true, self = true,}
+    local names: {[string]: string} = {}
+    for _, param in ipairs(program.params) do
+        reserved[param.name] = true
+        names[param.name] = param.name
+    end
+    if names.self ~= nil then
+        names.self = freshName(reserved, "gpuParameter")
+    end
+    local runtime = freshName(reserved, scalarIR.identifier("gpuRuntime", program.symbol))
+    local implementation = freshName(reserved, scalarIR.identifier("gpuImplementation", program.symbol))
+    local native = freshName(reserved, scalarIR.identifier("gpuNative", program.symbol))
+    local uniformType = freshName(reserved, scalarIR.identifier("gpuUniformType", program.symbol))
+    local specType = freshName(reserved, typeName("GpuSpec", program))
+    local kernelType = freshName(reserved, typeName("GpuKernel", program))
+    local bindingType = freshName(reserved, typeName("GpuBinding", program))
+    local bindReserved: {[string]: boolean} = {self = true,}
+    for _, param in ipairs(program.params) do
+        if param.kind == "read_span" or param.kind == "write_span" then
+            bindReserved[parameterName(names, param.name)] = true
+        end
+    end
+    local rawBinding = freshName(bindReserved, "raw")
+    local dispatchReserved: {[string]: boolean} = {self = true,}
+    for _, param in ipairs(artifact.uniforms) do
+        dispatchReserved[parameterName(names, param.name)] = true
+    end
+    local scalarWords = freshName(dispatchReserved, "scalars")
+    local uniformBlock = freshName(dispatchReserved, "uniforms")
     local lines: {string} = {}
     local recordDeclaration = artifact.exportTypes and "export record " or "local record "
     local runtimeModule = "nupp.gpu"
@@ -157,7 +196,10 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         if param.kind == "read_span" or param.kind == "write_span" then
             bindParams[
                 #bindParams + 1
-            ] = "borrows " .. param.name .. ": " .. runtime .. ".Buffer<" .. sourceType(param) .. ">"
+            ] = "borrows " .. parameterName(
+                names,
+                param.name
+            ) .. ": " .. runtime .. ".Buffer<" .. sourceType(param) .. ">"
         end
     end
     append(lines, "    bind: function(")
@@ -173,7 +215,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "    @private @readonly _binding: " .. implementation .. ".Binding borrows (_context)")
     local dispatchParams: {string} = {"borrows self: " .. bindingType}
     for _, param in ipairs(artifact.uniforms) do
-        dispatchParams[#dispatchParams + 1] = param.name .. ": " .. sourceType(param)
+        dispatchParams[#dispatchParams + 1] = parameterName(names, param.name) .. ": " .. sourceType(param)
     end
     append(lines, "    dispatch: function(")
     for position, param in ipairs(dispatchParams) do
@@ -227,34 +269,44 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         append(lines, "    " .. param .. (position < #bindParams and "," or ""))
     end
     append(lines, "): " .. bindingType .. " borrows (self)")
-    for _, line in ipairs(relationChecks(program)) do
+    for _, line in ipairs(relationChecks(program, names)) do
         append(lines, line)
     end
     append(
         lines,
-        "    local raw = "
+        "    local "
+        .. rawBinding
+        .. " = "
         .. implementation
         .. ".bindKernel(self._context, self._kernel, "
-        .. artifact.countSpan
-        .. ".count)"
+        .. parameterName(
+            names,
+            artifact.countSpan
+        ) .. ".count)"
     )
     for slot, param in ipairs(artifact.readonly) do
         append(
             lines,
-            "    raw:setRead(" .. tostring(
+            "    " .. rawBinding .. ":setRead(" .. tostring(
                 slot - 1
-            ) .. ", " .. param.name .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
+            ) .. ", " .. parameterName(
+                names,
+                param.name
+            ) .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
         )
     end
     for slot, param in ipairs(artifact.writable) do
         append(
             lines,
-            "    raw:setWrite(" .. tostring(
+            "    " .. rawBinding .. ":setWrite(" .. tostring(
                 slot - 1
-            ) .. ", " .. param.name .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
+            ) .. ", " .. parameterName(
+                names,
+                param.name
+            ) .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
         )
     end
-    append(lines, "    return new " .. bindingType .. "(_context = self._context, _binding = raw)")
+    append(lines, "    return new " .. bindingType .. "(_context = self._context, _binding = " .. rawBinding .. ")")
     append(lines, "end")
     append(lines, "")
 
@@ -264,18 +316,30 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     end
     append(lines, "): nil")
     if browser then
-        append(lines, "    local scalars: {uint32} = {}")
+        append(lines, "    local " .. scalarWords .. ": {uint32} = {}")
         for _, param in ipairs(artifact.uniforms) do
-            append(lines, "    scalars[#scalars + 1] = nupp.math.u32.wrap(" .. param.name .. " as integer)")
+            append(
+                lines,
+                "    " .. scalarWords .. "[#" .. scalarWords .. " + 1] = nupp.math.u32.wrap(" .. parameterName(
+                    names,
+                    param.name
+                ) .. " as integer)"
+            )
         end
-        append(lines, "    self._binding:dispatchWords(scalars)")
+        append(lines, "    self._binding:dispatchWords(" .. scalarWords .. ")")
     else
-        append(lines, "    local uniforms = " .. native .. ".ffi.new(" .. uniformType .. ")")
-        append(lines, "    uniforms.dispatch_count = self._binding.count")
+        append(lines, "    local " .. uniformBlock .. " = " .. native .. ".ffi.new(" .. uniformType .. ")")
+        append(lines, "    " .. uniformBlock .. ".dispatch_count = self._binding.count")
         for position, param in ipairs(artifact.uniforms) do
-            append(lines, "    uniforms.uniform_" .. tostring(position) .. " = " .. param.name)
+            append(
+                lines,
+                "    " .. uniformBlock .. ".uniform_" .. tostring(position) .. " = " .. parameterName(names, param.name)
+            )
         end
-        append(lines, "    self._binding:dispatchPacked(uniforms, " .. tostring(artifact.uniformBytes) .. ")")
+        append(
+            lines,
+            "    self._binding:dispatchPacked(" .. uniformBlock .. ", " .. tostring(artifact.uniformBytes) .. ")"
+        )
     end
     append(lines, "end")
     append(lines, "")
