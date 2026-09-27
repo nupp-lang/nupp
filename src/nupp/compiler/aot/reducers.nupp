@@ -466,72 +466,11 @@ function reducers.method(operation: string): string
         or "add"
 end
 
-function reducers.helper(order: string, operation: string, element: string): string
-    return "ks_reduce_" .. order .. "_" .. operation .. "_" .. element .. "_"
-end
-
 --- Associative exact operations keep one accumulator per lane. Float extrema
 --- and indexed extrema currently commit in logical order to retain their tie
 --- and NaN rules; they make no reassociation promise.
 function reducers.parallel(order: string): boolean
     return order == "algebraic" or order == "exact"
-end
-
-function reducers.accumulatorType(order: string, element: string, carrier: string): string
-    if order == "exact" and element ~= "bool" then
-        return "u" .. element:sub(2) .. "x" .. tostring(carrier:match("x(%d+)$"))
-    end
-    return carrier
-end
-
-function reducers.identity(operation: string): string
-    return operation == "product" and "1" or (operation == "and" or operation == "all") and "-1" or "0"
-end
-
-function reducers.accumulate(
-    operation: string,
-    element: string,
-    carrier: string,
-    accumulator: string,
-    value: string
-): string
-    local vector = reducers.accumulatorType("exact", element, carrier)
-    if element ~= "bool" then
-        -- Mixed-width carriers hold int32 exactly in binary64. A negative floating
-        -- value cannot convert directly to uint32: recover its signed value
-        -- first, then use the defined modulo signed-to-unsigned conversion.
-        if element == "i32" and carrier:match("^f64x") ~= nil then
-            value = "__builtin_convertvector(" .. value .. ", ks_i32x" .. tostring(carrier:match("x(%d+)$")) .. ")"
-        end
-        value = "__builtin_convertvector(" .. value .. ", ks_" .. vector .. ")"
-    elseif operation == "count" then
-        value = "(" .. value .. " & 1)"
-    end
-    local operator = ({
-        sum = "+",
-        product = "*",
-        ["and"] = "&",
-        ["or"] = "|",
-        xor = "^",
-        any = "|",
-        all = "&",
-        count = "+"
-    })[operation]
-
-    return accumulator .. " " .. tostring(operator) .. "= " .. value .. ";"
-end
-
-function reducers.finish(operation: string, element: string, reducerName: string, laneValue: string): string
-    if operation == "count" then
-        return reducerName .. ".count += (uint64_t)" .. laneValue .. ";"
-    end
-    if element == "i32" or element == "i64" then
-        laneValue = "ks_reduce_" .. element .. "_bits(" .. laneValue .. ")"
-    elseif element == "bool" then
-        laneValue = "(" .. laneValue .. " != 0)"
-    end
-
-    return reducers.helper("exact", operation, element) .. "add(&" .. reducerName .. ", " .. laneValue .. ");"
 end
 
 export = reducers

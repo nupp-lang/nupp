@@ -189,14 +189,8 @@ local function validStorage(valueType: string, sourceType: string?): boolean
     return admit.STORAGE[storageSource(valueType, sourceType)] == valueType
 end
 
---- The arity of each bitwise verb. `not` is the only unary one.
-const verify.BITWISE_ARITY = {["and"] = 2, ["or"] = 2, ["xor"] = 2, ["shl"] = 2, ["shr"] = 2, ["sar"] = 2, ["not"] = 1,}
-
---- The correcting binary32 helpers, and how many operands each takes.
-const verify.CORRECTED_ARITY = {["nupp_f32_min"] = 2, ["nupp_f32_max"] = 2, ["nupp_f32_fma"] = 3,}
-
---- The same three named as a lane-wise `simd_call` names them: by the operation
---- being corrected rather than by the prelude function that corrects it.
+--- The correcting binary32 operations a lane-wise `simd_call` may name, and
+--- how many operands each takes.
 const CORRECTED_LANES = {["f32_min"] = 2, ["f32_max"] = 2, ["f32_fma"] = 3,}
 
 --- The element each explicitly fixed-width binary operation works in.

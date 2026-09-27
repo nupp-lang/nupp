@@ -7699,23 +7699,6 @@ end
 -- Guards
 ----------------------------------------------------------------------------
 
---- The one clause of a guard that does nothing but call `error`.
----
---- Both source forms have this shape, and it is the shape that makes a guard
---- readable: the polarity its condition holds in on fallthrough is only known
---- because the branch that does not fall through cannot return.
-function lower.isGuardStatement(stat: cst.Node?): boolean
-    if stat == nil then
-        return false
-    end
-    if stat.kind == "ifStmt" then
-        return true
-    end
-    local called = stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
-
-    return called ~= nil and called.kind == "call" and (called as cst.Call).aotGuardBuiltin == "assert"
-end
-
 --- Whether dropping one already-evaluated guard argument changes no behavior.
 local function inertGuardArgument(node: cst.Node?): boolean
     if node == nil then

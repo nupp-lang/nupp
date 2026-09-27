@@ -140,14 +140,4 @@ function species.laneType(found: species.Species): string
     return found.signed and "i32" or "u32"
 end
 
---- A vector of `count` copies of the LLVM constant `value`.
-function species.splatConstant(found: species.Species, value: string): string
-    local lanes: {string} = {}
-    for index = 1, found.lanes do
-        lanes[index] = found.scalar .. " " .. value
-    end
-
-    return "<" .. table.concat(lanes, ", ") .. ">"
-end
-
 export = species
