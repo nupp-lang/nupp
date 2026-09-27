@@ -407,6 +407,10 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
         local path = paths.browser("data", "nupp", "files-test"):join("value.bin")
 
         local before = #calls
+        local application, kindReason = browser.applicationPath("logs", "nupp", "files-test")
+        assertEq(application, nil)
+        assertEq(kindReason, "unknown application path kind")
+        assertEq(#calls, before, "an invalid application path kind must not reach the host")
         local opened, invalidMode = pcall(browser.open, path, "sideways")
         assert(not opened and tostring(invalidMode):find("no mode named", 1, true), tostring(invalidMode))
         assertEq(#calls, before, "an invalid mode must not reach the host")

@@ -15,6 +15,7 @@ local pending: integer = 0
 local READ_SIZE: integer = 65536
 local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
 local MODES = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true,}
+local APPLICATION_KINDS = {configuration = true, data = true, cache = true,}
 local MAX_EXACT_INTEGER: integer = 9007199254740991
 
 local function unavailable(operation: string): string
@@ -133,6 +134,9 @@ function files.applicationPath(
     organization: string,
     application: string
 ): (appPaths.ApplicationPath?, string?)
+    if APPLICATION_KINDS[kind] == nil then
+        return nil, "unknown application path kind"
+    end
     local path = appPaths.browser(kind, organization, application)
     local value, reason = effect("create-directory", path)
     if reason ~= nil then
@@ -560,7 +564,10 @@ local function closeOrphan(response: any): nil
     if type(response) == "table"
         and response.ok
         and type(response.value) == "table"
-        and response.value.handle ~= nil
+        and type(response.value.handle) == "number"
+        and response.value.handle == math.floor(response.value.handle)
+        and response.value.handle >= 1
+        and response.value.handle <= MAX_EXACT_INTEGER
     then
         effects.request("files", {operation = "file-close", handle = response.value.handle,}, function(): nil
         end)

@@ -149,6 +149,11 @@ local function fakeBackend(script)
         return true
     end
 
+    function self:keepAlive(stream, enabled, delaySeconds)
+        state.keepAlive = {enabled = enabled, delaySeconds = delaySeconds}
+        return true
+    end
+
     function self:closeStream(stream)
         state.closedStreams = state.closedStreams + 1
     end
@@ -314,6 +319,25 @@ function M.closingTheReaderViewLeavesTheConnection()
     stream:close()
 end
 
+function M.directionViewsExposeOnlyTheirOwnHalf()
+    local stream = connected({arriving = {"readable"}})
+    local reader = net.asReader(stream)
+    local wrote, writeWhy = reader:write("wrong way")
+    assertEq(wrote, false, "a reading view cannot write")
+    assertTrue(tostring(writeWhy):find("read-only", 1, true) ~= nil, "and says which direction it has")
+    local flushed, flushWhy = reader:flush()
+    assertEq(flushed, false, "a reading view cannot flush writes")
+    assertTrue(tostring(flushWhy):find("read-only", 1, true) ~= nil, "and gives the same direction reason")
+    reader:close()
+
+    local writer = net.asWriter(stream)
+    local bytes, readWhy = writer:read(1)
+    assertEq(bytes, nil, "a writing view cannot read")
+    assertTrue(tostring(readWhy):find("write-only", 1, true) ~= nil, "and says which direction it has")
+    writer:close()
+    stream:close()
+end
+
 function M.aViewReadsThroughTheSharedContract()
     local stream = connected({arriving = {"shared"}})
     local reader = net.asReader(stream)
@@ -373,6 +397,36 @@ function M.connectWaitsForTheHandshake()
     assertEq(state.connectPolls, 3, "the connect was come back for")
     assertTrue(state.closedConnect, "and the request was released after it")
     stream:close()
+end
+
+function M.abandoningAConnectReleasesItsRequest()
+    local backend, state = fakeBackend({connectAfter = 2})
+    install(backend)
+    local suspension = require("nupp.suspension")
+    local installation = suspension.install({
+        park = function()
+        end,
+        canPark = function()
+            return false
+        end,
+    })
+    local connected, why = pcall(net.connect, {host = "example", port = 80})
+    installation:release()
+    assertEq(connected, false, "a forbidden park refuses the connect")
+    assertTrue(tostring(why):find("cannot suspend", 1, true) ~= nil, "and reports the refused suspension")
+    assertTrue(state.closedConnect, "and releases the in-flight connection request")
+end
+
+function M.aFailedConnectPollReleasesItsRequest()
+    local backend, state = fakeBackend({})
+    backend.connectPoll = function()
+        error("broken poll")
+    end
+    install(backend)
+    local connected, why = pcall(net.connect, {host = "example", port = 80})
+    assertEq(connected, false, "a provider exception refuses the connect")
+    assertTrue(tostring(why):find("broken poll", 1, true) ~= nil, "and preserves the provider failure")
+    assertTrue(state.closedConnect, "and releases the in-flight connection request")
 end
 
 function M.closingIsIdempotent()
@@ -518,6 +572,61 @@ function M.portsAreChecked()
         return net.bind({host = "0.0.0.0", port = 70000})
     end)
     assertEq(datagram, false, "on a datagram socket too")
+end
+
+function M.listenerBacklogsAndPumpDelaysAreChecked()
+    local backend, state = fakeBackend({})
+    install(backend)
+    for _, backlog in ipairs({0, -1, 4294967296}) do
+        local ok = pcall(net.listen, {host = "127.0.0.1", port = 0, backlog = backlog})
+        assertEq(ok, false, "an invalid backlog is refused")
+    end
+    assertEq(state.backlog, nil, "invalid backlogs do not reach the provider")
+    local ok = pcall(net.pump, -1)
+    assertEq(ok, false, "a negative pump delay is refused")
+    assertEq(state.runs, 0, "an invalid delay does not reach the provider")
+    local stream = assert(net.connect({host = "example", port = 80}))
+    ok = pcall(stream.setKeepAlive, stream, true, 4294967296)
+    assertEq(ok, false, "a keepalive delay outside the native range is refused")
+    assertEq(state.keepAlive, nil, "an invalid keepalive delay does not reach the provider")
+    stream:close()
+end
+
+function M.providerByteCountsCannotExceedTheRequest()
+    local backend = fakeBackend({})
+    backend.read = function()
+        return "too many"
+    end
+    install(backend)
+    local stream = assert(net.connect({host = "example", port = 80}))
+    local bytes, why = stream:read(2)
+    assertEq(bytes, nil, "an oversized provider read is refused")
+    assertTrue(tostring(why):find("more bytes", 1, true) ~= nil, "and says which contract was broken")
+    stream:close()
+
+    backend = fakeBackend({})
+    backend.write = function(_, _, bytes)
+        return #bytes + 1
+    end
+    install(backend)
+    stream = assert(net.connect({host = "example", port = 80}))
+    local wrote, writeWhy = stream:write("short")
+    assertEq(wrote, false, "an oversized provider write count is refused")
+    assertTrue(tostring(writeWhy):find("invalid write count", 1, true) ~= nil, "and says which contract was broken")
+    stream:close()
+
+    backend = fakeBackend({})
+    backend.receive = function()
+        return "payload", nil, nil, nil
+    end
+    install(backend)
+    local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
+    local destination = io_.newBuffer()
+    local message, datagramWhy = socket:receiveFrom(destination, 4)
+    assertEq(message, nil, "an oversized datagram with no peer is refused")
+    assertTrue(tostring(datagramWhy):find("invalid datagram", 1, true) ~= nil, "and reports the malformed result")
+    destination:close()
+    socket:close()
 end
 
 function M.netAndTlsSelectTheUnifiedRustProvider()

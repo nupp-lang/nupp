@@ -89,7 +89,8 @@ type net.ListenOptions = {
     path: string?,
 
     --- How many connections the platform may hold before this process accepts
-    --- them, or nil for the platform's usual depth.
+    --- them, or nil for the platform's usual depth. When given, it must be
+    --- positive and no greater than 2,147,483,647.
     backlog: integer?,
 
     --- Whether to ask for load-balancing port reuse, so that a listener per lane
@@ -172,6 +173,8 @@ end
 const DEFAULT_HIGH_WATER = 1048576
 const DEFAULT_CONNECT_MS = 30000
 const READ_SIZE = 65536
+const MAX_BACKLOG = 2147483647
+const MAX_UINT32 = 4294967295
 
 --- Checks a count the way every byte API here does.
 --- @raises string when the value is not a positive integer
@@ -198,7 +201,7 @@ end
 --- The source carries both a poll and a wait, so a host with its own loop drives
 --- the reactor from its frame and a command-line program blocks in it. Neither
 --- spelling appears at a call site: a caller writes the read it wanted.
-local function await(operation: string, ready: function(): boolean): nil
+local function await(operation: string, ready: function(): boolean, abandon: (function(): nil)?): nil
     if ready() then
         return
     end
@@ -226,6 +229,9 @@ local function await(operation: string, ready: function(): boolean): nil
 
         return function(): nil
             source:release()
+            if abandon ~= nil then
+                abandon()
+            end
         end
     end)
 end
@@ -242,6 +248,11 @@ local function readOnce(chosen: contract.Provider, handle: any, wanted: integer)
         const got, why = chosen:read(handle, wanted)
         if got == nil then
             failure = why or "the connection failed"
+
+            return true
+        end
+        if #got > wanted then
+            failure = "the network provider returned more bytes than requested"
 
             return true
         end
@@ -287,6 +298,9 @@ local function writeAll(chosen: contract.Provider, handle: any, highWater: integ
         const took, why = chosen:write(handle, bytes:sub(at, at + taking - 1))
         if took == nil then
             return false, why
+        end
+        if took < 0 or took > taking or math.floor(took) ~= took then
+            return false, "the network provider returned an invalid write count"
         end
         if took < 1 then
             -- A backend may impose a stricter structural bound than the
@@ -422,17 +436,18 @@ record net.Stream is Reader, Writer
     --- @param delaySeconds idle seconds before the first probe
     --- @return whether the option was set
     --- @return why it was not, when unsuccessful
-    --- @raises string when the delay is not a positive integer
+    --- @raises string when the delay is not a positive integer no greater than
+    ---     4,294,967,295
     function setKeepAlive(self, enable: boolean, delaySeconds: integer): (boolean, string?)
         if self._closed then
             return false, "the connection is closed"
         end
+        const delay = positive(delaySeconds, "net.Stream setKeepAlive delaySeconds", 2)
+        if delay > MAX_UINT32 then
+            error("nupp: net.Stream setKeepAlive delaySeconds is too large", 2)
+        end
 
-        return self._provider:keepAlive(
-            self._handle,
-            enable,
-            positive(delaySeconds, "net.Stream setKeepAlive delaySeconds", 2)
-        )
+        return self._provider:keepAlive(self._handle, enable, delay)
     end
 
     --- Reads up to `count` bytes, suspending while none have arrived.
@@ -630,7 +645,6 @@ end
 --- Closing one ends that direction rather than the connection: the writing view
 --- half-closes, and the reading view stops this side reading. Neither is the
 --- cleanup obligation, which stays with the connection.
---- @export
 record net.DirectionView is Reader, Writer
     --- The same platform and handle the connection has. Not the connection
     --- itself: a view that held one would own it, and closing the view would
@@ -654,6 +668,9 @@ record net.DirectionView is Reader, Writer
     function read(self, count: integer): (string?, string?)
         if self._ended then
             return nil, "the reader is closed"
+        end
+        if self._writing then
+            return nil, "the view is write-only"
         end
 
         return readOnce(self._provider, self._handle, positive(count, "net.DirectionView read count", 2))
@@ -720,6 +737,9 @@ record net.DirectionView is Reader, Writer
         if self._ended then
             return false, "the writer is closed"
         end
+        if not self._writing then
+            return false, "the view is read-only"
+        end
 
         return writeAll(self._provider, self._handle, self._highWater, bytes)
     end
@@ -740,6 +760,9 @@ record net.DirectionView is Reader, Writer
     function flush(self): (boolean, string?)
         if self._ended then
             return false, "the writer is closed"
+        end
+        if not self._writing then
+            return false, "the view is read-only"
         end
 
         return drain(self._provider, self._handle)
@@ -777,7 +800,7 @@ end
 --- @param source the connection to view
 --- @return the view, which may not outlive it
 --- @export
-function net.asReader(borrows source: net.Stream): affine(net.DirectionView) borrows (source)
+function net.asReader(borrows source: net.Stream): affine(Reader) borrows (source)
     return new net.DirectionView(
         _provider = source._provider,
         _handle = source._handle,
@@ -791,7 +814,7 @@ end
 --- @param source the connection to view
 --- @return the view, which may not outlive it
 --- @export
-function net.asWriter(borrows source: net.Stream): affine(net.DirectionView) borrows (source)
+function net.asWriter(borrows source: net.Stream): affine(Writer) borrows (source)
     return new net.DirectionView(
         _provider = source._provider,
         _handle = source._handle,
@@ -945,6 +968,22 @@ record net.Datagram is nupp.Closeable
             end
             if got == nil then
                 return false
+            end
+            local rawHost: any = from
+            local rawPort: any = at
+            local rawTruncated: any = truncated
+            if type(rawHost) ~= "string"
+                or rawHost == ""
+                or type(rawPort) ~= "number"
+                or rawPort < 0
+                or rawPort > 65535
+                or math.floor(rawPort) ~= rawPort
+                or type(rawTruncated) ~= "boolean"
+                or #got > wanted
+            then
+                failure = "the network provider returned an invalid datagram"
+
+                return true
             end
             bytes = got
             host = from
@@ -1101,7 +1140,10 @@ end
 --- @export
 function net.listen(options: net.ListenOptions): (affine(net.Listener)?, string?)
     const chosen = provider
-    const backlog = options.backlog or 128
+    const backlog = positive(options.backlog or 128, "net.listen backlog", 2)
+    if backlog > MAX_BACKLOG then
+        error("nupp: net.listen backlog is too large", 2)
+    end
     local handle: any = nil
     local why: string? = nil
     if options.path ~= nil then
@@ -1160,24 +1202,42 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?
     if request == nil then
         return nil, why
     end
+    local requestOpen = true
+
+    local function closeRequest(): nil
+        if requestOpen then
+            requestOpen = false
+            chosen:closeConnect(request)
+        end
+    end
+
     local handle: any = nil
     local failure: string? = nil
-    await("nupp.io.net connect", function(): boolean
-        const ready, reason = chosen:connectPoll(request)
-        if ready ~= nil then
-            handle = ready
+    local completed, problem = pcall(function(): nil
+        await(
+            "nupp.io.net connect",
+            function(): boolean
+                const ready, reason = chosen:connectPoll(request)
+                if ready ~= nil then
+                    handle = ready
 
-            return true
-        end
-        if reason ~= nil then
-            failure = reason
+                    return true
+                end
+                if reason ~= nil then
+                    failure = reason
 
-            return true
-        end
+                    return true
+                end
 
-        return false
+                return false
+            end,
+            closeRequest
+        )
     end)
-    chosen:closeConnect(request)
+    closeRequest()
+    if not completed then
+        error(problem, 0)
+    end
     if failure ~= nil then
         return nil, failure
     end
@@ -1219,7 +1279,11 @@ end
 layering.takeStreamHandle = takeStreamHandle
 
 --- Advances the selected network reactor.
+--- @raises string when timeoutMs is not a non-negative integer
 function net.pump(timeoutMs: integer): nil
+    if timeoutMs < 0 or math.floor(timeoutMs) ~= timeoutMs then
+        error("nupp: net.pump timeoutMs must be a non-negative integer", 2)
+    end
     provider:run(timeoutMs)
 end
 
