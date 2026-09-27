@@ -2133,6 +2133,28 @@ return minimum, flag, count
     )
 end
 
+function M.floatingReducerStateIsPrivateToTheSimdModule()
+    assertEq(
+        codes([[
+local simd = require("nupp.simd")
+local sum = simd.reducer.orderedSum(0.0)
+return sum.total
+]]),
+        "NUPP2209"
+    )
+    assertEq(
+        codes(
+            [[
+local simd = require("nupp.simd")
+local sum = simd.reducer.compensatedSum(0.0)
+sum.compensation = 1.0
+return sum:value()
+]]
+        ),
+        "NUPP2209"
+    )
+end
+
 function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     clean(
         table.concat(

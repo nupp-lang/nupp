@@ -44,9 +44,8 @@ any loop that should run in vector lanes. `simd.reducer` accepts scalar contribu
 or explicit vector-plus-mask contributions, and `simd.horizontal` reduces a
 vector to one value.
 
-See
-[simd.md](docs/learn/performance/ahead-of-time/simd.md) for
-the whole of it.
+See [simd.md](docs/learn/performance/ahead-of-time/simd.md) for the complete
+SIMD contract.
 ]]
 
 const {type Span, type WriteSpan} = require("nupp.mem.span")
@@ -120,6 +119,7 @@ local reducer: {
 --- A floating-point sum committed in logical iteration order.
 --- @export
 record reducer.OrderedSum
+    @private
     total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -142,7 +142,9 @@ end
 --- A floating-point sum using the width-independent adjacent-pair tree.
 --- @export
 record reducer.PairwiseSum
+    @private
     partials: {number?}
+    @private
     count: integer
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -197,6 +199,7 @@ end
 --- a left fold. Native lowering may use several accumulators.
 --- @export
 record reducer.AlgebraicSum
+    @private
     total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -234,7 +237,9 @@ end
 --- not lose its correction, which is the case plain Kahan gets wrong.
 --- @export
 record reducer.CompensatedSum
+    @private
     total: number
+    @private
     compensation: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -263,6 +268,7 @@ end
 --- A floating-point product committed in logical iteration order.
 --- @export
 record reducer.OrderedProduct
+    @private
     total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -285,7 +291,9 @@ end
 --- A floating-point product using the width-independent adjacent-pair tree.
 --- @export
 record reducer.PairwiseProduct
+    @private
     partials: {number?}
+    @private
     count: integer
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -337,6 +345,7 @@ end
 --- A floating-point product whose named contract permits reassociation.
 --- @export
 record reducer.AlgebraicProduct
+    @private
     total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -359,6 +368,7 @@ end
 --- A dot product committed in logical iteration order without contraction.
 --- @export
 record reducer.OrderedDot
+    @private
     total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -386,6 +396,7 @@ end
 --- A non-contracting dot product using the adjacent-pair sum tree.
 --- @export
 record reducer.PairwiseDot
+    @private
     sum: reducer.PairwiseSum
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -413,6 +424,7 @@ end
 --- A dot product permitting reassociation and multiply-add contraction.
 --- @export
 record reducer.AlgebraicDot
+    @private
     total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -630,31 +642,31 @@ end
 --- @export
 local i32 = {}
 
---- Constructs a int32 wrappingSum fold, including the supplied initial value.
+--- Constructs an `int32` `wrappingSum` fold, including the supplied initial value.
 --- @export
 function i32.wrappingSum(initial: int32): simd.WrappingSum<int32>
     return new simd.WrappingSum(total = initial, operation = nupp.math.i32.add)
 end
 
---- Constructs a int32 wrappingProduct fold, including the supplied initial value.
+--- Constructs an `int32` `wrappingProduct` fold, including the supplied initial value.
 --- @export
 function i32.wrappingProduct(initial: int32): simd.WrappingProduct<int32>
     return new simd.WrappingProduct(total = initial, operation = nupp.math.i32.mul)
 end
 
---- Constructs a int32 andBits fold, including the supplied initial value.
+--- Constructs an `int32` `andBits` fold, including the supplied initial value.
 --- @export
 function i32.andBits(initial: int32): simd.AndBits<int32>
     return new simd.AndBits(total = initial, operation = nupp.math.i32.andBits)
 end
 
---- Constructs a int32 orBits fold, including the supplied initial value.
+--- Constructs an `int32` `orBits` fold, including the supplied initial value.
 --- @export
 function i32.orBits(initial: int32): simd.OrBits<int32>
     return new simd.OrBits(total = initial, operation = nupp.math.i32.orBits)
 end
 
---- Constructs a int32 xorBits fold, including the supplied initial value.
+--- Constructs an `int32` `xorBits` fold, including the supplied initial value.
 --- @export
 function i32.xorBits(initial: int32): simd.XorBits<int32>
     return new simd.XorBits(total = initial, operation = nupp.math.i32.xorBits)
@@ -666,31 +678,31 @@ reducer.i32 = i32
 --- @export
 local u32 = {}
 
---- Constructs a uint32 wrappingSum fold, including the supplied initial value.
+--- Constructs a `uint32` `wrappingSum` fold, including the supplied initial value.
 --- @export
 function u32.wrappingSum(initial: uint32): simd.WrappingSum<uint32>
     return new simd.WrappingSum(total = initial, operation = nupp.math.u32.add)
 end
 
---- Constructs a uint32 wrappingProduct fold, including the supplied initial value.
+--- Constructs a `uint32` `wrappingProduct` fold, including the supplied initial value.
 --- @export
 function u32.wrappingProduct(initial: uint32): simd.WrappingProduct<uint32>
     return new simd.WrappingProduct(total = initial, operation = nupp.math.u32.mul)
 end
 
---- Constructs a uint32 andBits fold, including the supplied initial value.
+--- Constructs a `uint32` `andBits` fold, including the supplied initial value.
 --- @export
 function u32.andBits(initial: uint32): simd.AndBits<uint32>
     return new simd.AndBits(total = initial, operation = nupp.math.u32.andBits)
 end
 
---- Constructs a uint32 orBits fold, including the supplied initial value.
+--- Constructs a `uint32` `orBits` fold, including the supplied initial value.
 --- @export
 function u32.orBits(initial: uint32): simd.OrBits<uint32>
     return new simd.OrBits(total = initial, operation = nupp.math.u32.orBits)
 end
 
---- Constructs a uint32 xorBits fold, including the supplied initial value.
+--- Constructs a `uint32` `xorBits` fold, including the supplied initial value.
 --- @export
 function u32.xorBits(initial: uint32): simd.XorBits<uint32>
     return new simd.XorBits(total = initial, operation = nupp.math.u32.xorBits)
@@ -706,7 +718,7 @@ local function i64WrappingSum(a: int64, b: int64): int64
     return (a + b) as int64
 end
 
---- Constructs a int64 wrappingSum fold, including the supplied initial value.
+--- Constructs an `int64` `wrappingSum` fold, including the supplied initial value.
 --- @export
 function i64.wrappingSum(initial: int64): simd.WrappingSum<int64>
     return new simd.WrappingSum(total = initial, operation = i64WrappingSum)
@@ -716,7 +728,7 @@ local function i64WrappingProduct(a: int64, b: int64): int64
     return (a * b) as int64
 end
 
---- Constructs a int64 wrappingProduct fold, including the supplied initial value.
+--- Constructs an `int64` `wrappingProduct` fold, including the supplied initial value.
 --- @export
 function i64.wrappingProduct(initial: int64): simd.WrappingProduct<int64>
     return new simd.WrappingProduct(total = initial, operation = i64WrappingProduct)
@@ -726,7 +738,7 @@ local function i64AndBits(a: int64, b: int64): int64
     return (a & b) as int64
 end
 
---- Constructs a int64 andBits fold, including the supplied initial value.
+--- Constructs an `int64` `andBits` fold, including the supplied initial value.
 --- @export
 function i64.andBits(initial: int64): simd.AndBits<int64>
     return new simd.AndBits(total = initial, operation = i64AndBits)
@@ -736,7 +748,7 @@ local function i64OrBits(a: int64, b: int64): int64
     return (a | b) as int64
 end
 
---- Constructs a int64 orBits fold, including the supplied initial value.
+--- Constructs an `int64` `orBits` fold, including the supplied initial value.
 --- @export
 function i64.orBits(initial: int64): simd.OrBits<int64>
     return new simd.OrBits(total = initial, operation = i64OrBits)
@@ -746,7 +758,7 @@ local function i64XorBits(a: int64, b: int64): int64
     return (a ~ b) as int64
 end
 
---- Constructs a int64 xorBits fold, including the supplied initial value.
+--- Constructs an `int64` `xorBits` fold, including the supplied initial value.
 --- @export
 function i64.xorBits(initial: int64): simd.XorBits<int64>
     return new simd.XorBits(total = initial, operation = i64XorBits)
@@ -762,7 +774,7 @@ local function u64WrappingSum(a: uint64, b: uint64): uint64
     return (a + b) as uint64
 end
 
---- Constructs a uint64 wrappingSum fold, including the supplied initial value.
+--- Constructs a `uint64` `wrappingSum` fold, including the supplied initial value.
 --- @export
 function u64.wrappingSum(initial: uint64): simd.WrappingSum<uint64>
     return new simd.WrappingSum(total = initial, operation = u64WrappingSum)
@@ -772,7 +784,7 @@ local function u64WrappingProduct(a: uint64, b: uint64): uint64
     return (a * b) as uint64
 end
 
---- Constructs a uint64 wrappingProduct fold, including the supplied initial value.
+--- Constructs a `uint64` `wrappingProduct` fold, including the supplied initial value.
 --- @export
 function u64.wrappingProduct(initial: uint64): simd.WrappingProduct<uint64>
     return new simd.WrappingProduct(total = initial, operation = u64WrappingProduct)
@@ -782,7 +794,7 @@ local function u64AndBits(a: uint64, b: uint64): uint64
     return (a & b) as uint64
 end
 
---- Constructs a uint64 andBits fold, including the supplied initial value.
+--- Constructs a `uint64` `andBits` fold, including the supplied initial value.
 --- @export
 function u64.andBits(initial: uint64): simd.AndBits<uint64>
     return new simd.AndBits(total = initial, operation = u64AndBits)
@@ -792,7 +804,7 @@ local function u64OrBits(a: uint64, b: uint64): uint64
     return (a | b) as uint64
 end
 
---- Constructs a uint64 orBits fold, including the supplied initial value.
+--- Constructs a `uint64` `orBits` fold, including the supplied initial value.
 --- @export
 function u64.orBits(initial: uint64): simd.OrBits<uint64>
     return new simd.OrBits(total = initial, operation = u64OrBits)
@@ -802,7 +814,7 @@ local function u64XorBits(a: uint64, b: uint64): uint64
     return (a ~ b) as uint64
 end
 
---- Constructs a uint64 xorBits fold, including the supplied initial value.
+--- Constructs a `uint64` `xorBits` fold, including the supplied initial value.
 --- @export
 function u64.xorBits(initial: uint64): simd.XorBits<uint64>
     return new simd.XorBits(total = initial, operation = u64XorBits)
@@ -825,7 +837,7 @@ record simd.Any
     end
 end
 
---- Constructs a any reducer.
+--- Constructs an `any` reducer.
 --- @export
 function reducer.any(): simd.Any
     return new simd.Any(total = false)
@@ -846,7 +858,7 @@ record simd.All
     end
 end
 
---- Constructs a all reducer.
+--- Constructs an `all` reducer.
 --- @export
 function reducer.all(): simd.All
     return new simd.All(total = true)
