@@ -418,7 +418,9 @@ function M.jsonCarriesTheFindingAndItsCount()
                 assert(instruction.inLoop, "an unrecordable instruction is marked as in a loop")
                 test.equal(instruction.op, instruction.op:upper())
                 assert(
-                    instruction.traceReason and instruction.traceReachability == "must",
+                    instruction.traceReason
+                    and instruction.traceClass == "blocker"
+                    and instruction.traceReachability == "must",
                     "the compatibility finding carries its normalized classification"
                 )
             end

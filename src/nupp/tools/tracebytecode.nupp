@@ -301,6 +301,7 @@ local function classify(instructions: {any}): {any}
                 }
                 findings[#findings + 1] = finding
                 ins.traceReason = reason.id
+                ins.traceClass = reason.class
                 ins.traceReachability = reachability
                 -- Compatibility: the old field and exit status meant the whole loop,
                 -- which only a must-reach blocker can still truthfully mean.
