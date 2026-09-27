@@ -594,6 +594,142 @@ function M.nativeHttpDispatchDrainsAfterAWakerRaises()
     assertEq(released.client, 1, "client releases after an admission waker failure")
 end
 
+function M.nativeHttpProviderRejectsMalformedBoundaries()
+    local closed = 0
+    local head = {status = 200, version = 11, headers = "\0\0\0\0"}
+    local transfer = {
+        head = function()
+            return "ready", head.status, head.version, nil, head.headers, nil
+        end,
+        takeBody = function()
+            return true
+        end,
+        close = function()
+            closed = closed + 1
+        end,
+    }
+    local backend = {
+        now = function()
+            return 0
+        end,
+        send = function()
+            return transfer
+        end,
+        pending = function()
+            return 0
+        end,
+        close = function()
+        end,
+    }
+    local provider = require("providerstate").nativeHttpProvider({
+        BODY_INLINE = 0,
+        BODY_UPLOAD = 1,
+        BODY_FILE = 2,
+        newClient = function()
+            return backend
+        end,
+    })
+
+    for _, case in ipairs({
+        {options = {timeoutMs = math.huge}, expected = "timeoutMs"},
+        {options = {maxConnections = 4294967296}, expected = "maxConnections"},
+        {options = {headers = "bad"}, expected = "headers"},
+        {options = {insecureHosts = {[2] = "example.com"}}, expected = "dense list"},
+    }) do
+        local ok, problem = pcall(provider.client, case.options)
+        assert(not ok and tostring(problem):find(case.expected, 1, true), tostring(problem))
+    end
+
+    local client = provider.client()
+    local request = setmetatable(
+        {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
+        require("nupp.io.http.messages").Request
+    )
+    head.status = 99
+    local response, reason = client:send(request)
+    assertEq(response, nil)
+    assert(tostring(reason):find("response status", 1, true), tostring(reason))
+    head.status, head.version = 200, 99
+    response, reason = client:send(request)
+    assertEq(response, nil)
+    assert(tostring(reason):find("protocol version", 1, true), tostring(reason))
+    assertEq(closed, 2, "malformed native responses release their transfer")
+    client:close()
+    request:close()
+end
+
+function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
+    local ffi = require("ffi")
+    local nextHandle = 0
+    local C = {
+        nuppNativeGpuCostsEnabled = function()
+            return 0
+        end,
+        nuppNativeGpuContextCreate = function(output)
+            nextHandle = nextHandle + 1
+            output[0] = nextHandle
+            return 0
+        end,
+        nuppNativeGpuContextRelease = function()
+            return 0
+        end,
+        nuppNativeGpuBufferCreate = function(_, _, output)
+            nextHandle = nextHandle + 1
+            output[0] = nextHandle
+            return 0
+        end,
+        nuppNativeGpuKernelCreate = function(_, _, _, _, _, _, _, _, _, _, _, output)
+            nextHandle = nextHandle + 1
+            output[0] = nextHandle
+            return 0
+        end,
+        nuppNativeGpuBindingsCreate = function(_, _, output)
+            nextHandle = nextHandle + 1
+            output[0] = nextHandle
+            return 0
+        end,
+    }
+    setmetatable(C, {
+        __index = function()
+            return function()
+                return 0
+            end
+        end
+    })
+    local provider = require("providerstate").nativeGpu({
+        C = C,
+        ffi = ffi,
+        requireFeature = function()
+        end,
+        succeeded = function(status)
+            assertEq(status, 0)
+        end,
+    })
+    local context = provider.open()
+    local element = ffi.typeof("uint32_t")
+    for _, count in ipairs({1.5, math.huge, 0 / 0}) do
+        local ok, problem = pcall(context.buffer, context, element, count)
+        assert(not ok and tostring(problem):find("buffer count", 1, true), tostring(problem))
+    end
+    local fractionalKernel, kernelProblem = pcall(
+        context.compileGenerated,
+        context,
+        {spirv = "x", entrypoint = "main"},
+        0.5,
+        1,
+        12,
+        1
+    )
+    assert(not fractionalKernel and tostring(kernelProblem):find("read buffer count", 1, true), tostring(kernelProblem))
+    local kernel = context:compileGenerated({spirv = "x", entrypoint = "main"}, 0, 1, 12, 1)
+    local fractionalDispatch, dispatchProblem = pcall(context.bindKernel, context, kernel, 1.5)
+    assert(
+        not fractionalDispatch and tostring(dispatchProblem):find("dispatch count", 1, true),
+        tostring(dispatchProblem)
+    )
+    context:drop()
+end
+
 function M.browserCryptoRejectsMalformedHostValues()
     local returned = {}
     local browser = require("providerstate").browserCrypto({

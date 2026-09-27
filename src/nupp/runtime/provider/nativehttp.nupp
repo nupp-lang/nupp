@@ -80,26 +80,17 @@ local UPLOAD_SIZE: integer = 512 * 1024
 local UPLOAD_PAGE: integer = 64 * 1024
 local COALESCE_BELOW: integer = 8 * 1024
 local COPY_TURN: integer = 16 * 1024 * 1024
+local MAX_SAFE_INTEGER: integer = 9007199254740991
+local UINT32_MAX: integer = 4294967295
 
 ----------------------------------------------------------------------------
 -- Options
 ----------------------------------------------------------------------------
 
 local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
-    if type(value) ~= "number"
-        or value ~= math.floor(value)
-        or value < minimum
-        or maximum ~= nil and value > maximum
-    then
-        error(
-            (
-                "nupp: HTTP %s must be an integer%s"
-            ):format(
-                what,
-                maximum ~= nil and (" from " .. minimum .. " through " .. maximum) or " of at least " .. minimum
-            ),
-            3
-        )
+    local upper = maximum or MAX_SAFE_INTEGER
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum or value > upper then
+        error(("nupp: HTTP %s must be an integer%s"):format(what, (" from " .. minimum .. " through " .. upper)), 3)
     end
 
     return value as integer
@@ -136,6 +127,9 @@ local function mergedHeaders(first: any, second: any, contentType: string?): (an
     local merged: {[string]: string} = {}
 
     local function add(headers: any): nil
+        if headers ~= nil and type(headers) ~= "table" then
+            error("nupp: HTTP headers must be a table", 3)
+        end
         for name, value in pairs(headers or {}) do
             if type(name) ~= "string"
                 or type(value) ~= "string"
@@ -171,7 +165,13 @@ end
 
 local function copiedOptions(options: http.Options?): any
     local given: any = options or {}
+    if type(given) ~= "table" then
+        error("nupp: HTTP client options must be a table", 3)
+    end
     local headers = {}
+    if given.headers ~= nil and type(given.headers) ~= "table" then
+        error("nupp: HTTP default headers must be a table", 3)
+    end
     for name, value in pairs(given.headers or {}) do
         if type(name) ~= "string" or type(value) ~= "string" then
             error("nupp: HTTP default headers must have string names and values", 3)
@@ -185,7 +185,21 @@ local function copiedOptions(options: http.Options?): any
         headers["user-agent"] = given.userAgent
     end
     local insecure = {}
-    for _, host in ipairs(given.insecureHosts or {}) do
+    local insecureHosts = given.insecureHosts or {}
+    if type(insecureHosts) ~= "table" then
+        error("nupp: HTTP insecureHosts must be a dense list", 3)
+    end
+    local hostCount = 0
+    for index in pairs(insecureHosts) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) then
+            error("nupp: HTTP insecureHosts must be a dense list", 3)
+        end
+        hostCount = hostCount + 1
+    end
+    if hostCount ~= #insecureHosts then
+        error("nupp: HTTP insecureHosts must be a dense list", 3)
+    end
+    for _, host in ipairs(insecureHosts) do
         if type(host) ~= "string" then
             error("nupp: HTTP insecureHosts entries must be strings", 3)
         end
@@ -208,10 +222,10 @@ local function copiedOptions(options: http.Options?): any
         timeoutMs = optionInteger(given, "timeoutMs", 30000, 1),
         connectTimeoutMs = optionInteger(given, "connectTimeoutMs", 10000, 1),
         stallTimeoutMs = optionInteger(given, "stallTimeoutMs", 0, 0),
-        maxRedirects = optionInteger(given, "maxRedirects", 5, 0),
-        maxPendingRequests = optionInteger(given, "maxPendingRequests", 256, 1),
-        maxConnections = optionInteger(given, "maxConnections", 16, 1),
-        maxConnectionsPerHost = optionInteger(given, "maxConnectionsPerHost", 16, 1),
+        maxRedirects = whole(given.maxRedirects or 5, "maxRedirects", 0, UINT32_MAX),
+        maxPendingRequests = whole(given.maxPendingRequests or 256, "maxPendingRequests", 1, UINT32_MAX),
+        maxConnections = whole(given.maxConnections or 16, "maxConnections", 1, UINT32_MAX),
+        maxConnectionsPerHost = whole(given.maxConnectionsPerHost or 16, "maxConnectionsPerHost", 1, UINT32_MAX),
         maxBytes = optionInteger(given, "maxBytes", 0, 0),
         compressed = given.compressed ~= false,
         insecureHosts = insecure,
@@ -871,11 +885,19 @@ local function readUpload(
     -- request contract also accepts a string-only reader; guard the extension
     -- before using it and preserve capability tracking across either call.
     if type((source as io.Reader).readInto) == "function" then
-        return (source as io.Reader):readInto(destination, offset, count)
+        local got, reason = (source as io.Reader):readInto(destination, offset, count)
+        if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
+            error("nupp: HTTP request reader returned an invalid byte count", 3)
+        end
+
+        return got, reason
     end
     local chunk, reason = source:read(count)
     if chunk == nil then
         return nil, reason
+    end
+    if type(chunk) ~= "string" or #chunk > count then
+        error("nupp: HTTP request reader returned invalid bytes", 3)
     end
     destination:setString(chunk, offset)
 
@@ -1107,7 +1129,19 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
         transfer:close()
         return nil, problem
     end
-    local status = head.status as integer
+    local status = head.status
+    if type(status) ~= "number" or status ~= math.floor(status) or status < 100 or status > 599 then
+        transfer:close()
+        return nil, "the HTTP provider returned an invalid response status"
+    end
+    if head.version ~= 10 and head.version ~= 11 and head.version ~= 20 then
+        transfer:close()
+        return nil, "the HTTP provider returned an invalid protocol version"
+    end
+    if type(head.headers) ~= "string" then
+        transfer:close()
+        return nil, "the HTTP provider returned invalid response headers"
+    end
     local location = manualRedirects and packedHeader(head.headers, "location") or nil
     if manualRedirects
         and location ~= nil
@@ -1183,7 +1217,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     local version: http.Version = head.version == 10 and "1.0" or head.version == 20 and "2" or "1.1"
     local responseBody = makeBody(self, transfer)
 
-    return makeResponse(head.status, version, effective, responseBody, head.headers)
+    return makeResponse(status, version, effective, responseBody, head.headers)
 end
 
 --- How many requests this client is still carrying.

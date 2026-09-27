@@ -215,6 +215,14 @@ local function live(borrows self: gpu.Context): any
     return self._handle
 end
 
+local function whole(value: any, what: string, minimum: integer, maximum: integer): integer
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum or value > maximum then
+        error(("nupp: GPU %s must be an integer from %d through %d"):format(what, minimum, maximum), 3)
+    end
+
+    return value as integer
+end
+
 -- Keep the element type on the span crossing the native boundary. Casting the
 -- pointer to bytes would erase its borrow provenance; only the C declaration
 -- needs to forget the pointee type.
@@ -325,9 +333,7 @@ function gpu.Context.buffer<T>(
     element: ctype<T>,
     count: integer
 ): shared.Buffer<T> borrows (self)
-    if count < 0 then
-        error("nupp: GPU buffer count cannot be negative", 2)
-    end
+    count = whole(count, "buffer count", 0, 4294967295)
     local width = ffi.sizeof(element) as integer
     if width <= 0 or count == 0 or count > 4294967295 // width then
         error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
@@ -361,31 +367,30 @@ function gpu.Context.compileGenerated(
     uniformBytes: integer,
     threads: integer?
 ): gpu.Kernel borrows (self)
-    local group = threads or 256
-    if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
-        error("nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers", 2)
-    end
-    if uniformBytes < 0 or uniformBytes > 128 or uniformBytes % 4 ~= 0 then
+    readonlyBuffers = whole(readonlyBuffers, "read buffer count", 0, 16)
+    writableBuffers = whole(writableBuffers, "write buffer count", 1, 16)
+    uniformBytes = whole(uniformBytes, "uniform byte count", 0, 128)
+    local group = whole(threads or 256, "thread group", 1, 1024)
+    if uniformBytes % 4 ~= 0 then
         error("nupp: GPU uniform block must be from 0 through 128 bytes and aligned to four bytes", 2)
-    end
-    if group < 1 or group > 1024 then
-        error("nupp: GPU thread group must be from 1 through 1024", 2)
     end
     local spans = readonlyBuffers + writableBuffers
     if uniformBytes < 4 * (1 + 2 * spans) then
         error("nupp: GPU uniform block does not contain the generated span header", 2)
     end
-    if artifacts.spirv == nil or #artifacts.spirv == 0 or #artifacts.entrypoint == 0 then
+    local artifact: any = artifacts
+    local spirv, entrypoint = artifact.spirv, artifact.entrypoint
+    if type(spirv) ~= "string" or #spirv == 0 or type(entrypoint) ~= "string" or #entrypoint == 0 then
         error("nupp: native GPU kernels need non-empty SPIR-V and an entrypoint", 2)
     end
     local output = ffi.new("uint64_t[1]")
     native.succeeded(
         C.nuppNativeGpuKernelCreate(
             live(self),
-            artifacts.spirv,
-            #artifacts.spirv,
-            artifacts.entrypoint,
-            #artifacts.entrypoint,
+            spirv,
+            #spirv,
+            entrypoint,
+            #entrypoint,
             readonlyBuffers,
             writableBuffers,
             uniformBytes,
@@ -404,7 +409,7 @@ function gpu.Context.compileGenerated(
         artifactId = identity.artifactId,
         readonlyNames = identity.readonlyNames,
         writableNames = identity.writableNames,
-        entrypoint = artifacts.entrypoint
+        entrypoint = entrypoint
     })
 
     return new shared.Kernel(
@@ -462,6 +467,7 @@ function gpu.Binding.setRead<T>(
     matchCount: boolean
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
+    slot = whole(slot, "read binding slot", 0, 15)
     if self._released or self._kernel._released then
         error("nupp: GPU binding was released", 2)
     end
@@ -504,6 +510,7 @@ function gpu.Binding.setWrite<T>(
     matchCount: boolean
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
+    slot = whole(slot, "write binding slot", 0, 15)
     if self._released or self._kernel._released then
         error("nupp: GPU binding was released", 2)
     end
@@ -679,9 +686,7 @@ function gpu.Context.bindKernel(
     elseif kernel._released then
         error("nupp: GPU kernel was released", 2)
     end
-    if count < 1 or count > 4294967295 then
-        error("nupp: GPU dispatch count must be from 1 through 4294967295", 2)
-    end
+    count = whole(count, "dispatch count", 1, 4294967295)
     local context = live(self)
     local output = ffi.new("uint64_t[1]")
     native.succeeded(C.nuppNativeGpuBindingsCreate(context, kernel._handle, output), 2)

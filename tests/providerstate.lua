@@ -164,6 +164,18 @@ function M.nativeHttp(native)
     return instance({[name] = true}, {["nupp.runtime.native"] = native})(name)
 end
 
+function M.nativeHttpProvider(transport)
+    local name = "nupp.runtime.provider.nativehttp"
+    return instance({[name] = true}, {["nupp.io.http.internal.transport"] = transport})(name)
+end
+
+function M.nativeGpu(native)
+    local name = "nupp.runtime.provider.nativegpu"
+    return instance({[name] = true, ["nupp.runtime.provider.nativegpurelease"] = true}, {
+        ["nupp.runtime.native"] = native,
+    })(name)
+end
+
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
     local facade = "nupp." .. kind
