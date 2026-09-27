@@ -283,6 +283,22 @@ async function performGpuOperation(effect, options) {
   if (options.gpuFailure) throw new Error(options.gpuFailure);
   const runtime = gpuRuntime(options);
   if (effect.operation === "runtime-open") return {driver: "webgpu"};
+  if (effect.operation === "runtime-close") {
+    if (!Array.isArray(effect.buffers) || !Array.isArray(effect.kernels)) {
+      throw new Error("browser GPU context resource lists are invalid");
+    }
+    const buffers = effect.buffers.map(value => uint32(value, "buffer handle"));
+    const kernels = effect.kernels.map(value => uint32(value, "kernel handle"));
+    for (const id of buffers) {
+      const resource = runtime.buffers.get(id);
+      if (!resource) continue;
+      destroyGpuDownload(resource);
+      resource.buffer.destroy();
+      runtime.buffers.delete(id);
+    }
+    for (const id of kernels) runtime.kernels.delete(id);
+    return null;
+  }
   if (effect.operation === "runtime-create-buffer") {
     const bytes = uint32(effect.bytes, "buffer byte length");
     if (bytes === 0 || bytes % 4 !== 0) throw new Error("browser GPU buffers need a positive four-byte size");

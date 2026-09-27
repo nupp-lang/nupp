@@ -4001,7 +4001,7 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         "open must have a callable declaration"
     )
     assert(
-        text:find("Number of elements, kept with the allocation", 1, true),
+        text:find("Number of logical elements in this buffer or view", 1, true),
         "generic Buffer must document its members"
     )
     assert(

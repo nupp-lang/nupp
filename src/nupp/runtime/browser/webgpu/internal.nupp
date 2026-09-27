@@ -16,10 +16,13 @@ identity to release device resources without substituting a provider-local type.
 
 The browser application must install WebGPU effects and memory before requiring
 [](nupp.gpu). Its facade binds `open` directly; dispatch and cleanup use retained
-context state without service lookups.
+context state without service lookups. Context cleanup queues destruction of
+unreleased host resources without suspending.
 ]]
 
 local response = require("nupp.runtime.browser.response")
+local effects = require("nupp.runtime.browser.effects")
+local requestNosuspend = effects.request as @nosuspend function(string, any, function(any): nil): function()
 local memory = require("nupp.runtime.browser.memory") as any
 local storage = require("nupp.runtime.storage")
 local array = require("nupp.mem.array")
@@ -108,15 +111,16 @@ record gpu.Binding is api.Binding
 end
 
 record gpu.Context is api.KernelContext
-    _handle: any
     _closed: boolean
+    _buffers: {integer}
+    _kernels: {integer}
 
     --- Closes the context and makes its resources unavailable.
     drop: @nosuspend function(takes self: Context): nil
 
     _destroy: @nosuspend function(state: any): nil
 
-    --- Native provider family selected for this device.
+    --- WebGPU provider family selected for this context.
     driver: function(borrows self: Context): string
 
     --- Allocates a typed resident device buffer.
@@ -190,15 +194,41 @@ local function live(borrows context: gpu.Context): nil
 end
 
 local function answerHandle(answer: any, field: string): integer
+    if type(answer) ~= "table" then
+        error("nupp: browser GPU returned an invalid " .. field .. " handle", 3)
+    end
     local handle = answer[field]
-    if type(handle) ~= "number" or handle < 1 or handle % 1 ~= 0 then
+    if type(handle) ~= "number" or handle < 1 or handle > 4294967295 or handle % 1 ~= 0 then
         error("nupp: browser GPU returned an invalid " .. field .. " handle", 3)
     end
 
     return handle as integer
 end
 
-local contextdestroy = shared.markClosed
+local function forgetHandle(handles: {integer}, handle: integer): nil
+    for index, value in ipairs(handles) do
+        if value == handle then
+            handles[index] = handles[#handles]
+            handles[#handles] = nil
+            return
+        end
+    end
+end
+
+local function contextdestroy(state: any): nil
+    if state._closed then
+        return
+    end
+    shared.markClosed(state)
+    requestNosuspend(
+        "gpu",
+        {operation = "runtime-close", buffers = state._buffers, kernels = state._kernels,},
+        function(_answer: any): nil
+        end
+    )
+end
+
+local contextdestroyNosuspend = contextdestroy as @nosuspend function(any): nil
 
 function gpu.Context.driver(borrows self: gpu.Context): string
     live(self)
@@ -217,11 +247,14 @@ function gpu.Context.buffer<T>(
     end
     local answer = response.await("gpu", {operation = "runtime-create-buffer", bytes = count * width,})
 
+    local handle = answerHandle(answer, "buffer")
+    self._buffers[#self._buffers + 1] = handle
+
     return new shared.Buffer(
         _elementType = nil as T,
         _anchor = self,
         _context = self,
-        _handle = answerHandle(answer, "buffer"),
+        _handle = handle,
         _width = width,
         _state = {released = false},
         _offset = 0,
@@ -269,9 +302,12 @@ function gpu.Context.compileGenerated(
         threads = group,
     })
 
+    local handle = answerHandle(answer, "kernel")
+    self._kernels[#self._kernels + 1] = handle
+
     return new shared.Kernel(
         _anchor = self,
-        _handle = answerHandle(answer, "kernel"),
+        _handle = handle,
         _readonlyBuffers = readonlyBuffers,
         _writableBuffers = writableBuffers,
         _uniformBytes = uniformBytes,
@@ -476,6 +512,7 @@ function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferV
         error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
     end
     response.await("gpu", {operation = "runtime-destroy-buffer", buffer = buffer._handle,})
+    forgetHandle(self._buffers, buffer._handle)
     buffer._state.released = true
 end
 
@@ -488,6 +525,7 @@ function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValu
         error("nupp: browser GPU kernel was released", 2)
     end
     response.await("gpu", {operation = "runtime-destroy-kernel", kernel = kernel._handle,})
+    forgetHandle(self._kernels, kernel._handle)
     kernel._released = true
 end
 
@@ -556,7 +594,7 @@ end
 
 function gpu.open(): affine(api.KernelContext, api.destroyContext)
     response.await("gpu", {operation = "runtime-open",})
-    return new gpu.Context(_destroy = contextdestroy, _closed = false, _handle = nil)
+    return new gpu.Context(_destroy = contextdestroyNosuspend, _closed = false, _buffers = {}, _kernels = {})
 end
 
 export const open = gpu.open

@@ -450,6 +450,27 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
   assert.equal(failed.responses[0].ok, false);
   assert.match(failed.responses[0].error, /buffer handle is unknown/);
   assert.deepEqual(released, [1, 3, 2, 8, 5, 6, 7, 4]);
+
+  const queued = await run(21, {operation: "runtime-create-buffer", bytes: 4});
+  await run(22, {operation: "runtime-enqueue-download", buffer: queued.buffer, offset: 0, bytes: 4});
+  const queuedResource = options.gpuRuntime.buffers.get(queued.buffer);
+  const queuedReadback = queuedResource.download.buffer;
+  await fails(23, {operation: "runtime-close", buffers: false, kernels: []}, /resource lists are invalid/);
+  const inputDeviceBuffer = options.gpuRuntime.buffers.get(input.buffer).buffer;
+  const outputDeviceBuffer = options.gpuRuntime.buffers.get(output.buffer).buffer;
+  await fails(24, {operation: "runtime-close", buffers: [input.buffer, -1], kernels: []}, /must be a uint32/);
+  assert.equal(inputDeviceBuffer.destroyed, false);
+  await run(25, {
+    operation: "runtime-close",
+    buffers: [input.buffer, output.buffer, partial.buffer, queued.buffer],
+    kernels: [kernel.kernel],
+  });
+  assert.equal(inputDeviceBuffer.destroyed, true);
+  assert.equal(outputDeviceBuffer.destroyed, true);
+  assert.equal(queuedResource.buffer.destroyed, true);
+  assert.equal(queuedReadback.destroyed, true);
+  assert.equal(options.gpuRuntime.buffers.size, 0);
+  assert.equal(options.gpuRuntime.kernels.size, 0);
 });
 
 test("browser GPU download refreshes a lease after memory growth and rejects revoked permissions", async () => {

@@ -586,6 +586,64 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     assert(ok, problem)
 end
 
+function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
+    local returned = {}
+    local host = {
+        await = function(_, effect)
+            if effect.operation == "runtime-open" then
+                return {driver = "webgpu"}
+            end
+            return returned
+        end,
+    }
+    local browser = require("providerstate").browserGpu(host)
+    local context = browser.open()
+    local element = require("ffi").typeof("uint32_t")
+    for _, malformed in ipairs({false, {}, {buffer = 0}, {buffer = 1.5}, {buffer = 4294967296}}) do
+        returned = malformed
+        local ok, problem = pcall(context.buffer, context, element, 1)
+        assert(
+            not ok and tostring(problem):find("invalid buffer handle", 1, true),
+            "malformed browser GPU handle must fail at creation: " .. tostring(problem)
+        )
+    end
+    returned = {buffer = 4294967295}
+    local buffer = context:buffer(element, 1)
+    assert(buffer._handle == 4294967295)
+    returned = {buffer = 7}
+    local releasedBuffer = context:buffer(element, 1)
+    context:releaseBuffer(releasedBuffer)
+    for _, malformed in ipairs({false, {}, {kernel = 0}, {kernel = 1.5}, {kernel = 4294967296}}) do
+        returned = malformed
+        local ok, problem = pcall(
+            context.compileGenerated,
+            context,
+            {wgsl = "shader", entrypoint = "main"},
+            0,
+            1,
+            12,
+            1
+        )
+        assert(
+            not ok and tostring(problem):find("invalid kernel handle", 1, true),
+            "malformed browser GPU handle must fail at compilation: " .. tostring(problem)
+        )
+    end
+    returned = {kernel = 4294967295}
+    local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
+    assert(kernel._handle == 4294967295)
+    returned = {kernel = 8}
+    local releasedKernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
+    context:releaseKernel(releasedKernel)
+    context:drop()
+    assert(host.closed.kind == "gpu")
+    assert(host.closed.payload.operation == "runtime-close")
+    assert(host.closed.payload.buffers[1] == buffer._handle)
+    assert(host.closed.payload.kernels[1] == kernel._handle)
+    assert(#host.closed.payload.buffers == 1)
+    assert(#host.closed.payload.kernels == 1)
+end
+
 function M.browserEffectsHandCancelledResourcesToTheirDiscard()
     local effects = require("nupp.runtime.browser.effects")
     local json = require("nupp.runtime.provider.lunajson")

@@ -27,7 +27,7 @@ local gpu = {}
 
 --- Typed resident device storage or a view borrowing its owning context.
 interface gpu.Buffer<T>
-    --- Number of elements, kept with the allocation.
+    --- Number of logical elements in this buffer or view.
     @readonly
     count: integer
 

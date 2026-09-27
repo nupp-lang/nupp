@@ -584,6 +584,7 @@ function M.shippedImplementationModulesAreNotApplicationImports()
             "nupp.codec.json.aot",
             "nupp.io.net.internal",
             "nupp.gpu.internal",
+            "nupp.gpu.types",
             "nupp.gpu.layoutfacts"
         }) do
             local filename = dir .. "/src/app.nupp"

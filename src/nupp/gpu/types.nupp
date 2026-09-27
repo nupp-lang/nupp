@@ -1,7 +1,6 @@
 @!internal
 module nupp.gpu.types
 
-local {type Span, type WriteSpan} = require("nupp.mem.span")
 local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local api = require("nupp.gpu.api")
 local gpu = {}
@@ -45,7 +44,7 @@ record gpu.Buffer<T> is api.Buffer<T>
     _shape: {integer}
     _strides: {integer}
 
-    --- Number of elements, kept with the allocation.
+    --- Number of logical elements in this buffer or view.
     @readonly
     count: integer
 
@@ -80,16 +79,11 @@ record gpu.Kernel is api.Kernel
     _released: boolean
 end
 
---- The canonical shader artifact emitted for one verified native GPU kernel.
+--- The canonical shader artifact emitted for one verified GPU kernel.
 --- @internal
 type gpu.ArtifactSet = api.ArtifactSet
 
 gpu.ArtifactSet = api.ArtifactSet
-
---- A compiler-generated kernel attached to its resident buffers. User source
---- receives a more specific generated wrapper; this erased value is the shared
---- runtime implementation underneath it.
---- @internal
 
 --- Statically sized, zero-based storage shared by one CPU workgroup.
 ---

@@ -3,8 +3,9 @@ module nupp.gpu.spi
 --[[
 Shared interfaces for resident GPU implementations.
 
-The [](nupp.gpu) module selects a device implementation during initialization. `open` is a receiver-free function; it returns an affine KernelContext
-using the canonical `destroyContext` cleanup identity exported here.
+The [](nupp.gpu) module selects a device implementation during initialization.
+`open` is a receiver-free function; it returns an affine `KernelContext` using
+the canonical `destroyContext` cleanup identity exported here.
 
 Implementations define private records satisfying the shared context, buffer,
 kernel, and binding interfaces. Reuse the exported types here rather than
@@ -24,7 +25,7 @@ export interface Provider
     priority: integer?
 
     --- Opens an owned device context using the canonical destroyContext cleanup.
-    --- Raise if the host cannot provide a compatible device.
+    --- Raises if the host cannot provide a compatible device.
     @readonly
     open: function(): affine(types.KernelContext, types.destroyContext)
 end
