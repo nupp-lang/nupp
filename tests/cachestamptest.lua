@@ -6,7 +6,6 @@
 -- recomputes -- so nothing else in the suite notices, and the project quietly reparses
 -- itself on every command. These are the tests that notice.
 local cache = require("nupp.tools.build.cache")
-local fingerprint = require("nupp.compiler.project.fingerprint")
 local envMod = require("nupp.compiler.project.env")
 local stable = require("nupp.compiler.stable")
 
@@ -18,6 +17,10 @@ if not HERE:match("^/") then
 end
 local ROOT = assert(HERE:match("^(.*)/[^/]+$"), "tests directory has no parent")
 local NUPP = ROOT .. "/bin/nupp"
+-- The isolated lane itself runs from a bundle. These cases exercise the module
+-- tree, so load that implementation by filename rather than asking the bundle
+-- for its intentionally whole-tool fallback.
+local fingerprint = dofile(ROOT .. "/build/nupp/compiler/project/fingerprint.lua")
 
 local function tempProject(files)
     local dir = os.tmpname()
@@ -361,6 +364,34 @@ function M.aCachedModuleIsNamedTheWayTheFileSearcherWouldHaveNamedIt()
     local plain = assert(loadfile(path))
     assert(cached() == plain(), "a cached module reports the source a parsed one does: " .. tostring(cached()))
     assert(cached() == "@" .. path, "which is the path on package.path: " .. tostring(cached()))
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.equalModulesKeepTheirOwnChunkNames()
+    local dir = os.tmpname()
+    os.remove(dir)
+    local out = dir .. "/build"
+    local text = "return debug.getinfo(1, 'S').source\n"
+    local digest = require("nupp.compiler.hash").digest(text)
+    local modules = {}
+    for _, name in ipairs({"same.first", "same.second"}) do
+        local path = out .. "/" .. name:gsub("%.", "/") .. ".lua"
+        assert(os.execute("mkdir -p '" .. (path:match("^(.*)/[^/]+$")) .. "'") == 0)
+        local file = assert(io.open(path, "wb"))
+        file:write(text)
+        file:close()
+        modules[name] = {output = path, artifactHash = digest}
+    end
+
+    bytecodecache.refresh(out, modules)
+    local search = assert(bytecodecache.searcher(out), "the cache it just wrote is usable")
+    for name in pairs(modules) do
+        local cached = assert(search(name), "the cache answers " .. name)
+        assert(
+            cached() == "@" .. out .. "/" .. name:gsub("%.", "/") .. ".lua",
+            name .. " kept another module's chunk name"
+        )
+    end
     os.execute("rm -rf '" .. dir .. "'")
 end
 

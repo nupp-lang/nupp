@@ -10,9 +10,9 @@ matches is an answer that is still correct rather than one that is probably
 still correct.
 
 Nothing here is executable. `string.buffer` serializes plain data and the
-decoder produces plain data, so a corrupt or hostile file is a cache miss and
-never a program. That is what lets the store sit in the project's own build
-directory instead of a user-private one -- a store of code could not.
+decoder produces plain data. A file that cannot be decoded or whose format or
+stamp differs is a cache miss. That is what lets the store sit in the project's
+own build directory instead of a user-private one -- a store of code could not.
 
 What it will not do is answer a question it was not asked exactly. There is no
 partial matching, no "close enough", and no version migration: a stamp that

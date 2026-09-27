@@ -17,10 +17,10 @@ answer instead. That costs the parse this was avoiding and changes no result.
 Deleting the directory is supported; `nupp clean` does it with the rest of the
 build.
 
-Content-addressed, so the pairing cannot come apart. An entry is named by the
-digest of the module the build wrote, and the index mapping a module name to a
-digest is written by the build that wrote that module. An entry nothing points
-at is garbage rather than a wrong answer.
+Content-addressed, so the pairing cannot come apart. An entry is named by a
+digest of the module name and the source digest the build recorded. The name is
+part of the dumped chunk, so equal source under two names still needs two
+entries. An entry nothing points at is garbage rather than a wrong answer.
 
 The dump keeps its debug information, unlike the one a stamped binary carries
 (`nupp.tools.build.package`). There the name has to come from the host,
@@ -34,7 +34,7 @@ local bytecodecache = {}
 
 -- Both halves of the format, kept together because they are one agreement. The
 -- version leads so that a reader of a later one stops at the first line.
-local FORMAT = "nupp-bytecode 1"
+local FORMAT = "nupp-bytecode 2"
 local INDEX = "index"
 
 --- Where entries made by this interpreter live, under the cache directory.
@@ -166,17 +166,18 @@ end
 --- whatever is wrong with it is not this cache's to say.
 function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
     local fs = require("nupp.compiler.fs")
+    local hash = require("nupp.compiler.hash")
     -- Absolute, because the loader has only its own path to compare against and
     -- a build's idea of "build" depends on where it was run from. A root spelled
     -- differently than the one the searcher works out is a miss, which costs the
     -- parse and nothing else.
     local root = fs.absolute(outDir)
     local where = root .. "/.bytecode/" .. vmDirectory()
-    -- An entry is named by the digest of the module it holds, which says nothing
-    -- about the name written inside it, and that name is this root. A tree that
-    -- was copied or moved has entries whose digests still match and whose names
-    -- point where the tree used to be, so a root that is not the recorded one
-    -- makes every entry worth writing again rather than worth keeping.
+    -- An entry identity includes the module name but not this root, and the root
+    -- is also part of the name written inside each chunk. A copied or moved tree
+    -- therefore has entries whose identities still match but whose chunk names
+    -- point where the tree used to be. A root that is not the recorded one makes
+    -- every entry worth writing again rather than worth keeping.
     local reusable = readIndex(root) ~= nil
     local lines: {string} = {FORMAT, "root " .. root}
     local live: {[string]: boolean} = {}
@@ -189,7 +190,12 @@ function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
         local record = modules[name]
         local output, digest = record.output, record.artifactHash
         if type(output) == "string" and type(digest) == "string" and digest:match("^%x+$") then
-            local entry = where .. "/" .. digest .. ".bc"
+            -- Equal source text can occur under more than one module name, but
+            -- the name is part of a Lua chunk and affects tracebacks and
+            -- declaration lookup. Include it in the entry identity rather than
+            -- sharing one dump under the source digest alone.
+            local entryDigest = hash.digest(name .. "\0" .. digest)
+            local entry = where .. "/" .. entryDigest .. ".bc"
             local written = reusable and fs.exists(entry)
             if not written then
                 local text = fs.readFile(output)
@@ -207,8 +213,8 @@ function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
                 end
             end
             if written then
-                lines[#lines + 1] = digest .. " " .. name
-                live[digest] = true
+                lines[#lines + 1] = entryDigest .. " " .. name
+                live[entryDigest] = true
             end
         end
     end
