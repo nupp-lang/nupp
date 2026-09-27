@@ -29,7 +29,12 @@
  * Windows every import names its module, which the VM's differs by process.
  * So the runtime imports none of the API: it calls it through pointers, filled
  * from the process the first time the table is asked for. Each name below
- * turns the header's declaration of that function into one of a pointer. */
+ * turns the header's declaration of that function into one of a pointer.
+ *
+ * KS_RT_DIRECT_LUA compiles direct calls instead, for the browser guest
+ * (scripts/guest-runtime): there the runtime is linked into the module beside
+ * the VM that exports the API, and nothing binds pointers. */
+#ifndef KS_RT_DIRECT_LUA
 #define luaL_addlstring (*ks_lua_ptr_luaL_addlstring)
 #define luaL_addvalue (*ks_lua_ptr_luaL_addvalue)
 #define luaL_buffinit (*ks_lua_ptr_luaL_buffinit)
@@ -65,6 +70,7 @@
 #define lua_topointer (*ks_lua_ptr_lua_topointer)
 #define lua_touserdata (*ks_lua_ptr_lua_touserdata)
 #define lua_type (*ks_lua_ptr_lua_type)
+#endif
 
 #include "ks_lua.h"
 
@@ -72,6 +78,7 @@
 
 extern void luaL_addvalue(KsLuaStringBuffer *buffer);
 
+#ifndef KS_RT_DIRECT_LUA
 #define KS_RT_LUA_API(X) \
     X(luaL_addlstring) \
     X(luaL_addvalue) \
@@ -149,6 +156,7 @@ int ks_rt_bind(void) {
     bound = 1;
     return 1;
 }
+#endif
 
 #if defined(__GNUC__) || defined(__clang__)
 #define KS_RT_NORETURN __attribute__((noreturn, noinline, cold))
