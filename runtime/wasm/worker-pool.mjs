@@ -85,16 +85,21 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
       laneFailure(lane, `nupp: a worker lane could not start: ${message.error}`);
       return;
     }
-    if (message?.type !== "reply" || !Number.isInteger(message.id)) return;
-    const task = lane.task && lane.task.id === message.id ? lane.task : tasks.get(message.id);
+    if (message?.type !== "reply" || !Number.isSafeInteger(message.id)) return;
+    // A lane may answer only the task currently assigned to it. In particular, a
+    // duplicate reply for an earlier task must not make this lane look idle while
+    // its next task is still running.
+    const task = lane.task;
+    if (!task || task.id !== message.id) return;
     lane.task = undefined;
-    if (task) {
-      settle(task, message.status === "done"
-        ? {status: "done", payload: message.payload}
-        : message.status === "cancelled"
-          ? {status: "cancelled", deadline: message.deadline === true}
-          : {status: "failed", error: message.error || "worker task failed without an error"});
-    }
+    const result = message.status === "done" && typeof message.payload === "string"
+      ? {status: "done", payload: message.payload}
+      : message.status === "cancelled"
+        ? {status: "cancelled", deadline: message.deadline === true}
+        : message.status === "failed" && typeof message.error === "string"
+          ? {status: "failed", error: message.error}
+          : {status: "failed", error: "nupp: a worker lane returned an invalid task reply"};
+    settle(task, result);
     dispatch();
   };
 
@@ -148,7 +153,7 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
   };
 
   const accept = (entry) => {
-    if (!Number.isInteger(entry?.task) || typeof entry.module !== "string" ||
+    if (!Number.isSafeInteger(entry?.task) || entry.task < 1 || typeof entry.module !== "string" ||
         typeof entry.member !== "string" || typeof entry.payload !== "string") {
       throw new Error("invalid browser worker submission");
     }

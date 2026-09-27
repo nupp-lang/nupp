@@ -683,11 +683,51 @@ test("a worker pool fails the task a dying lane was running", async () => {
   workers.close();
 });
 
+test("a worker pool ignores stale replies without reassigning a busy lane", async () => {
+  const workers = pool({maxLanes: 1});
+  workers.perform({
+    operation: "submit",
+    tasks: [1, 2, 3].map((id) => ({task: id, module: "jobs", member: "hash", payload: "AA=="})),
+  });
+  const lane = FakeLane.opened[0];
+  lane.finish("done", {payload: "AQ=="});
+  assert.equal(lane.running.id, 2);
+
+  lane.emit("message", {data: {type: "reply", id: 1, status: "done", payload: "stale"}});
+  assert.equal(lane.running.id, 2, "a duplicate reply leaves the current assignment intact");
+  assert.equal(lane.posted.filter((message) => message.type === "task").length, 2);
+
+  lane.finish("done", {payload: "Ag=="});
+  assert.equal(lane.running.id, 3);
+  lane.finish("done", {payload: "Aw=="});
+  assert.equal((await workers.perform({operation: "await", task: 1})).payload, "AQ==");
+  assert.equal((await workers.perform({operation: "await", task: 2})).payload, "Ag==");
+  assert.equal((await workers.perform({operation: "await", task: 3})).payload, "Aw==");
+  workers.close();
+});
+
+test("a worker pool turns malformed lane replies into task failures", async () => {
+  const workers = pool({maxLanes: 1});
+  workers.perform(submission(1));
+  FakeLane.opened[0].emit("message", {
+    data: {type: "reply", id: 1, status: "done", payload: 7},
+  });
+  const failure = await workers.perform({operation: "await", task: 1});
+  assert.equal(failure.status, "failed");
+  assert.match(failure.error, /invalid task reply/);
+  workers.close();
+});
+
 test("a worker pool refuses submissions it cannot frame", () => {
   const workers = pool();
   assert.deepEqual(workers.perform(submission(1, {payload: 7})).rejected, [
     {task: 1, error: "invalid browser worker submission"},
   ]);
+  for (const id of [0, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.deepEqual(workers.perform(submission(id)).rejected, [
+      {task: id, error: "invalid browser worker submission"},
+    ]);
+  }
   workers.perform(submission(1));
   assert.deepEqual(workers.perform(submission(1)).rejected, [
     {task: 1, error: "a browser worker task id was reused"},

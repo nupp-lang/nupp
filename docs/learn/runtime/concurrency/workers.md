@@ -127,9 +127,9 @@ would spawn one task, wait for it, and spawn the next: still correct, and
 exactly as parallel as calling the function. A single task rarely needs a type
 annotation, because `const task = scope:spawn(bytes, jobs.hash)` infers one;
 a table of them names the submitted function's type as `workers.Job<F>`. The
-handle is derived from the signature alone, so it is spelled
-`workers.Job<function(string): string>` even though [`spawn` took an
-sendable one](#functions-that-can-be-submitted).
+handle is derived from the signature alone, so it is written as
+`workers.Job<function(string): string>` even though [`spawn` requires an
+`@sendable` function](#functions-that-can-be-submitted).
 
 ### Work in the caller
 
@@ -515,8 +515,9 @@ lane entry point beside the content-addressed runtime. Nothing is shared between
 lanes, so no Wasm threads, no `SharedArrayBuffer`, and no cross-origin isolation
 headers are involved.
 
-The page's pool is bounded by `navigator.hardwareConcurrency`, and lanes boot as
-work arrives rather than when the first scope opens.
+The page's pool is bounded by both the package's lane limit and
+`navigator.hardwareConcurrency`. Lanes boot as work arrives rather than when
+the first scope opens.
 
 Three things a program can observe differ, because a browser gives two Workers no
 synchronous channel:
