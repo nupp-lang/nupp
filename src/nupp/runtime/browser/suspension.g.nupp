@@ -28,6 +28,7 @@ local running = coroutine.running
 local sources: {any} = {}
 local sourceSequence: integer = 0
 local sourcesVersion: integer = 0
+local ownedSources: any = setmetatable({}, {__mode = "k"})
 
 -- Coroutine and worker tasks share one nominal runtime cancellation identity, which
 -- a complete replacement of `nupp.suspension` has to keep publishing: `nupp.tasks`
@@ -79,12 +80,33 @@ local function contextsource(
     local source = suspension.source(name, priority, poller, waiter)
     local associated = assert(self.associated)
     associated[#associated + 1] = source
+    local owned = ownedSources[self]
+    if owned == nil then
+        owned = {}
+        ownedSources[self] = owned
+    end
+    owned[#owned + 1] = source
+
     return source
 end
 
 local function contextuses(self: contract.Context, source: suspension.Source): nil
+    if source == nil or source.released then
+        error("nupp: cannot use a released readiness source", 2)
+    end
     local associated = assert(self.associated)
     associated[#associated + 1] = source
+end
+
+local function releaseOwned(context: contract.Context): nil
+    local owned = ownedSources[context]
+    if owned == nil then
+        return
+    end
+    ownedSources[context] = nil
+    for index = 1, #owned do
+        owned[index]:release()
+    end
 end
 
 local function contextcanPark(self: contract.Context): boolean
@@ -352,15 +374,22 @@ function suspension.suspend<T>(
         handler = current,
         associated = {}
     )
-    local cancel = subscribe(resume, context)
+    local subscribed, cancel = pcall(subscribe, resume, context)
+    if not subscribed then
+        releaseOwned(context)
+        error(cancel, 0)
+    end
     if state.ready then
+        releaseOwned(context)
         return state.value as T
     end
     if cancel == nil then
+        releaseOwned(context)
         error("nupp: " .. operation .. " did not provide a cancellation", 0)
     end
     if not context:canPark() then
-        cancel()
+        pcall(cancel)
+        releaseOwned(context)
         error("nupp: " .. operation .. " cannot suspend here", 0)
     end
     local waiting = new contract.Waiting(
@@ -378,9 +407,11 @@ function suspension.suspend<T>(
         end
     end
     if not state.ready then
-        cancel()
+        pcall(cancel)
+        releaseOwned(context)
         error("nupp: " .. operation .. " returned without resuming", 0)
     end
+    releaseOwned(context)
 
     return state.value as T
 end

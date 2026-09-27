@@ -37,6 +37,32 @@ function M.invalidNumbersAreAlwaysRejected()
     assert(not pcall(json.encode, 0 / 0), "the encoder accepted NaN")
 end
 
+function M.providersPreserveNegativeZero()
+    for _, provider in ipairs({
+        require("nupp.runtime.provider.lunajson"),
+        require("nupp.codec.json.aot"),
+    }) do
+        local encoded = provider.encode(-0.0)
+        assert(encoded == "-0", "negative zero lost its sign: " .. encoded)
+        assert(1 / provider.decode(encoded) == -math.huge, "negative zero did not round-trip")
+    end
+end
+
+function M.failedWritesLeaveTheWriterAtItsPriorPosition()
+    for _, provider in ipairs({
+        require("nupp.runtime.provider.lunajson"),
+        require("nupp.codec.json.aot"),
+    }) do
+        local output = require("nupp.text").newBuffer()
+        local writer = provider.writer(output)
+        writer:startArray():write(1)
+        assert(not pcall(writer.write, writer, function() end), "the writer accepted a function")
+        writer:write(2):endArray()
+        writer:close()
+        assert(output:tostring() == "[1,2]", "a rejected value changed the writer")
+    end
+end
+
 function M.portableEncodingRejectsInvalidUtf8Everywhere()
     for _, value in ipairs({"\255", "\192\128", "\237\160\128"}) do
         assert(not pcall(json.encode, value), "the encoder accepted an invalid UTF-8 value")

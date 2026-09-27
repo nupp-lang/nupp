@@ -242,9 +242,6 @@ encodeValue = function(value: any, nullValue: any, visiting: {[any]: boolean}, d
         if value ~= value or value == math.huge or value == -math.huge then
             error("JSON numbers must be finite", 0)
         end
-        if value == 0 then
-            return "0"
-        end
         local text = tostring(value)
         if tonumber(text) ~= value then
             -- tostring keeps 14 significant digits, which loses the low
@@ -769,8 +766,9 @@ function json.writer(exclusive out: Buffer, nullValue: any?): any
     end
 
     function writer:write(value: any): any
+        local encoded = encodedBytes(value) or json.encode(value, nullValue)
         prepare();
-        add(encodedBytes(value) or json.encode(value, nullValue));
+        add(encoded);
         return self
     end
 

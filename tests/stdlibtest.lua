@@ -763,6 +763,47 @@ function M.browserEffectsFinishDispatchBeforeRaisingACallbackFailure()
     assert(second, "one failed callback must not strand later responses in its batch")
 end
 
+function M.browserSuspensionReleasesOnlySubscriptionOwnedSources()
+    local name = "nupp.runtime.browser.suspension"
+    local provider = require("providerstate").instance({[name] = true}, {
+        ["nupp.runtime.browser.effects"] = {
+            park = function()
+                error("an immediate subscription must not park")
+            end,
+        },
+    })(name)
+    local ownedPolls, borrowedPolls = 0, 0
+    local borrowed = provider.source("borrowed", 2, function()
+        borrowedPolls = borrowedPolls + 1
+        return 0
+    end)
+
+    local value = provider.suspend("ready", function(resume, context)
+        context:source("owned", 1, function()
+            ownedPolls = ownedPolls + 1
+            return 0
+        end)
+        context:uses(borrowed)
+        resume(7)
+    end)
+    assert(value == 7, "the synchronous subscription lost its value")
+    assert(provider.poll() == 0, "the borrowed source reports no progress")
+    assert(ownedPolls == 0, "a completed subscription retained its owned source")
+    assert(borrowedPolls == 1, "completion released a source the subscription only used")
+
+    local completed = pcall(provider.suspend, "failed subscription", function(_, context)
+        context:source("failed", 1, function()
+            ownedPolls = ownedPolls + 1
+            return 0
+        end)
+        error("subscription failed")
+    end)
+    assert(not completed, "the failed subscription returned")
+    provider.poll()
+    assert(ownedPolls == 0, "a failed subscription retained its owned source")
+    borrowed:release()
+end
+
 function M.stringLibrary()
     assertClean("local s: string = string.format('%d', 3)")
     assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {compat = "lua51"})

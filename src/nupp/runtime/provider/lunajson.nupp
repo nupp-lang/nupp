@@ -413,9 +413,11 @@ function json.writer(exclusive out: Buffer, nullValue: any?): any
     end
 
     function writer:write(value: any): any
-        prepare()
         local marker = getmetatable(value)
-        add((marker == ENCODED_VALUE or marker == ENCODED_STRING) and value.bytes or json.encode(value, nullValue))
+        local encoded = (marker == ENCODED_VALUE or marker == ENCODED_STRING) and value.bytes
+            or json.encode(value, nullValue)
+        prepare()
+        add(encoded)
 
         return self
     end
