@@ -128,6 +128,23 @@ return isShort
     assertEq(isShort({name = 4}), false, "a non-string field does not make `is` raise")
 end
 
+function M.refinementsRenderOrdinaryNumericLiteralForms()
+    local source = [[
+local interface Bounded
+    n: number
+    satisfies |self| -> self.n >= -1_000 and self.n < 0x10
+end
+local function isBounded(value: any): boolean
+    return value is Bounded
+end
+return isBounded
+]]
+    local isBounded = assert(loadstring(generateChecked(source)))()
+    assertEq(isBounded({n = -1000}), true, "negative separated literal")
+    assertEq(isBounded({n = 15}), true, "hexadecimal upper bound")
+    assertEq(isBounded({n = 16}), false, "exclusive upper bound")
+end
+
 function M.targetFactsResolveTheHostAfterSelectingTheCheckDialect()
     local environments = {{value = env}}
     for _, host in ipairs({"native", "browser"}) do

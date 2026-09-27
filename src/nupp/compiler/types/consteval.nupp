@@ -14,7 +14,9 @@ type consteval.Bindings = {[T.ConstVar]: T.ConstTerm}
 type consteval.Lookup = function(name: string): T.ConstTerm?
 
 local function integer(text: string): integer?
-    local value = tonumber(text)
+    -- Separators are source syntax. Lua's numeric parser does not admit them, so
+    -- remove them before evaluating the same token the checker accepted.
+    local value = tonumber((text:gsub("_", "")))
     if not value or value ~= math.floor(value) or math.abs(value) > MAX_EXACT then
         return nil
     end

@@ -5,8 +5,8 @@ Finds closed applications of scalar const-generic runtime functions.
 
 This module owns the semantic seam shared by ordinary Lua and AOT emission:
 backends receive checked declarations, checked signatures and canonical tuples;
-they never rediscover a tuple from source spelling.  Collection is deliberately
-side-effect free.  A consumer decides which bodies fit its budget and annotates
+they never rediscover a tuple from source text. Collection is deliberately
+side-effect free. A consumer decides which bodies fit its budget and annotates
 the calls it will rewrite.
 ]]
 
@@ -34,7 +34,7 @@ local function scalarLiteral(t: any): (string?, string?, any?)
     end
     local domain = t.base.tag
     if domain == "integer" then
-        -- `tostring` is %.14g, which spells 1e15 and 1e15 + 1 alike.  A const key
+        -- `tostring` is %.14g, which renders 1e15 and 1e15 + 1 alike. A const key
         -- that cannot tell two admitted integers apart would give them one body,
         -- and the substituted literal has to be the exact value the checker read.
         local value = string.format("%.0f", t.constant)
@@ -104,8 +104,8 @@ local function candidate(node: any, filename: string): any?
         end
     end)
 
-    -- The definition is the nominal identity inside a checked session.  The stable
-    -- spelling is retained beside it for artifact keys and diagnostics.
+    -- The definition is the nominal identity inside a checked session. The stable
+    -- source identity is retained beside it for artifact keys and diagnostics.
     local definition = node.name.definition
     local stableIdentity = filename .. "\0" .. node.name.text
 

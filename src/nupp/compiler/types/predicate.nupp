@@ -1,7 +1,7 @@
 module nupp.compiler.types.predicate
 
 --[[
-A `where` refinement, as data rather than as a source spelling.
+A `where` refinement, as data rather than as source text.
 
 A declaration's `where` clause names the runtime test that decides whether a
 value is one of these. Two very different readers need it: the checker, which
@@ -38,7 +38,7 @@ record predicate.Node
     --- `len` has one, and applies it to the byte length of what its path names rather
     --- than to the value there. It is the one accessor in the subset, admitted because
     --- `#` on a string is total, allocation-free and as cheap to inline as a
-    --- comparison -- the three properties that keep `is` free wherever it is written.
+    --- comparison. Those properties keep `is` free wherever it is written.
     a: predicate.Node?
 
     b: predicate.Node?
@@ -49,11 +49,11 @@ record predicate.Node
     --- Field names from the subject, outermost first. Empty means the subject.
     path: {string}?
 
-    --- The right-hand literal, already written the way Lua spells it.
+    --- The right-hand literal, already written as Lua source.
     literal: string?
 
     --- The same literal as a value, so a declared literal type can be compared against
-    --- it without parsing the spelling back.
+    --- it without parsing the source form again.
     constant: any
 
     --- What `type()` must answer, for `typeis`.
@@ -137,7 +137,7 @@ local function pathOf(node: cst.Node?): {string}?
     return nil
 end
 
---- The Lua spelling of `node` when it is a literal this subset admits, and the value it
+--- The Lua source for `node` when it is a literal this subset admits, and the value it
 --- stands for. A number written with a C suffix is a real number to the checker and not
 --- a Lua literal, so it is refused rather than rendered wrong.
 local function literalOf(node: cst.Node?): string?, any
@@ -154,11 +154,27 @@ local function literalOf(node: cst.Node?): string?, any
         end -- a long string
         return text, lexer.stringValue(text) or text:sub(2, -2)
     elseif kind == "number" and node.token then
-        local text = node.token.text
-        if not text:match("^%d+$") and not text:match("^%d+%.%d+$") then
+        local text = node.token.text:gsub("_", "")
+        local lower = text:lower()
+        if lower:match("ull$") or lower:match("ll$") or lower:match("i$") then
             return nil
         end
-        return text, tonumber(text)
+        local value = tonumber(text)
+        if value == nil then
+            return nil
+        end
+
+        return text, value
+    elseif kind == "unop" and node.op and (node.op.kind == "-" or node.op.kind == "+") then
+        local text, value = literalOf(node.operand)
+        if not text or type(value) ~= "number" then
+            return nil
+        end
+        if node.op.kind == "-" then
+            return "-(" .. text .. ")", -(value as number)
+        else
+            return text, value
+        end
     elseif kind == "trueExpr" then
         return "true", true
     elseif kind == "falseExpr" then
@@ -353,7 +369,7 @@ end
 --- This is how a declaration's own literal-typed field becomes its test without anyone
 --- writing one: the field's type already says the value is that and nothing else, so
 --- the test is arithmetic on what was declared. Nil when the value is not one this
---- subset can spell.
+--- subset can represent.
 ---
 --- @param path the field names, outermost first
 --- @param constant the value the field's literal type admits
@@ -561,8 +577,7 @@ function predicate.satisfiedByValue(node: predicate.Node?, value: any): boolean?
     end
 
     if op == "len" then
-        local kind = type(at)
-        if kind ~= "string" and kind ~= "table" then
+        if type(at) ~= "string" then
             return nil
         end
         return predicate.satisfiedByValue(node.a, #(at as string))
@@ -691,20 +706,30 @@ function predicate.constant(node: predicate.Node?): boolean?
     end
     if node.op == "and" or node.op == "or" then
         local left, right = predicate.constant(node.a), predicate.constant(node.b)
-        if left == nil or right == nil then
-            return nil
-        end
         if node.op == "and" then
-            return left and right
+            if left == false or right == false then
+                return false
+            end
+            if left == true and right == true then
+                return true
+            end
+            return nil
         else
-            return left or right
+            if left == true or right == true then
+                return true
+            end
+            if left == false and right == false then
+                return false
+            end
+
+            return nil
         end
     end
 
     return nil
 end
 
---- The refinement's canonical spelling, which is what decides whether two constraints
+--- The refinement's canonical key, which is what decides whether two constraints
 --- are one.
 ---
 --- A small s-expression rather than the Lua the generator emits: it has to be stable

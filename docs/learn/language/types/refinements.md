@@ -101,6 +101,9 @@ fields through `self`: comparisons against literals, `type()` tests, and `and`,
 `or` and `not`. A call, arithmetic, or a name from outside the subject is
 reported.
 
+String comparisons use single- or double-quoted literals. Long strings and
+numeric literals with C or imaginary suffixes are outside the runtime subset.
+
 A refinement that always answers the same way is reported as well. Always
 true identifies every value and always false leaves the type uninhabited, and
 neither is a test.

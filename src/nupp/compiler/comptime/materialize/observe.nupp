@@ -25,6 +25,15 @@ local function copyPublic(entry)
     }
 end
 
+local function copyStored(entry)
+    local copy = {}
+    for key, value in pairs(entry) do
+        copy[key] = value
+    end
+
+    return copy
+end
+
 --- Collects materialized expressions in source order. The full records deliberately
 --- retain canonical blueprints and rendered backend outputs for the manifest cache.
 function observe.collect(root: any, filename: string?): {any}
@@ -36,7 +45,10 @@ function observe.collect(root: any, filename: string?): {any}
         end
         if node.materializationObservation then
             local token = cst.firstToken(node)
-            local entry = node.materializationObservation
+            -- The observation belongs to the checked tree. Collection adds build
+            -- context, so keep that context on the returned record rather than
+            -- changing the tree or an earlier collection of it.
+            local entry = copyStored(node.materializationObservation)
             entry.source = filename
             entry.line = token and token.line or 1
             entry.column = token and token.col or 1

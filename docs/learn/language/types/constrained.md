@@ -79,7 +79,7 @@ constraint does not hold.
 
 This is the rule `int32` already follows. `as` is erased, so it can claim a
 value is one of these but cannot establish it, and claiming it is an error
-rather than an unchecked pass. There is no spelling that enters a constrained
+rather than an unchecked pass. There is no form that enters a constrained
 type without either a proof or a written admission.
 
 ## Testing without raising
@@ -103,7 +103,7 @@ print(named("width"), named(""))
 The test narrows in the branch it proves, so `text` is an `Identifier` inside
 the `if` and a plain `string` after it.
 
-## What is emitted
+## Admission lowering
 
 An admission the compiler could not discharge becomes one call to a test
 declared once for the module. Every site carrying the same constraint shares it,

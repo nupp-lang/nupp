@@ -1101,6 +1101,19 @@ function M.constArithmeticErrorsStayAtTheTypeBoundary()
     assertEq(codes("local divided: float[4 // 0]"), "NUPP2131")
 end
 
+function M.constExpressionsAcceptNumericSeparators()
+    clean(
+        table.concat(
+            {
+                "local grouped: float[1_0 + 6] = nil as any",
+                "local signed: float[-1_0 + 26] = grouped",
+                "local hexadecimal: float[0x1_0] = signed",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.constArgumentsParticipateInNominalIdentity()
     assertEq(
         codes(

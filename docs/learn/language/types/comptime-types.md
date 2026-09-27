@@ -77,7 +77,7 @@ end
 
 The builder reads its descriptor array without changing it. Descriptor members in
 the API are therefore read-only, and an annotated descriptor shape may omit an
-optional member such as `write` instead of spelling `write: type?` at every use.
+optional member such as `write` instead of writing `write: type?` at every use.
 
 `nupp.types.nonExhaustive()` takes no arguments and answers the one type no
 name resolves to: the member that keeps a union open. It is written in a type

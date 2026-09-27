@@ -1932,6 +1932,7 @@ function M.aLengthRefinementIsAdmittedAndNormalised()
     assertEq(predicate.satisfiedByValue(node, {name = "abcd"}), true)
     assertEq(predicate.satisfiedByValue(node, {name = "abcde"}), false)
     assertEq(predicate.satisfiedByValue(node, {name = 7}), nil)
+    assertEq(predicate.satisfiedByValue(node, {name = {1}}), nil)
     assertEq(predicate.satisfiedByValue(node, 7), nil)
     -- the subject itself, which is what a constrained scalar constrains
     local bare = {op = "len", path = {}, a = {op = "cmp", cmp = ">=", path = {}, literal = "2", constant = 2}}
@@ -1967,6 +1968,31 @@ function M.aRefinementRejectsOrderedBooleanAndNilComparisons()
             )
         ),
         "NUPP2122:3"
+    )
+end
+
+function M.refinementsRecognizeConstantLogicalAnswers()
+    local function refuses(test)
+        return diagsOf(
+            table.concat({"local interface I", "   enabled: boolean", "   satisfies |self| -> " .. test, "end",}, "\n")
+        )
+    end
+
+    assertEq(refuses("false and self.enabled"), "NUPP2122:3")
+    assertEq(refuses("true or self.enabled"), "NUPP2122:3")
+end
+
+function M.refinementsAcceptOrdinaryNumericLiteralForms()
+    assertClean(
+        table.concat(
+            {
+                "local interface Bounded",
+                "   n: number",
+                "   satisfies |self| -> self.n >= -1_000 and self.n < 0x10",
+                "end",
+            },
+            "\n"
+        )
     )
 end
 
