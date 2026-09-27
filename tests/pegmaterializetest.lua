@@ -309,6 +309,24 @@ return Word:isMatch("123 hello"), Word:isMatch("hello 123", 2),
     assertEq(falseResult, true, "false capture result still denotes a match")
 end
 
+function M.rejectsNonfiniteMatchPositions()
+    local positive, negative, nan, fraction = run(
+        [[
+local Word = nupp.peg.compile("'a'")
+local function rejects(value: any): boolean
+    return not pcall(function()
+        Word:match("a", value)
+    end)
+end
+return rejects(math.huge), rejects(-math.huge), rejects(0 / 0), rejects(1.5)
+]]
+    )
+    assertEq(positive, true, "positive infinity is not an integer position")
+    assertEq(negative, true, "negative infinity is not an integer position")
+    assertEq(nan, true, "NaN is not an integer position")
+    assertEq(fraction, true, "a fractional position is not an integer position")
+end
+
 function M.findsWithPositionsAndNoMatchRecord()
     local first, nextPosition, value, recognizerFirst, recognizerNext, recognizerValue, emptyFirst, emptyNext, emptyValue, missingFirst, missingNext, missingValue, nilFirst, nilNext, nilValue = run(
         [==[

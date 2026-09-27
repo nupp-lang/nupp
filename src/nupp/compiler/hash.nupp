@@ -8,13 +8,13 @@ different questions.
 machine reads the answer -- it is compared against the digest the last build
 wrote, and then thrown away -- so the properties that matter are that equal
 inputs agree, that different inputs practically never do, and that computing it
-costs nothing next to what it is guarding. That is XXH64 under two seeds, 128
-bits of it.
+is cheap relative to the work it guards. That is XXH64 under two seeds, 128 bits
+of it.
 
-`sha256` is for a digest that leaves this machine or names something: the one
-`nupp.tools.build.package` writes into a stamped binary's trailer is part of the
-file format, and the fingerprints the checker and the materializers stamp on
-what they produce are compared across processes and releases. It is
+`sha256` is for a digest that leaves this machine or names something: package
+and release metadata use it for artifacts checked outside the current process,
+and the fingerprints the checker and the materializers stamp on what they
+produce are compared across processes and releases. It is
 [](nupp.digest.internal.sha256), which is the compiler's provider-independent
 one-shot SHA-256, so artifact identity does not depend on an application's
 selected digest service.
@@ -26,8 +26,7 @@ unreadable.
 This module is shared by LuaJIT and Lua 5.1 compiler sessions. XXH64 words use
 two `uint32` halves, high first, combined through `nupp.compiler.bitops`.
 Reading input with `string.byte` and assembling little-endian words preserves
-identical digests across host representations,
-so this pays for portability without owing anything back to it.
+identical digests across host representations.
 ]]
 
 local digest = require("nupp.digest.internal.sha256")

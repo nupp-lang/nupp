@@ -187,7 +187,7 @@ end
 -- bytes, and enough input for the performance-sensitive path.
 function M.theNativeContentDigestMatchesThePortableOne()
     local nativeHash = require("nupp.compiler.hostservices").hash
-    for _, input in ipairs({
+    local inputs = {
         "",
         "a",
         "abc",
@@ -196,8 +196,16 @@ function M.theNativeContentDigestMatchesThePortableOne()
         ("z"):rep(33),
         string.char(0, 255, 128, 1, 7),
         ("Nobody inspects the spammish repetition\0"):rep(4096),
-    }) do
-        assertEq(nativeHash.digest(input), hash.digest(input))
+    }
+    for size = 0, 96 do
+        local bytes = {}
+        for index = 1, size do
+            bytes[index] = string.char((index * 131 + size) % 256)
+        end
+        inputs[#inputs + 1] = table.concat(bytes)
+    end
+    for index, input in ipairs(inputs) do
+        assertEq(nativeHash.digest(input), hash.digest(input), "portable digest input " .. index)
     end
 end
 

@@ -17,9 +17,9 @@ materializer folds at compile time and `nupp.peg.Peg` is a nominal the checker m
 neither of which a module can own. What the bootstrap installs is this module.
 
 A matcher closes over its `run` and `take` rather than storing them, and each one gets
-its own metatable. That is deliberate and load-bearing: `match` reads an upvalue where
-a shared record method would read a field, and matching is the hot path. So the factory
-below is written as it runs rather than as it would be typed.
+its own metatable. `match` reads an upvalue where a shared record method would read a
+field, and matching is the hot path. So the factory below is written as it runs rather
+than as it would be typed.
 
 See [](nupp.peg) for the surface a program actually writes.
 ]]
@@ -30,8 +30,8 @@ lpeg.setmaxstack(10000)
 --- Normalizes a match position against a subject.
 ---
 --- A negative position counts from the end the way Lua's string operations do,
---- positions before the beginning clamp to 1, and one past the end is a failure rather
---- than a clamp.
+--- positions before the beginning clamp to 1, and positions after the final empty
+--- boundary fail rather than clamp.
 ---
 --- @param subject the bytes being matched
 --- @param init the caller's position, or nil for the beginning
@@ -46,7 +46,7 @@ export function start(subject: string, init: integer?, level: integer): integer?
     local at = 1
     if init == nil then
         at = 1
-    elseif type(init) ~= "number" or init ~= math.floor(init as number) then
+    elseif type(init) ~= "number" or init ~= math.floor(init as number) or init == math.huge or init == -math.huge then
         error("nupp: PEG init must be an integer", level)
     elseif (init as integer) < 0 then
         at = #subject + (init as integer) + 1
