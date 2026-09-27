@@ -235,18 +235,18 @@ function runtime.api(ctx: context.Context, name: string, args: {string}): string
         call = call .. " nomerge"
     end
     if result == "void" then
-        builder.emit(ctx.f, call)
+        context.emit(ctx, call)
         return nil
     end
 
-    return builder.value(ctx.f, call)
+    return context.value(ctx, call)
 end
 
 --- The function in runtime slot `name`, loaded from the table.
 local function pointer(ctx: context.Context, name: string): string
     local lua = runtime.lua(ctx)
-    local address = builder.value(
-        ctx.f,
+    local address = context.value(
+        ctx,
         ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(lua.runtime, indexOf[name] as integer)
     )
     local invariant = builder.metadata(ctx.module, "!{}")
@@ -276,11 +276,11 @@ function runtime.call(ctx: context.Context, name: string, args: {string}): strin
         call = call .. " nomerge"
     end
     if found.result == "void" then
-        builder.emit(ctx.f, call)
+        context.emit(ctx, call)
         return nil
     end
 
-    return builder.value(ctx.f, call)
+    return context.value(ctx, call)
 end
 
 --- The operand `ptr %L`.
@@ -317,7 +317,7 @@ end
 --- Reserves `extra` Lua stack slots, raising when the VM cannot.
 function runtime.reserve(ctx: context.Context, extra: integer): nil
     local ok = runtime.api(ctx, "lua_checkstack", {runtime.state(ctx), "i32 " .. tostring(extra)}) as string
-    runtime.check(ctx, builder.value(ctx.f, ("icmp eq i32 %s, 0"):format(ok)), "stack")
+    runtime.check(ctx, context.value(ctx, ("icmp eq i32 %s, 0"):format(ok)), "stack")
 end
 
 export = runtime

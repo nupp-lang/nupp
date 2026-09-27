@@ -9,7 +9,6 @@ its signedness, so a lane leaving a vector is sign- or zero-extended and a
 scalar entering one is truncated. Floats keep their type.
 ]]
 
-local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
 local prelude = require("nupp.compiler.aot.llvm.prelude")
@@ -19,10 +18,6 @@ local lanes = {}
 
 --- The canonical quiet NaN of each float element, as LLVM spells it.
 const lanes.NAN = "0x7FF8000000000000"
-
-function lanes.emit(ctx: context.Context, instruction: string): string
-    return builder.value(ctx.f, instruction)
-end
 
 --- The species an IR type names.
 --- @raises string when it names none
@@ -69,9 +64,9 @@ end
 --- A vector of `count` lanes all `value`, built from a runtime scalar.
 function lanes.splat(ctx: context.Context, count: integer, scalar: string, value: string): string
     local vector = "<" .. tostring(count) .. " x " .. scalar .. ">"
-    local one = lanes.emit(ctx, ("insertelement %s poison, %s %s, i64 0"):format(vector, scalar, value))
+    local one = context.value(ctx, ("insertelement %s poison, %s %s, i64 0"):format(vector, scalar, value))
 
-    return lanes.emit(
+    return context.value(
         ctx,
         ("shufflevector %s %s, %s poison, <%d x i32> zeroinitializer"):format(vector, one, vector, count)
     )
@@ -86,7 +81,7 @@ function lanes.toLane(ctx: context.Context, found: species.Species, value: strin
     local carrier = species.laneType(found)
     local carried = expressions.convert(ctx, value, valueType, carrier)
     if found.bits < 32 then
-        return lanes.emit(ctx, ("trunc i32 %s to %s"):format(carried, found.scalar))
+        return context.value(ctx, ("trunc i32 %s to %s"):format(carried, found.scalar))
     end
 
     return carried
@@ -97,7 +92,7 @@ function lanes.fromLane(ctx: context.Context, found: species.Species, value: str
     local carrier = species.laneType(found)
     if not found.float and found.bits < 32 then
         local extend = found.signed and "sext" or "zext"
-        return lanes.emit(ctx, ("%s %s %s to i32"):format(extend, found.scalar, value)), carrier
+        return context.value(ctx, ("%s %s %s to i32"):format(extend, found.scalar, value)), carrier
     end
 
     return value, carrier
@@ -105,7 +100,7 @@ end
 
 --- Lane `index` (zero-based) of `vector`.
 function lanes.extract(ctx: context.Context, found: species.Species, vector: string, index: integer | string): string
-    return lanes.emit(ctx, ("extractelement %s %s, i32 %s"):format(found.vector, vector, tostring(index)))
+    return context.value(ctx, ("extractelement %s %s, i32 %s"):format(found.vector, vector, tostring(index)))
 end
 
 --- `vector` with lane `index` replaced by `value`.
@@ -116,7 +111,7 @@ function lanes.insert(
     value: string,
     index: integer | string
 ): string
-    return lanes.emit(
+    return context.value(
         ctx,
         ("insertelement %s %s, %s %s, i32 %s"):format(found.vector, vector, found.scalar, value, tostring(index))
     )
@@ -190,30 +185,29 @@ function lanes.floatExtreme(
     local t, i1 = shape.t, shape.i1
     local nan = lanes.constant(shape, shape.scalar, lanes.NAN)
 
-    local function e(instruction: string): string
-        return lanes.emit(ctx, instruction)
-    end
-
-    local unordered = e(("fcmp uno %s %s, %s"):format(t, left, right))
-    local equal = e(("fcmp oeq %s %s, %s"):format(t, left, right))
-    local leftBits = e(("bitcast %s %s to %s"):format(t, left, shape.ints))
-    local negative = e(("icmp slt %s %s, %s"):format(shape.ints, leftBits, lanes.constant(shape, shape.bits, "0")))
+    local unordered = context.value(ctx, ("fcmp uno %s %s, %s"):format(t, left, right))
+    local equal = context.value(ctx, ("fcmp oeq %s %s, %s"):format(t, left, right))
+    local leftBits = context.value(ctx, ("bitcast %s %s to %s"):format(t, left, shape.ints))
+    local negative = context.value(
+        ctx,
+        ("icmp slt %s %s, %s"):format(shape.ints, leftBits, lanes.constant(shape, shape.bits, "0"))
+    )
     -- Equal operands differ only when they are zeros of opposite sign.
-    local tie = minimum and e(("select %s %s, %s %s, %s %s"):format(i1, negative, t, left, t, right))
-        or e(("select %s %s, %s %s, %s %s"):format(i1, negative, t, right, t, left))
-    local strict = e(("fcmp %s %s %s, %s"):format(minimum and "olt" or "ogt", t, left, right))
-    local picked = e(("select %s %s, %s %s, %s %s"):format(i1, strict, t, left, t, right))
-    local ordered = e(("select %s %s, %s %s, %s %s"):format(i1, equal, t, tie, t, picked))
-    local result = e(("select %s %s, %s %s, %s %s"):format(i1, unordered, t, nan, t, ordered))
+    local tie = minimum and context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, negative, t, left, t, right))
+        or context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, negative, t, right, t, left))
+    local strict = context.value(ctx, ("fcmp %s %s %s, %s"):format(minimum and "olt" or "ogt", t, left, right))
+    local picked = context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, strict, t, left, t, right))
+    local ordered = context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, equal, t, tie, t, picked))
+    local result = context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, unordered, t, nan, t, ordered))
     if propagating then
         return result
     end
-    local leftNan = e(("fcmp uno %s %s, %s"):format(t, left, left))
-    local rightNan = e(("fcmp uno %s %s, %s"):format(t, right, right))
-    local whenLeftNan = e(("select %s %s, %s %s, %s %s"):format(i1, rightNan, t, nan, t, right))
-    local whenRightNan = e(("select %s %s, %s %s, %s %s"):format(i1, rightNan, t, left, t, result))
+    local leftNan = context.value(ctx, ("fcmp uno %s %s, %s"):format(t, left, left))
+    local rightNan = context.value(ctx, ("fcmp uno %s %s, %s"):format(t, right, right))
+    local whenLeftNan = context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, rightNan, t, nan, t, right))
+    local whenRightNan = context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, rightNan, t, left, t, result))
 
-    return e(("select %s %s, %s %s, %s %s"):format(i1, leftNan, t, whenLeftNan, t, whenRightNan))
+    return context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, leftNan, t, whenLeftNan, t, whenRightNan))
 end
 
 --- An integer extreme of `shape` by signedness.
@@ -229,7 +223,7 @@ function lanes.integerExtreme(
     local t = shape.t
     local callee = prelude.intrinsic(ctx.module, name, ("%s @NAME(%s, %s)"):format(t, t, t))
 
-    return lanes.emit(ctx, ("call %s %s(%s %s, %s %s)"):format(t, callee, t, left, t, right))
+    return context.value(ctx, ("call %s %s(%s %s, %s %s)"):format(t, callee, t, left, t, right))
 end
 
 export = lanes

@@ -22,20 +22,6 @@ local species = require("nupp.compiler.aot.llvm.simd.species")
 local vectors = {}
 
 --- @raises string always
-local function unsupported(what: string): never
-    error(expressions.UNSUPPORTED .. what, 0)
-end
-
-local function e(ctx: context.Context, instruction: string): string
-    return lanes.emit(ctx, instruction)
-end
-
-local function operand(ctx: context.Context, node: scalarIR.Expr): string
-    local value = expressions.value(ctx, node)
-
-    return value
-end
-
 --- A compile-time integer operand (a lane number, a count, a part).
 --- @raises string when the operand is not a constant
 function vectors.constantInteger(node: scalarIR.Expr): integer
@@ -75,9 +61,9 @@ local function iota(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local first = lanes.splat(ctx, found.lanes, found.scalar, lanes.toLane(ctx, found, firstValue, firstType))
     local step = lanes.splat(ctx, found.lanes, found.scalar, lanes.toLane(ctx, found, stepValue, stepType))
     local indices = lanes.indices(found.lanes, found.scalar)
-    local scaled = e(ctx, ("%s %s, %s"):format(found.float and "fmul" or "mul", indices, step))
+    local scaled = context.value(ctx, ("%s %s, %s"):format(found.float and "fmul" or "mul", indices, step))
 
-    return e(
+    return context.value(
         ctx,
         ("%s %s %s, %s"):format(found.float and "fadd" or "add", found.vector, first, scaled)
     ), tostring(simd.type)
@@ -91,7 +77,7 @@ local function tail(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local count = expressions.convert(ctx, value, t, "u32")
     local bound = lanes.splat(ctx, found.lanes, "i32", count)
 
-    return e(ctx, ("icmp ult %s, %s"):format(lanes.indices(found.lanes, "i32"), bound)), tostring(simd.type)
+    return context.value(ctx, ("icmp ult %s, %s"):format(lanes.indices(found.lanes, "i32"), bound)), tostring(simd.type)
 end
 
 local function maskSplat(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -106,42 +92,45 @@ end
 local function maskConvert(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
 
-    return operand(ctx, simd.args[1]), tostring(simd.type)
+    return expressions.operand(ctx, simd.args[1]), tostring(simd.type)
 end
 
 --- Integer division that cannot trap: `x / 0` is 0 and `MIN / -1` is MIN.
 local function divide(ctx: context.Context, found: species.Species, a: string, b: string): string
     local v = found.vector
-    local zero = e(ctx, ("icmp eq %s %s, zeroinitializer"):format(v, b))
+    local zero = context.value(ctx, ("icmp eq %s %s, zeroinitializer"):format(v, b))
     local divisor = b
     if found.signed then
         -- MIN / -1 overflows; dividing by 1 instead answers MIN, the wrapped result.
         local minimum = "-" .. ("%.0f"):format(2 ^ (found.bits - 1))
-        local isMin = e(ctx, ("icmp eq %s %s, %s"):format(v, a, lanes.splatOf(found.scalar, minimum)))
-        local isNegOne = e(ctx, ("icmp eq %s %s, %s"):format(v, b, lanes.splatOf(found.scalar, "-1")))
-        local overflow = e(ctx, ("and %s %s, %s"):format(found.mask, isMin, isNegOne))
-        local unsafe = e(ctx, ("or %s %s, %s"):format(found.mask, zero, overflow))
-        divisor = e(
+        local isMin = context.value(ctx, ("icmp eq %s %s, %s"):format(v, a, lanes.splatOf(found.scalar, minimum)))
+        local isNegOne = context.value(ctx, ("icmp eq %s %s, %s"):format(v, b, lanes.splatOf(found.scalar, "-1")))
+        local overflow = context.value(ctx, ("and %s %s, %s"):format(found.mask, isMin, isNegOne))
+        local unsafe = context.value(ctx, ("or %s %s, %s"):format(found.mask, zero, overflow))
+        divisor = context.value(
             ctx,
             ("select %s %s, %s, %s %s"):format(found.mask, unsafe, lanes.splatConstant(v, found.scalar, "1"), v, b)
         )
     else
-        divisor = e(
+        divisor = context.value(
             ctx,
             ("select %s %s, %s, %s %s"):format(found.mask, zero, lanes.splatConstant(v, found.scalar, "1"), v, b)
         )
     end
-    local quotient = e(ctx, ("%s %s %s, %s"):format(found.signed and "sdiv" or "udiv", v, a, divisor))
+    local quotient = context.value(ctx, ("%s %s %s, %s"):format(found.signed and "sdiv" or "udiv", v, a, divisor))
 
-    return e(ctx, ("select %s %s, %s zeroinitializer, %s %s"):format(found.mask, zero, v, v, quotient))
+    return context.value(ctx, ("select %s %s, %s zeroinitializer, %s %s"):format(found.mask, zero, v, v, quotient))
 end
 
 --- A shift by the count modulo the lane width.
 local function shift(ctx: context.Context, found: species.Species, instruction: string, a: string, b: string): string
     local v = found.vector
-    local count = e(ctx, ("and %s %s, %s"):format(v, b, lanes.splatOf(found.scalar, tostring(found.bits - 1))))
+    local count = context.value(
+        ctx,
+        ("and %s %s, %s"):format(v, b, lanes.splatOf(found.scalar, tostring(found.bits - 1)))
+    )
 
-    return e(ctx, ("%s %s %s, %s"):format(instruction, v, a, count))
+    return context.value(ctx, ("%s %s %s, %s"):format(instruction, v, a, count))
 end
 
 const FLOAT_BINARY = {["add"] = "fadd", ["sub"] = "fsub", ["mul"] = "fmul", ["div"] = "fdiv",}
@@ -166,9 +155,9 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
     if isMask then
         local instruction = INTEGER_BINARY[intrinsic]
         if instruction == nil then
-            unsupported("mask operation " .. intrinsic)
+            expressions.unsupported("mask operation " .. intrinsic)
         end
-        return e(ctx, ("%s %s %s, %s"):format(instruction as string, found.mask, a, b)), typeName
+        return context.value(ctx, ("%s %s %s, %s"):format(instruction as string, found.mask, a, b)), typeName
     end
     local v = found.vector
     if intrinsic == "propagating_min"
@@ -192,10 +181,10 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
     if found.float then
         local instruction = FLOAT_BINARY[intrinsic]
         if instruction == nil then
-            unsupported("float vector operation " .. intrinsic)
+            expressions.unsupported("float vector operation " .. intrinsic)
         end
         local flags = ctx.contract and " contract" or ""
-        return e(ctx, ("%s%s %s %s, %s"):format(instruction as string, flags, v, a, b)), typeName
+        return context.value(ctx, ("%s%s %s %s, %s"):format(instruction as string, flags, v, a, b)), typeName
     end
     if intrinsic == "div" then
         return divide(ctx, found, a, b), typeName
@@ -208,27 +197,27 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
     end
     local instruction = INTEGER_BINARY[intrinsic]
     if instruction == nil then
-        unsupported("integer vector operation " .. intrinsic)
+        expressions.unsupported("integer vector operation " .. intrinsic)
     end
 
-    return e(ctx, ("%s %s %s, %s"):format(instruction as string, v, a, b)), typeName
+    return context.value(ctx, ("%s %s %s, %s"):format(instruction as string, v, a, b)), typeName
 end
 
 local function unary(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
-    local a = operand(ctx, simd.args[1])
+    local a = expressions.operand(ctx, simd.args[1])
     if found.family == "mask" then
-        return e(ctx, ("xor %s %s, splat (i1 true)"):format(found.mask, a)), typeName
+        return context.value(ctx, ("xor %s %s, splat (i1 true)"):format(found.mask, a)), typeName
     elseif simd.intrinsic == "neg" then
         if found.float then
-            return e(ctx, ("fneg %s %s"):format(found.vector, a)), typeName
+            return context.value(ctx, ("fneg %s %s"):format(found.vector, a)), typeName
         end
-        return e(ctx, ("sub %s zeroinitializer, %s"):format(found.vector, a)), typeName
+        return context.value(ctx, ("sub %s zeroinitializer, %s"):format(found.vector, a)), typeName
     end
 
-    return e(ctx, ("xor %s %s, splat (%s -1)"):format(found.vector, a, found.scalar)), typeName
+    return context.value(ctx, ("xor %s %s, splat (%s -1)"):format(found.vector, a, found.scalar)), typeName
 end
 
 const FLOAT_COMPARE = {["lt"] = "olt", ["le"] = "ole", ["gt"] = "ogt", ["ge"] = "oge", ["eq"] = "oeq", ["ne"] = "une",}
@@ -245,13 +234,19 @@ local function compare(ctx: context.Context, node: scalarIR.Expr): (string, stri
     local a = vectors.vectorOperand(ctx, left, simd.args[1])
     local b = vectors.vectorOperand(ctx, left, simd.args[2])
     if left.family == "mask" then
-        return e(ctx, ("icmp %s %s %s, %s"):format(intrinsic == "eq" and "eq" or "ne", left.mask, a, b)), typeName
+        return context.value(
+            ctx,
+            ("icmp %s %s %s, %s"):format(intrinsic == "eq" and "eq" or "ne", left.mask, a, b)
+        ), typeName
     elseif left.float then
-        return e(ctx, ("fcmp %s %s %s, %s"):format(FLOAT_COMPARE[intrinsic] as string, left.vector, a, b)), typeName
+        return context.value(
+            ctx,
+            ("fcmp %s %s %s, %s"):format(FLOAT_COMPARE[intrinsic] as string, left.vector, a, b)
+        ), typeName
     end
     local table = left.signed and SIGNED_COMPARE or UNSIGNED_COMPARE
 
-    return e(ctx, ("icmp %s %s %s, %s"):format(table[intrinsic] as string, left.vector, a, b)), typeName
+    return context.value(ctx, ("icmp %s %s %s, %s"):format(table[intrinsic] as string, left.vector, a, b)), typeName
 end
 
 --- The lane-wide register a loop carries mask `node` in, when it is such a
@@ -272,7 +267,7 @@ local function carriedMask(ctx: context.Context, node: scalarIR.Expr, found: spe
         return nil
     end
 
-    return e(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
+    return context.value(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
 end
 
 local function selectLanes(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -287,21 +282,23 @@ local function selectLanes(ctx: context.Context, node: scalarIR.Expr): (string, 
         -- directly, as and/and-not/or, rather than narrow it to `<N x i1>`
         -- and widen it again for SSE2's own and/and-not/or.
         local ints = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
-        local a = found.vector == ints and yes or e(ctx, ("bitcast %s %s to %s"):format(found.vector, yes, ints))
-        local b = found.vector == ints and no or e(ctx, ("bitcast %s %s to %s"):format(found.vector, no, ints))
-        local kept = e(ctx, ("and %s %s, %s"):format(ints, a, carried as string))
-        local other = e(ctx, ("xor %s %s, splat (i%d -1)"):format(ints, carried as string, found.bits))
-        local dropped = e(ctx, ("and %s %s, %s"):format(ints, b, other))
-        local joined = e(ctx, ("or %s %s, %s"):format(ints, kept, dropped))
+        local a = found.vector == ints and yes
+            or context.value(ctx, ("bitcast %s %s to %s"):format(found.vector, yes, ints))
+        local b = found.vector == ints and no
+            or context.value(ctx, ("bitcast %s %s to %s"):format(found.vector, no, ints))
+        local kept = context.value(ctx, ("and %s %s, %s"):format(ints, a, carried as string))
+        local other = context.value(ctx, ("xor %s %s, splat (i%d -1)"):format(ints, carried as string, found.bits))
+        local dropped = context.value(ctx, ("and %s %s, %s"):format(ints, b, other))
+        local joined = context.value(ctx, ("or %s %s, %s"):format(ints, kept, dropped))
         if found.vector == ints then
             return joined, typeName
         end
 
-        return e(ctx, ("bitcast %s %s to %s"):format(ints, joined, found.vector)), typeName
+        return context.value(ctx, ("bitcast %s %s to %s"):format(ints, joined, found.vector)), typeName
     end
-    local mask = operand(ctx, simd.args[1])
+    local mask = expressions.operand(ctx, simd.args[1])
 
-    return e(
+    return context.value(
         ctx,
         ("select %s %s, %s %s, %s %s"):format(found.mask, mask, found.vector, yes, found.vector, no)
     ), typeName
@@ -339,17 +336,20 @@ function vectors.wideMask(ctx: context.Context, node: scalarIR.Expr, slot: conte
                 and (held as context.Slot).carried
                 and context.slotType(ctx, (held as context.Slot).type, true) == wide
             then
-                return e(ctx, ("load %s, ptr %s"):format(wide, (held as context.Slot).pointer))
+                return context.value(ctx, ("load %s, ptr %s"):format(wide, (held as context.Slot).pointer))
             end
         end
         if value.op == "simd_binary" and INTEGER_BINARY[tostring((value as scalarIR.Simd).intrinsic)] ~= nil then
             local inner = value as scalarIR.Simd
             local a, b = leaf(inner.args[1]), leaf(inner.args[2])
-            return e(ctx, ("%s %s %s, %s"):format(INTEGER_BINARY[tostring(inner.intrinsic)] as string, wide, a, b))
+            return context.value(
+                ctx,
+                ("%s %s %s, %s"):format(INTEGER_BINARY[tostring(inner.intrinsic)] as string, wide, a, b)
+            )
         end
         local narrow = vectors.vectorOperand(ctx, mask, value)
 
-        return context.opaque(ctx, e(ctx, ("sext %s %s to %s"):format(mask.mask, narrow, wide)), wide)
+        return context.opaque(ctx, context.value(ctx, ("sext %s %s to %s"):format(mask.mask, narrow, wide)), wide)
     end
 
     return leaf(node)
@@ -361,12 +361,12 @@ local function reinterpret(ctx: context.Context, node: scalarIR.Expr): (string, 
     local typeName = tostring(simd.type)
     local to = lanes.of(ctx, typeName)
     local from = lanes.of(ctx, tostring(simd.args[1].type))
-    local value = operand(ctx, simd.args[1])
+    local value = expressions.operand(ctx, simd.args[1])
     if from.vector == to.vector then
         return value, typeName
     end
 
-    return e(ctx, ("bitcast %s %s to %s"):format(from.vector, value, to.vector)), typeName
+    return context.value(ctx, ("bitcast %s %s to %s"):format(from.vector, value, to.vector)), typeName
 end
 
 --- A float vector converted to integer lanes the deterministic way: through
@@ -375,33 +375,40 @@ end
 local function floatToInteger(ctx: context.Context, from: species.Species, to: species.Species, value: string): string
     local count = from.lanes
     local doubles = "<" .. tostring(count) .. " x double>"
-    local wide = from.scalar == "double" and value or e(ctx, ("fpext %s %s to %s"):format(from.vector, value, doubles))
+    local wide = from.scalar == "double" and value
+        or context.value(ctx, ("fpext %s %s to %s"):format(from.vector, value, doubles))
     local i64s = "<" .. tostring(count) .. " x i64>"
     local masks = from.mask
-    local low = e(ctx, ("fcmp oge %s %s, splat (double 0xC3E0000000000000)"):format(doubles, wide))
-    local high = e(ctx, ("fcmp olt %s %s, splat (double 0x43E0000000000000)"):format(doubles, wide))
-    local valid = e(ctx, ("and %s %s, %s"):format(masks, low, high))
-    local safe = e(ctx, ("select %s %s, %s %s, %s zeroinitializer"):format(masks, valid, doubles, wide, doubles))
-    local integer = e(ctx, ("fptosi %s %s to %s"):format(doubles, safe, i64s))
+    local low = context.value(ctx, ("fcmp oge %s %s, splat (double 0xC3E0000000000000)"):format(doubles, wide))
+    local high = context.value(ctx, ("fcmp olt %s %s, splat (double 0x43E0000000000000)"):format(doubles, wide))
+    local valid = context.value(ctx, ("and %s %s, %s"):format(masks, low, high))
+    local safe = context.value(
+        ctx,
+        ("select %s %s, %s %s, %s zeroinitializer"):format(masks, valid, doubles, wide, doubles)
+    )
+    local integer = context.value(ctx, ("fptosi %s %s to %s"):format(doubles, safe, i64s))
     if to.element == "u64" then
         -- 2^63 <= d < 2^64: convert d - 2^63 and set the top bit.
-        local upper = e(ctx, ("fcmp oge %s %s, splat (double 0x43E0000000000000)"):format(doubles, wide))
-        local top = e(ctx, ("fcmp olt %s %s, splat (double 0x43F0000000000000)"):format(doubles, wide))
-        local inUpper = e(ctx, ("and %s %s, %s"):format(masks, upper, top))
-        local shifted = e(ctx, ("fsub %s %s, splat (double 0x43E0000000000000)"):format(doubles, wide))
-        local shiftedSafe = e(
+        local upper = context.value(ctx, ("fcmp oge %s %s, splat (double 0x43E0000000000000)"):format(doubles, wide))
+        local top = context.value(ctx, ("fcmp olt %s %s, splat (double 0x43F0000000000000)"):format(doubles, wide))
+        local inUpper = context.value(ctx, ("and %s %s, %s"):format(masks, upper, top))
+        local shifted = context.value(ctx, ("fsub %s %s, splat (double 0x43E0000000000000)"):format(doubles, wide))
+        local shiftedSafe = context.value(
             ctx,
             ("select %s %s, %s %s, %s zeroinitializer"):format(masks, inUpper, doubles, shifted, doubles)
         )
-        local part = e(ctx, ("fptosi %s %s to %s"):format(doubles, shiftedSafe, i64s))
-        local flagged = e(ctx, ("xor %s %s, splat (i64 -9223372036854775808)"):format(i64s, part))
-        integer = e(ctx, ("select %s %s, %s %s, %s %s"):format(masks, inUpper, i64s, flagged, i64s, integer))
+        local part = context.value(ctx, ("fptosi %s %s to %s"):format(doubles, shiftedSafe, i64s))
+        local flagged = context.value(ctx, ("xor %s %s, splat (i64 -9223372036854775808)"):format(i64s, part))
+        integer = context.value(
+            ctx,
+            ("select %s %s, %s %s, %s %s"):format(masks, inUpper, i64s, flagged, i64s, integer)
+        )
     end
     if to.bits == 64 then
         return integer
     end
 
-    return e(ctx, ("trunc %s %s to %s"):format(i64s, integer, to.vector))
+    return context.value(ctx, ("trunc %s %s to %s"):format(i64s, integer, to.vector))
 end
 
 local function convert(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -409,35 +416,35 @@ local function convert(ctx: context.Context, node: scalarIR.Expr): (string, stri
     local typeName = tostring(simd.type)
     local to = lanes.of(ctx, typeName)
     local from = lanes.of(ctx, tostring(simd.args[1].type))
-    local value = operand(ctx, simd.args[1])
+    local value = expressions.operand(ctx, simd.args[1])
     if from.element == to.element then
         return value, typeName
     end
     if from.float and to.float then
         local instruction = from.bits < to.bits and "fpext" or "fptrunc"
-        return e(ctx, ("%s %s %s to %s"):format(instruction, from.vector, value, to.vector)), typeName
+        return context.value(ctx, ("%s %s %s to %s"):format(instruction, from.vector, value, to.vector)), typeName
     elseif not from.float and to.float then
         local instruction = from.signed and "sitofp" or "uitofp"
         if from.bits == 64 and to.bits == 32 then
             -- LuaJIT rounds a 64-bit integer to binary64 first.
             local doubles = "<" .. tostring(from.lanes) .. " x double>"
-            local wide = e(ctx, ("%s %s %s to %s"):format(instruction, from.vector, value, doubles))
-            return e(ctx, ("fptrunc %s %s to %s"):format(doubles, wide, to.vector)), typeName
+            local wide = context.value(ctx, ("%s %s %s to %s"):format(instruction, from.vector, value, doubles))
+            return context.value(ctx, ("fptrunc %s %s to %s"):format(doubles, wide, to.vector)), typeName
         end
-        return e(ctx, ("%s %s %s to %s"):format(instruction, from.vector, value, to.vector)), typeName
+        return context.value(ctx, ("%s %s %s to %s"):format(instruction, from.vector, value, to.vector)), typeName
     elseif from.float then
         return floatToInteger(ctx, from, to, value), typeName
     end
     if from.bits == to.bits then
         return value, typeName
     elseif from.bits < to.bits then
-        return e(
+        return context.value(
             ctx,
             ("%s %s %s to %s"):format(from.signed and "sext" or "zext", from.vector, value, to.vector)
         ), typeName
     end
 
-    return e(ctx, ("trunc %s %s to %s"):format(from.vector, value, to.vector)), typeName
+    return context.value(ctx, ("trunc %s %s to %s"):format(from.vector, value, to.vector)), typeName
 end
 
 --- The binary32 corrections `nupp.math.f32` defines, lane by lane: min and
@@ -446,17 +453,20 @@ local function corrected(ctx: context.Context, simd: scalarIR.Simd, found: speci
     local shape = lanes.vectorShape(found)
     local args: {string} = {}
     for position, argument in ipairs(simd.args) do
-        args[position] = operand(ctx, argument)
+        args[position] = expressions.operand(ctx, argument)
     end
     if simd.intrinsic == "f32_min" or simd.intrinsic == "f32_max" then
         return lanes.floatExtreme(ctx, shape, args[1], args[2], simd.intrinsic == "f32_min", true)
     end
     local v = found.vector
     local fma = prelude.intrinsic(ctx.module, "llvm.fma." .. shape.suffix, ("%s @NAME(%s, %s, %s)"):format(v, v, v, v))
-    local fused = e(ctx, ("call %s %s(%s %s, %s %s, %s %s)"):format(v, fma, v, args[1], v, args[2], v, args[3]))
-    local nan = e(ctx, ("fcmp uno %s %s, %s"):format(v, fused, fused))
+    local fused = context.value(
+        ctx,
+        ("call %s %s(%s %s, %s %s, %s %s)"):format(v, fma, v, args[1], v, args[2], v, args[3])
+    )
+    local nan = context.value(ctx, ("fcmp uno %s %s, %s"):format(v, fused, fused))
 
-    return e(
+    return context.value(
         ctx,
         ("select %s %s, %s, %s %s"):format(found.mask, nan, lanes.splatConstant(v, "float", lanes.NAN), v, fused)
     )
@@ -481,7 +491,7 @@ local function call(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local carrierType = context.llvmType(ctx, carrier)
     local vectorsIn: {string} = {}
     for position, argument in ipairs(simd.args) do
-        vectorsIn[position] = operand(ctx, argument)
+        vectorsIn[position] = expressions.operand(ctx, argument)
     end
     local out = "poison"
     for index = 0, found.lanes - 1 do
@@ -491,7 +501,10 @@ local function call(ctx: context.Context, node: scalarIR.Expr): (string, string)
             local widened, widenedType = lanes.fromLane(ctx, found, lane)
             passed[position] = carrierType .. " " .. expressions.convert(ctx, widened, widenedType, carrier)
         end
-        local result = e(ctx, ("call %s %s(%s)"):format(carrierType, callee as string, table.concat(passed, ", ")))
+        local result = context.value(
+            ctx,
+            ("call %s %s(%s)"):format(carrierType, callee as string, table.concat(passed, ", "))
+        )
         out = lanes.insert(ctx, found, out, lanes.toLane(ctx, found, result, carrier), index)
     end
 
@@ -506,18 +519,19 @@ local function mathLanes(ctx: context.Context, node: scalarIR.Expr): (string, st
     local found = lanes.of(ctx, typeName)
     local vectorsIn: {string} = {}
     for position, argument in ipairs(simd.args) do
-        vectorsIn[position] = operand(ctx, argument)
+        vectorsIn[position] = expressions.operand(ctx, argument)
     end
     local out = "poison"
     for index = 0, found.lanes - 1 do
         local args: {string} = {}
         for position, vector in ipairs(vectorsIn) do
             local lane = lanes.extract(ctx, found, vector, index)
-            args[position] = found.element == "f32" and e(ctx, ("fpext float %s to double"):format(lane)) or lane
+            args[position] = found.element == "f32" and context.value(ctx, ("fpext float %s to double"):format(lane))
+                or lane
         end
         local result = expressions.math(ctx, tostring(simd.intrinsic), args)
         if found.element == "f32" then
-            result = e(ctx, ("fptrunc double %s to float"):format(result))
+            result = context.value(ctx, ("fptrunc double %s to float"):format(result))
         end
         out = lanes.insert(ctx, found, out, result, index)
     end

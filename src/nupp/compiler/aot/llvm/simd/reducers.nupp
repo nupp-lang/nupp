@@ -23,10 +23,6 @@ local statements = require("nupp.compiler.aot.llvm.statements")
 
 local reducers = {}
 
-local function e(ctx: context.Context, instruction: string): string
-    return lanes.emit(ctx, instruction)
-end
-
 --- The IR type a contract's contributions are passed as.
 local function inputType(order: string, element: string?): string
     if states.bare(order) or order == "pairwise" or order == "compensated" then
@@ -63,15 +59,15 @@ local function contribute(
     local converted = expressions.convert(ctx, value, valueType, input)
     local operations = states.operations(ctx.module, order, operation, element)
     if operations == nil then
-        local current = e(ctx, ("load double, ptr %s"):format(slot.pointer))
+        local current = context.value(ctx, ("load double, ptr %s"):format(slot.pointer))
         local flags = ctx.contract and " contract" or ""
         local instruction = operation == "product" and "fmul" or "fadd"
-        local next = e(ctx, ("%s%s double %s, %s"):format(instruction, flags, current, converted))
-        builder.emit(ctx.f, ("store double %s, ptr %s"):format(next, slot.pointer))
+        local next = context.value(ctx, ("%s%s double %s, %s"):format(instruction, flags, current, converted))
+        context.emit(ctx, ("store double %s, ptr %s"):format(next, slot.pointer))
         return
     end
     local ops = operations as states.Operations
-    builder.emit(ctx.f, ("call void %s(ptr %s, %s %s)"):format(ops.add, slot.pointer, ops.input, converted))
+    context.emit(ctx, ("call void %s(ptr %s, %s %s)"):format(ops.add, slot.pointer, ops.input, converted))
 end
 
 --- `let r = reducer.<contract>(initial)`: the state initialized in place.
@@ -83,11 +79,11 @@ local function init(ctx: context.Context, slot: context.Slot, node: scalarIR.Exp
     local converted = expressions.convert(ctx, value, t, input)
     local operations = states.operations(ctx.module, created.order, created.operation, element)
     if operations == nil then
-        builder.emit(ctx.f, ("store double %s, ptr %s"):format(converted, slot.pointer))
+        context.emit(ctx, ("store double %s, ptr %s"):format(converted, slot.pointer))
         return
     end
     local ops = operations as states.Operations
-    builder.emit(ctx.f, ("call void %s(ptr %s, %s %s)"):format(ops.init, slot.pointer, ops.input, converted))
+    context.emit(ctx, ("call void %s(ptr %s, %s %s)"):format(ops.init, slot.pointer, ops.input, converted))
 end
 
 --- `r:add(x)`, or `r:add(a, b)` for a dot: the product rounded first.
@@ -100,7 +96,7 @@ local function add(ctx: context.Context, node: scalarIR.Statement): nil
         local a = expressions.convert(ctx, value, t, "f64")
         local b = expressions.convert(ctx, right, rightType, "f64")
         local flags = ctx.contract and " contract" or ""
-        value = e(ctx, ("fmul%s double %s, %s"):format(flags, a, b))
+        value = context.value(ctx, ("fmul%s double %s, %s"):format(flags, a, b))
         t = "f64"
     end
     local _, _, element = reducerRules.parse(slot.type)
@@ -126,17 +122,17 @@ local function vectorAdd(ctx: context.Context, node: scalarIR.Statement): nil
         local combined = value
         if right ~= nil then
             local flags = ctx.contract and " contract" or ""
-            combined = e(ctx, ("fmul%s %s %s, %s"):format(flags, found.vector, value, right as string))
+            combined = context.value(ctx, ("fmul%s %s %s, %s"):format(flags, found.vector, value, right as string))
         end
         local accType = acc.vector
         if accType ~= found.vector then
             -- An exact accumulator is as wide as the reducer's element.
-            combined = e(
+            combined = context.value(
                 ctx,
                 ("%s %s %s to %s"):format(found.signed and "sext" or "zext", found.vector, combined, accType)
             )
         end
-        local current = e(ctx, ("load %s, ptr %s"):format(accType, acc.pointer))
+        local current = context.value(ctx, ("load %s, ptr %s"):format(accType, acc.pointer))
         local instruction: string
         if contribution.order == "exact" then
             instruction = ({
@@ -150,15 +146,18 @@ local function vectorAdd(ctx: context.Context, node: scalarIR.Statement): nil
             local flags = ctx.contract and " contract" or ""
             instruction = (contribution.operation == "product" and "fmul" or "fadd") .. flags
         end
-        local next = e(ctx, ("%s %s %s, %s"):format(instruction, accType, current, combined))
-        local kept = e(ctx, ("select %s %s, %s %s, %s %s"):format(found.mask, mask, accType, next, accType, current))
-        builder.emit(ctx.f, ("store %s %s, ptr %s"):format(accType, kept, acc.pointer))
+        local next = context.value(ctx, ("%s %s %s, %s"):format(instruction, accType, current, combined))
+        local kept = context.value(
+            ctx,
+            ("select %s %s, %s %s, %s %s"):format(found.mask, mask, accType, next, accType, current)
+        )
+        context.emit(ctx, ("store %s %s, ptr %s"):format(accType, kept, acc.pointer))
         return
     end
     local f = ctx.f
     local element = contribution.element
     for index = 0, found.lanes - 1 do
-        local active = e(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
+        local active = context.value(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
         local takeLabel = builder.label(f, "reduce.lane")
         local nextLabel = builder.label(f, "reduce.next")
         builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(active, takeLabel, nextLabel))
@@ -167,14 +166,14 @@ local function vectorAdd(ctx: context.Context, node: scalarIR.Statement): nil
         local laneType: string
         if element == "bool" then
             -- A predicate's lanes are the mask's own truths.
-            laneValue = e(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, value, index))
+            laneValue = context.value(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, value, index))
             laneType = "bool"
         else
             local raw = lanes.extract(ctx, found, value, index)
             if right ~= nil then
                 local other = lanes.extract(ctx, found, right as string, index)
                 local flags = ctx.contract and " contract" or ""
-                raw = e(ctx, ("fmul%s %s %s, %s"):format(flags, found.scalar, raw, other))
+                raw = context.value(ctx, ("fmul%s %s %s, %s"):format(flags, found.scalar, raw, other))
             end
             laneValue, laneType = lanes.fromLane(ctx, found, raw)
         end
@@ -224,7 +223,7 @@ local function region(ctx: context.Context, node: scalarIR.Statement): nil
                 end
                 local scalar = vector:match("x ([%w]+)>$") as string
                 local pointer = builder.alloca(ctx.f, vector, 16)
-                builder.emit(ctx.f, ("store %s %s, ptr %s"):format(vector, lanes.splatOf(scalar, identity), pointer))
+                context.emit(ctx, ("store %s %s, ptr %s"):format(vector, lanes.splatOf(scalar, identity), pointer))
                 accumulators[reducer.name] = new context.Accumulator(pointer = pointer, vector = vector)
                 parallel[#parallel + 1] = reducer
             end
@@ -237,17 +236,18 @@ local function region(ctx: context.Context, node: scalarIR.Statement): nil
         local acc = accumulators[reducer.name] as context.Accumulator
         local slot = ctx.locals[reducer.uniqueName] as context.Slot
         local vector = acc.vector
-        local final = e(ctx, ("load %s, ptr %s"):format(vector, acc.pointer))
+        local final = context.value(ctx, ("load %s, ptr %s"):format(vector, acc.pointer))
         local count = tonumber(vector:match("^<(%d+) x")) as integer
         local scalar = vector:match("x ([%w]+)>$") as string
         for index = 0, count - 1 do
-            local lane = e(ctx, ("extractelement %s %s, i32 %d"):format(vector, final, index))
+            local lane = context.value(ctx, ("extractelement %s %s, i32 %d"):format(vector, final, index))
             if reducer.order == "exact" then
                 local laneType = scalar == "i64" and (tostring(reducer.element) == "u64" and "u64" or "i64")
                     or (tostring(reducer.element) == "u32" and "u32" or "i32")
                 contribute(ctx, slot, reducer.order, reducer.operation, reducer.element, lane, laneType)
             else
-                local wide = scalar == "double" and lane or e(ctx, ("fpext %s %s to double"):format(scalar, lane))
+                local wide = scalar == "double" and lane
+                    or context.value(ctx, ("fpext %s %s to double"):format(scalar, lane))
                 contribute(ctx, slot, reducer.order, reducer.operation, reducer.element, wide, "f64")
             end
         end
@@ -261,11 +261,11 @@ local function value(ctx: context.Context, node: scalarIR.Expr): (string, string
     local _, _, element = reducerRules.parse(slot.type)
     local operations = states.operations(ctx.module, read.order, read.operation, element)
     if operations == nil then
-        return e(ctx, ("load double, ptr %s"):format(slot.pointer)), "f64"
+        return context.value(ctx, ("load double, ptr %s"):format(slot.pointer)), "f64"
     end
     local ops = operations as states.Operations
 
-    return e(ctx, ("call %s %s(ptr %s)"):format(ops.result, ops.value, slot.pointer)), tostring(read.type)
+    return context.value(ctx, ("call %s %s(ptr %s)"):format(ops.result, ops.value, slot.pointer)), tostring(read.type)
 end
 
 reducers.EXPRESSIONS = {

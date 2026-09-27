@@ -25,10 +25,6 @@ local bridge = {}
 --- The narrow storage a scalar slot holds, by source type.
 const NARROW: {[string]: string} = {uint8 = "i8", int8 = "i8", uint16 = "i16", int16 = "i16"}
 
-local function isSpan(param: scalarIR.Param): boolean
-    return param.kind == "write_span" or param.kind == "read_span"
-end
-
 --- Defines `nupp_bridge_<index>` calling `kernel`, the physical symbol of
 --- `program`'s entry in this module, with attribute group `attrs`.
 function bridge.define(
@@ -49,7 +45,7 @@ function bridge.define(
     local countPosition = #program.params
     for position, param in ipairs(program.params) do
         local address = slot(position - 1)
-        if isSpan(param) then
+        if scalarIR.isSpan(param) then
             local raw = builder.value(f, ("load i32, ptr %s, align 1"):format(address))
             arguments[#arguments + 1] = "ptr " .. builder.value(f, ("inttoptr i32 %s to ptr"):format(raw))
             wire[#wire + 1] = builder.value(f, ("load i32, ptr %s, align 1"):format(slot(countPosition)))
@@ -79,7 +75,7 @@ function bridge.define(
     if scalarIR.independentCounts(program) then
         local spanIndex: integer = 0
         for _, param in ipairs(program.params) do
-            if isSpan(param) then
+            if scalarIR.isSpan(param) then
                 spanIndex = spanIndex + 1
                 if param.soa == nil or param.soa.ordinal == 1 then
                     local count = program.body ~= nil and wire[spanIndex] or shared
@@ -93,11 +89,7 @@ function bridge.define(
 
     local results = program.resultTypes or {}
     if #results > 1 then
-        local fields: {string} = {}
-        for position, resultType in ipairs(results) do
-            fields[position] = types.field(tostring(resultType))
-        end
-        local struct = "{ " .. table.concat(fields, ", ") .. " }"
+        local struct, fields = types.resultStruct(results)
         local block = builder.alloca(f, struct, 8)
         arguments[#arguments + 1] = "ptr " .. block
         builder.emit(f, ("call void @%s(%s)"):format(kernel, table.concat(arguments, ", ")))

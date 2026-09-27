@@ -89,16 +89,8 @@ record llvmProgram.Unit
 end
 
 --- @raises string always
-local function unsupported(what: string): never
-    error(expressions.UNSUPPORTED .. what, 0)
-end
-
 local function physical(symbol: string, tier: string?): string
     return tier ~= nil and target.symbol(symbol, tier as string) or symbol
-end
-
-local function isSpan(param: scalarIR.Param): boolean
-    return param.kind == "write_span" or param.kind == "read_span"
 end
 
 --- Whether every alias fact between `param`'s region and a written span's
@@ -119,7 +111,7 @@ local function disjointFromWrites(program: scalarIR.Program, param: scalarIR.Par
         end
     end
     for _, other in ipairs(program.params) do
-        if other ~= param and isSpan(other) and other.kind == "write_span" then
+        if other ~= param and scalarIR.isSpan(other) and other.kind == "write_span" then
             if param.region == nil or other.region == nil then
                 return false
             end
@@ -131,7 +123,7 @@ local function disjointFromWrites(program: scalarIR.Program, param: scalarIR.Par
     if param.kind == "write_span" then
         -- A written span must also be disjoint from every span read.
         for _, other in ipairs(program.params) do
-            if other ~= param and isSpan(other) then
+            if other ~= param and scalarIR.isSpan(other) then
                 if param.region == nil or other.region == nil then
                     return false
                 end
@@ -372,9 +364,9 @@ local function termValue(ctx: context.Context, term: scalarIR.Term): string?
     if typeName == "i64" or typeName == "u64" then
         return value
     elseif typeName == "i32" then
-        return builder.value(ctx.f, ("sext i32 %s to i64"):format(value as string))
+        return context.value(ctx, ("sext i32 %s to i64"):format(value as string))
     elseif typeName == "u32" then
-        return builder.value(ctx.f, ("zext i32 %s to i64"):format(value as string))
+        return context.value(ctx, ("zext i32 %s to i64"):format(value as string))
     end
 
     return nil
@@ -399,10 +391,10 @@ local function assumeRelations(ctx: context.Context, program: scalarIR.Program):
         local left = not wide and termValue(ctx, relation.left) or nil
         local right = not wide and termValue(ctx, relation.right) or nil
         if left ~= nil and right ~= nil then
-            local shifted = builder.value(ctx.f, ("add nsw i64 %s, %d"):format(right as string, relation.offset))
-            local holds = builder.value(ctx.f, ("icmp sle i64 %s, %s"):format(left as string, shifted))
+            local shifted = context.value(ctx, ("add nsw i64 %s, %d"):format(right as string, relation.offset))
+            local holds = context.value(ctx, ("icmp sle i64 %s, %s"):format(left as string, shifted))
             builder.declare(ctx.module, "@llvm.assume", "declare void @llvm.assume(i1)")
-            builder.emit(ctx.f, ("call void @llvm.assume(i1 %s)"):format(holds))
+            context.emit(ctx, ("call void @llvm.assume(i1 %s)"):format(holds))
         end
     end
 end
@@ -420,7 +412,7 @@ local function assumeExtents(ctx: context.Context, program: scalarIR.Program): n
             local storage = layout ~= nil and expressions.layoutType(ctx, layout as string)
                 or types.storage(elementType, param.sourceType)
             local width = ("ptrtoint (ptr getelementptr (%s, ptr null, i32 1) to i64)"):format(storage)
-            local bytes = builder.value(ctx.f, ("mul nuw i64 %s, %s"):format(count as string, width))
+            local bytes = context.value(ctx, ("mul nuw i64 %s, %s"):format(count as string, width))
             local bundles = ('"dereferenceable"(ptr %s, i64 %s)'):format((span as context.Span).pointer, bytes)
             if layout == nil then
                 bundles = bundles .. (
@@ -428,7 +420,7 @@ local function assumeExtents(ctx: context.Context, program: scalarIR.Program): n
                 ):format((span as context.Span).pointer, types.storageBytes(elementType, param.sourceType))
             end
             builder.declare(ctx.module, "@llvm.assume", "declare void @llvm.assume(i1)")
-            builder.emit(ctx.f, ("call void @llvm.assume(i1 true) [ %s ]"):format(bundles))
+            context.emit(ctx, ("call void @llvm.assume(i1 true) [ %s ]"):format(bundles))
         end
     end
 end
@@ -439,7 +431,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     local selected = unit.target
     local results = program.resultTypes or {}
     if program.workgroup ~= nil then
-        unsupported("workgroup entries")
+        expressions.unsupported("workgroup entries")
     end
     local independent = scalarIR.independentCounts(program)
     local roots = countRules.roots(program)
@@ -454,17 +446,17 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         countType = "i64 range(i64 0, 9007199254740993)"
     end
     for _, param in ipairs(program.params) do
-        if isSpan(param) then
+        if scalarIR.isSpan(param) then
             parameters[#parameters + 1] = spanParameter(unit, program, param)
         elseif param.kind == "uniform" then
             parameters[#parameters + 1] = types.parameter(tostring(param.type)) .. " %p_" .. param.name
         else
-            unsupported("scalar parameters of kind " .. param.kind)
+            expressions.unsupported("scalar parameters of kind " .. param.kind)
         end
     end
     if independent then
         for _, param in ipairs(program.params) do
-            if isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
+            if scalarIR.isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
                 parameters[#parameters + 1] = countType .. " %count_" .. param.name .. countSuffix
             end
         end
@@ -473,11 +465,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     end
     local resultStruct: string? = nil
     if #results > 1 then
-        local fields: {string} = {}
-        for position, resultType in ipairs(results) do
-            fields[position] = types.field(tostring(resultType))
-        end
-        resultStruct = "{ " .. table.concat(fields, ", ") .. " }"
+        resultStruct = types.resultStruct(results)
         parameters[#parameters + 1] = unit.facts.access and "ptr noalias captures(none) writeonly %ks_result"
             or "ptr %ks_result"
     end
@@ -510,7 +498,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
 
     if independent then
         for _, param in ipairs(program.params) do
-            if isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
+            if scalarIR.isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
                 count("%count_" .. param.name)
             end
         end
@@ -525,7 +513,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
         ctx.resultStruct = resultStruct
     end
     for _, param in ipairs(program.params) do
-        if isSpan(param) then
+        if scalarIR.isSpan(param) then
             ctx.spans[param.name] = new context.Span(pointer = "%p_" .. param.name, param = param)
             ctx.counts[param.name] = independent
                 and "%count_" .. (roots[param.name] or aliases[param.name] or param.name)
@@ -669,7 +657,7 @@ function llvmProgram.module(
         if program.executionTarget == "gpu" then
             -- Shader programs have their own artifacts.
         elseif program.entryMode == "lua-builder" and selected.format == "wasm" then
-            unsupported("Lua-builder entries in an independent Wasm module")
+            expressions.unsupported("Lua-builder entries in an independent Wasm module")
         elseif program.entryMode == "lua-builder" then
             registrar = registrar or program.registrar
             if registrar ~= program.registrar then
@@ -709,7 +697,7 @@ function llvmProgram.module(
         wasmRuntime.install(module)
         local needs = wasmUnresolved(module)
         if #needs > 0 then
-            unsupported("an independent Wasm module has no " .. table.concat(needs, ", ") .. " to link")
+            expressions.unsupported("an independent Wasm module has no " .. table.concat(needs, ", ") .. " to link")
         end
     end
     if registrar ~= nil then

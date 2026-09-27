@@ -23,10 +23,6 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 
 local values = {}
 
-local function e(ctx: context.Context, instruction: string): string
-    return builder.value(ctx.f, instruction)
-end
-
 --- `node` as IR type `to`.
 function values.operand(ctx: context.Context, node: scalarIR.Expr, to: string): string
     local value, t = expressions.value(ctx, node)
@@ -36,12 +32,12 @@ end
 
 --- `node` as a 32-bit unsigned value widened to the i64 the runtime takes.
 function values.wide(ctx: context.Context, node: scalarIR.Expr): string
-    return "i64 " .. e(ctx, ("zext i32 %s to i64"):format(values.operand(ctx, node, "u32")))
+    return "i64 " .. context.value(ctx, ("zext i32 %s to i64"):format(values.operand(ctx, node, "u32")))
 end
 
 --- A boolean `node` as the runtime's i64 0 or 1.
 function values.flag(ctx: context.Context, node: scalarIR.Expr): string
-    return "i64 " .. e(ctx, ("zext i1 %s to i64"):format(values.operand(ctx, node, "bool")))
+    return "i64 " .. context.value(ctx, ("zext i1 %s to i64"):format(values.operand(ctx, node, "bool")))
 end
 
 --- The `"line:column"` a message names a construction by.
@@ -98,7 +94,7 @@ end
 
 --- The address of field `index` of a scratch block of `structType`.
 function values.field(ctx: context.Context, block: string, structType: string, index: integer): string
-    return e(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %d"):format(structType, block, index))
+    return context.value(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %d"):format(structType, block, index))
 end
 
 --- A binary64 as a Lua C API integer: `minimum` or more, at most INT_MAX,
@@ -106,16 +102,16 @@ end
 --- runtime's, without a libm `floor`: NaN fails the first, and a value in
 --- range survives the round trip through i32 exactly when it is integral.
 local function apiInteger(ctx: context.Context, value: string, minimum: string, raising: function(): nil): string
-    local low = e(ctx, ("fcmp oge double %s, %s"):format(value, minimum))
-    local high = e(ctx, ("fcmp ole double %s, 2147483647.0"):format(value))
-    local inRange = e(ctx, ("and i1 %s, %s"):format(low, high))
+    local low = context.value(ctx, ("fcmp oge double %s, %s"):format(value, minimum))
+    local high = context.value(ctx, ("fcmp ole double %s, 2147483647.0"):format(value))
+    local inRange = context.value(ctx, ("and i1 %s, %s"):format(low, high))
     -- Clamped so the conversion is defined whatever the value.
-    local clamped = e(ctx, ("select i1 %s, double %s, double 0.0"):format(inRange, value))
-    local integer = e(ctx, ("fptosi double %s to i32"):format(clamped))
-    local back = e(ctx, ("sitofp i32 %s to double"):format(integer))
-    local integral = e(ctx, ("fcmp oeq double %s, %s"):format(back, value))
-    local fine = e(ctx, ("and i1 %s, %s"):format(inRange, integral))
-    runtime.guard(ctx, e(ctx, ("xor i1 %s, true"):format(fine)), raising)
+    local clamped = context.value(ctx, ("select i1 %s, double %s, double 0.0"):format(inRange, value))
+    local integer = context.value(ctx, ("fptosi double %s to i32"):format(clamped))
+    local back = context.value(ctx, ("sitofp i32 %s to double"):format(integer))
+    local integral = context.value(ctx, ("fcmp oeq double %s, %s"):format(back, value))
+    local fine = context.value(ctx, ("and i1 %s, %s"):format(inRange, integral))
+    runtime.guard(ctx, context.value(ctx, ("xor i1 %s, true"):format(fine)), raising)
 
     return integer
 end
@@ -152,7 +148,7 @@ function values.substringOperands(ctx: context.Context, sliced: scalarIR.LuaSubs
     local bytes = values.bytes(ctx, sliced.bytes)
     local first = values.operand(ctx, sliced.first, "f64")
     local last = sliced.last ~= nil and values.operand(ctx, sliced.last as scalarIR.Expr, "f64")
-        or e(ctx, ("uitofp %s %s to double"):format(runtime.size(ctx), bytes.length))
+        or context.value(ctx, ("uitofp %s %s to double"):format(runtime.size(ctx), bytes.length))
 
     return ("ptr %s, %s %s, double %s, double %s"):format(bytes.pointer, runtime.size(ctx), bytes.length, first, last)
 end
@@ -217,7 +213,7 @@ function values.push(ctx: context.Context, value: scalarIR.Expr): nil
         end
     elseif valueType == "bool" then
         local truth = values.operand(ctx, value, "bool")
-        runtime.api(ctx, "lua_pushboolean", {state, "i32 " .. e(ctx, ("zext i1 %s to i32"):format(truth))})
+        runtime.api(ctx, "lua_pushboolean", {state, "i32 " .. context.value(ctx, ("zext i1 %s to i32"):format(truth))})
         return
     else
         runtime.api(ctx, "lua_pushnumber", {state, "double " .. values.operand(ctx, value, "f64")})
@@ -229,12 +225,12 @@ end
 
 --- A u32 result the runtime answered as i64.
 local function narrow(ctx: context.Context, value: string): (string, string)
-    return e(ctx, ("trunc i64 %s to i32"):format(value)), "u32"
+    return context.value(ctx, ("trunc i64 %s to i32"):format(value)), "u32"
 end
 
 local function stringMatch(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local matched = node as scalarIR.LuaStringMatch
-    local index = e(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, matched.bytes)))
+    local index = context.value(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, matched.bytes)))
     local answer = runtime.call(ctx, "string_match", {
         runtime.state(ctx),
         "i64 " .. index,
@@ -242,7 +238,7 @@ local function stringMatch(ctx: context.Context, node: scalarIR.Expr): (string, 
         runtime.size(ctx) .. " " .. tostring(#matched.value)
     }) as string
 
-    return e(ctx, ("icmp ne i64 %s, 0"):format(answer)), "bool"
+    return context.value(ctx, ("icmp ne i64 %s, 0"):format(answer)), "bool"
 end
 
 local function stringLength(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -251,14 +247,17 @@ local function stringLength(ctx: context.Context, node: scalarIR.Expr): (string,
     if size == "i32" then
         return bytes.length, "u32"
     end
-    runtime.check(ctx, e(ctx, ("icmp ugt %s %s, 4294967295"):format(size, bytes.length)), "stringLength")
+    runtime.check(ctx, context.value(ctx, ("icmp ugt %s %s, 4294967295"):format(size, bytes.length)), "stringLength")
 
-    return e(ctx, ("trunc %s %s to i32"):format(size, bytes.length)), "u32"
+    return context.value(ctx, ("trunc %s %s to i32"):format(size, bytes.length)), "u32"
 end
 
 --- The address of byte `offset` (a `size_t` value) of rooted bytes.
 local function byteAddress(ctx: context.Context, bytes: context.Bytes, offset: string): string
-    return e(ctx, ("getelementptr inbounds i8, ptr %s, %s %s"):format(bytes.pointer, runtime.size(ctx), offset))
+    return context.value(
+        ctx,
+        ("getelementptr inbounds i8, ptr %s, %s %s"):format(bytes.pointer, runtime.size(ctx), offset)
+    )
 end
 
 --- A u32 as the target's `size_t`.
@@ -268,7 +267,7 @@ local function sizeOf(ctx: context.Context, value: string): string
         return value
     end
 
-    return e(ctx, ("zext i32 %s to %s"):format(value, size))
+    return context.value(ctx, ("zext i32 %s to %s"):format(value, size))
 end
 
 local function stringByte(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -276,10 +275,10 @@ local function stringByte(ctx: context.Context, node: scalarIR.Expr): (string, s
     local bytes = values.bytes(ctx, loaded.bytes)
     local size = runtime.size(ctx)
     local offset = sizeOf(ctx, values.operand(ctx, loaded.index as scalarIR.Expr, "u32"))
-    runtime.check(ctx, e(ctx, ("icmp uge %s %s, %s"):format(size, offset, bytes.length)), "byte")
-    local byte = e(ctx, ("load i8, ptr %s"):format(byteAddress(ctx, bytes, offset)))
+    runtime.check(ctx, context.value(ctx, ("icmp uge %s %s, %s"):format(size, offset, bytes.length)), "byte")
+    local byte = context.value(ctx, ("load i8, ptr %s"):format(byteAddress(ctx, bytes, offset)))
 
-    return e(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
+    return context.value(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
 end
 
 local function stringByteAt(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -295,9 +294,9 @@ local function stringByteAt(ctx: context.Context, node: scalarIR.Expr): (string,
         (slot as context.Slot).type,
         "u32"
     )
-    local byte = e(ctx, ("load i8, ptr %s"):format(byteAddress(ctx, bytes, sizeOf(ctx, cursor))))
+    local byte = context.value(ctx, ("load i8, ptr %s"):format(byteAddress(ctx, bytes, sizeOf(ctx, cursor))))
 
-    return e(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
+    return context.value(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
 end
 
 local function stringWord(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -306,15 +305,15 @@ local function stringWord(ctx: context.Context, node: scalarIR.Expr): (string, s
     local size = runtime.size(ctx)
     local index = values.operand(ctx, loaded.index as scalarIR.Expr, "u32")
     if size == "i32" then
-        runtime.check(ctx, e(ctx, ("icmp ugt i32 %s, 1073741823"):format(index)), "wordIndex")
+        runtime.check(ctx, context.value(ctx, ("icmp ugt i32 %s, 1073741823"):format(index)), "wordIndex")
     end
-    local offset = e(ctx, ("shl nuw %s %s, 2"):format(size, sizeOf(ctx, index)))
-    local past = e(ctx, ("icmp ugt %s %s, %s"):format(size, offset, bytes.length))
-    local left = e(ctx, ("sub %s %s, %s"):format(size, bytes.length, offset))
-    local short = e(ctx, ("icmp ult %s %s, 4"):format(size, left))
-    runtime.check(ctx, e(ctx, ("or i1 %s, %s"):format(past, short)), "word")
+    local offset = context.value(ctx, ("shl nuw %s %s, 2"):format(size, sizeOf(ctx, index)))
+    local past = context.value(ctx, ("icmp ugt %s %s, %s"):format(size, offset, bytes.length))
+    local left = context.value(ctx, ("sub %s %s, %s"):format(size, bytes.length, offset))
+    local short = context.value(ctx, ("icmp ult %s %s, 4"):format(size, left))
+    runtime.check(ctx, context.value(ctx, ("or i1 %s, %s"):format(past, short)), "word")
 
-    return e(ctx, ("load i32, ptr %s, align 1"):format(byteAddress(ctx, bytes, offset))), "u32"
+    return context.value(ctx, ("load i32, ptr %s, align 1"):format(byteAddress(ctx, bytes, offset))), "u32"
 end
 
 local function stringByteLua(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -330,7 +329,7 @@ end
 
 local function tableNumber(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local loaded = node as scalarIR.LuaTableGet
-    local table = e(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, loaded.table)))
+    local table = context.value(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, loaded.table)))
     local answer = runtime.call(ctx, "table_number", {
         runtime.state(ctx),
         "i64 " .. table,
@@ -350,12 +349,12 @@ local function builderQuery(ctx: context.Context, node: scalarIR.Expr): (string,
     local operation = tostring(query.op)
     local stream = values.block(ctx, query.builder)
     local depthAddress = values.field(ctx, stream, runtime.BUILDER, 1)
-    local depth = e(ctx, ("load i32, ptr %s"):format(depthAddress))
+    local depth = context.value(ctx, ("load i32, ptr %s"):format(depthAddress))
     if operation == "lua_builder_depth" then
         return depth, "u32"
     end
     local f = ctx.f
-    local empty = e(ctx, ("icmp eq i32 %s, 0"):format(depth))
+    local empty = context.value(ctx, ("icmp eq i32 %s, 0"):format(depth))
     local answer = builder.alloca(f, "i32", 4)
     if operation == "lua_builder_state" then
         -- An empty stream's state is 0; everything else needs a frame.
@@ -365,33 +364,36 @@ local function builderQuery(ctx: context.Context, node: scalarIR.Expr): (string,
         builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(empty, done, some))
         builder.start(f, some)
         local frame = values.currentFrame(ctx, stream, depth)
-        local kind = e(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, 2)))
-        local count = e(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, 4)))
-        local started = e(ctx, ("icmp ne i32 %s, 0"):format(count))
-        local flag = e(ctx, ("select i1 %s, i32 256, i32 0"):format(started))
-        builder.emit(f, ("store i32 %s, ptr %s"):format(e(ctx, ("or i32 %s, %s"):format(kind, flag)), answer))
+        local kind = context.value(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, 2)))
+        local count = context.value(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, 4)))
+        local started = context.value(ctx, ("icmp ne i32 %s, 0"):format(count))
+        local flag = context.value(ctx, ("select i1 %s, i32 256, i32 0"):format(started))
+        builder.emit(
+            f,
+            ("store i32 %s, ptr %s"):format(context.value(ctx, ("or i32 %s, %s"):format(kind, flag)), answer)
+        )
         builder.jump(f, done)
         builder.start(f, done)
 
-        return e(ctx, ("load i32, ptr %s"):format(answer)), "u32"
+        return context.value(ctx, ("load i32, ptr %s"):format(answer)), "u32"
     end
     runtime.check(ctx, empty, "noContainer")
     local frame = values.currentFrame(ctx, stream, depth)
     local field = operation == "lua_builder_kind" and 2 or 4
 
-    return e(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, field))), "u32"
+    return context.value(ctx, ("load i32, ptr %s"):format(values.field(ctx, frame, runtime.FRAME, field))), "u32"
 end
 
 --- The innermost open frame of a value stream at `depth` (nonzero): in the
 --- spilled array once there is one, and inline before.
 function values.currentFrame(ctx: context.Context, stream: string, depth: string): string
-    local spilled = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, stream, runtime.BUILDER, 7)))
+    local spilled = context.value(ctx, ("load ptr, ptr %s"):format(values.field(ctx, stream, runtime.BUILDER, 7)))
     local inline = values.field(ctx, stream, runtime.BUILDER, 8)
-    local none = e(ctx, ("icmp eq ptr %s, null"):format(spilled))
-    local frames = e(ctx, ("select i1 %s, ptr %s, ptr %s"):format(none, inline, spilled))
-    local last = e(ctx, ("zext i32 %s to i64"):format(e(ctx, ("sub i32 %s, 1"):format(depth))))
+    local none = context.value(ctx, ("icmp eq ptr %s, null"):format(spilled))
+    local frames = context.value(ctx, ("select i1 %s, ptr %s, ptr %s"):format(none, inline, spilled))
+    local last = context.value(ctx, ("zext i32 %s to i64"):format(context.value(ctx, ("sub i32 %s, 1"):format(depth))))
 
-    return e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(runtime.FRAME, frames, last))
+    return context.value(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(runtime.FRAME, frames, last))
 end
 
 --- The runtime's `eager` flag for this entry's value stream.
@@ -417,16 +419,16 @@ end
 
 --- Loads word `index` (an i32) of a word scratch's storage.
 local function word(ctx: context.Context, block: string, index: string): string
-    local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, block, runtime.SCRATCH_U32, 0)))
-    local wide = e(ctx, ("zext i32 %s to i64"):format(index))
-    local address = e(ctx, ("getelementptr inbounds i32, ptr %s, i64 %s"):format(storage, wide))
+    local storage = context.value(ctx, ("load ptr, ptr %s"):format(values.field(ctx, block, runtime.SCRATCH_U32, 0)))
+    local wide = context.value(ctx, ("zext i32 %s to i64"):format(index))
+    local address = context.value(ctx, ("getelementptr inbounds i32, ptr %s, i64 %s"):format(storage, wide))
 
-    return e(ctx, ("load i32, ptr %s"):format(address))
+    return context.value(ctx, ("load i32, ptr %s"):format(address))
 end
 
 --- A u32 field of a scratch block.
 function values.u32Field(ctx: context.Context, block: string, structType: string, index: integer): string
-    return e(ctx, ("load i32, ptr %s"):format(values.field(ctx, block, structType, index)))
+    return context.value(ctx, ("load i32, ptr %s"):format(values.field(ctx, block, structType, index)))
 end
 
 --- The value of a proved cursor local, as a u32.
@@ -448,19 +450,23 @@ local function scratchWordGet(ctx: context.Context, node: scalarIR.Expr): (strin
         local cursor = cursorValue(ctx, tostring(loaded.cursorUniqueName))
         if escape then
             local capacity = values.u32Field(ctx, block, runtime.SCRATCH_U32, 1)
-            local last = e(ctx, ("sub i32 %s, 1"):format(capacity))
-            cursor = e(ctx, ("sub i32 %s, %s"):format(last, cursor))
+            local last = context.value(ctx, ("sub i32 %s, 1"):format(capacity))
+            cursor = context.value(ctx, ("sub i32 %s, %s"):format(last, cursor))
         end
         return word(ctx, block, cursor), "u32"
     end
     local index = values.operand(ctx, loaded.index, "u32")
     local bound = loaded.fixedBound ~= nil and not escape and tostring(loaded.fixedBound)
         or values.u32Field(ctx, block, runtime.SCRATCH_U32, escape and 3 or 2)
-    runtime.check(ctx, e(ctx, ("icmp uge i32 %s, %s"):format(index, bound)), escape and "escapeRead" or "scratchRead")
+    runtime.check(
+        ctx,
+        context.value(ctx, ("icmp uge i32 %s, %s"):format(index, bound)),
+        escape and "escapeRead" or "scratchRead"
+    )
     if escape then
         local capacity = values.u32Field(ctx, block, runtime.SCRATCH_U32, 1)
-        local last = e(ctx, ("sub i32 %s, 1"):format(capacity))
-        index = e(ctx, ("sub i32 %s, %s"):format(last, index))
+        local last = context.value(ctx, ("sub i32 %s, 1"):format(capacity))
+        index = context.value(ctx, ("sub i32 %s, %s"):format(last, index))
     end
 
     return word(ctx, block, index), "u32"
@@ -476,10 +482,10 @@ end
 
 --- The address of byte `index` (an i32) of a byte scratch's storage.
 function values.scratchByte(ctx: context.Context, block: string, index: string): string
-    local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, block, runtime.SCRATCH_U8, 0)))
-    local wide = e(ctx, ("zext i32 %s to i64"):format(index))
+    local storage = context.value(ctx, ("load ptr, ptr %s"):format(values.field(ctx, block, runtime.SCRATCH_U8, 0)))
+    local wide = context.value(ctx, ("zext i32 %s to i64"):format(index))
 
-    return e(ctx, ("getelementptr inbounds i8, ptr %s, i64 %s"):format(storage, wide))
+    return context.value(ctx, ("getelementptr inbounds i8, ptr %s, i64 %s"):format(storage, wide))
 end
 
 local function scratchByteGet(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -488,10 +494,10 @@ local function scratchByteGet(ctx: context.Context, node: scalarIR.Expr): (strin
     local index = values.operand(ctx, loaded.index, "u32")
     local bound = loaded.fixedBound ~= nil and tostring(loaded.fixedBound)
         or values.u32Field(ctx, block, runtime.SCRATCH_U8, 2)
-    runtime.check(ctx, e(ctx, ("icmp uge i32 %s, %s"):format(index, bound)), "byteRead")
-    local byte = e(ctx, ("load i8, ptr %s"):format(values.scratchByte(ctx, block, index)))
+    runtime.check(ctx, context.value(ctx, ("icmp uge i32 %s, %s"):format(index, bound)), "byteRead")
+    local byte = context.value(ctx, ("load i8, ptr %s"):format(values.scratchByte(ctx, block, index)))
 
-    return e(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
+    return context.value(ctx, ("zext i8 %s to i32"):format(byte)), "u32"
 end
 
 --- The Lua reads, by operation.

@@ -213,6 +213,17 @@ function context.new(
     )
 end
 
+--- Emits an instruction producing a value into the function being emitted,
+--- and answers the temporary holding it.
+function context.value(ctx: context.Context, instruction: string): string
+    return builder.value(ctx.f, instruction)
+end
+
+--- Emits an instruction producing no value into the function being emitted.
+function context.emit(ctx: context.Context, instruction: string): nil
+    builder.emit(ctx.f, instruction)
+end
+
 --- The i64 count bounding `span`.
 --- @raises string when the entry received no count for it
 function context.count(ctx: context.Context, span: string): string
@@ -296,15 +307,15 @@ function context.opaque(ctx: context.Context, value: string, vector: string): st
             picks[#picks + 1] = "i32 " .. tostring(lane)
         end
         local piece = count == perRegister and value
-            or builder.value(
-                ctx.f,
+            or context.value(
+                ctx,
                 (
                     "shufflevector %s %s, %s poison, %s <%s>"
                 ):format(vector, value, vector, "<" .. tostring(perRegister) .. " x i32>", table.concat(picks, ", "))
             )
         pieces[
             #pieces + 1
-        ] = builder.value(ctx.f, ("call %s asm \"\", \"=%s,0\"(%s %s)"):format(chunk, register, chunk, piece))
+        ] = context.value(ctx, ("call %s asm \"\", \"=%s,0\"(%s %s)"):format(chunk, register, chunk, piece))
     end
     -- Reassemble the registers pairwise.
     local width = perRegister
@@ -318,8 +329,8 @@ function context.opaque(ctx: context.Context, value: string, vector: string): st
             end
             joined[
                 #joined + 1
-            ] = builder.value(
-                ctx.f,
+            ] = context.value(
+                ctx,
                 (
                     "shufflevector %s %s, %s %s, <%d x i32> <%s>"
                 ):format(type, pieces[index], type, pieces[index + 1] or "poison", 2 * width, table.concat(picks, ", "))
@@ -335,7 +346,7 @@ end
 --- Reads a local's value from its slot.
 function context.loadSlot(ctx: context.Context, slot: context.Slot): string
     local kept = context.slotType(ctx, slot.type, slot.carried)
-    local loaded = builder.value(ctx.f, ("load %s, ptr %s"):format(kept, slot.pointer))
+    local loaded = context.value(ctx, ("load %s, ptr %s"):format(kept, slot.pointer))
     if kept == context.llvmType(ctx, slot.type) then
         return loaded
     end
@@ -344,7 +355,7 @@ function context.loadSlot(ctx: context.Context, slot: context.Slot): string
     -- compare against zero is one instruction on every vector unit, where
     -- `ne` is an equality and a complement.
 
-    return builder.value(ctx.f, ("icmp slt %s %s, zeroinitializer"):format(kept, loaded))
+    return context.value(ctx, ("icmp slt %s %s, zeroinitializer"):format(kept, loaded))
 end
 
 --- Writes a local's value (of its LLVM type) to its slot.
@@ -353,10 +364,10 @@ function context.storeSlot(ctx: context.Context, slot: context.Slot, value: stri
     local carried = context.llvmType(ctx, slot.type)
     local stored = value
     if kept ~= carried then
-        stored = builder.value(ctx.f, ("sext %s %s to %s"):format(carried, value, kept))
+        stored = context.value(ctx, ("sext %s %s to %s"):format(carried, value, kept))
         stored = context.opaque(ctx, stored, kept)
     end
-    builder.emit(ctx.f, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
+    context.emit(ctx, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
 end
 
 --- Writes a lane-wide mask value to its lane-wide slot, pinned as
@@ -364,7 +375,7 @@ end
 function context.storeWide(ctx: context.Context, slot: context.Slot, value: string): nil
     local kept = context.slotType(ctx, slot.type, slot.carried)
     local stored = context.opaque(ctx, value, kept)
-    builder.emit(ctx.f, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
+    context.emit(ctx, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
 end
 
 --- The innermost enclosing loop.

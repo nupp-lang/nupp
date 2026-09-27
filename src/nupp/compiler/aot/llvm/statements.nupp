@@ -27,14 +27,6 @@ local types = require("nupp.compiler.aot.llvm.types")
 local statements = {}
 
 --- @raises string always
-local function unsupported(what: string): never
-    error(expressions.UNSUPPORTED .. what, 0)
-end
-
-local function emit(ctx: context.Context, instruction: string): nil
-    builder.emit(ctx.f, instruction)
-end
-
 --- A slot for `uniqueName` holding IR type `typeName`, created on first binding.
 --- A loop body's `let` binds the same name every iteration; one slot serves.
 function statements.slot(ctx: context.Context, uniqueName: string, typeName: string, carried: boolean?): context.Slot
@@ -507,14 +499,14 @@ local function spanStore(ctx: context.Context, statement: scalarIR.Store): nil
     local value, t = expressions.value(ctx, statement.value)
     local elementType = tostring(param.type)
     if elementType:match("^struct:") ~= nil then
-        unsupported("whole-struct span stores")
+        expressions.unsupported("whole-struct span stores")
     end
     local storage = types.storage(elementType, param.sourceType)
     local converted = expressions.convert(ctx, value, t, elementType)
     local stored = expressions.narrow(ctx, converted, elementType, storage)
     local index = expressions.index(ctx, statement.indexUniqueName, statement.cursorUniqueName)
     local address = expressions.element(ctx, statement.span, index, storage)
-    emit(
+    context.emit(
         ctx,
         (
             "store %s %s, ptr %s, align %d"
@@ -566,13 +558,13 @@ local function assign(ctx: context.Context, statement: scalarIR.Assign): nil
             local fieldType = tostring(declared.type)
             local storage = types.storage(fieldType, declared.sourceType)
             local stored = expressions.narrow(ctx, expressions.convert(ctx, value, t, fieldType), fieldType, storage)
-            emit(ctx, ("store %s %s, ptr %s"):format(storage, stored, address))
+            context.emit(ctx, ("store %s %s, ptr %s"):format(storage, stored, address))
         end
     end
 end
 
---- Returns from the entry. Several values are refused until the entry ABI
---- passes them through a result pointer.
+--- Returns from the entry: one value directly, several through the caller's
+--- result block.
 local function returnStatement(ctx: context.Context, statement: scalarIR.Return): nil
     local results = ctx.program.resultTypes or {}
     if #results > 1 then
@@ -583,15 +575,15 @@ local function returnStatement(ctx: context.Context, statement: scalarIR.Return)
             local converted = expressions.convert(ctx, value, t, resultType)
             local field = types.field(resultType)
             if field ~= types.require(resultType) then
-                converted = builder.value(ctx.f, ("zext i1 %s to i8"):format(converted))
+                converted = context.value(ctx, ("zext i1 %s to i8"):format(converted))
             end
-            local address = builder.value(
-                ctx.f,
+            local address = context.value(
+                ctx,
                 (
                     "getelementptr " .. expressions.inbounds(ctx) .. "%s, ptr %s, i32 0, i32 %d"
                 ):format(tostring(ctx.resultStruct), tostring(ctx.resultBlock), position - 1)
             )
-            builder.emit(ctx.f, ("store %s %s, ptr %s"):format(field, converted, address))
+            context.emit(ctx, ("store %s %s, ptr %s"):format(field, converted, address))
         end
         builder.terminate(ctx.f, "ret void")
         return
@@ -657,18 +649,18 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
             for index = 0, found.lanes - 1 do
                 indices[#indices + 1] = "i32 " .. tostring(index)
             end
-            local splatOne = builder.value(
-                ctx.f,
+            local splatOne = context.value(
+                ctx,
                 ("insertelement <%d x i32> poison, i32 %s, i64 0"):format(found.lanes, lanes)
             )
-            local bound = builder.value(
-                ctx.f,
+            local bound = context.value(
+                ctx,
                 (
                     "shufflevector <%d x i32> %s, <%d x i32> poison, <%d x i32> zeroinitializer"
                 ):format(found.lanes, splatOne, found.lanes, found.lanes)
             )
-            local mask = builder.value(
-                ctx.f,
+            local mask = context.value(
+                ctx,
                 ("icmp ult <%d x i32> <%s>, %s"):format(found.lanes, table.concat(indices, ", "), bound)
             )
             local slot = statements.slot(ctx, statement.uniqueName, tostring(statement.type))
@@ -715,7 +707,7 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
         local aggregate = expressions.helperCall(ctx, statement.call)
         local resultType = expressions.helperResult(ctx, statement.call.resultTypes as {scalarIR.Type})
         for position, bound in ipairs(statement.bindings) do
-            local value = builder.value(ctx.f, ("extractvalue %s %s, %d"):format(resultType, aggregate, position - 1))
+            local value = context.value(ctx, ("extractvalue %s %s, %d"):format(resultType, aggregate, position - 1))
             assignLocal(
                 ctx,
                 statements.slot(ctx, bound.uniqueName, bound.type, bound.assigned == true),
@@ -724,7 +716,7 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
             )
         end
     else
-        unsupported("statement " .. tostring(operation))
+        expressions.unsupported("statement " .. tostring(operation))
     end
 end
 

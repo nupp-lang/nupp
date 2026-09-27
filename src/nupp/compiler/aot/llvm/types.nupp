@@ -140,6 +140,17 @@ function types.field(typeName: string): string
     return value
 end
 
+--- The struct several results cross the entry boundary in, and its fields in
+--- order.
+function types.resultStruct(resultTypes: {string}): (string, {string})
+    local fields: {string} = {}
+    for position, resultType in ipairs(resultTypes) do
+        fields[position] = types.field(resultType)
+    end
+
+    return "{ " .. table.concat(fields, ", ") .. " }", fields
+end
+
 --- A result's spelling in a C-ABI signature.
 function types.result(typeName: string): string
     local value = types.require(typeName)

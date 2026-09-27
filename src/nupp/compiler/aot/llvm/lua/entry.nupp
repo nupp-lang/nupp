@@ -33,10 +33,6 @@ const GLOBALS = -10002
 --- The global the registrar keeps the runtime's table in.
 const entry.TABLE = "@ks.rt"
 
-local function e(ctx: context.Context, instruction: string): string
-    return builder.value(ctx.f, instruction)
-end
-
 --- Declares the module's table global once.
 function entry.declareTable(module: builder.Module): nil
     builder.once(module, "global " .. entry.TABLE, entry.TABLE .. " = internal global ptr null")
@@ -49,7 +45,7 @@ local function saturate(ctx: context.Context, value: string, to: string): string
     local intrinsic = ("llvm.%s.sat.%s.f64"):format(signed and "fptosi" or "fptoui", width)
     builder.declare(ctx.module, "@" .. intrinsic, ("declare %s @%s(double)"):format(width, intrinsic))
 
-    return e(ctx, ("call %s @%s(double %s)"):format(width, intrinsic, value))
+    return context.value(ctx, ("call %s @%s(double %s)"):format(width, intrinsic, value))
 end
 
 --- The span name rooted bytes are read through by a vector load.
@@ -68,7 +64,7 @@ local function root(
     local lua = runtime.lua(ctx)
     lua.bytes[uniqueName] = new context.Bytes(pointer = pointer, length = length)
     local span = new context.Span(pointer = pointer, param = param)
-    local count = lua.size == "i64" and length or e(ctx, ("zext %s %s to i64"):format(lua.size, length))
+    local count = lua.size == "i64" and length or context.value(ctx, ("zext %s %s to i64"):format(lua.size, length))
     -- Under the name a vector load's view is rewritten to, and under the
     -- parameter's own, which the bounds around such a load name.
     for _, name in ipairs({entry.rootedSpan(uniqueName), param.name}) do
@@ -89,20 +85,20 @@ local function arguments(ctx: context.Context, program: scalarIR.Program): nil
             local value: string
             if typeName == "bool" then
                 local truth = runtime.api(ctx, "lua_toboolean", {state, index}) as string
-                value = e(ctx, ("icmp ne i32 %s, 0"):format(truth))
+                value = context.value(ctx, ("icmp ne i32 %s, 0"):format(truth))
             else
                 local number = runtime.api(ctx, "luaL_checknumber", {state, index}) as string
                 if typeName == "f64" then
                     value = number
                 elseif typeName == "f32" then
-                    value = e(ctx, ("fptrunc double %s to float"):format(number))
+                    value = context.value(ctx, ("fptrunc double %s to float"):format(number))
                 else
                     value = saturate(ctx, number, typeName)
                 end
             end
             ctx.uniforms[param.name] = value
             local slot = statements.slot(ctx, "p_" .. param.name, typeName)
-            builder.emit(ctx.f, ("store %s %s, ptr %s"):format(context.llvmType(ctx, typeName), value, slot.pointer))
+            context.emit(ctx, ("store %s %s, ptr %s"):format(context.llvmType(ctx, typeName), value, slot.pointer))
         elseif param.kind == "scalar" and (typeName == "lua_string" or typeName == "lua_bytes") then
             local length = builder.alloca(ctx.f, lua.size, lua.size == "i64" and 8 or 4)
             local pointer: string
@@ -112,7 +108,7 @@ local function arguments(ctx: context.Context, program: scalarIR.Program): nil
                 local f = ctx.f
                 local kept = builder.alloca(f, "ptr", 8)
                 local kind = runtime.api(ctx, "lua_type", {state, index}) as string
-                local isString = e(ctx, ("icmp eq i32 %s, 4"):format(kind))
+                local isString = context.value(ctx, ("icmp eq i32 %s, 4"):format(kind))
                 local direct = builder.label(f, "lua.string")
                 local buffer = builder.label(f, "lua.buffer")
                 local joined = builder.label(f, "lua.bytes")
@@ -130,11 +126,11 @@ local function arguments(ctx: context.Context, program: scalarIR.Program): nil
                 builder.emit(f, ("store ptr %s, ptr %s"):format(converted, kept))
                 builder.jump(f, joined)
                 builder.start(f, joined)
-                pointer = e(ctx, ("load ptr, ptr %s"):format(kept))
+                pointer = context.value(ctx, ("load ptr, ptr %s"):format(kept))
             else
                 pointer = runtime.api(ctx, "luaL_checklstring", {state, index, "ptr " .. length}) as string
             end
-            local loaded = e(ctx, ("load %s, ptr %s"):format(lua.size, length))
+            local loaded = context.value(ctx, ("load %s, ptr %s"):format(lua.size, length))
             root(ctx, tostring(param.uniqueName or tostring(position)), pointer, loaded, param)
         elseif param.kind == "scalar" and typeName == "lua_value" then
             -- Referenced by its position; nothing to decode.
@@ -174,9 +170,9 @@ local function roots(ctx: context.Context, program: scalarIR.Program): nil
     end
     local state = runtime.state(ctx)
     local base = runtime.api(ctx, "lua_gettop", {state}) as string
-    runtime.api(ctx, "lua_settop", {state, "i32 " .. e(ctx, ("add i32 %s, %d"):format(base, #slots))})
+    runtime.api(ctx, "lua_settop", {state, "i32 " .. context.value(ctx, ("add i32 %s, %d"):format(base, #slots))})
     for position, name in ipairs(slots) do
-        lua.handles[name] = e(ctx, ("add i32 %s, %d"):format(base, position))
+        lua.handles[name] = context.value(ctx, ("add i32 %s, %d"):format(base, position))
     end
 end
 
@@ -196,7 +192,7 @@ end
 function entry.body(ctx: context.Context, program: scalarIR.Program): nil
     local lua = runtime.lua(ctx)
     entry.declareTable(ctx.module)
-    lua.runtime = e(ctx, ("load ptr, ptr %s"):format(entry.TABLE))
+    lua.runtime = context.value(ctx, ("load ptr, ptr %s"):format(entry.TABLE))
     local byteRoots: integer = 0
     for _, param in ipairs(program.params) do
         if param.type == "lua_bytes" then
@@ -254,7 +250,7 @@ function entry.registrar(
     )
     local state = runtime.state(ctx)
     local ok = runtime.api(ctx, "lua_checkstack", {state, "i32 4"}) as string
-    refuse(ctx, e(ctx, ("icmp eq i32 %s, 0"):format(ok)), "AOT builder Lua stack exhausted")
+    refuse(ctx, context.value(ctx, ("icmp eq i32 %s, 0"):format(ok)), "AOT builder Lua stack exhausted")
 
     local mismatch = "AOT runtime is not the one this module was compiled for"
     local table: string
@@ -268,7 +264,7 @@ function entry.registrar(
         -- require("nupp.runtime.native").aotRuntime(). Either way two values
         -- sit above the argument, the table's bytes on top.
         local given = runtime.api(ctx, "lua_type", {state, "i32 1"}) as string
-        local isString = e(ctx, ("icmp eq i32 %s, 4"):format(given))
+        local isString = context.value(ctx, ("icmp eq i32 %s, 4"):format(given))
         local fromArgument = builder.label(f, "runtime.argument")
         local fromLookup = builder.label(f, "runtime.lookup")
         local found = builder.label(f, "runtime.found")
@@ -297,19 +293,19 @@ function entry.registrar(
         local length = builder.alloca(f, size, size == "i64" and 8 or 4)
         builder.emit(f, ("store %s 0, ptr %s"):format(size, length))
         local bytes = runtime.api(ctx, "lua_tolstring", {state, "i32 -1", "ptr " .. length}) as string
-        local got = e(ctx, ("load %s, ptr %s"):format(size, length))
+        local got = context.value(ctx, ("load %s, ptr %s"):format(size, length))
         local width = size == "i64" and 8 or 4
-        local missing = e(ctx, ("icmp eq ptr %s, null"):format(bytes))
-        local wrongLength = e(ctx, ("icmp ne %s %s, %d"):format(size, got, width))
-        refuse(ctx, e(ctx, ("or i1 %s, %s"):format(missing, wrongLength)), mismatch)
-        table = e(ctx, ("load ptr, ptr %s, align 1"):format(bytes))
+        local missing = context.value(ctx, ("icmp eq ptr %s, null"):format(bytes))
+        local wrongLength = context.value(ctx, ("icmp ne %s %s, %d"):format(size, got, width))
+        refuse(ctx, context.value(ctx, ("or i1 %s, %s"):format(missing, wrongLength)), mismatch)
+        table = context.value(ctx, ("load ptr, ptr %s, align 1"):format(bytes))
     end
 
     local function word(index: integer): string
-        local address = e(ctx, ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(table, index))
-        local loaded = e(ctx, ("load ptr, ptr %s"):format(address))
+        local address = context.value(ctx, ("getelementptr inbounds ptr, ptr %s, i64 %d"):format(table, index))
+        local loaded = context.value(ctx, ("load ptr, ptr %s"):format(address))
 
-        return e(ctx, ("ptrtoint ptr %s to i64"):format(loaded))
+        return context.value(ctx, ("ptrtoint ptr %s to i64"):format(loaded))
     end
 
     local function sizeOf(type: string): string
@@ -321,21 +317,21 @@ function entry.registrar(
     end
 
     local checks = {
-        e(ctx, ("icmp ne i64 %s, %d"):format(word(0), runtime.VERSION)),
-        e(ctx, ("icmp ugt i64 %s, %d"):format(word(1), runtime.BUILDER_BYTES)),
-        e(ctx, ("icmp ugt i64 %s, %d"):format(word(2), runtime.STRING_BUFFER_BYTES)),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(3), sizeOf(runtime.SCRATCH_U32))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(4), sizeOf(runtime.SCRATCH_U8))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(5), offsetOf(runtime.BUILDER, 1))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(6), offsetOf(runtime.BUILDER, 7))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(7), offsetOf(runtime.BUILDER, 8))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(8), sizeOf(runtime.FRAME))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(9), offsetOf(runtime.FRAME, 2))),
-        e(ctx, ("icmp ne i64 %s, %s"):format(word(10), offsetOf(runtime.FRAME, 4))),
+        context.value(ctx, ("icmp ne i64 %s, %d"):format(word(0), runtime.VERSION)),
+        context.value(ctx, ("icmp ugt i64 %s, %d"):format(word(1), runtime.BUILDER_BYTES)),
+        context.value(ctx, ("icmp ugt i64 %s, %d"):format(word(2), runtime.STRING_BUFFER_BYTES)),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(3), sizeOf(runtime.SCRATCH_U32))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(4), sizeOf(runtime.SCRATCH_U8))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(5), offsetOf(runtime.BUILDER, 1))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(6), offsetOf(runtime.BUILDER, 7))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(7), offsetOf(runtime.BUILDER, 8))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(8), sizeOf(runtime.FRAME))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(9), offsetOf(runtime.FRAME, 2))),
+        context.value(ctx, ("icmp ne i64 %s, %s"):format(word(10), offsetOf(runtime.FRAME, 4))),
     }
     local wrong = checks[1]
     for position = 2, #checks do
-        wrong = e(ctx, ("or i1 %s, %s"):format(wrong, checks[position]))
+        wrong = context.value(ctx, ("or i1 %s, %s"):format(wrong, checks[position]))
     end
     refuse(ctx, wrong, mismatch)
     builder.emit(f, ("store ptr %s, ptr %s"):format(table, entry.TABLE))

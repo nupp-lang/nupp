@@ -26,14 +26,6 @@ const STACK_SCRATCH_WORDS = 1024
 --- The largest fixed byte scratch kept on the machine stack.
 const STACK_SCRATCH_BYTES = 4096
 
-local function e(ctx: context.Context, instruction: string): string
-    return builder.value(ctx.f, instruction)
-end
-
-local function emit(ctx: context.Context, instruction: string): nil
-    builder.emit(ctx.f, instruction)
-end
-
 --- The entry-block block of `type` behind local `uniqueName`, created once.
 local function block(ctx: context.Context, uniqueName: string, type: string, align: integer): string
     local lua = runtime.lua(ctx)
@@ -50,7 +42,7 @@ end
 --- Zeroes `bytes` bytes at `pointer`.
 local function zero(ctx: context.Context, pointer: string, bytes: integer, align: integer?): nil
     builder.declare(ctx.module, "@llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)")
-    emit(
+    context.emit(
         ctx,
         ("call void @llvm.memset.p0.i64(ptr align %d %s, i8 0, i64 %d, i1 false)"):format(align or 16, pointer, bytes)
     )
@@ -59,7 +51,7 @@ end
 --- Stores the u32 fields of a scratch header, from field 1 on.
 local function header(ctx: context.Context, scratch: string, structType: string, fields: {string}): nil
     for position, value in ipairs(fields) do
-        emit(ctx, ("store i32 %s, ptr %s"):format(value, values.field(ctx, scratch, structType, position)))
+        context.emit(ctx, ("store i32 %s, ptr %s"):format(value, values.field(ctx, scratch, structType, position)))
     end
 end
 
@@ -105,7 +97,7 @@ local function indexOrZero(ctx: context.Context, node: scalarIR.Expr?): string
         return "i64 0"
     end
 
-    return "i64 " .. e(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, node as scalarIR.Expr)))
+    return "i64 " .. context.value(ctx, ("sext i32 %s to i64"):format(values.handle(ctx, node as scalarIR.Expr)))
 end
 
 local function bindStream(ctx: context.Context, statement: scalarIR.Let): nil
@@ -138,14 +130,14 @@ local function bindWordScratch(ctx: context.Context, statement: scalarIR.Let): n
         -- Small enough for the machine stack: nothing for Lua to own.
         local storage = block(ctx, statement.uniqueName .. ".storage", ("[%d x i32]"):format(fixed as integer), 16)
         zero(ctx, storage, (fixed as integer) * 4)
-        emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
+        context.emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
         header(ctx, scratch, runtime.SCRATCH_U32, {capacity, capacity, "0", "0"})
         return
     end
     runtime.call(ctx, fixed ~= nil and "scratch_u32_fixed" or "scratch_u32", {
         runtime.state(ctx),
         "ptr " .. scratch,
-        "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity)),
+        "i64 " .. context.value(ctx, ("zext i32 %s to i64"):format(capacity)),
         "ptr " .. siteKey(ctx, statement.uniqueName)
     })
 end
@@ -158,7 +150,7 @@ local function bindByteScratch(ctx: context.Context, statement: scalarIR.Let): n
     if fixed ~= nil and (fixed as integer) <= STACK_SCRATCH_BYTES then
         local storage = block(ctx, statement.uniqueName .. ".storage", ("[%d x i8]"):format(fixed as integer), 16)
         zero(ctx, storage, fixed as integer)
-        emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
+        context.emit(ctx, ("store ptr %s, ptr %s"):format(storage, values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
         header(ctx, scratch, runtime.SCRATCH_U8, {capacity, capacity, "0", "0"})
         return
     end
@@ -166,15 +158,18 @@ local function bindByteScratch(ctx: context.Context, statement: scalarIR.Let): n
     runtime.call(ctx, cached and "scratch_u8_cached" or "scratch_u8", {
         runtime.state(ctx),
         "ptr " .. scratch,
-        "i64 " .. e(ctx, ("zext i32 %s to i64"):format(capacity))
+        "i64 " .. context.value(ctx, ("zext i32 %s to i64"):format(capacity))
     })
     if fixed ~= nil then
         -- Too large for the machine stack, but still fixed: zeroed and readable
         -- to its capacity from the start, as the stack form and the word
         -- buffer are.
-        local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U8, 0)))
+        local storage = context.value(
+            ctx,
+            ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U8, 0))
+        )
         zero(ctx, storage, fixed as integer, 8)
-        emit(ctx, ("store i32 %s, ptr %s"):format(capacity, values.field(ctx, scratch, runtime.SCRATCH_U8, 2)))
+        context.emit(ctx, ("store i32 %s, ptr %s"):format(capacity, values.field(ctx, scratch, runtime.SCRATCH_U8, 2)))
     end
 end
 
@@ -236,26 +231,30 @@ local function wordSet(ctx: context.Context, node: scalarIR.Statement): boolean
     local value = values.operand(ctx, write.value, "u32")
     local lengthField = values.field(ctx, scratch, runtime.SCRATCH_U32, 2)
     if write.fixedBound ~= nil then
-        runtime.check(ctx, e(ctx, ("icmp uge i32 %s, %d"):format(index, write.fixedBound as integer)), "scratchWrite")
+        runtime.check(
+            ctx,
+            context.value(ctx, ("icmp uge i32 %s, %d"):format(index, write.fixedBound as integer)),
+            "scratchWrite"
+        )
     else
-        local length = e(ctx, ("load i32, ptr %s"):format(lengthField))
+        local length = context.value(ctx, ("load i32, ptr %s"):format(lengthField))
         local capacity = values.u32Field(ctx, scratch, runtime.SCRATCH_U32, 1)
-        local past = e(ctx, ("icmp ugt i32 %s, %s"):format(index, length))
-        local full = e(ctx, ("icmp uge i32 %s, %s"):format(index, capacity))
-        runtime.check(ctx, e(ctx, ("or i1 %s, %s"):format(past, full)), "scratchWrite")
-        local grows = e(ctx, ("icmp eq i32 %s, %s"):format(index, length))
-        local grown = e(ctx, ("add i32 %s, 1"):format(length))
-        emit(
+        local past = context.value(ctx, ("icmp ugt i32 %s, %s"):format(index, length))
+        local full = context.value(ctx, ("icmp uge i32 %s, %s"):format(index, capacity))
+        runtime.check(ctx, context.value(ctx, ("or i1 %s, %s"):format(past, full)), "scratchWrite")
+        local grows = context.value(ctx, ("icmp eq i32 %s, %s"):format(index, length))
+        local grown = context.value(ctx, ("add i32 %s, 1"):format(length))
+        context.emit(
             ctx,
             (
                 "store i32 %s, ptr %s"
-            ):format(e(ctx, ("select i1 %s, i32 %s, i32 %s"):format(grows, grown, length)), lengthField)
+            ):format(context.value(ctx, ("select i1 %s, i32 %s, i32 %s"):format(grows, grown, length)), lengthField)
         )
     end
-    local storage = e(ctx, ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
-    local wide = e(ctx, ("zext i32 %s to i64"):format(index))
-    local address = e(ctx, ("getelementptr inbounds i32, ptr %s, i64 %s"):format(storage, wide))
-    emit(ctx, ("store i32 %s, ptr %s"):format(value, address))
+    local storage = context.value(ctx, ("load ptr, ptr %s"):format(values.field(ctx, scratch, runtime.SCRATCH_U32, 0)))
+    local wide = context.value(ctx, ("zext i32 %s to i64"):format(index))
+    local address = context.value(ctx, ("getelementptr inbounds i32, ptr %s, i64 %s"):format(storage, wide))
+    context.emit(ctx, ("store i32 %s, ptr %s"):format(value, address))
 
     return true
 end
@@ -266,7 +265,7 @@ local function byteSet(ctx: context.Context, node: scalarIR.Statement): boolean
     local lengthField = values.field(ctx, scratch, runtime.SCRATCH_U8, 2)
     local operation = tostring(write.op)
     if operation == "lua_scratch_u8_reset" then
-        emit(ctx, ("store i32 0, ptr %s"):format(lengthField))
+        context.emit(ctx, ("store i32 0, ptr %s"):format(lengthField))
         return true
     end
     local index = values.operand(ctx, write.index as scalarIR.Expr, "u32")
@@ -278,54 +277,63 @@ local function byteSet(ctx: context.Context, node: scalarIR.Statement): boolean
     if write.fixedBound ~= nil then
         local bound = tostring(write.fixedBound as integer)
         if four then
-            local past = e(ctx, ("icmp ugt i32 %s, %s"):format(index, bound))
-            local left = e(ctx, ("sub i32 %s, %s"):format(bound, index))
-            local short = e(ctx, ("icmp ult i32 %s, 4"):format(left))
-            bad = e(ctx, ("or i1 %s, %s"):format(past, short))
+            local past = context.value(ctx, ("icmp ugt i32 %s, %s"):format(index, bound))
+            local left = context.value(ctx, ("sub i32 %s, %s"):format(bound, index))
+            local short = context.value(ctx, ("icmp ult i32 %s, 4"):format(left))
+            bad = context.value(ctx, ("or i1 %s, %s"):format(past, short))
         else
-            bad = e(ctx, ("icmp uge i32 %s, %s"):format(index, bound))
+            bad = context.value(ctx, ("icmp uge i32 %s, %s"):format(index, bound))
         end
     else
-        local current = e(ctx, ("load i32, ptr %s"):format(lengthField))
+        local current = context.value(ctx, ("load i32, ptr %s"):format(lengthField))
         length = current
         local capacity = values.u32Field(ctx, scratch, runtime.SCRATCH_U8, 1)
-        local past = e(ctx, ("icmp ugt i32 %s, %s"):format(index, current))
+        local past = context.value(ctx, ("icmp ugt i32 %s, %s"):format(index, current))
         if four then
-            local over = e(ctx, ("icmp ugt i32 %s, %s"):format(index, capacity))
-            local room = e(ctx, ("sub i32 %s, %s"):format(capacity, index))
-            local short = e(ctx, ("icmp ult i32 %s, 4"):format(room))
-            bad = e(ctx, ("or i1 %s, %s"):format(e(ctx, ("or i1 %s, %s"):format(past, over)), short))
+            local over = context.value(ctx, ("icmp ugt i32 %s, %s"):format(index, capacity))
+            local room = context.value(ctx, ("sub i32 %s, %s"):format(capacity, index))
+            local short = context.value(ctx, ("icmp ult i32 %s, 4"):format(room))
+            bad = context.value(
+                ctx,
+                ("or i1 %s, %s"):format(context.value(ctx, ("or i1 %s, %s"):format(past, over)), short)
+            )
         else
-            local full = e(ctx, ("icmp uge i32 %s, %s"):format(index, capacity))
-            bad = e(ctx, ("or i1 %s, %s"):format(past, full))
+            local full = context.value(ctx, ("icmp uge i32 %s, %s"):format(index, capacity))
+            bad = context.value(ctx, ("or i1 %s, %s"):format(past, full))
         end
     end
     if not four then
-        bad = e(ctx, ("or i1 %s, %s"):format(bad, e(ctx, ("icmp ugt i32 %s, 255"):format(value))))
+        bad = context.value(
+            ctx,
+            ("or i1 %s, %s"):format(bad, context.value(ctx, ("icmp ugt i32 %s, 255"):format(value)))
+        )
     end
     runtime.check(ctx, bad, "byteWrite")
     if length ~= nil then
         local current = length as string
         if four then
-            local inside = e(ctx, ("icmp ult i32 %s, %s"):format(index, current))
-            local tail = e(ctx, ("sub i32 %s, %s"):format(current, index))
-            local short = e(ctx, ("icmp ult i32 %s, 4"):format(tail))
-            runtime.check(ctx, e(ctx, ("and i1 %s, %s"):format(inside, short)), "byteStraddle")
+            local inside = context.value(ctx, ("icmp ult i32 %s, %s"):format(index, current))
+            local tail = context.value(ctx, ("sub i32 %s, %s"):format(current, index))
+            local short = context.value(ctx, ("icmp ult i32 %s, 4"):format(tail))
+            runtime.check(ctx, context.value(ctx, ("and i1 %s, %s"):format(inside, short)), "byteStraddle")
         end
-        local grows = e(ctx, ("icmp eq i32 %s, %s"):format(index, current))
-        local grown = e(ctx, ("add i32 %s, %d"):format(current, width))
-        emit(
+        local grows = context.value(ctx, ("icmp eq i32 %s, %s"):format(index, current))
+        local grown = context.value(ctx, ("add i32 %s, %d"):format(current, width))
+        context.emit(
             ctx,
             (
                 "store i32 %s, ptr %s"
-            ):format(e(ctx, ("select i1 %s, i32 %s, i32 %s"):format(grows, grown, current)), lengthField)
+            ):format(context.value(ctx, ("select i1 %s, i32 %s, i32 %s"):format(grows, grown, current)), lengthField)
         )
     end
     local address = values.scratchByte(ctx, scratch, index)
     if four then
-        emit(ctx, ("store i32 %s, ptr %s, align 1"):format(value, address))
+        context.emit(ctx, ("store i32 %s, ptr %s, align 1"):format(value, address))
     else
-        emit(ctx, ("store i8 %s, ptr %s"):format(e(ctx, ("trunc i32 %s to i8"):format(value)), address))
+        context.emit(
+            ctx,
+            ("store i8 %s, ptr %s"):format(context.value(ctx, ("trunc i32 %s to i8"):format(value)), address)
+        )
     end
 
     return true
@@ -407,7 +415,7 @@ local function streamEvent(ctx: context.Context, node: scalarIR.Statement): bool
         local exponent = values.operand(ctx, event.exponent as scalarIR.Expr, "i32")
         add({
             "i64 " .. values.operand(ctx, event.value as scalarIR.Expr, "u64"),
-            "i64 " .. e(ctx, ("sext i32 %s to i64"):format(exponent)),
+            "i64 " .. context.value(ctx, ("sext i32 %s to i64"):format(exponent)),
             values.flag(ctx, event.negative as scalarIR.Expr),
             values.flag(ctx, event.exact as scalarIR.Expr),
             eager

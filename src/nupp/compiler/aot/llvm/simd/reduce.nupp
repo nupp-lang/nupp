@@ -22,10 +22,6 @@ local species = require("nupp.compiler.aot.llvm.simd.species")
 local reduce = {}
 
 --- @raises string always
-local function unsupported(what: string): never
-    error(expressions.UNSUPPORTED .. what, 0)
-end
-
 local registerTest: function(
     ctx: context.Context,
     widened: string,
@@ -35,24 +31,14 @@ local registerTest: function(
     any: boolean
 ): string
 
-local function e(ctx: context.Context, instruction: string): string
-    return lanes.emit(ctx, instruction)
-end
-
-local function operand(ctx: context.Context, node: scalarIR.Expr): string
-    local value = expressions.value(ctx, node)
-
-    return value
-end
-
 --- The mask as an integer of N bits, lane i at bit i, zero-extended to i64.
 function reduce.bits(ctx: context.Context, found: species.Species, mask: string): string
-    local packed = e(ctx, ("bitcast %s %s to i%d"):format(found.mask, mask, found.lanes))
+    local packed = context.value(ctx, ("bitcast %s %s to i%d"):format(found.mask, mask, found.lanes))
     if found.lanes == 64 then
         return packed
     end
 
-    return e(ctx, ("zext i%d %s to i64"):format(found.lanes, packed))
+    return context.value(ctx, ("zext i%d %s to i64"):format(found.lanes, packed))
 end
 
 --- Whether any (or every) lane of a lane-wide mask is set, asked the way
@@ -73,39 +59,39 @@ registerTest = function(
     local piece = x86 and "<16 x i8>" or "<4 x i32>"
     local pieces = x86 and 16 or 4
     local whole = "<" .. tostring(registers * pieces) .. " x " .. (x86 and "i8" or "i32") .. ">"
-    local cast = e(ctx, ("bitcast %s %s to %s"):format(vector, widened, whole))
+    local cast = context.value(ctx, ("bitcast %s %s to %s"):format(vector, widened, whole))
     local combined: string? = nil
     for register = 0, registers - 1 do
         local picks: {string} = {}
         for lane = 0, pieces - 1 do
             picks[#picks + 1] = "i32 " .. tostring(register * pieces + lane)
         end
-        local one = e(
+        local one = context.value(
             ctx,
             (
                 "shufflevector %s %s, %s poison, <%d x i32> <%s>"
             ):format(whole, cast, whole, pieces, table.concat(picks, ", "))
         )
         combined = combined == nil and one
-            or e(ctx, ("%s %s %s, %s"):format(any and "or" or "and", piece, combined as string, one))
+            or context.value(ctx, ("%s %s %s, %s"):format(any and "or" or "and", piece, combined as string, one))
     end
     if x86 then
         local movemask = prelude.intrinsic(ctx.module, "llvm.x86.sse2.pmovmskb.128", "i32 @NAME(<16 x i8>)")
-        local bits = e(ctx, ("call i32 %s(<16 x i8> %s)"):format(movemask, tostring(combined)))
-        return e(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", bits, any and "0" or "65535"))
+        local bits = context.value(ctx, ("call i32 %s(<16 x i8> %s)"):format(movemask, tostring(combined)))
+        return context.value(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", bits, any and "0" or "65535"))
     end
     -- A pairwise max (min) folds the register into its low 64 bits, which
     -- are then tested whole: shorter than `umaxv`.
     local name = any and "llvm.aarch64.neon.umaxp.v4i32" or "llvm.aarch64.neon.uminp.v4i32"
     local pairwise = prelude.intrinsic(ctx.module, name, "<4 x i32> @NAME(<4 x i32>, <4 x i32>)")
-    local folded = e(
+    local folded = context.value(
         ctx,
         ("call <4 x i32> %s(<4 x i32> %s, <4 x i32> %s)"):format(pairwise, tostring(combined), tostring(combined))
     )
-    local halves = e(ctx, ("bitcast <4 x i32> %s to <2 x i64>"):format(folded))
-    local low = e(ctx, ("extractelement <2 x i64> %s, i32 0"):format(halves))
+    local halves = context.value(ctx, ("bitcast <4 x i32> %s to <2 x i64>"):format(folded))
+    local low = context.value(ctx, ("extractelement <2 x i64> %s, i32 0"):format(halves))
 
-    return e(ctx, ("icmp %s i64 %s, %s"):format(any and "ne" or "eq", low, any and "0" or "-1"))
+    return context.value(ctx, ("icmp %s i64 %s, %s"):format(any and "ne" or "eq", low, any and "0" or "-1"))
 end
 
 const SWAPPED = {["ge"] = "le", ["le"] = "ge", ["gt"] = "lt", ["lt"] = "gt", ["ne"] = "ne", ["eq"] = "eq",}
@@ -136,25 +122,28 @@ local function anyCompare(ctx: context.Context, mask: scalarIR.Expr): string?
     if bound.op ~= "simd_splat" or named == "eq" then
         return nil
     end
-    local vector = operand(ctx, value)
+    local vector = expressions.operand(ctx, value)
     local scalar, scalarType = expressions.value(ctx, (bound as scalarIR.Simd).args[1])
     local lane = lanes.toLane(ctx, lanesOf, scalar, scalarType)
     local wideLane = lanesOf.bits < 32
-        and e(ctx, ("%s %s %s to i32"):format(lanesOf.signed and "sext" or "zext", lanesOf.scalar, lane))
+        and context.value(ctx, ("%s %s %s to i32"):format(lanesOf.signed and "sext" or "zext", lanesOf.scalar, lane))
         or lane
     local suffix = lanes.suffix(lanesOf.lanes, lanesOf.scalar)
 
     local function reduced(kind: string): string
         local name = ("llvm.aarch64.neon.%s%sv.i32.%s"):format(lanesOf.signed and "s" or "u", kind, suffix)
         local callee = prelude.intrinsic(ctx.module, name, ("i32 @NAME(%s)"):format(lanesOf.vector))
-        local result = e(ctx, ("call i32 %s(%s %s)"):format(callee, lanesOf.vector, vector))
+        local result = context.value(ctx, ("call i32 %s(%s %s)"):format(callee, lanesOf.vector, vector))
         if lanesOf.bits == 32 then
             return result
         end
         -- Only the lane's own bits are the answer; extend them as the lane.
-        local narrow = e(ctx, ("trunc i32 %s to %s"):format(result, lanesOf.scalar))
+        local narrow = context.value(ctx, ("trunc i32 %s to %s"):format(result, lanesOf.scalar))
 
-        return e(ctx, ("%s %s %s to i32"):format(lanesOf.signed and "sext" or "zext", lanesOf.scalar, narrow))
+        return context.value(
+            ctx,
+            ("%s %s %s to i32"):format(lanesOf.signed and "sext" or "zext", lanesOf.scalar, narrow)
+        )
     end
 
     if lanesOf.bits > 32 then
@@ -169,19 +158,19 @@ local function anyCompare(ctx: context.Context, mask: scalarIR.Expr): string?
     if named == "ne" and not lanesOf.signed and isZero then
         -- No unsigned lane is below zero, so one differs exactly when the
         -- largest does.
-        return e(ctx, ("icmp ne i32 %s, 0"):format(reduced("max")))
+        return context.value(ctx, ("icmp ne i32 %s, 0"):format(reduced("max")))
     elseif named == "ne" then
         -- Any lane differs from `s`: the largest or the smallest does.
         local largest, smallest = reduced("max"), reduced("min")
-        local high = e(ctx, ("icmp ne i32 %s, %s"):format(largest, wideLane))
-        local low = e(ctx, ("icmp ne i32 %s, %s"):format(smallest, wideLane))
-        return e(ctx, ("or i1 %s, %s"):format(high, low))
+        local high = context.value(ctx, ("icmp ne i32 %s, %s"):format(largest, wideLane))
+        local low = context.value(ctx, ("icmp ne i32 %s, %s"):format(smallest, wideLane))
+        return context.value(ctx, ("or i1 %s, %s"):format(high, low))
     end
     local greater = named == "ge" or named == "gt"
     local extreme = reduced(greater and "max" or "min")
     local predicate = (lanesOf.signed and "s" or "u") .. named
 
-    return e(ctx, ("icmp %s i32 %s, %s"):format(predicate, extreme, wideLane))
+    return context.value(ctx, ("icmp %s i32 %s, %s"):format(predicate, extreme, wideLane))
 end
 
 local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -207,17 +196,17 @@ local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, st
     if laneWide and simd.args[1].op == "local" then
         local slot = ctx.locals[tostring((simd.args[1] as scalarIR.Name).uniqueName)]
         if slot ~= nil and (slot as context.Slot).carried then
-            carried = e(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
+            carried = context.value(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
         end
     end
-    local mask = carried == nil and operand(ctx, simd.args[1]) or ""
+    local mask = carried == nil and expressions.operand(ctx, simd.args[1]) or ""
     local suffix = lanes.suffix(found.lanes, "i1")
     if laneWide then
         -- Reduced as lanes as wide as the mask's, the register a vector
         -- compare fills; reducing `<N x i1>` narrows it first on NEON.
         -- Opaque, or LLVM folds the widening back into an i1 reduction.
         local widened = carried
-            or context.opaque(ctx, e(ctx, ("sext %s %s to %s"):format(found.mask, mask, wide)), wide)
+            or context.opaque(ctx, context.value(ctx, ("sext %s %s to %s"):format(found.mask, mask, wide)), wide)
         local any = query == "simd_mask_any"
         local total = found.lanes * found.bits
         local element = "i" .. tostring(found.bits)
@@ -231,8 +220,11 @@ local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, st
             "llvm.vector.reduce." .. verb .. "." .. lanes.suffix(found.lanes, element),
             ("%s @NAME(%s)"):format(element, wide)
         )
-        local folded = e(ctx, ("call %s %s(%s %s)"):format(element, callee, wide, reduced))
-        return e(ctx, ("icmp %s %s %s, %s"):format(any and "ne" or "eq", element, folded, any and "0" or "-1")), "bool"
+        local folded = context.value(ctx, ("call %s %s(%s %s)"):format(element, callee, wide, reduced))
+        return context.value(
+            ctx,
+            ("icmp %s %s %s, %s"):format(any and "ne" or "eq", element, folded, any and "0" or "-1")
+        ), "bool"
     end
     if query == "simd_mask_any" or query == "simd_mask_all" then
         local verb = query == "simd_mask_any" and "or" or "and"
@@ -241,24 +233,24 @@ local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, st
             "llvm.vector.reduce." .. verb .. "." .. suffix,
             ("i1 @NAME(%s)"):format(found.mask)
         )
-        return e(ctx, ("call i1 %s(%s %s)"):format(callee, found.mask, mask)), "bool"
+        return context.value(ctx, ("call i1 %s(%s %s)"):format(callee, found.mask, mask)), "bool"
     end
     local bits = reduce.bits(ctx, found, mask)
     if query == "simd_mask_bits" then
         return bits, "u64"
     elseif query == "simd_mask_count" then
         local ctpop = prelude.intrinsic(ctx.module, "llvm.ctpop.i64", "i64 @NAME(i64)")
-        local count = e(ctx, ("call i64 %s(i64 %s)"):format(ctpop, bits))
-        return e(ctx, ("trunc i64 %s to i32"):format(count)), "u32"
+        local count = context.value(ctx, ("call i64 %s(i64 %s)"):format(ctpop, bits))
+        return context.value(ctx, ("trunc i64 %s to i32"):format(count)), "u32"
     end
     -- `first`: the 1-based lowest active lane, 0 when none is.
     local cttz = prelude.intrinsic(ctx.module, "llvm.cttz.i64", "i64 @NAME(i64, i1)")
-    local zeros = e(ctx, ("call i64 %s(i64 %s, i1 false)"):format(cttz, bits))
-    local lane = e(ctx, ("add i64 %s, 1"):format(zeros))
-    local none = e(ctx, ("icmp eq i64 %s, 0"):format(bits))
-    local picked = e(ctx, ("select i1 %s, i64 0, i64 %s"):format(none, lane))
+    local zeros = context.value(ctx, ("call i64 %s(i64 %s, i1 false)"):format(cttz, bits))
+    local lane = context.value(ctx, ("add i64 %s, 1"):format(zeros))
+    local none = context.value(ctx, ("icmp eq i64 %s, 0"):format(bits))
+    local picked = context.value(ctx, ("select i1 %s, i64 0, i64 %s"):format(none, lane))
 
-    return e(ctx, ("trunc i64 %s to i32"):format(picked)), "u32"
+    return context.value(ctx, ("trunc i64 %s to i32"):format(picked)), "u32"
 end
 
 --- Every lane of `vector` as a scalar, in order.
@@ -276,7 +268,7 @@ local function prefix(ctx: context.Context, node: scalarIR.Expr): (string, strin
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
-    local vector = operand(ctx, simd.args[1])
+    local vector = expressions.operand(ctx, simd.args[1])
     local instruction = simd.intrinsic == "prefix_xor" and "xor" or found.float and "fadd" or "add"
     if not found.float then
         -- Integer sums wrap and xor is exact, so any association answers the
@@ -290,13 +282,13 @@ local function prefix(ctx: context.Context, node: scalarIR.Expr): (string, strin
                 -- take lane `lane - d` of the running vector.
                 picks[#picks + 1] = "i32 " .. tostring(lane < distance and 0 or found.lanes + lane - distance)
             end
-            local shifted = e(
+            local shifted = context.value(
                 ctx,
                 (
                     "shufflevector %s zeroinitializer, %s %s, <%d x i32> <%s>"
                 ):format(found.vector, found.vector, running, found.lanes, table.concat(picks, ", "))
             )
-            running = e(ctx, ("%s %s %s, %s"):format(instruction, found.vector, running, shifted))
+            running = context.value(ctx, ("%s %s %s, %s"):format(instruction, found.vector, running, shifted))
             distance = distance * 2
         end
         return running, typeName
@@ -305,7 +297,7 @@ local function prefix(ctx: context.Context, node: scalarIR.Expr): (string, strin
     local out = lanes.insert(ctx, found, "poison", values[1], 0)
     local running = values[1]
     for index = 2, #values do
-        running = e(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, running, values[index]))
+        running = context.value(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, running, values[index]))
         out = lanes.insert(ctx, found, out, running, index - 1)
     end
 
@@ -317,7 +309,7 @@ local function combine(ctx: context.Context, found: species.Species, operation: 
     local instruction = operation == "product" and (found.float and "fmul" or "mul")
         or (found.float and "fadd" or "add")
 
-    return e(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, a, b))
+    return context.value(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, a, b))
 end
 
 --- The balanced pairwise tree: neighbours joined level by level, an odd
@@ -359,7 +351,7 @@ local function fused(ctx: context.Context, found: species.Species, a: string, b:
         ("%s @NAME(%s, %s, %s)"):format(t, t, t, t)
     )
 
-    return e(ctx, ("call %s %s(%s %s, %s %s, %s %s)"):format(t, fma, t, a, t, b, t, c))
+    return context.value(ctx, ("call %s %s(%s %s, %s %s, %s %s)"):format(t, fma, t, a, t, b, t, c))
 end
 
 --- Whether lane value `v` replaces `best` in an arg fold.
@@ -374,33 +366,33 @@ local function argBetter(
     local t = found.scalar
     if not found.float then
         local predicate = (found.signed and "s" or "u") .. (minimum and "lt" or "gt")
-        return e(ctx, ("icmp %s %s %s, %s"):format(predicate, t, v, best))
+        return context.value(ctx, ("icmp %s %s %s, %s"):format(predicate, t, v, best))
     end
     local bitsType = lanes.bitsType(found)
-    local vNan = e(ctx, ("fcmp uno %s %s, %s"):format(t, v, v))
-    local bestNan = e(ctx, ("fcmp uno %s %s, %s"):format(t, best, best))
-    local strict = e(ctx, ("fcmp %s %s %s, %s"):format(minimum and "olt" or "ogt", t, v, best))
-    local equal = e(ctx, ("fcmp oeq %s %s, %s"):format(t, v, best))
-    local vBits = e(ctx, ("bitcast %s %s to %s"):format(t, v, bitsType))
-    local bestBits = e(ctx, ("bitcast %s %s to %s"):format(t, best, bitsType))
-    local vSign = e(ctx, ("icmp slt %s %s, 0"):format(bitsType, vBits))
-    local bestSign = e(ctx, ("icmp slt %s %s, 0"):format(bitsType, bestBits))
+    local vNan = context.value(ctx, ("fcmp uno %s %s, %s"):format(t, v, v))
+    local bestNan = context.value(ctx, ("fcmp uno %s %s, %s"):format(t, best, best))
+    local strict = context.value(ctx, ("fcmp %s %s %s, %s"):format(minimum and "olt" or "ogt", t, v, best))
+    local equal = context.value(ctx, ("fcmp oeq %s %s, %s"):format(t, v, best))
+    local vBits = context.value(ctx, ("bitcast %s %s to %s"):format(t, v, bitsType))
+    local bestBits = context.value(ctx, ("bitcast %s %s to %s"):format(t, best, bitsType))
+    local vSign = context.value(ctx, ("icmp slt %s %s, 0"):format(bitsType, vBits))
+    local bestSign = context.value(ctx, ("icmp slt %s %s, 0"):format(bitsType, bestBits))
     -- On an equal pair of zeros, -0 wins a minimum and +0 a maximum.
     local winner = minimum and vSign or bestSign
     local loser = minimum and bestSign or vSign
-    local loserClear = e(ctx, ("xor i1 %s, true"):format(loser))
-    local signs = e(ctx, ("and i1 %s, %s"):format(winner, loserClear))
-    local tie = e(ctx, ("and i1 %s, %s"):format(equal, signs))
-    local ordered = e(ctx, ("or i1 %s, %s"):format(strict, tie))
+    local loserClear = context.value(ctx, ("xor i1 %s, true"):format(loser))
+    local signs = context.value(ctx, ("and i1 %s, %s"):format(winner, loserClear))
+    local tie = context.value(ctx, ("and i1 %s, %s"):format(equal, signs))
+    local ordered = context.value(ctx, ("or i1 %s, %s"):format(strict, tie))
     if propagating then
-        local either = e(ctx, ("or i1 %s, %s"):format(vNan, ordered))
-        local bestNumber = e(ctx, ("xor i1 %s, true"):format(bestNan))
-        return e(ctx, ("and i1 %s, %s"):format(bestNumber, either))
+        local either = context.value(ctx, ("or i1 %s, %s"):format(vNan, ordered))
+        local bestNumber = context.value(ctx, ("xor i1 %s, true"):format(bestNan))
+        return context.value(ctx, ("and i1 %s, %s"):format(bestNumber, either))
     end
-    local either = e(ctx, ("or i1 %s, %s"):format(bestNan, ordered))
-    local vNumber = e(ctx, ("xor i1 %s, true"):format(vNan))
+    local either = context.value(ctx, ("or i1 %s, %s"):format(bestNan, ordered))
+    local vNumber = context.value(ctx, ("xor i1 %s, true"):format(vNan))
 
-    return e(ctx, ("and i1 %s, %s"):format(vNumber, either))
+    return context.value(ctx, ("and i1 %s, %s"):format(vNumber, either))
 end
 
 local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -408,7 +400,7 @@ local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, s
     local found = lanes.of(ctx, tostring(simd.args[1].type))
     local intrinsic = tostring(simd.intrinsic)
     local order, kind = intrinsic:match("^(%a+)_(.+)$")
-    local values = unpack(ctx, found, operand(ctx, simd.args[1]))
+    local values = unpack(ctx, found, expressions.operand(ctx, simd.args[1]))
     local t = found.scalar
     local zero = found.float and "0.0" or "0"
     local one = found.float and "1.0" or "1"
@@ -418,7 +410,7 @@ local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, s
         local identity = kind == "product" and one or zero
         local leaves = values
         if kind == "dot" then
-            local right = unpack(ctx, found, operand(ctx, simd.args[2]))
+            local right = unpack(ctx, found, expressions.operand(ctx, simd.args[2]))
             if order == "algebraic" then
                 -- Even and odd lanes fused into their own partials.
                 local even, odd = zero, zero
@@ -456,7 +448,7 @@ local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, s
             end
             result = combine(ctx, found, operation, even, odd)
         else
-            unsupported("horizontal order " .. tostring(order))
+            expressions.unsupported("horizontal order " .. tostring(order))
         end
         return lanes.fromLane(ctx, found, result)
     end
@@ -476,14 +468,14 @@ local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, s
         local at = "0"
         for index = 2, #values do
             local take = argBetter(ctx, found, values[index], best, minimum, propagating)
-            best = e(ctx, ("select i1 %s, %s %s, %s %s"):format(take, t, values[index], t, best))
-            at = e(ctx, ("select i1 %s, i32 %d, i32 %s"):format(take, index - 1, at))
+            best = context.value(ctx, ("select i1 %s, %s %s, %s %s"):format(take, t, values[index], t, best))
+            at = context.value(ctx, ("select i1 %s, i32 %d, i32 %s"):format(take, index - 1, at))
         end
-        local lane = e(ctx, ("add i32 %s, 1"):format(at))
-        return e(ctx, ("uitofp i32 %s to double"):format(lane)), "f64"
+        local lane = context.value(ctx, ("add i32 %s, 1"):format(at))
+        return context.value(ctx, ("uitofp i32 %s to double"):format(lane)), "f64"
     end
 
-    unsupported("horizontal operation " .. intrinsic)
+    expressions.unsupported("horizontal operation " .. intrinsic)
 end
 
 reduce.EXPRESSIONS = {

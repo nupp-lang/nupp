@@ -1650,6 +1650,11 @@ function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): bo
         and left.soa.layout == right.soa.layout
 end
 
+--- Whether `param` is a span the entry receives as a pointer and a count.
+function scalarIR.isSpan(param: scalarIR.Param): boolean
+    return param.kind == "write_span" or param.kind == "read_span"
+end
+
 --- Whether the native ABI carries independent span/view counts.
 ---
 --- A block kernel always does. A map kernel may share its primary count only
@@ -1661,7 +1666,7 @@ function scalarIR.independentCounts(program: scalarIR.Program): boolean
     end
     local spans = 0
     for _, param in ipairs(program.params) do
-        if param.kind == "write_span" or param.kind == "read_span" then
+        if scalarIR.isSpan(param) then
             spans = spans + 1
         end
     end
