@@ -176,13 +176,22 @@ function M.checksumVectorsAndNonConsumingReads(): nil
 end
 
 function M.hexCodecIsStrictAndRoundTripsBytes(): nil
-    local input = "\0\1\127\128\255"
-    assert(hex.encode(input) == "00017f80ff")
-    assert(hex.decode("00017F80FF") == input)
+    local parts: {string} = {}
+    for byte = 0, 255 do
+        parts[#parts + 1] = string.char(byte)
+    end
+    local input = table.concat(parts)
+    local encoded = hex.encode(input)
+    assert(#encoded == 512 and not encoded:find("[^0-9a-f]"))
+    assert(hex.decode(encoded) == input)
+    assert(hex.decode(encoded:upper()) == input)
     assert(hex.decode("") == "")
-    assert(hex.decode("0") == nil)
-    assert(hex.decode("0x01") == nil)
-    assert(hex.decode("00 1") == nil)
+    local decoded, reason = hex.decode("0")
+    assert(decoded == nil and reason == "hex input must contain an even number of digits")
+    decoded, reason = hex.decode("0x")
+    assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
+    decoded, reason = hex.decode("00 1")
+    assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
 end
 
 return M

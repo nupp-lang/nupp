@@ -3,6 +3,12 @@ local layout = require("nupp.gpu.layout")
 
 local M = {}
 
+local function rejects(body: function(): nil, message: string): nil
+    local ok, problem = pcall(body)
+    assert(not ok)
+    assert(tostring(problem):find(message, 1, true), tostring(problem))
+end
+
 function M.workgroupPhasesHaveDeterministicCpuMeaning(): nil
     local results: {float} = {}
     gpu.workgroups(nupp.math.u32.wrap(2), nupp.math.u32.wrap(4), function(groupIndex: uint32, phases: gpu.Phases)
@@ -78,6 +84,74 @@ function M.tensorLayoutsTransposeBroadcastAndProveInjectivity(): nil
     local singleton = layout.new(0, {1, 6}, {0, 1})
     assert(layout.isDense(singleton))
     assert(layout.isInjective(singleton))
+end
+
+function M.tensorLayoutsCopyInputsAndValidateEveryTransformation(): nil
+    local shape = {2, 3}
+    local strides = {3, 1}
+    local stored = layout.new(7, shape, strides)
+    shape[1] = 1
+    strides[1] = 0
+    local returnedShape = layout.dimensions(stored)
+    local returnedStrides = layout.strides(stored)
+    returnedShape[2] = 1
+    returnedStrides[2] = 0
+    assert(layout.dimensions(stored)[1] == 2 and layout.dimensions(stored)[2] == 3)
+    assert(layout.strides(stored)[1] == 3 and layout.strides(stored)[2] == 1)
+
+    local last = layout.subview(stored, {1, 2}, {1, 1})
+    assert(layout.offset(last) == 12 and layout.extent(last) == 1)
+    local shifted = layout.asStrided(stored, {1, 3}, {3, 1}, 3)
+    assert(layout.offset(shifted) == 10 and layout.extent(shifted) == 3)
+
+    rejects(
+        function(): nil
+            layout.new(0, {}, {})
+        end,
+        "one through four"
+    )
+    rejects(
+        function(): nil
+            layout.new(-1, {1}, {1})
+        end,
+        "offset exceeds uint32"
+    )
+    rejects(
+        function(): nil
+            layout.new(0, {65536, 65536}, {65536, 1})
+        end,
+        "dimensions and strides must fit uint32"
+    )
+    rejects(
+        function(): nil
+            layout.new(0, {2}, {4294967295})
+        end,
+        "extent exceeds uint32"
+    )
+    rejects(
+        function(): nil
+            layout.subview(stored, {2, 0}, {1, 1})
+        end,
+        "outside its layout"
+    )
+    rejects(
+        function(): nil
+            layout.transpose(stored, {1, 1})
+        end,
+        "every axis exactly once"
+    )
+    rejects(
+        function(): nil
+            layout.broadcast(stored, {2, 4})
+        end,
+        "dimensions are incompatible"
+    )
+    rejects(
+        function(): nil
+            layout.asStrided(stored, {2, 2}, {3, 1}, 2)
+        end,
+        "exceeds its source"
+    )
 end
 
 return M

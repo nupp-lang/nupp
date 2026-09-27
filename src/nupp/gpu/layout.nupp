@@ -173,7 +173,12 @@ function layout.asStrided(
     if relativeOffset < 0 or value._offset > 4294967295 - relativeOffset then
         error("nupp: GPU strided layout offset exceeds uint32", 2)
     end
-    return layout.new(value._offset + relativeOffset, shape, strides)
+    local result = layout.new(value._offset + relativeOffset, shape, strides)
+    if result._extent > value._extent or relativeOffset > value._extent - result._extent then
+        error("nupp: GPU strided layout exceeds its source", 2)
+    end
+
+    return result
 end
 
 export = layout
