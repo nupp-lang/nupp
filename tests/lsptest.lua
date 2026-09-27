@@ -333,6 +333,34 @@ end
 
 local M = {}
 
+function M.syntaxTreeSpansAreHalfOpen()
+    local parser = require("nupp.compiler.syntax.parser")
+    local tree = require("nupp.tools.lsp.tree")
+    local parsed = parser.parse(
+        "local function inside(): integer\n   return 1\nend\nlocal outside = 2\n",
+        "tree.g.nupp"
+    )
+    assert(#parsed.errors == 0, "tree fixture parses")
+    local stat = parsed.root.blocks[1].stats[1]
+    local from, to = tree.nodeBounds(stat)
+    assert(from and to, "function statement has bounds")
+    assert(tree.functionAt({{node = stat}}, to) == nil, "the byte after a function is outside it")
+    for _, span in ipairs(tree.enclosingChain(parsed, to)) do
+        assert(span.from ~= from or span.to ~= to, "the byte after a node is outside its selection span")
+    end
+
+    parsed = parser.parse("local value = comptime do\n   return 1\nend\nlocal outside = 2\n", "tree.g.nupp")
+    assert(#parsed.errors == 0, "comptime fixture parses")
+    local comptime
+    tree.walkNodes(parsed.root, function(node)
+        if node.kind == "comptimeExpr" then
+            comptime = node
+        end
+    end)
+    local _, comptimeTo = tree.nodeBounds(comptime)
+    assert(comptimeTo and tree.comptimeAt(parsed, comptimeTo) == nil, "the byte after comptime is outside it")
+end
+
 -- Positions were found by scanning from the first byte of the text on every call,
 -- which made a request asking for thousands of them quadratic in the file. The
 -- answer has to stay the one the scan gave, over every line and every width of

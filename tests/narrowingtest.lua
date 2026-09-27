@@ -3,6 +3,8 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
+local mutation = require("nupp.compiler.check.mutation")
+local analysis = require("nupp.compiler.analysis")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -765,6 +767,55 @@ function M.aCalleeWritesReachThroughTheFunctionsItCalls()
         ),
         "NUPP2001:9"
     )
+end
+
+function M.aLongCalleeChainReachesItsFinalWrite()
+    local lines = {"local x: string? = 'hi'"}
+    local count = 70
+    for index = 1, count do
+        lines[#lines + 1] = "local function f" .. index .. "()"
+        if index == count then
+            lines[#lines + 1] = "    x = nil"
+        else
+            lines[#lines + 1] = "    f" .. (index + 1) .. "()"
+        end
+        lines[#lines + 1] = "end"
+    end
+    local result = parser.parse(table.concat(lines, "\n"), "test.g.nupp")
+    assertEq(#result.errors, 0, "long call chain parses")
+    local summaries = mutation.prescan(result.root)
+    assertEq(summaries.byKey.f1.captured.x, true, "the first callee reaches the final write")
+end
+
+function M.safeCallsCarryEffectsAndInvalidateShape()
+    local result = parser.parse(
+        [[
+local function mutate(xs: {integer}): nil
+    xs[1] = 9
+end
+
+local function wrapper(xs: {integer}): nil
+    mutate?.(xs)
+end
+
+return wrapper
+]],
+        "test.g.nupp"
+    )
+    assertEq(#result.errors, 0, "safe-call fixture parses")
+    local diags = check.check(result, "test.g.nupp", env, {})
+    assertEq(#diags, 0, "safe-call fixture checks")
+    local queries = analysis.queries(result.analysis)
+    local wrapper = result.root.blocks[1].stats[2].effectInfo
+    assert(queries and wrapper, "the wrapper was analyzed")
+    assertEq(wrapper.summary.writes["xs[*]"], true, "a known safe call carries its callee's writes")
+
+    local block = wrapper.body.body
+    local body = queries.body(block)
+    local xs = wrapper.body.params[1].name
+    local ok, reason = body.shapeStable(block, body.aliasOf(xs))
+    assertEq(ok, false, "a safe call that mutates the array changes its shape")
+    assertEq(reason, "a call may change the array's shape", "and says why")
 end
 
 function M.aFunctionValueReachedThroughAFieldOrReassignedIsRead()

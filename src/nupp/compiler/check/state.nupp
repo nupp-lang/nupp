@@ -402,11 +402,11 @@ record state.Checker
     --- The type a member accepts when assigned, and its write declaration.
     fieldWriteType: function(t: Type?, name: string, receiver: Type?): (Type?, any)
 
-    --- Member names safely available on a type, for spelling fixes.
+    --- Member names safely available on a type, for misspelling fixes.
     fieldNames: function(t: Type?, writing: boolean?): {[string]: boolean}
 
     --- The contract names a receiver declares, so an installation misspelled on its own
-    --- table can be told from a field that is simply not there.
+    --- table can be told from a field that is not there.
     metamethodNames: function(t: Type?): {[string]: boolean}
 
     --- The contract a receiver declares under one metamethod name, or nil.

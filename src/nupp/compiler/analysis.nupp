@@ -17,10 +17,10 @@ second consumer's cheapest route was a second prover beside it, hand-rolling the
 same reasoning against the same summaries. Every question a pass asks belongs
 here; what it decides to do with the answer does not.
 
-What this does not answer yet: `escapes` records parameter-rooted paths leaving
-a function, which is the interprocedural half. Whether a local escapes its own
-body -- what table promotion needs -- is a different question and nothing here
-computes it. See docs/learn/performance/index.md.
+Limits: `escapes` records parameter-rooted paths leaving a function, which is
+the interprocedural half. Whether a local escapes its own body is a different
+question needed by table promotion, and nothing here computes it. See
+docs/learn/performance/index.md.
 ]]
 
 local cst = require("nupp.compiler.syntax.cst")
@@ -565,9 +565,9 @@ local function inferFunction(info, byDefinition)
             return
         end
         local name = callName(call)
-        -- The checker settled whether this is the library's yield -- read from the
-        -- library table, or through a name bound to the function -- by provenance;
-        -- the spelling is what an unchecked file offers.
+        -- The checker settles by provenance whether this is the library's yield, read
+        -- from the library table or through a name bound to the function. An unchecked
+        -- file offers only the written path.
         if call.trustedYield then
             out.yields = true
         elseif call.rawYield or name == "coroutine.yield" then
@@ -590,7 +590,7 @@ local function inferFunction(info, byDefinition)
         if direct then
             return {[1] = direct}
         end
-        if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
+        if not expr or (expr.kind ~= "call" and expr.kind ~= "safeCall" and expr.kind ~= "methodCall") then
             return {}
         end
         local known = knownCall(expr, byDefinition)
@@ -655,7 +655,7 @@ local function inferFunction(info, byDefinition)
             out.raises = true
         elseif node.indexedAccess and not node.rangeProvenNoRaise then
             out.raises = true
-        elseif kind == "call" or kind == "methodCall" then
+        elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
             applyCall(node)
         elseif kind == "name" and not targetContext then
             local root = node.token and rooted[find(node.token.definition)]
@@ -674,8 +674,8 @@ local function inferFunction(info, byDefinition)
                     out.writes["$capture[*]"] = true
                     out.shapes["$capture"] = true
                 end
-                -- Only the name being assigned is not a read. The keys along the way
-                -- -- `q` in `p[q] = v` -- are read like any other expression.
+                -- Only the name being assigned is not a read. Keys along the way are
+                -- read like any other expression, including `q` in `p[q] = v`.
                 local level = target
                 while level ~= base do
                     if level.expr then
@@ -829,7 +829,7 @@ local function contractContains(contract, inferred)
 end
 
 -- A flow-insensitive alias class is enough to refuse structural writes through any
--- spelling of the iterated table. Reassignment may merge classes that never coexist;
+-- name of the iterated table. Reassignment may merge classes that never coexist;
 -- that is a conservative missed optimization.
 local function aliasClasses(body, byDefinition)
     local find, union = unionFind()
@@ -839,7 +839,7 @@ local function aliasClasses(body, byDefinition)
         if direct then
             return {direct}
         end
-        if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
+        if not expr or (expr.kind ~= "call" and expr.kind ~= "safeCall" and expr.kind ~= "methodCall") then
             return {}
         end
         local known = knownCall(expr, byDefinition)
@@ -1155,7 +1155,7 @@ function queries.body(body: any, byDefinition: any): any
                     stable, reason, related = false, "the array may change shape in the loop", value.target
                     return
                 end
-            elseif kind == "call" or kind == "methodCall" then
+            elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
                 local known = knownCall(value, byDefinition)
                 local summary = known and known.summary or nil
                 if not queries.visible(summary) or not queries.free(summary, {"yields", "metatables"}) then
@@ -1231,9 +1231,7 @@ type analysis.Target = {
 
 --- The checker, as this file uses it: somewhere to say a contract the body does not
 --- hold up. Taken as a shape because `nupp.compiler.check` reaches this module, so
---- naming
---- its
---- record here would close the require graph into a loop.
+--- naming its record here would close the require graph into a loop.
 type analysis.Reporter = {@readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)}
 
 --- The questions, bound to what one run worked out.

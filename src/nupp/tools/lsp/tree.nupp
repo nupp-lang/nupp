@@ -293,7 +293,7 @@ function tree.functionAt(functions: {any}?, offset: integer?): (any?, integer?, 
         if from
             and to
             and offset >= from
-            and offset <= to
+            and offset < to
             and (not selected or to - from < (selectedTo as integer) - (selectedFrom as integer))
         then
             selected, selectedFrom, selectedTo = info, from, to
@@ -316,7 +316,7 @@ function tree.comptimeAt(result: tree.Parse?, offset: integer): (cst.ComptimeExp
     tree.walkNodes(result.root, function(node)
         if node.kind == "comptimeExpr" then
             local from, to = tree.nodeBounds(node)
-            if from and to and offset >= from and offset <= to then
+            if from and to and offset >= from and offset < to then
                 found = node as cst.ComptimeExpr
                 local body = (node as cst.ComptimeExpr).body
                 if body then
@@ -512,7 +512,7 @@ function tree.enclosingChain(result: tree.Parse, offset: number): {tree.Span}
             return
         end
         local from, to = tree.nodeBounds(node)
-        if not from or offset < from or offset > to then
+        if not from or offset < from or offset >= to then
             return
         end
         chain[#chain + 1] = {from = from, to = to}

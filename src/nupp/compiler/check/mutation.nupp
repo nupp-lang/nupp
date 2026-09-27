@@ -13,10 +13,10 @@ reached through a chain of other callees says nothing at the call.
 This pass answers from syntax instead. It walks the whole file once before the
 check begins, notes for every function what it assigns and whom it calls, and
 folds each callee's writes into its callers until nothing changes. The result is
-keyed the way a call spells its callee -- `f`, `M.f`, or a method name -- so a
-call site can ask for it whatever order the declarations came in. Keying on
-spelling means two functions spelled alike share one answer; the shared answer
-is the union of both, which only ever forgets more.
+keyed by the callee path a call uses, such as `f`, `M.f`, or a method name, so a
+call site can ask for it whatever order the declarations came in. Two functions
+with the same path share one answer. The shared answer is the union of both,
+which only ever forgets more.
 
 A write is recorded as the path it lands on, relative to the binding it is rooted
 at: `.kind` for `s.kind = v`, `.items*` for `s.items[i] = v`, where the star says
@@ -56,7 +56,7 @@ end
 
 --- Everything the pass worked out for one file.
 record mutation.Summaries
-    --- By the spelling a call uses: a name, or a dotted path.
+    --- By the callee path a call uses: a name, or a dotted path.
     byKey: {[string]: mutation.Summary}
 
     --- By method name, for a call through a receiver, merged over every method of
@@ -233,7 +233,7 @@ local function covered(paths: Paths, suffix: string): boolean
     end
 end
 
---- The spelling a call uses for its callee: a name or a dotted path, or nil when
+--- The path a call uses for its callee: a name or a dotted path, or nil when
 --- the callee is computed.
 ---
 --- @param node the called expression
@@ -479,7 +479,7 @@ local function fold(ctx: Context, call: any, callee: mutation.Summary): boolean
         changed = true
     end
     if call.merge then
-        -- Two bodies filed under one spelling answer as one.
+        -- Two bodies filed under one path answer as one.
         for index, paths in pairs(callee.params) do
             local mine = summary.params[index] or {}
             summary.params[index] = mine
@@ -539,7 +539,7 @@ function mutation.prescan(root: any): mutation.Summaries
     local byBody: {[any]: mutation.Summary} = {}
     local assignedAnywhere: {[string]: boolean} = {}
     local contexts: {Context} = {}
-    -- A body filed under a spelling another body already answers to.
+    -- A body filed under a path another body already answers to.
     local merges: {any} = {}
 
     local function file(summary: mutation.Summary, key: string?, method: string?): nil
@@ -672,7 +672,7 @@ function mutation.prescan(root: any): mutation.Summaries
         end
     end
 
-    --- Files a function literal under a spelling, scanning it if it is one.
+    --- Files a function literal under a path, scanning it if it is one.
     local function literalUnder(ctx: Context, value: any, key: string?, method: string?): boolean
         local body = bodyOf(value)
         if not body then
@@ -787,7 +787,7 @@ function mutation.prescan(root: any): mutation.Summaries
             local handled: {[any]: boolean} = {}
             for j, target in ipairs(targets) do
                 written(ctx, target)
-                -- A function stored under a spelling answers to that spelling.
+                -- A function stored under a path answers to that path.
                 local value = exprs[j]
                 local key = value and keyOf(target) or nil
                 if key and literalUnder(ctx, value, key, key:match("%.([^.]+)$")) then
@@ -878,10 +878,8 @@ function mutation.prescan(root: any): mutation.Summaries
 
     -- Fold callees into callers until the answers settle.
     local changed = true
-    local rounds = 0
-    while changed and rounds < 64 do
+    while changed do
         changed = false
-        rounds = rounds + 1
         for _, ctx in ipairs(contexts) do
             for _, call in ipairs(ctx.calls) do
                 local callee = call.merge or call.body and byBody[call.body] or call.key and byKey[call.key] or nil
@@ -955,7 +953,7 @@ function mutation.writtenAfter(token: any, offset: integer, path: string): boole
     return false
 end
 
---- What the pass built for a call's callee: by its spelling, by the literal
+--- What the pass built for a call's callee: by its path, by the literal
 --- called where it stands, or by the method name when the call goes through a
 --- receiver or a field.
 ---
