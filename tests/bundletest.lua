@@ -602,6 +602,13 @@ export function echoDynamic(value: any): any
     return value
 end
 
+export function attachmentMarkers(value: any): string
+    return value.region:text()
+        .. ":" .. tostring(value.markers.region.__nuppRegion)
+        .. ":" .. tostring(value.markers.moved.__nuppMoved)
+        .. ":" .. tostring(value.markers.escaped.__nuppAttachmentTable.nested)
+end
+
 export record Sparse
     id: integer
     ready: boolean
@@ -686,6 +693,14 @@ with scope = workers.scope() do
     const extraPayload = scope:spawn(spare, jobs.echoPayload)
     const region = sharedbytes.copy("region payload")
     const regionByte = scope:spawn(region:slice(8, 14), jobs.firstByte)
+    const markerResult = scope:spawn({
+        region = region:slice(1, 6),
+        markers = {
+            region = {__nuppRegion = 17},
+            moved = {__nuppMoved = 99},
+            escaped = {__nuppAttachmentTable = {nested = true}},
+        },
+    }, jobs.attachmentMarkers)
     const sparse = scope:spawn(new jobs.Sparse(id = 13, ready = true), jobs.echoSparse)
     const noted = scope:spawn(new jobs.Sparse(id = 14, ready = false, note = "held"), jobs.echoSparse)
     local doubled, label = paired:await()
@@ -725,6 +740,7 @@ with scope = workers.scope() do
         restoredSparse is jobs.Sparse,
         restoredNoted.note,
         regionByte:await(),
+        markerResult:await(),
         region:slice(1, 6):text()
     )
 end
@@ -825,7 +841,7 @@ end
     local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
     local output, ranOk = run(dir, executable)
     assert(ranOk, "the native worker binary runs: " .. output)
-    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
+    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
     assert(output == expected, "results, records, captures, and failures cross structured cleanup: " .. output)
     local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
     local rustOutput, rustRanOk = run(dir, rustExecutable)

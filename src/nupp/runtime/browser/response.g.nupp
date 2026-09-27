@@ -9,8 +9,14 @@ function response.await(kind: string, payload: any): any
     local answer = suspension.suspend("browser " .. kind, function(resume: function(any): nil): function()
         return effects.request(kind, payload, resume)
     end)
+    if type(answer) ~= "table" or type(answer.ok) ~= "boolean" then
+        error("nupp: browser " .. kind .. " returned an invalid response", 2)
+    end
     if not answer.ok then
-        error("nupp: browser " .. kind .. " failed: " .. tostring(answer.error), 2)
+        if type(answer.error) ~= "string" then
+            error("nupp: browser " .. kind .. " returned an invalid error response", 2)
+        end
+        error("nupp: browser " .. kind .. " failed: " .. answer.error, 2)
     end
 
     return answer.value

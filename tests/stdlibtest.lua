@@ -763,6 +763,46 @@ function M.browserEffectsFinishDispatchBeforeRaisingACallbackFailure()
     assert(second, "one failed callback must not strand later responses in its batch")
 end
 
+function M.browserResponsesValidateHostEnvelopes()
+    local name = "nupp.runtime.browser.response"
+    local answer
+    local response = require("providerstate").instance({[name] = true}, {
+        ["nupp.runtime.browser.effects"] = {
+            request = function(kind, payload, resume)
+                assert(kind == "test" and payload.operation == "read")
+                resume(answer)
+
+                return function()
+                end
+            end,
+        },
+        ["nupp.suspension"] = {
+            suspend = function(_, subscribe)
+                local value
+                subscribe(function(result)
+                    value = result
+                end)
+
+                return value
+            end,
+        },
+    })(name)
+
+    local value = {}
+    answer = {ok = true, value = value}
+    assert(response.await("test", {operation = "read"}) == value, "a successful response preserves value identity")
+
+    answer = {ok = false, error = "refused"}
+    local succeeded, failure = pcall(response.await, "test", {operation = "read"})
+    assert(not succeeded and tostring(failure):find("browser test failed: refused", 1, true), tostring(failure))
+
+    for _, malformed in ipairs({7, {}, {ok = "yes"}, {ok = false}, {ok = false, error = 7}}) do
+        answer = malformed
+        local accepted, problem = pcall(response.await, "test", {operation = "read"})
+        assert(not accepted and tostring(problem):find("invalid", 1, true), tostring(problem))
+    end
+end
+
 function M.browserSuspensionReleasesOnlySubscriptionOwnedSources()
     local name = "nupp.runtime.browser.suspension"
     local provider = require("providerstate").instance({[name] = true}, {

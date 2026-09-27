@@ -295,6 +295,10 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
             if (heapArrayMovable as function(any): integer?)(value) == nil then
                 return ("%s is a heap array that cannot move"):format(path)
             end
+            if state.seen[value] then
+                return ("%s repeats a table already present in the message"):format(path)
+            end
+            state.seen[value] = true
             state.hasMoved = true
 
             return nil
@@ -366,9 +370,19 @@ local function resolveRecord(address: string): any
     if moduleName == nil or moduleName == "" or memberPath == nil then
         error("nupp: a worker value names an invalid record", 3)
     end
+    for _, path in ipairs({moduleName, memberPath}) do
+        if path:sub(1, 1) == "." or path:sub(-1) == "." or path:find("..", 1, true) then
+            error("nupp: a worker value names an invalid record", 3)
+        end
+        for member in path:gmatch("[^.]+") do
+            if not member:match("^[%a_][%w_]*$") then
+                error("nupp: a worker value names an invalid record", 3)
+            end
+        end
+    end
     local value = require(moduleName)
     for member in memberPath:gmatch("[^.]+") do
-        if not member:match("^[%a_][%w_]*$") or type(value) ~= "table" then
+        if type(value) ~= "table" then
             error("nupp: a worker value names an invalid record", 3)
         end
         value = (value as {[string]: any})[member]
@@ -510,6 +524,8 @@ local type AttachmentPack = {
     moved: {string}?
 }
 
+local ATTACHMENT_TABLE = "__nuppAttachmentTable"
+
 -- Substitutes each attachment-crossing value in a copied spine with a
 -- placeholder naming its attachment index. Only the tables along the way are
 -- copied; strings and other leaves are referenced, and record metatables are
@@ -561,8 +577,19 @@ local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state
     for key, item in next, value as {[any]: any} do
         copy[key] = rewriteAttachments(item, regionMT, arrayMT, state)
     end
+    setmetatable(copy, metatable)
+    -- Attachment placeholders use ordinary tables so string.buffer can carry
+    -- them. Escape a user table that could be mistaken for one after decoding;
+    -- the escape marker itself is included so a user-authored escape-shaped
+    -- table is wrapped one level further and remains unambiguous.
+    if rawget(copy, "__nuppRegion") ~= nil
+        or rawget(copy, "__nuppMoved") ~= nil
+        or rawget(copy, ATTACHMENT_TABLE) ~= nil
+    then
+        return {[ATTACHMENT_TABLE] = copy}
+    end
 
-    return setmetatable(copy, metatable)
+    return copy
 end
 
 local function packAttachments(packed: Packed, transfer: TransferState): (Packed, {any}, {string}?)
@@ -599,6 +626,18 @@ end
 local function plantAttachments(value: any, flat: {any}, cache: {any}): any
     if type(value) ~= "table" then
         return value
+    end
+    local escaped = rawget(value as table, ATTACHMENT_TABLE)
+    if type(escaped) == "table" then
+        -- The escaped table's own keys are data, including any placeholder-like
+        -- keys. Only its children can hold real transport placeholders.
+        for key, item in next, escaped as {[any]: any} do
+            if type(item) == "table" then
+                rawset(escaped as table, key, plantAttachments(item, flat, cache))
+            end
+        end
+
+        return escaped
     end
     local regionIndex = rawget(value as table, "__nuppRegion")
     if type(regionIndex) == "number" then
