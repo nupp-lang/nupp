@@ -20,10 +20,10 @@ keeps string state and backslash parity. Bytes that are not events are never
 touched by the drain, which is where the vectors earn their place.
 
 UTF-8 is validated in the same vectors rather than in the drain, by the
-lookup4 validator `bench/utf8simd/src/utf8simd.nupp` spells on the general
-algebra and simdjson runs: every byte's verdict depends on itself and the
-three before it, so the two nibbles of the previous byte and the high nibble
-of this one index three tables of error-class bit sets, and the pair is
+lookup4 validator that `bench/utf8simd/src/utf8simd.nupp` implements with the
+general algebra and simdjson uses. Every byte's verdict depends on itself and
+the three before it, so the two nibbles of the previous byte and the high
+nibble of this one index three tables of error-class bit sets, and the pair is
 malformed exactly when the three sets share a class. The third and fourth
 bytes of a scalar are the one case a pair cannot see, so those are checked
 against the bytes two and three back and folded in with an xor. A validated
@@ -44,8 +44,8 @@ at a time, so the drain is written once and events are processed in byte
 order across both. There the drain does validate UTF-8, from an owed
 continuation count and a first-continuation constraint seeded at the hand-off
 by looking back over the at most three bytes of a scalar the last whole
-vector could not finish. Either way the first error in the input is the one
-reported, at the one-based position of the byte that raised it.
+vector could not finish. Either way the first scan error in the input is
+reported at the one-based position of the byte that raised it.
 
 Every operation here is the general algebra's. The loads read a `Span<uint8>`
 over the entry's own rooted bytes, which `valuebuilder.bytes` answers: a
@@ -554,6 +554,9 @@ local function decodeFused<const Variant: integer>(
                     return nullValue, 1, nupp.math.u32.add(cursor, 1)
                 end
             elseif byte == 91 or byte == 123 then
+                if _valueBuilder.depth(values) >= builderDepth then
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
                 if byte == 91 then
                     tag = 5
                 else

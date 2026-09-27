@@ -22,7 +22,11 @@ local lunajson = require("nupp.runtime.provider.lunajson")
 
 local M = {}
 
-local NULL = setmetatable({}, {__tostring = function() return "null" end})
+local NULL = setmetatable({}, {
+    __tostring = function()
+        return "null"
+    end
+})
 
 ----------------------------------------------------------------------------
 -- The shared corpus
@@ -31,62 +35,185 @@ local NULL = setmetatable({}, {__tostring = function() return "null" end})
 -- Documents both decoders must accept and agree on.
 local WELL_FORMED = {
     -- Scalars and the whitespace around them.
-    "0", "-0", "1", "-1", "123456789", "  42  ", "\t\r\n7\n", "true", "false", "null",
-    '""', '"a"', '"hello world"',
+    "0",
+    "-0",
+    "1",
+    "-1",
+    "123456789",
+    "  42  ",
+    "\t\r\n7\n",
+    "true",
+    "false",
+    "null",
+    '""',
+    '"a"',
+    '"hello world"',
 
     -- Numbers at and around the edges of binary64.
-    "1e308", "-1e308", "1.7976931348623157e308", "-1.7976931348623157e308",
-    "5e-324", "-5e-324", "2.2250738585072014e-308", "1e-323",
-    "9007199254740991", "9007199254740992", "-9007199254740991",
-    "0.1", "0.2", "0.30000000000000004", "1e-7", "1E+7", "1e0", "-0.0",
-    "123456789012345678901234567890", "0.000000000000000000001",
-    "1.000000000000000000000000000000001", "3.141592653589793",
+    "1e308",
+    "-1e308",
+    "1.7976931348623157e308",
+    "-1.7976931348623157e308",
+    "5e-324",
+    "-5e-324",
+    "2.2250738585072014e-308",
+    "1e-323",
+    "9007199254740991",
+    "9007199254740992",
+    "-9007199254740991",
+    "0.1",
+    "0.2",
+    "0.30000000000000004",
+    "1e-7",
+    "1E+7",
+    "1e0",
+    "-0.0",
+    "123456789012345678901234567890",
+    "0.000000000000000000001",
+    "1.000000000000000000000000000000001",
+    "3.141592653589793",
 
     -- Containers, nesting and mixed shapes.
-    "[]", "{}", "[[]]", "[{}]", '{"a":{}}', "[1,2,3]", "[1,[2,[3,[4]]]]",
-    '{"a":1,"b":2,"c":3}', '{"a":[1,2],"b":{"c":[3]}}',
+    "[]",
+    "{}",
+    "[[]]",
+    "[{}]",
+    '{"a":{}}',
+    "[1,2,3]",
+    "[1,[2,[3,[4]]]]",
+    '{"a":1,"b":2,"c":3}',
+    '{"a":[1,2],"b":{"c":[3]}}',
     '[null,true,false,0,"",[],{}]',
-    '{"":1}', '{"a":null,"b":null}',
-    "[ 1 , 2 , 3 ]", '{ "a" : 1 }',
+    '{"":1}',
+    '{"a":null,"b":null}',
+    "[ 1 , 2 , 3 ]",
+    '{ "a" : 1 }',
     '{"a":[{"b":[{"c":[{"d":1}]}]}]}',
 
     -- Escapes, including every simple one and the pair a supplementary
     -- codepoint needs. These are long strings, so a backslash here is the
     -- backslash the decoder sees.
-    [["\""]], [["\\"]], [["\/"]], [["\b"]], [["\f"]], [["\n"]], [["\r"]], [["\t"]],
-    [["\u0041"]], [["\u00e9"]], [["\u0020"]], [["\u0001"]], [["\u001f"]],
-    [["\u00ff"]], [["\u0800"]], [["\uffff"]], [["\ud83d\ude00"]], [["\udbff\udfff"]],
-    [["a\\b"]], [["a\\\\b"]], [["\\\""]], [["\\\\\""]], [["a\nb\tc"]],
+    [["\""]],
+    [["\\"]],
+    [["\/"]],
+    [["\b"]],
+    [["\f"]],
+    [["\n"]],
+    [["\r"]],
+    [["\t"]],
+    [["\u0041"]],
+    [["\u00e9"]],
+    [["\u0020"]],
+    [["\u0001"]],
+    [["\u001f"]],
+    [["\u00ff"]],
+    [["\u0800"]],
+    [["\uffff"]],
+    [["\ud83d\ude00"]],
+    [["\udbff\udfff"]],
+    [["a\\b"]],
+    [["a\\\\b"]],
+    [["\\\""]],
+    [["\\\\\""]],
+    [["a\nb\tc"]],
     [["\u0041\u0042\u0043"]],
     [[{"k\"ey":"v\\alue"}]],
     [[{"\u0041":"\u00e9"}]],
 
     -- Literal UTF-8 of every scalar length, written as byte escapes.
-    '"\195\169"', '"\226\130\172"', '"\240\159\152\128"',
-    '"\194\128"', '"\223\191"', '"\224\160\128"', '"\239\191\191"',
-    '"\240\144\128\128"', '"\244\143\191\191"',
+    '"\195\169"',
+    '"\226\130\172"',
+    '"\240\159\152\128"',
+    '"\194\128"',
+    '"\223\191"',
+    '"\224\160\128"',
+    '"\239\191\191"',
+    '"\240\144\128\128"',
+    '"\244\143\191\191"',
     '{"\226\130\172":"\240\159\152\128"}',
 }
 
 -- Inputs neither decoder may accept.
 local MALFORMED = {
-    "", "   ", "\n",
-    "tru", "fals", "nul", "trues", "True", "NULL",
-    "+1", "01", "-", "1.", ".1", "1e", "1e+", "--1", "1.2.3", "Infinity", "NaN",
-    "[", "]", "{", "}", "[1", '{"a"', '{"a":', '{"a":1', "[1,", "[1,]", "{,}", "[,]",
-    '{"a":1,}', '{"a" 1}', "{a:1}", "{'a':1}", "[1 2]", '{"a":1"b":2}',
-    '"unterminated', '"a\\"', '"\\"', '"\\q"', '"\\u"', '"\\u12"', '"\\uZZZZ"',
-    [["\ud800"]], [["\udc00"]], [["\ud800\ud800"]], [["\ud800x"]],
-    "[1,2,3]extra", "{} {}", "1 2", "null null",
+    "",
+    "   ",
+    "\n",
+    "tru",
+    "fals",
+    "nul",
+    "trues",
+    "True",
+    "NULL",
+    "+1",
+    "01",
+    "-",
+    "1.",
+    ".1",
+    "1e",
+    "1e+",
+    "--1",
+    "1.2.3",
+    "Infinity",
+    "NaN",
+    "[",
+    "]",
+    "{",
+    "}",
+    "[1",
+    '{"a"',
+    '{"a":',
+    '{"a":1',
+    "[1,",
+    "[1,]",
+    "{,}",
+    "[,]",
+    '{"a":1,}',
+    '{"a" 1}',
+    "{a:1}",
+    "{'a':1}",
+    "[1 2]",
+    '{"a":1"b":2}',
+    '"unterminated',
+    '"a\\"',
+    '"\\"',
+    '"\\q"',
+    '"\\u"',
+    '"\\u12"',
+    '"\\uZZZZ"',
+    [["\ud800"]],
+    [["\udc00"]],
+    [["\ud800\ud800"]],
+    [["\ud800x"]],
+    "[1,2,3]extra",
+    "{} {}",
+    "1 2",
+    "null null",
     -- Control bytes are never literal inside a string.
-    '"\001"', '"\009"', '"\010"', '"\031"',
+    '"\001"',
+    '"\009"',
+    '"\010"',
+    '"\031"',
     -- A backslash outside a string is not a token.
-    "[\\]", "\\", '{"a":\\}',
+    "[\\]",
+    "\\",
+    '{"a":\\}',
     -- Malformed UTF-8 of every failing shape.
-    '"\128"', '"\191"', '"\192\128"', '"\193\191"', '"\194"', '"\224\128\128"',
-    '"\224\159\191"', '"\237\160\128"', '"\240\128\128\128"', '"\244\144\128\128"',
-    '"\245\128\128\128"', '"\255"', '"\226\130"', '"\240\159\152"',
-    '\226\130\172', '"a\128b"',
+    '"\128"',
+    '"\191"',
+    '"\192\128"',
+    '"\193\191"',
+    '"\194"',
+    '"\224\128\128"',
+    '"\224\159\191"',
+    '"\237\160\128"',
+    '"\240\128\128\128"',
+    '"\244\144\128\128"',
+    '"\245\128\128\128"',
+    '"\255"',
+    '"\226\130"',
+    '"\240\159\152"',
+    '\226\130\172',
+    '"a\128b"',
 }
 
 -- Deep containers, built rather than written out.
@@ -260,7 +387,9 @@ local function render(value, seen)
 
         return "[" .. table.concat(parts, ",") .. "]"
     end
-    table.sort(keys, function(left, right) return tostring(left) < tostring(right) end)
+    table.sort(keys, function(left, right)
+        return tostring(left) < tostring(right)
+    end)
     for index, key in ipairs(keys) do
         parts[index] = string.format("%q", tostring(key)) .. ":" .. render(value[key], seen)
     end
@@ -318,6 +447,24 @@ function M.theFusedDecoderRejectsEveryDocumentLunajsonRejects()
             string.format("lunajson accepted the malformed %s as %s", show(text), tostring(theirs))
         )
     end
+
+    local deepest = nested("[", "]", 1024)
+    local ok, value = pcall(fused.decode, deepest, NULL)
+    assert(ok, "1,024 nested containers were refused: " .. tostring(value))
+    local depth = 0
+    while type(value) == "table" and value[1] ~= nil do
+        depth = depth + 1
+        value = value[1]
+    end
+    assert(depth == 1024 and value == 1, "the nesting boundary decoded incorrectly")
+
+    local tooDeep = nested("[", "]", 1025)
+    local accepted, problem = pcall(fused.decode, tooDeep, NULL)
+    assert(not accepted, "1,025 nested containers were accepted")
+    assert(
+        tostring(problem):match("at byte 1025"),
+        "the nesting error did not identify its opening byte: " .. tostring(problem)
+    )
 end
 
 function M.theFusedScanReportsTheSameFirstErrorAsTheScalarReference()
@@ -326,7 +473,10 @@ function M.theFusedScanReportsTheSameFirstErrorAsTheScalarReference()
         local code, position = referenceScan(text)
         if code ~= OK then
             local _, message = decodedBy(fused, text)
-            assert(message ~= nil, string.format("%s decoded, but the reference raises %d at %d", show(text), code, position))
+            assert(
+                message ~= nil,
+                string.format("%s decoded, but the reference raises %d at %d", show(text), code, position)
+            )
             local reported = tonumber(message:match("at byte (%d+)"))
             assert(reported ~= nil, string.format("%s reported %q, which names no byte", show(text), message))
             assert(
@@ -341,10 +491,25 @@ end
 
 -- Malformed byte sequences on their own, to be placed at a chosen offset.
 local BAD_UTF8 = {
-    "\128", "\191", "\192\128", "\193\191", "\194", "\194\065", "\224\128\128",
-    "\224\159\191", "\237\160\128", "\237\191\191", "\240\128\128\128",
-    "\240\143\191\191", "\244\144\128\128", "\245\128\128\128", "\255",
-    "\226\130\065", "\240\159\152\065", "\226\130", "\240\159\152",
+    "\128",
+    "\191",
+    "\192\128",
+    "\193\191",
+    "\194",
+    "\194\065",
+    "\224\128\128",
+    "\224\159\191",
+    "\237\160\128",
+    "\237\191\191",
+    "\240\128\128\128",
+    "\240\143\191\191",
+    "\244\144\128\128",
+    "\245\128\128\128",
+    "\255",
+    "\226\130\065",
+    "\240\159\152\065",
+    "\226\130",
+    "\240\159\152",
 }
 
 function M.theFusedScanFindsTheSameBadByteAtEveryVectorOffset()
@@ -364,7 +529,12 @@ function M.theFusedScanFindsTheSameBadByteAtEveryVectorOffset()
             local reported = tonumber(message:match("at byte (%d+)"))
             assert(
                 reported == position,
-                string.format("%s raises at byte %s but the reference says %d", show(text), tostring(reported), position)
+                string.format(
+                    "%s raises at byte %s but the reference says %d",
+                    show(text),
+                    tostring(reported),
+                    position
+                )
             )
             checked = checked + 1
         end
@@ -375,8 +545,15 @@ end
 function M.wellFormedUnicodeSurvivesEveryVectorOffset()
     -- The same sweep for text that is valid, so a validator that is merely
     -- eager cannot pass the check above.
-    local scalars = {"\194\128", "\223\191", "\224\160\128", "\239\191\191",
-        "\240\144\128\128", "\244\143\191\191", "\226\130\172"}
+    local scalars = {
+        "\194\128",
+        "\223\191",
+        "\224\160\128",
+        "\239\191\191",
+        "\240\144\128\128",
+        "\244\143\191\191",
+        "\226\130\172"
+    }
     for _, scalar in ipairs(scalars) do
         for pad = 0, 72 do
             local text = '"' .. string.rep("a", pad) .. scalar .. string.rep("b", 3) .. '"'
@@ -413,10 +590,16 @@ function M.scanPreservesSparseUnicodeTransitionsAndFirstErrors()
     local euro, smile = "\226\130\172", "\240\159\152\128"
     for pad = 0, 260 do
         for _, gap in ipairs({0, 15, 16, 31, 32, 63, 64, 65, 127, 128, 129}) do
-            local text = '"' .. string.rep("a", pad) .. euro .. string.rep("b", gap) .. smile .. string.rep("c", pad % 67) .. '"'
+            local text = '"' .. string.rep(
+                "a",
+                pad
+            ) .. euro .. string.rep("b", gap) .. smile .. string.rep("c", pad % 67) .. '"'
             local mine, message = decodedBy(fused, text)
             local theirs, other = decodedBy(lunajson, text)
-            assert(message == nil and other == nil, "mixed Unicode refused at " .. pad .. ":" .. gap .. ": " .. tostring(message))
+            assert(
+                message == nil and other == nil,
+                "mixed Unicode refused at " .. pad .. ":" .. gap .. ": " .. tostring(message)
+            )
             assert(mine == theirs, "mixed Unicode changed at " .. pad .. ":" .. gap)
         end
         for _, bad in ipairs(BAD_UTF8) do
@@ -426,7 +609,10 @@ function M.scanPreservesSparseUnicodeTransitionsAndFirstErrors()
                 assert(code == INVALID_UTF8, "reference missed malformed UTF-8")
                 local _, message = decodedBy(fused, text)
                 local reported = message and tonumber(message:match("at byte (%d+)"))
-                assert(reported == position, "malformed UTF-8 at " .. pad .. ": " .. tostring(reported) .. " vs " .. position)
+                assert(
+                    reported == position,
+                    "malformed UTF-8 at " .. pad .. ": " .. tostring(reported) .. " vs " .. position
+                )
             end
         end
         -- A control error before later malformed Unicode stays first.
@@ -434,7 +620,10 @@ function M.scanPreservesSparseUnicodeTransitionsAndFirstErrors()
         local code, position = referenceScan(text)
         assert(code == INVALID_CONTROL)
         local _, message = decodedBy(fused, text)
-        assert(message and tonumber(message:match("at byte (%d+)")) == position, "later Unicode displaced earlier control error")
+        assert(
+            message and tonumber(message:match("at byte (%d+)")) == position,
+            "later Unicode displaced earlier control error"
+        )
     end
 end
 
@@ -452,7 +641,12 @@ function M.everyByteClassPreservesValuesAndFirstErrorsAcrossTransitions()
                     assert((message == nil) == (other == nil), "byte-class acceptance at " .. pad .. ":" .. byte)
                     if code ~= OK then
                         local reported = message and tonumber(message:match("at byte (%d+)"))
-                        assert(reported == position, "byte-class error at " .. pad .. ":" .. byte .. ": " .. tostring(reported) .. " vs " .. position)
+                        assert(
+                            reported == position,
+                            "byte-class error at " .. pad .. ":" .. byte .. ": " .. tostring(
+                                reported
+                            ) .. " vs " .. position
+                        )
                     elseif message == nil then
                         assert(mine == theirs, "byte-class value at " .. pad .. ":" .. byte)
                     end
