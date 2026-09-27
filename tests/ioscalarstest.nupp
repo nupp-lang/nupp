@@ -13,6 +13,25 @@ local record ProbeReader is Reader
     state: any
 
     function read(self, count: integer): (string?, string?)
+        if self.state.bytes ~= nil then
+            self.state.maxRead = math.max(self.state.maxRead or 0, count)
+            if self.state.overread then
+                local all = self.state.bytes
+                self.state.bytes = ""
+                return all
+            end
+            local out = self.state.bytes:sub(1, count)
+            self.state.bytes = self.state.bytes:sub(#out + 1)
+            if #out > 0 then
+                return out
+            end
+        end
+        if self.state.failure ~= nil then
+            local failure = self.state.failure
+            self.state.failure = nil
+            return nil, failure
+        end
+
         return ""
     end
 
@@ -37,6 +56,10 @@ local record ProbeWriter is Writer
     state: any
 
     function write(exclusive self, bytes: string): (boolean, string?)
+        if self.state.failure ~= nil then
+            return false, self.state.failure
+        end
+
         return true
     end
 
@@ -249,6 +272,61 @@ function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
         negative:read(1)
     end)
     assert(not ok and tostring(reason):find("ByteQueue length", 1, true) ~= nil)
+
+    local scalar = io2.newScalarReader("x")
+    ok, reason = pcall(function(): nil
+        scalar:readBytes(math.huge as integer)
+    end)
+    assert(not ok and tostring(reason):find("must be a non-negative integer", 1, true) ~= nil)
+end
+
+function M.scalarReadersRejectSourcesThatOverread(): nil
+    local source = new ProbeReader(state = {bytes = "ab", closes = 0, overread = true})
+    local reader = io2.newScalarReader(source)
+    local ok, reason = pcall(function(): nil
+        reader:readUint8()
+    end)
+    assert(not ok and tostring(reason):find("more bytes than requested", 1, true) ~= nil)
+end
+
+function M.scalarWritersPropagateDestinationFailures(): nil
+    local writer = io2.newScalarWriter(new ProbeWriter(state = {closes = 0, failure = "cancelled"}))
+    local ok, reason = pcall(function(): nil
+        writer:writeUint16(1)
+    end)
+    assert(not ok and tostring(reason):find("destination failed: cancelled", 1, true) ~= nil)
+end
+
+function M.lineReadersBoundPullsAndOwnTheirSources(): nil
+    local state = {bytes = "abc\r\nrest", closes = 0, maxRead = 0}
+    local lines = io2.newLines(new ProbeReader(state = state), 3)
+    assert(lines:read() == "abc")
+    assert(state.maxRead <= 5)
+    lines:close()
+    assert(state.closes == 1)
+end
+
+function M.lineReadersPropagateFailuresAfterPartialInput(): nil
+    local state = {bytes = "partial", closes = 0, failure = "cancelled"}
+    local lines = io2.newLines(new ProbeReader(state = state), 64)
+    local line, reason = lines:read()
+    assert(line == nil and reason == "cancelled")
+    lines:close()
+    assert(state.closes == 1)
+end
+
+function M.lineReadersRejectInvalidLimitsAndSourcesThatOverread(): nil
+    local ok, reason = pcall(function(): nil
+        local lines = io2.newLines(new ProbeReader(state = {closes = 0}), math.huge as integer)
+        lines:close()
+    end)
+    assert(not ok)
+
+    local lines = io2.newLines(new ProbeReader(state = {bytes = "abcdef", closes = 0, overread = true}), 2)
+    ok, reason = pcall(function(): nil
+        lines:read()
+    end)
+    assert(not ok and tostring(reason):find("more bytes than requested", 1, true) ~= nil)
 end
 
 function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil

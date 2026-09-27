@@ -9,16 +9,8 @@ local type ByteQueue = storage.ByteQueue
 local type Reader = storage.Reader
 local type Writer = storage.Writer
 local newBuffer = storage.newBuffer
+local integer_ = storage.validateInteger
 local physical = require("nupp.runtime.storage")
-
---- @raises string when value is not a non-negative integer
-local function integer_(value: any, what: string, level: integer): integer
-    if type(value) ~= "number" or value ~= math.floor(value as number) or (value as number) < 0 then
-        error("nupp: " .. what .. " must be a non-negative integer", level)
-    end
-
-    return value as integer
-end
 
 -- A terminal has to be a declared function wherever a contract names it, and these
 -- records hand each other out: a buffer answers a reader, and a snapshot answers
@@ -508,12 +500,16 @@ fill = function(self: ScalarReader, need: integer): (integer, string?)
     local failure: string? = nil
     if state._reader then
         while #(state._pending as string) < need do
-            local chunk, reason = state._reader:read(need - #(state._pending as string))
+            local wanted = need - #(state._pending as string)
+            local chunk, reason = state._reader:read(wanted)
             if chunk == nil then
                 failure = reason
                 break
             elseif chunk == "" then
                 break
+            end
+            if #chunk > wanted then
+                error("nupp: io.Reader returned more bytes than requested", 3)
             end
             state._pending = (state._pending as string) .. (chunk as string)
         end

@@ -5,6 +5,7 @@ module nupp.io.internal.lines
 const bytes = require("nupp.io.internal.bytes")
 local type Reader = bytes.Reader
 local DEFAULT_READ = 65536
+local positive = bytes.validatePositive
 
 --- A reader taken apart into lines.
 ---
@@ -108,9 +109,15 @@ local record LineReader is Lines
 
                 return rest
             end
-            const chunk, why = self._source:read(DEFAULT_READ as integer)
+            local held = #self._held - self._at
+            local room = self._limit - held
+            local wanted = (room < DEFAULT_READ - 2 and room + 2 or DEFAULT_READ) as integer
+            const chunk, why = self._source:read(wanted)
             if chunk == nil then
                 return nil, why
+            end
+            if #chunk > wanted then
+                error("nupp: io.Reader returned more bytes than requested", 2)
             end
             if #chunk == 0 then
                 self._ended = true
@@ -145,10 +152,7 @@ end
 --- @raises string when limit is not a positive integer
 --- @export
 export function newLines(takes source: Reader, limit: integer?): affine(Lines)
-    const bound = limit or 65536
-    if bound < 1 or math.floor(bound) ~= bound then
-        error("nupp: io.newLines limit must be a positive integer", 2)
-    end
+    const bound = positive(limit or 65536, "io.newLines limit", 2)
 
     return new LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
 end
