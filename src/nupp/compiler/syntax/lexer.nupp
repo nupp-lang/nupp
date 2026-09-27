@@ -4,17 +4,17 @@ module nupp.compiler.syntax.lexer
 The lossless lexer.
 
 The token stream preserves every byte of the input: each token carries its
-leading trivia, meaning whitespace, comments, hashbang and byte-order mark, and the final
-`eof` token carries the file's trailing trivia. The invariant is that
+leading trivia, meaning whitespace, comments, a hashbang, and a byte-order mark.
+The final `eof` token carries the file's trailing trivia. The invariant is that
 concatenating every token's trivia and text, in order, reproduces the source.
 
 A token is a kind, its text, its offset, line and column, and its trivia. The
 kind is `name`, `number`, `string`, `error`, `eof`, a keyword, or an operator.
 
-The grammar base is LuaJIT 3.0: the bit operators, the customary spellings
+The grammar base is LuaJIT 3.0: the bit operators, the customary forms
 `!`, `&&`, `||` and `!=`, floor division, the ternary conditional, safe
-navigation, and the `LL`, `ULL` and `i` number suffixes. A customary spelling
-is lexed as the operator it spells, so `&&` arrives as an `and` token whose
+navigation, and the `LL`, `ULL` and `i` number suffixes. A customary form
+is lexed as its classic operator, so `&&` arrives as an `and` token whose
 text is `&&`.
 
 The lexer never throws. Malformed input becomes `error` tokens that still round
@@ -150,7 +150,7 @@ type lexer.Token = {
     namedVararg: boolean?,
 
     --- A contextual operator lexed as a name: the `as` of a cast, the `is` of a type
-    --- test. It takes a type on its right, so it is not the callee its spelling makes
+    --- test. It takes a type on its right, so it is not the callee its text makes
     --- it look like.
     contextualOp: boolean?,
 
@@ -162,7 +162,7 @@ type lexer.Token = {
     --- like hugs its callee.
     constructTarget: boolean?,
 
-    --- Where the name this token spells was declared, attached by the checker so the
+    --- Where the name in this token was declared, attached by the checker so the
     --- editor can jump to it. Its shape belongs to the checker, not the lexer.
     definition: any,
 
@@ -243,7 +243,7 @@ type lexer.Token = {
     withHeaderClose: boolean?,
 
     --- Left out of the output: an annotation argument the canonical single-value
-    --- spelling makes implicit.
+    --- source form makes implicit.
     formatOmit: boolean?,
 
     --- The pipes of a short function, which hug their parameters.
@@ -315,18 +315,18 @@ for op in pairs(OPS4) do
     OPS4BYTE[((a * 256 + b) * 256 + c) * 256 + d] = op
 end
 
--- LuaJIT 3.0's "customary operators" are alternate spellings, not new operators, so
+-- LuaJIT 3.0's "customary operators" are alternate forms, not new operators, so
 -- they are folded into the classic token kind here and the rest of the compiler never
 -- learns they exist. `text` keeps the bytes that were written, which is what the round
 -- trip and the formatter run on.
 --
 -- `||` doubles as the empty parameter list of a short function. That is a position, not
--- a spelling: at the start of an operand `||` can only be `|| -> e`, and in
+-- a distinct token: at the start of an operand `||` can only be `|| -> e`, and in
 -- binary-operator position it can only be `or`. The parser decides, so the lexer hands
 -- it the one token either way.
 local CUSTOMARY: {[string]: string} = {["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",}
 
---- The classic spelling of each customary operator, keyed by the customary one. Reading
+--- The classic form of each customary operator, keyed by the customary one. Reading
 --- a token's text through this is how anything downstream tells which form was written,
 --- since the kind no longer says.
 lexer.CUSTOMARY = CUSTOMARY
@@ -831,8 +831,6 @@ function lexer.textOf(tokens: {lexer.Token}): string
     return table.concat(parts)
 end
 
---- The bytes a short string literal spells, or nothing for a token that spells
---- none.
 --- The quoted Lua literal denoting one piece of a backtick string: the whole body
 --- of one without interpolation, or the text between two interpolations. Source
 --- escapes pass through, since Lua reads them the same; `\`` and `\$` lose their
@@ -859,11 +857,11 @@ function lexer.quoteBacktickBody(body: string): string
     return "\"" .. quoted .. "\""
 end
 
---- A literal's value is the string it denotes, not the source that spells it, so
+--- A literal's value is the string it denotes, not its source text, so
 --- `"\1"` is one byte and every reader of that value has to agree about it.
 --- Decoding is done by handing the text back to Lua, which is whose escape
 --- syntax it is; a backtick literal without interpolation is first turned into
---- the Lua literal the generator emits for it, so the two spellings answer the
+--- the Lua literal the generator emits for it, so the two forms answer the
 --- same. A long-bracket string is not answered here: its runtime bytes are
 --- whatever the dedent rule that owns it leaves, not an escape question.
 function lexer.stringValue(text: string): string?

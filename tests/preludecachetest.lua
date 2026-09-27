@@ -1,7 +1,7 @@
 -- The cached prelude has to be the checked prelude.
 --
 -- Every command builds an environment, and building one used to mean checking the
--- three prelude declaration files from source. That is most of what a small
+-- three prelude sources. That is most of what a small
 -- command costs, so the answer is kept -- and a kept answer that is not quite the
 -- computed one is the worst kind of bug, because nothing reports it and every
 -- later answer is built on it.
@@ -428,6 +428,93 @@ function M.portableImageRejectsMalformedCompactData()
     types.interned, types.adopt, types.resumeIdentity = oldInterned, oldAdopt, oldResume
     assert(not ok, "trailing compact prelude data must be refused")
     assert(not adopted and not resumed, "a refused compact prelude changed type identity")
+end
+
+local function emptyNativeImage()
+    return {
+        format = 1,
+        counts = {},
+        cells = {},
+        tags = {},
+        externs = {},
+        metas = {},
+        metaExterns = {},
+        arenas = {},
+        triviaOf = {},
+        internedAs = {},
+        identity = {serial = 0, capability = 0, nominal = 0},
+        roots = {0, 0, 0, 0, 0, 0, 0},
+        runtime = "",
+    }
+end
+
+function M.nativeCacheRejectsMalformedPlainData()
+    local cache = require("nupp.compiler.project.preludecache")
+    local valid = emptyNativeImage()
+    assert(cache.decode(valid) ~= nil, "the empty fixture is a valid cache image")
+
+    local cases = {
+        function(image)
+            image.externs = "not an array"
+        end,
+        function(image)
+            image.counts = {0.5}
+            image.cells = {true}
+            image.tags = {0}
+        end,
+        function(image)
+            image.counts = {1}
+            image.cells = {"key", {}}
+            image.tags = {0, 0}
+            image.roots[1] = 1
+        end,
+        function(image)
+            image.counts = {0}
+            image.arenas = {{source = " ", records = {1, 1, 1, 1}}}
+            image.triviaOf = {[1] = 1}
+            image.roots[1] = 1
+        end,
+        function(image)
+            image.counts = {0}
+            image.metas = {[2] = 1}
+        end,
+        function(image)
+            image.identity.serial = math.huge
+        end,
+    }
+    for index, damage in ipairs(cases) do
+        local image = emptyNativeImage()
+        damage(image)
+        local ok, decoded = pcall(cache.decode, image)
+        assert(ok, "malformed native image " .. index .. " raised: " .. tostring(decoded))
+        test.equal(decoded, nil, "malformed native image " .. index .. " is a cache miss")
+    end
+end
+
+function M.nativeCacheValidatesEveryRootBeforeAdoptingTypes()
+    local cache = require("nupp.compiler.project.preludecache")
+    local types = require("nupp.compiler.types")
+    local image = emptyNativeImage()
+    image.counts = {0}
+    image.internedAs = {[1] = {"types", "late-invalid-root-fixture"}}
+    image.roots = {1, 0, 0, 0, 0, 0}
+
+    local oldInterned, oldAdopt, oldResume = types.interned, types.adopt, types.resumeIdentity
+    local adopted, resumed = false, false
+    types.interned = function()
+        return nil
+    end
+    types.adopt = function()
+        adopted = true
+    end
+    types.resumeIdentity = function()
+        resumed = true
+    end
+    local ok, decoded = pcall(cache.decode, image)
+    types.interned, types.adopt, types.resumeIdentity = oldInterned, oldAdopt, oldResume
+    assert(ok, decoded)
+    test.equal(decoded, nil, "an incomplete root list is refused")
+    assert(not adopted and not resumed, "a refused native image changed type identity")
 end
 
 return M

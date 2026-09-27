@@ -3,10 +3,10 @@
 module nupp.compiler.project.preludecache
 
 --[[
-The checked prelude, as plain data a later command can read back.
+The checked prelude is stored as plain data a later command can read back.
 
 Every `nupp` command builds an environment, and building one means parsing and
-type-checking the three prelude declaration files from source. That is about a
+type-checking the three prelude sources. That is about a
 hundred and thirty milliseconds, and a check of a small project is a hundred and
 ninety: nearly all of what a small command costs is the prelude, computed again
 from bytes that did not change.
@@ -22,7 +22,7 @@ is a cache: written by the checker that would otherwise be run, read only by a
 process that agrees about the compiler and the sources it came from, and thrown
 away rather than migrated whenever it might not.
 
-## What has to be flattened
+## Flattened graph
 
 The prelude is a graph, not a tree: types refer to each other, and a receiver
 type is a table used as a key. `string.buffer`, which is what the store
@@ -38,7 +38,7 @@ the same thing twice and see which answer changes.
 
 ## Identity
 
-A type is not a value that can simply be copied. The checker compares types with
+A type cannot be copied as an ordinary value. The checker compares types with
 `==`, and `types.literal("#")` answers out of an arena `nupp.compiler.types`
 keeps, so a restored type that is in no arena is equal to nothing: with the
 prelude copied and nothing else done, the compiler reports eighteen errors
@@ -57,7 +57,7 @@ restoring the counter would have this process hand out a serial some restored
 type already carries. `types.resumeIdentity` moves the counters forward to where
 the writing process left them, never back.
 
-## Identity the compiler already owns
+## Compiler-owned identity
 
 Not everything reachable from the prelude was made by it. `types.any` is one
 object the whole checker compares against with `==`, and a record's metatable is
@@ -202,6 +202,34 @@ end
 local SCALAR: integer = 0
 local REFERENCE: integer = 1
 local OWNED: integer = 2
+
+local function isInteger(value: any): boolean
+    return type(value) == "number"
+        and value == value
+        and value ~= math.huge
+        and value ~= -math.huge
+        and value == math.floor(value)
+end
+
+--- The length of a dense array, or nil when `value` has holes or other keys.
+local function arrayLength(value: any): integer?
+    if type(value) ~= "table" then
+        return nil
+    end
+    local length = #value
+    for key in pairs(value) do
+        if not isInteger(key) or key < 1 or key > length then
+            return nil
+        end
+    end
+    for index = 1, length do
+        if value[index] == nil then
+            return nil
+        end
+    end
+
+    return length
+end
 
 --- Turns the roots into flat plain data, or nil when something in them cannot be.
 ---
@@ -431,12 +459,37 @@ function preludecache.decode(image: any): any?
     local counts = image.counts
     local cells = image.cells
     local tags = image.tags
-    if type(counts) ~= "table" or type(cells) ~= "table" or type(tags) ~= "table" then
+    local countLength = arrayLength(counts)
+    local cellLength = arrayLength(cells)
+    local tagLength = arrayLength(tags)
+    local externLength = arrayLength(image.externs)
+    local arenaLength = arrayLength(image.arenas)
+    local rootLength = arrayLength(image.roots)
+    if countLength == nil
+        or cellLength == nil
+        or tagLength == nil
+        or externLength == nil
+        or arenaLength == nil
+        or rootLength ~= #ROOT_NAMES
+        or type(image.metas) ~= "table"
+        or type(image.metaExterns) ~= "table"
+        or type(image.triviaOf) ~= "table"
+        or type(image.internedAs) ~= "table"
+        or type(image.identity) ~= "table"
+        or type(image.runtime) ~= "string"
+    then
         return nil
     end
 
     local externs: {any} = {}
-    for index, entry in ipairs(image.externs or {}) do
+    for index, entry in ipairs(image.externs) do
+        if arrayLength(entry) ~= 2
+            or type(entry[1]) ~= "string"
+            or not (entry[1] as string):match("^nupp%.")
+            or type(entry[2]) ~= "string"
+        then
+            return nil
+        end
         local resolved = resolveOwned(entry)
         -- A name that no longer resolves is a compiler that moved under the image.
         if resolved == nil then
@@ -450,29 +503,126 @@ function preludecache.decode(image: any): any?
     -- filled in from the image rather than replaced, and an image that turned out
     -- to be unreadable half way through would leave that type half rewritten.
     local expected: integer = 0
-    for id = 1, #counts do
+    for id = 1, countLength do
         local members = counts[id]
-        if type(members) ~= "number" or members < 0 then
+        if not isInteger(members) or members < 0 or members > (cellLength - expected) / 2 then
             return nil
         end
         expected = expected + (members as integer) * 2
     end
-    if expected ~= #cells or #tags ~= #cells then
+    if expected ~= cellLength or tagLength ~= cellLength then
         return nil
     end
-    for index = 1, #cells do
+    for index = 1, cellLength do
         local tag = tags[index]
         if tag == REFERENCE then
             local target = cells[index]
-            if type(target) ~= "number" or target < 1 or target > #counts then
+            if not isInteger(target) or target < 1 or target > countLength then
                 return nil
             end
         elseif tag == OWNED then
             local target = cells[index]
-            if type(target) ~= "number" or externs[target as integer] == nil then
+            if not isInteger(target) or target < 1 or target > externLength then
                 return nil
             end
-        elseif tag ~= SCALAR then
+        elseif tag ~= SCALAR or not isScalar(cells[index]) then
+            return nil
+        elseif index % 2 == 1 and type(cells[index]) == "number" and cells[index] ~= cells[index] then
+            return nil
+        end
+    end
+
+    local liveIdentity = types.identity()
+    local internedKeys: {[string]: {[string]: boolean}} = {}
+    for id, where in pairs(image.internedAs) do
+        if not isInteger(id)
+            or id < 1
+            or id > countLength
+            or arrayLength(where) ~= 2
+            or type(where[1]) ~= "string"
+            or type(where[2]) ~= "string"
+            or type(liveIdentity.arenas[where[1] as string]) ~= "table"
+        then
+            return nil
+        end
+        local bucket = where[1] as string
+        local key = where[2] as string
+        local seen = internedKeys[bucket]
+        if seen == nil then
+            seen = {}
+            internedKeys[bucket] = seen
+        elseif seen[key] then
+            return nil
+        end
+        seen[key] = true
+    end
+
+    for _, field in ipairs({image.metas, image.metaExterns, image.triviaOf}) do
+        for id, target in pairs(field) do
+            if not isInteger(id) or id < 1 or id > countLength or not isInteger(target) or target < 1 then
+                return nil
+            end
+        end
+    end
+    for id, target in pairs(image.metas) do
+        if target > countLength or image.metaExterns[id] ~= nil then
+            return nil
+        end
+    end
+    for _, target in pairs(image.metaExterns) do
+        if target > externLength then
+            return nil
+        end
+    end
+    for _, target in pairs(image.triviaOf) do
+        if target > arenaLength then
+            return nil
+        end
+    end
+
+    for _, arena in ipairs(image.arenas) do
+        if type(arena) ~= "table" or type(arena.source) ~= "string" then
+            return nil
+        end
+        local recordLength = arrayLength(arena.records)
+        if recordLength == nil or recordLength % 5 ~= 0 then
+            return nil
+        end
+        local previousEnd: integer = 1
+        for cursor = 1, recordLength, 5 do
+            local kind = arena.records[cursor]
+            local offset = arena.records[cursor + 1]
+            local length = arena.records[cursor + 2]
+            local line = arena.records[cursor + 3]
+            local col = arena.records[cursor + 4]
+            if not isInteger(kind)
+                or kind < 1
+                or kind > 4
+                or not isInteger(offset)
+                or offset < previousEnd
+                or not isInteger(length)
+                or length < 1
+                or offset + length - 1 > #(arena.source as string)
+                or not isInteger(line)
+                or line < 1
+                or not isInteger(col)
+                or col < 1
+            then
+                return nil
+            end
+            previousEnd = (offset as integer) + (length as integer)
+        end
+    end
+
+    for index = 1, rootLength as integer do
+        local id = image.roots[index]
+        if not isInteger(id) or id < 0 or id > countLength then
+            return nil
+        end
+    end
+    for _, name in ipairs({"serial", "capability", "nominal"}) do
+        local value = image.identity[name]
+        if not isInteger(value) or value < 0 then
             return nil
         end
     end
@@ -481,8 +631,8 @@ function preludecache.decode(image: any): any?
     -- the type it is already using; everything else is new.
     --
     -- And a type that was already there is left exactly as it is. That is what
-    -- `intern` does -- it returns the type in the arena and discards the one its
-    -- caller just built -- and a second environment in one process has to mean the
+    -- `intern` does -- it returns the type in the arena and discards the new table
+    -- from its caller -- and a second environment in one process has to mean the
     -- same thing whether it checked the prelude or read it.
     --
     -- Writing the image's members onto it instead is a rewiring, not a refresh:
@@ -494,8 +644,8 @@ function preludecache.decode(image: any): any?
     local built: {any} = {}
     local mine: {[integer]: boolean} = {}
     local adopting: {integer} = {}
-    for id = 1, #counts do
-        local where = (image.internedAs or {})[id]
+    for id = 1, countLength do
+        local where = image.internedAs[id]
         local live = nil
         if type(where) == "table" and type(where[1]) == "string" and type(where[2]) == "string" then
             live = types.interned(where[1] as string, where[2] as string)
@@ -522,7 +672,7 @@ function preludecache.decode(image: any): any?
         return cell
     end
 
-    for id = 1, #counts do
+    for id = 1, countLength do
         local target = mine[id] and built[id] or nil
         for _ = 1, counts[id] as integer do
             local key: any = readCell()
@@ -535,7 +685,7 @@ function preludecache.decode(image: any): any?
             end
         end
     end
-    for id, meta in pairs(image.metas or {}) do
+    for id, meta in pairs(image.metas) do
         local owner = mine[id as integer] and built[id as integer] or nil
         local metatable = built[meta as integer]
         if metatable == nil then
@@ -545,7 +695,7 @@ function preludecache.decode(image: any): any?
             setmetatable(owner, metatable)
         end
     end
-    for id, extern in pairs(image.metaExterns or {}) do
+    for id, extern in pairs(image.metaExterns) do
         local owner = mine[id as integer] and built[id as integer] or nil
         local metatable = externs[extern as integer]
         if metatable == nil then
@@ -557,10 +707,7 @@ function preludecache.decode(image: any): any?
     end
 
     local rebuilt: {any} = {}
-    for index, arena in ipairs(image.arenas or {}) do
-        if type(arena.source) ~= "string" or type(arena.records) ~= "table" then
-            return nil
-        end
+    for index, arena in ipairs(image.arenas) do
         local made = triviaarena.new(arena.source)
         local records = arena.records
         local count = #records
@@ -577,7 +724,7 @@ function preludecache.decode(image: any): any?
         end
         rebuilt[index] = made
     end
-    for id, arena in pairs(image.triviaOf or {}) do
+    for id, arena in pairs(image.triviaOf) do
         local owner = mine[id as integer] and built[id as integer] or nil
         local made = rebuilt[arena as integer]
         if made == nil then
@@ -590,7 +737,7 @@ function preludecache.decode(image: any): any?
 
     -- Interned last, so a type only enters an arena once it is complete.
     for _, id in ipairs(adopting) do
-        local where = (image.internedAs or {})[id]
+        local where = image.internedAs[id]
         types.adopt(where[1] as string, where[2] as string, built[id])
     end
     -- And the counters with them, or the next type this process interns is stamped
@@ -599,10 +746,7 @@ function preludecache.decode(image: any): any?
 
     local roots: any = {}
     for index, name in ipairs(ROOT_NAMES) do
-        local id = (image.roots or {})[index]
-        if id == nil then
-            return nil
-        end
+        local id = image.roots[index]
         roots[name] = id ~= 0 and built[id as integer] or nil
     end
     roots.preludeRuntime = image.runtime
