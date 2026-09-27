@@ -274,7 +274,7 @@ discardableExpression = function(node: scalarIR.Expr, context: fold.Context, act
     return safe
 end
 
---- Whether discarding an expression also discards observable behaviour.
+--- Whether discarding an expression also discards observable behavior.
 function fold.discardable(node: scalarIR.Expr, context: fold.Context): boolean
     return discardableExpression(node, context, {})
 end

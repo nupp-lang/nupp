@@ -3,15 +3,11 @@ module nupp.compiler.aot.text
 --[[
 The readable form of an AOT program.
 
-Not a serialisation format and not something the compiler reads back: this is
+Not a serialization format and not something the compiler reads back: this is
 what a person opens when they want to know what the front end actually admitted,
 and what a test asserts against when the claim is about the IR rather than about
 the machine code under it. It is the one place the whole program appears at once
 -- the signature, what ownership proved, and explicit vector operations.
-
-It keeps the spellings the vocabulary used before its families were given one tag
-each. `vand` rather than `vmask`, `vtobits` rather than `vbits`, because the
-reader wants the operation and not the record it happens to share.
 
 ]]
 
@@ -386,23 +382,27 @@ function text.block(statements: {any}, depth: integer): {string}
         elseif tostring(op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             local values: {string} = {text.expression(event.builder)}
-            for _, value in ipairs({
-                event.capacity,
-                event.sourceBytes,
-                event.start,
-                event.length,
-                event.escaped,
-                event.value,
-                event.negative,
-                event.scratch,
-                event.escapeScratch,
-                event.escapeIndex,
-                event.escapeCount,
-            }) do
+
+            --- Appends an operand when this event shape carries it.
+            local function append(value: scalarIR.Expr?): nil
                 if value ~= nil then
                     values[#values + 1] = text.expression(value as scalarIR.Expr)
                 end
             end
+
+            append(event.capacity)
+            append(event.sourceBytes)
+            append(event.start)
+            append(event.length)
+            append(event.escaped)
+            append(event.value)
+            append(event.exponent)
+            append(event.negative)
+            append(event.exact)
+            append(event.scratch)
+            append(event.escapeScratch)
+            append(event.escapeIndex)
+            append(event.escapeCount)
             lines[#lines + 1] = prefix .. op .. "(" .. table.concat(values, ", ") .. ")"
         elseif op == "assign" then
             for _, assignment in ipairs(statement.values) do
@@ -467,6 +467,7 @@ function text.block(statements: {any}, depth: integer): {string}
         elseif op == "block" then
             lines[#lines + 1] = prefix .. "block"
             nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
         elseif op == "return" then
             local values: {string} = {}
             for position, value in ipairs(statement.values) do
@@ -628,8 +629,7 @@ end
 
 --- One whole program, as text.
 ---
---- The vector body appears after the scalar one it was rewritten from, rather
---- alongside its source-level structure.
+--- The body follows the contract and layout facts that govern it.
 function text.program(program: scalarIR.Program): string
     local lines = preamble(program)
     local loop = program.loop
