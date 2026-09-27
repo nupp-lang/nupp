@@ -1027,14 +1027,17 @@ end
 
 local function removeUnusedHelpers(program: scalarIR.Program, helpers: {[string]: scalarIR.Helper}): nil
     local used: {[string]: boolean} = {}
-    markHelperUses(
-        program.loop ~= nil and (program.loop as scalarIR.Loop).statements
-        or program.workgroup ~= nil and (program.workgroup as scalarIR.Workgroup).statements
-        or program.body
-        or {},
-        used,
-        helpers
-    )
+    if program.loop ~= nil then
+        markHelperUses((program.loop as scalarIR.Loop).statements, used, helpers)
+    elseif program.workgroup ~= nil then
+        local workgroup = program.workgroup as scalarIR.Workgroup
+        markHelperUses(workgroup.prelude, used, helpers)
+        markHelperUses(workgroup.groups, used, helpers)
+        markHelperUses(workgroup.shared, used, helpers)
+        markHelperUses(workgroup.statements, used, helpers)
+    else
+        markHelperUses(program.body or {}, used, helpers)
+    end
     local kept: {scalarIR.Helper} = {}
     for _, helper in ipairs(program.helpers or {}) do
         if used[helper.name] then

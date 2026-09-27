@@ -524,16 +524,22 @@ record data.Bitset
         if otherUsed == 0 then
             return true
         end
-        if self.used < otherUsed then
-            return false
-        end
 
+        local shared = self.used < otherUsed ? self.used : otherUsed
         local words, theirWords = self.words, other.words
         @unsafe
         do
-            for word = 0, otherUsed - 1 do
+            for word = 0, shared - 1 do
                 local theirs = tobit(theirWords[word])
                 if band(tobit(words[word]), theirs) ~= theirs then
+                    return false
+                end
+            end
+            -- `used` is only an upper bound. When `other` once held a high
+            -- bit, words beyond this set's bound may all be zero and therefore
+            -- still form a subset.
+            for word = shared, otherUsed - 1 do
+                if tobit(theirWords[word]) ~= 0 then
                     return false
                 end
             end

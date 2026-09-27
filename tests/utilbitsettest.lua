@@ -342,6 +342,20 @@ function M.containsAllAcrossDifferentCapacities()
     check.assert(not wide:containsAll(narrow), "a bit beyond is not contained")
 end
 
+function M.containsAllIgnoresClearedTrailingWords()
+    local narrow = bitset.Bitset.__nuppCtor1(8)
+    local formerlyWide = bitset.Bitset.__nuppCtor1(8)
+    narrow:set(3)
+    formerlyWide:set(3)
+    formerlyWide:set(5000)
+    formerlyWide:clear(5000)
+
+    check.assert(narrow:containsAll(formerlyWide), "a cleared high bit does not prevent containment")
+
+    formerlyWide:clear(3)
+    check.assert(narrow:containsAll(formerlyWide), "a loose bound does not make an empty set nonempty")
+end
+
 function M.copyFromIsIndependent()
     local source = bitset.Bitset.__nuppCtor1(64)
     local want = oracle()
