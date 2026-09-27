@@ -548,6 +548,18 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return self:get("projectModulePath", name) or envMod.findModulePath(env, name)
     end
 
+    -- Declaration files are not modules in the project walk, but one reached through
+    -- `require` still describes that named module. Recover the name for its check so
+    -- nominal declarations retain the same identity as bundled and fresh consumers.
+    local function checkedModuleName(path: string): string?
+        local name = envMod.moduleNameForPath(env, path)
+        if not name and path:match("%.d%.nupp$") then
+            name = envMod.moduleNameInRoots(env.roots or {}, (path:gsub("%.d%.nupp$", ".nupp")))
+        end
+
+        return name
+    end
+
     -- Recipes are immutable semantic envelopes keyed by their behavior fingerprint.
     -- The checker still supplies source provenance separately on each run; this query
     -- owns only the canonical result and therefore safely interns it across edits.
@@ -668,7 +680,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         )
         local external = envMod.isDependencyTypePath(env, path)
         local diags, moduleType, exports = check.check(result, path, qenv, {
-            moduleName = envMod.moduleNameForPath(env, path),
+            moduleName = checkedModuleName(path),
             -- A dependency owns the judgement of its declaration surface. A
             -- consumer's `--strict` must not reinterpret that foreign contract.
             strict = external and false or strict,

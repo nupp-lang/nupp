@@ -132,6 +132,52 @@ return checked, canonical
     assert(ok, problem)
 end
 
+function M.declarationModulesKeepDistinctNominalMethodSlots()
+    local fs = require("nupp.compiler.fs")
+    local incremental = require("nupp.compiler.project.incremental")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(fs.mkdir(dir))
+    assert(fs.writeFile(dir .. "/nupp.lua", 'return {include = {"."}}'))
+    local declaration = "record Value\nend\nreturn {Value = Value}\n"
+    assert(fs.writeFile(dir .. "/left.d.nupp", declaration))
+    assert(fs.writeFile(dir .. "/right.d.nupp", declaration))
+    local main = dir .. "/main.nupp"
+    assert(
+        fs.writeFile(
+            main,
+            [[
+local {type Value as Left} = require("left")
+local {type Value as Right} = require("right")
+local record Reader
+    function read(self, value: Left): string return "left" end
+    function read(self, value: Right): string return "right" end
+end
+return Reader
+]]
+        )
+    )
+    local ok, problem = pcall(function()
+        local checked = incremental.new(dir).checkFile(main)
+        for _, diagnostic in ipairs(checked.diags) do
+            assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        end
+        local code, diagnostics = require("nupp.compiler.lua.gen").generate(checked.result, main)
+        assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
+        local slots = {}
+        for slot in code:gmatch("function Reader:(__nupp_m_[%da-f]+)") do
+            slots[slot] = true
+        end
+        local count = 0
+        for _ in pairs(slots) do
+            count = count + 1
+        end
+        assert(count == 2, "same-named declaration nominals keep distinct method slots")
+    end)
+    require("nupp.io.files").remove(dir, true)
+    assert(ok, problem)
+end
+
 function M.providerIdentityAndGenericsSurviveModuleCaches()
     local fs = require("nupp.compiler.fs")
     local incremental = require("nupp.compiler.project.incremental")
