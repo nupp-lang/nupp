@@ -273,10 +273,15 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
 
     -- Every call written inside a body, so a callback's region can be judged without
     -- the walk having had to know it was one.
-    local function callsWithin(body: any, into: {any})
+    local function callsWithin(body: any, into: {any}, seen: {[any]: boolean}?)
         if not body or cst.isToken(body) then
             return
         end
+        seen = seen or {}
+        if seen[body] then
+            return
+        end
+        seen[body] = true
         local kind = body.kind
         if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
             return
@@ -285,10 +290,10 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
             into[#into + 1] = body
         end
         for _, child in ipairs(body.stats or {}) do
-            callsWithin(child, into)
+            callsWithin(child, into, seen)
         end
         for _, child in ipairs(body) do
-            callsWithin(child, into)
+            callsWithin(child, into, seen)
         end
     end
 

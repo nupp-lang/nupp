@@ -73,4 +73,27 @@ function M.annotationErases()
     )
 end
 
+function M.cCallbackCallIsReportedOnce()
+    local source = [[
+local function park(): boolean
+    coroutine.yield()
+    return true
+end
+
+local values = {2, 1}
+table.sort(values, function(left: integer, right: integer): boolean
+    return park() and left < right
+end)
+]]
+    local result = parser.parse(source, "test.g.nupp")
+    assert(#result.errors == 0)
+    local refusals = {}
+    for _, diagnostic in ipairs(check.check(result, "test.g.nupp", sharedEnv)) do
+        if diagnostic.code == "NUPP2702" then
+            refusals[#refusals + 1] = diagnostic
+        end
+    end
+    assert(#refusals == 1, "one callback call must produce one refusal")
+end
+
 return M
