@@ -133,10 +133,11 @@ record soa.Layout
     fields: {soa.FieldLayout}
 
     --- Computes checked segment offsets for `count` rows without allocating storage.
-    --- @raises string when count is negative or the slab size overflows a Lua integer
+    --- @raises string when count is not a nonnegative integer or the slab size
+    ---     overflows
     function forCount(self, count: integer): soa.InstanceLayout
-        if count < 0 then
-            error("SoA row count cannot be negative", 2)
+        if count < 0 or count ~= math.floor(count) then
+            error("SoA row count must be a nonnegative integer", 2)
         end
 
         local segments: {soa.SegmentLayout} = {}
@@ -614,7 +615,7 @@ function soa.Array.drop<T>(takes self: soa.Array<T>): nil
 end
 
 --- Compiler lowering target for `soa.allocate`.
---- @raises string when count is negative, layout arithmetic overflows, or allocation
+--- @raises string when count is invalid, layout arithmetic overflows, or allocation
 ---     fails
 function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyArray)
     local layout = soa._layout(rawLayout)
@@ -672,7 +673,7 @@ end
 --- @param count how many rows to allocate
 --- @return the slab, owned by the caller
 --- @export
---- @raises string when count is negative, layout arithmetic overflows, or allocation
+--- @raises string when count is invalid, layout arithmetic overflows, or allocation
 ---     fails
 function soa.allocate<T>(element: ctype<T>, count: integer): affine(soa.Array<T>, soa.destroyArray)
     error("soa.allocate requires compiler lowering", 2)

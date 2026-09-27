@@ -586,6 +586,13 @@ local okNegative = pcall(function()
     local invalid = soa.allocate(ffi.typeof<Particle>(), -1)
     invalid:close()
 end)
+local okFractionalLayout = pcall(function()
+    layout:forCount(1.5 as any)
+end)
+local okFractionalAllocation = pcall(function()
+    local invalid = soa.allocate(ffi.typeof<Particle>(), 1.5 as any)
+    invalid:close()
+end)
 local okOverflow = false
 if jit.os ~= "Windows" then
     okOverflow = pcall(function()
@@ -598,6 +605,8 @@ return zero.byteSize == 0
     and not okRead
     and not okDirect
     and not okNegative
+    and not okFractionalLayout
+    and not okFractionalAllocation
     and (jit.os == "Windows" or not okOverflow)
 ]]
     )

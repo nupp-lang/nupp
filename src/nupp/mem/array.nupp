@@ -74,6 +74,8 @@ function array.Array.write<T>(exclusive self: array.Array<T>): Writable<T> borro
 end
 
 --- Allocates zeroed storage with the struct witness's physical layout.
+--- @raises string when count is not a nonnegative integer or exceeds the
+---     target's storage limit
 function array.new<T>(takes witness: T, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
     local raw = @unsafe nupp.release(witness)
@@ -82,6 +84,8 @@ function array.new<T>(takes witness: T, count: integer): array.Array<T>
 end
 
 --- Allocates zeroed storage for the selected scalar element type.
+--- @raises string when count is not a nonnegative integer or exceeds the
+---     target's storage limit
 function array.scalar<T>(borrows witness: array.Scalar<T>, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
     return new array.Array(
@@ -108,7 +112,7 @@ record array.Bytes
 end
 
 --- Allocates zeroed bytes without treating the storage-only uint8 as a value type.
---- @raises string when count is not a non-negative integer
+--- @raises string when count is not a nonnegative integer
 function array.bytes(count: integer): array.Bytes
     if count < 0 or count ~= math.floor(count) then
         error("byte array count must be a non-negative integer", 2)

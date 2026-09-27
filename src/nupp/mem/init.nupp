@@ -20,7 +20,7 @@ const points = span.fromCarray(storage, 4)
 print(points[1].x)
 ```
 
-- [](nupp.mem.span) -- borrowed views over storage something else roots.
+- [](nupp.mem.span) -- borrowed views over storage rooted by another value.
 - [](nupp.mem.array) -- owned contiguous arrays, native and Wasm.
 - [](nupp.mem.heap) -- owned malloc-backed arrays.
 - [](nupp.mem.soa) -- structure-of-arrays storage.

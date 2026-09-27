@@ -136,12 +136,11 @@ end
 --- @param count how many elements to allocate
 --- @return the array, owned by the caller
 --- @export
---- @raises string when count is negative, the byte size overflows a Lua integer, or
----     malloc
+--- @raises string when count is invalid, the byte size overflows, or allocation
 ---     fails
 function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
-    if count < 0 then
-        error("heap array count cannot be negative", 2)
+    if count < 0 or count ~= math.floor(count) then
+        error("heap array count must be a nonnegative integer", 2)
     end
 
     local width = ffi.sizeof(element)

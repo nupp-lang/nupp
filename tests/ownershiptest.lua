@@ -1695,13 +1695,17 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
             "   local values = heap.allocate(ffi.typeof<int32>(), 9007199254740991 as integer)",
             "   values:close()",
             "end)",
+            "local fractional = pcall(function()",
+            "   local values = heap.allocate(ffi.typeof<int32>(), 1.5 as any)",
+            "   values:close()",
+            "end)",
             "local unwound = pcall(function()",
             "   local values = heap.allocate(ffi.typeof<int32>(), 2)",
             "   local writable = values:write()",
             "   writable[1] = 1 as int32",
             "   error('unwind')",
             "end)",
-            "return zero, one, value, negative, overflow, unwound",
+            "return zero, one, value, negative, overflow, fractional, unwound",
         },
         "\n"
     )
@@ -1711,12 +1715,13 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
     assertEq(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-heap-array")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    local zero, one, value, negative, overflow, unwound = chunk()
+    local zero, one, value, negative, overflow, fractional, unwound = chunk()
     assertEq(zero, 0, "zero-length allocation retains count")
     assertEq(one, 1, "one-element allocation retains count")
     assertEq(tonumber(value), 73, "write and read views address the allocation")
     assertEq(negative, false, "negative allocation is rejected")
     assertEq(overflow, false, "overflowing allocation is rejected")
+    assertEq(fractional, false, "fractional allocation is rejected")
     assertEq(unwound, false, "error unwinding discharges writer before array")
 end
 
@@ -7376,7 +7381,11 @@ return answer, returned, log
         for _, level in ipairs({0, 1, 2}) do
             local result, diags = checked(source, {dialect = dialect})
             assertEq(#diags, 0, diags[1] and diags[1].msg)
-            require("nupp.compiler.lua.optimize").run(result, {level = level, dialect = dialect, filename = 'test.g.nupp'})
+            require("nupp.compiler.lua.optimize").run(result, {
+                level = level,
+                dialect = dialect,
+                filename = 'test.g.nupp'
+            })
             local code, errors = gen.generate(result, "test.g.nupp")
             assertEq(#errors, 0, errors[1] and errors[1].msg)
             local chunk = assert(loadstring(code))

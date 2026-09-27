@@ -59,7 +59,7 @@ local foreignByteSpan = rawget(
 local foreignSpan = rawget(
     span as table,
     "__foreignSpan"
-) as function<T>(any, any, integer, integer, ctype<T>): span.Span<T>
+) as function<T>(any, borrows pointer: voidptr, integer, integer, ctype<T>): span.Span<T>
 
 local sharedbytes = {}
 
@@ -136,11 +136,18 @@ function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
     if width < 1 or self._length % width ~= 0 then
         error("nupp: a typed region view must contain complete elements", 2)
     end
-    if byteOffset % alignment ~= 0 or byteOffset % width ~= 0 then
+    local pointer = native.pointer(self._handle)
+    local address = tonumber(ffi.cast<uint64>(pointer)) as integer
+    if self._length > 0 and (address + byteOffset) % alignment ~= 0 then
         error("nupp: a typed region view is not suitably aligned", 2)
     end
 
-    return foreignSpan(self, native.pointer(self._handle), byteOffset // width, self._length // width, element)
+    local bytes = ffi.cast<uint8*>(pointer)
+    @unsafe
+    do
+        local start = borrowFrom((bytes + byteOffset) as voidptr, self)
+        return foreignSpan(self, start, 0, self._length // width, element)
+    end
 end
 
 --- @raises string when the region's engine storage has been released
@@ -223,11 +230,11 @@ function sharedbytes.Builder:append(chunk: string): nil
     end
 end
 
---- @raises string when the count is negative, a reservation is already open, or the
----     engine cannot grow the storage
+--- @raises string when count is not a nonnegative integer, a reservation is
+---     already open, or the engine cannot grow the storage
 function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
-    if count < 0 then
-        error("nupp: a region reservation cannot be negative", 2)
+    if count < 0 or count ~= math.floor(count) then
+        error("nupp: a region reservation must be a nonnegative integer", 2)
     end
     local pointer, problem = native.builderReserve(self._handle, count)
     if pointer == nil then
@@ -242,8 +249,12 @@ function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
     return span.writeCarray(typed, count)
 end
 
---- @raises string when no reservation is open or `written` exceeds it
+--- @raises string when `written` is not a nonnegative integer, no reservation
+---     is open, or `written` exceeds it
 function sharedbytes.Builder:commit(written: integer): nil
+    if written < 0 or written ~= math.floor(written) then
+        error("nupp: a region commit must be a nonnegative integer", 2)
+    end
     if not native.builderCommit(self._handle, written) then
         error("nupp: a commit does not match the builder's open reservation", 2)
     end
