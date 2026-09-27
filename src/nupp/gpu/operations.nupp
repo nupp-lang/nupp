@@ -24,7 +24,7 @@ local function denseShape(shape: {integer}): (integer, {integer})
     local strides: {integer} = {}
     for index = #shape, 1, -1 do
         local dimension = shape[index]
-        if dimension < 1 or count > 4294967295 // dimension then
+        if type(dimension) ~= "number" or dimension % 1 ~= 0 or dimension < 1 or count > 4294967295 // dimension then
             error("nupp: GPU tensor dimensions must have 1 through 4294967295 elements", 3)
         end
         strides[index] = count
@@ -50,21 +50,40 @@ local function liveBuffer<T>(borrows buffer: gpu.Buffer<T>): nil
 end
 
 function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
-    if index < 0 or index >= self.count then
+    if type(index) ~= "number" or index % 1 ~= 0 or index < 0 or index >= self.count then
         error("nupp: GPU shared-scratch index out of bounds", 2)
     end
     return self._values[index + 1]
 end
 
 function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
-    if index < 0 or index >= self.count then
+    if type(index) ~= "number" or index % 1 ~= 0 or index < 0 or index >= self.count then
         error("nupp: GPU shared-scratch index out of bounds", 2)
     end
     self._values[index + 1] = value
 end
 
+local sharedType: any = types.Shared
+local sharedMembers: any = rawget(sharedType, "__index")
+local sharedGet: any = rawget(sharedType, "get")
+local sharedSet: any = rawget(sharedType, "set")
+rawset(sharedType, "__index", function(self: any, key: any): any
+    if type(key) == "number" then
+        return sharedGet(self, key)
+    end
+
+    return sharedMembers[key]
+end)
+rawset(sharedType, "__newindex", function(self: any, key: any, value: any): nil
+    if type(key) == "number" then
+        sharedSet(self, key, value)
+        return
+    end
+    rawset(self, key, value)
+end)
+
 function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
-    if count < 1 then
+    if type(count) ~= "number" or count % 1 ~= 0 or count < 1 then
         error("nupp: GPU shared scratch must contain at least one element", 2)
     end
     local values: {T} = {}
@@ -249,7 +268,12 @@ function gpu.Buffer.subview<T>(
     for index = #shape, 1, -1 do
         local first = origin[index]
         local dimension = shape[index]
-        if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
+        if type(first) ~= "number"
+            or first % 1 ~= 0
+            or first < 0
+            or first > self._shape[index]
+            or dimension > self._shape[index] - first
+        then
             error("nupp: GPU tensor subview is outside its buffer", 2)
         end
         offset = offset + first * self._strides[index]

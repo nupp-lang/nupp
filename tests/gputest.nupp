@@ -5,7 +5,7 @@ local M = {}
 
 local function rejects(body: function(): nil, message: string): nil
     local ok, problem = pcall(body)
-    assert(not ok)
+    assert(not ok, "expected rejection containing " .. message)
     assert(tostring(problem):find(message, 1, true), tostring(problem))
 end
 
@@ -59,6 +59,74 @@ function M.sharedScratchChecksZeroBasedBounds(): nil
             assert(values[0] == 7)
         end)
     end)
+end
+
+function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
+    gpu.workgroups(nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), function(groupIndex: uint32, phases: gpu.Phases)
+        local scratch = phases.scratch as any
+        rejects(
+            function(): nil
+                scratch(phases, groupIndex, 1.5)
+            end,
+            "at least one element"
+        )
+        local values = phases:scratch(groupIndex, 1) as any
+        assert(values[0] == groupIndex, "scratch must expose its initial value")
+        rejects(
+            function(): nil
+                local _ = values[0.5]
+            end,
+            "index out of bounds"
+        )
+        rejects(
+            function(): nil
+                values[0.5] = groupIndex
+            end,
+            "index out of bounds"
+        )
+    end)
+
+    local uncheckedNew = layout.new as any
+    local uncheckedSubview = layout.subview as any
+    local uncheckedTranspose = layout.transpose as any
+    local uncheckedStrided = layout.asStrided as any
+    rejects(
+        function(): nil
+            uncheckedNew(0.5, {1}, {1})
+        end,
+        "offset exceeds uint32"
+    )
+    rejects(
+        function(): nil
+            uncheckedNew(0, {1.5}, {1})
+        end,
+        "dimensions and strides must fit uint32"
+    )
+    rejects(
+        function(): nil
+            uncheckedNew(0, {1}, {0.5})
+        end,
+        "dimensions and strides must fit uint32"
+    )
+    local stored = layout.new(0, {2}, {1})
+    rejects(
+        function(): nil
+            uncheckedSubview(stored, {0.5}, {1})
+        end,
+        "outside its layout"
+    )
+    rejects(
+        function(): nil
+            uncheckedTranspose(stored, {1.5})
+        end,
+        "every axis exactly once"
+    )
+    rejects(
+        function(): nil
+            uncheckedStrided(stored, {1}, {1}, 0.5)
+        end,
+        "offset exceeds uint32"
+    )
 end
 
 function M.tensorLayoutsTransposeBroadcastAndProveInjectivity(): nil

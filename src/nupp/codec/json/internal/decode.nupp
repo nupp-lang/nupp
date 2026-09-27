@@ -13,10 +13,10 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- The body lives in `nupp.codec.json.internal.decoder.fused`, monomorphized over the
---- pull builder.
---- @raises string when the native builder cannot be loaded, value allocation fails,
---- or the builder rejects a malformed escaped string
+--- The body lives in `nupp.codec.json.internal.decoder.fused`, monomorphized
+--- over the pull builder.
+--- @raises string when the native builder cannot be loaded, value allocation
+--- fails, or the builder rejects a malformed escaped string
 fused.decode = _fused.decodePull as function(
     string,
     unknown,

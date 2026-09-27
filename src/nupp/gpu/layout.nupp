@@ -59,7 +59,7 @@ end
 local facts = require("nupp.gpu.layoutfacts").layoutFacts
 
 function layout.new(offset: integer, shape: {integer}, strides: {integer}): layout.Layout
-    if offset < 0 or offset > 4294967295 then
+    if type(offset) ~= "number" or offset % 1 ~= 0 or offset < 0 or offset > 4294967295 then
         error("nupp: GPU tensor layout offset exceeds uint32", 2)
     end
     local count, extent, dense, injective = facts(shape, strides, 2)
@@ -111,7 +111,12 @@ function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: 
     for index = #shape, 1, -1 do
         local first = origin[index]
         local dimension = shape[index]
-        if first < 0 or first > value._shape[index] or dimension > value._shape[index] - first then
+        if type(first) ~= "number"
+            or first % 1 ~= 0
+            or first < 0
+            or first > value._shape[index]
+            or dimension > value._shape[index] - first
+        then
             error("nupp: GPU tensor subview is outside its layout", 2)
         end
         offset = offset + first * value._strides[index]
@@ -128,7 +133,7 @@ function layout.transpose(borrows value: layout.Layout, order: {integer}): layou
     local strides: {integer} = {}
     local seen: {boolean} = {}
     for index, axis in ipairs(order) do
-        if axis < 1 or axis > #order or seen[axis] then
+        if type(axis) ~= "number" or axis % 1 ~= 0 or axis < 1 or axis > #order or seen[axis] then
             error("nupp: GPU tensor transpose must name every axis exactly once", 2)
         end
         seen[axis] = true
@@ -170,7 +175,11 @@ function layout.asStrided(
     strides: {integer},
     relativeOffset: integer
 ): layout.Layout
-    if relativeOffset < 0 or value._offset > 4294967295 - relativeOffset then
+    if type(relativeOffset) ~= "number"
+        or relativeOffset % 1 ~= 0
+        or relativeOffset < 0
+        or value._offset > 4294967295 - relativeOffset
+    then
         error("nupp: GPU strided layout offset exceeds uint32", 2)
     end
     local result = layout.new(value._offset + relativeOffset, shape, strides)

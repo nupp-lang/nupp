@@ -192,6 +192,23 @@ function M.builtinChecksumProviderRetainsCanonicalDescriptors()
     end
 end
 
+function M.builtinDigestProviderRetainsCanonicalDescriptors()
+    local expected = builtin.names()
+    assert(table.concat(expected, ",") == "md5,sha1,sha256,sha512")
+    expected[1] = "changed"
+    assert(builtin.names()[1] == "md5", "name lists must be independent")
+
+    for _, name in ipairs(builtin.names()) do
+        local descriptor = assert(builtin.lookup(name))
+        assert(descriptor.name == name)
+        local first = descriptor:create()
+        local second = descriptor:create()
+        assert(first ~= second, name .. " factory reused state")
+        first:close()
+        second:close()
+    end
+end
+
 function M.checksumAndMacRetainCatalogsDuringOperations()
     for _, kind in ipairs({"checksum", "mac"}) do
         local builtinProvider = require("nupp.runtime.provider." .. kind)

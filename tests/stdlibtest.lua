@@ -700,8 +700,67 @@ function M.browserEffectsDropCancelledRequestsBeforeTheyShip()
     local ok, encoded = coroutine.resume(shipped)
     assert(ok, encoded)
     assertEq(json.decode(encoded).kind, "poll", "a request cancelled before it ships never happens")
-    assert(coroutine.resume(shipped, json.encode({responses = {}})))
+    assert(coroutine.resume(shipped, json.encode({responses = json.asArray({})})))
     assert(not discarded, "nothing was opened, so nothing is discarded")
+end
+
+function M.browserEffectsRejectMalformedResponsesBeforeDispatch()
+    local effects = require("nupp.runtime.browser.effects")
+    local json = require("nupp.runtime.provider.lunajson")
+    for _, malformed in ipairs({
+        "{",
+        json.encode(7),
+        json.encode(json.asArray({})),
+        json.encode({
+            cancelled = "yes"
+        }),
+        json.encode({responses = "not-an-array"}),
+        json.encode({responses = {}}),
+        json.encode({responses = {{id = 1.5}}}),
+    }) do
+        local resumed = false
+        local cancel = effects.request("test", {}, function()
+            resumed = true
+        end)
+        local parked = coroutine.create(function()
+            effects.park("malformed browser response")
+        end)
+        local ok, encoded = coroutine.resume(parked)
+        assert(ok, encoded)
+        assert(json.decode(encoded).kind == "effects")
+        local completed, problem = coroutine.resume(parked, malformed)
+        assert(not completed)
+        assert(tostring(problem):find("invalid effect response", 1, true), tostring(problem))
+        assert(not resumed, "a malformed batch must not dispatch any response")
+        cancel()
+    end
+end
+
+function M.browserEffectsFinishDispatchBeforeRaisingACallbackFailure()
+    local effects = require("nupp.runtime.browser.effects")
+    local json = require("nupp.runtime.provider.lunajson")
+    local failure = {}
+    local second = false
+    effects.request("test", {}, function()
+        error(failure, 0)
+    end)
+    effects.request("test", {}, function()
+        second = true
+    end)
+    local parked = coroutine.create(function()
+        effects.park("callback failure")
+    end)
+    local ok, encoded = coroutine.resume(parked)
+    assert(ok, encoded)
+    local batch = json.decode(encoded)
+    local completed, problem = coroutine.resume(
+        parked,
+        json.encode({
+            responses = {{id = batch.requests[1].id}, {id = batch.requests[2].id}}
+        })
+    )
+    assert(not completed and problem == failure, "callback error identity must survive dispatch")
+    assert(second, "one failed callback must not strand later responses in its batch")
 end
 
 function M.stringLibrary()

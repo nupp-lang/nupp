@@ -47,7 +47,7 @@ function bridge.metadata(programs: {scalar.Program}, tier: string): any
             symbol = program.symbol,
             call = "nupp_bridge_" .. tostring(index),
             params = params,
-            independentCounts = program.body ~= nil,
+            independentCounts = scalar.independentCounts(program),
             results = json.asArray(program.resultTypes or {}),
             layouts = layouts
         }
@@ -97,7 +97,7 @@ function bridge.binding(program: scalar.Program, units: {string}): string
         ) .. "}, results = {" .. table.concat(
             results,
             ", "
-        ) .. "}, independentCounts = " .. tostring(program.body ~= nil) .. "})"
+        ) .. "}, independentCounts = " .. tostring(scalar.independentCounts(program)) .. "})"
 end
 
 export = bridge

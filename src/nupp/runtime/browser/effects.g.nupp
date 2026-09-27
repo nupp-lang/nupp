@@ -11,6 +11,51 @@ local nextId: integer = 1
 local queued: {any} = {}
 local waiting: {[integer]: any} = {}
 
+local function invalidResponse(detail: string): never
+    error("nupp: browser application returned an invalid effect response: " .. detail, 0)
+end
+
+local function decodedResponse(text: any): (any, {any})
+    if type(text) ~= "string" then
+        invalidResponse("expected JSON text")
+    end
+    local decoded, response = pcall(json.decode, text)
+    if not decoded then
+        invalidResponse("invalid JSON")
+    end
+    if type(response) ~= "table" or json.isArray(response) then
+        invalidResponse("expected an object")
+    end
+    if response.cancelled ~= nil and type(response.cancelled) ~= "boolean" then
+        invalidResponse("cancelled must be boolean")
+    end
+    local responses = response.responses
+    if responses == nil then
+        responses = {}
+    elseif type(responses) ~= "table" or not json.isArray(responses) then
+        invalidResponse("responses must be an array")
+    end
+    local count: integer = 0
+    local highest: integer = 0
+    for key in pairs(responses) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+            invalidResponse("responses must be an array")
+        end
+        count = count + 1
+        highest = math.max(highest, key)
+    end
+    if count ~= highest then
+        invalidResponse("responses must be an array")
+    end
+    for _, item in ipairs(responses) do
+        if type(item) ~= "table" or type(item.id) ~= "number" or item.id < 1 or item.id % 1 ~= 0 then
+            invalidResponse("every response needs a positive integer id")
+        end
+    end
+
+    return response, responses
+end
+
 function effects.request(
     kind: string,
     payload: any,
@@ -78,15 +123,22 @@ function effects.park(operation: string): nil
         queued = {}
     end
     local responseText = coroutine.yield(encoded)
-    local response = json.decode(responseText)
+    local response, responses = decodedResponse(responseText)
     if response.cancelled then
         error("nupp: browser application was cancelled", 0)
     end
-    for _, item in ipairs(response.responses or {}) do
+    local dispatchFailure: any = nil
+    for _, item in ipairs(responses) do
         local deliver = waiting[item.id]
         if deliver ~= nil then
-            deliver(item)
+            local delivered, problem = pcall(deliver, item)
+            if not delivered and dispatchFailure == nil then
+                dispatchFailure = problem
+            end
         end
+    end
+    if dispatchFailure ~= nil then
+        error(dispatchFailure, 0)
     end
 end
 

@@ -12,7 +12,14 @@ export function layoutFacts(shape: {integer}, strides: {integer}, level: integer
     for index = #shape, 1, -1 do
         local dimension = shape[index]
         local stride = strides[index]
-        if dimension < 1 or stride < 0 or count > 4294967295 // dimension then
+        if type(dimension) ~= "number"
+            or dimension % 1 ~= 0
+            or type(stride) ~= "number"
+            or stride % 1 ~= 0
+            or dimension < 1
+            or stride < 0
+            or count > 4294967295 // dimension
+        then
             error("nupp: GPU tensor dimensions and strides must fit uint32", level)
         end
         if dimension > 1 and stride ~= expected then

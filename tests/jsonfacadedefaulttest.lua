@@ -105,6 +105,24 @@ function M.theJsonProviderModuleIsLunajson()
     assert(provider.encode == lunajson.encode, "the assembled JSON provider is not Lunajson")
 end
 
+function M.fusedEntryModulesRetainTheirBuilderAndStatusIdentity()
+    local fused = require("nupp.codec.json.internal.decoder.fused")
+    local pull = require("nupp.codec.json.internal.decode")
+    local eager = require("nupp.codec.json.internal.decoder.eager")
+    local serde = require("nupp.codec.json.internal.decoder.serde")
+    assert(pull.decode == fused.decodePull)
+    assert(eager.decode == fused.decodeEager)
+    assert(serde.decode == fused.decodeSerde)
+    for _, entry in ipairs({pull, eager, serde}) do
+        assert(entry.OK == 0)
+        assert(entry.SYNTAX == 1)
+        assert(entry.INVALID_UTF8 == 2)
+        assert(entry.INVALID_CONTROL == 3)
+        assert(entry.INVALID_BACKSLASH == 4)
+        assert(entry.TAPE == 5)
+    end
+end
+
 -- Run this same function under stock Lua 5.1 as well as the native suite: its
 -- constant table historically coalesced literal -0.0 with positive zero.
 function M.theVendoredDecoderPreservesBothZeroSigns()
