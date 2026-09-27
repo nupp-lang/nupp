@@ -13,9 +13,10 @@ assert(reader:read(5) == "hello")
 ```
 
 A buffer holds its bytes in the target's physical storage: a native array on
-LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are interfaces rather than the
-concrete things that satisfy them, which is what lets code written against the
-contract work over any of them without knowing which it has.
+LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are
+interfaces rather than the concrete things that satisfy them. Code written
+against either contract works over every implementation without knowing which
+one it has.
 
 The rest of what `io` means is a module of its own, because each has a luacase
 name and so can have one. See [](nupp.io.path) for filesystem names,
@@ -26,14 +27,15 @@ for the asynchronous HTTP client.
 Keeping them apart is what lets a program that wants a byte buffer carry a byte
 buffer rather than every provider behind the name.
 
-The last four move their bytes through the `Reader` and `Writer` contracts on
-this page, so a parser written against byte I/O reads a file, a child's output,
-a connection, or a response body without knowing which it has.
+Files, processes, network connections, TLS sessions, and HTTP bodies move bytes
+through the `Reader` and `Writer` contracts on this page. A parser written
+against byte I/O therefore accepts all of them.
 
-Every value here is an owner. `close` is safe to call repeatedly and answers
-whether the thing it was writing into was still open, so a caller that cares can
-tell a clean finish from a destination that went away first. `isReleased`
-reports that state without changing it.
+Buffers, views, readers, writers, and their adapters are owners. A factory that
+takes a reader or writer transfers its close obligation to the adapter; a
+factory that borrows a buffer or byte queue leaves that value with its caller.
+`close` consumes an owner. Types that expose `isReleased` report their state
+without changing it.
 
 ## Buffers
 
@@ -48,8 +50,8 @@ assert(bytes:getString() == "hello!")
 
 Buffer offsets are zero-based, as they are wherever a count is an offset into
 storage rather than a position in a Lua string. See [Byte
-positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the rule and
-where the other convention applies.
+positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the
+rule and where the other convention applies.
 
 `getString(offset, count)` copies a range. `setString` overwrites from an
 offset and grows the buffer as needed, filling any gap with zero bytes. `clear`
@@ -146,6 +148,23 @@ the common zero-copy input contract for buffers, views, files, processes, and
 HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
 does nothing for memory and is part of the contract so that a later file or
 socket writer implements the same interface.
+
+## Lines
+
+`newLines(reader, limit)` takes a reader and separates it at `\n` and `\r\n`.
+The terminator is not returned, and a final fragment before EOF is still a
+line:
+
+```nupp
+local lines = nupp.io.newLines(nupp.io.newStringReader("one\r\ntwo\nlast"))
+assert(lines:read() == "one")
+assert(lines:read() == "two")
+assert(lines:read() == "last")
+assert(lines:read() == nil) -- EOF
+```
+
+The default limit is 64 KiB. An overlong line or source failure returns nil
+with a reason. Closing or dropping the line reader closes the source it took.
 
 ## Typed scalars
 
@@ -255,14 +274,15 @@ empty leaves an empty queue rather than a released one.
 ::: seealso
 - [](nupp.io.files) for the same contracts over a file on disk
 - [](nupp.io.path) for filesystem names rather than file contents
-- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract every
-  value here is written against
-- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the errors,
-  ownership and byte-position conventions every facility shares
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
+  contract every owned value here follows
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the
+  errors, ownership, and byte-position conventions every facility shares
 :::
 ]]
 
--- Public names are direct aliases; calls reach the implementation without adapters.
+-- Public names are direct aliases; calls reach the implementation without
+-- adapters.
 const bytes = require("nupp.io.internal.bytes")
 const scalars = require("nupp.io.internal.scalars")
 const lines = require("nupp.io.internal.lines")
@@ -284,11 +304,11 @@ export type Reader = bytes.Reader
 --- @export
 export type Writer = bytes.Writer
 
---- A queue of bytes something else is filling, which a reader may be opened over
---- without owning it.
+--- A queue of bytes something else is filling, which a reader may be opened
+--- over without owning it.
 ---
---- A process stream and an HTTP response body are both one of these without either
---- knowing about this module.
+--- A process stream and an HTTP response body are both one of these without
+--- either knowing about this module.
 --- @export
 export type ByteQueue = bytes.ByteQueue
 
@@ -302,7 +322,8 @@ export type ByteView = bytes.ByteView
 --- @export
 export type BufferWriteLease = bytes.BufferWriteLease
 
---- Growable byte storage whose pointer and logical length never escape separately.
+--- Growable byte storage whose pointer and logical length never escape
+--- separately.
 --- @export
 export type Buffer = bytes.Buffer
 
@@ -316,8 +337,8 @@ export type ScalarWriter = scalars.ScalarWriter
 
 --- A reader taken apart into lines.
 ---
---- Reading a line means reading past its end, so something has to hold what came
---- after it. That is what this owns, and it is why a line reader takes its
+--- Reading a line means reading past its end, so something has to hold what
+--- came after it. That is what this owns, and it is why a line reader takes its
 --- source rather than borrowing one: two things reading the same bytes would
 --- each see half of them.
 --- @export
@@ -379,9 +400,9 @@ export const newQueueReader = bytes.newQueueReader
 
 --- Opens a cursor for sized integer and float reads.
 ---
---- A string, snapshot or buffer is read from a copy of its bytes taken here, and
---- reports its `remaining` count. A reader or a queue is consumed in place: the reader
---- answers no count, the queue answers what it still holds.
+--- A string, snapshot or buffer is read from a copy of its bytes taken here,
+--- and reports its `remaining` count. A reader or a queue is consumed in
+--- place: the reader answers no count, the queue answers what it still holds.
 ---
 --- What the source is decides what happens to it. A snapshot or a buffer is
 --- borrowed and outlives the cursor; a reader is taken, and closing the cursor
@@ -403,9 +424,9 @@ export const newScalarReader = scalars.newScalarReader
 
 --- Opens a cursor for sized integer and float writes.
 ---
---- A buffer is appended to, keeping what it already holds. A writer receives the bytes
---- as they are written. Omitting the destination starts a fresh buffer, which
---- `ScalarWriter:buffer` hands back.
+--- A buffer is appended to, keeping what it already holds. A writer receives
+--- the bytes as they are written. Omitting the destination starts a fresh
+--- buffer, which `ScalarWriter:buffer` hands back.
 ---
 --- ```nupp
 --- do
@@ -416,7 +437,8 @@ export const newScalarReader = scalars.newScalarReader
 --- end
 --- ```
 ---
---- @param destination the buffer or writer to append to, or nothing for a fresh buffer
+--- @param destination the buffer or writer to append to, or nothing for a
+---     fresh buffer
 --- @return the new writer, owned by the caller
 --- @raises string when destination is neither a buffer nor a writer
 --- @export

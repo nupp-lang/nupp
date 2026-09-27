@@ -84,6 +84,25 @@ local record BrokenQueue is ByteQueue
     get: function(self: BrokenQueue, ...: integer?): string
 end
 
+local record NamedQueue is ByteQueue
+    bytes: string
+    read: boolean
+
+    metamethod __len: function(self: NamedQueue): integer
+    get: function(self: NamedQueue, ...: integer?): string
+end
+
+function NamedQueue.__len(self: NamedQueue): integer
+    return #self.bytes
+end
+
+function NamedQueue.get(self: NamedQueue, ...: integer?): string
+    local count = (...) or #self.bytes
+    local out = self.bytes:sub(1, count)
+    self.bytes = self.bytes:sub(#out + 1)
+    return out
+end
+
 function BrokenQueue.__len(self: BrokenQueue): integer
     return self.reported
 end
@@ -232,6 +251,19 @@ function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
             reader:readInto(other, 0, 0)
         end)
     )
+end
+
+function M.scalarReadersHonorTheByteQueueContract(): nil
+    local named = new NamedQueue(bytes = "xy", read = true)
+    local reader = io2.newScalarReader(named)
+    assert(reader:readBytes(1) == "x")
+    assert(named.bytes == "y")
+
+    local broken = io2.newScalarReader(new BrokenQueue(reported = 2, answer = "xyz"))
+    local ok, reason = pcall(function(): nil
+        broken:readBytes(1)
+    end)
+    assert(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
 end
 
 function M.rejectsInvalidRangesAndMalformedByteQueues(): nil

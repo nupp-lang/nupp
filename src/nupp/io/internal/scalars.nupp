@@ -518,7 +518,12 @@ fill = function(self: ScalarReader, need: integer): (integer, string?)
         local queue = state._queue as ByteQueue
         local have = want > 0 and storage.queueLength(queue) or 0
         if have > 0 then
-            state._pending = (state._pending as string) .. queue:get(math.min(want, have))
+            local taking = math.min(want, have) as integer
+            local chunk: any = queue:get(taking)
+            if type(chunk) ~= "string" or #chunk ~= taking then
+                error("nupp: io.ByteQueue returned the wrong byte count", 3)
+            end
+            state._pending = (state._pending as string) .. (chunk as string)
         end
     end
 
@@ -580,6 +585,22 @@ local function queueLike(value: any): boolean
     end
 end
 
+local function readerLike(value: any): boolean
+    local kind = type(value)
+    if kind ~= "table" and kind ~= "userdata" and kind ~= "cdata" then
+        return false
+    end
+    local ok, answer = pcall(function(): boolean
+        return type(value.read) == "function"
+            and type(value.readSpan) == "function"
+            and type(value.readInto) == "function"
+            and type(value.transferTo) == "function"
+            and type(value.close) == "function"
+    end)
+
+    return ok and answer
+end
+
 -- The two scalar factories are declared below rather than written as exports,
 -- because each accepts its sources under different ownership: a snapshot or buffer is
 -- borrowed, a reader is taken, and a string or queue carries no obligation at all.
@@ -591,7 +612,7 @@ local function openScalarReader(source: any): ScalarReader
     local kind = type(source)
     if kind == "string" then
         state._pending = source
-    elseif kind == "table" and source.read ~= nil then
+    elseif readerLike(source) then
         state._reader = source
     elseif kind == "table" and source.getString ~= nil then
         state._pending = source:getString()
