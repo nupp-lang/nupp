@@ -29,7 +29,7 @@ cabi.ABI = 1
 local SCALARS: {
     [string]: string
 } = {
-    boolean = "_Bool",
+    boolean = "bool",
     float = "float",
     number = "double",
     integer = "int32_t",
@@ -280,6 +280,9 @@ function cabi.prototype(signature: any, erased: boolean?): string?, string?
     if not signature or signature.schema ~= cabi.ABI then
         return nil, "the C function signature has an unsupported schema"
     end
+    if signature.convention ~= "c" then
+        return nil, "the C function signature has an unsupported calling convention"
+    end
     local params = {}
     for index, parameter in ipairs(signature.params or {}) do
         local declaration, why = renderDeclaration(
@@ -360,10 +363,16 @@ function cabi.header(aggregates: {any}, functions: {any}, guard: string?): strin
         "#define " .. guard,
         "",
         "#include <stddef.h>",
+        "#include <stdbool.h>",
         "#include <stdint.h>",
         "",
         "#if defined(__cplusplus)",
+        "#define " .. guard .. "_ALIGNOF alignof",
+        "#define " .. guard .. "_STATIC_ASSERT static_assert",
         "extern \"C\" {",
+        "#else",
+        "#define " .. guard .. "_ALIGNOF _Alignof",
+        "#define " .. guard .. "_STATIC_ASSERT _Static_assert",
         "#endif",
         "",
     }
@@ -384,19 +393,19 @@ function cabi.header(aggregates: {any}, functions: {any}, guard: string?): strin
         out[
             #out + 1
         ] = (
-            "_Static_assert(sizeof(%s) == %d, \"%s size\");"
-        ):format(description.typedef, description.size, description.identity)
+            "%s_STATIC_ASSERT(sizeof(%s) == %d, \"%s size\");"
+        ):format(guard, description.typedef, description.size, description.identity)
         out[
             #out + 1
         ] = (
-            "_Static_assert(_Alignof(%s) == %d, \"%s alignment\");"
-        ):format(description.typedef, description.alignment, description.identity)
+            "%s_STATIC_ASSERT(%s_ALIGNOF(%s) == %d, \"%s alignment\");"
+        ):format(guard, guard, description.typedef, description.alignment, description.identity)
         for _, field in ipairs(description.fields) do
             out[
                 #out + 1
             ] = (
-                "_Static_assert(offsetof(%s, %s) == %d, \"%s.%s offset\");"
-            ):format(description.typedef, field.name, field.offset, description.identity, field.name)
+                "%s_STATIC_ASSERT(offsetof(%s, %s) == %d, \"%s.%s offset\");"
+            ):format(guard, description.typedef, field.name, field.offset, description.identity, field.name)
         end
         out[#out + 1] = ""
     end
@@ -413,6 +422,8 @@ function cabi.header(aggregates: {any}, functions: {any}, guard: string?): strin
     out[#out + 1] = "#if defined(__cplusplus)"
     out[#out + 1] = "}"
     out[#out + 1] = "#endif"
+    out[#out + 1] = "#undef " .. guard .. "_STATIC_ASSERT"
+    out[#out + 1] = "#undef " .. guard .. "_ALIGNOF"
     out[#out + 1] = ""
     out[#out + 1] = "#endif"
     out[#out + 1] = ""

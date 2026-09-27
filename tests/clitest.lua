@@ -473,11 +473,11 @@ struct game.Position
    x: float
    y: float
 end
-cdef function integrate(exclusive position: game.Position*?, dt: float)
+cdef function integrate(exclusive position: game.Position*?, dt: float, enabled: boolean)
 function game.run(): float
    local positions = carray(game.Position, 1)
    positions[0].x = 1
-   integrate(positions, 2)
+   integrate(positions, 2, true)
    return positions[0].x
 end
 return game
@@ -494,11 +494,11 @@ return game
         "the canonical ordinary-struct identity is emitted"
     )
     assert(
-        header:find("void integrate(nupp_4_game_8_Position *position, float dt);", 1, true),
+        header:find("void integrate(nupp_4_game_8_Position *position, float dt, bool enabled);", 1, true),
         "the public prototype remains typed"
     )
     assert(
-        header:find("_Static_assert(offsetof(nupp_4_game_8_Position, y) == 4", 1, true),
+        header:find("GAME_H_STATIC_ASSERT(offsetof(nupp_4_game_8_Position, y) == 4", 1, true),
         "every field offset is asserted"
     )
 
@@ -506,12 +506,16 @@ return game
     assert(built, "the ordinary module builds: " .. generated)
     local lua = assert(io.open(dir .. "/build/game.lua", "rb")):read("*a")
     assert(
-        lua:find('cdef, "void integrate(void *, float);"', 1, true),
+        lua:find('cdef, "void integrate(void *, float, bool);"', 1, true),
         "the same checked signature erases only the physical FFI pointer slot"
     )
     assert(
         os.execute(("cd '%s' && cc -std=c11 -fsyntax-only game.h"):format(dir)) == 0,
         "an independent C compiler accepts the exported header"
+    )
+    assert(
+        os.execute(("cd '%s' && c++ -x c++ -std=c++11 -pedantic-errors -fsyntax-only game.h"):format(dir)) == 0,
+        "an independent C++ compiler accepts the exported header"
     )
 
     -- What remains calls the C implementation through the module's own cdef,
@@ -526,8 +530,8 @@ return game
     local c = assert(io.open(dir .. "/game.c", "wb"))
     c:write(
         [[#include "game.h"
-void integrate(nupp_4_game_8_Position *position, float dt) {
-    position->x += dt;
+void integrate(nupp_4_game_8_Position *position, float dt, bool enabled) {
+    if (enabled) position->x += dt;
     position->y = position->x * 2.0f;
 }
 ]]
@@ -996,13 +1000,19 @@ function M.theEntryRaisesLuaJITsCapacityLimits()
     local applied, calls = limitsApplied()
     assert(applied, "the limits apply")
     local want = table.concat(jitlimits.FLAGS, ",") .. " flush"
-    assert(calls == want, ("the limits, then a flush so the area is made at the new size\n  want: %q\n  got:  %q"):format(want, calls))
+    assert(
+        calls == want,
+        ("the limits, then a flush so the area is made at the new size\n  want: %q\n  got:  %q"):format(want, calls)
+    )
 
     local kept, none = limitsApplied({NUPP_JIT_DEFAULT = "1"})
     assert(not kept and none == "", "NUPP_JIT_DEFAULT keeps LuaJIT's own limits: " .. none)
 
     local swept, sweep = limitsApplied({NUPP_JIT_LIMITS = "maxtrace=4000,sizemcode=1024"})
-    assert(swept and sweep == "maxtrace=4000,sizemcode=1024 flush", "NUPP_JIT_LIMITS is how a sweep moves them: " .. sweep)
+    assert(
+        swept and sweep == "maxtrace=4000,sizemcode=1024 flush",
+        "NUPP_JIT_LIMITS is how a sweep moves them: " .. sweep
+    )
     local empty, nothing = limitsApplied({NUPP_JIT_LIMITS = ""})
     assert(not empty and nothing == "", "an empty NUPP_JIT_LIMITS applies none: " .. nothing)
 end
