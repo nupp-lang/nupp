@@ -259,6 +259,91 @@ return {
     )
 end
 
+function M.preparedJsonEnforcesContainerContracts()
+    local result = run(
+        [=[
+@derive(nupp.derive.Serde)
+local record Node
+    name: string
+    children: {Node}
+end
+
+@derive(nupp.derive.Serde)
+local record Composite
+    pair: {integer, string?}
+    mode: "read" | "write"
+    counts: {[string]: integer}
+end
+
+const serde = nupp.serde
+local builder = new serde.SchemaBuilder()
+builder:structure("example.Values")
+builder:required("items", serde.list(serde.integer))
+local binding = serde.dynamic(builder:freeze())
+local prepared = serde.json():prepare(binding)
+
+local sparseOk, sparseProblem = pcall(binding.bind, binding, {items = {[1] = 1, [3] = 3}})
+local mixedOk, mixedProblem = pcall(binding.bind, binding, {items = {[1] = 1, name = 2}})
+local incompleteOk, incompleteProblem = pcall(prepared.encode, prepared, binding:newValue())
+
+local optionalOk, optionalProblem = pcall(serde.list, serde.optional(serde.integer))
+
+local codec = serde.json()
+local nodePrepared = codec:prepare(serde.of(Node))
+local node = new Node(name = "root", children = {})
+node.children[1] = node
+local cycleOk, cycleProblem = pcall(nodePrepared.encode, nodePrepared, node)
+
+local compositePrepared = codec:prepare(serde.of(Composite))
+local composite = assert(compositePrepared:decode([[{"pair":[7,null],"mode":"read","counts":{"a":2}}]]))
+local tupleOk, tupleProblem = compositePrepared:decode(
+    [[{"pair":[7,"x",9],"mode":"read","counts":{}}]]
+)
+local unionOk, unionProblem = compositePrepared:decode(
+    [[{"pair":[7,null],"mode":"other","counts":{}}]]
+)
+
+return {
+    sparseOk = sparseOk,
+    sparseProblem = tostring(sparseProblem),
+    mixedOk = mixedOk,
+    mixedProblem = tostring(mixedProblem),
+    incompleteOk = incompleteOk,
+    incompleteProblem = tostring(incompleteProblem),
+    optionalOk = optionalOk,
+    optionalProblem = tostring(optionalProblem),
+    cycleOk = cycleOk,
+    cycleProblem = tostring(cycleProblem),
+    pair = composite.pair[1],
+    pairTail = composite.pair[2],
+    mode = composite.mode,
+    count = composite.counts.a,
+    tupleOk = tupleOk,
+    tupleProblem = tostring(tupleProblem),
+    unionOk = unionOk,
+    unionProblem = tostring(unionProblem),
+}
+]=]
+    )
+    assert(not result.sparseOk and result.sparseProblem:find("holes", 1, true), result.sparseProblem)
+    assert(not result.mixedOk and result.mixedProblem:find("positive integer indexes", 1, true), result.mixedProblem)
+    assert(
+        not result.incompleteOk and result.incompleteProblem:find("missing required member items", 1, true),
+        result.incompleteProblem
+    )
+    assert(
+        not result.optionalOk and result.optionalProblem:find("cannot be optional or null", 1, true),
+        result.optionalProblem
+    )
+    assert(not result.cycleOk and result.cycleProblem:find("cyclic value", 1, true), result.cycleProblem)
+    assert(
+        result.pair == 7 and result.pairTail == nil and result.mode == "read" and result.count == 2,
+        "tuple, literal union, or map materialization changed its value"
+    )
+    assert(result.tupleOk == nil and result.tupleProblem:find("tuple length", 1, true), result.tupleProblem)
+    assert(result.unionOk == nil and result.unionProblem:find("union", 1, true), result.unionProblem)
+end
+
 function M.documentMembersStayInsideThePreparedTraversal()
     local result = run(
         [=[
@@ -670,11 +755,9 @@ print(narrowed)
         end
     end
     assert(
-        first and first.code == "NUPP2001" and first.msg:find(
-            "ExtensionKey<string> is not a ExtensionKey<integer>",
-            1,
-            true
-        ),
+        first
+        and first.code == "NUPP2001"
+        and first.msg:find("ExtensionKey<string> is not a ExtensionKey<integer>", 1, true),
         "an extension key was narrowed to another value type"
     )
 end
@@ -852,6 +935,19 @@ end
     assert(
         problems[1] and problems[1].code == "NUPP2803" and problems[1].msg:find("not supported by Serde", 1, true),
         "Serde guessed pointer ownership"
+    )
+end
+
+function M.serdeRejectsNullableListElements()
+    local problems = diagnostics([=[
+@derive(nupp.derive.Serde)
+local record Sparse
+    values: {integer?}
+end
+]=])
+    assert(
+        problems[1] and problems[1].code == "NUPP2803" and problems[1].msg:find("not supported by Serde", 1, true),
+        "Serde admitted list elements that materialize as holes"
     )
 end
 

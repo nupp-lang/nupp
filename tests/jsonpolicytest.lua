@@ -38,10 +38,7 @@ function M.invalidNumbersAreAlwaysRejected()
 end
 
 function M.providersPreserveNegativeZero()
-    for _, provider in ipairs({
-        require("nupp.runtime.provider.lunajson"),
-        require("nupp.codec.json.aot"),
-    }) do
+    for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
         local encoded = provider.encode(-0.0)
         assert(encoded == "-0", "negative zero lost its sign: " .. encoded)
         assert(1 / provider.decode(encoded) == -math.huge, "negative zero did not round-trip")
@@ -49,14 +46,15 @@ function M.providersPreserveNegativeZero()
 end
 
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
-    for _, provider in ipairs({
-        require("nupp.runtime.provider.lunajson"),
-        require("nupp.codec.json.aot"),
-    }) do
+    for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
         local output = require("nupp.text").newBuffer()
         local writer = provider.writer(output)
         writer:startArray():write(1)
-        assert(not pcall(writer.write, writer, function() end), "the writer accepted a function")
+        assert(
+            not pcall(writer.write, writer, function()
+            end),
+            "the writer accepted a function"
+        )
         writer:write(2):endArray()
         writer:close()
         assert(output:tostring() == "[1,2]", "a rejected value changed the writer")
@@ -105,6 +103,18 @@ function M.portableEncodingBoundsNesting()
     end
     local ok, problem = pcall(json.encode, value)
     assert(not ok and tostring(problem):find("nesting exceeds 1024", 1, true), tostring(problem))
+end
+
+function M.providersShareTheDecodeNestingBoundary()
+    local providers = {require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}
+    local deepest = string.rep("[", 1024) .. "1" .. string.rep("]", 1024)
+    local tooDeep = "[" .. deepest .. "]"
+    for _, provider in ipairs(providers) do
+        local ok, value = pcall(provider.decode, deepest)
+        assert(ok and type(value) == "table", "a provider rejected 1,024 nested containers: " .. tostring(value))
+        local accepted, problem = pcall(provider.decode, tooDeep)
+        assert(not accepted, "a provider accepted 1,025 nested containers: " .. tostring(problem))
+    end
 end
 
 return M

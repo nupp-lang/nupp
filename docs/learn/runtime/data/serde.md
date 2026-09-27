@@ -6,7 +6,29 @@ title: Schema-driven serde
 # Schema-driven serde
 
 Serde separates a value's logical shape, its physical representation, and its
-wire format:
+wire format. A binding joins a schema to a value type, and a codec prepares
+that combination for one wire policy:
+
+```nupp:playground
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string?
+end
+
+local binding = nupp.serde.of(User)
+local prepared = nupp.serde.json():prepare(binding)
+local text = prepared:encode(new User(id = 41, name = "Ada"))
+local restored, problem = prepared:decode(text)
+
+assert(text == [[{"id":41,"name":"Ada"}]])
+assert(problem == nil)
+assert(restored and restored.name == "Ada")
+```
+
+## Schema parts
+
+The three parts divide logical data, in-memory access, and wire policy:
 
 - `Schema` describes members, scalar kinds, requiredness, and defaults.
 - `Binding<T>` joins that schema to a record, struct, or dense dynamic value.
@@ -21,29 +43,10 @@ type, protocol, and format.
 ## Derived bindings
 
 `@derive(nupp.derive.Serde)` records format-neutral materialization data. It
-does not add serialization methods to an instance.
+does not add serialization methods to an instance. The declaration name is the
+`Type<T>` witness accepted by `serde.of`.
 
-```nupp:playground
-@derive(nupp.derive.Serde)
-local record User
-    id: uint32
-    name: string?
-end
-
-local binding = nupp.serde.of(User)
-local prepared = nupp.serde.json():prepare(binding)
-local text = prepared:encode(new User(id = 41, name = "Ada"))
-local restored, problem = prepared:decode(text)
-local output = require("nupp.text").newBuffer()
-prepared:write(new User(id = 42), output)
-
-assert(text == [[{"id":41,"name":"Ada"}]])
-assert(problem == nil)
-assert(restored and restored.name == "Ada")
-```
-
-The declaration name is the `Type<T>` witness accepted by `serde.of`. This is
-also true for a fixed-layout struct:
+This is also true for a fixed-layout struct:
 
 ```nupp
 @derive(nupp.derive.Serde)
@@ -166,6 +169,11 @@ Nested records, lists, maps, optionals, and documents use the same schema and
 binding semantics and are traversed by the recursive prepared implementation.
 Preparation remains the API boundary for adding more format-specific
 optimizations without changing callers.
+
+JSON arrays materialize as dense Lua lists. A null list element cannot become
+`nil` without turning the list into a hole, so `serde.list` rejects optional
+and null element schemas. Use a `document` element schema when the list must
+retain explicit JSON null through the codec's `NULL` sentinel.
 
 `nupp.codec.json.newCodec` is a compatibility entry point for the same codec.
 `nupp.serde.json` is the typed primary API.

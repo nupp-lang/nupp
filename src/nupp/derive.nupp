@@ -1215,7 +1215,10 @@ local function serdeSpec(T: type, contract: type): any
         end
     elseif value.kind == "array" then
         local item = serdeSpec(value.element, contract)
-        return item and {kind = "array", value = item} or nil
+        if item == nil or item.kind == "optional" or item.kind == "nil" then
+            return nil
+        end
+        return {kind = "array", value = item}
     elseif value.kind == "map" then
         local key = detail(value.readKey)
         local item = key.name == "string" and serdeSpec(value.readValue, contract) or nil

@@ -128,7 +128,7 @@ type it was handed.
   the derived schema and the generated `writeJSON` and `fromJSON` members
 - [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
   to a declaration
-- [](nupp.serde) for binary serialization
+- [](nupp.serde) for schema-driven serialization
 :::
 ]==]
 const {type Buffer} = require("nupp.text")

@@ -425,8 +425,8 @@ local function newdecoder()
     -- array
     local function f_ary()
         rec_depth = rec_depth + 1
-        if rec_depth > 1000 then
-            decode_error('too deeply nested json (> 1000)')
+        if rec_depth > 1024 then
+            decode_error('too deeply nested json (> 1024)')
         end
         local ary = {}
 
@@ -464,8 +464,8 @@ local function newdecoder()
     -- objects
     local function f_obj()
         rec_depth = rec_depth + 1
-        if rec_depth > 1000 then
-            decode_error('too deeply nested json (> 1000)')
+        if rec_depth > 1024 then
+            decode_error('too deeply nested json (> 1024)')
         end
         local obj = {}
 

@@ -236,8 +236,12 @@ export function optional(target: Schema): Schema
 end
 
 --- Creates an immutable list node.
+--- @raises string when the element schema materializes JSON null as nil
 --- @export
 export function list(target: Schema): Schema
+    if target.kind == "optional" or target.kind == "null" then
+        error("nupp: list elements cannot be optional or null; use document to retain JSON null", 2)
+    end
     return makeSchema("list", nil, nil, {element = target})
 end
 
@@ -400,6 +404,41 @@ end
 local bindingStates: any = setmetatable({}, {__mode = "k"})
 local defaultSchemaBindings: any = setmetatable({}, {__mode = "k"})
 local validateValue: function(value: any, schema: Schema, path: string): nil
+
+local function listLength(value: any, path: string): integer
+    if type(value) ~= "table" then
+        error("nupp: " .. path .. " must be a list", 3)
+    end
+    local count: integer = 0
+    local highest: integer = 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+            error("nupp: " .. path .. " must contain only positive integer indexes", 3)
+        end
+        count = count + 1
+        highest = math.max(highest, math.floor(key))
+    end
+    if count ~= highest then
+        error("nupp: " .. path .. " cannot contain holes", 3)
+    end
+
+    return highest
+end
+
+local function validateTuple(value: any, schema: Schema, path: string): nil
+    if type(value) ~= "table" then
+        error("nupp: " .. path .. " must match tuple length", 3)
+    end
+    local items = schema.state.items or {}
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or key > #items then
+            error("nupp: " .. path .. " must match tuple length", 3)
+        end
+    end
+    for index, item in ipairs(items) do
+        validateValue(value[index], item, path .. "[" .. tostring(index) .. "]")
+    end
+end
 
 ----------------------------------------------------------------------------
 -- Bindings
@@ -596,11 +635,9 @@ validateValue = function(value: any, schema: Schema, path: string): nil
     then
         error("nupp: " .. path .. " must be a finite number", 3)
     elseif schema.kind == "list" then
-        if type(value) ~= "table" then
-            error("nupp: " .. path .. " must be a list", 3)
-        end
-        for index, item in ipairs(value) do
-            validateValue(item, schema:element() as Schema, path .. "[" .. tostring(index) .. "]")
+        local count = listLength(value, path)
+        for index = 1, count do
+            validateValue(value[index], schema:element() as Schema, path .. "[" .. tostring(index) .. "]")
         end
     elseif schema.kind == "map" then
         if type(value) ~= "table" then
@@ -611,12 +648,7 @@ validateValue = function(value: any, schema: Schema, path: string): nil
             validateValue(item, schema:value() as Schema, path .. "." .. tostring(key))
         end
     elseif schema.kind == "tuple" then
-        if type(value) ~= "table" or #value ~= #(schema.state.items or {}) then
-            error("nupp: " .. path .. " must match tuple length", 3)
-        end
-        for index, item in ipairs(schema.state.items or {}) do
-            validateValue(value[index], item, path .. "[" .. tostring(index) .. "]")
-        end
+        validateTuple(value, schema, path)
     elseif schema.kind == "union" then
         local matched = false
         for _, item in ipairs(schema.state.choices or {}) do
@@ -1372,11 +1404,13 @@ finishDecoded = function(value: any, plan: any, path: string): any
     elseif kind == "optional" then
         return finishDecoded(value, plan.element, path)
     elseif kind == "list" then
-        if type(value) ~= "table" then
-            error("nupp: " .. path .. " must be a list", 3)
-        end
-        for index, item in ipairs(value) do
-            value[index] = finishDecoded(item, plan.element, path .. "[" .. tostring(index) .. "]")
+        local count = listLength(value, path)
+        for index = 1, count do
+            local item = finishDecoded(value[index], plan.element, path .. "[" .. tostring(index) .. "]")
+            if item == nil then
+                error("nupp: " .. path .. " cannot materialize nil list elements", 3)
+            end
+            value[index] = item
         end
         return value
     elseif kind == "map" then
@@ -1389,9 +1423,7 @@ finishDecoded = function(value: any, plan: any, path: string): any
         end
         return value
     elseif kind == "tuple" then
-        if type(value) ~= "table" or #value ~= #plan.items then
-            error("nupp: " .. path .. " must match tuple length", 3)
-        end
+        validateTuple(value, plan.schema, path)
         for index, item in ipairs(plan.items) do
             value[index] = finishDecoded(value[index], item, path .. "[" .. tostring(index) .. "]")
         end
@@ -1445,8 +1477,28 @@ local writeDocument: function(
     value: any,
     schema: Schema,
     profile: JsonProfile,
-    access: any?
+    access: any?,
+    state: any,
+    depth: integer
 ): nil
+
+local function enterWriteContainer(value: any, state: any, depth: integer): nil
+    if depth >= 1024 then
+        error("nupp: JSON serialization nesting exceeds 1024", 3)
+    end
+    if type(value) == "table" then
+        if state.active[value] then
+            error("nupp: cannot serialize a cyclic value", 3)
+        end
+        state.active[value] = true
+    end
+end
+
+local function leaveWriteContainer(value: any, state: any): nil
+    if type(value) == "table" then
+        state.active[value] = nil
+    end
+end
 
 local record PreparedImpl<T> is Prepared<T>
     @private
@@ -1467,7 +1519,7 @@ local record PreparedImpl<T> is Prepared<T>
 
     function write(self, value: T, exclusive out: Writer): nil
         local state = preparedStates[self]
-        writeDocument(out, value, state.layout.schema, state.profile, state.access)
+        writeDocument(out, value, state.layout.schema, state.profile, state.access, {active = {},}, 0)
     end
 
     function decode(self, text: string): (T?, string?)
@@ -1500,9 +1552,10 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
     elseif schema.kind == "optional" then
         return toDocument(value, schema:element() as Schema, profile, access)
     elseif schema.kind == "list" then
+        local count = listLength(value, "value")
         local out: any = {}
-        for index, item in ipairs(value) do
-            out[index] = toDocument(item, schema:element() as Schema, profile, access)
+        for index = 1, count do
+            out[index] = toDocument(value[index], schema:element() as Schema, profile, access)
         end
         return out
     elseif schema.kind == "map" then
@@ -1512,6 +1565,7 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
         end
         return out
     elseif schema.kind == "tuple" then
+        validateTuple(value, schema, "value")
         local out: any = {}
         for index, item in ipairs(schema.state.items or {}) do
             out[index] = toDocument(value[index], item, profile, access)
@@ -1554,9 +1608,14 @@ fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access
     elseif schema.kind == "optional" then
         return fromDocument(value, schema:element() as Schema, profile, access)
     elseif schema.kind == "list" then
+        local count = listLength(value, "value")
         local out: any = {}
-        for index, item in ipairs(value) do
-            out[index] = fromDocument(item, schema:element() as Schema, profile, access)
+        for index = 1, count do
+            local item = fromDocument(value[index], schema:element() as Schema, profile, access)
+            if item == nil then
+                error("nupp: value cannot materialize nil list elements", 3)
+            end
+            out[index] = item
         end
         return out
     elseif schema.kind == "map" then
@@ -1566,6 +1625,7 @@ fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access
         end
         return out
     elseif schema.kind == "tuple" then
+        validateTuple(value, schema, "value")
         local out: any = {}
         for index, item in ipairs(schema.state.items or {}) do
             out[index] = fromDocument(value[index], item, profile, access)
@@ -1625,35 +1685,53 @@ fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access
     return result
 end
 
-writeDocument = function(exclusive out: Writer, value: any, schema: Schema, profile: JsonProfile, access: any?): nil
+writeDocument = function(
+    exclusive out: Writer,
+    value: any,
+    schema: Schema,
+    profile: JsonProfile,
+    access: any?,
+    state: any,
+    depth: integer
+): nil
     local json = require("nupp.codec.json")
     if value == nil then
         out:null()
     elseif schema.kind == "document" then
         out:write(json.verified(json.encode(value)))
     elseif schema.kind == "optional" then
-        writeDocument(out, value, schema:element() as Schema, profile, access)
+        writeDocument(out, value, schema:element() as Schema, profile, access, state, depth)
     elseif schema.kind == "list" then
+        local count = listLength(value, "value")
+        enterWriteContainer(value, state, depth)
         out:startArray()
-        for _, item in ipairs(value) do
-            writeDocument(out, item, schema:element() as Schema, profile, access)
+        for index = 1, count do
+            writeDocument(out, value[index], schema:element() as Schema, profile, access, state, depth + 1)
         end
         out:endArray()
+        leaveWriteContainer(value, state)
     elseif schema.kind == "map" then
+        if type(value) ~= "table" then
+            error("nupp: value must be a map", 3)
+        end
+        enterWriteContainer(value, state, depth)
         out:startObject()
         for key, item in pairs(value) do
             validateValue(key, schema:key() as Schema, "map key")
             out:key(key as string)
-            writeDocument(out, item, schema:value() as Schema, profile, access)
+            writeDocument(out, item, schema:value() as Schema, profile, access, state, depth + 1)
         end
         out:endObject()
+        leaveWriteContainer(value, state)
     elseif schema.kind == "tuple" then
-        validateValue(value, schema, "value")
+        validateTuple(value, schema, "value")
+        enterWriteContainer(value, state, depth)
         out:startArray()
         for index, item in ipairs(schema.state.items or {}) do
-            writeDocument(out, value[index], item, profile, access)
+            writeDocument(out, value[index], item, profile, access, state, depth + 1)
         end
         out:endArray()
+        leaveWriteContainer(value, state)
     elseif schema.kind ~= "structure" then
         validateValue(value, schema, "value")
         if schema.kind == "number" and value % 1 == 0 then
@@ -1670,6 +1748,10 @@ writeDocument = function(exclusive out: Writer, value: any, schema: Schema, prof
             out:write(value as number)
         end
     else
+        if type(value) ~= "table" and type(value) ~= "cdata" then
+            error("nupp: value must be a structure", 3)
+        end
+        enterWriteContainer(value, state, depth)
         access = access or defaultSchemaBindings[schema]
         if access == nil then
             error("nupp: structure has no physical binding", 3)
@@ -1685,13 +1767,16 @@ writeDocument = function(exclusive out: Writer, value: any, schema: Schema, prof
             else
                 item = value[member.name]
             end
-            if item ~= nil then
+            if item == nil and member.required then
+                error("nupp: missing required member " .. member.name, 3)
+            elseif item ~= nil then
                 out:key(layout.fields[index].wire as string)
                 local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
-                writeDocument(out, item, member.target as Schema, profile, childAccess)
+                writeDocument(out, item, member.target as Schema, profile, childAccess, state, depth + 1)
             end
         end
         out:endObject()
+        leaveWriteContainer(value, state)
     end
 end
 
@@ -1730,7 +1815,7 @@ export record JsonCodec
             fallbackEncode = function(value: any): string
                 local buffer = require("nupp.text").newBuffer()
                 local writer = json.writer(buffer)
-                writeDocument(writer, value, schema, self.profile, access)
+                writeDocument(writer, value, schema, self.profile, access, {active = {},}, 0)
                 writer:close()
 
                 return buffer:tostring()
