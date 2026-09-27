@@ -30,13 +30,9 @@ run a function protected and answer `(result, reason)`, which is the layout the
 `or return` suffix reads and `pcall`'s own is not.
 
 Unlike [](nupp.mem), which keeps every member a module of its own, these are
-re-exported here, so reaching one loads them all -- affordable, because they are
-small.
-
-Nothing here holds state a program did not create itself. The one cost of
-reaching any of it is the uuid service: [](uuid4) and [](uuid7) come from the
-host, so loading this module resolves that provider and a built program declares
-its ABI even when all it wanted was a bitset.
+re-exported here. Checked source still selects members independently, so using a
+bitset does not retain UUID support. [](uuid4) and [](uuid7) are the only
+members that resolve a host provider.
 ]]
 
 local bitset = require("nupp.util.internal.bitset")

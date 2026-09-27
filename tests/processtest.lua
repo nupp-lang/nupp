@@ -342,6 +342,18 @@ function M.aDeadlineThatHasNotPassedDoesNotFire()
     assertTrue(result:succeeded(), "and succeeded")
 end
 
+function M.isRunningEnforcesAnElapsedDeadline()
+    local backend = fakeBackend({out = {}, exitAfter = nil})
+    local child = spawnOn(backend, {args = {"sleep"}, timeoutMs = 100})
+    backend:advance(150)
+
+    assertTrue(not child:isRunning(), "the elapsed deadline is observed")
+    assertEq(backend.state.kills, 1, "the elapsed deadline requested termination")
+    local exit = child:wait()
+    child:close()
+    assertTrue(exit.timedOut, "the resulting exit records the deadline")
+end
+
 function M.closingEndsAChildStillRunning()
     local backend = fakeBackend({out = {}, exitAfter = nil})
     local child = spawnOn(backend, {args = {"sleep"}})
@@ -568,6 +580,44 @@ function M.aNonPositiveLimitReadsOneByte()
     assertEq(backend.state.lastReadLimit, 1, "and the platform was asked for one")
     assertEq(child.stdout:poll(-5), "b", "a negative one did too")
     assertEq(backend.state.lastReadLimit, 1, "asking for one again")
+    child:close()
+end
+
+function M.processStreamsRejectMalformedProviderResults()
+    local backend = fakeBackend({out = {}, err = {}, exitAfter = 1})
+    local child = spawnOn(backend, {args = {"filter"}})
+
+    function backend:read(_handle, _limit)
+        return false
+    end
+
+    local ok, problem = pcall(child.stdout.poll, child.stdout, 2)
+    assertTrue(not ok and tostring(problem):find("non-string read result", 1, true), tostring(problem))
+
+    function backend:read(_handle, _limit)
+        return "too many"
+    end
+
+    ok, problem = pcall(child.stdout.poll, child.stdout, 2)
+    assertTrue(not ok and tostring(problem):find("more bytes than requested", 1, true), tostring(problem))
+
+    local writeResults = {
+        {-1, false, "invalid write count"},
+        {1.5, false, "invalid write count"},
+        {6, false, "invalid write count"},
+        {0, "no", "invalid closed-pipe status"},
+    }
+    local writeResult
+    function backend:write(_handle, _data)
+        return writeResult[1], writeResult[2]
+    end
+
+    for _, result in ipairs(writeResults) do
+        writeResult = result
+        ok, problem = pcall(child.stdin.offer, child.stdin, "input")
+        assertTrue(not ok and tostring(problem):find(result[3], 1, true), tostring(problem))
+    end
+
     child:close()
 end
 

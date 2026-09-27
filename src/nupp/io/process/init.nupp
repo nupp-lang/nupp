@@ -177,11 +177,12 @@ record process.Reader is Reader2
     --- zero or minus one arriving at a native size conversion is either an empty read
     --- that looks like end of stream or an enormous one, and neither is worth being
     --- able to ask for. `read` passes its caller's count straight through.
+    --- @raises string when the provider returns an invalid result
     function poll(self, limit: integer?): string?
         if self.closed or self.eof then
             return nil
         end
-        local wanted = limit or READ_LIMIT
+        local wanted = math.floor(limit or READ_LIMIT)
         if wanted < 1 then
             wanted = 1
         end
@@ -190,6 +191,12 @@ record process.Reader is Reader2
             self.eof = true
 
             return nil
+        end
+        if type(got) ~= "string" then
+            error("nupp: process provider returned a non-string read result", 2)
+        end
+        if #got > wanted then
+            error("nupp: process provider returned more bytes than requested", 2)
         end
 
         return got
@@ -403,11 +410,18 @@ record process.Writer is Writer2
 
     --- Writes what the pipe will take without waiting. Answers how many bytes went,
     --- which may be none and may be fewer than offered.
+    --- @raises string when the provider returns an invalid result
     function offer(self, data: string): integer
         if self.closed or self.gone or #data == 0 then
             return 0
         end
         local sent, gone = self.owner.backend:write(self.handle, data)
+        if type(sent) ~= "number" or sent < 0 or sent > #data or sent ~= math.floor(sent) then
+            error("nupp: process provider returned an invalid write count", 2)
+        end
+        if type(gone) ~= "boolean" then
+            error("nupp: process provider returned an invalid closed-pipe status", 2)
+        end
         if gone then
             -- Nobody is reading and nobody will. Recording it is what stops a writer
             -- waiting on room that will never come; the bytes that did go still count,
@@ -723,12 +737,12 @@ record process.Process
         self:drop()
     end
 
-    --- Whether it is still running.
+    --- Whether it is still running, enforcing an elapsed process deadline first.
     function isRunning(self): boolean
         if self.exit ~= nil then
             return false
         end
-        progressed(self)
+        pumpOnce(self)
 
         return self.exit == nil
     end
