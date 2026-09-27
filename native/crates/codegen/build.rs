@@ -71,14 +71,22 @@ fn main() {
         let floor = if target.starts_with("x86_64") { "10.14" } else { "11.0" };
         cpp.flag(format!("-mmacosx-version-min={floor}"));
     }
+    // On Windows the archives reach the final link by name, not bundled into
+    // this crate's rlib, so the host executable can keep them out of the
+    // symbols it exports: a PE image holds at most 65535, and LLVM's alone
+    // pass that.
+    let kind = if target.contains("windows") { "static:-bundle" } else { "static" };
+    if target.contains("windows") {
+        cpp.link_lib_modifier("-bundle");
+    }
     cpp.file("src/glue.cpp").compile("nupp_codegen_glue");
     println!("cargo:rustc-link-search=native={libdir}");
     // lld's libraries before LLVM's: they depend on it, not the reverse.
     for lib in ["lldMinGW", "lldCOFF", "lldELF", "lldMachO", "lldWasm", "lldCommon"] {
-        println!("cargo:rustc-link-lib=static={lib}");
+        println!("cargo:rustc-link-lib={kind}={lib}");
     }
     for lib in libs.split_whitespace() {
-        println!("cargo:rustc-link-lib=static={}", lib.trim_start_matches("-l").trim_end_matches(".lib"));
+        println!("cargo:rustc-link-lib={kind}={}", lib.trim_start_matches("-l").trim_end_matches(".lib"));
     }
     for lib in system.split_whitespace() {
         let name = lib.trim_start_matches("-l").trim_end_matches(".lib");
@@ -98,7 +106,7 @@ fn main() {
                 println!("cargo:rustc-link-search=native={}", dir.display());
             }
         }
-        println!("cargo:rustc-link-lib=static=stdc++");
+        println!("cargo:rustc-link-lib={kind}=stdc++");
     } else {
         println!("cargo:rustc-link-lib=stdc++");
     }
