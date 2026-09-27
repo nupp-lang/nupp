@@ -773,6 +773,16 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     returned = {buffer = 4294967295}
     local buffer = context:buffer(element, 1)
     assert(buffer._handle == 4294967295)
+    local duplicateBuffer, duplicateBufferProblem = pcall(context.buffer, context, element, 1)
+    assert(
+        not duplicateBuffer and tostring(duplicateBufferProblem):find("duplicate buffer handle", 1, true),
+        tostring(duplicateBufferProblem)
+    )
+    local fractionalBuffer, fractionalBufferProblem = pcall(context.buffer, context, element, 1.5)
+    assert(
+        not fractionalBuffer and tostring(fractionalBufferProblem):find("portable limit", 1, true),
+        tostring(fractionalBufferProblem)
+    )
     returned = {buffer = 7}
     local releasedBuffer = context:buffer(element, 1)
     context:releaseBuffer(releasedBuffer)
@@ -795,6 +805,24 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     returned = {kernel = 4294967295}
     local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
     assert(kernel._handle == 4294967295)
+    local duplicateKernel, duplicateKernelProblem = pcall(
+        context.compileGenerated,
+        context,
+        {wgsl = "shader", entrypoint = "main"},
+        0,
+        1,
+        12,
+        1
+    )
+    assert(
+        not duplicateKernel and tostring(duplicateKernelProblem):find("duplicate kernel handle", 1, true),
+        tostring(duplicateKernelProblem)
+    )
+    local fractionalDispatch, fractionalDispatchProblem = pcall(context.bindKernel, context, kernel, 1.5)
+    assert(
+        not fractionalDispatch and tostring(fractionalDispatchProblem):find("dispatch count", 1, true),
+        tostring(fractionalDispatchProblem)
+    )
     returned = {kernel = 8}
     local releasedKernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
     context:releaseKernel(releasedKernel)
@@ -805,6 +833,132 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     assert(host.closed.payload.kernels[1] == kernel._handle)
     assert(#host.closed.payload.buffers == 1)
     assert(#host.closed.payload.kernels == 1)
+end
+
+function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
+    for _, malformed in ipairs({false, {}, {driver = "other"}}) do
+        local browser = require("providerstate").browserGpu({
+            await = function()
+                return malformed
+            end,
+        })
+        local ok, problem = pcall(browser.open)
+        assert(not ok and tostring(problem):find("invalid open response", 1, true), tostring(problem))
+    end
+
+    local cancelledHost = {
+        await = function(_, effect, discard)
+            if effect.operation == "runtime-open" then
+                return {driver = "webgpu"}
+            elseif effect.operation == "runtime-create-buffer" then
+                discard({ok = true, value = {buffer = 41}})
+                error("cancelled buffer", 0)
+            elseif effect.operation == "runtime-compile" then
+                discard({ok = true, value = {kernel = 42}})
+                error("cancelled kernel", 0)
+            end
+        end,
+    }
+    local cancelledBrowser = require("providerstate").browserGpu(cancelledHost)
+    local cancelledContext = cancelledBrowser.open()
+    local element = require("ffi").typeof("uint32_t")
+    local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
+    assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
+    local compiled, kernelProblem = pcall(
+        cancelledContext.compileGenerated,
+        cancelledContext,
+        {wgsl = "shader", entrypoint = "main"},
+        0,
+        1,
+        12,
+        1
+    )
+    assert(not compiled and kernelProblem == "cancelled kernel", tostring(kernelProblem))
+    assertEq(cancelledHost.requests[1].payload.operation, "runtime-destroy-buffer")
+    assertEq(cancelledHost.requests[1].payload.buffer, 41)
+    assertEq(cancelledHost.requests[2].payload.operation, "runtime-destroy-kernel")
+    assertEq(cancelledHost.requests[2].payload.kernel, 42)
+    cancelledContext:drop()
+
+    local nextBuffer, nextKernel = 0, 0
+    local failure
+    local host = {
+        await = function(_, effect, discard)
+            if failure == effect.operation then
+                error("fixture " .. failure, 0)
+            end
+            if effect.operation == "runtime-open" then
+                return {driver = "webgpu"}
+            elseif effect.operation == "runtime-create-buffer" then
+                nextBuffer = nextBuffer + 1
+                return {buffer = nextBuffer}
+            elseif effect.operation == "runtime-compile" then
+                nextKernel = nextKernel + 1
+                return {kernel = nextKernel}
+            end
+
+            return nil
+        end,
+    }
+    local leases, nextLease = {}, 0
+    local memory = {
+        lease = function()
+            nextLease = nextLease + 1
+            leases[nextLease] = true
+            return nextLease
+        end,
+        releaseLease = function(id)
+            leases[id] = nil
+        end,
+    }
+    local browser = require("providerstate").browserGpu(host, memory)
+    local context = browser.open()
+    local ffi = require("ffi")
+    local spans = require("nupp.mem.span")
+    element = ffi.typeof("uint32_t")
+    local input = context:buffer(element, 1)
+    local output = context:buffer(element, 1)
+    local source = ffi.new("uint32_t[1]", 7)
+    local destination = ffi.new("uint32_t[1]")
+
+    failure = "runtime-upload"
+    local uploaded, uploadProblem = pcall(context.upload, context, input, spans.fromCarray(source, 1))
+    assert(not uploaded and uploadProblem == "fixture runtime-upload", tostring(uploadProblem))
+    assert(next(leases) == nil, "a failed upload must release its transfer lease")
+
+    failure = "runtime-read-download"
+    local downloaded, downloadProblem = pcall(
+        context.readDownloaded,
+        context,
+        output,
+        spans.writeCarray(destination, 1)
+    )
+    assert(not downloaded and downloadProblem == "fixture runtime-read-download", tostring(downloadProblem))
+    assert(next(leases) == nil, "a failed download must release its transfer lease")
+
+    failure = nil
+    local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
+    local binding = context:bindKernel(kernel, 1)
+    binding:setRead(0, input, true)
+    binding:setWrite(0, output, true)
+    failure = "runtime-dispatch"
+    local dispatched, dispatchProblem = pcall(binding.dispatchWords, binding, {})
+    assert(not dispatched and dispatchProblem == "fixture runtime-dispatch", tostring(dispatchProblem))
+    assert(next(leases) == nil, "a failed dispatch must release its transfer lease")
+
+    failure = "runtime-destroy-buffer"
+    local releasedBuffer, releaseBufferProblem = pcall(context.releaseBuffer, context, input)
+    assert(not releasedBuffer and releaseBufferProblem == "fixture runtime-destroy-buffer")
+    assert(input._state.released, "an ambiguous buffer release must not leave a usable local value")
+    assertEq(context._buffers[1], input._handle, "failed release remains in context cleanup")
+
+    failure = "runtime-destroy-kernel"
+    local releasedKernel, releaseKernelProblem = pcall(context.releaseKernel, context, kernel)
+    assert(not releasedKernel and releaseKernelProblem == "fixture runtime-destroy-kernel")
+    assert(kernel._released, "an ambiguous kernel release must not leave a usable local value")
+    assertEq(context._kernels[1], kernel._handle, "failed release remains in context cleanup")
+    failure = nil
+    context:drop()
 end
 
 function M.browserXorValidatesInputsAndEveryReturnedWord()
@@ -1001,11 +1155,12 @@ end
 
 function M.browserResponsesValidateHostEnvelopes()
     local name = "nupp.runtime.browser.response"
-    local answer
+    local answer, receivedDiscard
     local response = require("providerstate").instance({[name] = true}, {
         ["nupp.runtime.browser.effects"] = {
-            request = function(kind, payload, resume)
+            request = function(kind, payload, resume, discard)
                 assert(kind == "test" and payload.operation == "read")
+                receivedDiscard = discard
                 resume(answer)
 
                 return function()
@@ -1026,7 +1181,13 @@ function M.browserResponsesValidateHostEnvelopes()
 
     local value = {}
     answer = {ok = true, value = value}
-    assert(response.await("test", {operation = "read"}) == value, "a successful response preserves value identity")
+    local discard = function()
+    end
+    assert(
+        response.await("test", {operation = "read"}, discard) == value,
+        "a successful response preserves value identity"
+    )
+    assert(receivedDiscard == discard, "response waits preserve late-response cleanup")
 
     answer = {ok = false, error = "refused"}
     local succeeded, failure = pcall(response.await, "test", {operation = "read"})

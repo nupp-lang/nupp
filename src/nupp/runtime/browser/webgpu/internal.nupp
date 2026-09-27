@@ -2,12 +2,14 @@
 module nupp.runtime.browser.webgpu.internal
 
 --[[
-Browser resident-compute implementation used as a built-in module fallback.
+The browser resident-compute implementation supplies the built-in WebGPU
+fallback.
 
 `open` acquires a WebGPU context through the browser effect channel. Buffers,
 kernels, and bindings retain host identifiers while implementing the canonical
-[](nupp.gpu.api) interfaces. Generated shader artifacts and layout facts determine
-binding slots, uniform bytes, element counts, and supported operations.
+[](nupp.gpu.api) interfaces. Generated shader artifacts and layout facts
+determine binding slots, uniform bytes, element counts, and supported
+operations.
 
 Upload and download use the selected linear-memory storage implementation.
 Synchronization and host responses may suspend. Context-dependent values retain
@@ -15,9 +17,9 @@ their context borrows, and affine cleanup uses the shared `destroyContext`
 identity to release device resources without substituting a provider-local type.
 
 The browser application must install WebGPU effects and memory before requiring
-[](nupp.gpu). Its facade binds `open` directly; dispatch and cleanup use retained
-context state without service lookups. Context cleanup queues destruction of
-unreleased host resources without suspending.
+[](nupp.gpu). Its facade binds `open` directly; dispatch and cleanup use
+retained context state without service lookups. Context cleanup queues
+destruction of unreleased host resources without suspending.
 ]]
 
 local response = require("nupp.runtime.browser.response")
@@ -205,6 +207,42 @@ local function answerHandle(answer: any, field: string): integer
     return handle as integer
 end
 
+local function isHandle(value: any): boolean
+    return type(value) == "number" and value >= 1 and value <= 4294967295 and value % 1 == 0
+end
+
+local function rememberHandle(handles: {integer}, handle: integer, field: string): nil
+    for _, value in ipairs(handles) do
+        if value == handle then
+            error("nupp: browser GPU returned a duplicate " .. field .. " handle", 3)
+        end
+    end
+    handles[#handles + 1] = handle
+end
+
+local function orphanDestroy(field: string, operation: string): function(any): nil
+    return function(answer: any): nil
+        local value = type(answer) == "table" and answer.ok == true and answer.value or nil
+        local handle = type(value) == "table" and value[field] or nil
+        if not isHandle(handle) then
+            return
+        end
+        requestNosuspend("gpu", {operation = operation, [field] = handle,}, function(_answer: any): nil
+        end)
+    end
+end
+
+local destroyOrphanBuffer = orphanDestroy("buffer", "runtime-destroy-buffer")
+local destroyOrphanKernel = orphanDestroy("kernel", "runtime-destroy-kernel")
+
+local function awaitLease(lease: integer, request: any): nil
+    local completed, problem = pcall(response.await, "gpu", request)
+    memory.releaseLease(lease)
+    if not completed then
+        error(problem, 0)
+    end
+end
+
 local function forgetHandle(handles: {integer}, handle: integer): nil
     for index, value in ipairs(handles) do
         if value == handle then
@@ -242,13 +280,17 @@ function gpu.Context.buffer<T>(
 ): shared.Buffer<T> borrows (self)
     local width = storage.sizeOf(element)
     live(self)
-    if count < 1 or count > 268435456 // width then
+    if count < 1 or count > 268435456 // width or count % 1 ~= 0 then
         error("nupp: browser GPU buffer count is outside the portable limit", 2)
     end
-    local answer = response.await("gpu", {operation = "runtime-create-buffer", bytes = count * width,})
+    local answer = response.await(
+        "gpu",
+        {operation = "runtime-create-buffer", bytes = count * width,},
+        destroyOrphanBuffer
+    )
 
     local handle = answerHandle(answer, "buffer")
-    self._buffers[#self._buffers + 1] = handle
+    rememberHandle(self._buffers, handle, "buffer")
 
     return new shared.Buffer(
         _elementType = nil as T,
@@ -292,18 +334,22 @@ function gpu.Context.compileGenerated(
     then
         error("nupp: browser GPU kernel has an invalid portable layout", 2)
     end
-    local answer = response.await("gpu", {
-        operation = "runtime-compile",
-        wgsl = wgsl,
-        entrypoint = artifacts.entrypoint,
-        readonly = readonlyBuffers,
-        writable = writableBuffers,
-        uniformBytes = uniformBytes,
-        threads = group,
-    })
+    local answer = response.await(
+        "gpu",
+        {
+            operation = "runtime-compile",
+            wgsl = wgsl,
+            entrypoint = artifacts.entrypoint,
+            readonly = readonlyBuffers,
+            writable = writableBuffers,
+            uniformBytes = uniformBytes,
+            threads = group,
+        },
+        destroyOrphanKernel
+    )
 
     local handle = answerHandle(answer, "kernel")
-    self._kernels[#self._kernels + 1] = handle
+    rememberHandle(self._kernels, handle, "kernel")
 
     return new shared.Kernel(
         _anchor = self,
@@ -410,7 +456,7 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     local pointer = allocation:read():ref()
     local leasePointer = memory.lease as function(borrows pointer: const uint32[?], bytes: integer): integer
     local lease = leasePointer(pointer, #words * 4)
-    response.await("gpu", {
+    awaitLease(lease, {
         operation = "runtime-dispatch",
         kernel = self._kernel._handle,
         read = self._read,
@@ -418,7 +464,6 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
         count = self.count,
         lease = lease,
     })
-    memory.releaseLease(lease)
 end
 
 function gpu.Context.upload<T>(
@@ -441,14 +486,13 @@ function gpu.Context.upload<T>(
         writable: boolean?
     ): integer
     local lease = leasePointer(pointer, count * buffer._width)
-    response.await("gpu", {
+    awaitLease(lease, {
         operation = "runtime-upload",
         buffer = buffer._handle,
         offset = buffer._offset * buffer._width,
         bytes = count * buffer._width,
         lease = lease,
     })
-    memory.releaseLease(lease)
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
@@ -486,8 +530,7 @@ function gpu.Context.readDownloaded<T>(
     end
     local leasePointer = memory.lease as function(exclusive pointer: T[?], bytes: integer, writable: boolean?): integer
     local lease = leasePointer(pointer, count * buffer._width, true)
-    response.await("gpu", {operation = "runtime-read-download", buffer = buffer._handle, lease = lease,})
-    memory.releaseLease(lease)
+    awaitLease(lease, {operation = "runtime-read-download", buffer = buffer._handle, lease = lease,})
 end
 
 function gpu.Context.download<T>(
@@ -511,9 +554,9 @@ function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferV
     elseif not buffer._root then
         error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
     end
+    buffer._state.released = true
     response.await("gpu", {operation = "runtime-destroy-buffer", buffer = buffer._handle,})
     forgetHandle(self._buffers, buffer._handle)
-    buffer._state.released = true
 end
 
 function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValue: api.Kernel): nil
@@ -524,9 +567,9 @@ function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValu
     elseif kernel._released then
         error("nupp: browser GPU kernel was released", 2)
     end
+    kernel._released = true
     response.await("gpu", {operation = "runtime-destroy-kernel", kernel = kernel._handle,})
     forgetHandle(self._kernels, kernel._handle)
-    kernel._released = true
 end
 
 function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive bindingValue: api.Binding): nil
@@ -554,7 +597,7 @@ function gpu.Context.bindKernel(
     elseif kernel._released then
         error("nupp: browser GPU kernel was released", 2)
     end
-    if count < 1 or count > 4294967295 then
+    if count < 1 or count > 4294967295 or count % 1 ~= 0 then
         error("nupp: GPU dispatch count must be from 1 through 4294967295", 2)
     end
 
@@ -593,7 +636,11 @@ function gpu.Context.tensor<T>(
 end
 
 function gpu.open(): affine(api.KernelContext, api.destroyContext)
-    response.await("gpu", {operation = "runtime-open",})
+    local answer = response.await("gpu", {operation = "runtime-open",})
+    if type(answer) ~= "table" or answer.driver ~= "webgpu" then
+        error("nupp: browser GPU returned an invalid open response", 2)
+    end
+
     return new gpu.Context(_destroy = contextdestroyNosuspend, _closed = false, _buffers = {}, _kernels = {})
 end
 

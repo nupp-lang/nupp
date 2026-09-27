@@ -5,9 +5,9 @@ local effects = require("nupp.runtime.browser.effects")
 local suspension = require("nupp.suspension")
 local response = {}
 
-function response.await(kind: string, payload: any): any
+function response.await(kind: string, payload: any, discard: (function(any): nil)?): any
     local answer = suspension.suspend("browser " .. kind, function(resume: function(any): nil): function()
-        return effects.request(kind, payload, resume)
+        return effects.request(kind, payload, resume, discard)
     end)
     if type(answer) ~= "table" or type(answer.ok) ~= "boolean" then
         error("nupp: browser " .. kind .. " returned an invalid response", 2)

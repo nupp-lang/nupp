@@ -126,18 +126,23 @@ function M.browserFiles(memory)
     return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)
 end
 
-function M.browserGpu(response)
+function M.browserGpu(response, memory)
     local name = "nupp.runtime.browser.webgpu.internal"
     return instance({[name] = true}, {
         ["nupp.runtime.browser.effects"] = {
             request = function(kind, payload, resume)
-                response.closed = {kind = kind, payload = payload}
+                response.requests = response.requests or {}
+                response.requests[#response.requests + 1] = {kind = kind, payload = payload}
+                if payload.operation == "runtime-close" then
+                    response.closed = {kind = kind, payload = payload}
+                end
                 resume({ok = true})
+
                 return function()
                 end
             end,
         },
-        ["nupp.runtime.browser.memory"] = {},
+        ["nupp.runtime.browser.memory"] = memory or {},
         ["nupp.runtime.browser.response"] = response,
     })(name)
 end
