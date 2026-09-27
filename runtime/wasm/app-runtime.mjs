@@ -247,6 +247,24 @@ function gpuBuffer(runtime, id) {
   return resource;
 }
 
+function gpuBufferRange(effect, resource) {
+  const offset = effect.offset === undefined ? 0 : uint32(effect.offset, "buffer byte offset");
+  const bytes = effect.bytes === undefined ? resource.bytes : uint32(effect.bytes, "buffer byte length");
+  if (offset % 4 !== 0 || bytes === 0 || bytes % 4 !== 0 ||
+      offset > resource.bytes || bytes > resource.bytes - offset) {
+    throw new Error("browser GPU transfer range is invalid");
+  }
+  return {offset, bytes};
+}
+
+function destroyGpuDownload(resource) {
+  const download = resource.download;
+  resource.download = null;
+  if (!download) return;
+  try { download.buffer.unmap(); } catch {}
+  download.buffer.destroy();
+}
+
 async function performGpuRuntimeEffect(effect, options) {
   try {
     return await performGpuOperation(effect, options);
@@ -255,7 +273,9 @@ async function performGpuRuntimeEffect(effect, options) {
   }
 }
 
-const GPU_LEASE_OPERATIONS = new Set(["runtime-upload", "runtime-dispatch", "runtime-download"]);
+const GPU_LEASE_OPERATIONS = new Set([
+  "runtime-upload", "runtime-dispatch", "runtime-download", "runtime-read-download",
+]);
 
 async function performGpuOperation(effect, options) {
   const usage = webGpuUsage(options);
@@ -270,11 +290,13 @@ async function performGpuOperation(effect, options) {
     runtime.buffers.set(id, {
       bytes,
       buffer: device.createBuffer({size: bytes, usage: usage.STORAGE | usage.COPY_DST | usage.COPY_SRC}),
+      download: null,
     });
     return {buffer: id};
   }
   if (effect.operation === "runtime-destroy-buffer") {
     const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+    destroyGpuDownload(resource);
     resource.buffer.destroy();
     runtime.buffers.delete(effect.buffer);
     return null;
@@ -284,7 +306,10 @@ async function performGpuOperation(effect, options) {
         typeof effect.entrypoint !== "string" || effect.entrypoint.length === 0 ||
         !Number.isInteger(effect.readonly) || effect.readonly < 0 ||
         !Number.isInteger(effect.writable) || effect.writable < 1 ||
-        !Number.isInteger(effect.uniformBytes) || effect.uniformBytes < 4 || effect.uniformBytes > 128 ||
+        effect.readonly + effect.writable > 8 ||
+        !Number.isInteger(effect.uniformBytes) ||
+        effect.uniformBytes < 4 * (1 + 2 * (effect.readonly + effect.writable)) ||
+        effect.uniformBytes > 128 ||
         effect.uniformBytes % 4 !== 0 || !Number.isInteger(effect.threads) || effect.threads < 1 || effect.threads > 256) {
       throw new Error("browser GPU kernel descriptor is invalid");
     }
@@ -306,8 +331,9 @@ async function performGpuOperation(effect, options) {
   }
   if (effect.operation === "runtime-upload") {
     const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-    const lease = memoryLease(effect, options, resource.bytes);
-    device.queue.writeBuffer(resource.buffer, 0, lease.view);
+    const range = gpuBufferRange(effect, resource);
+    const lease = memoryLease(effect, options, range.bytes);
+    device.queue.writeBuffer(resource.buffer, range.offset, lease.view);
     return null;
   }
   if (effect.operation === "runtime-dispatch") {
@@ -341,19 +367,50 @@ async function performGpuOperation(effect, options) {
     }
     return null;
   }
+  if (effect.operation === "runtime-enqueue-download") {
+    const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+    const range = gpuBufferRange(effect, resource);
+    if (resource.download) throw new Error("browser GPU buffer already has a queued download");
+    const readback = device.createBuffer({size: range.bytes, usage: usage.MAP_READ | usage.COPY_DST});
+    const encoder = device.createCommandEncoder();
+    encoder.copyBufferToBuffer(resource.buffer, range.offset, readback, 0, range.bytes);
+    device.queue.submit([encoder.finish()]);
+    const download = {buffer: readback, bytes: range.bytes, ready: false, synchronized: false, error: null};
+    resource.download = download;
+    download.promise = Promise.resolve(readback.mapAsync(webGpuMapMode(options).READ)).then(
+      () => { download.ready = true; },
+      (error) => { download.error = error; },
+    );
+    return null;
+  }
+  if (effect.operation === "runtime-read-download") {
+    const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+    const download = resource.download;
+    if (!download || !download.synchronized || !download.ready || download.error) {
+      throw new Error("browser GPU download is not synchronized");
+    }
+    try {
+      memoryLease(effect, options, download.bytes, true).view
+        .set(new Uint8Array(download.buffer.getMappedRange()));
+      return null;
+    } finally {
+      destroyGpuDownload(resource);
+    }
+  }
   if (effect.operation === "runtime-download") {
     let readback;
     try {
       const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
-      memoryLease(effect, options, resource.bytes, true);
-      readback = device.createBuffer({size: resource.bytes, usage: usage.MAP_READ | usage.COPY_DST});
+      const range = gpuBufferRange(effect, resource);
+      memoryLease(effect, options, range.bytes, true);
+      readback = device.createBuffer({size: range.bytes, usage: usage.MAP_READ | usage.COPY_DST});
       const encoder = device.createCommandEncoder();
-      encoder.copyBufferToBuffer(resource.buffer, 0, readback, 0, resource.bytes);
+      encoder.copyBufferToBuffer(resource.buffer, range.offset, readback, 0, range.bytes);
       device.queue.submit([encoder.finish()]);
       await readback.mapAsync(webGpuMapMode(options).READ);
       // Mapping yields to the host. Memory may grow or the lease may be revoked
       // before it completes, so project a fresh checked view at the actual write.
-      memoryLease(effect, options, resource.bytes, true).view.set(new Uint8Array(readback.getMappedRange()));
+      memoryLease(effect, options, range.bytes, true).view.set(new Uint8Array(readback.getMappedRange()));
       readback.unmap();
       return null;
     } finally {
@@ -362,6 +419,16 @@ async function performGpuOperation(effect, options) {
   }
   if (effect.operation === "runtime-synchronize") {
     if (device.queue.onSubmittedWorkDone) await device.queue.onSubmittedWorkDone();
+    for (const resource of runtime.buffers.values()) {
+      const download = resource.download;
+      if (!download) continue;
+      await download.promise;
+      if (download.error) {
+        destroyGpuDownload(resource);
+        throw download.error;
+      }
+      download.synchronized = true;
+    }
     return null;
   }
   throw new Error("unsupported browser GPU runtime operation");

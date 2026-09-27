@@ -29,6 +29,8 @@ record gpu.Buffer<T> is api.Buffer<T>
     @readonly
     _anchor: any
     @readonly
+    _context: any
+    @readonly
     _handle: any
     @readonly
     _width: integer
@@ -36,7 +38,8 @@ record gpu.Buffer<T> is api.Buffer<T>
     _offset: integer
     @readonly
     _capacity: integer
-    _released: boolean
+    @readonly
+    _state: {released: boolean}
     @readonly
     _root: boolean
     _shape: {integer}
@@ -74,6 +77,7 @@ record gpu.Kernel is api.Kernel
     _writableBuffers: integer
     @readonly
     _threads: integer
+    _released: boolean
 end
 
 --- The canonical shader artifact emitted for one verified native GPU kernel.

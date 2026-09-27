@@ -43,6 +43,12 @@ local function copied(values: {integer}): {integer}
     return out
 end
 
+local function liveBuffer<T>(borrows buffer: gpu.Buffer<T>): nil
+    if buffer._state.released then
+        error("nupp: GPU buffer was released", 3)
+    end
+end
+
 function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
     if index < 0 or index >= self.count then
         error("nupp: GPU shared-scratch index out of bounds", 2)
@@ -179,28 +185,34 @@ function gpu.tensor<T>(borrows self: gpu.Context, element: ctype<T>, shape: {int
 end
 
 function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}
+    liveBuffer(self)
     return copied(self._shape)
 end
 
 function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
+    liveBuffer(self)
     return copied(self._strides)
 end
 
 function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+    liveBuffer(buffer)
     local _, _, dense = layoutFacts(buffer._shape, buffer._strides, 2)
     return dense
 end
 
 function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+    liveBuffer(buffer)
     local _, _, _, injective = layoutFacts(buffer._shape, buffer._strides, 2)
     return injective
 end
 
 function gpu.Buffer.layout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
+    liveBuffer(buffer)
     return tensorlayout.new(buffer._offset, buffer._shape, buffer._strides)
 end
 
 function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
+    liveBuffer(buffer)
     local offset = tensorlayout.offset(layout)
     local extent = tensorlayout.extent(layout)
     if offset > buffer._capacity or extent > buffer._capacity - offset then
@@ -210,12 +222,13 @@ function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout)
     return new types.Buffer(
         _elementType = nil as T,
         _anchor = buffer,
+        _context = buffer._context,
         _handle = buffer._handle,
         _width = buffer._width,
         _offset = offset,
         _capacity = buffer._capacity,
         _root = false,
-        _released = buffer._released,
+        _state = buffer._state,
         _shape = tensorlayout.dimensions(layout),
         _strides = tensorlayout.strides(layout),
         count = layout.count
@@ -227,6 +240,7 @@ function gpu.Buffer.subview<T>(
     origin: {integer},
     shape: {integer}
 ): gpu.Buffer<T> borrows (self)
+    liveBuffer(self)
     if #origin ~= #self._shape or #shape ~= #self._shape then
         error("nupp: GPU tensor subview rank does not match its buffer", 2)
     end
@@ -247,12 +261,13 @@ function gpu.Buffer.subview<T>(
     return new types.Buffer(
         _elementType = nil as T,
         _anchor = self,
+        _context = self._context,
         _handle = self._handle,
         _width = self._width,
         _offset = offset,
         _capacity = self._capacity,
         _root = false,
-        _released = self._released,
+        _state = self._state,
         _shape = copied(shape),
         _strides = copied(self._strides),
         count = count

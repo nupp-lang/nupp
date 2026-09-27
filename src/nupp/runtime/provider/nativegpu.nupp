@@ -87,6 +87,8 @@ record gpu.Binding is api.Binding
     @readonly
     _writeOffsets: {integer}
     @readonly
+    _bufferStates: {any}
+    @readonly
     _context: any
     @readonly
     _handle: any
@@ -338,12 +340,13 @@ function gpu.Context.buffer<T>(
     return new shared.Buffer(
         _elementType = nil as T,
         _anchor = self,
+        _context = self,
         _handle = handle,
         _width = width,
         _offset = 0,
         _capacity = count,
         _root = true,
-        _released = false,
+        _state = {released = false},
         _shape = {count},
         _strides = {1},
         count = count
@@ -362,8 +365,8 @@ function gpu.Context.compileGenerated(
     if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
         error("nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers", 2)
     end
-    if uniformBytes < 0 or uniformBytes > 128 then
-        error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
+    if uniformBytes < 0 or uniformBytes > 128 or uniformBytes % 4 ~= 0 then
+        error("nupp: GPU uniform block must be from 0 through 128 bytes and aligned to four bytes", 2)
     end
     if group < 1 or group > 1024 then
         error("nupp: GPU thread group must be from 1 through 1024", 2)
@@ -410,25 +413,41 @@ function gpu.Context.compileGenerated(
         _uniformBytes = uniformBytes,
         _readonlyBuffers = readonlyBuffers,
         _writableBuffers = writableBuffers,
-        _threads = group
+        _threads = group,
+        _released = false
     )
 end
 
 function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
     local buffer = bufferValue as gpu.Buffer<T>
-    if not buffer._root then
+    if buffer._context ~= self then
+        error("nupp: GPU buffer belongs to another context", 2)
+    end
+    if buffer._state.released then
+        error("nupp: GPU buffer was released", 2)
+    elseif not buffer._root then
         error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
     end
     native.succeeded(C.nuppNativeGpuBufferRelease(live(self), buffer._handle), 2)
+    buffer._state.released = true
 end
 
 function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValue: api.Kernel): nil
     local kernel = kernelValue as gpu.Kernel
+    if kernel._anchor ~= self then
+        error("nupp: GPU kernel belongs to another context", 2)
+    elseif kernel._released then
+        error("nupp: GPU kernel was released", 2)
+    end
     native.succeeded(C.nuppNativeGpuKernelRelease(live(self), kernel._handle), 2)
+    kernel._released = true
 end
 
 function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive bindingValue: api.Binding): nil
     local binding = bindingValue as gpu.Binding
+    if binding._anchor ~= self then
+        error("nupp: GPU binding belongs to another context", 2)
+    end
     if binding._released then
         return
     end
@@ -443,8 +462,11 @@ function gpu.Binding.setRead<T>(
     matchCount: boolean
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
-    if self._released then
+    if self._released or self._kernel._released then
         error("nupp: GPU binding was released", 2)
+    end
+    if buffer._context ~= self._anchor or buffer._state.released then
+        error("nupp: GPU read buffer is unavailable in this context", 2)
     end
     local _, extent, dense = layoutFacts(buffer._shape, buffer._strides, 2)
     if matchCount and not dense then
@@ -469,6 +491,8 @@ function gpu.Binding.setRead<T>(
         ),
         2
     )
+    self._read[slot + 1] = 1
+    self._bufferStates[slot + 1] = buffer._state
     self._spanCounts[slot + 1] = extent
     self._spanOffsets[slot + 1] = buffer._offset
 end
@@ -480,8 +504,11 @@ function gpu.Binding.setWrite<T>(
     matchCount: boolean
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
-    if self._released then
+    if self._released or self._kernel._released then
         error("nupp: GPU binding was released", 2)
+    end
+    if buffer._context ~= self._anchor or buffer._state.released then
+        error("nupp: GPU write buffer is unavailable in this context", 2)
     end
     local _, extent, dense, injective = layoutFacts(buffer._shape, buffer._strides, 2)
     if not injective or extent ~= buffer.count then
@@ -510,14 +537,31 @@ function gpu.Binding.setWrite<T>(
         ),
         2
     )
+    self._write[slot + 1] = 1
     local position = self._readonlyBuffers + slot + 1
+    self._bufferStates[position] = buffer._state
     self._spanCounts[position] = extent
     self._spanOffsets[position] = buffer._offset
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
-    if self._released then
-        error("nupp: GPU binding was released", 2)
+    if self._released or self._kernel._released then
+        error("nupp: GPU binding or kernel was released", 2)
+    end
+    for index = 1, self._kernel._readonlyBuffers do
+        if self._read[index] == nil then
+            error("nupp: GPU binding is incomplete", 2)
+        end
+    end
+    for index = 1, self._kernel._writableBuffers do
+        if self._write[index] == nil then
+            error("nupp: GPU binding is incomplete", 2)
+        end
+    end
+    for _, state in ipairs(self._bufferStates) do
+        if state.released then
+            error("nupp: GPU binding contains a released buffer", 2)
+        end
     end
     if uniformBytes ~= self._uniformBytes then
         error("nupp: generated GPU uniform block has the wrong size", 2)
@@ -542,6 +586,9 @@ function gpu.Context.upload<T>(
     borrows source: span.Span<T>
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
+    if buffer._context ~= self or buffer._state.released then
+        error("nupp: GPU upload buffer is unavailable in this context", 2)
+    end
     if not gpu.bufferIsDense(buffer) then
         error("nupp: GPU uploads require a dense tensor view", 2)
     end
@@ -558,6 +605,9 @@ end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
     local buffer = bufferValue as gpu.Buffer<T>
+    if buffer._context ~= self or buffer._state.released then
+        error("nupp: GPU download buffer is unavailable in this context", 2)
+    end
     if not gpu.bufferIsDense(buffer) then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
@@ -583,6 +633,9 @@ function gpu.Context.readDownloaded<T>(
     exclusive destination: span.WriteSpan<T>
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
+    if buffer._context ~= self or buffer._state.released then
+        error("nupp: GPU download buffer is unavailable in this context", 2)
+    end
     if not gpu.bufferIsDense(buffer) then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
@@ -621,8 +674,13 @@ function gpu.Context.bindKernel(
     count: integer
 ): gpu.Binding borrows (self)
     local kernel = kernelValue as gpu.Kernel
-    if count < 0 or count > 4294967295 then
-        error("nupp: GPU dispatch count must be from 0 through 4294967295", 2)
+    if kernel._anchor ~= self then
+        error("nupp: GPU kernel belongs to another context", 2)
+    elseif kernel._released then
+        error("nupp: GPU kernel was released", 2)
+    end
+    if count < 1 or count > 4294967295 then
+        error("nupp: GPU dispatch count must be from 1 through 4294967295", 2)
     end
     local context = live(self)
     local output = ffi.new("uint64_t[1]")
@@ -645,6 +703,7 @@ function gpu.Context.bindKernel(
         _writeCounts = {},
         _readOffsets = {},
         _writeOffsets = {},
+        _bufferStates = {},
         _context = context,
         _handle = handle,
         _uniformBytes = kernel._uniformBytes,

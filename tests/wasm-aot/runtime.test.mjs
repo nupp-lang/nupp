@@ -272,10 +272,15 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
     [2, {pointer: 16, bytes: 8}],
     [3, {pointer: 24, bytes: 24}],
     [4, {pointer: 48, bytes: 8}],
+    [5, {pointer: 56, bytes: 4}],
+    [6, {pointer: 60, bytes: 4}],
+    [7, {pointer: 60, bytes: 4}],
+    [8, {pointer: 56, bytes: 4}],
   ]);
   new Uint32Array(heap.buffer, 8, 2).set([4, 9]);
   // count, input count, output count, input offset, output offset, scalar.
   new Uint32Array(heap.buffer, 24, 6).set([2, 2, 2, 0, 0, 7]);
+  new Uint32Array(heap.buffer, 56, 1).set([23]);
 
   const device = {
     lost: {then() {}},
@@ -291,7 +296,10 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
           const words = new Uint32Array(uniform.bytes.buffer, uniform.bytes.byteOffset, uniform.bytes.byteLength / 4);
           for (let index = 0; index < words[0]; index += 1) result[index] = values[index] + words[5];
         }
-        if (command.copy) command.copy.destination.bytes.set(command.copy.source.bytes);
+        if (command.copy) {
+          const {source, sourceOffset, destination, destinationOffset, bytes} = command.copy;
+          destination.bytes.set(source.bytes.subarray(sourceOffset, sourceOffset + bytes), destinationOffset);
+        }
       },
       async onSubmittedWorkDone() {},
     },
@@ -300,7 +308,8 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
     createBuffer({size}) {
       return {
         bytes: new Uint8Array(size),
-        destroy() {},
+        destroyed: false,
+        destroy() { this.destroyed = true; },
         async mapAsync() {},
         getMappedRange() { return this.bytes.buffer; },
         unmap() {},
@@ -318,7 +327,9 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
           };
           return command.pass;
         },
-        copyBufferToBuffer(source, _sourceOffset, destination) { command.copy = {source, destination}; },
+        copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, bytes) {
+          command.copy = {source, sourceOffset, destination, destinationOffset, bytes};
+        },
         finish: () => command,
       };
       return command;
@@ -341,6 +352,11 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
     assert.deepEqual(result.responses[0].ok, true, result.responses[0].error);
     return result.responses[0].value;
   };
+  const fails = async (id, operation, message) => {
+    const result = await handleBrowserEffects({kind: "effects", requests: [{id, kind: "gpu", ...operation}]}, options);
+    assert.equal(result.responses[0].ok, false);
+    assert.match(result.responses[0].error, message);
+  };
 
   await run(1, {operation: "runtime-open"});
   const input = await run(2, {operation: "runtime-create-buffer", bytes: 8});
@@ -349,25 +365,44 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
     operation: "runtime-compile", wgsl: "@compute @workgroup_size(1) fn main() {}", entrypoint: "main",
     readonly: 1, writable: 1, uniformBytes: 24, threads: 1,
   });
+  await fails(20, {
+    operation: "runtime-compile", wgsl: "@compute @workgroup_size(1) fn main() {}", entrypoint: "main",
+    readonly: 1, writable: 1, uniformBytes: 4, threads: 1,
+  }, /descriptor is invalid/);
   await run(5, {operation: "runtime-upload", buffer: input.buffer, lease: 1});
   await run(6, {
     operation: "runtime-dispatch", kernel: kernel.kernel, read: [input.buffer], write: [output.buffer], count: 2, lease: 3,
   });
-  await run(7, {operation: "runtime-download", buffer: output.buffer, lease: 2});
+  await run(7, {operation: "runtime-enqueue-download", buffer: output.buffer, offset: 0, bytes: 8});
   await run(8, {operation: "runtime-synchronize"});
+  await run(9, {operation: "runtime-read-download", buffer: output.buffer, lease: 2});
 
   assert.deepEqual(Array.from(new Uint32Array(heap.buffer, 16, 2)), [11, 16]);
   assert.deepEqual(released, [1, 3, 2]);
+
+  const partial = await run(10, {operation: "runtime-create-buffer", bytes: 12});
+  await fails(11, {operation: "runtime-upload", buffer: partial.buffer, offset: 10, bytes: 4, lease: 8}, /range is invalid/);
+  await run(12, {operation: "runtime-upload", buffer: partial.buffer, offset: 4, bytes: 4, lease: 5});
+  await run(13, {operation: "runtime-enqueue-download", buffer: partial.buffer, offset: 4, bytes: 4});
+  await fails(14, {operation: "runtime-enqueue-download", buffer: partial.buffer, offset: 4, bytes: 4}, /already has a queued download/);
+  await fails(15, {operation: "runtime-read-download", buffer: partial.buffer, lease: 6}, /not synchronized/);
+  await run(16, {operation: "runtime-synchronize"});
+  await run(17, {operation: "runtime-read-download", buffer: partial.buffer, lease: 7});
+  assert.deepEqual(Array.from(new Uint32Array(heap.buffer, 60, 1)), [23]);
+  const partialDeviceBuffer = options.gpuRuntime.buffers.get(partial.buffer).buffer;
+  await run(18, {operation: "runtime-destroy-buffer", buffer: partial.buffer});
+  assert.equal(partialDeviceBuffer.destroyed, true);
+  assert.deepEqual(released, [1, 3, 2, 8, 5, 6, 7]);
 
   // A failed operation releases its lease too: the Lua side only releases
   // after a successful answer, and the slots are few.
   const failed = await handleBrowserEffects({
     kind: "effects",
-    requests: [{id: 9, kind: "gpu", operation: "runtime-upload", buffer: 999, lease: 4}],
+    requests: [{id: 19, kind: "gpu", operation: "runtime-upload", buffer: 999, lease: 4}],
   }, options);
   assert.equal(failed.responses[0].ok, false);
   assert.match(failed.responses[0].error, /buffer handle is unknown/);
-  assert.deepEqual(released, [1, 3, 2, 4]);
+  assert.deepEqual(released, [1, 3, 2, 8, 5, 6, 7, 4]);
 });
 
 test("browser GPU download refreshes a lease after memory growth and rejects revoked permissions", async () => {

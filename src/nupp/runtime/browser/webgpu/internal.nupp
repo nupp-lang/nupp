@@ -28,6 +28,7 @@ local {type Span, type WriteSpan} = require("nupp.mem.span")
 local shared = require("nupp.gpu.types")
 local api = require("nupp.gpu.api")
 local operations = require("nupp.gpu.operations")
+local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local gpu = {}
 type gpu.Buffer<T> = shared.Buffer<T>
 gpu.Buffer = shared.Buffer
@@ -60,6 +61,8 @@ record gpu.Binding is api.Binding
     _readOffsets: {integer}
     @readonly
     _writeOffsets: {integer}
+    @readonly
+    _bufferStates: {any}
     @readonly
     _context: any
     @readonly
@@ -108,7 +111,7 @@ record gpu.Context is api.KernelContext
     _handle: any
     _closed: boolean
 
-    --- Releases the device, compiled kernels, and resident buffers.
+    --- Closes the context and makes its resources unavailable.
     drop: @nosuspend function(takes self: Context): nil
 
     _destroy: @nosuspend function(state: any): nil
@@ -141,8 +144,8 @@ record gpu.Context is api.KernelContext
     bindKernel: function(borrows self: Context, borrows kernel: api.Kernel, count: integer): api.Binding borrows (self)
 
     --- Releases one root buffer's device storage without closing the context.
-    --- Refused while commands are queued; synchronize first. Any view of the
-    --- buffer is invalid afterwards, and using one raises.
+    --- A queued readback is discarded. Every view of the buffer becomes
+    --- unavailable, and using one raises.
     releaseBuffer: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>): nil
 
     --- Releases a compiled kernel no binding uses any more.
@@ -217,9 +220,10 @@ function gpu.Context.buffer<T>(
     return new shared.Buffer(
         _elementType = nil as T,
         _anchor = self,
+        _context = self,
         _handle = answerHandle(answer, "buffer"),
         _width = width,
-        _released = false,
+        _state = {released = false},
         _offset = 0,
         _capacity = count,
         _root = true,
@@ -240,13 +244,19 @@ function gpu.Context.compileGenerated(
     live(self)
     local wgsl = artifacts.wgsl
     local group = threads or 256
-    if wgsl == nil or #wgsl == 0 then
+    if wgsl == nil or #wgsl == 0 or #artifacts.entrypoint == 0 then
         error("nupp: browser GPU kernels need WGSL", 2)
     end
     if readonlyBuffers < 0 or writableBuffers < 1 or readonlyBuffers + writableBuffers > 8 then
         error("nupp: browser GPU kernels take up to eight storage buffers", 2)
     end
-    if uniformBytes < 4 or uniformBytes > 128 or uniformBytes % 4 ~= 0 or group < 1 or group > 256 then
+    local spans = readonlyBuffers + writableBuffers
+    if uniformBytes < 4 * (1 + 2 * spans)
+        or uniformBytes > 128
+        or uniformBytes % 4 ~= 0
+        or group < 1
+        or group > 256
+    then
         error("nupp: browser GPU kernel has an invalid portable layout", 2)
     end
     local answer = response.await("gpu", {
@@ -265,7 +275,8 @@ function gpu.Context.compileGenerated(
         _readonlyBuffers = readonlyBuffers,
         _writableBuffers = writableBuffers,
         _uniformBytes = uniformBytes,
-        _threads = group
+        _threads = group,
+        _released = false
     )
 end
 
@@ -276,14 +287,23 @@ function gpu.Binding.setRead<T>(
     matchCount: boolean
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
-    if self._released or slot < 0 or slot >= self._kernel._readonlyBuffers or buffer._released then
+    if self._released or self._kernel._released then
+        error("nupp: browser GPU binding or kernel was released", 2)
+    end
+    if slot < 0
+        or slot >= self._kernel._readonlyBuffers
+        or buffer._context ~= self._anchor
+        or buffer._state.released
+    then
         error("nupp: browser GPU read binding is invalid", 2)
     end
-    if matchCount and buffer.count ~= self.count then
+    local _, extent, dense = layoutFacts(buffer._shape, buffer._strides, 2)
+    if matchCount and (not dense or extent ~= self.count) then
         error("nupp: browser GPU dispatch-indexed buffer has the wrong count", 2)
     end
     self._read[slot + 1] = buffer._handle
-    self._readCounts[slot + 1] = buffer.count
+    self._bufferStates[slot + 1] = buffer._state
+    self._readCounts[slot + 1] = extent
     self._readOffsets[slot + 1] = buffer._offset
 end
 
@@ -294,23 +314,47 @@ function gpu.Binding.setWrite<T>(
     matchCount: boolean
 ): nil
     local buffer = bufferValue as gpu.Buffer<T>
-    if self._released or slot < 0 or slot >= self._kernel._writableBuffers or buffer._released then
+    if self._released or self._kernel._released then
+        error("nupp: browser GPU binding or kernel was released", 2)
+    end
+    if slot < 0
+        or slot >= self._kernel._writableBuffers
+        or buffer._context ~= self._anchor
+        or buffer._state.released
+    then
         error("nupp: browser GPU write binding is invalid", 2)
     end
-    if matchCount and buffer.count ~= self.count then
+    local _, extent, dense, injective = layoutFacts(buffer._shape, buffer._strides, 2)
+    if not injective or extent ~= buffer.count then
+        error("nupp: browser GPU writable buffer is not a disjoint span", 2)
+    end
+    if matchCount and (not dense or extent ~= self.count) then
         error("nupp: browser GPU dispatch-indexed buffer has the wrong count", 2)
     end
     self._write[slot + 1] = buffer._handle
-    self._writeCounts[slot + 1] = buffer.count
+    self._bufferStates[self._kernel._readonlyBuffers + slot + 1] = buffer._state
+    self._writeCounts[slot + 1] = extent
     self._writeOffsets[slot + 1] = buffer._offset
 end
 
 function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32}): nil
-    if self._released
-        or #self._read ~= self._kernel._readonlyBuffers
-        or #self._write ~= self._kernel._writableBuffers
-    then
-        error("nupp: browser GPU binding is incomplete", 2)
+    if self._released or self._kernel._released then
+        error("nupp: browser GPU binding or kernel was released", 2)
+    end
+    for index = 1, self._kernel._readonlyBuffers do
+        if self._read[index] == nil then
+            error("nupp: browser GPU binding is incomplete", 2)
+        end
+    end
+    for index = 1, self._kernel._writableBuffers do
+        if self._write[index] == nil then
+            error("nupp: browser GPU binding is incomplete", 2)
+        end
+    end
+    for _, state in ipairs(self._bufferStates) do
+        if state.released then
+            error("nupp: browser GPU binding contains a released buffer", 2)
+        end
     end
     local words: {uint32} = {nupp.math.u32.wrap(self.count)}
     for _, values in ipairs({self._readCounts, self._writeCounts, self._readOffsets, self._writeOffsets, scalars}) do
@@ -349,7 +393,10 @@ function gpu.Context.upload<T>(
     local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     local pointer, count = source:ref()
-    if count ~= buffer.count or buffer._released or not buffer._root then
+    if buffer._context ~= self or buffer._state.released or not gpu.bufferIsDense(buffer) then
+        error("nupp: browser GPU upload buffer is unavailable in this context", 2)
+    end
+    if count ~= buffer.count then
         error("nupp: browser GPU upload span length does not match its buffer", 2)
     end
     local leasePointer = memory.lease as function(
@@ -358,16 +405,28 @@ function gpu.Context.upload<T>(
         writable: boolean?
     ): integer
     local lease = leasePointer(pointer, count * buffer._width)
-    response.await("gpu", {operation = "runtime-upload", buffer = buffer._handle, lease = lease,})
+    response.await("gpu", {
+        operation = "runtime-upload",
+        buffer = buffer._handle,
+        offset = buffer._offset * buffer._width,
+        bytes = count * buffer._width,
+        lease = lease,
+    })
     memory.releaseLease(lease)
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
     local buffer = bufferValue as gpu.Buffer<T>
     live(self)
-    if buffer._released then
-        error("nupp: browser GPU buffer was released", 2)
+    if buffer._context ~= self or buffer._state.released or not gpu.bufferIsDense(buffer) then
+        error("nupp: browser GPU download buffer is unavailable in this context", 2)
     end
+    response.await("gpu", {
+        operation = "runtime-enqueue-download",
+        buffer = buffer._handle,
+        offset = buffer._offset * buffer._width,
+        bytes = buffer.count * buffer._width,
+    })
 end
 
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
@@ -383,12 +442,15 @@ function gpu.Context.readDownloaded<T>(
     local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     local pointer, count = destination:ref()
-    if count ~= buffer.count or buffer._released or not buffer._root then
+    if buffer._context ~= self or buffer._state.released or not gpu.bufferIsDense(buffer) then
+        error("nupp: browser GPU download buffer is unavailable in this context", 2)
+    end
+    if count ~= buffer.count then
         error("nupp: browser GPU download span length does not match its buffer", 2)
     end
     local leasePointer = memory.lease as function(exclusive pointer: T[?], bytes: integer, writable: boolean?): integer
     local lease = leasePointer(pointer, count * buffer._width, true)
-    response.await("gpu", {operation = "runtime-download", buffer = buffer._handle, lease = lease,})
+    response.await("gpu", {operation = "runtime-read-download", buffer = buffer._handle, lease = lease,})
     memory.releaseLease(lease)
 end
 
@@ -405,16 +467,36 @@ end
 
 function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
     local buffer = bufferValue as gpu.Buffer<T>
-    buffer._released = true
+    live(self)
+    if buffer._context ~= self then
+        error("nupp: browser GPU buffer belongs to another context", 2)
+    elseif buffer._state.released then
+        error("nupp: browser GPU buffer was released", 2)
+    elseif not buffer._root then
+        error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
+    end
+    response.await("gpu", {operation = "runtime-destroy-buffer", buffer = buffer._handle,})
+    buffer._state.released = true
 end
 
 function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValue: api.Kernel): nil
     local kernel = kernelValue as gpu.Kernel
+    live(self)
+    if kernel._anchor ~= self then
+        error("nupp: browser GPU kernel belongs to another context", 2)
+    elseif kernel._released then
+        error("nupp: browser GPU kernel was released", 2)
+    end
     response.await("gpu", {operation = "runtime-destroy-kernel", kernel = kernel._handle,})
+    kernel._released = true
 end
 
 function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive bindingValue: api.Binding): nil
     local binding = bindingValue as gpu.Binding
+    live(self)
+    if binding._anchor ~= self then
+        error("nupp: browser GPU binding belongs to another context", 2)
+    end
     binding._released = true
 end
 
@@ -429,8 +511,13 @@ function gpu.Context.bindKernel(
 ): gpu.Binding borrows (self)
     local kernel = kernelValue as gpu.Kernel
     live(self)
-    if count < 0 or count > 4294967295 then
-        error("nupp: GPU dispatch count must be a uint32", 2)
+    if kernel._anchor ~= self then
+        error("nupp: browser GPU kernel belongs to another context", 2)
+    elseif kernel._released then
+        error("nupp: browser GPU kernel was released", 2)
+    end
+    if count < 1 or count > 4294967295 then
+        error("nupp: GPU dispatch count must be from 1 through 4294967295", 2)
     end
 
     return new gpu.Binding(
@@ -448,6 +535,7 @@ function gpu.Context.bindKernel(
         _writeCounts = {},
         _readOffsets = {},
         _writeOffsets = {},
+        _bufferStates = {},
         _released = false,
         count = count
     )

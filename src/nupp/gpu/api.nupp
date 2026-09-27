@@ -10,10 +10,11 @@ owns their common nominal identities. Implementations use private records that
 satisfy these interfaces rather than defining alternative public buffer, kernel,
 or context types.
 
-A context owns its device resources. Buffers, kernels, and bindings borrow that
-context; views retain their source relationship. Upload and download preserve
-host-span borrowing and exclusive output access. Context teardown consumes its
-owner without suspension through the canonical destroyContext function.
+A context owns its device resources. Buffers, kernels, and bindings may only be
+used with that context; views retain their source relationship and share the
+root buffer's released state. Upload and download preserve host-span borrowing
+and exclusive output access. Context teardown consumes its owner without
+suspension through the canonical destroyContext function.
 
 KernelContext adds generated-artifact compilation and binding operations.
 Providers must honor the supplied layout, buffer-slot counts, uniform byte size,
@@ -38,7 +39,8 @@ interface gpu.Buffer<T>
     @readonly
     strides: function(borrows self: gpu.Buffer<T>): {integer}
 
-    --- Creates a context-borrowed view at a zero-based origin with the requested shape.
+    --- Creates a context-borrowed view at a zero-based origin with the requested
+    --- shape.
     @readonly
     subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
 
@@ -47,6 +49,7 @@ interface gpu.Buffer<T>
     layout: function(borrows self: gpu.Buffer<T>): TensorLayout
 
     --- Creates a view using the supplied checked layout without copying storage.
+    --- The layout must fit within the root allocation.
     @readonly
     view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
 end
@@ -90,8 +93,8 @@ interface gpu.Binding
     @readonly
     count: integer
 
-    --- Attaches a buffer to a zero-based read slot.
-    --- matchCount requires one buffer element per dispatched element.
+    --- Attaches a same-context buffer to a zero-based read slot.
+    --- `matchCount` requires a dense buffer element per dispatched element.
     @readonly
     setRead: function<T>(
         borrows self: gpu.Binding,
@@ -100,7 +103,8 @@ interface gpu.Binding
         matchCount: boolean
     ): nil
 
-    --- Attaches a buffer to a zero-based writable slot with the same count rule.
+    --- Attaches a same-context, injective buffer to a zero-based writable slot.
+    --- `matchCount` also requires a dense element per dispatched element.
     @readonly
     setWrite: function<T>(
         borrows self: gpu.Binding,
@@ -121,7 +125,7 @@ end
 
 --- Canonical non-suspending teardown obligation for a device context.
 interface gpu.ContextToken
-    --- Consumes and releases the context without suspending.
+    --- Consumes the context and makes its resources unavailable without suspending.
     @readonly
     drop: @nosuspend function(takes self: ContextToken): nil
 end
@@ -149,16 +153,16 @@ interface gpu.Context is gpu.ContextToken
     @readonly
     tensor: function<T>(borrows self: gpu.Context, element: ctype<T>, shape: {integer}): gpu.Buffer<T> borrows (self)
 
-    --- Releases the device allocation represented by buffer.
-    --- The caller must not use it or its dependent views afterward.
+    --- Releases a same-context root buffer's device allocation.
+    --- The root and every dependent view become unavailable afterward.
     @readonly
     releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
 
-    --- Copies borrowed host-span data into the resident buffer.
+    --- Copies borrowed host-span data into a same-sized dense buffer or view.
     @readonly
     upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
 
-    --- Queues a buffer readback for subsequent synchronization and reading.
+    --- Queues a dense buffer or view readback for synchronization and reading.
     @readonly
     enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
 
@@ -166,7 +170,7 @@ interface gpu.Context is gpu.ContextToken
     @readonly
     synchronize: function(borrows self: gpu.Context): nil
 
-    --- Copies a completed readback into an exclusively borrowed destination span.
+    --- Copies a synchronized readback into a same-sized exclusive destination.
     @readonly
     readDownloaded: function<T>(
         borrows self: gpu.Context,
@@ -174,7 +178,7 @@ interface gpu.Context is gpu.ContextToken
         exclusive destination: WriteSpan<T>
     ): nil
 
-    --- Performs readback, synchronization, and copying into the exclusive destination.
+    --- Queues, synchronizes, and copies a dense readback into the destination.
     @readonly
     download: function<T>(
         borrows self: gpu.Context,
@@ -198,7 +202,7 @@ interface gpu.KernelContext is gpu.Context
         threads: integer?
     ): gpu.Kernel borrows (self)
 
-    --- Creates a binding for count elements using this context's compiled kernel.
+    --- Creates a binding for count elements using this context's live kernel.
     @readonly
     bindKernel: function(
         borrows self: gpu.KernelContext,
@@ -206,11 +210,12 @@ interface gpu.KernelContext is gpu.Context
         count: integer
     ): gpu.Binding borrows (self)
 
-    --- Releases a compiled kernel; dependent bindings must no longer be used.
+    --- Releases a same-context compiled kernel.
+    --- Dependent bindings become unavailable afterward.
     @readonly
     releaseKernel: function(borrows self: gpu.KernelContext, borrows kernel: gpu.Kernel): nil
 
-    --- Releases a binding while holding exclusive access to it.
+    --- Releases a same-context binding while holding exclusive access to it.
     @readonly
     releaseBinding: function(borrows self: gpu.KernelContext, exclusive binding: gpu.Binding): nil
 end
