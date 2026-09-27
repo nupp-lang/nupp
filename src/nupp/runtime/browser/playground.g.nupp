@@ -6,11 +6,12 @@ module nupp.runtime.browser.playground
 -- output capture without synthesizing Lua source in JavaScript.
 
 local json = require("nupp.runtime.provider.lunajson")
+local utf8 = require("nupp.text.utf8")
 local browserCompute = require("nupp.browser")
 -- The derive runtime and the two libraries a derived binding reaches, for the
--- same reason: a program that derives `Serde` compiles to `require("nupp.derive")`,
--- and a module the bundle does not carry is a program that checks, compiles, and
--- then cannot run.
+-- same reason: a program that derives `Serde` lowers to
+-- `require("nupp.derive")`, and a module the bundle does not carry is a program
+-- that checks, lowers, and then cannot run.
 local derive = require("nupp.derive")
 local serde = require("nupp.serde")
 local dataJson = require("nupp.codec.json")
@@ -56,12 +57,27 @@ local lines: {string} = {}
 local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
 
+local function printable(value: string): string
+    if utf8.isValid(value) then
+        return value
+    end
+    local pieces: {string} = {}
+    local at: integer = 1
+    while at <= #value do
+        local codepoint, nextAt = utf8.decodeAt(value, at)
+        pieces[#pieces + 1] = utf8.encode(codepoint as integer)
+        at = nextAt
+    end
+
+    return table.concat(pieces)
+end
+
 _G.print = function(...: any): nil
     local values: {string} = {}
     for index = 1, select("#", ...) do
         values[index] = tostring(select(index, ...))
     end
-    local line = table.concat(values, "\t")
+    local line = printable(table.concat(values, "\t"))
     outputBytes = outputBytes + #line + (#lines > 0 and 1 or 0)
     if outputBytes > OUTPUT_LIMIT then
         error("nupp: playground output exceeded 1048576 bytes", 0)

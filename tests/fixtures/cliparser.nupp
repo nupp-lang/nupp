@@ -275,6 +275,26 @@ end
 local tags = assert(Sets.fromCLI({"--tags", "fast", "--tags", "portable", "--tags", "fast"}))
 assert(tags.tags.fast and tags.tags.portable)
 
+@derive(cliModule.Arguments)
+local record OptionalChoices
+    --- Optional execution mode.
+    @cli(positional = "MODE", choices = {"fast", "thorough"})
+    mode: string?
+
+    --- Optional report format.
+    @cli(positional = "FORMAT", choices = {"text", "json"})
+    format: string?
+
+    --- Input file.
+    @cli(positional = "FILE")
+    file: string
+end
+
+local choicesSkipped = assert(OptionalChoices.fromCLI({"main.nupp"}))
+assert(choicesSkipped.mode == nil and choicesSkipped.format == nil and choicesSkipped.file == "main.nupp")
+local secondChoice = assert(OptionalChoices.fromCLI({"json", "main.nupp"}))
+assert(secondChoice.mode == nil and secondChoice.format == "json" and secondChoice.file == "main.nupp")
+
 cliModule.withColorMode("always", function()
     local style = cliModule.style(io.stdout)
     assert(cliModule.colorEnabled(io.stdout))

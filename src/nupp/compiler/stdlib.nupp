@@ -22,10 +22,11 @@ local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__n
 ]=]
 )
 
--- Watch modules spend one top-level local on their private implementation array. The
--- ordinary bootstrap always reserves a math namespace local even when math is unused;
--- addressing that namespace through nupp in the development-only artifact recovers
--- exactly one local and keeps watch's authored-function ceiling equal to normal.
+-- Watch modules spend one top-level local on their private implementation
+-- array. The ordinary bootstrap always reserves a math namespace local even
+-- when math is unused; addressing that namespace through nupp in the
+-- development-only artifact recovers exactly one local and keeps watch's
+-- authored-function ceiling equal to normal.
 local HOT_BASE = compact(
     [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
@@ -35,19 +36,20 @@ local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__n
 ]=]
 )
 
--- `nupp.math` is mostly answered by the compiler, which lowers the qualified paths to
--- operations and never reaches a function at all. What this installs is the module
--- that answers the reads it could not lower, filling in the namespace the base
--- reserved rather than replacing it, because generated code already addresses that
--- table through a local of its own.
+-- `nupp.math` is mostly answered by the compiler, which lowers the qualified
+-- paths to operations and never reaches a function at all. What this installs
+-- is the module that answers the reads it could not lower, filling in the
+-- namespace the base reserved rather than replacing it, because generated code
+-- already addresses that table through a local of its own.
 local MATH = compact([=[
 require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"))
 ]=])
 
 -- The matcher shell, the graph lowering and the specializations are an ordinary
 -- checked module. What stays here is the binding: the namespace the prelude's
--- `nupp.peg` declaration promises, and the two helper names materialized grammars are
--- generated against, which have to be locals of the chunk that carries them.
+-- `nupp.peg` declaration promises, and the two helper names materialized
+-- grammars are generated against, which have to be locals of the chunk that
+-- carries them.
 local PEG_RUNTIME = compact(
     [=[
 local __nuppPegRuntime=require("nupp.compiler.runtime.peg")
@@ -60,9 +62,9 @@ local PEG_COMPILE = compact([=[
 __nuppPeg.compile=__nuppPegRuntime.compile
 ]=])
 
--- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the registry
--- behind `reflect()`, are both an ordinary checked module. What stays here is which
--- of the two a program's feature set asked for.
+-- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the
+-- registry behind `reflect()`, are both an ordinary checked module. What stays
+-- here is which of the two a program's feature set asked for.
 local FIELDCODEC = compact([=[
 require("nupp.compiler.runtime.reflect").installFieldCodec(__nupp)
 ]=])
@@ -71,10 +73,10 @@ local REFLECTION = compact([=[
 require("nupp.compiler.runtime.reflect").install(__nupp)
 ]=])
 
--- What a derived member does when it runs is `nupp.derive` itself, the same module
--- whose comptime half decided what to write. This installs its runtime under the
--- namespace generated code addresses, and nothing shadows the module: a program that
--- requires `nupp.derive` gets the one that is really there.
+-- What a derived member does when it runs is `nupp.derive` itself, the same
+-- module whose comptime half decided what to write. This installs its runtime
+-- under the namespace generated code addresses, and nothing shadows the module:
+-- a program that requires `nupp.derive` gets the one that is really there.
 local DERIVES = compact([=[
 require("nupp.derive").install(__nupp)
 ]=])

@@ -57,17 +57,17 @@ end
 
 --- An observer of one event type.
 ---
---- The event is borrowed for the call: it may be read and written, and cannot be
---- stored or returned. State beyond the event is explicit: capture it in the
---- observer or carry it as an event field.
+--- The event is borrowed for the call: it may be read and written, and cannot
+--- be stored or returned. State beyond the event is explicit: capture it in
+--- the observer or carry it as an event field.
 --- @export
 type events.Observer<E> = function(borrows event: E): nil
 
 --- Storage an event type is constructed into and returned to.
 ---
---- `acquire` hands out reusable storage of the event's own representation, which
---- the emitting source initializes; `release` ends that lease when delivery is
---- over. [](nupp.util.Pool) and [](nupp.mem.arena) implement it.
+--- `acquire` hands out reusable storage of the event's own representation,
+--- which the emitting source initializes; `release` ends that lease when
+--- delivery is over. [](nupp.util.Pool) and [](nupp.mem.arena) implement it.
 --- @export
 interface events.Allocator<E>
     acquire: function(exclusive self: Allocator<E>): E
@@ -91,12 +91,12 @@ end
 
 --- Marks a record or a fixed-layout struct as an event.
 ---
---- The derive records the event's name and representation, and asks the compiler
---- for the declaration's initializer: its constructor body, or its field list,
---- run against storage a source already holds. A declaration with several
---- constructors, one whose constructor keeps `self` or moves an owner into it,
---- an affine field, or a generic owner is refused, since none of those can run
---- against reused storage.
+--- The derive records the event's name and representation, and asks the
+--- compiler for the declaration's initializer: its constructor body, or its
+--- field list, run against storage a source already holds. A declaration with
+--- several constructors, one whose constructor keeps `self` or moves an owner
+--- into it, an affine field, or a generic owner is refused, since none of
+--- those can run against reused storage.
 --- @param info the declaration being derived
 --- @return the recipe claiming `events.Emittable`
 @comptime
@@ -397,8 +397,9 @@ local function settle(observers: any): nil
         return
     end
     observers.pending = false
-    -- Keyed by the address a removal touched, so recording one during a delivery
-    -- allocates nothing and holds the address as `byAddress` holds it: as a key.
+    -- Keyed by the address a removal touched, so recording one during a
+    -- delivery allocates nothing and holds the address as `byAddress` holds it:
+    -- as a key.
     -- Every list at the address is compacted, which costs nothing for one with
     -- no tombstone; the walk stops when pruning has given the map back.
     local dirty = observers.dirty
@@ -406,15 +407,17 @@ local function settle(observers: any): nil
     for address in pairs(dirty) do
         dirty[address] = nil
         local map = byAddress[address]
-        local eventId, list = next(map)
-        while eventId ~= nil do
-            local following, followingList = next(map, eventId)
-            compact(list)
-            prune(observers, address, eventId as integer, list)
-            if byAddress[address] ~= map then
-                break
+        if map ~= nil then
+            local eventId, list = next(map)
+            while eventId ~= nil do
+                local following, followingList = next(map, eventId)
+                compact(list)
+                prune(observers, address, eventId as integer, list)
+                if byAddress[address] ~= map then
+                    break
+                end
+                eventId, list = following, followingList
             end
-            eventId, list = following, followingList
         end
     end
     local detached = observers.detached
@@ -501,14 +504,16 @@ end
 --- Registers an observer of one event type at one address.
 ---
 --- Observers run in registration order. A name lets `stopObserving` remove this
---- registration by name; a name already registered at the same address and event
---- is an error, since the second could never be removed alone.
---- @param source the bus or world that owns the observer registry and event storage
+--- registration by name; a name already registered at the same address and
+--- event is an error, since the second could never be removed alone.
+--- @param source the bus or world that owns the observer registry and event
+---     storage
 --- @param address where the event is delivered
 --- @param event the event declaration
 --- @param callback what runs when one is delivered
 --- @param id an optional name for removal
---- @raises string when the type did not derive `events.Event`, or the name is taken
+--- @raises string when the type did not derive `events.Event`, or the name is
+---     taken
 function events.observe<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
@@ -521,15 +526,16 @@ end
 
 --- Registers an observer that is consumed before its first delivery.
 ---
---- The registration is tombstoned before the callback is invoked, so a nested or
---- interleaved delivery of the same event never reaches it again, whatever the
---- callback goes on to do.
+--- The registration is tombstoned before the callback is invoked, so a nested
+--- or interleaved delivery of the same event never reaches it again, whatever
+--- the callback goes on to do.
 --- @param source the bus or world to observe through
 --- @param address where the event is delivered
 --- @param event the event declaration
 --- @param callback what runs, once
 --- @param id an optional name for removal
---- @raises string when the type did not derive `events.Event`, or the name is taken
+--- @raises string when the type did not derive `events.Event`, or the name is
+---     taken
 function events.observeOnce<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
@@ -545,8 +551,9 @@ end
 --- Given a name, the first registration with that name goes; given a callback,
 --- every registration of it goes. A removal during a delivery takes effect at
 --- once for anything not yet reached and is compacted out after the outermost
---- delivery leaves. A caller removing by callback keeps the value it registered:
---- a short function is a fresh object each time its expression runs.
+--- delivery leaves. A caller removing by callback keeps the value it
+--- registered: a short function is a fresh object each time its expression
+--- runs.
 --- @param source the bus or world observed through
 --- @param address where the registration was made
 --- @param event the event declaration
@@ -657,8 +664,8 @@ end
 
 --- Removes every registration at every address.
 ---
---- Allocators are left alone: an arena the caller installed is still theirs, and
---- the source's own storage is reused by the next emission.
+--- Allocators are left alone: an arena the caller installed is still theirs,
+--- and the source's own storage is reused by the next emission.
 --- @param source the bus or world
 function events.reset<A, S is events.Source<A>>(exclusive source: S): nil
     local observers = source.observers as any
@@ -724,8 +731,8 @@ end
 ---
 --- The length is read once, so an observer added during the delivery joins the
 --- next one. A once registration is tombstoned before its callback runs. This
---- runs under `pcall`, passing the event as the plain value the source leased or
---- was handed; the observer receives it under its borrowed contract.
+--- runs under `pcall`, passing the event as the plain value the source leased
+--- or was handed; the observer receives it under its borrowed contract.
 local function deliverTo<E>(observers: any, list: any, borrows event: E, borrows address: any, eventId: integer): nil
     local n: integer = list.n
     if list.once == 0 and list.holes == 0 then
@@ -755,15 +762,21 @@ end
 --- Leaves a delivery: the lease first, then the bookkeeping, then any failure.
 ---
 --- The lease returns before the source settles, since settling rewinds the
---- arenas the source owns and a rewind with a live lease is refused.
---- @raises any what the delivery raised, once its lease is released
+--- arenas the source owns and a rewind with a live lease is refused. A failing
+--- allocator release does not leave the source marked as delivering.
+--- @raises any what the delivery or allocator release raised
 local function finish(observers: any, allocator: any, storage: any, ok: boolean, failure: any): nil
+    local released: boolean = true
+    local releaseFailure: any = nil
     if allocator ~= nil then
-        allocator:release(storage)
+        released, releaseFailure = pcall(allocator.release, allocator, storage)
     end
     observers.depth = observers.depth - 1
     if observers.depth == 0 then
         settle(observers)
+    end
+    if not released then
+        error(releaseFailure, 0)
     end
     if not ok then
         error(failure, 0)
@@ -784,7 +797,8 @@ end
 --- @param address where to deliver
 --- @param event the event declaration
 --- @param ... the event's constructor arguments, positional or named
---- @raises any what an observer or the initializer raised, after the lease is released
+--- @raises any what an observer, initializer, or allocator raised after
+---     bookkeeping is restored
 function events.emit<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
@@ -887,7 +901,8 @@ record events.MessageBus<A> is events.Source<A>
         callbackOrId: events.Observer<E> | string
     ): boolean
 
-    --- Whether anything observes an event here; see [](nupp.events.hasObservers).
+    --- Whether anything observes an event here; see
+    --- [](nupp.events.hasObservers).
     hasObservers: function<E is events.Emittable>(self: MessageBus<A>, address: A, event: Type<E>): boolean
 
     --- Constructs and delivers an event; see [](nupp.events.emit).
@@ -906,7 +921,8 @@ record events.MessageBus<A> is events.Source<A>
         instance: E
     ): nil
 
-    --- Removes every registration at an address; see [](nupp.events.clearAddress).
+    --- Removes every registration at an address; see
+    --- [](nupp.events.clearAddress).
     clearAddress: function(exclusive self: MessageBus<A>, address: A): nil
 
     --- Removes every registration; see [](nupp.events.reset).

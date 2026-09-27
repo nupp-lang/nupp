@@ -584,6 +584,40 @@ function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     test.equal(table.concat(order, ","), "world,again")
 end
 
+function M.clearAddressAfterRemovalDuringDeliverySettlesCleanly(): nil
+    local bus = newBus()
+    local runs = 0
+    bus:observe(
+        7,
+        Damage,
+        |event| -> do
+            runs = runs + 1
+            assert(bus:stopObserving(7, Damage, "second"))
+            bus:clearAddress(7)
+        end,
+        "first"
+    )
+    bus:observe(
+        7,
+        Damage,
+        |event| -> do
+            runs = runs + 1
+        end,
+        "second"
+    )
+
+    bus:emit(7, Damage, amount = 1, source = 1)
+    test.equal(runs, 1, "the removed observer did not run")
+    test.equal(bus.observers.count, 0)
+    assert(not bus:hasObservers(7, Damage))
+
+    bus:observe(7, Damage, |event| -> do
+        runs = runs + 1
+    end)
+    bus:emit(7, Damage, amount = 1, source = 1)
+    test.equal(runs, 2, "the recycled address remains usable")
+end
+
 function M.resetDuringDeliveryLetsTheDeliveryFinish(): nil
     local bus = newBus()
     local order: {string} = {}
@@ -748,6 +782,37 @@ function M.aFailingInitializerReleasesTheLeaseBeforeRaising(): nil
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(runs, 1)
     test.equal(counting.live, 0)
+end
+
+function M.aFailingReleaseRestoresDeliveryBookkeeping(): nil
+    local bus = newBus()
+    local counting = newCounting()
+    local broken = {
+        acquire = function(self: any): Damage
+            return counting:acquire()
+        end,
+        release = function(self: any, value: Damage): nil
+            counting:release(value)
+            error("release failed")
+        end,
+    }
+    bus:setAllocator(Damage, broken as events.Allocator<Damage>)
+    bus:observe(7, Damage, |event| -> nil)
+
+    test.raises(
+        function()
+            bus:emit(7, Damage, amount = 1, source = 1)
+        end,
+        "release failed"
+    )
+    test.equal(counting.live, 0)
+
+    -- A release failure left the delivery, so replacing the allocator is
+    -- allowed and the source remains usable.
+    bus:setAllocator(Damage, counting)
+    bus:emit(7, Damage, amount = 1, source = 1)
+    test.equal(counting.acquires, 2)
+    test.equal(counting.releases, 2)
 end
 
 function M.aRemovalMadeBeforeAFailureIsStillCompacted(): nil

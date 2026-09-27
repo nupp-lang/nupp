@@ -74,4 +74,24 @@ function M.derivedMetadataNamesInterfacesStably()
     assert(not generated:find("nominal#%d+%(Runnable%)"), generated)
 end
 
+function M.playgroundOutputIsAlwaysValidUtf8()
+    local savedPrint = _G.print
+    local savedRun = rawget(_G, "__nuppPlaygroundRun")
+    local module = "nupp.runtime.browser.playground"
+    package.loaded[module] = nil
+    local ok, result = xpcall(
+        function()
+            require(module)
+            return _G.__nuppPlaygroundRun('print("\\255")')
+        end,
+        debug.traceback
+    )
+    _G.print = savedPrint
+    rawset(_G, "__nuppPlaygroundRun", savedRun)
+    package.loaded[module] = nil
+    assert(ok, result)
+    local decoded = json.decode(result)
+    assert(decoded.stdout == "\239\191\189", "malformed output was not replaced")
+end
+
 return M

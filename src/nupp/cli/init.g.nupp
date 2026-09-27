@@ -33,7 +33,7 @@ from the top down. Underneath both, `optParser` and `getopt` are the
 syntax-only foundation: a token stream with no types attached, for when the
 shape of the command line is not a record.
 
-This module also holds the terminal side of a command-line program -- colour
+This module also holds the terminal side of a command-line program -- color
 modes, styles, and tables -- so what a command prints lines up with what it
 parsed.
 
@@ -181,7 +181,8 @@ function cliModule.paintedCell(value: string, paint: function(string): string): 
     return require("nupp.cli.internal.table").painted(value, paint)
 end
 
---- A table cell carrying an aside, measured with the cell and painted apart from it.
+--- A table cell carrying an aside, measured with the cell and painted apart
+--- from it.
 function cliModule.annotatedCell(value: string, note: string, paint: (function(string): string)?): cliModule.Cell
     return require("nupp.cli.internal.table").annotated(value, note, paint)
 end

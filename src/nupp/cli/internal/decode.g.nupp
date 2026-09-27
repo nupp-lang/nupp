@@ -228,17 +228,18 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
             end
         else
             local field = positionals[positionalIndex]
-            if field ~= nil and field.optional and field.choices ~= nil then
+            while field ~= nil and field.optional and field.choices ~= nil do
                 local matches = false
                 for _, choice in ipairs(field.choices) do
                     if choice == stream:raw() then
                         matches = true
                     end
                 end
-                if not matches then
-                    positionalIndex = positionalIndex + 1
-                    field = positionals[positionalIndex]
+                if matches then
+                    break
                 end
+                positionalIndex = positionalIndex + 1
+                field = positionals[positionalIndex]
             end
             if field == nil then
                 return nil, failure("unexpectedArgument", "unexpected argument " .. stream:raw(), stream, nil)
