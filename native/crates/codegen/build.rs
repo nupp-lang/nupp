@@ -78,6 +78,9 @@ fn main() {
     let kind = if target.contains("windows") { "static:-bundle" } else { "static" };
     if target.contains("windows") {
         cpp.link_lib_modifier("-bundle");
+        // Linked below, statically and by name; cc's own request for it
+        // would name it again with other modifiers, which rustc refuses.
+        cpp.cpp_link_stdlib(None);
     }
     cpp.file("src/glue.cpp").compile("nupp_codegen_glue");
     println!("cargo:rustc-link-search=native={libdir}");

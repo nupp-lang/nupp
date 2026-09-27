@@ -22,6 +22,7 @@ pub struct Job {
     pub options: CompileOptions,
 }
 
+#[cfg(unix)]
 fn report_path(job: &Job) -> PathBuf {
     let mut path = job.object.clone().into_os_string();
     path.push(".report");
