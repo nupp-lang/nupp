@@ -1798,6 +1798,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
         local stableGlobal = globalEntry and calleeEntry and globalEntry.definition == calleeEntry.definition
+        node.resolvedGlobal = stableGlobal and calleeName or nil
         if stableGlobal and (calleeName == "assert" or calleeName == "error") then
             node.aotGuardBuiltin = calleeName
         end

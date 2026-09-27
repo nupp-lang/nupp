@@ -123,6 +123,67 @@ return {accumulate = accumulate}
     )
 end
 
+function M.reducerRegionsFollowEveryNestedDoBlock()
+    local prefix = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function total(flag: boolean): number
+    local species = assert(simd.species(array.number, 2))
+    local fold = simd.reducer.pairwiseSum(0.0)
+]]
+    local suffix = [[
+    return fold:value()
+end
+
+return total
+]]
+
+    reports(
+        prefix
+        .. [[
+    if flag then
+        do
+            fold:add(species:splat(1.0), species:tail(2))
+        end
+    end
+]]
+        .. suffix,
+        "",
+        "a do block nested under control flow remains a reducer region"
+    )
+    reports(
+        prefix
+        .. [[
+    do
+        fold:add(species:splat(1.0), species:tail(2))
+        do
+            fold:add(species:splat(2.0), species:tail(2))
+        end
+    end
+]]
+        .. suffix,
+        "NUPP2904",
+        "nested do blocks are distinct reducer regions"
+    )
+    reports(
+        prefix
+        .. [[
+    if flag then
+        local nested = simd.reducer.pairwiseSum(0.0)
+        do
+            nested:add(species:splat(1.0), species:tail(2))
+        end
+    end
+    fold:add(1.0)
+]]
+        .. suffix,
+        "NUPP2904",
+        "a reducer declared in nested control flow still needs finalization"
+    )
+end
+
 function M.numericSwitchLocalIsAdmitted()
     reports(
         [[

@@ -18,6 +18,8 @@ local predicate = require("nupp.compiler.types.predicate")
 
 local constrain = {}
 
+local MAX_EXACT_INTEGER = 9007199254740991
+
 --- The value domain each base admits, so a bound outside it is refused where it is
 --- written rather than compiled into a test nothing can pass.
 ---
@@ -25,7 +27,7 @@ local constrain = {}
 --- language holds a numeric literal type to.
 local RANGE_DOMAIN: {
     [string]: {number}
-} = {integer = {-9007199254740992, 9007199254740992}, int32 = {-2147483648, 2147483647}, uint32 = {0, 4294967295},}
+} = {integer = {-MAX_EXACT_INTEGER, MAX_EXACT_INTEGER}, int32 = {-2147483648, 2147483647}, uint32 = {0, 4294967295},}
 
 --- Whether `base` can carry a range or a length constraint, and why not when it
 --- cannot. A constrained alias of an admissible base is admissible: narrowing one
@@ -63,8 +65,8 @@ function constrain.build(base: T.Type, low: number, high: number, lengthwise: bo
         return nil, why
     end
     local underlying = T.unconstrained(base)
-    if low % 1 ~= 0 or high % 1 ~= 0 then
-        return nil, "a bound must be a whole number"
+    if low % 1 ~= 0 or high % 1 ~= 0 or math.abs(low) > MAX_EXACT_INTEGER or math.abs(high) > MAX_EXACT_INTEGER then
+        return nil, "a bound must be an exact integer"
     end
     if low > high then
         return nil, ("the bounds %d..%d are in descending order"):format(low, high)

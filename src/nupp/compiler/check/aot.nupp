@@ -21,12 +21,11 @@ and some `any` is not. Reporting the structural half here keeps that later pass
 from having to re-explain constructs it never saw.
 
 A method call is deliberately not refused here, even though a dynamic one has no
-AOT IR opcode. `span[i]` is the memory boundary the
-whole feature is built on and are lowered directly rather than dispatched, so
-whether a call resolves is a question about its receiver's type and belongs to
-the pass that has one. Refusing the syntax would refuse the subset's own
-vocabulary. An optional call is refused, because `?:` is dynamic by
-construction whatever it is called on.
+AOT IR opcode. Span accesses and admitted intrinsics lower directly rather than
+dispatch dynamically, so whether a call resolves is a question about its
+receiver's type and belongs to the pass that has one. Refusing the syntax would
+refuse the subset's own vocabulary. An optional call is refused, because `?:`
+is dynamic by construction whatever it is called on.
 
 Each declined construct reports once and the walk does not descend into it. A
 closure containing three tables is one problem with one fix, and listing the
@@ -188,7 +187,7 @@ function aot.install(c: state.Checker): aot.Ops
                 c.diag("NUPP2904", cst.firstToken(current) or current, message)
             end
 
-            local function use(call: cst.MethodCall, region: integer?, direct: boolean): nil
+            local function use(call: cst.MethodCall, region: integer?): nil
                 local identity = localIdentity(call.obj)
                 local state_ = identity ~= nil and states[identity] or nil
                 if state_ == nil or call.name == nil then
@@ -228,27 +227,31 @@ function aot.install(c: state.Checker): aot.Ops
                 end
             end
 
-            local scan: function(any, integer?, boolean): nil
-            scan = function(current: any, region: integer?, direct: boolean): nil
+            local scan: function(any, integer?): nil
+            scan = function(current: any, region: integer?): nil
                 if current == nil or cst.isToken(current) then
                     return
                 end
-                if current.kind == "methodCall" then
-                    use(current as cst.MethodCall, region, direct)
-                    direct = false
+                local kind = current.kind
+                if kind == "localFuncStmt"
+                    or kind == "funcStmt"
+                    or kind == "inlineMethod"
+                    or kind == "constructorDecl"
+                    or kind == "funcExpr"
+                    or kind == "shortfn"
+                then
+                    return
+                elseif kind == "doStmt" then
+                    nextRegion = nextRegion + 1
+                    local nestedRegion = nextRegion
+                    doRegions[nestedRegion] = true
+                    for _, child in ipairs(current as {any}) do
+                        scan(child, nestedRegion)
+                    end
+                    return
                 end
-                for _, child in ipairs(current as {any}) do
-                    scan(child, region, false)
-                end
-            end
-
-            for _, statement in ipairs(body and body.stats or {}) do
-                local actual = statement
-                while actual ~= nil and actual.kind == "pragmaStmt" do
-                    actual = actual.stat
-                end
-                if actual ~= nil and actual.kind == "localStmt" then
-                    local local_ = actual as cst.LocalStmt
+                if kind == "localStmt" then
+                    local local_ = current as cst.LocalStmt
                     local names, expressions = local_.names or {}, local_.exprs or {}
                     if #names == 1 and #expressions == 1 then
                         local order, contribution, arity = constructor(expressions[1])
@@ -266,18 +269,20 @@ function aot.install(c: state.Checker): aot.Ops
                         else
                             local copied = localIdentity(expressions[1])
                             if copied ~= nil and states[copied] ~= nil then
-                                diagnose(actual, "a reducer cannot be copied or passed through another value")
+                                diagnose(current, "a reducer cannot be copied or passed through another value")
                             end
                         end
                     end
-                    scan(actual, nil, false)
-                elseif actual ~= nil and actual.kind == "doStmt" then
-                    nextRegion = nextRegion + 1
-                    doRegions[nextRegion] = true
-                    scan(actual, nextRegion, false)
-                else
-                    scan(actual, nil, false)
+                elseif kind == "methodCall" then
+                    use(current as cst.MethodCall, region)
                 end
+                for _, child in ipairs(current as {any}) do
+                    scan(child, region)
+                end
+            end
+
+            for _, statement in ipairs(body and body.stats or {}) do
+                scan(statement, nil)
             end
 
             for _, state_ in ipairs(ordered) do

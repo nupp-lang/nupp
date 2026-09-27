@@ -348,6 +348,11 @@ interface cst.Hints
     --- A checker-recognized call to the stable prelude `ipairs` binding.
     builtinIpairs: any
 
+    --- The stable prelude global a call resolves to, when it names one directly.
+    --- Effect analysis uses this provenance instead of trusting source text that a
+    --- local binding may shadow.
+    resolvedGlobal: string?
+
     --- A call to a stable LuaJIT table builtin, lowered to one module-local binding.
     tableIntrinsic: string?
 

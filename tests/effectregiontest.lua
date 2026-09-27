@@ -199,6 +199,28 @@ function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
     assertEq(#found, 4, "unknown callbacks and uncontracted C fail both proofs")
 end
 
+function M.shadowingAPureBuiltinDoesNotBorrowItsGuarantees()
+    local found = refusals(
+        table.concat(
+            {
+                "local function direct(type: function()): nil",
+                "   @noalloc do type() end",
+                "end",
+                "local function invoke(type: function()): nil type() end",
+                "local function wrapper(type: function()): nil invoke(type) end",
+                "local function use(type: function()): nil",
+                "   @noalloc do wrapper(type) end",
+                "   @noraise do wrapper(type) end",
+                "end",
+                "@noalloc do local kind = type(1) end",
+                "@noraise do local kind = type(1) end",
+            },
+            "\n"
+        )
+    )
+    assertEq(#found, 3, "a callback named like a builtin remains effect-unknown")
+end
+
 function M.automaticCleanupParticipatesInTheRaisingSummary()
     -- The contract is what the summary reads for `close`, so it has to admit the
     -- raise: a contract that did not would be reported, and the cleanup would be

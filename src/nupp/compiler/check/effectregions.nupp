@@ -33,21 +33,6 @@ local PURE_BUILTINS = {
     next = true,
 }
 
-local function callName(call)
-    local callee = call and call.obj
-    if not callee then
-        return nil
-    end
-    if callee.kind == "name" then
-        return callee.token and callee.token.text
-    end
-    if callee.kind == "dotIndex" and callee.obj and callee.obj.kind == "name" then
-        return callee.obj.token.text .. "." .. callee.name.text
-    end
-
-    return nil
-end
-
 function effectregions.install(c: state.Checker): effectregions.Ops
     local ops = {}
     local regions: {any} = {}
@@ -184,8 +169,7 @@ function effectregions.install(c: state.Checker): effectregions.Ops
             -- @effects contract supplied a complete summary.
             return true, nil, info
         end
-        local name = callName(call)
-        if PURE_BUILTINS[name or ""] then
+        if PURE_BUILTINS[call.resolvedGlobal or ""] then
             return true
         end
         local exact = exactExport(call)

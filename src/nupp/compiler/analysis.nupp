@@ -573,7 +573,7 @@ local function inferFunction(info, byDefinition)
         elseif call.rawYield or name == "coroutine.yield" then
             out.yields = true
             out.rawYields = true
-        elseif PURE_BUILTINS[name or ""] then
+        elseif PURE_BUILTINS[call.resolvedGlobal or ""] then
             local root = rootOf(args[1])
             if root then
                 out.reads[root .. "[*]"] = true

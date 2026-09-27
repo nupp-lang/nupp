@@ -373,7 +373,7 @@ local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = t
 
 -- A dense table literal is the only bound this pass accepts, and how long it is is
 -- policy rather than a fact about effects: another pass could take its bound from a
--- declared C array without changing what `nupp.compiler.analysis` knows. So it is
+-- fixed array without changing what `nupp.compiler.analysis` knows. So it is
 -- collected
 -- here, beside the decision it serves.
 local function denseLiteralLengths(body)

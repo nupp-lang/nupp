@@ -2351,6 +2351,23 @@ function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
     )
 end
 
+function M.computedConstraintsKeepExactIntegerBounds()
+    local function generated(kind, base)
+        return table.concat(
+            {
+                "@comptime local function Wide(): type",
+                ("    return nupp.types.%s(nupp.types.%s, 0, 4503599627370496 * 2)"):format(kind, base),
+                "end",
+                "local type Value = Wide()",
+            },
+            "\n"
+        )
+    end
+
+    assertEq(codes(generated("range", "integer")), "NUPP2415")
+    assertEq(codes(generated("length", "string")), "NUPP2415")
+end
+
 -- `pairs` takes a read-only indexer, and an array and a record shape both satisfy
 -- one: `{T}` assigns to `{@readonly [integer]: T}` and `{a: A, b: B}` to
 -- `{@readonly [string]: A | B}`. Unification did not follow, so iterating either
