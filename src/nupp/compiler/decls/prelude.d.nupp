@@ -1284,6 +1284,7 @@ record nupp.derive
     forward: function(specification: any): Forward
 
     --- Declares a generated member's function signature and forwarding recipe.
+    --- Parameter names are non-empty and unique.
     ---
     --- @param specification a table with `signature`, optional parameter names, and
     --- a `forward` recipe

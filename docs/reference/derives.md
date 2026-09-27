@@ -490,7 +490,8 @@ cache or a [hot-reload](../learn/projects/hot-reload.md) guarantee.
 `Forward` fills an interface requirement and inherits its signature. A
 `nupp.derive.member` supplies a function type built with `nupp.types` and its
 parameter names, allowing a provider to add a member that is not declared by the
-result interface.
+result interface. Parameter names are non-empty and unique, and every recipe
+array is dense.
 
 ```nupp
 return nupp.derive.implement {
@@ -512,7 +513,7 @@ and supplies a closed argument list:
 - `receiver()` passes the generated method receiver.
 - `argument(name)` passes a named interface method parameter.
 - `entry()` passes the derived type's private runtime schema entry.
-- `field(fieldInfo)` directly reads one admitted stored field.
+- `field(fieldInfo)` directly reads one readable stored field.
 - `constant(value)` embeds a bounded quotable value.
 - `witness(annotationType(argument))` passes the `Type<T>` witness named by an
   `@ref` annotation argument from the owner or one of its fields.

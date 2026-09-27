@@ -25,6 +25,40 @@ local function failure(code, message, help)
     return {code = code, message = message, help = help}
 end
 
+local function denseArray(value)
+    if type(value) ~= "table" then
+        return false
+    end
+    local length = #value
+    local count = 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > length then
+            return false
+        end
+        count = count + 1
+    end
+
+    return count == length
+end
+
+local function validParameterNames(parameters): boolean, string?
+    if not denseArray(parameters) then
+        return false, "derive.member parameters must be an array"
+    end
+    local names = {}
+    for _, name in ipairs(parameters) do
+        if type(name) ~= "string" or name == "" then
+            return false, "derive.member parameter names must be non-empty strings"
+        end
+        if names[name] then
+            return false, "derive.member parameter names must be unique"
+        end
+        names[name] = true
+    end
+
+    return true, nil
+end
+
 function deriveProvider.installEvaluator(state: any, env: any, opaque: any, provenance: any, entryOf: any)
     local library = {}
 
@@ -41,20 +75,6 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         end
         for key in pairs(value) do
             if not allowed[key] then
-                return false
-            end
-        end
-
-        return true
-    end
-
-    local function denseArray(value)
-        if type(value) ~= "table" then
-            return false
-        end
-        local length = #value
-        for key in pairs(value) do
-            if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > length then
                 return false
             end
         end
@@ -84,6 +104,9 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         local field = args[1] and entryOf(args[1]) or nil
         if args.n ~= 1 or not field or field.provider ~= "derive" or field.family ~= "Field" then
             return nil, failure("NUPP2810", "derive.field needs a field from the current derive Info")
+        end
+        if not field.payload.readable then
+            return nil, failure("NUPP2810", "derive.field needs a readable field")
         end
 
         return opaque(
@@ -207,13 +230,9 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             return nil, failure("NUPP2810", "derive.member signature must be a function type")
         end
         local parameters = specification.parameters or {}
-        if not denseArray(parameters) then
-            return nil, failure("NUPP2810", "derive.member parameters must be an array")
-        end
-        for _, name in ipairs(parameters) do
-            if type(name) ~= "string" or name == "" then
-                return nil, failure("NUPP2810", "derive.member parameter names must be non-empty strings")
-            end
+        local validParameters, parameterFailure = validParameterNames(parameters)
+        if not validParameters then
+            return nil, failure("NUPP2810", parameterFailure as string)
         end
 
         return opaque(
@@ -477,6 +496,9 @@ function deriveProvider.sortedPairs(value: any, array: boolean, view: any): any
             if type(left) ~= type(right) then
                 return type(left) < type(right)
             end
+            if type(left) == "boolean" then
+                return left == false and right == true
+            end
 
             return left < right
         end)
@@ -617,6 +639,10 @@ function deriveProvider.finalize(state: any, root: any): any, any
                 return nil, why.message or why
             end
         elseif payload.kind == "array" then
+            if not denseArray(payload.values) then
+                active[handle] = nil
+                return nil, "forwarding argument array is not dense"
+            end
             out.values = {}
             for index, child in ipairs(payload.values) do
                 local why
@@ -653,6 +679,9 @@ function deriveProvider.finalize(state: any, root: any): any, any
             if not takeNode() then
                 return nil, failure("NUPP2810", "recipe exceeds its node limit")
             end
+            if not denseArray(forward.payload.arguments or {}) then
+                return nil, failure("NUPP2810", "derive forward arguments must be an array")
+            end
             local arguments = {}
             for index, child in ipairs(forward.payload.arguments or {}) do
                 local why
@@ -663,6 +692,10 @@ function deriveProvider.finalize(state: any, root: any): any, any
             end
             local out = {operation = "forward.v1", helper = forward.payload.helper, arguments = arguments,}
             if member then
+                local validParameters, parameterFailure = validParameterNames(member.parameters or {})
+                if not validParameters then
+                    return nil, failure("NUPP2810", parameterFailure as string)
+                end
                 local signature, why = typeprovider.finalize(state, member.signature)
                 if not signature or signature.family ~= "Type" then
                     return nil, failure(
@@ -707,6 +740,9 @@ function deriveProvider.finalize(state: any, root: any): any, any
             return nil, failure("NUPP2810", "derive data " .. name .. " " .. why)
         end
         payload.data[name] = copied
+    end
+    if not denseArray(payload.effects) then
+        return nil, failure("NUPP2810", "derive effects must be an array")
     end
     for _, effect in ipairs(payload.effects) do
         if type(effect) ~= "string" or effect == "" then
