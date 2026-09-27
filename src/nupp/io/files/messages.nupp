@@ -37,10 +37,10 @@ export record TemporaryOptions
     --- The native directory to create the path in.
     directory: (string | paths.Path)?
 
-    --- Text placed before the random portion of the name.
+    --- A separator-free fragment placed before the random portion of the name.
     prefix: string?
 
-    --- Text placed after the random portion of the name.
+    --- A separator-free fragment placed after the random portion of the name.
     suffix: string?
 end
 

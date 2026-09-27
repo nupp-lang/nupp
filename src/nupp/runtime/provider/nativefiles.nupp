@@ -36,7 +36,8 @@ print(info.size, info.modified, info.readOnly)
 `info` follows symbolic links, so it describes what a name refers to rather than
 the name itself. `size` is a byte count, `modified` is seconds since the Unix
 epoch with whatever fractional part the platform records, and `readOnly` is the
-platform's write refusal rather than a permission model.
+platform's write refusal rather than a permission model. A size beyond Nupp's
+exact integer range answers a reason instead of a rounded count.
 
 `exists`, `isFile` and `isDirectory` answer the same question without the record
 and without a reason. A missing path is `false` rather than an error:
@@ -121,7 +122,8 @@ assert(scratch, reason)
 The file or directory is *created*, not proposed, so no second caller can take
 the name between the answer and the use. `directory` selects where, defaulting
 to the platform's temporary directory; `prefix` and `suffix` bracket the
-generated part, which is what puts an extension on a temporary file.
+generated part, which is what puts an extension on a temporary file. Both are
+name fragments and cannot contain a path separator.
 
 A temporary is an [owner](docs/learn/runtime/ownership/index.md): closing it removes
 what it created, and the checker runs that cleanup at the end of the scope
@@ -200,8 +202,9 @@ end
 `mode` is `r`, `w`, `a`, or the update modes `r+`, `w+` and `a+`, matching C and
 Lua. `seek(offset, origin)` moves the cursor, with `origin` one of `set`,
 `current` or `end`; `position` and `size` answer where it is and how long the
-file is. A reader or writer over a closed file answers a reason rather than
-raising.
+file is. A seek before the start or beyond the exact integer range fails without
+moving the cursor. A reader or writer over a closed file answers a reason rather
+than raising.
 
 ## Platform directories
 
@@ -564,6 +567,9 @@ local function readBytes(handle: any, into: any, count: integer): (string?, stri
         return nil, ffi.string(C.nuppNativeLastError())
     end
     local got = tonumber(output[0]) as integer
+    if got < 0 or got > count then
+        return nil, "the native files provider returned an invalid read count"
+    end
     if got == 0 then
         return "", nil
     end
@@ -775,7 +781,12 @@ export record FileReader is io.Reader
             return nil, ffi.string(C.nuppNativeLastError())
         end
 
-        return tonumber(output[0]) as integer, nil
+        local got = tonumber(output[0]) as integer
+        if got < 0 or got > wanted then
+            return nil, "the native files provider returned an invalid read count"
+        end
+
+        return got, nil
     end
 
     --- Reads into a buffer.
@@ -885,6 +896,11 @@ export record FileWriter is io.Writer
             return false, ffi.string(C.nuppNativeLastError())
         end
 
+        local wrote = tonumber(output[0]) as integer
+        if wrote ~= #bytes then
+            return false, "the native files provider performed a short write"
+        end
+
         return true, nil
     end
 
@@ -904,7 +920,12 @@ export record FileWriter is io.Writer
             return nil, ffi.string(C.nuppNativeLastError())
         end
 
-        return tonumber(output[0]) as integer, nil
+        local wrote = tonumber(output[0]) as integer
+        if wrote < 0 or wrote > count then
+            return nil, "the native files provider returned an invalid write count"
+        end
+
+        return wrote, nil
     end
 
     --- Pushes the file's buffered writes at the operating system.
@@ -1128,6 +1149,9 @@ local function transferState(handle: any): (integer, string?)
     end
 
     local state = tonumber(output[0]) as integer
+    if state < PENDING or state > CANCELED then
+        return FAILED, "the native files provider returned an invalid transfer status"
+    end
     if state == FAILED then
         return state, ffi.string(C.nuppNativeLastError())
     end
@@ -1288,6 +1312,9 @@ end
 
 --- @raises string when the options name something that is not a path or a string
 local function temporary(options: TemporaryOptions?, directory: boolean, level: integer): (string?, string?)
+    if options ~= nil and type(options) ~= "table" then
+        error("nupp: io.files temporary options must be a table", level)
+    end
     local where = options ~= nil and (options as TemporaryOptions).directory or nil
     local root = where ~= nil and named(where, "temporary directory", level + 1) or ""
     local prefix = optional(options, "prefix", level + 1)
@@ -1431,6 +1458,9 @@ end
 --- @export
 export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
     local text = named(path, "path", 2)
+    if type(readOnly) ~= "boolean" then
+        error("nupp: io.files readOnly must be a boolean", 2)
+    end
 
     return done(C.nuppNativeFilesSetReadOnly(slice(text), readOnly and 1 or 0))
 end
@@ -1456,6 +1486,9 @@ end
 --- @export
 export function remove(path: string | paths.Path, recursive: boolean?): (boolean, string?)
     local text = named(path, "path", 2)
+    if recursive ~= nil and type(recursive) ~= "boolean" then
+        error("nupp: io.files recursive must be a boolean", 2)
+    end
 
     return done(C.nuppNativeFilesRemove(slice(text), recursive and 1 or 0))
 end

@@ -26,6 +26,7 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 
 const TEMPORARY_ATTEMPTS: usize = 64;
+pub const MAX_EXACT_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileKind {
@@ -112,18 +113,46 @@ impl OpenFile {
     pub fn read(&self, output: &mut [u8]) -> io::Result<usize> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let position = state.position;
+        let remaining = MAX_EXACT_INTEGER.checked_sub(position).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "the file cursor exceeds Nupp's exact integer range",
+            )
+        })?;
+        let remaining = usize::try_from(remaining).unwrap_or(usize::MAX);
+        if remaining == 0 && state.file.metadata()?.len() > position {
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "the file cursor exceeds Nupp's exact integer range",
+            ));
+        }
         state.file.seek(SeekFrom::Start(position))?;
-        let count = state.file.read(output)?;
-        state.position = state.position.saturating_add(count as u64);
+        let capacity = output.len().min(remaining);
+        let count = state.file.read(&mut output[..capacity])?;
+        state.position += count as u64;
         Ok(count)
     }
 
     pub fn write(&self, input: &[u8]) -> io::Result<usize> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let appending = state.appending;
+        let start = if appending {
+            state.file.metadata()?.len()
+        } else {
+            state.position
+        };
+        let length = u64::try_from(input.len()).unwrap_or(u64::MAX);
+        if start
+            .checked_add(length)
+            .map_or(true, |end| end > MAX_EXACT_INTEGER)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "the file cursor would exceed Nupp's exact integer range",
+            ));
+        }
         if !appending {
-            let position = state.position;
-            state.file.seek(SeekFrom::Start(position))?;
+            state.file.seek(SeekFrom::Start(start))?;
         }
         let mut written = 0;
         while written < input.len() {
@@ -136,7 +165,7 @@ impl OpenFile {
             }
             written += count;
             if !appending {
-                state.position = state.position.saturating_add(count as u64);
+                state.position += count as u64;
             }
         }
         if appending {
@@ -155,12 +184,20 @@ impl OpenFile {
             SeekOrigin::Current => state.position,
             SeekOrigin::End => state.file.metadata()?.len(),
         };
-        state.position = if offset < 0 {
-            base.saturating_sub(offset.unsigned_abs())
+        let position = if offset < 0 {
+            base.checked_sub(offset.unsigned_abs())
         } else {
-            base.saturating_add(offset as u64)
-        };
-        Ok(state.position)
+            base.checked_add(offset as u64)
+        }
+        .filter(|position| *position <= MAX_EXACT_INTEGER)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the file cursor would be outside Nupp's exact integer range",
+            )
+        })?;
+        state.position = position;
+        Ok(position)
     }
 
     pub fn position(&self) -> u64 {
@@ -329,6 +366,19 @@ pub fn create_temporary(
     suffix: &str,
     kind: TemporaryKind,
 ) -> io::Result<Vec<u8>> {
+    if prefix.contains('/') || suffix.contains('/') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "temporary name fragments must not contain a path separator",
+        ));
+    }
+    #[cfg(windows)]
+    if prefix.contains('\\') || suffix.contains('\\') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "temporary name fragments must not contain a path separator",
+        ));
+    }
     let root = directory.map_or_else(std::env::temp_dir, Path::to_path_buf);
     let mut collision = None;
     for _ in 0..TEMPORARY_ATTEMPTS {
@@ -605,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn open_file_owns_a_clamped_serial_cursor() {
+    fn open_file_rejects_cursor_positions_outside_the_exact_range() {
         let root = root("cursor");
         let path = root.join("value.bin");
         fs::write(&path, b"hello world").unwrap();
@@ -613,11 +663,23 @@ mod tests {
         let mut first = [0u8; 5];
         assert_eq!(file.read(&mut first).unwrap(), 5);
         assert_eq!(&first, b"hello");
-        assert_eq!(file.seek(-100, SeekOrigin::Current).unwrap(), 0);
+        assert!(file.seek(-100, SeekOrigin::Current).is_err());
+        assert_eq!(file.position(), 5, "a failed seek leaves the cursor alone");
         assert_eq!(file.seek(-1, SeekOrigin::End).unwrap(), 10);
         let mut last = [0u8; 2];
         assert_eq!(file.read(&mut last).unwrap(), 1);
         assert_eq!(last[0], b'd');
+        assert_eq!(
+            file.seek(MAX_EXACT_INTEGER as i64, SeekOrigin::Start)
+                .unwrap(),
+            MAX_EXACT_INTEGER
+        );
+        assert!(file.seek(1, SeekOrigin::Current).is_err());
+        assert_eq!(
+            file.position(),
+            MAX_EXACT_INTEGER,
+            "an overflowing seek leaves the cursor alone"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -648,6 +710,15 @@ mod tests {
         assert!(path_from_bytes(&directory).unwrap().is_dir());
         let file = String::from_utf8(file).unwrap();
         assert!(file.contains("before-") && file.ends_with(".tmp"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn temporary_name_fragments_cannot_escape_the_selected_directory() {
+        let root = root("temporary-fragments");
+        assert!(create_temporary(Some(&root), "../outside-", "", TemporaryKind::File).is_err());
+        assert!(create_temporary(Some(&root), "", "/outside", TemporaryKind::File).is_err());
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
         fs::remove_dir_all(root).unwrap();
     }
 

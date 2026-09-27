@@ -149,6 +149,16 @@ fn modified(value: Option<SystemTime>) -> f64 {
     }
 }
 
+fn exact_file_size(value: u64) -> Result<i64, i32> {
+    if value > filesystem::MAX_EXACT_INTEGER {
+        return Err(super::failed(
+            Status::Capacity,
+            "file size exceeds Nupp's exact integer range",
+        ));
+    }
+    Ok(value as i64)
+}
+
 #[unsafe(no_mangle)]
 /// Describes a path.
 ///
@@ -170,6 +180,9 @@ pub unsafe extern "C" fn nuppNativeFilesInfo(
         Ok(value) => value,
         Err(error) => return io_failed(error),
     };
+    if let Err(status) = exact_file_size(info.size) {
+        return status;
+    }
     let kind = match info.kind {
         filesystem::FileKind::File => 1,
         filesystem::FileKind::Directory => 2,
@@ -518,9 +531,9 @@ pub unsafe extern "C" fn nuppNativeFileSize(raw: u64, output: *mut i64) -> i32 {
         Err(status) => return status,
     };
     let size = match file.size() {
-        Ok(value) => match i64::try_from(value) {
+        Ok(value) => match exact_file_size(value) {
             Ok(value) => value,
-            Err(_) => return super::failed(Status::Capacity, "file size exceeds int64"),
+            Err(status) => return status,
         },
         Err(error) => return io_failed(error),
     };
@@ -787,5 +800,14 @@ mod tests {
         let _ = resources().lock().unwrap().remove(handle).unwrap();
         assert!(file(handle.raw()).is_err());
         std::fs::remove_file(root).unwrap();
+    }
+
+    #[test]
+    fn file_sizes_are_limited_to_exact_language_integers() {
+        assert_eq!(
+            exact_file_size(filesystem::MAX_EXACT_INTEGER).unwrap(),
+            9_007_199_254_740_991
+        );
+        assert!(exact_file_size(filesystem::MAX_EXACT_INTEGER + 1).is_err());
     }
 }

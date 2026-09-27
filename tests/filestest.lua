@@ -237,6 +237,10 @@ function M.temporariesAreCreatedNotProposed()
     test.equal(absent, nil)
     assert(type(reason) == "string", "an unusable directory answers a reason")
 
+    local escaped, escapeReason = files.createTemporaryFile({directory = inRoot("temporary"), prefix = "../outside-",})
+    test.equal(escaped, nil)
+    assert(type(escapeReason) == "string", "a name fragment cannot escape its selected directory")
+
     assert(other:close())
     assert(directory:close())
     assert(file:close())
@@ -410,6 +414,15 @@ function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     test.equal(reader:read(5), "world")
     test.equal(assert(file:seek(-1, "end")), 11)
     test.equal(reader:read(4), "!")
+    local invalid, invalidReason = file:seek(-100, "current")
+    test.equal(invalid, nil)
+    assert(type(invalidReason) == "string", "a seek before the start answers a reason")
+    test.equal(assert(file:position()), 12, "a failed seek leaves the cursor unchanged")
+    test.equal(assert(file:seek(9007199254740991)), 9007199254740991)
+    local overflow, overflowReason = file:seek(1, "current")
+    test.equal(overflow, nil)
+    assert(type(overflowReason) == "string", "a seek beyond the exact integer range answers a reason")
+    test.equal(assert(file:position()), 9007199254740991, "a refused seek leaves the cursor unchanged")
     assert(file:close())
     assert(file:isReleased())
     test.equal(select(2, reader:read(1)), "the file is closed", "a reader over a closed file says so")
@@ -561,6 +574,24 @@ function M.argumentsAreCheckedAtTheCallSite()
             files.createTemporaryFile({prefix = 7})
         end,
         "prefix must be a string"
+    )
+    test.raises(
+        function()
+            files.createTemporaryFile(true)
+        end,
+        "options must be a table"
+    )
+    test.raises(
+        function()
+            files.setReadOnly(inRoot("a"), "yes")
+        end,
+        "readOnly must be a boolean"
+    )
+    test.raises(
+        function()
+            files.remove(inRoot("a"), "yes")
+        end,
+        "recursive must be a boolean"
     )
     assert(files.write(inRoot("integer-boundary"), "x"))
     local file = assert(files.open(inRoot("integer-boundary")))
