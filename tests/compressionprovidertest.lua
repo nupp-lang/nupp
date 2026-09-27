@@ -6,6 +6,123 @@ local NEED_INPUT = 1
 local NEED_OUTPUT = 2
 local FINISHED = 3
 
+local function nativeProvider()
+    local calls = {releaseCode = 0, stepCode = 0}
+    local C = {}
+    function C.nuppNativeCompressionEncoderCreate(format, level, output)
+        calls.encoderCreate = {format, level}
+        output[0] = 101
+        return 0
+    end
+
+    function C.nuppNativeCompressionEncoderWrite(
+        handle,
+        input,
+        inputLength,
+        output,
+        outputLength,
+        consumed,
+        written,
+        status
+    )
+        calls.encoderWrite = {handle, input, inputLength, output, outputLength}
+        if calls.stepCode ~= 0 then
+            return calls.stepCode
+        end
+        consumed[0], written[0], status[0] = inputLength, 2, NEED_INPUT
+
+        return 0
+    end
+
+    function C.nuppNativeCompressionEncoderFlush(handle, output, outputLength, written, status)
+        calls.encoderFlush = {handle, output, outputLength}
+        written[0], status[0] = outputLength, NEED_OUTPUT
+        return 0
+    end
+
+    function C.nuppNativeCompressionEncoderFinish(handle, output, outputLength, written, status)
+        calls.encoderFinish = {handle, output, outputLength}
+        written[0], status[0] = 1, FINISHED
+        return 0
+    end
+
+    function C.nuppNativeCompressionEncoderRelease(handle)
+        calls.encoderRelease = handle
+        return calls.releaseCode
+    end
+
+    function C.nuppNativeCompressionDecoderCreate(format, concatenated, output)
+        calls.decoderCreate = {format, concatenated}
+        output[0] = 202
+        return 0
+    end
+
+    function C.nuppNativeCompressionDecoderRead(
+        handle,
+        input,
+        inputLength,
+        output,
+        outputLength,
+        consumed,
+        written,
+        status
+    )
+        calls.decoderRead = {handle, input, inputLength, output, outputLength}
+        consumed[0], written[0], status[0] = inputLength, 3, NEED_INPUT
+        return 0
+    end
+
+    function C.nuppNativeCompressionDecoderFinishInput(handle, output, outputLength, written, status)
+        calls.decoderFinish = {handle, output, outputLength}
+        written[0], status[0] = 0, FINISHED
+        return 0
+    end
+
+    function C.nuppNativeCompressionDecoderRelease(handle)
+        calls.decoderRelease = handle
+        return calls.releaseCode
+    end
+
+    function C.nuppNativeLastError()
+        return "fixture failure"
+    end
+
+    local native = {
+        C = C,
+        ffi = {
+            cdef = function()
+            end,
+            new = function()
+                return {[0] = 0}
+            end,
+            string = tostring,
+        },
+        requireFeature = function(bit, name)
+            assert(bit == 1024 and name == "compression")
+        end,
+        succeeded = function(status)
+            if status ~= 0 then
+                error("nupp: " .. C.nuppNativeLastError(), 2)
+            end
+        end,
+    }
+    local load = state.instance({["nupp.runtime.provider.nativecompression"] = true}, {
+        ["nupp.runtime.native"] = native,
+        ["nupp.mem.span"] = {},
+    })
+
+    return load("nupp.runtime.provider.nativecompression"), calls
+end
+
+local function view(pointer, count)
+    return {
+        count = count,
+        ref = function()
+            return pointer
+        end,
+    }
+end
+
 local function provider(name, decoder, priority)
     return {
         priority = priority,
@@ -140,6 +257,60 @@ function M.prioritySelectionIsOrderIndependent()
         assert(not pcall(api.format, "low"))
         assert(api.format("gzip"), "selected catalogs retain native formats")
     end
+end
+
+function M.nativeProviderMapsTheCompressionAbi()
+    local native, calls = nativeProvider()
+    assert(native.formats.gzip.name == "gzip")
+    assert(native.formats.zlib.name == "zlib")
+    assert(native.formats["deflate-raw"].name == "deflate-raw")
+
+    local encoder = native.formats.gzip:createEncoder()
+    assert(calls.encoderCreate[1] == 1 and calls.encoderCreate[2] == 6)
+    local consumed, written, status = encoder:write(view("input", 5), view("output", 7))
+    assert(consumed == 5 and written == 2 and status == NEED_INPUT)
+    assert(calls.encoderWrite[1] == 101 and calls.encoderWrite[2] == "input")
+    written, status = encoder:flush(view("flush", 7))
+    assert(written == 7 and status == NEED_OUTPUT)
+    written, status = encoder:finish(view("finish", 7))
+    assert(written == 1 and status == FINISHED)
+    encoder:close()
+    assert(calls.encoderRelease == 101)
+
+    native.formats.zlib:createEncoder({level = 9}):close()
+    assert(calls.encoderCreate[1] == 2 and calls.encoderCreate[2] == 9)
+    native.formats["deflate-raw"]:createEncoder({level = 0}):close()
+    assert(calls.encoderCreate[1] == 3 and calls.encoderCreate[2] == 0)
+
+    local decoder = native.formats.gzip:createDecoder()
+    assert(calls.decoderCreate[1] == 1 and calls.decoderCreate[2] == 1)
+    consumed, written, status = decoder:read(view("encoded", 4), view("decoded", 8))
+    assert(consumed == 4 and written == 3 and status == NEED_INPUT)
+    written, status = decoder:finishInput(view("tail", 8))
+    assert(written == 0 and status == FINISHED)
+    decoder:close()
+    assert(calls.decoderRelease == 202)
+
+    native.formats.gzip:createDecoder({concatenatedMembers = false}):close()
+    assert(calls.decoderCreate[2] == 0)
+    native.formats.zlib:createDecoder():close()
+    assert(calls.decoderCreate[1] == 2 and calls.decoderCreate[2] == 0)
+end
+
+function M.nativeProviderMapsStepAndReleaseFailures()
+    local native, calls = nativeProvider()
+    local encoder = native.formats.gzip:createEncoder()
+    calls.stepCode = 7
+    local consumed, written, status, reason = encoder:write(view("input", 1), view("output", 1))
+    assert(consumed == nil and written == nil and status == nil)
+    assert(reason == "compression encode failed: fixture failure")
+    calls.releaseCode = 8
+    local ok, problem = pcall(encoder.close, encoder)
+    assert(not ok and tostring(problem):find("nupp: fixture failure", 1, true), tostring(problem))
+
+    local decoder = native.formats.gzip:createDecoder()
+    ok, problem = pcall(decoder.close, decoder)
+    assert(not ok and tostring(problem):find("nupp: fixture failure", 1, true), tostring(problem))
 end
 
 return M

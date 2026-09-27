@@ -120,6 +120,7 @@ function M.hmacRfc4231AndBinaryInput(): nil
 end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
+    assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32-ieee,crc32c,crc64-ecma")
     assert(checksum.value("adler32", "") == 1ULL)
     assert(checksum.value("crc32-ieee", "") == 0ULL)
     assert(checksum.value("crc32c", "") == 0ULL)
@@ -139,6 +140,13 @@ function M.checksumVectorsAndNonConsumingReads(): nil
         local tail = span.fromString(source)
         rolling:updateSpan(tail)
         assert(rolling:value() == checksum.value(name, "123456789"))
+
+        local chunked = checksum.create(name)
+        local message = string.rep("a\0b\255c", 53)
+        for index = 1, #message, 7 do
+            chunked:update(message:sub(index, index + 6))
+        end
+        assert(chunked:value() == checksum.value(name, message))
     end
 end
 

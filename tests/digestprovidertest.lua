@@ -132,45 +132,46 @@ function M.checksumAndMacRetainCatalogsDuringOperations()
     end
 end
 
-local function catalog(name, priority)
-    return {
-        priority = priority,
-        algorithms = {
-            [name] = {
-                name = name,
-                digestSize = 1,
-                create = function()
-                    error("not used")
-                end,
-            }
-        }
+local function catalog(kind, name, priority)
+    local descriptor = {
+        name = name,
+        create = function()
+            error("not used")
+        end,
     }
+    descriptor[kind == "checksum" and "width" or "digestSize"] = 1
+
+    return {priority = priority, algorithms = {[name] = descriptor}}
 end
 
 function M.priorityWinsRegardlessOfDependencyOrder()
-    for _, providers in ipairs({
-        {catalog("low", 1), catalog("high", 5)},
-        {catalog("high", 5), catalog("low", 1)},
-        {catalog("negative", -1), catalog("default", nil)},
-    }) do
-        local load = state.family("digest", providers)
-        local digest = load("nupp.digest")
-        assert(digest.lookup(providers[1].priority == -1 and "default" or "high"))
-        assert(digest.lookup("low") == nil and digest.lookup("negative") == nil)
+    for _, kind in ipairs({"digest", "checksum", "mac"}) do
+        for _, providers in ipairs({
+            {catalog(kind, "low", 1), catalog(kind, "high", 5)},
+            {catalog(kind, "high", 5), catalog(kind, "low", 1)},
+            {catalog(kind, "negative", -1), catalog(kind, "default", nil)},
+        }) do
+            local load = state.family(kind, providers)
+            local api = load("nupp." .. kind)
+            assert(api.lookup(providers[1].priority == -1 and "default" or "high"))
+            assert(api.lookup("low") == nil and api.lookup("negative") == nil)
+        end
     end
 end
 
 function M.lowerTiesCanBeSupersededButHighestTiesFail()
-    local load = state.family("digest", {catalog("a", 0), catalog("b", 0), catalog("winner", 1)})
-    assert(load("nupp.digest").lookup("winner"))
-    for _, providers in ipairs({
-        {catalog("a", 1), catalog("b", 1)},
-        {catalog("a", nil), catalog("b", 0)},
-        {catalog("high", 2), catalog("low", 0), catalog("alsoHigh", 2)},
-    }) do
-        local failed = state.family("digest", providers)
-        local ok, problem = pcall(failed, "nupp.digest")
-        assert(not ok and tostring(problem):find("highest priority", 1, true), tostring(problem))
+    for _, kind in ipairs({"digest", "checksum", "mac"}) do
+        local load = state.family(kind, {catalog(kind, "a", 0), catalog(kind, "b", 0), catalog(kind, "winner", 1),})
+        assert(load("nupp." .. kind).lookup("winner"))
+        for _, providers in ipairs({
+            {catalog(kind, "a", 1), catalog(kind, "b", 1)},
+            {catalog(kind, "a", nil), catalog(kind, "b", 0)},
+            {catalog(kind, "high", 2), catalog(kind, "low", 0), catalog(kind, "alsoHigh", 2)},
+        }) do
+            local failed = state.family(kind, providers)
+            local ok, problem = pcall(failed, "nupp." .. kind)
+            assert(not ok and tostring(problem):find("highest priority", 1, true), tostring(problem))
+        end
     end
 end
 
