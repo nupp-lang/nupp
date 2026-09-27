@@ -202,17 +202,16 @@ function docblock.parse(lines: {string}): docblock.Doc
                 -- borrowing the next line's first word.
                 local raise = raises[#raises]
                 if raise then
-                    if raise.type == "" then
-                        raises[#raises] = splitRaise(continuation)
-                    else
-                        raise.text = trim(raise.text .. " " .. continuation)
-                    end
+                    raise.text = trim(raise.text .. " " .. continuation)
                 end
             elseif list then
                 local index = #list
                 list[index] = trim((list[index] or "") .. " " .. continuation)
             elseif into and activeName then
                 into[activeName] = trim((into[activeName] or "") .. " " .. continuation)
+            elseif tags[active] ~= nil then
+                local prior = tags[active]
+                tags[active] = trim((prior == true and "" or tostring(prior)) .. " " .. continuation)
             else
                 body[#body + 1] = line
             end

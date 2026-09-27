@@ -413,6 +413,9 @@ function M.interpolatedStringsParse()
     local result = parser.parse("local s = `broken ${x")
     assert(#result.errors > 0, "unterminated istring must error")
     assertEq(cst.textOf(result.root), "local s = `broken ${x")
+    local trailingEscape = parser.parse("`\\")
+    assert(#trailingEscape.errors > 0, "a final istring escape must error")
+    assertEq(cst.textOf(trailingEscape.root), "`\\")
 end
 
 function M.dedentStringsStayContextualAndLossless()

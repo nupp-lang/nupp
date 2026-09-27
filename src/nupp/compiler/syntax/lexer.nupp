@@ -510,7 +510,10 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         while pos <= len do
             local ch = byte(source, pos)
             if ch == 92 then -- backslash escape
-                pos = pos + 2
+                -- A final backslash has no escaped byte. Stop at the ordinary
+                -- one-past-end cursor: stepping two bytes leaves line accounting on
+                -- its EOF sentinel forever and makes malformed source hang lexing.
+                pos = math.min(pos + 2, len + 1)
             elseif ch == 96 then -- closing '`'
                 pos = pos + 1
                 if opening then

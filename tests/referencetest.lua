@@ -267,6 +267,7 @@ function M.oneSectionIsSelectableAndFarSmallerThanItsChapter()
     local section = sectionPipe:read("*a")
     sectionPipe:close()
     assert(section:find("# Types", 1, true), "the section prints under its heading")
+    assert(not section:find("\n## Types\n", 1, true), "the focused section does not repeat its own heading")
     assert(
         #section * 10 < #chapter,
         ("a section is a slice, not the chapter: %d vs %d bytes"):format(#section, #chapter)

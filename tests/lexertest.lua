@@ -182,6 +182,10 @@ function M.interpolatedStrings()
     assertEq(kindsOf("`o ${`i ${x}`}`"), "istringOpen istringOpen name istringClose istringClose")
     local _, errors = lexer.lex("`open ${x")
     assertEq(errors[#errors].msg, "unterminated interpolated string")
+    local trailing, trailingErrors = lexer.lex("`\\")
+    assertEq(trailing[#trailing].kind, "eof", "a final escape still reaches eof")
+    assertEq(trailingErrors[#trailingErrors].msg, "unterminated interpolated string")
+    assertEq(lexer.textOf(trailing), "`\\", "the malformed string still round trips")
 end
 
 function M.numberLiterals()

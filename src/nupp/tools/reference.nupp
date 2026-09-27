@@ -3219,9 +3219,11 @@ end
 
 --- Renders one section at a caller-chosen heading depth. Both a whole reference and a
 --- focused chapter use this, keeping the examples and diagnostic links identical.
-local function renderSection(out: {string}, section: reference.Section, level: integer)
-    out[#out + 1] = heading(level, section.title)
-    out[#out + 1] = ""
+local function renderSection(out: {string}, section: reference.Section, level: integer, includeHeading: boolean?)
+    if includeHeading ~= false then
+        out[#out + 1] = heading(level, section.title)
+        out[#out + 1] = ""
+    end
     out[#out + 1] = (section.body:gsub("^%s+", ""):gsub("%s+$", ""))
     out[#out + 1] = ""
     local names: {string} = {}
@@ -3292,19 +3294,26 @@ function reference.markdown(opts: {level: integer?}?): string
     return (table.concat(out, "\n"):gsub("\n+$", ""))
 end
 
---- One focused chapter as a standalone Markdown reference.
 --- One section on its own, titled so a reader can see which chapter it came from.
 ---
 --- What `--section` and `--for` print. The whole point is that this is the small
 --- answer: a chapter is thousands of words, and a reader who knows which construct
 --- they are asking about should not have to load the rest to read about it.
+---
+--- @param section the section to render
+--- @param chapter the chapter that gives the section its context
+--- @return standalone Markdown for the section
 function reference.sectionMarkdown(section: reference.Section, chapter: reference.Chapter): string
     local out: {string} = {"# " .. section.title, "", "From the Nupp " .. chapter.title .. " reference.", ""}
-    renderSection(out, section, 2)
+    renderSection(out, section, 2, false)
 
     return (table.concat(out, "\n"):gsub("\n+$", ""))
 end
 
+--- One focused chapter as a standalone Markdown reference.
+---
+--- @param chapter the chapter to render
+--- @return standalone Markdown for the chapter
 function reference.chapterMarkdown(chapter: reference.Chapter): string
     local out: {string} = {"# Nupp " .. chapter.title .. " reference", "", chapter.summary, ""}
     renderChapter(out, chapter, 2)
