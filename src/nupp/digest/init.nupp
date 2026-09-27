@@ -19,9 +19,9 @@ print(running:hexDigest())
 ```
 
 Finalizing consumes the context, so a digest is taken once and the binding is
-spent afterwards. `digest()` answers
-raw bytes, `digest(destination)` writes them into a writable byte span you
-already have, and `hexDigest()` answers lowercase hexadecimal. Dropping a
+spent afterward. Create another context to digest another message. `digest()`
+answers raw bytes, `digest(destination)` writes them into a writable byte span
+you already have, and `hexDigest()` answers lowercase hexadecimal. Dropping a
 context that was never finalized closes its provider state.
 
 MD5 and SHA-1 are here for talking to things that already use them, and for
@@ -45,7 +45,7 @@ export type Digest = contexts.Digest
 
 --- Immutable algorithm metadata and a factory for independent digest contexts.
 export record Algorithm
-    --- Canonical service and algorithm name.
+    --- Canonical algorithm name.
     @readonly
     name: string
 
@@ -58,6 +58,7 @@ export record Algorithm
 
     --- Creates independent owned state for this algorithm.
     --- @return the unfinished digest context
+    --- @raises string when provider initialization fails
     function create(self): Digest
         local state = self.implementation:create()
         return contexts.wrap(state, self.name, self.digestSize)
@@ -131,7 +132,7 @@ end
 --- Requires an available algorithm descriptor.
 --- @param name the canonical algorithm name
 --- @return the selected descriptor
---- @raises string when the algorithm is unavailable or its provider is invalid
+--- @raises string when the algorithm is unavailable
 export function algorithm(name: string): Algorithm
     local found = lookup(name)
     if found == nil then
@@ -164,6 +165,7 @@ end
 --- @param name the canonical algorithm name
 --- @param bytes the message bytes
 --- @return the raw fixed-size digest bytes
+--- @raises string when lookup or a provider operation fails
 export function digest(name: string, bytes: string): string
     local context = create(name)
     context:update(bytes)
@@ -174,6 +176,7 @@ end
 --- @param name the canonical algorithm name
 --- @param bytes the message bytes
 --- @return the lowercase hexadecimal digest
+--- @raises string when lookup or a provider operation fails
 export function hexDigest(name: string, bytes: string): string
     local context = create(name)
     context:update(bytes)

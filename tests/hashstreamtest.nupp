@@ -94,6 +94,17 @@ function M.metadataAndIndependentContexts(): nil
     second:update("abc")
     first:update("bc")
     assert(first:digest() == second:digest())
+
+    assert(table.concat(mac.algorithms(), ",") == "hmac-sha256")
+    assert(mac.lookup("unknown") == nil)
+    local macAlgorithm = mac.algorithm("hmac-sha256")
+    assert(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestSize == 32)
+    local firstMac = macAlgorithm:create("key")
+    local secondMac = macAlgorithm:create("key")
+    firstMac:update("a")
+    secondMac:update("abc")
+    firstMac:update("bc")
+    assert(firstMac:digest() == secondMac:digest())
 end
 
 function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil

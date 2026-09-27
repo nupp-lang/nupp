@@ -46,30 +46,45 @@ function M.providerSelectionAndCleanup()
     assert(load("nupp.digest") == digest)
 end
 
-function M.providerFailureClosesAndDoesNotFallBack()
-    local closed = 0
-    local load = selected("digest", {
-        sha256 = {
-            name = "sha256",
-            digestSize = 32,
-            create = function()
-                return {
-                    update = function()
+function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
+    for _, kind in ipairs({"digest", "mac"}) do
+        for _, failure in ipairs({"update", "finish"}) do
+            local closed = 0
+            local name = kind == "digest" and "sha256" or "hmac-sha256"
+            local load = selected(kind, {
+                [name] = {
+                    name = name,
+                    digestSize = 32,
+                    create = function()
+                        return {
+                            update = function()
+                                if failure == "update" then
+                                    error("test " .. kind .. " update failure")
+                                end
+                            end,
+                            finish = function()
+                                if failure == "finish" then
+                                    error("test " .. kind .. " finish failure")
+                                end
+                            end,
+                            close = function()
+                                closed = closed + 1
+                            end,
+                        }
                     end,
-                    finish = function()
-                        error("test provider failure")
-                    end,
-                    close = function()
-                        closed = closed + 1
-                    end
-                }
+                },
+            })
+            local api = load("nupp." .. kind)
+            local ok, problem
+            if kind == "digest" then
+                ok, problem = pcall(api.hexDigest, name, "abc")
+            else
+                ok, problem = pcall(api.hexDigest, name, "key", "abc")
             end
-        }
-    })
-    local digest = load("nupp.digest")
-    local ok, problem = pcall(digest.hexDigest, "sha256", "abc")
-    assert(not ok and tostring(problem):find("test provider failure", 1, true))
-    assert(closed == 1, "failed finalization closes exactly once")
+            assert(not ok and tostring(problem):find("test " .. kind .. " " .. failure .. " failure", 1, true))
+            assert(closed == 1, "failed " .. kind .. " " .. failure .. " closes exactly once")
+        end
+    end
 end
 
 function M.checksumProviderFailureClosesAndDoesNotFallBack()

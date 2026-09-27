@@ -18,7 +18,8 @@ running:update("lo")
 print(running:hexDigest())
 ```
 
-The key is raw bytes. Finalizing consumes the context.
+The key is raw bytes. Finalizing consumes the context; create another context
+to authenticate another message.
 
 ## Built-in algorithms
 
@@ -52,6 +53,8 @@ export record Algorithm
     implementation: provider.Algorithm
 
     --- Creates independent owned state initialized with the raw-byte key.
+    --- @return the unfinished keyed context
+    --- @raises string when provider initialization fails
     function create(self, key: string): Mac
         return context.wrap(self.implementation:create(key), self.name, self.digestSize)
     end
@@ -138,6 +141,7 @@ end
 --- @param name the canonical MAC algorithm name
 --- @param key the raw-byte secret key
 --- @return an unfinished keyed context
+--- @raises string when lookup or provider initialization fails
 export function create(name: string, key: string): Mac
     return algorithm(name):create(key)
 end
@@ -158,6 +162,7 @@ end
 --- @param key the raw-byte secret key
 --- @param bytes the message bytes
 --- @return the raw fixed-size authentication code
+--- @raises string when lookup or a provider operation fails
 export function digest(name: string, key: string, bytes: string): string
     local mac = create(name, key)
     mac:update(bytes)
@@ -169,6 +174,7 @@ end
 --- @param key the raw-byte secret key
 --- @param bytes the message bytes
 --- @return the lowercase hexadecimal authentication code
+--- @raises string when lookup or a provider operation fails
 export function hexDigest(name: string, key: string, bytes: string): string
     local mac = create(name, key)
     mac:update(bytes)
