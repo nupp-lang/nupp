@@ -115,6 +115,18 @@ function M.browserGpu(response)
     })(name)
 end
 
+function M.browserXor(response)
+    local name = "nupp.browser"
+    return instance({[name] = true}, {
+        ["nupp.codec.json.provider"] = {
+            asArray = function(value)
+                return value
+            end
+        },
+        ["nupp.runtime.browser.response"] = response,
+    })(name)
+end
+
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
     local facade = "nupp." .. kind

@@ -1,7 +1,7 @@
 module nupp.browser
 
 --[[
-What a Nupp program can ask the browser it is running in to do.
+Browser-only operations expose host facilities to a Nupp program.
 
 Today that is one thing: `xorU32` hands a block of `uint32` values to WebGPU and
 gets the xored block back.
@@ -23,33 +23,70 @@ local json = require("nupp.codec.json.provider")
 local browser = {}
 const MAX_XOR_VALUES = 262144
 
+local function isWord(value: any): boolean
+    return type(value) == "number" and value == math.floor(value) and value >= 0 and value <= 4294967295
+end
+
+local function invalidValues(): never
+    error("nupp: browser GPU xor needs a dense list of at most 262144 uint32 values", 3)
+end
+
 --- Xors every uint32 in `values` with `mask`, one WebGPU invocation per element.
 ---
 --- The result is copied back only after the Worker observes completion.
 --- @param values the words to xor, at most 262144 of them
 --- @param mask the word every element is xored with
 --- @return a fresh list of the xored words, in the order they were given
---- @raises string when WebGPU is unavailable or the request is outside the portable cap
+--- @raises string when an input is invalid, WebGPU is unavailable, or the host result
+---     is malformed
 function browser.xorU32(values: {uint32}, mask: uint32): {uint32}
-    if #values == 0 then
-        return {}
+    if not isWord(mask) then
+        error("nupp: browser GPU xor mask must be uint32", 2)
     end
-    if #values > MAX_XOR_VALUES then
-        error("nupp: browser GPU xor accepts at most " .. MAX_XOR_VALUES .. " uint32 values", 2)
+    if type(values) ~= "table" then
+        invalidValues()
     end
 
     local input: {any} = json.asArray({})
-    for index, value in ipairs(values) do
+    local count, highest = 0, 0
+    for index, value in pairs(values) do
+        if type(index) ~= "number"
+            or index ~= math.floor(index)
+            or index < 1
+            or index > MAX_XOR_VALUES
+            or not isWord(value)
+        then
+            invalidValues()
+        end
+        count = count + 1
+        highest = math.max(highest, index)
         input[index] = value
+    end
+    if highest ~= count then
+        invalidValues()
+    elseif count == 0 then
+        return {}
     end
 
     local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
-    local output = answer.values
-    if type(output) ~= "table" or #output ~= #values then
+    if type(answer) ~= "table" or type(answer.values) ~= "table" then
         error("nupp: browser GPU returned an invalid xor result", 2)
     end
 
-    return output as {uint32}
+    local output: {uint32} = {}
+    local returned = 0
+    for index, value in pairs(answer.values) do
+        if type(index) ~= "number" or index ~= math.floor(index) or index < 1 or index > count or not isWord(value) then
+            error("nupp: browser GPU returned an invalid xor result", 2)
+        end
+        returned = returned + 1
+        output[index] = nupp.math.u32.wrap(value)
+    end
+    if returned ~= count then
+        error("nupp: browser GPU returned an invalid xor result", 2)
+    end
+
+    return output
 end
 
 export = browser
