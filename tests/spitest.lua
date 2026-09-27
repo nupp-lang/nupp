@@ -617,7 +617,26 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                             return name
                         end
                     end
-                    if case.module == "nupp.system" then
+                    if case.module == "nupp.workers" then
+                        provider.openScope = function()
+                            return name
+                        end
+                        provider.settle = function()
+                            return name
+                        end
+                        provider.parallelism = function()
+                            return name
+                        end
+                        provider.runScheduler = function()
+                            return name
+                        end
+                        provider.defineSendable = function()
+                            return name
+                        end
+                        provider.describeSendable = function()
+                            return name
+                        end
+                    elseif case.module == "nupp.system" then
                         provider.platform, provider.architecture = "fixture", "fixture"
                         provider.pointerBits, provider.endianness = 32, "little"
                     elseif case.storage then
@@ -682,6 +701,21 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
                         consumeTurn()
                         assert(turnAvailable(), label .. ": an unbounded turn must stay available")
+                    elseif case.module == "nupp.workers" then
+                        local hooks = {
+                            __scope = "openScope",
+                            __settle = "settle",
+                            __parallelism = "parallelism",
+                            __runScheduler = "runScheduler",
+                            __defineSendable = "defineSendable",
+                            __sendable = "describeSendable",
+                        }
+                        for exported, provided in pairs(hooks) do
+                            assert(
+                                rawget(facade, exported) == expected[provided],
+                                label .. ": " .. exported .. " came from another provider"
+                            )
+                        end
                     end
                 else
                     assert(facade == expected, label)
