@@ -5,13 +5,7 @@ for error-detection checksums use nupp.checksum.]]
 const {type ByteView} = require("nupp.io")
 const bit = require("bit")
 
---- Hashes bytes with FNV-1a over 64 bits.
----
---- @param value the bytes to hash
---- @return the hash, as sixteen lowercase hexadecimal digits
---- @export
-export function fnv1a64(value: string | ByteView): string
-    local bytes = type(value) == "string" and value as string or (value as ByteView):getString()
+local function hashString(borrows bytes: string): string
     local hi = 0xcbf29ce4
     local lo = 0x84222325
     for index = 1, #bytes do
@@ -27,4 +21,17 @@ export function fnv1a64(value: string | ByteView): string
     local low = lo < 0 and lo + 4294967296 or lo
 
     return string.format("%08x%08x", high, low)
+end
+
+--- Hashes bytes with FNV-1a over 64 bits.
+---
+--- @param value the bytes to hash
+--- @return the hash, as sixteen lowercase hexadecimal digits
+--- @export
+export function fnv1a64(borrows value: string | ByteView): string
+    if type(value) == "string" then
+        return hashString(value as string)
+    end
+
+    return hashString((value as ByteView):getString())
 end

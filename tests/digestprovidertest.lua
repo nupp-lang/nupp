@@ -99,6 +99,39 @@ function M.checksumProviderFailureClosesAndDoesNotFallBack()
     assert(closed == 1, "failed checksum update closes exactly once")
 end
 
+function M.checksumOneShotClosesSuccessfulAndFailedReads()
+    for _, failRead in ipairs({false, true}) do
+        local created, closed = 0, 0
+        local load = selected("checksum", {
+            custom = {
+                name = "custom",
+                width = 8,
+                create = function()
+                    created = created + 1
+                    return {
+                        update = function()
+                        end,
+                        value = function()
+                            if failRead then
+                                error("test checksum read failure")
+                            end
+                            return 42
+                        end,
+                        close = function()
+                            closed = closed + 1
+                        end,
+                    }
+                end,
+            },
+        })
+        local checksum = load("nupp.checksum")
+        local ok, answer = pcall(checksum.value, "custom", "payload")
+        assert(ok ~= failRead)
+        assert(failRead and tostring(answer):find("test checksum read failure", 1, true) or answer == 42)
+        assert(created == 1 and closed == 1, "one-shot checksum closes exactly once")
+    end
+end
+
 function M.invalidDescriptorsFailAtRequireTime()
     for _, case in ipairs({
         {"digest", "sha256", "digestSize", 31},

@@ -1,11 +1,25 @@
 local digest = require("nupp.digest")
 local mac = require("nupp.mac")
 local checksum = require("nupp.checksum")
+local io = require("nupp.io")
+local util = require("nupp.util")
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local hex = require("nupp.codec.hex")
 local test = require("nupp.test")
 local M = {}
+
+function M.publishedFnv1a64VectorsAndByteViews(): nil
+    assert(util.fnv1a64("") == "cbf29ce484222325")
+    assert(util.fnv1a64("a") == "af63dc4c8601ec8c")
+    assert(util.fnv1a64("foobar") == "85944171f73967e8")
+    assert(util.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
+
+    local bytes = io.newBuffer("\0\1\127\128\255")
+    local view = bytes:view()
+    assert(util.fnv1a64(view) == "a5bcd1d1065f84b6")
+    assert(util.fnv1a64(view) == "a5bcd1d1065f84b6")
+end
 
 function M.publishedDigestVectors(): nil
     assert(digest.hexDigest("md5", "") == "d41d8cd98f00b204e9800998ecf8427e")
@@ -121,6 +135,16 @@ end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
     assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32-ieee,crc32c,crc64-ecma")
+    local listed = checksum.algorithms()
+    listed[1] = "changed"
+    assert(checksum.algorithms()[1] == "adler32")
+    assert(checksum.lookup("unknown") == nil)
+    test.raises(
+        function(): nil
+            checksum.algorithm("unknown")
+        end,
+        "unknown checksum algorithm unknown"
+    )
     assert(checksum.value("adler32", "") == 1ULL)
     assert(checksum.value("crc32-ieee", "") == 0ULL)
     assert(checksum.value("crc32c", "") == 0ULL)
@@ -131,6 +155,7 @@ function M.checksumVectorsAndNonConsumingReads(): nil
     assert(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
     assert(checksum.algorithm("crc64-ecma").width == 64)
     for _, name in ipairs(checksum.algorithms()) do
+        assert(checksum.lookup(name) == checksum.algorithm(name))
         local rolling = checksum.create(name)
         assert(rolling:algorithm() == name)
         assert(rolling:width() == checksum.algorithm(name).width)
