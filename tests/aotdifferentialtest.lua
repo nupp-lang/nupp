@@ -510,6 +510,24 @@ m.Cell = Cell
 
 return m
 ]=],
+    strings = [[
+local m = {}
+
+@aot
+local function byteAt(s: string, i: integer): number
+    return string.byte(s, i)
+end
+
+@aot
+local function slice(s: string, i: integer, j: integer): string
+    return string.sub(s, i, j)
+end
+
+m.byteAt = byteAt
+m.slice = slice
+
+return m
+]],
 }
 
 local CASES = [=[
@@ -604,6 +622,22 @@ do
     groups.stores = cases
 end
 
+-- string indexes a byte exists at, however they are written
+do
+    local S = {"a", "hello", "a\0b", "h\195\169llo"}
+    local I = {1, 2, -1, -2, 1.5, -1.5, 2.9, 0, 100, -100, 0/0, 2^53, -2^53}
+    local cases = {}
+    for _, s in ipairs(S) do
+        for _, i in ipairs(I) do
+            local at = i ~= i and 0 or (i < 0 and math.ceil(i) or math.floor(i))
+            if at < 0 then at = at + #s + 1 end
+            if at >= 1 and at <= #s then cases[#cases + 1] = {"strings", "byteAt", {s, i, n = 2}} end
+            for _, j in ipairs(I) do cases[#cases + 1] = {"strings", "slice", {s, i, j, n = 3}} end
+        end
+    end
+    groups.strings = cases
+end
+
 return groups
 ]=]
 
@@ -673,6 +707,13 @@ local function overlapping(M)
     return table.concat(parts, " ")
 end
 
+if group == "pastEnd" then
+    local native = load("native", "strings")
+    local ok, why = pcall(native.byteAt, "hello", 6)
+    print(tostring(ok) .. " " .. tostring(why))
+    return
+end
+
 if group == "overlap" then
     print("off " .. overlapping(load("off", "stores")))
     print("native " .. overlapping(load("native", "stores")))
@@ -734,9 +775,9 @@ local function built()
 return {
    include = {"src"},
    build = {targets = {
-      off = {kind = "modules", entries = {"binary64", "fixed32", "wide64", "stores"}, outDir = "build/off"},
+      off = {kind = "modules", entries = {"binary64", "fixed32", "wide64", "stores", "strings"}, outDir = "build/off"},
       native = {
-         kind = "modules", entries = {"binary64", "fixed32", "wide64", "stores"}, outDir = "build/native",
+         kind = "modules", entries = {"binary64", "fixed32", "wide64", "stores", "strings"}, outDir = "build/native",
          aot = "require",
       },
    }},
@@ -801,6 +842,16 @@ end
 -- FFI store does; it does not round as `wrap` does.
 function M.storesConvertAsLuaDoes()
     agrees("stores")
+end
+
+-- The builder's `string.byte` and `string.sub` read indexes as Lua does: a
+-- fraction truncates and a negative index counts from the end. Where Lua
+-- answers no value at all, the typed result has nothing to hold, so the
+-- compiled one refuses rather than inventing a byte.
+function M.stringIndexesFollowLua()
+    agrees("strings")
+    local out, dir = answer("pastEnd")
+    assert(out:find("false", 1, true) and out:find("has no byte at that index", 1, true), dir .. ": " .. out)
 end
 
 -- A written span is `noalias` in the native entry. A caller the checker never

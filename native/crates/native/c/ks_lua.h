@@ -846,12 +846,21 @@ static uint32_t ks_lua_string_byte(lua_State *L, const unsigned char *bytes, siz
     if ((size_t)offset >= length) { luaL_error(L, "AOT builder byte is out of bounds"); return 0u; }
     return (uint32_t)bytes[offset];
 }
+/* A string index as Lua reads one: truncated toward zero, NaN as 0. */
+static double ks_lua_truncated_index(double index) {
+    return index != index ? 0.0 : (index < 0.0 ? ceil(index) : floor(index));
+}
+/* Lua's index rules: a fraction truncates and a negative index counts from
+ * the end. Where ordinary Lua answers no value at all, the typed result has
+ * nothing to hold, so that is refused rather than invented. */
 static double ks_lua_string_byte_lua(lua_State *L, const unsigned char *bytes, size_t length, double index) {
-    if (floor(index) != index || index < 1.0 || index > (double)length) { luaL_error(L, "AOT string.byte index is out of bounds"); return 0.0; }
-    return (double)bytes[(size_t)index - 1u];
+    double position = ks_lua_truncated_index(index);
+    if (position < 0.0) { position += (double)length + 1.0; }
+    if (!(position >= 1.0 && position <= (double)length)) { luaL_error(L, "AOT string.byte has no byte at that index, where ordinary Lua answers no value"); return 0.0; }
+    return (double)bytes[(size_t)position - 1u];
 }
 static void ks_lua_substring(lua_State *L, const unsigned char *bytes, size_t length, double first_value, double last_value) {
-    if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, "AOT string.sub bounds must be integers"); return; }
+    first_value = ks_lua_truncated_index(first_value); last_value = ks_lua_truncated_index(last_value);
     double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value;
     if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { lua_pushlstring(L, "", 0u); return; }
     lua_pushlstring(L, (const char *)(bytes + (size_t)first - 1u), (size_t)(last - first + 1.0));
@@ -867,7 +876,7 @@ static void ks_lua_string_buffer_append(lua_State *L, KsLuaStringBuffer *buffer,
     (void)L; luaL_addlstring(buffer, (const char *)bytes, length);
 }
 static void ks_lua_string_buffer_append_slice(lua_State *L, KsLuaStringBuffer *buffer, const unsigned char *bytes, size_t length, double first_value, double last_value) {
-    if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, "AOT string.sub bounds must be integers"); return; } double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value; if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { return; } ks_lua_string_buffer_append(L, buffer, bytes + (size_t)first - 1u, (size_t)(last - first + 1.0));
+    first_value = ks_lua_truncated_index(first_value); last_value = ks_lua_truncated_index(last_value); double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value; if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { return; } ks_lua_string_buffer_append(L, buffer, bytes + (size_t)first - 1u, (size_t)(last - first + 1.0));
 }
 static void ks_lua_string_buffer_finish(lua_State *L, KsLuaStringBuffer *buffer) {
     (void)L; luaL_pushresult(buffer);
