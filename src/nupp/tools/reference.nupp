@@ -2126,6 +2126,10 @@ table, publishes it under that one `package.loaded` key, and returns it. A
 declared module has no final module-value `return`, and `global` is not allowed
 inside one.
 
+One module name belongs to one file: two files that derive the same name, under
+two include roots or as `util.nupp` beside `util/init.nupp`, each report
+NUPP1002.
+
 `require("models")` remains the explicit Lua-shaped import. A brace pattern may
 select several values, with `as` for a local alias, and `type Name` selects an
 erased exported type.
