@@ -313,7 +313,53 @@ function M.generatedCodeDeclaresAndBinds()
     assert(code:find("nuppSinkOpen", 1, true), "carries the declarations")
     assert(code:find("__nuppFfi.C", 1, true), "binds the default namespace")
     -- redeclaration is tolerated: one process may load a header twice
-    assert(code:find("pcall(__nuppFfi.cdef", 1, true), "tolerates redefinition")
+    assert(code:find("_G.pcall", 1, true), "tolerates redefinition")
+end
+
+-- Generated code as the FFI would run it, with `ffi` replaced by `fake`.
+local function runWithFfi(src, fake)
+    local file = HERE .. "/p.g.nupp"
+    local result = parser.parse(src, file)
+    assertEq(#result.errors, 0, "parses")
+    check.check(result, file, env)
+    local code, diags = gen.generate(result, file)
+    assertEq(#diags, 0, "generates")
+    local replaced = code:gsub('require%("ffi"%)', "__fakeFfi", 1)
+    local chunk = assert(loadstring(replaced, "@p.g.nupp"))
+    setfenv(chunk, setmetatable({__fakeFfi = fake}, {__index = _G}))
+    return code, pcall(chunk)
+end
+
+-- The header is declared on the line of the call: a newline in its text is written as
+-- `\n`, so a runtime error later in the file names the line it happened on.
+function M.headerDeclarationsKeepLineIdentity()
+    local fake = {cdef = function() end, C = {}}
+    local code, ok, failure = runWithFfi("local sink = cheader('fixtures/sink.h')\nerror('here')", fake)
+    assertEq(ok, false)
+    assertEq(tostring(failure):match(":(%d+): here$"), "2", "the error keeps its source line")
+    assertEq(code:find("\\\n"), nil, "no quoted newline spans two generated lines")
+end
+
+-- A declaration LuaJIT refuses -- a struct another header already defined -- aborts
+-- the rest of its `ffi.cdef` call. Each declaration goes in on its own, so every one
+-- after the conflict is still declared.
+function M.aConflictingDeclarationCostsOnlyItself()
+    local declared = {}
+    local fake = {
+        cdef = function(text)
+            if text:find("struct SinkPoint", 1, true) then
+                error("attempt to redefine 'SinkPoint'")
+            end
+            declared[#declared + 1] = text
+        end,
+        C = {},
+    }
+    local _, ok, failure = runWithFfi("local sink = cheader('fixtures/sink.h')\nreturn sink", fake)
+    assert(ok, tostring(failure))
+    local text = table.concat(declared, "\n")
+    for _, name in ipairs({"nuppSinkOpen", "nuppSinkCategory", "nuppSinkClose", "nuppSinkCount", "nuppSinkBytes"}) do
+        assert(text:find(name, 1, true), name .. " is declared after the refused struct:\n" .. text)
+    end
 end
 
 function M.namedLibraryBindsThroughFfiLoad()

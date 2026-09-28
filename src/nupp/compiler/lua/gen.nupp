@@ -317,6 +317,55 @@ function literal.quote(s)
     return lexer.quoteBacktickBody(s)
 end
 
+--- A string as a Lua literal on one line. `%q` writes a newline in the value as a
+--- backslash and a real newline, which would move everything after it on the source
+--- line down one; `\n` reads back as the same string.
+local function quoteLine(value: string): string
+    return (string.format("%q", value):gsub("\n", "n"))
+end
+
+--- The top-level declarations of a C header, each with its `;`. A declaration LuaJIT
+--- refuses aborts the rest of its `ffi.cdef` call, so declaring them one at a time is
+--- what lets one conflicting definition cost only itself. Comments, string and
+--- character literals, and anything inside braces or parentheses never end one.
+local function cDeclarations(text: string): {string}
+    local found: {string} = {}
+    local depth, start, at = 0, 1, 1
+    local length = #text
+    while at <= length do
+        local c = text:sub(at, at)
+        if c == "/" and text:sub(at + 1, at + 1) == "*" then
+            local close = text:find("*/", at + 2, true)
+            at = close and close + 2 or length + 1
+        elseif c == "/" and text:sub(at + 1, at + 1) == "/" then
+            local close = text:find("\n", at + 2, true)
+            at = close and close + 1 or length + 1
+        elseif c == "\"" or c == "'" then
+            at = at + 1
+            while at <= length and text:sub(at, at) ~= c do
+                at = at + (text:sub(at, at) == "\\" and 2 or 1)
+            end
+            at = at + 1
+        else
+            if c == "{" or c == "(" or c == "[" then
+                depth = depth + 1
+            elseif c == "}" or c == ")" or c == "]" then
+                depth = depth - 1
+            elseif c == ";" and depth <= 0 then
+                found[#found + 1] = text:sub(start, at)
+                start = at + 1
+            end
+            at = at + 1
+        end
+    end
+    local rest = text:sub(start)
+    if rest:find("%S") then
+        found[#found + 1] = rest
+    end
+
+    return found
+end
+
 --- A long-string token's runtime bytes after `dedent` removes incidental indentation.
 --- The closing delimiter's indentation is the margin when it is on its own line;
 --- otherwise the longest common content indentation is used. Lua already ignores the
@@ -7052,9 +7101,18 @@ function gen.generate(
             local library = x.cheaderLib and (pluck.hotLibraries[x.cheaderLib] or x.cheaderLib) or nil
             local ns = library and ("__nuppFfi.load(%q)"):format(library) or "__nuppFfi.C"
             -- pcall: a header may be declared twice in one process, and redeclaring a
-            -- type is an error rather than a no-op
+            -- type is an error rather than a no-op. Each declaration goes in on its
+            -- own, or the first repeated one would drop every declaration after it.
+            local quoted: {string} = {}
+            for _, declaration in ipairs(cDeclarations(x.cheaderCdef)) do
+                if declaration:find("%S") then
+                    quoted[#quoted + 1] = quoteLine(declaration)
+                end
+            end
             pluck.loweredFunction(
-                ("(function() pcall(__nuppFfi.cdef, %q) return %s end)()"):format(x.cheaderCdef, ns),
+                (
+                    "(function() local d,p,c=__nuppFfi.cdef,_G.pcall,{%s} for i=1,#c do p(d,c[i]) end return %s end)()"
+                ):format(table.concat(quoted, ","), ns),
                 line,
                 pluck.reasons.cheader
             )
