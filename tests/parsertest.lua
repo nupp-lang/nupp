@@ -140,6 +140,24 @@ function M.sealedInterfaceModifier()
     assertEq(invalid.errors[1].code, "NUPP1002")
 end
 
+-- `sealed` is contextual, as `record` and `type` are: it modifies a declaration only
+-- where one follows, and is an ordinary name everywhere else, in plain Lua and in
+-- Nupp alike. Level 0 reserves no identifier level 1 did not inherit from Lua.
+function M.sealedIsAnOrdinaryNameOutsideADeclaration()
+    local sources = {
+        "local sealed = 1\nprint(sealed)",
+        "local t = {sealed = 1}\nt.sealed = 2\nprint(t.sealed, t:sealed())",
+        "local function sealed(sealed) return sealed end\nsealed = nil",
+    }
+    for _, filename in ipairs({"plain.lua", "typed.nupp"}) do
+        for _, src in ipairs(sources) do
+            local result = parser.parse(src, filename)
+            assertEq(#result.errors, 0, filename .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
+            assertEq(cst.textOf(result.root), src)
+        end
+    end
+end
+
 function M.cdefUnionAndBitfieldRoundtrip()
     local source = "cdef union Value\n   flags: uint32 : 3\n   number: number\nend\n"
     local result = assertRoundtrip(source)

@@ -427,9 +427,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- what keeps `local record = 5` ordinary Lua.
     local function startsTypedecl(at: integer): boolean
         local kw = tokens[at]
-        if kw and kw.kind == "sealed" then
+        -- `sealed` is contextual too: a modifier only where a declaration follows it,
+        -- so `local sealed = 1` and `t.sealed` stay ordinary Lua.
+        local following = tokens[at + 1]
+        if kw
+            and kw.kind == "name"
+            and kw.text == "sealed"
+            and following
+            and following.kind == "name"
+            and TYPEDECL_KW[following.text]
+        then
             at = at + 1
-            kw = tokens[at]
+            kw = following
         end
         if not kw or kw.kind ~= "name" or not TYPEDECL_KW[kw.text] then
             return false
@@ -799,7 +808,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 local found = false
                 while tokens[at] and tokens[at].kind == "@" do
                     local name = tokens[at + 1]
-                    if not name or name.kind ~= "name" and name.kind ~= "sealed" then
+                    if not name or name.kind ~= "name" then
                         return nil
                     end
                     found = true
@@ -2637,9 +2646,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     parseAnnotationApplication = function(n, typePosition: boolean?)
         add(n, expect("@"))
         local negated = cur().text == "!" and add(n, advance()) or nil
-        -- `sealed` is a declaration keyword; after `@` it is still parsed as an
-        -- annotation name so the checker can report that the annotation is unknown.
-        n.name = add(n, cur().kind == "sealed" and advance() or expectName("after '@'"))
+        n.name = add(n, expectName("after '@'"))
         if negated then
             errAt(n.name, "@!" .. n.name.text .. " is not supported; annotate one statement or expression", "NUPP2112")
         end
@@ -2851,7 +2858,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A `type`, `record`, `interface` or `struct` declaration.
     parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
         local sealedTok = nil
-        if cur().kind == "sealed" then
+        if cur().kind == "name" and cur().text == "sealed" and tokens[i + 1] and TYPEDECL_KW[tokens[i + 1].text] then
             sealedTok = advance()
         end
         local kw = advance() -- the contextual keyword (a name token)
