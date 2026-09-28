@@ -205,7 +205,8 @@ impl Transfer {
         }
     }
 
-    pub fn data_len(&self) -> Option<usize> {
+    #[cfg(test)]
+    fn data_len(&self) -> Option<usize> {
         match &*self
             .shared
             .outcome
@@ -218,7 +219,8 @@ impl Transfer {
         }
     }
 
-    pub fn copy_data(&self, output: &mut [u8]) -> io::Result<usize> {
+    #[cfg(test)]
+    fn copy_data(&self, output: &mut [u8]) -> io::Result<usize> {
         match &*self
             .shared
             .outcome
@@ -347,7 +349,8 @@ impl FileLane {
         self.shared.activity.wait(generation, timeout)
     }
 
-    pub fn admitted(&self) -> (usize, usize) {
+    #[cfg(test)]
+    fn admitted(&self) -> (usize, usize) {
         let admission = self
             .shared
             .admission

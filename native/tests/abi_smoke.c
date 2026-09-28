@@ -72,13 +72,9 @@ static int failed(const char *operation, int32_t status) {
 }
 
 int main(void) {
-    static const uint8_t expected[] = "payload";
-    uint8_t view[sizeof expected - 1];
     size_t length = 0;
-    uint64_t handle = 0;
     uint8_t uuid[37];
     uint8_t digest[32];
-    uint8_t trailer[8];
     uint8_t adapter[64];
     size_t adapter_length = 0;
     uint64_t uri = 0;
@@ -168,20 +164,6 @@ int main(void) {
         fprintf(stderr, "released file handle was revived\n");
         return 1;
     }
-    status = nuppNativeBytesCreate(expected, sizeof expected - 1, &handle);
-    if (status != NUPP_NATIVE_OK) return failed("bytes create", status);
-    status = nuppNativeBytesCopy(handle, view, sizeof view, &length);
-    if (status != NUPP_NATIVE_OK) return failed("bytes copy", status);
-    if (length != sizeof expected - 1 || memcmp(view, expected, length) != 0) {
-        fprintf(stderr, "byte view changed its payload\n");
-        return 1;
-    }
-    status = nuppNativeBytesRelease(handle);
-    if (status != NUPP_NATIVE_OK) return failed("bytes release", status);
-    if (nuppNativeBytesRelease(handle) != NUPP_NATIVE_STALE_HANDLE) {
-        fprintf(stderr, "released handle was revived\n");
-        return 1;
-    }
     status = nuppNativeUuid4(uuid, sizeof uuid);
     if (status != NUPP_NATIVE_OK) return failed("uuid4", status);
     if (uuid[14] != '4' || uuid[36] != '\0') {
@@ -201,12 +183,6 @@ int main(void) {
     }
     status = nuppNativeXxh64Digest(NULL, 0, digest, sizeof digest);
     if (status != NUPP_NATIVE_OK) return failed("xxh64", status);
-    status = nuppNativeTrailerDigest(NULL, 0, trailer);
-    if (status != NUPP_NATIVE_OK) return failed("trailer digest", status);
-    if (memcmp(trailer, "\x99\xe9\xd8\x51\x37\xdb\x46\xef", 8) != 0) {
-        fprintf(stderr, "trailer digest did not match the published vector\n");
-        return 1;
-    }
     status = nuppNativeSleepMs(-1.0);
     if (status != NUPP_NATIVE_INVALID_ARGUMENT) {
         fprintf(stderr, "negative sleep duration was accepted\n");

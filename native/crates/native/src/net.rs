@@ -624,16 +624,6 @@ pub unsafe extern "C" fn nuppNativeNetConnectPoll(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeNetConnectCancel(raw: u64) -> i32 {
-    let (_, connect) = match connect(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    connect.cancel();
-    Status::Ok.code()
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetConnectRelease(raw: u64) -> i32 {
     let (handle, connect) = match connect(raw) {
         Ok(value) => value,
@@ -813,16 +803,6 @@ pub extern "C" fn nuppNativeNetStreamShutdownWrite(raw: u64) -> i32 {
         |error| stream_failed(&stream, &error),
         |()| Status::Ok.code(),
     )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeNetStreamClose(raw: u64) -> i32 {
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    stream.close();
-    Status::Ok.code()
 }
 
 fn net_address(value: SocketAddr) -> NetAddress {

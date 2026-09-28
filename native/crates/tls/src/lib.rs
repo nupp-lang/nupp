@@ -505,9 +505,6 @@ impl Session {
         if state.connection.is_handshaking() {
             return Write::Failed("the TLS handshake has not finished".to_owned());
         }
-        if state.closed {
-            return Write::Closed;
-        }
         if let Err(error) = state.drive(&self.stream) {
             return Write::Failed(error);
         }

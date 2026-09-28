@@ -78,7 +78,6 @@ int32_t nuppNativeProcessStreamRelease(uint64_t);
 int32_t nuppNativeProcessWait(
     uint64_t, const uint64_t *, size_t, const uint64_t *, size_t,
     uint64_t, size_t *);
-size_t nuppNativeProcessAbandonedTotal(void);
 ]]
 
 const C = native.C

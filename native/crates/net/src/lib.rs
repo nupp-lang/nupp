@@ -381,12 +381,14 @@ impl Stream {
         Ok(())
     }
 
-    pub fn local_addr(&self) -> Result<SocketAddr, String> {
+    #[cfg(test)]
+    fn local_addr(&self) -> Result<SocketAddr, String> {
         self.local_address()?
             .ok_or_else(|| "the local stream has no internet address".to_owned())
     }
 
-    pub fn peer_addr(&self) -> Result<SocketAddr, String> {
+    #[cfg(test)]
+    fn peer_addr(&self) -> Result<SocketAddr, String> {
         self.peer_address()?
             .ok_or_else(|| "the local stream has no internet address".to_owned())
     }
@@ -717,10 +719,6 @@ impl Listener {
         self.shared.local.map_or(0, |address| address.port())
     }
 
-    pub fn local_addr(&self) -> Option<SocketAddr> {
-        self.shared.local
-    }
-
     pub fn is_path(&self) -> bool {
         self.shared.local.is_none()
     }
@@ -749,7 +747,8 @@ impl Listener {
         }
     }
 
-    pub fn queued(&self) -> usize {
+    #[cfg(test)]
+    fn queued(&self) -> usize {
         self.shared
             .state
             .lock()
@@ -1090,7 +1089,8 @@ impl Connect {
         }
     }
 
-    pub fn ready(&self) -> bool {
+    #[cfg(test)]
+    fn ready(&self) -> bool {
         !matches!(
             *self
                 .shared
@@ -1353,7 +1353,8 @@ impl Datagram {
         self.shared.local.port()
     }
 
-    pub fn local_addr(&self) -> Result<SocketAddr, String> {
+    #[cfg(test)]
+    fn local_addr(&self) -> Result<SocketAddr, String> {
         if self.is_closed() {
             Err("the datagram socket is closed".to_owned())
         } else {
@@ -1361,7 +1362,8 @@ impl Datagram {
         }
     }
 
-    pub fn queued(&self) -> usize {
+    #[cfg(test)]
+    fn queued(&self) -> usize {
         self.shared
             .state
             .lock()
@@ -1509,6 +1511,7 @@ impl Datagram {
         operation(&socket).map_err(|error| error.to_string())
     }
 
+    #[cfg(test)]
     fn is_closed(&self) -> bool {
         self.shared
             .state

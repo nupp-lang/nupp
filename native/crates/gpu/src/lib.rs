@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::num::NonZeroU64;
-use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -192,12 +191,7 @@ pub struct KernelDescriptor<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdapterDescription {
     pub name: String,
-    pub vendor: u32,
-    pub device: u32,
     pub backend: String,
-    pub device_type: String,
-    pub driver: String,
-    pub driver_info: String,
 }
 
 #[derive(Clone, Copy)]
@@ -530,16 +524,11 @@ impl GpuContext {
         let info = self.adapter.get_info();
         AdapterDescription {
             name: info.name,
-            vendor: info.vendor,
-            device: info.device,
             backend: info.backend.to_str().to_owned(),
-            device_type: format!("{:?}", info.device_type),
-            driver: info.driver,
-            driver_info: info.driver_info,
         }
     }
 
-    pub fn take_device_errors(&self) -> Vec<String> {
+    fn take_device_errors(&self) -> Vec<String> {
         self.device_errors.take()
     }
 
@@ -1456,7 +1445,7 @@ fn checked_range(
     offset: u64,
     size: u64,
     capacity: u64,
-) -> Result<Range<u64>, GpuError> {
+) -> Result<(), GpuError> {
     let end = offset.checked_add(size).ok_or(GpuError::OutOfBounds {
         operation,
         offset,
@@ -1471,7 +1460,7 @@ fn checked_range(
             capacity,
         });
     }
-    Ok(offset..end)
+    Ok(())
 }
 
 fn require_copy_alignment(name: &'static str, value: u64) -> Result<(), GpuError> {
@@ -1770,7 +1759,7 @@ mod tests {
 
     #[test]
     fn range_checks_reject_overflow_and_overrun() {
-        assert_eq!(checked_range("test", 4, 4, 8), Ok(4..8));
+        assert_eq!(checked_range("test", 4, 4, 8), Ok(()));
         assert!(matches!(
             checked_range("test", 5, 4, 8),
             Err(GpuError::OutOfBounds { .. })

@@ -60,8 +60,6 @@ NUPP_NATIVE_EXPORT const char *nuppNativeLastError(void);
  * runtime cannot find the Lua API in this process. */
 NUPP_NATIVE_EXPORT const void *nuppAotRuntime(void);
 
-NUPP_NATIVE_EXPORT int32_t nuppNativeBytesCreate(
-    const uint8_t *data, size_t length, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeBytesCopy(
     uint64_t handle, uint8_t *data, size_t capacity, size_t *length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeBytesRelease(uint64_t handle);
@@ -73,8 +71,6 @@ NUPP_NATIVE_EXPORT size_t nuppNativeAvailableParallelism(void);
 NUPP_NATIVE_EXPORT int32_t nuppNativeRandomBytes(uint8_t *output, size_t length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeXxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
-NUPP_NATIVE_EXPORT int32_t nuppNativeTrailerDigest(
-    const uint8_t *data, size_t length, uint8_t output[8]);
 
 /* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Formats are 1 gzip,
  * 2 zlib and 3 raw DEFLATE. Step states are 1 need input, 2 need output and
@@ -277,8 +273,6 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetPathConnectCreate(
     const NuppNativeNetPathConnectOptions *options, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetConnectPoll(
     uint64_t connect, uint32_t *state, uint64_t *stream);
-NUPP_NATIVE_EXPORT int32_t nuppNativeNetConnectCancel(
-    uint64_t connect);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetConnectRelease(
     uint64_t connect);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamRead(
@@ -293,7 +287,6 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamState(
     uint64_t stream, uint32_t *flags);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamShutdownWrite(
     uint64_t stream);
-NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamClose(uint64_t stream);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamLocalAddress(
     uint64_t stream, NuppNativeNetAddress *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamPeerAddress(
@@ -402,17 +395,6 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeUriPart(
     size_t *length, int32_t *present);
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriPort(
     uint64_t uri, int32_t *port);
-NUPP_NATIVE_EXPORT int32_t nuppNativeUriWithText(
-    uint64_t uri, uint32_t kind, const uint8_t *data, size_t length,
-    int32_t present, uint64_t *output);
-NUPP_NATIVE_EXPORT int32_t nuppNativeUriWithPort(
-    uint64_t uri, int32_t port, uint64_t *output);
-NUPP_NATIVE_EXPORT int32_t nuppNativeUriConcatPath(
-    uint64_t uri, const uint8_t *suffix, size_t length, uint64_t *output);
-NUPP_NATIVE_EXPORT int32_t nuppNativeUriWithEndpoint(
-    uint64_t uri, uint64_t endpoint, uint64_t *output);
-NUPP_NATIVE_EXPORT int32_t nuppNativeUriResolve(
-    uint64_t uri, const uint8_t *reference, size_t length, uint64_t *output);
 
 /* Present when NUPP_NATIVE_FEATURE_HTTP is set. Rust owns every client,
  * transfer, body and worker task; the ABI carries generational handles and
@@ -568,7 +550,6 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
     const uint64_t *readable, size_t readable_count,
     const uint64_t *writable, size_t writable_count,
     uint64_t timeout_ms, size_t *ready);
-NUPP_NATIVE_EXPORT size_t nuppNativeProcessAbandonedTotal(void);
 
 /* Present when NUPP_NATIVE_FEATURE_GPU is set. Every object is an opaque,
  * generational integer handle; no provider-owned pointer crosses the ABI.

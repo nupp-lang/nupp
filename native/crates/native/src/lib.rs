@@ -45,6 +45,8 @@ fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     BYTES.get_or_init(|| Mutex::new(Arena::new()))
 }
 
+/// Keeps provider-produced bytes behind a handle the caller copies out of.
+#[cfg(any(feature = "filesystem", feature = "codegen", test))]
 pub(crate) fn store_bytes(value: Vec<u8>) -> Result<u64, i32> {
     match bytes().lock() {
         Ok(mut arena) => arena
@@ -172,34 +174,6 @@ pub extern "C" fn nuppNativeLastError() -> *const c_char {
 }
 
 #[unsafe(no_mangle)]
-/// Copies one caller-owned byte range into a new generational handle.
-///
-/// # Safety
-///
-/// When `length` is nonzero, `data` must be readable for `length` bytes.
-/// `output` must point to writable storage for one `u64`.
-pub unsafe extern "C" fn nuppNativeBytesCreate(
-    data: *const u8,
-    length: usize,
-    output: *mut u64,
-) -> i32 {
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "byte handle output is null");
-    }
-    let value = match input(data, length) {
-        Ok(value) => value.to_vec(),
-        Err(status) => return status,
-    };
-    let handle = match store_bytes(value) {
-        Ok(handle) => handle,
-        Err(status) => return status,
-    };
-    // SAFETY: the caller supplied writable storage for one u64.
-    unsafe { output.write(handle) };
-    Status::Ok.code()
-}
-
-#[unsafe(no_mangle)]
 /// Copies the allocation behind a byte handle into caller-owned storage.
 ///
 /// # Safety
@@ -316,30 +290,6 @@ pub unsafe extern "C" fn nuppNativeXxh64Digest(
     Status::Ok.code()
 }
 
-#[unsafe(no_mangle)]
-/// Writes the little-endian XXH64 prefix stored in a stamped payload trailer.
-///
-/// # Safety
-///
-/// When `length` is nonzero, `data` must be readable for `length` bytes.
-/// `output` must be writable for eight bytes.
-pub unsafe extern "C" fn nuppNativeTrailerDigest(
-    data: *const u8,
-    length: usize,
-    output: *mut u8,
-) -> i32 {
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "trailer digest output is null");
-    }
-    let value = match input(data, length) {
-        Ok(value) => nupp_native_platform::trailer_digest(value),
-        Err(status) => return status,
-    };
-    // SAFETY: the ABI requires writable storage for the fixed eight-byte digest.
-    unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
-    Status::Ok.code()
-}
-
 #[cfg(feature = "uuid")]
 unsafe fn write_uuid(
     make: fn() -> Result<String, String>,
@@ -445,11 +395,7 @@ mod tests {
 
     #[test]
     fn bytes_are_validated_by_generation() {
-        let mut handle = 0;
-        assert_eq!(
-            unsafe { nuppNativeBytesCreate(b"abc".as_ptr(), 3, &mut handle) },
-            0
-        );
+        let handle = store_bytes(b"abc".to_vec()).unwrap();
         let mut data = [0; 3];
         let mut length = 0;
         assert_eq!(
@@ -474,12 +420,6 @@ mod tests {
             0
         );
         assert_eq!(&output[..16], b"ef46db3751d8e999");
-        let mut trailer = [0; 8];
-        assert_eq!(
-            unsafe { nuppNativeTrailerDigest(ptr::null(), 0, trailer.as_mut_ptr()) },
-            0
-        );
-        assert_eq!(trailer, 0xef46_db37_51d8_e999_u64.to_le_bytes());
     }
 
     #[test]

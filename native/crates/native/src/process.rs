@@ -531,11 +531,6 @@ pub unsafe extern "C" fn nuppNativeProcessWait(
     Status::Ok.code()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeProcessAbandonedTotal() -> usize {
-    transport::uncollected_total()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -364,27 +364,13 @@ int main(void) {
         fprintf(stderr, "connect result was collected more than once\n");
         return 1;
     }
-    status = nuppNativeNetConnectCreate(&connect_options, &canceled_connect);
-    if (status != NUPP_NATIVE_OK) return failed("cancel connect create", status);
-    status = nuppNativeNetConnectCancel(canceled_connect);
-    if (status != NUPP_NATIVE_OK) return failed("connect cancel", status);
     {
-        uint64_t canceled_stream = 1;
-        status = nuppNativeNetConnectPoll(
-            canceled_connect, &state, &canceled_stream);
-        if (status != NUPP_NATIVE_OK
-            || state != NUPP_NATIVE_NET_CONNECT_FAILED
-            || canceled_stream != 0) {
-            fprintf(stderr, "canceled connect did not report failure\n");
+        uint64_t unused = 1;
+        if (nuppNativeNetConnectPoll(listener, &state, &unused)
+                != NUPP_NATIVE_INVALID_ARGUMENT) {
+            fprintf(stderr, "listener was accepted as a connect\n");
             return 1;
         }
-    }
-    status = nuppNativeNetConnectRelease(canceled_connect);
-    if (status != NUPP_NATIVE_OK) return failed("canceled connect release", status);
-    if (nuppNativeNetConnectCancel(listener)
-            != NUPP_NATIVE_INVALID_ARGUMENT) {
-        fprintf(stderr, "listener was accepted as a connect\n");
-        return 1;
     }
 
     status = nuppNativeNetStreamLocalAddress(client, &address);
@@ -448,8 +434,6 @@ int main(void) {
     if (test_datagrams(listener) != 0) return 1;
     if (test_path_stream() != 0) return 1;
 
-    status = nuppNativeNetStreamClose(server);
-    if (status != NUPP_NATIVE_OK) return failed("stream close", status);
     status = nuppNativeNetStreamRelease(server);
     if (status != NUPP_NATIVE_OK) return failed("server release", status);
     if (nuppNativeNetStreamRelease(server) != NUPP_NATIVE_STALE_HANDLE) {
