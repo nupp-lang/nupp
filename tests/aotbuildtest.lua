@@ -1203,6 +1203,31 @@ function M.cpuOnlyAotDoesNotStageTheGpuRuntime()
     )
 end
 
+-- Line tables name the authored file from the project's directory, and a
+-- Mach-O debug map names objects the same way, so the library a project
+-- builds does not depend on where it is checked out.
+function M.aotArtifactsCarryNoCheckoutPath()
+    local dir = builtFixture("require")
+    local where = ("(require fixture at %s)"):format(dir)
+    local pipe = assert(io.popen(("cd %q && ls build/native/aot/src/kernel.*.ll build/native/lib/*"):format(dir)))
+    local listed = pipe:read("*a")
+    pipe:close()
+    local ir, library = nil, nil
+    for path in listed:gmatch("[^\n]+") do
+        if path:match("%.ll$") then
+            ir = ir or path
+        elseif not path:match("%.tmp$") then
+            library = library or path
+        end
+    end
+    assert(ir and library, "the fixture wrote IR and a library " .. where .. ": " .. listed)
+    local text = assert(read(dir .. "/" .. ir))
+    assert(text:find('!DIFile(filename: "kernel.nupp", directory: "src")', 1, true), "a relative line file " .. where)
+    local bytes = assert(read(dir .. "/" .. library))
+    local leaf = dir:match("([^/\\]+)$")
+    assert(not bytes:find(leaf, 1, true), library .. " names the checkout " .. where)
+end
+
 function M.gpuCheckStagesTheDefaultProviderTypeSurface()
     local dir = gpuProject()
     local out, code = check(dir)

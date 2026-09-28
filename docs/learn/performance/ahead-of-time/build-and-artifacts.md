@@ -50,6 +50,11 @@ object for the selected target and feature tier, and linked, all in process. No
 C compiler, assembler, system linker or SDK is run, and none has to be
 installed. The programs it produces carry no LLVM of their own.
 
+Line tables name each authored file from the project's directory, and a macOS
+library's debug map names its objects the same way, so one project built in
+two checkouts produces the same library. A source outside the project keeps
+its absolute path.
+
 A `nupp` built from source without the code generator refuses `require` and
 says so; `scripts/toolchain llvm` provides the pinned LLVM a checkout links in.
 

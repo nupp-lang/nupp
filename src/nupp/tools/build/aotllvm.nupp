@@ -337,9 +337,11 @@ local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({
     return {object, crt, ucrt, kernel32}, nil
 end
 
---- Links `objects` into the shared library `output` with lld.
+--- Links `objects` into the shared library `output` with lld. `root`, the
+--- project's directory, is left out of the object paths a Mach-O debug map
+--- records, so the library does not depend on where the project is checked out.
 --- @return nil, or what went wrong
-function aotllvm.link(triple: string, objects: {string}, output: string): string?
+function aotllvm.link(triple: string, objects: {string}, output: string, root: string?): string?
     local selected, profileErr = llvmProfile.of(triple)
     if selected == nil then
         return profileErr
@@ -352,9 +354,12 @@ function aotllvm.link(triple: string, objects: {string}, output: string): string
         staged = fs.dirname(objects[1]) .. "/" .. fs.basename(output)
     end
     os.remove(staged)
+    -- Absolute objects, spelled as `root` is below: the debug map records the
+    -- path each object was given as, and a prefix spelled through a different
+    -- symlink would strip nothing.
     local linked: {string} = {}
     for _, object in ipairs(objects) do
-        linked[#linked + 1] = object
+        linked[#linked + 1] = root ~= nil and fs.absolute(object) or object
     end
     local runtimeObject, runtimeErr = linkedRuntime(selected as llvmProfile.Profile, fs.dirname(objects[1] or output))
     if runtimeErr ~= nil then
@@ -363,7 +368,8 @@ function aotllvm.link(triple: string, objects: {string}, output: string): string
     if runtimeObject ~= nil then
         linked[#linked + 1] = runtimeObject as string
     end
-    local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, linked, fs.basename(output))
+    local strip = root ~= nil and fs.absolute(root as string):gsub("/*$", "/") or nil
+    local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, linked, fs.basename(output), strip)
     if (selected as llvmProfile.Profile).format == "coff" then
         local glue, glueErr = windowsGlue(selected as llvmProfile.Profile, fs.dirname(objects[1] or output))
         if glue == nil then

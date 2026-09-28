@@ -180,7 +180,18 @@ end
 ---
 --- Undefined symbols -- the Lua C API, the runtime, libm -- bind when the
 --- library is loaded, against what the process already has.
-function profile.sharedLink(selected: profile.Profile, output: string, objects: {string}, soname: string): {string}
+---
+--- `strip` is a directory prefix, with its trailing slash, that the debug map
+--- of a Mach-O library writes object paths without. ld64 records each object's
+--- absolute path there, which made two checkouts of one project build two
+--- different libraries.
+function profile.sharedLink(
+    selected: profile.Profile,
+    output: string,
+    objects: {string},
+    soname: string,
+    strip: string?
+): {string}
     local argv: {string}
     if selected.format == "macho" then
         argv = {
@@ -199,6 +210,10 @@ function profile.sharedLink(selected: profile.Profile, output: string, objects: 
             "-o",
             output,
         }
+        if strip ~= nil then
+            argv[#argv + 1] = "-oso_prefix"
+            argv[#argv + 1] = strip as string
+        end
     elseif selected.format == "elf" then
         argv = {
             "ld.lld",

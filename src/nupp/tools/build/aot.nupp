@@ -728,7 +728,8 @@ function aot.link(
     output: string,
     static: boolean?,
     previous: {[string]: string}?,
-    reporter: Reporter?
+    reporter: Reporter?,
+    root: string?
 ): (string?, aot.LinkOutcome?)
     local report = reporter or progress.new("never")
     if not fs.mkdir(fs.dirname(output)) then
@@ -787,7 +788,7 @@ function aot.link(
     if static then
         linkErr = aotllvm.archive(selected.triple, objects, output)
     else
-        linkErr = aotllvm.link(selected.triple, objects, output)
+        linkErr = aotllvm.link(selected.triple, objects, output, root)
     end
     if linkErr ~= nil then
         return linkErr, nil
@@ -1036,14 +1037,16 @@ function aot.emit(
                         return nil, tostring(backendErr), produced, authoredUnused, constSelection, gpuSources
                     end
                     -- Line tables into the authored file, so a debugger or
-                    -- profiler names the Nupp line a frame is at.
-                    local ir, why = aotllvm.emit(
-                        artifacts.programs,
-                        tierTarget.tier,
-                        tierTarget.triple,
-                        nil,
-                        fs.canonical(source)
-                    )
+                    -- profiler names the Nupp line a frame is at. The file
+                    -- is named from the project's directory, so the library
+                    -- is the same wherever the project is checked out; a
+                    -- source outside the project keeps its absolute path.
+                    local canonicalSource = fs.canonical(source)
+                    local canonicalRoot = fs.canonical(root):gsub("/*$", "/")
+                    local lineFile = canonicalSource:sub(1, #canonicalRoot) == canonicalRoot
+                        and canonicalSource:sub(#canonicalRoot + 1)
+                        or canonicalSource
+                    local ir, why = aotllvm.emit(artifacts.programs, tierTarget.tier, tierTarget.triple, nil, lineFile)
                     if ir == nil then
                         return nil, (
                             "%s: the LLVM backend cannot compile the %s tier: %s"
@@ -2028,7 +2031,8 @@ function aot.apply(
             library,
             static,
             held.objects,
-            report
+            report,
+            root
         )
         if linkErr ~= nil then
             return nil, tostring(linkErr)
