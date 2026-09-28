@@ -7,10 +7,10 @@
  * Rust is called only after input conversion and returns before another Lua
  * operation. The functions below never retain lua_State or a Lua stack pointer.
  *
- * Rust callback ABI: every nupp_rust_* export catches Rust panics and returns a
+ * Rust callback ABI: every nupp_rust_* entry catches Rust panics and returns a
  * conservative C value. Rust panic unwinding therefore cannot enter this file;
- * conversely, no Lua operation occurs while a Rust frame is active. Extern
- * signatures below must exactly match the repr(C) Rust declarations.
+ * conversely, no Lua operation occurs while a Rust frame is active. The entry
+ * table below must exactly match the repr(C) Rust declaration.
  *
  * Ownership and lifetime:
  * - channel/worker/account/builder pointers transfer one Rust Arc/Box owner to
@@ -74,20 +74,29 @@ typedef struct NuppRustWorkerAdapter {
     void (*worker_channel_close)(const void *channel);
     size_t (*worker_channel_count)(const void *channel);
     int (*worker_channel_closed)(const void *channel);
-    int (*worker_channel_push)(const void *channel, int kind, int64_t id, double number, const uint8_t *first, size_t first_length, const uint8_t *second, size_t second_length, const uint8_t *value, size_t value_length, const RawAttachment *attachments, size_t attachment_count);
+    int (*worker_channel_push)(const void *channel, int kind, int64_t id,
+        double number, const uint8_t *first, size_t first_length,
+        const uint8_t *second, size_t second_length, const uint8_t *value,
+        size_t value_length, const RawAttachment *attachments,
+        size_t attachment_count);
     void *(*worker_channel_pop)(const void *channel, int timeout_ms);
     void (*worker_message_destroy)(void *message);
     int (*worker_message_kind)(const void *message);
     int64_t (*worker_message_id)(const void *message);
     double (*worker_message_number)(const void *message);
-    const uint8_t *(*worker_message_bytes)(const void *message, int which, size_t *length);
+    const uint8_t *(*worker_message_bytes)(const void *message, int which,
+        size_t *length);
     size_t (*worker_message_attachment_count)(const void *message);
-    int (*worker_message_take_attachment)(void *message, size_t index, RawAttachment *out);
-    size_t (*worker_channel_dict_register)(const void *channel, const uint8_t *address, size_t length);
+    int (*worker_message_take_attachment)(void *message, size_t index,
+        RawAttachment *out);
+    size_t (*worker_channel_dict_register)(const void *channel,
+        const uint8_t *address, size_t length);
     size_t (*worker_channel_dict_count)(const void *channel);
-    const uint8_t *(*worker_channel_dict_address)(const void *channel, size_t index, size_t *length);
+    const uint8_t *(*worker_channel_dict_address)(const void *channel,
+        size_t index, size_t *length);
     void *(*region_new)(const uint8_t *data, size_t length);
-    void *(*region_read_file)(const uint8_t *path, size_t length, char *error, size_t error_capacity);
+    void *(*region_read_file)(const uint8_t *path, size_t length, char *error,
+        size_t error_capacity);
     void (*region_release)(const void *region);
     const uint8_t *(*region_data)(const void *region);
     size_t (*region_length)(const void *region);
@@ -98,14 +107,17 @@ typedef struct NuppRustWorkerAdapter {
     size_t (*region_accounted)(const void *account);
     void *(*region_builder_new)(void);
     void (*region_builder_destroy)(void *builder);
-    int (*region_builder_append)(void *builder, const uint8_t *data, size_t length);
+    int (*region_builder_append)(void *builder, const uint8_t *data,
+        size_t length);
     uint8_t *(*region_builder_reserve)(void *builder, size_t count);
     int (*region_builder_commit)(void *builder, size_t written);
     int (*region_builder_open)(const void *builder);
     void *(*region_builder_freeze)(void *builder);
-    void *(*worker_spawn)(const void *host, const void *inbox, const void *outbox, char *error, size_t error_capacity);
+    void *(*worker_spawn)(const void *host, const void *inbox,
+        const void *outbox, char *error, size_t error_capacity);
     int (*worker_join)(void *worker, char *error, size_t error_capacity);
-    int (*worker_task_create)(const void *worker, int64_t id, int has_deadline, double deadline_ms);
+    int (*worker_task_create)(const void *worker, int64_t id, int has_deadline,
+        double deadline_ms);
     int (*worker_task_cancel)(const void *worker, int64_t id);
     int (*worker_task_start)(const void *tasks, int64_t id, int *deadline);
     int (*worker_task_checkpoint)(const void *tasks, int *deadline);
