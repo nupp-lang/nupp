@@ -452,6 +452,48 @@ function M.migrateJsonListsEveryPlanAfterAFailure()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+local function exportProject(source)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write([[return {
+   include = {"src"},
+   build = {entries = {"game"}},
+}
+]])
+    manifest:close()
+    local handle = assert(io.open(dir .. "/src/game.nupp", "wb"))
+    handle:write(source)
+    handle:close()
+    return dir
+end
+
+function M.exportCRefusesAStructItCannotLayOut()
+    -- The layout model gives every field its own storage, so a bitfield would be
+    -- published, and statically asserted, at an offset C does not give it.
+    local dir = exportProject([[
+local game = {}
+struct game.Packed
+   ready: boolean : 1
+   mode: uint32 : 3
+   count: uint16
+end
+struct game.Grid
+   cells: float[3][2]
+end
+return game
+]])
+    local output, code = captureStatusAt(dir, "export-c -o game.h src/game.nupp game.Packed")
+    assert(code ~= 0, "a bitfield struct is refused: " .. output)
+    assert(output:find("game.nupp:3:", 1, true) and output:find("NUPP2203", 1, true)
+        and output:find('field "ready" is a bitfield', 1, true), output)
+    assert(not io.open(dir .. "/game.h", "rb"), "no header is written")
+    local nested, nestedCode = captureStatusAt(dir, "export-c -o game.h src/game.nupp game.Grid")
+    assert(nestedCode ~= 0 and nested:find('field "cells" is a nested array', 1, true), nested)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.exportCEmitsTheCanonicalTypedHeader()
     local dir = os.tmpname()
     os.remove(dir)

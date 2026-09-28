@@ -786,7 +786,10 @@ target-layout fingerprint, and static assertions for its size, alignment, and
 every field offset. An embedded struct is ordered by value, and a
 pointer-recursive type uses a forward declaration. The configured target's
 `layoutTarget` is the authority, so generation never guesses from the build
-host and never invokes a C compiler.
+host and never invokes a C compiler. A struct the target model cannot lay out
+exactly is refused with NUPP2203 rather than published: a bitfield, whose
+placement the model does not describe, and a nested array, which a struct
+cannot hold yet.
 
 An ordinary struct may appear behind a pointer or an array in a
 `cdef function`:

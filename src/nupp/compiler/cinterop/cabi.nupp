@@ -225,6 +225,18 @@ function cabi.aggregate(t: any, target: string): any?, string?
     local fields = {}
     for index, name in ipairs(t.fieldOrder or {}) do
         local fieldType = t.byname and t.byname[name] or nil
+        -- The target layout model places every field on its own storage, so a bitfield
+        -- would be published at an offset and size C does not give it, and asserted
+        -- there too.
+        local definition = t.fieldDefs and t.fieldDefs[name] or nil
+        if definition and definition.bitWidth then
+            return nil, ("field %q is a bitfield, which the C layout target does not model"):format(name)
+        end
+        -- The struct lowering reifies one array bound, so a nested array would be
+        -- published for a struct that never builds.
+        if fieldType and fieldType.tag == "carray" and fieldType.elem and fieldType.elem.tag == "carray" then
+            return nil, ("field %q is a nested array, which a struct cannot hold yet"):format(name)
+        end
         local declaration, fieldWhy = renderDeclaration(fieldType, name)
         if not declaration then
             return nil, ("field %q %s"):format(name, fieldWhy or "has no C spelling")

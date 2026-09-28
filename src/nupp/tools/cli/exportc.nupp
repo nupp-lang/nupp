@@ -90,10 +90,19 @@ local function run(options: any): integer
     local allDiagnostics: {any} = {}
     local types, functions, sites = {}, {}, {}
 
-    local function collectCdefFunction(node: any, moduleName: string?): nil
+    -- A struct type does not say which of its fields are bitfields, but the field's
+    -- declaration does, and the checker names each field by that declaration's token.
+    local bitfields: {[any]: any} = {}
+    local bitfieldFiles: {[any]: string} = {}
+
+    local function collectCdefFunction(node: any, context: any): nil
+        local moduleName = context.moduleName
         if node.kind == "cdefFunc" and node.name and node.cAbiSignature then
             local qualified = (moduleName and moduleName .. "." or "") .. node.name.text
             functions[qualified], sites[qualified] = node.cAbiSignature, node
+        elseif node.kind == "fieldDecl" and node.name and node.bitWidth then
+            bitfields[node.name] = node.bitWidth
+            bitfieldFiles[node.name] = context.path
         end
     end
 
@@ -118,7 +127,7 @@ local function run(options: any): integer
                     local qualified = (moduleName and moduleName .. "." or "") .. name
                     types[qualified], sites[qualified] = t, exports.typeDefs[name]
                 end
-                walk(result.root, collectCdefFunction, moduleName)
+                walk(result.root, collectCdefFunction, {moduleName = moduleName, path = path})
             end
         end
     end
@@ -137,6 +146,25 @@ local function run(options: any): integer
     local function describe(t: any, selection: string): boolean
         if described[t] then
             return true
+        end
+        for _, name in ipairs(t.fieldOrder or {}) do
+            local definition = t.fieldDefs and t.fieldDefs[name] or nil
+            local width = definition and bitfields[definition.token] or nil
+            if width then
+                allDiagnostics[
+                    #allDiagnostics + 1
+                ] = diagnostic(
+                    bitfieldFiles[definition.token] or paths[1],
+                    {width},
+                    "NUPP2203",
+                    (
+                        "cannot export %s to C: field %q is a bitfield, which the C layout target does not model"
+                    ):format(selection, name),
+                    "drop the width, or keep this struct out of the exported header"
+                )
+                failed = true
+                return false
+            end
         end
         local description, why = cabi.aggregate(t, layoutKey)
         if not description then
