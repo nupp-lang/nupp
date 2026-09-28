@@ -157,7 +157,7 @@ end
 --- Examples:
 ---
 ---     nupp import-c include/widget.h
----     nupp import-c -l widget -o src/widget.d.nupp include/widget.h
+---     nupp import-c -l widget -o src/widget.nupp include/widget.h
 ---     nupp import-c --inspect --json include/widget.h
 @cli("import-c")
 @derive(cliModule.Command)

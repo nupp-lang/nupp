@@ -1870,7 +1870,7 @@ Generate typed Nupp bindings from a C header.
 Examples:
 
     nupp import-c include/widget.h
-    nupp import-c -l widget -o src/widget.d.nupp include/widget.h
+    nupp import-c -l widget -o src/widget.nupp include/widget.h
     nupp import-c --inspect --json include/widget.h
 
 Usage:
