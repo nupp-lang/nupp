@@ -349,6 +349,8 @@ enum Download {
     Pending {
         staging: wgpu::Buffer,
         offset: u64,
+        /// The bytes asked for, which the staging copy may round up to a word.
+        length: u64,
         version: u64,
         layout: Value,
     },
@@ -543,10 +545,14 @@ impl GpuContext {
                 self.device.limits().max_buffer_size
             )));
         }
+        // Copies and storage bindings move whole words, so a buffer of narrow
+        // elements whose bytes end partway through one gets the rest of that
+        // word as padding nobody can address.
+        let allocated = align_up(size, COPY_ALIGNMENT)?;
         let start = costs::clock();
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Nupp resident compute buffer"),
-            size,
+            size: allocated,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -595,10 +601,15 @@ impl GpuContext {
         let start = costs::clock();
         let entry = self.resources.buffer_mut(handle)?;
         checked_range("upload", offset, bytes.len() as u64, entry.size)?;
-        require_copy_alignment("upload offset", offset)?;
-        require_copy_alignment("upload size", bytes.len() as u64)?;
+        let copied = copy_extent("upload", offset, bytes.len() as u64, entry.size)?;
         if !bytes.is_empty() {
-            self.queue.write_buffer(&entry.buffer, offset, bytes);
+            if copied == bytes.len() as u64 {
+                self.queue.write_buffer(&entry.buffer, offset, bytes);
+            } else {
+                let mut padded = bytes.to_vec();
+                padded.resize(copied as usize, 0);
+                self.queue.write_buffer(&entry.buffer, offset, &padded);
+            }
             entry.version += 1;
         }
         cost_record!(
@@ -837,7 +848,7 @@ impl GpuContext {
                 "GPU binding range must not be empty".to_owned(),
             ));
         }
-        require_copy_alignment("storage binding size", size)?;
+        let size = copy_extent("storage binding", offset, size, buffer_size)?;
         let alignment = u64::from(self.device.limits().min_storage_buffer_offset_alignment);
         if !offset.is_multiple_of(alignment) {
             return Err(GpuError::InvalidArgument(format!(
@@ -1173,8 +1184,8 @@ impl GpuContext {
                 "GPU download range must not be empty".to_owned(),
             ));
         }
-        require_copy_alignment("download offset", offset)?;
-        require_copy_alignment("download size", size)?;
+        let length = size;
+        let size = copy_extent("download", offset, size, entry.size)?;
         if entry.download.is_some() {
             return Err(GpuError::DownloadPending(handle));
         }
@@ -1203,6 +1214,7 @@ impl GpuContext {
         self.resources.buffer_mut(handle)?.download = Some(Download::Pending {
             staging,
             offset,
+            length,
             version,
             layout,
         });
@@ -1219,14 +1231,15 @@ impl GpuContext {
             json!({"hostMs": costs::elapsed(start), "pendingDownloads": self.pending_downloads.len(), "pendingTimestamps": self.pending_timestamps.len()})
         );
         while let Some(handle) = self.pending_downloads.first().copied() {
-            let (staging, offset, version, layout) =
+            let (staging, offset, length, version, layout) =
                 match self.resources.buffer(handle)?.download.as_ref() {
                     Some(Download::Pending {
                         staging,
                         offset,
+                        length,
                         version,
                         layout,
-                    }) => (staging.clone(), *offset, *version, layout.clone()),
+                    }) => (staging.clone(), *offset, *length, *version, layout.clone()),
                     _ => {
                         return Err(GpuError::Internal(
                             "pending download queue disagrees with buffer",
@@ -1247,7 +1260,8 @@ impl GpuContext {
             // fail again, and a pending download refuses to release its buffer.
             self.pending_downloads.remove(0);
             match outcome {
-                Ok(bytes) => {
+                Ok(mut bytes) => {
+                    bytes.truncate(length as usize);
                     self.resources.buffer_mut(handle)?.download = Some(Download::Ready {
                         offset,
                         bytes,
@@ -1441,6 +1455,26 @@ fn require_copy_alignment(name: &'static str, value: u64) -> Result<(), GpuError
             "GPU {name} {value} is not aligned to {COPY_ALIGNMENT} bytes"
         )))
     }
+}
+
+/// How many bytes a copy or binding of `length` at `offset` moves. Both are
+/// whole words; a range whose length is not one may still end the buffer,
+/// and then takes the padding after its last byte along with it.
+fn copy_extent(name: &'static str, offset: u64, length: u64, size: u64) -> Result<u64, GpuError> {
+    if !offset.is_multiple_of(COPY_ALIGNMENT) {
+        return Err(GpuError::InvalidArgument(format!(
+            "GPU {name} offset {offset} is not aligned to {COPY_ALIGNMENT} bytes"
+        )));
+    }
+    if length.is_multiple_of(COPY_ALIGNMENT) {
+        return Ok(length);
+    }
+    if offset.checked_add(length) != Some(size) {
+        return Err(GpuError::InvalidArgument(format!(
+            "GPU {name} size {length} is not a multiple of {COPY_ALIGNMENT} bytes and does not end the buffer"
+        )));
+    }
+    align_up(length, COPY_ALIGNMENT)
 }
 
 fn align_up(value: u64, alignment: u64) -> Result<u64, GpuError> {
@@ -1637,6 +1671,34 @@ mod tests {
             checked_range("test", u64::MAX, 2, u64::MAX),
             Err(GpuError::OutOfBounds { .. })
         ));
+    }
+
+    #[test]
+    fn a_range_that_ends_the_buffer_may_end_partway_through_a_word() {
+        assert_eq!(copy_extent("upload", 0, 8, 8), Ok(8));
+        assert_eq!(copy_extent("upload", 0, 3, 3), Ok(4));
+        assert_eq!(copy_extent("upload", 4, 3, 7), Ok(4));
+        assert!(copy_extent("upload", 0, 3, 8).is_err());
+        assert!(copy_extent("upload", 2, 2, 4).is_err());
+    }
+
+    #[test]
+    fn narrow_buffers_move_bytes_that_end_partway_through_a_word_when_available() {
+        let Ok(mut gpu) = GpuContext::new() else {
+            assert!(std::env::var_os("NUPP_REQUIRE_GPU").is_none());
+            return;
+        };
+        let buffer = gpu.create_buffer(3).unwrap();
+        gpu.upload(buffer, 0, &[1, 2, 3]).unwrap();
+        gpu.queue_download(buffer, 0, 3).unwrap();
+        gpu.synchronize().unwrap();
+        assert_eq!(gpu.read_download(buffer, 0, 3).unwrap(), [1, 2, 3]);
+        let kernel = gpu.create_test_kernel().unwrap();
+        let bindings = gpu.create_bindings(kernel).unwrap();
+        gpu.set_write_buffer(bindings, 0, buffer, 0, 3).unwrap();
+        gpu.release_bindings(bindings).unwrap();
+        gpu.release_kernel(kernel).unwrap();
+        gpu.release_buffer(buffer).unwrap();
     }
 
     #[test]

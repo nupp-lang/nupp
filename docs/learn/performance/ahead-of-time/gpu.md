@@ -151,7 +151,11 @@ GPU kernels need 32-bit storage: a span or struct field of `int8`, `uint8`,
 SPIR-V front end, which every native backend goes through, refuses 8-bit
 storage buffers and cannot validate 16-bit ones. Keep a binary16 or bfloat16
 value in the low half of a `uint32` element and convert it with
-`fromF16Bits`/`fromBF16Bits`, accumulating in explicit binary32.
+`fromF16Bits`/`fromBF16Bits`, accumulating in explicit binary32. A host-side
+buffer may still hold narrow elements: the device moves whole 32-bit words, so
+a narrow buffer whose bytes end partway through one is padded to it, and an
+upload, download or binding may end partway through a word only where it ends
+the buffer.
 
 ## Browser GPU kernels
 
