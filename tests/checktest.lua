@@ -1808,6 +1808,13 @@ function M.aBorrowingVarargTailFitsAPlainOne()
     )
 end
 
+-- A call whose callee is a dotted path reports what is wrong with the path once.
+function M.aBrokenCalleePathIsReportedOnce()
+    local R = "local record R\n    v: integer\nend\nlocal r = new R(v = 1)\n"
+    assertEq((diagsOf(R .. "r.nope.goes()")), "NUPP2004:5")
+    assertEq((diagsOf(R .. "local y = r.nope.goes(1)\nprint(y)")), "NUPP2004:5")
+end
+
 -- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
 -- the type of `x`. Keeping it as a member made every field read fail.
 function M.neverAddsNothingToAUnion()

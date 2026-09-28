@@ -450,7 +450,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if not callee or callee.kind ~= "dotIndex" or not callee.obj then
             return nil
         end
-        local owner = rawType(c.infer(callee.obj))
+        -- The callee was inferred on the way here, and inferring its base again
+        -- would report what is wrong with it a second time.
+        local base: any = callee.obj
+        local owner = rawType(base.inferredType or c.infer(callee.obj))
         if owner.tag == "metatable" or owner.tag == "typeobject" then
             owner = rawType(owner.of)
         end
