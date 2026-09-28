@@ -1527,6 +1527,11 @@ function expr.install(c: state.Checker): nil
                 -- answer its own question backwards.
                 local admitsNil = isA(T.nil_, from)
                 local present = admitsNil and subtract(from, T.nil_) or from
+                -- A subject that is nil and nothing else has no present part, so nil is
+                -- the whole of what it holds and the target is asked about that.
+                if present == T.never then
+                    present = from
+                end
                 if present ~= T.never and present.tag ~= "typevar" and isA(present, target) then
                     node.provenStatically = true
                     node.provenNeedsNil = admitsNil and not isA(T.nil_, target) or nil
