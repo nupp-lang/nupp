@@ -628,10 +628,17 @@ local function headerMacroNames(rawHeader)
     return names
 end
 
-local function macroValues(dmOutput)
-    local values = {}
-    for name, value in dmOutput:gmatch("#define%s+([%a_][%w_]*)%s+([^\n]+)") do
-        values[name] = value:gsub("\r$", "")
+-- `cc -dM` prints one definition per line. An empty macro, which every include guard
+-- is, is `#define NAME` with nothing after it, so a value is read to the end of its own
+-- line: reading across the newline took the next definition as this one's value and
+-- lost that definition.
+local function macroValues(dmOutput: string): {[string]: string}
+    local values: {[string]: string} = {}
+    for line in (dmOutput .. "\n"):gmatch("([^\n]*)\n") do
+        local name, rest = line:gsub("\r$", ""):match("^%s*#%s*define%s+([%a_][%w_]*)(.*)$")
+        if name and rest:sub(1, 1) ~= "(" then
+            values[name] = (rest:gsub("^%s+", ""):gsub("%s+$", ""))
+        end
     end
 
     return values

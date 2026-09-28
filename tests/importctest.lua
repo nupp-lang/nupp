@@ -222,6 +222,23 @@ local function scratchHeader(name, text)
    return dir .. "/" .. name, dir
 end
 
+function M.aMacroAfterAnEmptyMacroSurvives()
+   -- cc -dM prints an include guard as `#define GUARD_H` and a newline, and
+   -- the value of that line ends there.
+   local path, dir = scratchHeader("guard.h", table.concat({
+      "#ifndef NUPP_GUARD_H",
+      "#define NUPP_GUARD_H",
+      "#define NUPP_GUARD_VERSION 3",
+      "#define NUPP_GUARD_LIMIT 64",
+      "#endif",
+   }, "\n") .. "\n")
+   local text = assert(importc.import(path))
+   os.execute("rm -rf '" .. dir .. "'")
+   assertContains(text, "local NUPP_GUARD_VERSION: number = 3")
+   assertContains(text, "local NUPP_GUARD_LIMIT: number = 64")
+   assert(not text:find("NUPP_GUARD_H", 1, true), "an empty macro is not a constant:\n" .. text)
+end
+
 function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
       return require("assert").skip("cc is unavailable")
