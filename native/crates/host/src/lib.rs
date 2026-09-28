@@ -27,6 +27,7 @@ pub use lua::{LuaFunction, LuaState};
 
 use lua::{Lua, LuaAnswer, LuaArgument};
 use nupp_native_runtime::NativeLane;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fmt;
@@ -95,6 +96,7 @@ pub struct ReloadReport {
 
 /// The session table and the three functions taken from it once, so a poll is
 /// one Lua call rather than a lookup and a call.
+#[derive(Clone, Copy)]
 struct ReloadState {
     session: i32,
     member: i32,
@@ -182,19 +184,22 @@ enum Phase {
     Closed,
 }
 
+/// Everything but `shutdown` and `enable_workers` takes `&self`: a host
+/// callback may call back into the runtime that is calling it, so the tables
+/// live in cells, and no borrow of one is held across a call into Lua.
 pub struct HostRuntime {
     lane: NativeLane,
     lua: Option<Lua>,
     owner: ThreadId,
-    phase: Phase,
+    phase: Cell<Phase>,
     id: u64,
-    next_component: u64,
-    components: HashMap<u64, ComponentState>,
-    next_handle: u64,
-    handles: HashMap<u64, i32>,
-    next_reload: u64,
-    reloads: HashMap<u64, ReloadState>,
-    frozen: bool,
+    next_component: Cell<u64>,
+    components: RefCell<HashMap<u64, ComponentState>>,
+    next_handle: Cell<u64>,
+    handles: RefCell<HashMap<u64, i32>>,
+    next_reload: Cell<u64>,
+    reloads: RefCell<HashMap<u64, ReloadState>>,
+    frozen: Cell<bool>,
     worker_host: Option<Box<worker_adapter::WorkersHost>>,
     // Neither the raw LuaJIT state nor the lane-facing scheduler contract may
     // move to or be observed from another thread.
@@ -273,15 +278,15 @@ impl HostRuntime {
             lane,
             lua: Some(lua),
             owner: thread::current().id(),
-            phase: Phase::Running,
+            phase: Cell::new(Phase::Running),
             id: NEXT_RUNTIME_ID.fetch_add(1, Ordering::Relaxed),
-            next_component: 1,
-            components: HashMap::new(),
-            next_handle: 1,
-            handles: HashMap::new(),
-            next_reload: 1,
-            reloads: HashMap::new(),
-            frozen: false,
+            next_component: Cell::new(1),
+            components: RefCell::new(HashMap::new()),
+            next_handle: Cell::new(1),
+            handles: RefCell::new(HashMap::new()),
+            next_reload: Cell::new(1),
+            reloads: RefCell::new(HashMap::new()),
+            frozen: Cell::new(false),
             worker_host: None,
             _thread_affine: PhantomData,
         }
@@ -314,14 +319,20 @@ impl HostRuntime {
     }
 
     pub fn lua_state(&self) -> *mut LuaState {
-        if self.check_owner().is_err() || self.phase != Phase::Running {
+        if self.check_owner().is_err() || self.phase.get() != Phase::Running {
             return std::ptr::null_mut();
         }
         self.lua.as_ref().map_or(std::ptr::null_mut(), Lua::state)
     }
 
-    pub fn add_feature(&mut self, name: &str) -> Result<(), HostError> {
-        if self.frozen {
+    /// The address of the Lua state this runtime owns or attached to, or zero
+    /// once it has shut down. Only compared, never dereferenced.
+    pub(crate) fn state_key(&self) -> usize {
+        self.lua.as_ref().map_or(0, |lua| lua.state().addr())
+    }
+
+    pub fn add_feature(&self, name: &str) -> Result<(), HostError> {
+        if self.frozen.get() {
             return Err(HostError::Lua(
                 "Nupp host features freeze when the first component loads".to_owned(),
             ));
@@ -330,8 +341,8 @@ impl HostRuntime {
         self.lua()?.add_feature(&name).map_err(HostError::Lua)
     }
 
-    pub fn add_resource(&mut self, path: &str, bytes: &[u8]) -> Result<(), HostError> {
-        if self.frozen {
+    pub fn add_resource(&self, path: &str, bytes: &[u8]) -> Result<(), HostError> {
+        if self.frozen.get() {
             return Err(HostError::Lua(
                 "Nupp host resources freeze when the first component loads".to_owned(),
             ));
@@ -342,8 +353,8 @@ impl HostRuntime {
             .map_err(HostError::Lua)
     }
 
-    pub fn preload(&mut self, module: &str, opener: LuaFunction) -> Result<(), HostError> {
-        if self.frozen {
+    pub fn preload(&self, module: &str, opener: LuaFunction) -> Result<(), HostError> {
+        if self.frozen.get() {
             return Err(HostError::Lua(
                 "Nupp host modules freeze when the first component loads".to_owned(),
             ));
@@ -355,11 +366,11 @@ impl HostRuntime {
     }
 
     pub fn register_aot_builders(
-        &mut self,
+        &self,
         key: &str,
         registrar: LuaFunction,
     ) -> Result<(), HostError> {
-        if self.frozen {
+        if self.frozen.get() {
             return Err(HostError::Lua(
                 "AOT builders must be registered before a component is loaded".to_owned(),
             ));
@@ -379,7 +390,7 @@ impl HostRuntime {
     /// worker state created by this runtime.
     pub fn enable_workers(&mut self, payload: &[u8]) -> Result<(), HostError> {
         self.lua()?;
-        if self.frozen {
+        if self.frozen.get() {
             return Err(HostError::Lua(
                 "Nupp host features freeze when the first component loads".to_owned(),
             ));
@@ -393,7 +404,7 @@ impl HostRuntime {
         // runs its own state from the stamped payload, so a commit into this
         // state never reaches one; refusing both orders keeps that from being
         // something a caller can arrange by sequencing.
-        if !self.reloads.is_empty() {
+        if !self.reloads.borrow().is_empty() {
             return Err(HostError::Lua(
                 "a Nupp reload session is open: a commit reaches this state only, so \
                  worker tasks would keep running the payload they started from"
@@ -420,7 +431,7 @@ impl HostRuntime {
             .map_err(HostError::Lua)
     }
 
-    pub fn load_component(&mut self, bytes: &[u8], name: &str) -> Result<Component, HostError> {
+    pub fn load_component(&self, bytes: &[u8], name: &str) -> Result<Component, HostError> {
         if !bytes.starts_with(COMPONENT_MAGIC) {
             return Err(HostError::Lua(
                 "not a Nupp component artifact (expected component format 1)".to_owned(),
@@ -431,16 +442,16 @@ impl HostRuntime {
             .lua()?
             .install_component(bytes, &name)
             .map_err(HostError::Lua)?;
-        let id = self.next_component;
-        self.next_component += 1;
-        self.components.insert(
+        let id = self.next_component.get();
+        self.next_component.set(id + 1);
+        self.components.borrow_mut().insert(
             id,
             ComponentState {
                 reference,
                 started: false,
             },
         );
-        self.frozen = true;
+        self.frozen.set(true);
         Ok(Component {
             runtime: self.id,
             id,
@@ -448,51 +459,58 @@ impl HostRuntime {
     }
 
     pub fn start_component(
-        &mut self,
+        &self,
         component: Component,
         arguments: &[Vec<u8>],
     ) -> Result<(), HostError> {
         self.check_component(component)?;
-        let state = self
-            .components
-            .get_mut(&component.id)
-            .ok_or_else(|| HostError::Lua("the component is not loaded".to_owned()))?;
-        if state.started {
-            return Err(HostError::Lua(
-                "the component has already started".to_owned(),
-            ));
+        let lua = self.lua()?;
+        // Marked before the entry runs, so an entry that reaches back into the
+        // host cannot start itself a second time; a failed start is undone.
+        let reference = {
+            let mut components = self.components.borrow_mut();
+            let state = components
+                .get_mut(&component.id)
+                .ok_or_else(|| HostError::Lua("the component is not loaded".to_owned()))?;
+            if state.started {
+                return Err(HostError::Lua(
+                    "the component has already started".to_owned(),
+                ));
+            }
+            state.started = true;
+            state.reference
+        };
+        if let Err(error) = lua.start_component(reference, arguments) {
+            if let Some(state) = self.components.borrow_mut().get_mut(&component.id) {
+                state.started = false;
+            }
+            return Err(HostError::Lua(error));
         }
-        let reference = state.reference;
-        self.lua()?
-            .start_component(reference, arguments)
-            .map_err(HostError::Lua)?;
-        self.components
-            .get_mut(&component.id)
-            .expect("the checked component remains installed")
-            .started = true;
         Ok(())
     }
 
     pub fn find_export(
-        &mut self,
+        &self,
         component: Component,
         name: &str,
     ) -> Result<ManagedHandle, HostError> {
         self.check_component(component)?;
         let component = self
             .components
+            .borrow()
             .get(&component.id)
+            .map(|component| component.reference)
             .ok_or_else(|| HostError::Lua("the component is not loaded".to_owned()))?;
         let name = CString::new(name).map_err(|_| HostError::InvalidChunkName)?;
         let reference = self
             .lua()?
-            .find_export(component.reference, &name)
+            .find_export(component, &name)
             .map_err(HostError::Lua)?;
         Ok(self.insert_handle(reference))
     }
 
     pub fn call(
-        &mut self,
+        &self,
         callable: ManagedHandle,
         arguments: &[ManagedValue],
     ) -> Result<Vec<ManagedValue>, HostError> {
@@ -535,7 +553,7 @@ impl HostRuntime {
     /// rather than of the artifact. Passing `None` means the state already
     /// reaches those modules.
     pub fn reload_open(
-        &mut self,
+        &self,
         compiler: Option<&str>,
         root: Option<&str>,
         entry: &str,
@@ -559,7 +577,7 @@ impl HostRuntime {
     /// the component before the compiler: the component installs the runtime
     /// modules it carries, and a module already loaded is a collision it refuses.
     pub fn reload_attach(
-        &mut self,
+        &self,
         compiler: Option<&str>,
         root: Option<&str>,
         strict: bool,
@@ -572,7 +590,7 @@ impl HostRuntime {
     }
 
     fn reload_session(
-        &mut self,
+        &self,
         compiler: Option<&str>,
         opener: &CStr,
         arguments: &[ReloadArgument],
@@ -638,9 +656,9 @@ impl HostRuntime {
                 return Err(error);
             }
         };
-        let id = self.next_reload;
-        self.next_reload += 1;
-        self.reloads.insert(id, state);
+        let id = self.next_reload.get();
+        self.next_reload.set(id + 1);
+        self.reloads.borrow_mut().insert(id, state);
         Ok(Reload {
             runtime: self.id,
             id,
@@ -650,11 +668,7 @@ impl HostRuntime {
     /// Roots one member of the reloading entry as a callable handle. A watch
     /// build dispatches a named function through a slot, so the handle stays
     /// the same value across every commit.
-    pub fn reload_member(
-        &mut self,
-        reload: Reload,
-        name: &str,
-    ) -> Result<ManagedHandle, HostError> {
+    pub fn reload_member(&self, reload: Reload, name: &str) -> Result<ManagedHandle, HostError> {
         let member = self.reload_state(reload)?.member;
         let name = name.as_bytes().to_vec();
         let answers = self
@@ -675,26 +689,26 @@ impl HostRuntime {
 
     /// Checks what changed and stages a patch. Nothing that is running changes
     /// here, so a host may prepare away from its safe point and apply at one.
-    pub fn reload_prepare(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
+    pub fn reload_prepare(&self, reload: Reload) -> Result<ReloadReport, HostError> {
         let prepare = self.reload_state(reload)?.prepare;
         self.reload_step(prepare)
     }
 
     /// Publishes what `reload_prepare` staged. This is the commit boundary, and
     /// the only call in a session that changes a live implementation.
-    pub fn reload_apply(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
+    pub fn reload_apply(&self, reload: Reload) -> Result<ReloadReport, HostError> {
         let apply = self.reload_state(reload)?.apply;
         self.reload_step(apply)
     }
 
     /// Preparing and applying at one point, for a host with nothing to gain by
     /// separating them.
-    pub fn reload_poll(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
+    pub fn reload_poll(&self, reload: Reload) -> Result<ReloadReport, HostError> {
         let poll = self.reload_state(reload)?.poll;
         self.reload_step(poll)
     }
 
-    fn reload_step(&mut self, step: i32) -> Result<ReloadReport, HostError> {
+    fn reload_step(&self, step: i32) -> Result<ReloadReport, HostError> {
         let answers = self.lua()?.call(step, &[]).map_err(HostError::Lua)?;
         let verdict = match answers.first() {
             Some(LuaAnswer::Bytes(kind)) => match kind.as_slice() {
@@ -736,7 +750,7 @@ impl HostRuntime {
 
     /// Retires the session's loader and compiler session. The program's values
     /// remain; what stops is reloading them.
-    pub fn reload_close(&mut self, reload: Reload, ok: bool) -> Result<(), HostError> {
+    pub fn reload_close(&self, reload: Reload, ok: bool) -> Result<(), HostError> {
         let state = self.reload_state(reload)?;
         let (close, references) = (state.close, state.references());
         let answers = self.lua()?.call(close, &[LuaArgument::Boolean(ok)]);
@@ -750,7 +764,7 @@ impl HostRuntime {
                 released = Err(HostError::Lua(error));
             }
         }
-        self.reloads.remove(&reload.id);
+        self.reloads.borrow_mut().remove(&reload.id);
         answers.map(drop).and(released)
     }
 
@@ -791,7 +805,7 @@ impl HostRuntime {
         }
     }
 
-    fn reload_state(&self, reload: Reload) -> Result<&ReloadState, HostError> {
+    fn reload_state(&self, reload: Reload) -> Result<ReloadState, HostError> {
         self.lua()?;
         if reload.runtime != self.id {
             return Err(HostError::Lua(
@@ -799,7 +813,9 @@ impl HostRuntime {
             ));
         }
         self.reloads
+            .borrow()
             .get(&reload.id)
+            .copied()
             .ok_or_else(|| HostError::Lua("the reload session has been closed".to_owned()))
     }
 
@@ -816,7 +832,7 @@ impl HostRuntime {
         }
     }
 
-    pub fn release_handle(&mut self, handle: ManagedHandle) -> Result<(), HostError> {
+    pub fn release_handle(&self, handle: ManagedHandle) -> Result<(), HostError> {
         if handle.runtime != self.id {
             return Err(HostError::Lua(
                 "the managed handle belongs to another Nupp runtime".to_owned(),
@@ -825,20 +841,24 @@ impl HostRuntime {
         // Shutdown released every registry reference; a handle outliving it
         // is closed, not double-released, and its caller can still free it.
         self.lua()?;
-        let reference = self.handles.remove(&handle.id).ok_or_else(|| {
-            HostError::Lua("the managed handle has already been released".to_owned())
-        })?;
+        let reference = self
+            .handles
+            .borrow_mut()
+            .remove(&handle.id)
+            .ok_or_else(|| {
+                HostError::Lua("the managed handle has already been released".to_owned())
+            })?;
         if let Err(error) = self.lua()?.release_reference(reference) {
-            self.handles.insert(handle.id, reference);
+            self.handles.borrow_mut().insert(handle.id, reference);
             return Err(HostError::Lua(error));
         }
         Ok(())
     }
 
-    fn insert_handle(&mut self, reference: i32) -> ManagedHandle {
-        let id = self.next_handle;
-        self.next_handle += 1;
-        self.handles.insert(id, reference);
+    fn insert_handle(&self, reference: i32) -> ManagedHandle {
+        let id = self.next_handle.get();
+        self.next_handle.set(id + 1);
+        self.handles.borrow_mut().insert(id, reference);
         ManagedHandle {
             runtime: self.id,
             id,
@@ -852,6 +872,7 @@ impl HostRuntime {
             ));
         }
         self.handles
+            .borrow()
             .get(&handle.id)
             .copied()
             .ok_or_else(|| HostError::Lua("the managed handle has been released".to_owned()))
@@ -869,24 +890,24 @@ impl HostRuntime {
 
     pub fn shutdown(&mut self) -> Result<(), HostError> {
         self.check_owner()?;
-        if self.phase == Phase::Closed {
+        if self.phase.get() == Phase::Closed {
             return Ok(());
         }
-        if self.phase == Phase::Running {
-            self.phase = Phase::ShuttingDown;
+        if self.phase.get() == Phase::Running {
+            self.phase.set(Phase::ShuttingDown);
             let mut release_error = None;
             if let Some(lua) = self.lua.as_ref() {
-                for component in self.components.values() {
+                for component in self.components.get_mut().values() {
                     if let Err(error) = lua.release_reference(component.reference) {
                         release_error.get_or_insert_with(|| HostError::Lua(error));
                     }
                 }
-                for reference in self.handles.values() {
+                for reference in self.handles.get_mut().values() {
                     if let Err(error) = lua.release_reference(*reference) {
                         release_error.get_or_insert_with(|| HostError::Lua(error));
                     }
                 }
-                for reload in self.reloads.values() {
+                for reload in self.reloads.get_mut().values() {
                     for reference in reload.references() {
                         if let Err(error) = lua.release_reference(reference) {
                             release_error.get_or_insert_with(|| HostError::Lua(error));
@@ -894,9 +915,9 @@ impl HostRuntime {
                     }
                 }
             }
-            self.components.clear();
-            self.handles.clear();
-            self.reloads.clear();
+            self.components.get_mut().clear();
+            self.handles.get_mut().clear();
+            self.reloads.get_mut().clear();
             let cancelled = self
                 .lane
                 .begin_shutdown()
@@ -936,19 +957,19 @@ impl HostRuntime {
         self.lane
             .finish_shutdown()
             .map_err(|error| HostError::Lane(error.to_string()))?;
-        self.phase = Phase::Closed;
+        self.phase.set(Phase::Closed);
         Ok(())
     }
 
     fn lua(&self) -> Result<&Lua, HostError> {
         self.check_owner()?;
-        if self.phase != Phase::Running {
+        if self.phase.get() != Phase::Running {
             return Err(HostError::Closed);
         }
         self.lua.as_ref().ok_or(HostError::Closed)
     }
 
-    fn check_owner(&self) -> Result<(), HostError> {
+    pub(crate) fn check_owner(&self) -> Result<(), HostError> {
         if thread::current().id() != self.owner {
             return Err(HostError::WrongThread);
         }

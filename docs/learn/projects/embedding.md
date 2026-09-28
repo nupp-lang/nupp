@@ -460,6 +460,13 @@ then closes an owned state. Attached shutdown leaves the host's state open.
 application which needs cleanup failures calls `nupp_runtime_shutdown`
 explicitly first.
 
+A host callback reached from inside a call may call back into the runtime, but
+it cannot pull the state out from under that call. `nupp_runtime_shutdown`
+returns `NUPP_STATUS_RUNTIME` while any call is running in the runtime's Lua
+state, including a call made through another runtime attached to the same
+state. `nupp_runtime_free` there is deferred: it takes effect when the last call
+running in that state returns, so the call that was running finishes normally.
+
 After shutdown, ordinary runtime operations fail. Calling shutdown again is
 allowed and succeeds. Components, handles and reload sessions are opaque names
 rather than addresses, and a name is never issued twice, so a call given one

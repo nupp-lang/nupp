@@ -10,7 +10,8 @@ use crate::{
     Component, HostError, HostRuntime, LuaFunction, LuaState, ManagedHandle, ManagedValue, Reload,
     ReloadVerdict,
 };
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
@@ -78,6 +79,90 @@ impl Default for NuppValue {
 
 pub struct NuppRuntime {
     inner: HostRuntime,
+}
+
+thread_local! {
+    // How many embedding calls are running in each Lua state on this thread,
+    // keyed by state address. A runtime attached to another's state shares its
+    // count: closing the state under either one's call is the same crash.
+    static ENTERED: RefCell<HashMap<usize, u32>> = RefCell::new(HashMap::new());
+    // Runtimes freed while their state was running a call, freed for real when
+    // the last call into that state returns.
+    static DEFERRED_FREES: RefCell<Vec<(usize, *mut NuppRuntime)>> = const { RefCell::new(Vec::new()) };
+}
+
+fn entered(state: usize) -> u32 {
+    ENTERED.with_borrow(|entered| entered.get(&state).copied().unwrap_or(0))
+}
+
+/// One public call's entry into a runtime. The runtime is reached through a
+/// shared reference, because a host callback beneath this call may enter it
+/// again; `nupp_runtime_free` meanwhile only records the request, and the last
+/// entry to leave the state performs it.
+struct Entry {
+    runtime: *mut NuppRuntime,
+    state: usize,
+}
+
+unsafe fn enter(runtime: *mut NuppRuntime) -> Result<Entry, Failure> {
+    if runtime.is_null() {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            "this call needs a Nupp runtime",
+        ));
+    }
+    // SAFETY: the caller passes a live runtime pointer; the owner check reads
+    // only the immutable owner thread, so it is sound from any thread, and
+    // nothing thread-affine is touched before it passes.
+    let inner = unsafe { &(*runtime).inner };
+    inner
+        .check_owner()
+        .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+    let state = inner.state_key();
+    if state != 0 {
+        ENTERED.with_borrow_mut(|entered| *entered.entry(state).or_insert(0) += 1);
+    }
+    Ok(Entry { runtime, state })
+}
+
+impl Entry {
+    fn runtime(&self) -> &HostRuntime {
+        // SAFETY: a runtime whose state is entered is never freed; see Drop.
+        unsafe { &(*self.runtime).inner }
+    }
+}
+
+impl Drop for Entry {
+    fn drop(&mut self) {
+        if self.state == 0 {
+            return;
+        }
+        let remaining = ENTERED.with_borrow_mut(|entered| {
+            let count = entered.get_mut(&self.state).map_or(0, |count| {
+                *count -= 1;
+                *count
+            });
+            if count == 0 {
+                entered.remove(&self.state);
+            }
+            count
+        });
+        if remaining != 0 {
+            return;
+        }
+        let state = self.state;
+        let freed = DEFERRED_FREES.with_borrow_mut(|deferred| {
+            let (freed, kept) = deferred.drain(..).partition(|(key, _)| *key == state);
+            *deferred = kept;
+            freed
+        });
+        for (_, runtime) in freed {
+            // SAFETY: the host freed this runtime while a call was running in
+            // its state; that was the last such call, and no reference derived
+            // from the pointer outlives this statement.
+            drop(unsafe { Box::from_raw(runtime) });
+        }
+    }
 }
 
 impl Drop for NuppRuntime {
@@ -283,16 +368,6 @@ unsafe fn config_flags(config: *const NuppConfig, fallback: u32) -> Result<u32, 
     Ok(config.flags)
 }
 
-unsafe fn runtime_mut<'a>(runtime: *mut NuppRuntime) -> Result<&'a mut HostRuntime, Failure> {
-    if runtime.is_null() {
-        return Err(Failure::invalid(
-            ERROR_CONFIGURATION,
-            "this call needs a Nupp runtime",
-        ));
-    }
-    Ok(&mut unsafe { &mut *runtime }.inner)
-}
-
 unsafe fn utf8<'a>(value: *const c_char, what: &str, category: c_int) -> Result<&'a str, Failure> {
     if value.is_null() {
         return Err(Failure::invalid(category, format!("{what} needs a name")));
@@ -469,10 +544,8 @@ pub unsafe extern "C" fn nupp_runtime_lua_state(runtime: *mut NuppRuntime) -> *m
     if runtime.is_null() {
         return ptr::null_mut();
     }
-    catch_unwind(AssertUnwindSafe(|| {
-        unsafe { &mut *runtime }.inner.lua_state()
-    }))
-    .unwrap_or(ptr::null_mut())
+    catch_unwind(AssertUnwindSafe(|| unsafe { &*runtime }.inner.lua_state()))
+        .unwrap_or(ptr::null_mut())
 }
 
 #[unsafe(no_mangle)]
@@ -483,7 +556,8 @@ pub unsafe extern "C" fn nupp_runtime_add_feature(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let feature = utf8(feature, "a host feature", ERROR_CONFIGURATION)?;
             // The generated payload gate reads this table and nothing else, so
             // declaring `workers` here would satisfy a component the embedding
@@ -515,7 +589,8 @@ pub unsafe extern "C" fn nupp_runtime_add_resource(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let path = utf8(path, "a host resource", ERROR_CONFIGURATION)?;
             let data = bytes(
                 data,
@@ -539,7 +614,8 @@ pub unsafe extern "C" fn nupp_runtime_preload(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let module = utf8(module, "a preloaded module", ERROR_CONFIGURATION)?;
             let opener = opener.ok_or_else(|| {
                 Failure::invalid(ERROR_CONFIGURATION, "a preloaded module needs an opener")
@@ -560,7 +636,8 @@ pub unsafe extern "C" fn nupp_runtime_register_aot_builders(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let key = utf8(key, "registering AOT builders", ERROR_CONFIGURATION)?;
             if key.is_empty() {
                 return Err(Failure::invalid(
@@ -592,7 +669,8 @@ pub unsafe extern "C" fn nupp_component_load(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             if out.is_null() {
                 return Err(Failure::invalid(
                     ERROR_COMPONENT,
@@ -630,7 +708,8 @@ pub unsafe extern "C" fn nupp_component_start(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let component = component_for(runtime, component)?;
             let arguments = arguments(argc, argv)?;
             runtime
@@ -650,7 +729,8 @@ pub unsafe extern "C" fn nupp_export_find(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let component = component_for(runtime, component)?;
             if out.is_null() {
                 return Err(Failure::invalid(
@@ -693,7 +773,7 @@ unsafe fn managed_value(runtime: &HostRuntime, value: &NuppValue) -> Result<Mana
     }
 }
 
-fn discard_answers(runtime: &mut HostRuntime, values: Vec<ManagedValue>) {
+fn discard_answers(runtime: &HostRuntime, values: Vec<ManagedValue>) {
     for value in values {
         if let ManagedValue::Handle(handle) = value {
             let _ = runtime.release_handle(handle);
@@ -703,16 +783,13 @@ fn discard_answers(runtime: &mut HostRuntime, values: Vec<ManagedValue>) {
 
 /// Names a rooted value for C. A name that cannot be issued would leave the
 /// registry root with no owner, so the root is released with the refusal.
-fn issue_handle(
-    runtime: &mut HostRuntime,
-    handle: ManagedHandle,
-) -> Result<*mut NuppHandle, Failure> {
+fn issue_handle(runtime: &HostRuntime, handle: ManagedHandle) -> Result<*mut NuppHandle, Failure> {
     issue(Named::Handle(handle)).inspect_err(|_| {
         let _ = runtime.release_handle(handle);
     })
 }
 
-fn answer_value(runtime: &mut HostRuntime, value: ManagedValue) -> Result<NuppValue, Failure> {
+fn answer_value(runtime: &HostRuntime, value: ManagedValue) -> Result<NuppValue, Failure> {
     let mut answer = NuppValue::default();
     match value {
         ManagedValue::Nil => {}
@@ -742,7 +819,7 @@ fn answer_value(runtime: &mut HostRuntime, value: ManagedValue) -> Result<NuppVa
 }
 
 /// Undoes `answer_value` for answers that never reached the caller.
-unsafe fn discard_value(runtime: &mut HostRuntime, value: NuppValue) {
+unsafe fn discard_value(runtime: &HostRuntime, value: NuppValue) {
     if value.kind == VALUE_BYTES && !value.data.is_null() {
         let slice = ptr::slice_from_raw_parts_mut(value.data, value.length);
         drop(unsafe { Box::from_raw(slice) });
@@ -767,7 +844,8 @@ pub unsafe extern "C" fn nupp_call(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             if !result_count.is_null() {
                 result_count.write(0);
             }
@@ -825,7 +903,7 @@ pub unsafe extern "C" fn nupp_call(
 /// Releases a managed handle's registry reference. After shutdown there is no
 /// reference left to release, and the handle's own storage is all that
 /// remains, so the caller still gets to free it.
-fn release_managed(runtime: &mut HostRuntime, managed: ManagedHandle) -> Result<(), Failure> {
+fn release_managed(runtime: &HostRuntime, managed: ManagedHandle) -> Result<(), Failure> {
     match runtime.release_handle(managed) {
         Ok(()) | Err(HostError::Closed) => Ok(()),
         Err(error) => Err(Failure::runtime(ERROR_RUNTIME, error)),
@@ -840,7 +918,8 @@ pub unsafe extern "C" fn nupp_handle_release(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let managed = handle_for(runtime, handle)?;
             release_managed(runtime, managed)?;
             registry().names.remove(&key(handle));
@@ -865,7 +944,8 @@ pub unsafe extern "C" fn nupp_value_release(
                 let slice = ptr::slice_from_raw_parts_mut(value.data, value.length);
                 drop(Box::from_raw(slice));
             } else if value.kind == VALUE_HANDLE && !value.handle.is_null() {
-                let runtime = runtime_mut(runtime)?;
+                let entry = enter(runtime)?;
+                let runtime = entry.runtime();
                 let managed = handle_for(runtime, value.handle)?;
                 release_managed(runtime, managed)?;
                 registry().names.remove(&key(value.handle));
@@ -883,7 +963,19 @@ pub unsafe extern "C" fn nupp_runtime_shutdown(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            runtime_mut(runtime)?
+            let entry = enter(runtime)?;
+            if entry.state != 0 && entered(entry.state) > 1 {
+                return Err(Failure {
+                    status: STATUS_RUNTIME,
+                    category: ERROR_RUNTIME,
+                    message: "a Nupp runtime cannot shut down while a call into its Lua state \
+                              is running; shut it down after that call returns"
+                        .to_owned(),
+                });
+            }
+            // SAFETY: this is the only call running in the state, so no other
+            // reference to the runtime exists for the length of this borrow.
+            (&mut (*entry.runtime).inner)
                 .shutdown()
                 .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))
         })
@@ -897,7 +989,8 @@ pub unsafe extern "C" fn nupp_runtime_poll(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            runtime_mut(runtime)?
+            enter(runtime)?
+                .runtime()
                 .poll()
                 .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))
         })
@@ -921,7 +1014,7 @@ fn reload_for(reload: *const NuppReload) -> Result<Reload, Failure> {
 }
 
 /// Names an open session for C, closing it again if no name can be issued.
-fn issue_reload(runtime: &mut HostRuntime, reload: Reload) -> Result<*mut NuppReload, Failure> {
+fn issue_reload(runtime: &HostRuntime, reload: Reload) -> Result<*mut NuppReload, Failure> {
     issue(Named::Reload(ReloadName {
         reload,
         message: None,
@@ -1009,7 +1102,8 @@ pub unsafe extern "C" fn nupp_reload_open(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let (config, compiler, root) = reload_configuration(config, out)?;
             let entry = utf8(config.entry, "a reloading entry", ERROR_CONFIGURATION)?;
             let reload = runtime
@@ -1032,7 +1126,8 @@ pub unsafe extern "C" fn nupp_reload_attach(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let (config, compiler, root) = reload_configuration(config, out)?;
             let reload = runtime
                 .reload_attach(compiler, root, config.flags & RELOAD_STRICT != 0)
@@ -1053,7 +1148,8 @@ pub unsafe extern "C" fn nupp_reload_find(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let reload = reload_for(reload)?;
             if out.is_null() {
                 return Err(Failure::invalid(
@@ -1077,9 +1173,10 @@ unsafe fn reload_step(
     reload: *mut NuppReload,
     verdict: *mut u32,
     generation: *mut u64,
-    step: fn(&mut HostRuntime, Reload) -> Result<crate::ReloadReport, HostError>,
+    step: fn(&HostRuntime, Reload) -> Result<crate::ReloadReport, HostError>,
 ) -> Result<(), Failure> {
-    let runtime = unsafe { runtime_mut(runtime) }?;
+    let entry = unsafe { enter(runtime) }?;
+    let runtime = entry.runtime();
     let session = reload_for(reload)?;
     set_reload_message(reload, None);
     let report = step(runtime, session).map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
@@ -1205,7 +1302,8 @@ pub unsafe extern "C" fn nupp_reload_close(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
+            let entry = enter(runtime)?;
+            let runtime = entry.runtime();
             let reload = reload_for(reload)?;
             runtime
                 .reload_close(reload, ok != 0)
@@ -1242,6 +1340,14 @@ pub unsafe extern "C" fn nupp_component_release(component: *mut NuppComponent) {
 pub unsafe extern "C" fn nupp_runtime_free(runtime: *mut NuppRuntime) {
     if !runtime.is_null() {
         let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+            let inner = &(*runtime).inner;
+            let state = inner.state_key();
+            if inner.check_owner().is_ok() && state != 0 && entered(state) > 0 {
+                // Freed from beneath a call that is still using it: the last
+                // call to leave the state frees it.
+                DEFERRED_FREES.with_borrow_mut(|deferred| deferred.push((state, runtime)));
+                return;
+            }
             drop(Box::from_raw(runtime));
         }));
     }
@@ -1299,6 +1405,7 @@ mod tests {
 
     unsafe extern "C" {
         fn lua_createtable(state: *mut LuaState, array: c_int, records: c_int);
+        fn lua_pushcclosure(state: *mut LuaState, function: LuaFunction, upvalues: c_int);
     }
 
     unsafe extern "C" fn empty_module(_state: *mut LuaState) -> c_int {
@@ -1999,6 +2106,150 @@ return {
             nupp_component_release(component);
             nupp_handle_release(runtime, read, ptr::null_mut());
             nupp_handle_release(runtime, doubled, ptr::null_mut());
+            assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
+            nupp_runtime_free(runtime);
+        }
+    }
+
+    // What a host callback does to the runtime that is calling it.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Reentry {
+        Shutdown,
+        Free,
+        Call,
+    }
+
+    thread_local! {
+        static REENTERED: std::cell::Cell<(*mut NuppRuntime, *const NuppHandle, Reentry)> =
+            const { std::cell::Cell::new((ptr::null_mut(), ptr::null(), Reentry::Call)) };
+        static INNER: std::cell::Cell<(c_int, f64)> = const { std::cell::Cell::new((-1, 0.0)) };
+    }
+
+    unsafe extern "C" fn reenter(_state: *mut LuaState) -> c_int {
+        let (runtime, answer, mode) = REENTERED.get();
+        unsafe {
+            match mode {
+                Reentry::Shutdown => {
+                    INNER.set((nupp_runtime_shutdown(runtime, ptr::null_mut()), 0.0));
+                }
+                Reentry::Free => nupp_runtime_free(runtime),
+                Reentry::Call => {
+                    let argument = number(41.0);
+                    let mut results = std::array::from_fn::<_, 3, _>(|_| NuppValue::default());
+                    let status = nupp_call(
+                        runtime,
+                        answer,
+                        &argument,
+                        1,
+                        results.as_mut_ptr(),
+                        results.len(),
+                        ptr::null_mut(),
+                        ptr::null_mut(),
+                    );
+                    INNER.set((status, results[0].number));
+                    for result in &mut results {
+                        nupp_value_release(runtime, result, ptr::null_mut());
+                    }
+                }
+            }
+        }
+        0
+    }
+
+    unsafe extern "C" fn open_reenter(state: *mut LuaState) -> c_int {
+        unsafe { lua_pushcclosure(state, reenter, 0) };
+        1
+    }
+
+    const REENTRANT_COMPONENT: &[u8] = br#"-- NUPP-COMPONENT 1
+return {
+  format = 1,
+  hostAbi = 1,
+  install = function()
+    return {
+      exports = {
+        answer = function(value) return value + 1, "bytes", { value = value } end,
+        quit = function() require("fixture.reenter")(); return 7 end,
+      },
+      start = function() end,
+    }
+  end,
+}
+"#;
+
+    /// Calls `quit`, whose host callback does `mode` to the runtime that is
+    /// calling it, and answers the outer call's status and first result.
+    unsafe fn call_reentering(mode: Reentry) -> (*mut NuppRuntime, c_int, f64) {
+        unsafe {
+            let runtime = new_runtime();
+            assert_eq!(
+                nupp_runtime_preload(
+                    runtime,
+                    c"fixture.reenter".as_ptr(),
+                    Some(open_reenter),
+                    ptr::null_mut()
+                ),
+                STATUS_OK
+            );
+            let mut component = ptr::null_mut();
+            assert_eq!(
+                nupp_component_load(
+                    runtime,
+                    REENTRANT_COMPONENT.as_ptr().cast(),
+                    REENTRANT_COMPONENT.len(),
+                    c"=reentrant".as_ptr(),
+                    &mut component,
+                    ptr::null_mut(),
+                ),
+                STATUS_OK
+            );
+            let quit = find(runtime, component, c"quit");
+            let answer = find(runtime, component, c"answer");
+            REENTERED.set((runtime, answer, mode));
+            INNER.set((-1, 0.0));
+            let mut result = NuppValue::default();
+            let status = nupp_call(
+                runtime,
+                quit,
+                ptr::null(),
+                0,
+                &mut result,
+                1,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            );
+            (runtime, status, result.number)
+        }
+    }
+
+    #[test]
+    fn shutdown_from_inside_a_call_is_refused_and_the_call_completes() {
+        unsafe {
+            let (runtime, status, answer) = call_reentering(Reentry::Shutdown);
+            assert_eq!(INNER.get().0, STATUS_RUNTIME);
+            assert_eq!((status, answer), (STATUS_OK, 7.0));
+            assert_eq!(nupp_runtime_poll(runtime, ptr::null_mut()), STATUS_OK);
+            assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
+            nupp_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn free_from_inside_a_call_waits_for_the_outermost_call() {
+        unsafe {
+            let (_, status, answer) = call_reentering(Reentry::Free);
+            // The runtime is gone now; the call that was running when it was
+            // freed still finished on it.
+            assert_eq!((status, answer), (STATUS_OK, 7.0));
+        }
+    }
+
+    #[test]
+    fn a_nested_call_runs_beneath_an_outer_one() {
+        unsafe {
+            let (runtime, status, answer) = call_reentering(Reentry::Call);
+            assert_eq!(INNER.get(), (STATUS_OK, 42.0));
+            assert_eq!((status, answer), (STATUS_OK, 7.0));
             assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
             nupp_runtime_free(runtime);
         }

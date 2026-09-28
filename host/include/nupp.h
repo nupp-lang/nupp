@@ -194,6 +194,8 @@ NUPP_API nupp_status nupp_value_release(
     nupp_error **error
 );
 
+/* Refused with NUPP_STATUS_RUNTIME while a call is running in the runtime's Lua
+ * state, as from a host callback beneath nupp_call. */
 NUPP_API nupp_status nupp_runtime_shutdown(
     nupp_runtime *runtime,
     nupp_error **error
@@ -291,6 +293,8 @@ NUPP_API nupp_status nupp_reload_close(
 NUPP_API void nupp_reload_free(nupp_reload *reload);
 
 NUPP_API void nupp_component_release(nupp_component *component);
+/* Called beneath a running call, the free waits until the last call running in
+ * the runtime's Lua state returns. */
 NUPP_API void nupp_runtime_free(nupp_runtime *runtime);
 
 NUPP_API int nupp_error_status(const nupp_error *error);
