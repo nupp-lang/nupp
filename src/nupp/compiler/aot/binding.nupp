@@ -308,6 +308,119 @@ function binding.relations(program: scalarIR.Program): {string}
     return lines
 end
 
+--- One span a wrapper took the pointer of: the parameter, and the names the
+--- pointer and its element count were taken into.
+record binding.TakenSpan
+    param: scalarIR.Param
+    pointer: string
+    count: string
+end
+
+--- The byte width of each scalar element a span may hold.
+const ELEMENT_BYTES: {
+    [string]: integer
+} = {
+    ["number"] = 8,
+    ["float"] = 4,
+    ["int8"] = 1,
+    ["uint8"] = 1,
+    ["int16"] = 2,
+    ["uint16"] = 2,
+    ["int32"] = 4,
+    ["uint32"] = 4,
+    ["int64"] = 8,
+    ["uint64"] = 8,
+}
+
+--- An expression for the byte width of one element of `param`'s span.
+local function elementBytes(param: scalarIR.Param, ffi: string): string
+    local layout = param.type:match("^struct:(.+)$")
+    if layout ~= nil then
+        return ffi .. ".sizeof(" .. (layout as string) .. ")"
+    end
+    local element = sourceType(param.type, param.sourceType)
+    local bytes = ELEMENT_BYTES[element]
+    if bytes ~= nil then
+        return tostring(bytes)
+    end
+
+    return ffi .. ".sizeof(" .. string.format("%q", element) .. ")"
+end
+
+--- Whether two spans need an overlap check before the call: at least one is
+--- written, so the native entry declares them disjoint, and they are not two
+--- columns of one SoA view, which are disjoint by construction.
+local function needsDisjoint(left: scalarIR.Param, right: scalarIR.Param): boolean
+    return (left.kind == "write_span" or right.kind == "write_span") and not scalarIR.sameSoaView(left, right)
+end
+
+--- Whether a wrapper over these spans checks any pair of them for overlap.
+function binding.checksOverlap(params: {scalarIR.Param}): boolean
+    for left = 1, #params do
+        for right = left + 1, #params do
+            if scalarIR.isSpan(params[left])
+                and scalarIR.isSpan(params[right])
+                and needsDisjoint(params[left], params[right])
+            then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+--- The module local a wrapper that checks overlap reads LuaJIT's FFI from.
+function binding.ffiLocal(program: scalarIR.Program): string
+    return scalarIR.identifier("ks_ffi", program.symbol)
+end
+
+--- Refusing a call whose spans overlap where the entry says they do not.
+---
+--- A written span is `noalias` in the native entry, which the checker proves at
+--- every typed call site. A caller outside it -- plain Lua, or gradual code --
+--- can still hand the wrapper two views of one buffer, and the counts alone do
+--- not show it, so the byte ranges are compared here, once per call and once
+--- per pair. An empty span overlaps nothing.
+function binding.overlapChecks(spans: {binding.TakenSpan}, module: string): {string}
+    local checks: {string} = {}
+
+    -- The checker recognizes `ffi.cast` by the name it is called through, so
+    -- the module's FFI is read into a local of that name for the comparison,
+    -- in a block of its own so that it shadows nothing the call below reads.
+    local function address(span: binding.TakenSpan): string
+        return "ffi.cast(\"uintptr_t\", " .. span.pointer .. ")"
+    end
+
+    local function limit(span: binding.TakenSpan): string
+        return address(span) .. " + " .. span.count .. " * " .. elementBytes(span.param, "ffi")
+    end
+
+    for left = 1, #spans do
+        for right = left + 1, #spans do
+            local a, b = spans[left], spans[right]
+            if needsDisjoint(a.param, b.param) then
+                checks[#checks + 1] = "        if " .. a.count .. " > 0 and " .. b.count .. " > 0"
+                checks[#checks + 1] = "            and " .. address(a) .. " < " .. limit(b)
+                checks[#checks + 1] = "            and " .. address(b) .. " < " .. limit(a)
+                checks[#checks + 1] = "        then"
+                checks[#checks + 1] = "            error(\"native spans overlap\", 2)"
+                checks[#checks + 1] = "        end"
+            end
+        end
+    end
+    if #checks == 0 then
+        return {}
+    end
+    local lines: {string} = {"    do", "        local ffi = " .. module}
+    for _, line in ipairs(checks) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = "    end"
+
+    return lines
+end
+
 --- Taking each span's pointer, and assembling the private call.
 ---
 --- The kernel indexes every span with one loop counter, so spans of differing
@@ -315,10 +428,15 @@ end
 --- what lets one count stand for all of them here, and it is proved by the
 --- relation checks above rather than restated: this only decides whether the
 --- private ABI carries one count or one per span.
-function binding.spanArguments(params: {scalarIR.Param}, independent: boolean?): ({string}, {string}, string?)
+function binding.spanArguments(
+    params: {scalarIR.Param},
+    independent: boolean?
+): ({string}, {string}, string?, {binding.TakenSpan})
     local lines: {string} = {}
     local arguments: {string} = {}
     local counts: {string} = {}
+    local taken: {binding.TakenSpan} = {}
+    local viewCounts: {[string]: string} = {}
     local primary: string? = nil
     local reserved: {[string]: boolean} = {}
     for _, param in ipairs(params) do
@@ -358,7 +476,13 @@ function binding.spanArguments(params: {scalarIR.Param}, independent: boolean?):
             arguments[#arguments + 1] = pointer .. " as " .. pointerType(param)
             if hasCount then
                 counts[#counts + 1] = count
+                if param.soa ~= nil then
+                    viewCounts[param.soa.view] = count
+                end
             end
+            -- A later column of an SoA view shares its first column's count.
+            local elements = hasCount and count or viewCounts[(param.soa as scalarIR.SoaColumn).view] or count
+            taken[#taken + 1] = new binding.TakenSpan(param = param, pointer = pointer, count = elements)
         else
             arguments[#arguments + 1] = param.name
         end
@@ -372,7 +496,7 @@ function binding.spanArguments(params: {scalarIR.Param}, independent: boolean?):
         arguments[#arguments + 1] = tostring(primary)
     end
 
-    return lines, arguments, primary
+    return lines, arguments, primary, taken
 end
 
 --- The checked wrapper the caller actually sees.
@@ -386,6 +510,10 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
 
     local resultSourceTypes = program.resultSourceTypes or {}
     local lines: {string} = {}
+    local ffi = binding.ffiLocal(program)
+    if binding.checksOverlap(program.params) then
+        lines[#lines + 1] = "local " .. ffi .. " = require(\"ffi\")"
+    end
     local block = scalarIR.identifier("ks_result_block", program.symbol)
     if #resultSourceTypes > 1 then
         -- One result block per wrapper, reused by every call: a kernel never
@@ -405,8 +533,11 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
     end
 
     local independentCounts = scalarIR.independentCounts(program)
-    local taken, arguments = binding.spanArguments(program.params, independentCounts)
+    local taken, arguments, _, spans = binding.spanArguments(program.params, independentCounts)
     for _, line in ipairs(taken) do
+        lines[#lines + 1] = line
+    end
+    for _, line in ipairs(binding.overlapChecks(spans, ffi)) do
         lines[#lines + 1] = line
     end
     lines[#lines + 1] = "    @unsafe do"
@@ -429,13 +560,16 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
         end
         lines[#lines + 1] = "        return " .. table.concat(values, ", ")
     else
-        lines[
-            #lines + 1
-        ] = "        " .. (
-            #resultSourceTypes == 0 and "" or "return "
-        ) .. (
-            nativeSymbol or program.symbol
-        ) .. "(" .. table.concat(arguments, ", ") .. ")" .. (resultSourceTypes[1] == "integer" and " as integer" or "")
+        local call = (nativeSymbol or program.symbol) .. "(" .. table.concat(arguments, ", ") .. ")"
+        if resultSourceTypes[1] == "integer" then
+            call = call .. " as integer"
+        elseif resultSourceTypes[1] == "float" then
+            -- The entry returns a binary32 result widened to binary64, which
+            -- the binding reads as a `number`. Narrowing it again is exact and
+            -- establishes the `float` the wrapper declares.
+            call = "nupp.math.f32.narrow(" .. call .. ")"
+        end
+        lines[#lines + 1] = "        " .. (#resultSourceTypes == 0 and "" or "return ") .. call
     end
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = "end"

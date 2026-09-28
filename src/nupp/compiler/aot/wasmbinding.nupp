@@ -48,6 +48,10 @@ end
 function wasmbinding.replacement(program: scalarIR.Program, units: {string}): string
     local prefix = "__nuppWasm_" .. program.symbol
     local lines = binding.numericForGuard(program)
+    local ffi = binding.ffiLocal(program)
+    if binding.checksOverlap(program.params) then
+        lines[#lines + 1] = "local " .. ffi .. " = require(\"ffi\")"
+    end
     lines[
         #lines + 1
     ] = "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, units)
@@ -72,6 +76,7 @@ function wasmbinding.replacement(program: scalarIR.Program, units: {string}): st
     local arguments: {string} = {}
     local counts: {string} = {}
     local physicalParams: {string} = {}
+    local taken: {binding.TakenSpan} = {}
     local primary: string? = nil
     for _, param in ipairs(program.params) do
         if param.kind == "write_span" or param.kind == "read_span" then
@@ -91,6 +96,7 @@ function wasmbinding.replacement(program: scalarIR.Program, units: {string}): st
                 ) .. " then error(\"Wasm AOT spans have incompatible lengths\", 2) end"
             end
             arguments[#arguments + 1] = token
+            taken[#taken + 1] = new binding.TakenSpan(param = param, pointer = token, count = count)
             local element = param.type:match("^struct:(.+)$") or sourceType(param)
             physicalParams[
                 #physicalParams + 1
@@ -102,6 +108,11 @@ function wasmbinding.replacement(program: scalarIR.Program, units: {string}): st
             arguments[#arguments + 1] = param.name
             physicalParams[#physicalParams + 1] = logical(param)
         end
+    end
+    -- The module works on copies, so an overlap is not undefined there, but
+    -- the answer would still be one no in-place Lua loop gives.
+    for _, line in ipairs(binding.overlapChecks(taken, ffi)) do
+        lines[#lines + 1] = line
     end
     if program.body ~= nil then
         for _, count in ipairs(counts) do

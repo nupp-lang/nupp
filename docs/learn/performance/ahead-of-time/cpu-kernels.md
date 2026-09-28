@@ -35,7 +35,7 @@ The human report says whether each function lowered to scalar code, explicit SIM
 
 A loop from one through a span's count proves its direct accesses are in bounds. If it writes a second span, an equality guard such as `assert(#output == #input)` relates the two counts. A zero-based append cursor must be guarded by `cursor < #output` before writing `output[cursor + 1]`, or by a bound on a span the leading guards hold no longer than `output`.
 
-Spans become `noalias` pointers when ownership proves no written span aliases them. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry; the private entry does not carry Lua values.
+Spans become `noalias` pointers when ownership proves no written span aliases them. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry, and refuses a call whose written span overlaps another span (`native spans overlap`): the checker proves disjointness at typed call sites, and the wrapper holds a plain Lua or gradual caller to the same promise. The private entry does not carry Lua values.
 
 Physical storage type and arithmetic type are separate. Reading a `float` field widens it to ordinary Nupp binary64 unless the source uses `nupp.math.f32` operations. The generated code preserves Nupp's strict floating-point contract unless the function explicitly asks for a documented `@relax` guarantee.
 

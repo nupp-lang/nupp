@@ -111,6 +111,10 @@ end
 local function radf(a: number): number
     return math.rad(a)
 end
+@aot
+local function halff(a: number): float
+    return nupp.math.f32.narrow(a * 0.5)
+end
 
 m.modf = modf
 m.divf = divf
@@ -132,6 +136,7 @@ m.sqrtf = sqrtf
 m.negf = negf
 m.degf = degf
 m.radf = radf
+m.halff = halff
 
 return m
 ]=],
@@ -378,6 +383,40 @@ local function storeWords(exclusive output: span.WriteSpan<int32>, value: number
     end
 end
 
+@aot
+local function shift(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #input do
+        output[i] = input[i] + 1
+    end
+end
+
+local struct Box
+    v: number
+    tag: int32
+end
+
+@aot
+local function shiftBoxes(exclusive output: span.WriteSpan<Box>, borrows input: span.Span<Box>): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #input do
+        output[i].v = input[i].v + 1
+        output[i].tag = input[i].tag
+    end
+end
+
+@aot
+local function widen(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint8>): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #input do
+        output[i] = input[i]
+    end
+end
+
+m.shift = shift
+m.shiftBoxes = shiftBoxes
+m.widen = widen
+m.Box = Box
 m.storeSigned = storeSigned
 m.storeUnsigned = storeUnsigned
 m.storeWords = storeWords
@@ -399,7 +438,7 @@ do
     for _, f in ipairs({"modf", "divf", "powf", "subf", "minf", "maxf", "min3f", "logbf", "fmodf", "ltf", "lef", "eqf", "nef"}) do
         for _, a in ipairs(V) do for _, b in ipairs(V) do cases[#cases + 1] = {"binary64", f, {a, b, n = 2}} end end
     end
-    for _, f in ipairs({"absf", "floorf", "ceilf", "sqrtf", "negf", "degf", "radf"}) do
+    for _, f in ipairs({"absf", "floorf", "ceilf", "sqrtf", "negf", "degf", "radf", "halff"}) do
         for _, a in ipairs(V) do cases[#cases + 1] = {"binary64", f, {a, n = 1}} end
     end
     groups.binary64 = cases
@@ -516,6 +555,32 @@ local function stored(M, fn, value)
     return c.i8, c.u8, c.i16, c.u16, c.i32, c.u32, c.i64, c.u64, c.f
 end
 
+-- Whether each call over views of one buffer was accepted.
+local function overlapping(M)
+    local numbers = ffi.new("double[?]", 8)
+    local boxes = ffi.new(ffi.typeof("$[?]", M.Box), 8)
+    local words = ffi.new("uint32_t[4]")
+    local bytes = ffi.cast("uint8_t *", words)
+    local answers = {
+        pcall(M.shift, span.writeCarray(numbers + 1, 7), span.fromCarray(numbers, 7)),
+        pcall(M.shift, span.writeCarray(numbers + 4, 4), span.fromCarray(numbers, 4)),
+        pcall(M.shift, span.writeCarray(numbers + 1, 0), span.fromCarray(numbers, 0)),
+        pcall(M.shiftBoxes, span.writeCarray(boxes + 1, 7), span.fromCarray(boxes, 7)),
+        pcall(M.shiftBoxes, span.writeCarray(boxes + 4, 4), span.fromCarray(boxes, 4)),
+        pcall(M.widen, span.writeCarray(words, 2), span.fromCarray(bytes + 7, 2)),
+        pcall(M.widen, span.writeCarray(words, 2), span.fromCarray(bytes + 8, 2)),
+    }
+    local parts = {}
+    for i, accepted in ipairs(answers) do parts[i] = tostring(accepted) end
+    return table.concat(parts, " ")
+end
+
+if group == "overlap" then
+    print("off " .. overlapping(load("off", "stores")))
+    print("native " .. overlapping(load("native", "stores")))
+    return
+end
+
 local spec = dofile("cases.lua")[group]
 local mod = spec[1][1]
 local ordinary, native = load("off", mod), load("native", mod)
@@ -615,7 +680,8 @@ end
 local M = {}
 
 -- `%` as `a - floor(a / b) * b`, `math.log` with a base as LuaJIT computes it,
--- `math.min`'s tie-breaking, and signed zeros through every operator.
+-- `math.min`'s tie-breaking, signed zeros through every operator, and a kernel
+-- whose result is a `float`.
 function M.binary64AgreesWithLua()
     agrees("binary64")
 end
@@ -637,6 +703,15 @@ end
 -- FFI store does; it does not round as `wrap` does.
 function M.storesConvertAsLuaDoes()
     agrees("stores")
+end
+
+-- A written span is `noalias` in the native entry. A caller the checker never
+-- saw can still pass two views of one buffer, which the wrapper refuses; views
+-- that only touch, and empty ones, are not overlaps.
+function M.overlappingSpansAreRefused()
+    local out, dir = answer("overlap")
+    assert(out:find("off true true true true true true true", 1, true), dir .. ": " .. out)
+    assert(out:find("native false true true false true false true", 1, true), dir .. ": " .. out)
 end
 
 return M
