@@ -229,6 +229,19 @@ function M.everyDocsPointerLeadsToASection()
    assert(out:find("From the diagnostic index.", 1, true), "and a code's index entry: " .. out)
 end
 
+-- A lint is a code the compiler reports by name, and `explain --list` is where a
+-- reader finds what one means. A lint without an entry of its own falls back to
+-- the family's generic rule and is missing from the list.
+function M.everyLintHasAnEntryOfItsOwn()
+   local listed = {}
+   for _, code in ipairs(explain.codes()) do
+      listed[code] = true
+   end
+   for _, lint in ipairs(require("nupp.compiler.lints").all) do
+      assert(listed[lint.code], lint.code .. " (" .. lint.name .. ") has no explain entry")
+   end
+end
+
 function M.lookupIsCaseInsensitiveThroughTheCommand()
    local pipe = assert(io.popen(("'%s' explain nupp2119 --json 2>/dev/null"):format(NUPP)))
    local out = pipe:read("*a")

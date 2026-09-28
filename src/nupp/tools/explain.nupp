@@ -1531,6 +1531,25 @@ ENTRIES[#ENTRIES + 1] = {
     docs = "docs/reference/lints.md#jit-loop-closure",
 }
 
+ENTRIES[#ENTRIES + 1] = {
+    code = "NUPP2518",
+    summary = "A closed no-input function repeats work that comptime can erase",
+    -- No worked example, for the reason NUPP2515 has none: the lint is off until a
+    -- project enables it, so an example would report nothing here.
+    rule = "A function with no parameters and no runtime captures that does "
+    .. "deterministic construction and iteration repeats the same work every time "
+    .. "it is called. When the bounded comptime evaluator proves that work reduces to "
+    .. "a materially smaller scalar literal, wrapping the body in `comptime do` makes "
+    .. "that choice explicit and keeps the function's runtime API: the offered fix "
+    .. "does exactly that, and the function then returns the literal.\n\n"
+    .. "Methods, functions with parameters or runtime captures, nondeterministic or "
+    .. "unsupported operations, table results, trivial literal bodies, and work that "
+    .. "does not become materially smaller are not reported. The lint is off until a "
+    .. "project enables the performance category or the lint by name.",
+    related = {"NUPP2410", "NUPP2411"},
+    docs = "docs/reference/lints.md#prefer-comptime",
+}
+
 ENTRIES[
     #ENTRIES + 1
 ] = {

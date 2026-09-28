@@ -2526,6 +2526,7 @@ return m
             "NUPP2419",
             "NUPP2420",
             "NUPP2421",
+            "NUPP2518",
         },
         body = [=[
 `comptime do ... end` is an expression whose value is computed while the file is
@@ -2537,6 +2538,10 @@ else it is an ordinary name.
 Its reason to exist is the loop that accumulates: a table built by iterating,
 which no rewrite of an expression can produce. A constant expression does not
 need it, because `-O1` already folds one.
+
+The `prefer-comptime` lint, off by default, finds a function with no inputs whose
+body reduces to a smaller scalar literal, and offers to wrap the body in
+`comptime do`.
 
 A block returns exactly one value, and that value is checked where it lands, so
 a result that does not fit its declared type is the ordinary error it would be
