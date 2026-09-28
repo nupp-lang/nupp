@@ -88,7 +88,6 @@ typedef struct NuppRustWorkerAdapter {
     const uint8_t *(*worker_channel_dict_address)(const void *channel, size_t index, size_t *length);
     void *(*region_new)(const uint8_t *data, size_t length);
     void *(*region_read_file)(const uint8_t *path, size_t length, char *error, size_t error_capacity);
-    void (*region_retain)(const void *region);
     void (*region_release)(const void *region);
     const uint8_t *(*region_data)(const void *region);
     size_t (*region_length)(const void *region);
@@ -141,7 +140,6 @@ void nupp_worker_shim_install(const NuppRustWorkerAdapter *table) {
 #define nupp_rust_worker_channel_dict_address (rust->worker_channel_dict_address)
 #define nupp_rust_region_new (rust->region_new)
 #define nupp_rust_region_read_file (rust->region_read_file)
-#define nupp_rust_region_retain (rust->region_retain)
 #define nupp_rust_region_release (rust->region_release)
 #define nupp_rust_region_data (rust->region_data)
 #define nupp_rust_region_length (rust->region_length)

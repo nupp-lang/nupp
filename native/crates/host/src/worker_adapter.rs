@@ -745,16 +745,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_read_file(
     })
 }
 
-pub(crate) unsafe extern "C" fn nupp_rust_region_retain(region: *const Region) {
-    ffi_void(|| {
-        if !region.is_null() {
-            // SAFETY: the pointer names a live Arc allocation held by the source
-            // Lua region handle; this creates the destination handle's owner.
-            unsafe { Arc::increment_strong_count(region) };
-        }
-    });
-}
-
 pub(crate) unsafe extern "C" fn nupp_rust_region_release(region: *const Region) {
     ffi_void(|| {
         if !region.is_null() {
@@ -1334,7 +1324,6 @@ pub(crate) struct WorkerAdapterTable {
         unsafe extern "C" fn(*const AdapterChannel, usize, *mut usize) -> *const u8,
     region_new: unsafe extern "C" fn(*const u8, usize) -> *const Region,
     region_read_file: unsafe extern "C" fn(*const u8, usize, *mut c_char, usize) -> *const Region,
-    region_retain: unsafe extern "C" fn(*const Region),
     region_release: unsafe extern "C" fn(*const Region),
     region_data: unsafe extern "C" fn(*const Region) -> *const u8,
     region_length: unsafe extern "C" fn(*const Region) -> usize,
@@ -1388,7 +1377,6 @@ static WORKER_ADAPTER: WorkerAdapterTable = WorkerAdapterTable {
     worker_channel_dict_address: nupp_rust_worker_channel_dict_address,
     region_new: nupp_rust_region_new,
     region_read_file: nupp_rust_region_read_file,
-    region_retain: nupp_rust_region_retain,
     region_release: nupp_rust_region_release,
     region_data: nupp_rust_region_data,
     region_length: nupp_rust_region_length,

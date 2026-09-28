@@ -1,8 +1,9 @@
 //! Rust-owned Nupp host and LuaJIT embedding boundary.
 //!
 //! The host owns one LuaJIT state and one native lane on the creating thread.
-//! Native work never enters Lua; shutdown closes and drains the lane before it
-//! closes LuaJIT. Appended payload discovery is Rust-owned, and all Lua
+//! Native work never enters Lua. Shutdown begins the lane's shutdown before it
+//! closes LuaJIT and finishes it after; no provider registers work on the lane
+//! yet, so there is nothing for it to drain. Appended payload discovery is Rust-owned, and all Lua
 //! operations that may fail remain beneath the protected C shim so LuaJIT
 //! cannot unwind through Rust.
 
@@ -221,6 +222,7 @@ impl HostRuntime {
     /// on its native worker thread. Each submitted job is one Lua chunk; the
     /// worker reports Lua failures as task failures without entering or
     /// borrowing the caller's Lua state.
+    #[cfg(test)]
     pub fn spawn_isolated_worker(
         name: impl Into<String>,
         executable: Option<PathBuf>,
@@ -313,6 +315,7 @@ impl HostRuntime {
         self.run_buffer(&chunk, &format!("@{}", path.display()), arguments)
     }
 
+    #[cfg(test)]
     pub fn lane(&self) -> Result<&NativeLane, HostError> {
         self.lua()?;
         Ok(&self.lane)

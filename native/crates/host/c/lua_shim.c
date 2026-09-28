@@ -727,7 +727,6 @@ static void push_value(lua_State *state, const NuppLuaValue *value) {
         case 0: lua_pushnil(state); break;
         case 1: lua_pushboolean(state, value->boolean != 0); break;
         case 2: lua_pushnumber(state, value->number); break;
-        case 3:
         case 4: lua_pushlstring(state, value->data, value->length); break;
         default: lua_rawgeti(state, LUA_REGISTRYINDEX, value->reference); break;
     }

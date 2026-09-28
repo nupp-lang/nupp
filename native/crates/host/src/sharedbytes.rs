@@ -27,10 +27,6 @@ impl SharedBytes {
         }
     }
 
-    pub fn from_arc(storage: Arc<[u8]>) -> Self {
-        Self::new(storage.to_vec())
-    }
-
     pub fn len(&self) -> usize {
         self.extent.len()
     }
@@ -57,6 +53,7 @@ impl SharedBytes {
         self.storage.len()
     }
 
+    #[cfg(test)]
     pub fn allocation_id(&self) -> *const u8 {
         self.storage.as_ptr()
     }
