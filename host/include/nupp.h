@@ -270,7 +270,8 @@ NUPP_API nupp_status nupp_reload_apply(
 );
 
 /* Preparing and applying at one point, for a host with nothing to gain by
- * separating them. */
+ * separating them. Each step first sets the verdict to NUPP_RELOAD_NO_CHANGE
+ * and the generation to 0, which is what a failed step leaves there. */
 NUPP_API nupp_status nupp_reload_poll(
     nupp_runtime *runtime,
     nupp_reload *reload,

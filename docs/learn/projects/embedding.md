@@ -558,6 +558,12 @@ if (verdict == NUPP_RELOAD_PREPARED) {
 | `NUPP_RELOAD_REJECTED` | The candidate did not check, and the last good generation keeps running |
 | `NUPP_RELOAD_RESTART_REQUIRED` | The change is outside what a live process can take |
 
+A step that fails outright returns a status other than `NUPP_STATUS_OK`, and
+like every other call it clears its outputs before doing any work: the verdict
+reads `NUPP_RELOAD_NO_CHANGE`, the generation reads 0, and
+`nupp_reload_message` is null, so nothing from an earlier step is left for the
+host to act on. The error carries the reason.
+
 `nupp_reload_poll` is both at one point, for a host with nothing to gain by
 separating them. A second prepare replaces what the first staged, since the newer
 edit is the one the program is about to be asked for, and an apply with nothing

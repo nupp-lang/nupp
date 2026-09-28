@@ -1175,6 +1175,14 @@ unsafe fn reload_step(
     generation: *mut u64,
     step: fn(&HostRuntime, Reload) -> Result<crate::ReloadReport, HostError>,
 ) -> Result<(), Failure> {
+    // Cleared before any work, like every other output, so a step that fails
+    // leaves no earlier step's verdict for the host to act on.
+    if !verdict.is_null() {
+        unsafe { verdict.write(RELOAD_NO_CHANGE) };
+    }
+    if !generation.is_null() {
+        unsafe { generation.write(0) };
+    }
     let entry = unsafe { enter(runtime) }?;
     let runtime = entry.runtime();
     let session = reload_for(reload)?;
@@ -2251,6 +2259,84 @@ return {
             assert_eq!(INNER.get(), (STATUS_OK, 42.0));
             assert_eq!((status, answer), (STATUS_OK, 7.0));
             assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
+            nupp_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn a_failed_reload_step_leaves_no_earlier_verdict_behind() {
+        unsafe {
+            let runtime = new_runtime();
+            (*runtime)
+                .inner
+                .run_buffer(
+                    br#"
+package.preload["nupp.tools.hostreload"] = function()
+  local steps = 0
+  local session = {
+    member = function() return nil end,
+    prepare = function()
+      steps = steps + 1
+      if steps == 1 then return "prepared", 1, "staged" end
+      error("the compiler crashed")
+    end,
+    apply = function() return "no-change", 1 end,
+    poll = function() return "no-change", 1 end,
+    close = function() end,
+  }
+  return {open = function() return session end, attach = function() return session end}
+end
+"#,
+                    "=stub-session",
+                    &[],
+                )
+                .unwrap();
+            let mut config = NuppReloadConfig {
+                size: 0,
+                flags: 0,
+                compiler_path: ptr::null(),
+                root: ptr::null(),
+                entry: ptr::null(),
+            };
+            nupp_reload_config_init(&mut config);
+            config.entry = c"app.main".as_ptr();
+            let mut reload = ptr::null_mut();
+            assert_eq!(
+                nupp_reload_open(runtime, &config, &mut reload, ptr::null_mut()),
+                STATUS_OK
+            );
+            let (mut verdict, mut generation) = (99_u32, 99_u64);
+            assert_eq!(
+                nupp_reload_prepare(
+                    runtime,
+                    reload,
+                    &mut verdict,
+                    &mut generation,
+                    ptr::null_mut()
+                ),
+                STATUS_OK
+            );
+            assert_eq!((verdict, generation), (RELOAD_PREPARED, 1));
+            assert!(!nupp_reload_message(reload).is_null());
+            // A host acting on the verdict after a failed step must not find
+            // the previous step's PREPARED still there.
+            assert_eq!(
+                nupp_reload_prepare(
+                    runtime,
+                    reload,
+                    &mut verdict,
+                    &mut generation,
+                    ptr::null_mut()
+                ),
+                STATUS_RUNTIME
+            );
+            assert_eq!((verdict, generation), (RELOAD_NO_CHANGE, 0));
+            assert!(nupp_reload_message(reload).is_null());
+            assert_eq!(
+                nupp_reload_close(runtime, reload, 0, ptr::null_mut()),
+                STATUS_OK
+            );
+            nupp_reload_free(reload);
             nupp_runtime_free(runtime);
         }
     }
