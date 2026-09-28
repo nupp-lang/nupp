@@ -69,7 +69,15 @@ return {
     -- browser templates.
     [
         "browser"
-    ] = {"browserworkerstest", "lua51compattest", "portableiocontractstest", "targetprofiletest", "templatetest",},
+    ] = {
+        "browserhosttest",
+        "browserprovidertest",
+        "browserworkerstest",
+        "lua51compattest",
+        "portableiocontractstest",
+        "targetprofiletest",
+        "templatetest",
+    },
 
     ["gpu"] = {"gputest"},
 
