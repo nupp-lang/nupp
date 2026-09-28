@@ -110,7 +110,7 @@ end
 
 --- @raises string when the bounds fall outside the region
 function sharedbytes.Region:slice(first: integer, last: integer): sharedbytes.Region
-    if first < 1 or last > self._length or first > last + 1 then
+    if first % 1 ~= 0 or last % 1 ~= 0 or first < 1 or last > self._length or first > last + 1 then
         error("nupp: a region slice is out of bounds", 2)
     end
 
@@ -121,7 +121,7 @@ end
 function sharedbytes.Region:view(first: integer?, last: integer?): span.ByteSpan
     local from = first == nil and 1 or first as integer
     local to = last == nil and self._length or last as integer
-    if from < 1 or to > self._length or from > to + 1 then
+    if from % 1 ~= 0 or to % 1 ~= 0 or from < 1 or to > self._length or from > to + 1 then
         error("nupp: a region view is out of bounds", 2)
     end
 

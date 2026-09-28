@@ -90,6 +90,16 @@ function M.droppingAnUnfrozenBuilderReleasesItsStorageAtOnce()
     assert(#released == before + 1 and released[#released] == handle)
 end
 
+function M.aNanOrFractionalBoundIsRefused()
+    local region = sharedbytes.copy("abcdef")
+    local nan = 0 / 0
+    for _, bounds in ipairs({{nan, 2}, {1, nan}, {1.5, 3}, {1, 2.5}}) do
+        assert(not pcall(region.slice, region, bounds[1], bounds[2]), "slice accepted a bad bound")
+        assert(not pcall(region.view, region, bounds[1], bounds[2]), "view accepted a bad bound")
+    end
+    assert(region:slice(2, 3):size() == 2)
+end
+
 function M.typedViewsUseTheAddressAlignmentRatherThanTheElementWidth()
     local triple = ffi.typeof("struct { int32_t a; int32_t b; int32_t c; }")
     local region = sharedbytes.copy(string.rep("\0", 28)):slice(5, 28)
