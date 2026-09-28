@@ -1753,21 +1753,6 @@ function doc.manifestSettings(config: doc.Config, requested: string?): doc.Setti
     return withName(first.target, first.name)
 end
 
---- Reads the manifest a project root configured, or an empty configuration when it has
---- none. Returns nil and a message when there is one and it does not load.
-function doc.loadConfig(root: string?): doc.Config?, string?
-    local manifest = loadfile(join(root or ".", "nupp.lua"))
-    if not manifest then
-        return {}
-    end
-    local ok, loaded = pcall(manifest)
-    if not ok then
-        return nil, tostring(loaded)
-    end
-
-    return type(loaded) == "table" and loaded or {}
-end
-
 doc.theme = THEME
 doc.highlight = highlightMod.nuppSource
 

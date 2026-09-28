@@ -59,9 +59,16 @@ local function run(options: any): integer
     end
 
     local doc = require("nupp.tools.doc")
-    local config, configErr = doc.loadConfig(".")
-    if not config then
-        return fail(configErr)
+    -- A directory with no `nupp.lua` documents with the defaults. One that has a
+    -- manifest that does not load is an error, as it is for every other command,
+    -- rather than a manifest nobody wrote.
+    local config: any = {}
+    if require("nupp.compiler.fs").exists("nupp.lua") then
+        local loaded, configErr = require("nupp.tools.build.manifest").load(".")
+        if not loaded then
+            return fail((tostring(configErr):gsub("^nupp: ", "")))
+        end
+        config = loaded
     end
     local settingsErr: any = nil
     settings, settingsErr = doc.manifestSettings(config, values.target)

@@ -1996,6 +1996,27 @@ function M.documentsTheProjectSourcesRatherThanTheWholeTree()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A manifest that is there and does not load is an error, as it is for every other
+-- command, not the same thing as having none: read as absent, it documented the whole
+-- tree under the wrong module names and exited 0.
+function M.aManifestThatDoesNotLoadStopsTheRun()
+    for _, manifest in ipairs({
+        "return { include = { \"src\" }, build = 5\n",
+        "return 5\n",
+        "error('boom')\n",
+    }) do
+        local dir = tempProject({["nupp.lua"] = manifest, ["src/math.nupp"] = SOURCE})
+        local pipe = assert(io.popen(("cd '%s' && '%s' doc markdown -o api.md 2>&1; echo rc=$?"):format(dir, NUPP)))
+        local output = pipe:read("*a")
+        pipe:close()
+        assert(output:find("rc=1", 1, true), manifest .. output)
+        assert(output:find("nupp.lua", 1, true), output)
+        assert(not output:find("nupp: nupp:", 1, true), output)
+        assert(not io.open(dir .. "/api.md", "rb"), "a broken manifest still wrote documentation")
+        os.execute("rm -rf '" .. dir .. "'")
+    end
+end
+
 function M.hidesPrivateSourcePathsUnlessExplicitlyIncluded()
     local dir = tempProject({
         ["src/visible.nupp"] = "function visible(): number return 1 end\n",
@@ -4113,7 +4134,7 @@ end
 -- imply rather than a file anyone wrote, and its page is generated from what it holds.
 function M.everyPublishedModuleSaysWhatItIs()
     local root = HERE .. "/.."
-    local config = assert(doc.loadConfig(root))
+    local config = assert(require("nupp.tools.build.manifest").load(root))
     local settings = assert(doc.manifestSettings(config, "docs"))
     local output = os.tmpname()
     assert(doc.build(root, config, settings, {format = "json", output = output}) == 0)
