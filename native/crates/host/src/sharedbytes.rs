@@ -1,6 +1,9 @@
 //! Immutable bytes shared between isolated worker lanes.
 //!
 //! A region is one reference-counted allocation with cheap, checked extents.
+//! The allocation is the `Vec` that produced it, moved behind the reference
+//! count rather than copied into one, so a frozen builder and a file read into a
+//! region keep the storage they filled.
 //! Lua states receive only opaque handles to regions; bytes never borrow from a
 //! Lua heap and the final reference may be released on any worker thread.
 
@@ -10,13 +13,13 @@ use std::sync::Arc;
 
 #[derive(Clone, Default)]
 pub struct SharedBytes {
-    storage: Arc<[u8]>,
+    storage: Arc<Vec<u8>>,
     extent: Range<usize>,
 }
 
 impl SharedBytes {
     pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
-        let storage: Arc<[u8]> = bytes.into().into();
+        let storage = Arc::new(bytes.into());
         let length = storage.len();
         Self {
             storage,
@@ -25,11 +28,7 @@ impl SharedBytes {
     }
 
     pub fn from_arc(storage: Arc<[u8]>) -> Self {
-        let length = storage.len();
-        Self {
-            storage,
-            extent: 0..length,
-        }
+        Self::new(storage.to_vec())
     }
 
     pub fn len(&self) -> usize {
@@ -202,6 +201,16 @@ mod tests {
         builder.reserve(2).unwrap().copy_from_slice(b"!!");
         builder.commit(2).unwrap();
         assert_eq!(builder.freeze().unwrap().as_slice(), b"kept!!");
+    }
+
+    #[test]
+    fn freezing_keeps_the_builders_allocation() {
+        let mut builder = SharedBytesBuilder::default();
+        let reserved = builder.reserve(1 << 20).unwrap().as_ptr();
+        builder.commit(1 << 20).unwrap();
+        let frozen = builder.freeze().unwrap();
+        assert_eq!(frozen.as_slice().as_ptr(), reserved);
+        assert_eq!(frozen.len(), 1 << 20);
     }
 
     #[test]
