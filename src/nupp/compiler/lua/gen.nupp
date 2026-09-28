@@ -9030,13 +9030,27 @@ function gen.generate(
             -- right-associative, so the pieces arrive already in the order they are
             -- concatenated, and appending them one after another builds the same
             -- string. Only reached for a concatenation the checker proved primitive: a
-            -- `__concat` would not be run by `put`.
+            -- `__concat` would not be run by `put`. A last piece that may be several
+            -- values is parenthesized: `..` takes one value of a call or `...` there,
+            -- and an argument list in last position takes every value.
+            local pieces = x.concatBuffer.pieces
             e(("%s:put("):format(x.concatBuffer.name), sourceLine(x))
-            for j, piece in ipairs(x.concatBuffer.pieces) do
+            for j, piece in ipairs(pieces) do
                 if j > 1 then
                     e(",")
                 end
-                emit(piece)
+                local single = piece.kind == "name"
+                    or piece.kind == "string"
+                    or piece.kind == "number"
+                    or piece.kind == "paren"
+                    or piece.kind == "binop"
+                if j == #pieces and not single then
+                    e("(")
+                    emit(piece)
+                    e(")")
+                else
+                    emit(piece)
+                end
             end
             e(")")
 

@@ -2176,4 +2176,23 @@ function M.optimizerRemarksCarryDecisionStatus()
     assertEq(declined[1].status, "declined", "declined decision")
 end
 
+-- `..` adjusts its right operand to one value; an argument list does not. A call or
+-- `...` as the last piece of an accumulation appends one value, as the source did.
+function M.concatBufferAppendsOneValueOfAMultiValuePiece()
+    assertEq(assertAgrees(
+        "local function two(): (string, string) return 'a', 'b' end\n"
+            .. "local s = ''\nfor _ = 1, 2 do\n    s = s .. two()\nend\nprint(s)",
+        "test.nupp"
+    ), "aa")
+    assertEq(assertAgrees(
+        "local function f(...: string): string\n    local s = ''\n"
+            .. "    for i = 1, 2 do s = s .. ... end\n    return s\nend\nprint(f('x', 'y'))",
+        "test.nupp"
+    ), "xx")
+    assertEq(assertAgrees(
+        "local function two() return 'a', 'b' end\n"
+            .. "local s = ''\nfor i = 1, 2 do\n    s = s .. i .. two()\nend\nprint(s)"
+    ), "1a2a")
+end
+
 return M
