@@ -18,11 +18,14 @@ use rustls::{
 use std::collections::VecDeque;
 use std::io::{self, Cursor, Read as _, Write as _};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CLIENT_CONFIGS_MAX: usize = 128;
 const SERVER_CONFIGS_MAX: usize = 32;
 const TLS_READ_CHUNK: usize = 64 * 1024;
+/// How long a closing session gives its last records and close_notify to
+/// leave, and then the transport to finish, before it stops waiting.
+pub const CLOSE_DRAIN: Duration = Duration::from_secs(1);
 
 /// Client policy copied into a Rustls configuration before this call returns.
 pub struct ClientOptions<'a> {
@@ -369,6 +372,8 @@ struct State {
     verified: bool,
     require_alpn: bool,
     close_notify_sent: bool,
+    /// When the alert was queued, which starts the time its drain may take.
+    close_notify_since: Option<Instant>,
     transport_eof: bool,
 }
 
@@ -405,6 +410,7 @@ impl Session {
                 verified: options.verify,
                 require_alpn: false,
                 close_notify_sent: false,
+                close_notify_since: None,
                 transport_eof: false,
             }),
         }))
@@ -426,6 +432,7 @@ impl Session {
                 verified: false,
                 require_alpn: !options.protocols.is_empty(),
                 close_notify_sent: false,
+                close_notify_since: None,
                 transport_eof: false,
             }),
         }))
@@ -521,6 +528,11 @@ impl Session {
     }
 
     /// Queues close_notify and drives it into the transport write queue.
+    ///
+    /// Answers true once the alert and every record before it have reached
+    /// the socket, or once the drain has had [`CLOSE_DRAIN`]: a peer that has
+    /// stopped reading would otherwise hold its caller forever. Release then
+    /// gives the transport the same bound for its own drain.
     pub fn close_notify(&self) -> Result<bool, String> {
         let mut state = self.lock()?;
         if state.closed {
@@ -529,11 +541,16 @@ impl Session {
         if !state.close_notify_sent {
             state.connection.send_close_notify();
             state.close_notify_sent = true;
+            state.close_notify_since = Some(Instant::now());
         }
         state.drive(&self.stream)?;
-        Ok(!state.connection.wants_write()
+        let drained = !state.connection.wants_write()
             && state.pending_tls.is_empty()
-            && self.stream.pending_write() == 0)
+            && self.stream.pending_write() == 0;
+        let spent = state
+            .close_notify_since
+            .is_some_and(|since| since.elapsed() >= CLOSE_DRAIN);
+        Ok(drained || spent)
     }
 
     /// Whether all encrypted output has reached the operating-system socket.
@@ -562,7 +579,7 @@ impl Session {
         if close_immediately {
             self.stream.close();
         } else {
-            self.stream.close_gracefully(Duration::from_secs(1));
+            self.stream.close_gracefully(CLOSE_DRAIN);
         }
     }
 
@@ -1034,6 +1051,37 @@ mod tests {
             read_eventually(&server, 64),
             Read::Data(b"accepted deliberately".to_vec())
         );
+        client.close();
+        server.close();
+        listener.close();
+    }
+
+    #[test]
+    fn a_close_notify_drain_ends_when_the_peer_stops_reading() {
+        let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
+        let (client, server) = sessions(&listener, &[], &[], "localhost", true);
+        shake(&client, &server).unwrap();
+        // The server never reads again, so every buffer between the two fills.
+        let chunk = vec![7u8; 64 * 1024];
+        let mut pending = 0;
+        while pending < 50 {
+            match client.try_write(&chunk) {
+                Write::Accepted(_) => {}
+                Write::Pending => {
+                    pending += 1;
+                    wait_activity(Duration::from_millis(1));
+                }
+                other => panic!("the TLS write failed: {other:?}"),
+            }
+        }
+        let started = Instant::now();
+        while !client.close_notify().unwrap() {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "the close_notify drain never ended"
+            );
+            wait_activity(Duration::from_millis(10));
+        }
         client.close();
         server.close();
         listener.close();

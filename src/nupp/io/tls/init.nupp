@@ -515,25 +515,28 @@ record tls.Session is Reader, Writer
 
     --- Sends `close_notify`, drains it, and closes the owned connection.
     --- Terminal and idempotent.
+    ---
+    --- The drain is bounded: a peer that has stopped reading gets about a
+    --- second for the last records and the alert before the connection is
+    --- closed without them.
     function close(takes self): nil
         if self._closed then
             return
         end
         if self._ready and self:isConnected() then
             -- The records already written go first, then the alert that says
-            -- this side is finished, then both are waited for. Submitting the
+            -- this side is finished, and both are waited for. Submitting the
             -- alert and returning would let the connection be released with it
             -- still queued, and a peer that never receives it sees a stream
             -- that stopped rather than one that ended -- which is exactly the
-            -- truncation a `close_notify` exists to rule out.
-            local _, _drained = self:flush()
-            while true do
-                const sent, why = self._provider:closeNotify(self._session)
-                if sent or why ~= nil then
-                    break
-                end
-                net.pump(1)
-            end
+            -- truncation a `close_notify` exists to rule out. The provider
+            -- answers once they are out or once the drain's time is spent.
+            const chosen, session = self._provider, self._session
+            await("nupp.io.tls close", function(): boolean
+                const sent, why = chosen:closeNotify(session)
+
+                return sent or why ~= nil
+            end)
         end
         self._closed = true
         self._provider:destroy(self._session)

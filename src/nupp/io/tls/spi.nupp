@@ -68,8 +68,9 @@ export interface Provider
     @readonly
     flushed: function(self: Provider, session: any): (boolean, string?)
 
-    --- Starts or continues orderly TLS shutdown; true means complete,
-    --- false means pending unless accompanied by an error.
+    --- Starts or continues orderly TLS shutdown; true means complete, or that
+    --- the bounded time a drain may take is spent, and false means pending
+    --- unless accompanied by an error.
     @readonly
     closeNotify: function(self: Provider, session: any): (boolean, string?)
 

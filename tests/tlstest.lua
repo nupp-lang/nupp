@@ -123,6 +123,34 @@ if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
     return M
 end
 
+-- A peer that stops reading fills every buffer between the two ends. Closing
+-- then drains for a bounded time rather than waiting for room that never comes.
+function M.closeReturnsWhenThePeerHasStoppedReading()
+    local listener, clientSock, serverSock = sockets()
+    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+    assertTrue(clientDone and serverDone, tostring(clientWhy or serverWhy))
+    local provider = require("nupp.runtime.provider.nativetls")
+    local chunk = string.rep("x", 16384)
+    local pending = 0
+    while pending < 200 do
+        local accepted, why = provider:write(client._session, chunk)
+        assertTrue(why == nil, why)
+        if accepted == nil then
+            pending = pending + 1
+            net.pump(1)
+        end
+    end
+    local started = os.time()
+    client:close()
+    assertTrue(os.time() - started <= 3, "close waited past its drain")
+    server:close()
+    serverSock:close()
+    clientSock:close()
+    listener:close()
+end
+
 function M.anOmittedAuthorityUsesThePlatformTrustStore()
     local source = debug.getinfo(1, "S").source:match("^@(.+)[/\\]tests[/\\]tlstest%.lua$")
     if source == nil then
