@@ -416,6 +416,7 @@ typedef struct {
     NuppNativeHttpSlice value;
 } NuppNativeHttpHeader;
 
+/* The connect timeout and the three limits must be nonzero. */
 typedef struct {
     uint64_t connect_timeout_ms;
     uint32_t max_redirects;

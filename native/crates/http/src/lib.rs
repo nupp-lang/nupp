@@ -601,7 +601,7 @@ fn client_from_parts(
     secure: Client,
     insecure: Option<Client>,
 ) -> *mut NuppHttpClient {
-    let max_pending = (options.max_pending_requests as usize).max(1);
+    let max_pending = options.max_pending_requests as usize;
     Box::into_raw(Box::new(NuppHttpClient {
         inner: Arc::new(ClientState {
             secure,
@@ -1101,6 +1101,7 @@ pub unsafe fn nuppHttpClientCreate(options: *const NuppHttpClientOptions) -> *mu
     }
     let options = unsafe { &*options };
     if options.connect_timeout_ms == 0
+        || options.max_pending_requests == 0
         || options.max_connections == 0
         || options.max_connections_per_host == 0
     {
@@ -2212,6 +2213,14 @@ mod tests {
             "the upload was ended as if it were complete: {:?}",
             String::from_utf8_lossy(&sent)
         );
+    }
+
+    #[test]
+    fn a_zero_pending_limit_is_refused() {
+        let mut options = options();
+        options.max_pending_requests = 0;
+        // SAFETY: the options are live for the call.
+        assert!(unsafe { nuppHttpClientCreate(&options) }.is_null());
     }
 
     #[test]
