@@ -71,13 +71,9 @@ record gpu.Binding is api.Binding
     @readonly
     _context: any
     @readonly
-    _handle: any
-    @readonly
     _uniformBytes: integer
     @readonly
     _readonlyBuffers: integer
-    _spanCounts: {integer}
-    _spanOffsets: {integer}
     _released: boolean
 
     --- Number of elements dispatched by this binding.
@@ -623,11 +619,8 @@ function gpu.Context.bindKernel(
     return new gpu.Binding(
         _anchor = self,
         _context = self,
-        _handle = nil,
         _uniformBytes = kernel._uniformBytes,
         _readonlyBuffers = kernel._readonlyBuffers,
-        _spanCounts = {},
-        _spanOffsets = {},
         _kernel = kernel,
         _read = {},
         _write = {},

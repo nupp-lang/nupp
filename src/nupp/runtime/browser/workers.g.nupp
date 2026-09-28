@@ -44,10 +44,11 @@ end
 
 --- Runs one body protected, letting it park on the Wasm host boundary.
 ---
---- Stock Lua 5.1 cannot yield through `pcall`, and every wait a browser application
---- performs is a yield out to JavaScript. So the body runs on its own coroutine and
---- this forwards whatever it yields, which is the same shape the generated cleanup
---- regions use with the selected suspension provider.
+--- Every wait a browser application performs is a yield out to JavaScript, so the
+--- body runs on its own coroutine and this forwards whatever it yields. LuaJIT, the
+--- only runtime the browser guest carries, could yield through a plain `pcall`;
+--- the forwarding stays for `compat = "lua51"` output until that target's future is
+--- decided.
 local function protectedCall(body: function(): any): (boolean, any)
     -- The resumed value belongs to whichever `coroutine.yield` inside the body is
     -- waiting for it, not to the body's own parameters, which is a shape the typed
