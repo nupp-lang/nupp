@@ -161,7 +161,7 @@ function text.offsetAtPosition(source: string, target: text.Position): integer?
         return nil
     end
     local character: integer = 0
-    while pos <= #source and source:byte(pos) ~= 10 and character < target.character do
+    while pos <= #source and source:byte(pos) ~= 10 and source:byte(pos) ~= 13 and character < target.character do
         local bytes, units = text.utf8Char(source, pos)
         character, pos = character + units, pos + bytes
     end
@@ -178,33 +178,41 @@ function text.tokenRange(source: string, tok: Token): text.Range
     return text.spanRange(source, tok.offset, tok.offset + #tok.text)
 end
 
---- The lines of `text`, each keeping its own newline, so concatenating them
---- reproduces the text exactly, including a final line with no newline at all.
+--- The lines of `text`, each keeping its own line break, so concatenating them
+--- reproduces the text exactly, including a final line with no break at all.
+---
+--- A break is `\n`, `\r\n`, or a lone `\r`: the three the protocol names, and so
+--- the three an editor splits a line at.
 function text.splitLines(source: string): {string}
     local lines = {}
-    local pos = 1
-    while pos <= #source do
-        local stop = source:find("\n", pos, true)
-        if stop then
-            lines[#lines + 1] = source:sub(pos, stop)
-            pos = stop + 1
-        else
-            lines[#lines + 1] = source:sub(pos)
-            break
-        end
+    local starts = text.lineStarts(source)
+    for index = 1, #starts - 1 do
+        lines[#lines + 1] = source:sub(starts[index], starts[index + 1] - 1)
+    end
+    if starts[#starts] <= #source then
+        lines[#lines + 1] = source:sub(starts[#starts])
     end
 
     return lines
 end
 
 --- The byte offset each line of `text` starts at, plus one past the end, so a
---- run of lines converts to a span without counting anything twice.
+--- run of lines converts to a span without counting anything twice. Lines end
+--- where `splitLines` ends them.
 function text.lineStarts(source: string): {integer}
-    local starts = {1}
-    for pos = 1, #source do
-        if source:byte(pos) == 10 then
+    local starts: {integer} = {1}
+    local pos: integer = 1
+    while pos <= #source do
+        local byte = source:byte(pos)
+        if byte == 10 then
+            starts[#starts + 1] = pos + 1
+        elseif byte == 13 then
+            if source:byte(pos + 1) == 10 then
+                pos = pos + 1
+            end
             starts[#starts + 1] = pos + 1
         end
+        pos = pos + 1
     end
 
     return starts

@@ -348,7 +348,8 @@ function semantic.addSemanticSpan(
     end
     local pos = 1
     while pos <= #spanText do
-        local newline = spanText:find("\n", pos, true)
+        -- Split where the protocol ends a line: `\n`, `\r\n`, or a lone `\r`.
+        local newline = spanText:find("[\r\n]", pos)
         local finish = newline and newline - 1 or #spanText
         if finish >= pos then
             local startOffset = offset + pos - 1
@@ -370,7 +371,7 @@ function semantic.addSemanticSpan(
         if not newline then
             break
         end
-        pos = newline + 1
+        pos = spanText:sub(newline, newline + 1) == "\r\n" and newline + 2 or newline + 1
     end
 end
 

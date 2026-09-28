@@ -51,7 +51,8 @@ without one.
 
 Documents are named by `file:` URIs in any of the spellings RFC 8089 allows for
 a local file: `file:///p`, `file://localhost/p`, and `file:/p` all name `/p`, and
-answers name it `file:///p`.
+answers name it `file:///p`. Positions follow the protocol's line breaks, so
+`\n`, `\r\n`, and a lone `\r` each end a line.
 
 A frame whose body is not JSON is answered `ParseError` (-32700), and JSON that
 is not a request or notification is answered `InvalidRequest`. Both answers

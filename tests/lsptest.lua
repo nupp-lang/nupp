@@ -445,6 +445,71 @@ function M.positionsAgreeWithAScanFromTheStart()
     )
 end
 
+-- The protocol ends a line at `\n`, at `\r\n`, and at a lone `\r`, so an editor
+-- splits the line at every one of them, and a position that did not would land
+-- a diagnostic on the wrong line. Each of the three is one line break, and a
+-- position past a line's end stops at the break rather than running into it.
+function M.aLoneCarriageReturnEndsALine()
+    local text = require("nupp.tools.lsp.text")
+    local source = "local s = \"a\"\r\nprint(s)\rlocal y = \"b\"\nreturn y\r"
+    local y = source:find("y", 1, true)
+    local at = text.positionAtOffset(source, y)
+    assert(at.line == 2 and at.character == 6, ("a lone CR ends line 1: got %d:%d"):format(at.line, at.character))
+    assert(text.offsetAtPosition(source, {line = 2, character = 6}) == y, "and the position reads back")
+    local returned = source:find("return", 1, true)
+    assert(text.positionAtOffset(source, returned).line == 3, "LF after the CR-ended line is one break")
+    assert(
+        text.offsetAtPosition(source, {line = 1, character = 99}) == source:find("\rlocal", 1, true),
+        "a character past the end stops at the break"
+    )
+    assert(
+        text.offsetAtPosition(source, {line = 0, character = 99}) == source:find("\r\n", 1, true),
+        "a CRLF line stops at its CR"
+    )
+    local lines = text.splitLines(source)
+    assert(#lines == 4 and table.concat(lines) == source, "lines split at every break and rejoin exactly")
+    assert(#text.lineStarts(source) == #lines + 1, "one start per line, plus one past the end")
+
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local uri = fileUri(dir .. "/cronly.nupp")
+    local out = runSession(
+        {
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {
+                    textDocument = {
+                        uri = uri,
+                        languageId = "nupp",
+                        version = 1,
+                        text = "local a = 1\rlocal b: string = 1\rprint(a, b)\r"
+                    }
+                }
+            },
+            {jsonrpc = "2.0", id = 2, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
+        },
+        dir
+    )
+    os.execute("rm -rf '" .. dir .. "'")
+    local published = diagnosticsFor(out, uri)
+    local last = published[#published] or {}
+    local found = nil
+    for _, diagnostic in ipairs(last) do
+        if diagnostic.code == "NUPP2001" then
+            found = diagnostic
+        end
+    end
+    assert(found, "the mismatch is reported: " .. out)
+    assert(
+        found.range.start.line == 1 and found.range.start.character == 18,
+        "on the second line, as an editor splits it: " .. json.encode(found.range)
+    )
+end
+
 function M.fileUrisRoundTripWindowsDrivePaths()
     local text = require("nupp.tools.lsp.text")
     local path = "C:/Users/Example/space # percent%.nupp"
