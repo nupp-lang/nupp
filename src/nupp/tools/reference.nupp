@@ -2279,8 +2279,10 @@ for the region and everything called beneath it, per coroutine rather than per
 process. `HANDLER` is an ordinary value satisfying `nupp.suspension.Handler`,
 not a keyword or a global scheduler. Where none is installed a wait drives the
 registered readiness sources on the current thread, which is what a
-command-line program wants. `NUPP2706` rejects a jump into the region, which
-would bypass installation.
+command-line program wants. In a browser application only the root coroutine
+can wait on the page; anywhere else a wait with no handler raises "cannot
+suspend here". `NUPP2706` rejects a jump into the region, which would bypass
+installation.
 
 `nupp.tasks` runs several bodies concurrently, each in its own coroutine, and
 one body parking is what lets the next one run. A scope opened with
