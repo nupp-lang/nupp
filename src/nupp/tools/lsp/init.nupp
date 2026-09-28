@@ -546,7 +546,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local paths = {}
         for _, folder in ipairs(list or {}) do
             local uri = type(folder) == "table" and folder.uri or folder
-            if type(uri) == "string" and uri:match("^file://") then
+            if type(uri) == "string" and uri:match("^[Ff][Ii][Ll][Ee]:") then
                 paths[#paths + 1] = uriToPath(uri)
             end
         end
@@ -669,7 +669,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local changes: {any} = {}
         for _, change in ipairs(params.changes or {}) do
             local uri = type(change.uri) == "string" and change.uri or ""
-            if uri:match("^file://") and not uri:find("/%.nupp/") then
+            if uri:match("^[Ff][Ii][Ll][Ee]:") and not uri:find("/%.nupp/") then
                 if uri:match("/nupp%.lua$") then
                     -- A manifest is where dependencies are named, so what was resolved
                     -- under the old one says nothing about the new one. Confirming a

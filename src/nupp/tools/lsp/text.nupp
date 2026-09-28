@@ -9,7 +9,9 @@ be needed. Incremental edits arrive as replaced ranges, and a reply that says
 what changed needs the smallest run of lines that differ.
 ]]
 
-local lexer = require("nupp.compiler.syntax.lexer")
+-- A type and nothing else, so this module loads without the lexer and the
+-- command line can convert positions and URIs without paying for the compiler.
+const {type Token} = require("nupp.compiler.syntax.lexer")
 
 local text = {}
 
@@ -35,26 +37,59 @@ type text.Hunk = {
     lines: {string}
 }
 
+--- The filesystem path a `file:` URI names.
+---
+--- RFC 8089 spells a local file three ways: with an empty authority
+--- (`file:///p`), with `localhost` (`file://localhost/p`), and with no authority
+--- at all (`file:/p`). All three name the same path. Any other authority is a
+--- host, which a path can only name as a UNC share, `//host/p`. A Windows drive
+--- path carries a leading slash in the URI that is not part of the path.
+--- Anything that is not a `file:` URI is returned percent-decoded, as the name a
+--- client gave a buffer with no file behind it.
 function text.uriToPath(uri: string): string
-    local path = uri:gsub("^file://", "")
+    local rest = uri:match("^[Ff][Ii][Ll][Ee]:(.*)$")
+    local path = rest or uri
+    if rest then
+        local authority, after = rest:match("^//([^/]*)(.*)$")
+        if authority then
+            local host = authority:lower()
+            path = (host == "" or host == "localhost") and after or "//" .. authority .. after
+        end
+    end
     path = path:gsub("%%(%x%x)", function(hex)
         return string.char(tonumber(hex, 16) or 0)
     end)
-    -- RFC 8089 gives a Windows drive path a leading slash. It is part of the
-    -- URI path rather than the filesystem path.
-    if path:match("^/[A-Za-z]:[/\\]") then
+    if path:match("^/[A-Za-z]:[/\\]") or path:match("^/[A-Za-z]:$") then
         path = path:sub(2)
     end
 
     return path
 end
 
+--- The `file:` URI for a path, with an empty authority, or the share's host for a
+--- UNC path. A Windows path's backslashes are separators; anywhere else a
+--- backslash is part of a name and is escaped.
+---
+--- A relative path has no URI of its own, and a session started against a
+--- relative root still names files by one. It is written with no authority,
+--- `file:src/main.nupp`, which `uriToPath` reads back unchanged: behind `//` its
+--- first segment would read as a host.
 function text.pathToUri(path: string): string
-    local prefix = path:match("^[A-Za-z]:[/\\]") and "/" or ""
-
-    return "file://" .. prefix .. path:gsub("[^%w%-%._~/:]", function(ch)
+    if path:match("^[A-Za-z]:[/\\]") or path:match("^\\\\") then
+        path = path:gsub("\\", "/")
+    end
+    local prefix = path:match("^[A-Za-z]:/") and "/" or ""
+    local host, rest = path:match("^//([^/]+)(/.*)$")
+    if host then
+        prefix, path = "//" .. host, rest
+    end
+    local encoded = path:gsub("[^%w%-%._~/:]", function(ch)
         return ("%%%02X"):format(ch:byte())
     end)
+
+    local absolute = host or path:sub(1, 1) == "/" or prefix ~= ""
+
+    return (absolute and not host and "file://" or "file:") .. prefix .. encoded
 end
 
 function text.readFile(path: string): string?
@@ -139,7 +174,7 @@ function text.spanRange(source: string, from: number, to: number): text.Range
     return {start = text.positionAtOffset(source, from), ["end"] = text.positionAtOffset(source, to)}
 end
 
-function text.tokenRange(source: string, tok: lexer.Token): text.Range
+function text.tokenRange(source: string, tok: Token): text.Range
     return text.spanRange(source, tok.offset, tok.offset + #tok.text)
 end
 

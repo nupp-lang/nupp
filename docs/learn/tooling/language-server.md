@@ -49,6 +49,10 @@ answered `InvalidRequest` (-32600). The process exits 0 when `exit` follows
 `shutdown`, and 1 when the client exits without `shutdown` or its input ends
 without one.
 
+Documents are named by `file:` URIs in any of the spellings RFC 8089 allows for
+a local file: `file:///p`, `file://localhost/p`, and `file:/p` all name `/p`, and
+answers name it `file:///p`.
+
 A frame whose body is not JSON is answered `ParseError` (-32700), and JSON that
 is not a request or notification is answered `InvalidRequest`. Both answers
 carry a null `id`, and the session goes on. A frame may declare at most 64 MiB,

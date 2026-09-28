@@ -428,6 +428,13 @@ function M.positionsAgreeWithAScanFromTheStart()
             assert(back == offset, ("offset %d does not round-trip: %s"):format(offset, tostring(back)))
         end
     end
+    -- Worked out by hand rather than with the helper under test: `\240\159\152\128` is
+    -- one character outside the Basic Multilingual Plane, which UTF-16 spells as a
+    -- surrogate pair, so the `w` after it and a space is at character 10, not 9.
+    local wide = source:find("wide", 1, true)
+    local at = text.positionAtOffset(source, wide)
+    assert(at.line == 1 and at.character == 10, ("a surrogate pair is two units: got %d:%d"):format(at.line, at.character))
+    assert(text.offsetAtPosition(source, {line = 1, character = 10}) == wide, "and counts as two on the way back")
     assert(text.offsetAtPosition(source, {line = 9, character = 0}) == nil, "a line past the end is nothing")
     assert(
         text.offsetAtPosition(source, {
@@ -447,6 +454,36 @@ function M.fileUrisRoundTripWindowsDrivePaths()
         "a drive path is an absolute URI path: " .. uri
     )
     assert(text.uriToPath(uri) == path, "the URI returns to the same drive path")
+end
+
+-- RFC 8089 spells a local file three ways, and a client may send any of them:
+-- with an empty authority, with `localhost`, or with no authority at all. Each
+-- names the same absolute path. Another authority is a host, which a path can
+-- only name as a UNC share.
+function M.fileUrisOfEveryLocalSpellingNameTheSamePath()
+    local text = require("nupp.tools.lsp.text")
+    local cases = {
+        {"file:///p/main.nupp", "/p/main.nupp"},
+        {"file:/p/main.nupp", "/p/main.nupp"},
+        {"file://localhost/p/main.nupp", "/p/main.nupp"},
+        {"FILE://LOCALHOST/p/a%20b.nupp", "/p/a b.nupp"},
+        {"file:///C:/p/main.nupp", "C:/p/main.nupp"},
+        {"file:///c%3A/p/main.nupp", "c:/p/main.nupp"},
+        {"file:/C:/p/main.nupp", "C:/p/main.nupp"},
+        {"file://srv/share/main.nupp", "//srv/share/main.nupp"},
+    }
+    for _, case in ipairs(cases) do
+        local got = text.uriToPath(case[1])
+        assert(got == case[2], case[1] .. " names " .. case[2] .. ", not " .. got)
+    end
+    assert(text.pathToUri("//srv/share/main.nupp") == "file://srv/share/main.nupp", "a share keeps its host")
+    assert(
+        text.pathToUri("C:\\p\\main.nupp") == "file:///C:/p/main.nupp",
+        "a Windows path's separators are separators: " .. text.pathToUri("C:\\p\\main.nupp")
+    )
+    assert(text.pathToUri("/p/back\\slash.nupp") == "file:///p/back%5Cslash.nupp", "a POSIX name keeps its backslash")
+    assert(text.pathToUri("src/main.nupp") == "file:src/main.nupp", "a relative path names no host")
+    assert(text.uriToPath(text.pathToUri("src/main.nupp")) == "src/main.nupp", "and reads back unchanged")
 end
 
 -- A session started against a relative root answered a document reached by its

@@ -89,34 +89,17 @@ local function displayPath(root, path)
     return path
 end
 
-local function pathToUri(path)
-    local prefix = path:match("^[A-Za-z]:[/\\]") and "/" or ""
-
-    return "file://" .. prefix .. path:gsub("[^%w%-%._~/:]", function(ch)
-        return ("%%%02X"):format(ch:byte())
-    end)
-end
+-- One conversion for the server and the command line, so a URI means the same path
+-- to both. The module carries no lexer, which keeps this one loading without it.
+local text = require("nupp.tools.lsp.text")
+local pathToUri, utf8Char = text.pathToUri, text.utf8Char
 
 local function uriToPath(uri)
-    local path = uri:gsub("^file://", "")
-    path = path:gsub("%%(%x%x)", function(hex)
-        return string.char(tonumber(hex, 16) or 0)
-    end)
-    if path:match("^/[A-Za-z]:[/\\]") then
-        path = path:sub(2)
-    end
+    local path = text.uriToPath(uri)
+    -- A UNC share keeps the double slash normalizing would fold into one.
+    local share = path:match("^//[^/]") and "/" or ""
 
-    return normalizePath(path)
-end
-
-local function utf8Char(source, offset)
-    local first = source:byte(offset)
-    if not first or first < 0x80 then
-        return 1, 1
-    end
-    local bytes = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
-
-    return bytes, bytes == 4 and 2 or 1
+    return share .. normalizePath(path)
 end
 
 local function lineStart(source, wanted)
