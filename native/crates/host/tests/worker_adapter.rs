@@ -249,3 +249,46 @@ workers.channelDestroy(channel)
     );
     runtime.shutdown().expect("shutdown");
 }
+
+// Every builder and region entry point checks the handle's metatable, so one
+// kind of handle is never read as the other's Rust object, and a channel or
+// worker entry point takes only the light userdata those are.
+#[test]
+fn a_handle_of_the_wrong_kind_is_refused() {
+    let mut runtime = runtime(b"return nil");
+    run(
+        &runtime,
+        br#"
+local workers = require("nupp.workers.native")
+local bytes = require("nupp.mem.sharedbytes.native")
+
+local region = assert(bytes.fromString("abc"))
+local builder = assert(bytes.builderNew())
+local accepted, problem = bytes.builderAppend(region, string.rep("x", 64))
+assert(not accepted and problem == nil, "a region was appended to as a builder")
+assert(bytes.builderReserve(region, 64) == nil)
+assert(not bytes.builderCommit(region, 0))
+assert(bytes.builderFreeze(region) == nil)
+assert(bytes.text(builder, 1, 1) == nil)
+assert(bytes.length(builder) == nil)
+assert(bytes.text(region, 1, 3) == "abc")
+
+assert(not workers.channelPush(region, "header", "body"))
+assert(workers.channelPop(region, 0) == nil)
+assert(workers.channelCount(region) == 0)
+assert(workers.channelClosed(region))
+assert(workers.channelDictRegister(region, "jobs.run") == nil)
+assert(not workers.workerTaskCreate(region, 1))
+assert(workers.workerTaskStatus(builder, 1) == 0)
+local spawned, spawnProblem = workers.workerSpawn(region, builder)
+assert(spawned == nil and type(spawnProblem) == "string")
+workers.channelClose(region)
+workers.channelDestroy(region)
+workers.workerTaskRelease(region, 1)
+
+assert(bytes.builderAppend(builder, "still a builder"))
+assert(bytes.text(region, 1, 3) == "abc")
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}

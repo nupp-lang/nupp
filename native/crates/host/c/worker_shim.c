@@ -226,6 +226,25 @@ static void *region_block(lua_State *state, int index) {
     return block;
 }
 
+/* A builder is read as a Rust builder only when its metatable says it is one,
+ * as a region is above. */
+static BuilderHandle *builder_handle(lua_State *state, int index) {
+    BuilderHandle *handle = lua_touserdata(state, index);
+    BuilderHandle *answer = NULL;
+    if (handle == NULL || !lua_getmetatable(state, index)) return NULL;
+    lua_getfield(state, LUA_REGISTRYINDEX, BUILDER_METATABLE);
+    if (lua_rawequal(state, -1, -2)) answer = handle;
+    lua_pop(state, 2);
+    return answer;
+}
+
+/* Channels, workers and moved blocks travel as light userdata. A full userdata
+ * -- a region or builder handle -- is never one of them. */
+static void *light(lua_State *state, int index) {
+    return lua_type(state, index) == LUA_TLIGHTUSERDATA
+        ? lua_touserdata(state, index) : NULL;
+}
+
 /* --- channels ----------------------------------------------------------- */
 
 static int channel_create(lua_State *state) {
@@ -234,18 +253,18 @@ static int channel_create(lua_State *state) {
 }
 
 static int channel_destroy(lua_State *state) {
-    void *channel = lua_touserdata(state, 1);
+    void *channel = light(state, 1);
     if (channel != NULL) nupp_rust_worker_channel_destroy(channel);
     return 0;
 }
 
 static int channel_close(lua_State *state) {
-    nupp_rust_worker_channel_close(lua_touserdata(state, 1));
+    nupp_rust_worker_channel_close(light(state, 1));
     return 0;
 }
 
 static int channel_push(lua_State *state) {
-    void *channel = lua_touserdata(state, 1);
+    void *channel = light(state, 1);
     size_t header_length = 0, body_length = 0;
     const char *header = lua_tolstring(state, 2, &header_length);
     const char *body = lua_tolstring(state, 3, &body_length);
@@ -258,7 +277,7 @@ static int channel_push(lua_State *state) {
 }
 
 static int push_scalar(lua_State *state, int kind, int task, int string_value) {
-    void *channel = lua_touserdata(state, 1);
+    void *channel = light(state, 1);
     int64_t id = (int64_t)lua_tointeger(state, 2);
     size_t module_length = 0, member_length = 0, value_length = 0;
     const char *module = task ? lua_tolstring(state, 3, &module_length) : NULL;
@@ -340,7 +359,7 @@ static size_t read_attachments(lua_State *state, int index,
 }
 
 static int push_buffer(lua_State *state, int kind, int task) {
-    void *channel = lua_touserdata(state, 1);
+    void *channel = light(state, 1);
     int64_t id = (int64_t)lua_tointeger(state, 2);
     size_t module_length = 0, member_length = 0, value_length = 0;
     const char *module = task ? lua_tolstring(state, 3, &module_length) : NULL;
@@ -386,7 +405,7 @@ static int schema_register(lua_State *state) { lua_pushnil(state); return 1; }
 static int push_record(lua_State *state) { lua_pushinteger(state, 0); return 1; }
 
 static int dict_register(lua_State *state) {
-    void *channel = lua_touserdata(state, 1);
+    void *channel = light(state, 1);
     size_t length = 0;
     const char *address = lua_tolstring(state, 2, &length);
     size_t answer = channel != NULL && address != NULL
@@ -398,14 +417,14 @@ static int dict_register(lua_State *state) {
 
 static int dict_count(lua_State *state) {
     lua_pushinteger(state, (lua_Integer)nupp_rust_worker_channel_dict_count(
-        lua_touserdata(state, 1)));
+        light(state, 1)));
     return 1;
 }
 
 static int dict_address(lua_State *state) {
     size_t length = 0;
     const uint8_t *address = nupp_rust_worker_channel_dict_address(
-        lua_touserdata(state, 1), (size_t)lua_tointeger(state, 2), &length);
+        light(state, 1), (size_t)lua_tointeger(state, 2), &length);
     if (address == NULL) lua_pushnil(state);
     else lua_pushlstring(state, (const char *)address, length);
     return 1;
@@ -446,7 +465,7 @@ static int channel_pop(lua_State *state) {
     lua_Integer timeout = lua_tointeger(state, 2);
     int bounded = timeout < INT32_MIN ? INT32_MIN
         : timeout > INT32_MAX ? INT32_MAX : (int)timeout;
-    void *message = nupp_rust_worker_channel_pop(lua_touserdata(state, 1), bounded);
+    void *message = nupp_rust_worker_channel_pop(light(state, 1), bounded);
     int kind;
     if (message == NULL) {
         int index;
@@ -493,13 +512,13 @@ static int channel_pop(lua_State *state) {
 
 static int channel_count(lua_State *state) {
     lua_pushinteger(state, (lua_Integer)nupp_rust_worker_channel_count(
-        lua_touserdata(state, 1)));
+        light(state, 1)));
     return 1;
 }
 
 static int channel_closed(lua_State *state) {
     lua_pushboolean(state, nupp_rust_worker_channel_closed(
-        lua_touserdata(state, 1)));
+        light(state, 1)));
     return 1;
 }
 
@@ -508,7 +527,7 @@ static int channel_closed(lua_State *state) {
 static void *global_pointer(lua_State *state, const char *name) {
     void *answer;
     lua_getfield(state, LUA_GLOBALSINDEX, name);
-    answer = lua_touserdata(state, -1);
+    answer = light(state, -1);
     lua_pop(state, 1);
     return answer;
 }
@@ -519,7 +538,7 @@ static int worker_spawn(lua_State *state) {
      * worker is joined. Rust clones channel Arcs before this callback returns. */
     void *worker = nupp_rust_worker_spawn(
         global_pointer(state, "__nuppWorkerHost"),
-        lua_touserdata(state, 1), lua_touserdata(state, 2),
+        light(state, 1), light(state, 2),
         error, sizeof error);
     if (worker == NULL) {
         lua_pushnil(state);
@@ -532,7 +551,7 @@ static int worker_spawn(lua_State *state) {
 
 static int worker_join(lua_State *state) {
     char error[4096] = {0};
-    int status = nupp_rust_worker_join(lua_touserdata(state, 1), error, sizeof error);
+    int status = nupp_rust_worker_join(light(state, 1), error, sizeof error);
     lua_pushinteger(state, status);
     if (error[0] == '\0') lua_pushnil(state); else lua_pushstring(state, error);
     return 2;
@@ -542,14 +561,14 @@ static int task_create(lua_State *state) {
     int has_deadline = !lua_isnoneornil(state, 3);
     double deadline = has_deadline ? lua_tonumber(state, 3) : 0;
     lua_pushboolean(state, nupp_rust_worker_task_create(
-        lua_touserdata(state, 1), (int64_t)lua_tointeger(state, 2),
+        light(state, 1), (int64_t)lua_tointeger(state, 2),
         has_deadline && isfinite(deadline), deadline));
     return 1;
 }
 
 static int task_cancel(lua_State *state) {
     lua_pushinteger(state, nupp_rust_worker_task_cancel(
-        lua_touserdata(state, 1), (int64_t)lua_tointeger(state, 2)));
+        light(state, 1), (int64_t)lua_tointeger(state, 2)));
     return 1;
 }
 
@@ -583,14 +602,14 @@ static int task_finish(lua_State *state) {
 }
 
 static int task_release(lua_State *state) {
-    nupp_rust_worker_task_release(lua_touserdata(state, 1),
+    nupp_rust_worker_task_release(light(state, 1),
         (int64_t)lua_tointeger(state, 2));
     return 0;
 }
 
 static int task_status(lua_State *state) {
     lua_pushinteger(state, nupp_rust_worker_task_status(
-        lua_touserdata(state, 1), (int64_t)lua_tointeger(state, 2)));
+        light(state, 1), (int64_t)lua_tointeger(state, 2)));
     return 1;
 }
 
@@ -693,7 +712,7 @@ static int builder_new(lua_State *state) {
 }
 
 static int builder_append(lua_State *state) {
-    BuilderHandle *handle = lua_touserdata(state, 1);
+    BuilderHandle *handle = builder_handle(state, 1);
     size_t length = 0;
     const char *data = lua_tolstring(state, 2, &length);
     int accepted = handle != NULL && handle->builder != NULL && data != NULL
@@ -707,7 +726,7 @@ static int builder_append(lua_State *state) {
 }
 
 static int builder_reserve(lua_State *state) {
-    BuilderHandle *handle = lua_touserdata(state, 1);
+    BuilderHandle *handle = builder_handle(state, 1);
     lua_Integer count = lua_tointeger(state, 2);
     void *pointer = handle != NULL && handle->builder != NULL && count >= 0
         ? nupp_rust_region_builder_reserve(handle->builder, (size_t)count) : NULL;
@@ -719,7 +738,7 @@ static int builder_reserve(lua_State *state) {
 }
 
 static int builder_commit(lua_State *state) {
-    BuilderHandle *handle = lua_touserdata(state, 1);
+    BuilderHandle *handle = builder_handle(state, 1);
     lua_Integer written = lua_tointeger(state, 2);
     lua_pushboolean(state, handle != NULL && handle->builder != NULL && written >= 0
         && nupp_rust_region_builder_commit(handle->builder, (size_t)written));
@@ -727,7 +746,7 @@ static int builder_commit(lua_State *state) {
 }
 
 static int builder_freeze(lua_State *state) {
-    BuilderHandle *handle = lua_touserdata(state, 1);
+    BuilderHandle *handle = builder_handle(state, 1);
     void *block = handle != NULL && handle->builder != NULL
         ? nupp_rust_region_builder_freeze(handle->builder) : NULL;
     if (block == NULL) {
