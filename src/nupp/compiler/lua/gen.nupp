@@ -2924,9 +2924,9 @@ function gen.generate(
         elseif t.recordName and recordIdentity then
             e(("(%s==%s)"):format(recordIdentity, t.recordName), line)
         elseif t.recordName and recordIdentitySafe then
-            e(("(getmetatable(%s).__index==%s)"):format(subject, t.recordName), line)
+            e(("(_G.getmetatable(%s).__index==%s)"):format(subject, t.recordName), line)
         elseif t.recordName then
-            e(("(getmetatable(%s)?.__index==%s)"):format(subject, t.recordName), line)
+            e(("(_G.getmetatable(%s)?.__index==%s)"):format(subject, t.recordName), line)
         elseif t.reified then
             needsFfi = true
             e(("__nuppFfi.istype(%s,%s)"):format(t.reified, subject), line)
@@ -6223,7 +6223,7 @@ function gen.generate(
                 -- the forward declaration above already introduced it, and because a
                 -- module may be loaded twice in one process.
                 expr = (
-                    "pcall(__nuppFfi.cdef, \"struct %s { %s };\") "
+                    "_G.pcall(__nuppFfi.cdef, \"struct %s { %s };\") "
                 ):format(
                     tag,
                     table.concat(cdecl, " ")
@@ -6295,7 +6295,7 @@ function gen.generate(
             -- pcall tolerates re-declaration when two modules cdef one struct
             e(
                 (
-                    'pcall(__nuppFfi.cdef, "%s %s { %s };") const %s = __nuppFfi.typeof("%s %s")'
+                    '_G.pcall(__nuppFfi.cdef, "%s %s { %s };") const %s = __nuppFfi.typeof("%s %s")'
                 ):format(
                     x.aggregateKind or "struct",
                     x.name.text,
@@ -6331,7 +6331,7 @@ function gen.generate(
             end
             if x.countedAbi then
                 local rawName = nextTemp()
-                e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, rawName, ns, name), line)
+                e(('_G.pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, rawName, ns, name), line)
                 e((" const %s=function(%s) "):format(name, table.concat(x.countedAbi.logicalNames or {}, ",")))
                 local groups: {[integer]: {any}} = {}
                 for _, mapping in ipairs(x.countedAbi.mappings or {}) do
@@ -6382,7 +6382,7 @@ function gen.generate(
                 end
                 e(") end")
             else
-                e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
+                e(('_G.pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
             end
             pluck.emitRegistrations(x.name.cleanupRegistrations, line, nil, x.name.text)
             return
@@ -7224,8 +7224,8 @@ function gen.generate(
             body[
                 #body + 1
             ] = "if __first~=nil then if __suppressed>0 then "
-                .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
-                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end"
+                .. "_G.error(_G.tostring(__first)..\" (suppressed \".._G.tostring(__suppressed)"
+                .. "..\" cleanup failure(s))\",0) else _G.error(__first,0) end end"
             e(
                 (
                     "return __nupp.__manage(%s,%s,%q)"

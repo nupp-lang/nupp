@@ -1165,4 +1165,27 @@ function M.tooManyLocalsIsReportedAsTheLimit()
     assertEq(diags[1].help:find("bug in the compiler", 1, true), nil, "not called a compiler bug")
 end
 
+-- The same holds for a switch type case, and for the declarations a `cdef` and a
+-- struct lower to, which run in the program's scope too.
+function M.typeCasesAndCdefsReachRuntimeGlobalsPastAShadowingLocal()
+    assertEq(printed(table.concat({
+        "local getmetatable = function(x: any): any return nil end",
+        "local record R",
+        "    x: integer",
+        "end",
+        "local function kind(v: R | integer): string",
+        "    return switch v do",
+        "        case is R -> 'record'",
+        "        else -> 'other'",
+        "    end",
+        "end",
+        "print(kind(new R(x = 1)), kind(1))",
+    }, "\n")), "record\tother")
+    assertEq(printed(table.concat({
+        "local pcall = function(...: any): any error('shadowed') end",
+        "cdef function strlen(s: cstring): uint64",
+        "print(tonumber(strlen('abc')))",
+    }, "\n")), "3")
+end
+
 return M
