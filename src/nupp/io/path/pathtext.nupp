@@ -683,7 +683,22 @@ end
 --- @param extension whether the replacement is an extension rather than a name
 --- @param windows whether Windows rules apply
 --- @return the derived path
+--- @raises string when the replacement is not one component: a name that is
+---     empty, `.` or `..`, or either one holding a separator or a NUL byte.
+---     Under Windows rules a colon is refused too, because the system reads it
+---     as a drive or a stream rather than as part of the name.
 function pathtext.with(text: string, replacement: string, extension: boolean, windows: boolean): string
+    local what = extension and "an extension" or "a file name"
+    if not extension and (replacement == "" or replacement == "." or replacement == "..") then
+        error("nupp: " .. what .. " must be one path component, not " .. ("%q"):format(replacement), 3)
+    end
+    for at = 1, #replacement do
+        local value = byte(replacement, at)
+        if value == 0 or isSeparator(value, windows) or (windows and value == COLON) then
+            error("nupp: " .. what .. " must be one path component, not " .. ("%q"):format(replacement), 3)
+        end
+    end
+
     local start, length, kind, anchored = lastComponent(text, windows)
     local hasName = start ~= nil and kind == pathtext.NORMAL
     if extension then

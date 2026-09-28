@@ -280,6 +280,8 @@ export record Path
     --- @param self this path
     --- @param name the file name to use
     --- @return the new path
+    --- @raises string when name is not one component: empty, `.`, `..`, or
+    ---     holding a separator or NUL byte (or, on Windows, a colon)
     function withFileName(self, name: string): Path
         return raw(pathtext.with(self._text, name, false, WINDOWS))
     end
@@ -288,6 +290,8 @@ export record Path
     --- @param self this path
     --- @param extension the extension to use, without the dot
     --- @return the new path
+    --- @raises string when extension holds a separator or NUL byte (or, on
+    ---     Windows, a colon)
     function withExtension(self, extension: string): Path
         return raw(pathtext.with(self._text, extension, true, WINDOWS))
     end

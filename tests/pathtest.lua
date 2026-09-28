@@ -122,6 +122,50 @@ function M.derivingReplacesTheNameOrTheExtension()
     test.equal(module.newPath("a/.."):withFileName("c"):toString(), "a/../c")
 end
 
+-- A replacement name or extension is one component. Text carrying a
+-- separator, a `..` or a NUL used to be spliced in, so a file name could walk
+-- the path out of its directory. Both rule sets refuse it, and the good cases
+-- above keep their answers.
+function M.derivingRefusesTextThatIsNotOneComponent()
+    for _, windows in ipairs({false, true}) do
+        local base = windows and "out\\report.tmp" or "out/report.tmp"
+        for _, name in ipairs({"../../etc/passwd", "/abs", "a/b", "x\0y", "..", ".", ""}) do
+            test.raises(function()
+                pathtext.with(base, name, false, windows)
+            end, "file name")
+        end
+        for _, extension in ipairs({"json/../../x", "/abs", "x\0y"}) do
+            test.raises(function()
+                pathtext.with(base, extension, true, windows)
+            end, "extension")
+        end
+        test.equal(pathtext.with(base, "other.txt", false, windows), windows and "out/other.txt" or "out/other.txt")
+        test.equal(pathtext.with(base, "json", true, windows), "out/report.json")
+        test.equal(pathtext.with(base, "", true, windows), "out/report")
+    end
+    -- Windows reads a backslash as a separator and a colon as a drive or a
+    -- stream, so neither is a component there.
+    for _, name in ipairs({"..\\x", "C:x", "a:b"}) do
+        test.raises(function()
+            pathtext.with("out\\report.tmp", name, false, true)
+        end, "file name")
+    end
+    test.raises(function()
+        pathtext.with("out\\report.tmp", "a\\b", true, true)
+    end, "extension")
+    -- POSIX names may hold both.
+    test.equal(pathtext.with("out/report.tmp", "a\\b:c", false, false), "out/a\\b:c")
+
+    local module = ready()
+    local report = module.newPath("out", "report.tmp")
+    test.raises(function()
+        report:withFileName("../../etc/passwd")
+    end, "file name")
+    test.raises(function()
+        report:withExtension("json/../../x")
+    end, "extension")
+end
+
 -- One anchored and one not do not share a coordinate system. An absolute target
 -- is still an answer -- it names where it is without reference to the base --
 -- and a relative one against an absolute base is not.
