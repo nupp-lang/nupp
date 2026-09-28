@@ -1273,6 +1273,35 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
     )
 end
 
+-- The customary-operator fix writes a word, and a word written flush against a
+-- name fuses with it: `!ready` has to become `not ready`, not `notready`.
+function M.aCustomaryOperatorFixKeepsItsOperandsApart()
+    for _, case in ipairs({
+        {"local ready = true\nlocal pending = !ready\nreturn pending", "local pending = not ready"},
+        {"local a, b = true, false\nlocal c = a&&b\nreturn c", "local c = a and b"},
+        {"local a, b = true, false\nlocal c = a||b\nreturn c", "local c = a or b"},
+        {"local a, b = true, false\nlocal c = (!a) || b\nreturn c", "local c = (not a) or b"},
+    }) do
+        local source = case[1]
+        for _ = 1, 2 do
+            local _, found = diagsOf(source)
+            local fix = nil
+            for _, diag in ipairs(found) do
+                if diag.code == "NUPP2504" and diag.fixes then
+                    fix = diag.fixes[1]
+                    break
+                end
+            end
+            if not fix then
+                break
+            end
+            source = applyFix(source, fix)
+        end
+        assert(source:find(case[2], 1, true), "fixed source:\n" .. source)
+        assertClean(source)
+    end
+end
+
 function M.metamethodTyposCarrySafeFixes()
     local literal = table.concat(
         {"local record R end", "local r: R = new R()", "setmetatable(r, {__cal = function() end})",},

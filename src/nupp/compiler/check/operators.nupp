@@ -209,7 +209,7 @@ local function customaryOperator(c: state.Checker, opTok: Token)
         "NUPP2504",
         opTok,
         ("%s is the customary spelling of %s"):format(opTok.text, classic),
-        {c.edits.fix(("change to `%s`"):format(classic), c.edits.replaceToken(opTok, classic))},
+        {c.edits.fix(("change to `%s`"):format(classic), c.edits.replaceWithWord(opTok, classic))},
         {help = ("write %s"):format(classic)}
     )
 end

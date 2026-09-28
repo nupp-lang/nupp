@@ -30,6 +30,10 @@ type fixits.Edits = {
     --- Replaces one token without disturbing its leading trivia.
     replaceToken: function(tok: any, text: string): any,
 
+    --- Replaces one token with a word, adding a space on a side where the word would
+    --- otherwise run into a neighbouring name or number.
+    replaceWithWord: function(tok: any, text: string): any,
+
     --- A fix for a misspelled metamethod, and one for an ordinary name, when exactly
     --- one candidate is close enough to be the one that was meant.
     spellingFix: function(tok: any, candidates: any): {any}?,
@@ -108,6 +112,25 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
     --- Replaces one token without disturbing its leading trivia.
     function self.replaceToken(tok: any, text: string): any
         return {offset = tok.offset, length = #tok.text, newText = text}
+    end
+
+    --- Replaces one token with a word. `!ready` becomes `not ready` and `a&&b`
+    --- becomes `a and b`: written flush against a name, the word would fuse with it.
+    function self.replaceWithWord(tok: any, text: string): any
+        local source = result and result.source or nil
+        local newText = text
+        if type(source) == "string" then
+            local before = source:sub(tok.offset - 1, tok.offset - 1)
+            local after = source:sub(tok.offset + #tok.text, tok.offset + #tok.text)
+            if text:match("^[%w_]") and before:match("[%w_]") then
+                newText = " " .. newText
+            end
+            if text:match("[%w_]$") and after:match("[%w_]") then
+                newText = newText .. " "
+            end
+        end
+
+        return {offset = tok.offset, length = #tok.text, newText = newText}
     end
 
     --- A fix for a misspelled name when exactly one candidate is close enough. Short
