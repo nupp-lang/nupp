@@ -1302,6 +1302,22 @@ function M.aCustomaryOperatorFixKeepsItsOperandsApart()
     end
 end
 
+-- A module that returns the declaration itself has no table to attach it to, so
+-- the NUPP2119 fix does not offer `record Loose.Loose`.
+function M.aDeclarationIsNotAttachedToItself()
+    local _, found = diagsOf("record Loose\n    x: number\nend\nreturn Loose")
+    assertEq(found[1] and found[1].code, "NUPP2119")
+    assert(not found[1].msg:find("Loose.Loose", 1, true), found[1].msg)
+    for _, fix in ipairs(found[1].fixes or {}) do
+        assert(not fix.title:find("attach", 1, true), fix.title)
+        assertClean(applyFix("record Loose\n    x: number\nend\nreturn Loose", fix))
+    end
+    local module = "local shapes = {}\nrecord Point\n    x: number\nend\nreturn shapes"
+    local _, attached = diagsOf(module)
+    assertEq(attached[1].fixes[1].title, "attach it to shapes")
+    assertClean(applyFix(module, attached[1].fixes[1]))
+end
+
 function M.metamethodTyposCarrySafeFixes()
     local literal = table.concat(
         {"local record R end", "local r: R = new R()", "setmetatable(r, {__cal = function() end})",},
