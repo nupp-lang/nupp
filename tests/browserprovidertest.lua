@@ -432,4 +432,44 @@ function M.oneAllocationCannotBeBoundForReadingAndWriting()
     rebound:setWrite(0, shared, false)
 end
 
+----------------------------------------------------------------------------
+-- Files
+----------------------------------------------------------------------------
+
+function M.aTaskCancelledInAFileOperationSettlesCancelled()
+    local app = application({
+        owned = {"nupp.runtime.browser.files"},
+        handlers = {
+            files = function(request)
+                if request.operation == "create-directory" then
+                    return 0, {ok = true, value = {created = true}}
+                end
+                -- Everything else stays in flight: the read is still parked when its
+                -- task is cancelled.
+            end,
+        },
+    })
+    local files = app.load("nupp.runtime.browser.files")
+    local tasks = app.tasks
+    local seen = {}
+    local ok, status = app.run(function()
+        local path = assert(files.applicationPath("data", "org", "app"))
+        local child
+        scoped(tasks, function(scope)
+            child = scope:spawn(function()
+                seen.value, seen.reason = files.info(path)
+                seen.returned = true
+            end)
+            scope:spawn(function()
+                child:cancel("stop reading")
+            end)
+        end)
+
+        return child:status()
+    end, 20)
+    check.equal(ok, true, tostring(status))
+    check.equal(seen.returned, nil, "the cancelled read returned " .. tostring(seen.reason))
+    check.equal(status, "cancelled", "a cancelled task finished as if nothing happened")
+end
+
 return M

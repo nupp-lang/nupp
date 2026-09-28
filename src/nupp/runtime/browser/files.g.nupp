@@ -93,7 +93,13 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
         return effects.request("files", payload, resume, discard)
     end)
     if not completed then
-        return nil, tostring(suspended)
+        -- The wait failed, not the file operation: a cancelled task, or an
+        -- application the page cancelled. Answering that as a file error would let
+        -- the task carry on as though nothing had asked it to stop.
+        if payload.lease ~= nil then
+            memory.releaseLease(payload.lease)
+        end
+        error(suspended, 0)
     end
     local answer = suspended as any
     if type(answer) ~= "table" or type(answer.ok) ~= "boolean" then
