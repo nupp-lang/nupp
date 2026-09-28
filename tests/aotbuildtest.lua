@@ -3910,6 +3910,21 @@ function M.theAotRuntimeTableMatchesItsLowering()
     end
 end
 
+--- The browser guest links `runtime-i686.ll`, which is `ks_rt.c` compiled by
+--- `scripts/guest-runtime` and committed. It went stale once: the runtime's
+--- builder checks changed and the guest kept the old ones. The file records a
+--- digest of the sources it was compiled from, and a source that changed
+--- without the file being regenerated fails here.
+function M.theGuestRuntimeIrIsCompiledFromTheCurrentSources()
+    local hash = require("nupp.compiler.hash")
+    local c = HERE .. "/../native/crates/native/c/"
+    local digest = hash.sha256(assert(read(c .. "ks_rt.c")) .. assert(read(c .. "ks_lua.h")))
+    local ir = assert(read(HERE .. "/../src/nupp/compiler/aot/llvm/lua/runtime-i686.ll"))
+    local recorded = ir:match("\n; Inputs: ks_rt%.c ks_lua%.h, sha256 (%x+)%.\n")
+    assert(recorded, "runtime-i686.ll records the digest of its inputs")
+    test.equal(recorded, digest, "runtime-i686.ll is stale: rerun scripts/guest-runtime")
+end
+
 function M.luaBuilderChoosesATieredRegistrarAtLoad()
     local binding = require("nupp.compiler.aot.binding")
     local lines = binding.builderLoader(
