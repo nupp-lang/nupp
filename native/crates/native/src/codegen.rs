@@ -6,7 +6,8 @@ use nupp_native_codegen as codegen;
 
 fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, i32> {
     let bytes = super::input(data, length)?;
-    std::str::from_utf8(bytes).map_err(|_| super::failed(Status::InvalidArgument, &format!("{what} is not UTF-8")))
+    std::str::from_utf8(bytes)
+        .map_err(|_| super::failed(Status::InvalidArgument, &format!("{what} is not UTF-8")))
 }
 
 fn output(slot: *mut u64, value: Option<Vec<u8>>) -> Result<(), i32> {
@@ -64,9 +65,11 @@ pub unsafe extern "C" fn nuppCodegenCompile(
     status((|| {
         let ir = text(ir, ir_length, "LLVM IR")?;
         let name = text(name, name_length, "module name")?;
-        let options = codegen::CompileOptions::parse(text(options, options_length, "codegen options")?)
+        let options =
+            codegen::CompileOptions::parse(text(options, options_length, "codegen options")?)
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+        let compiled = codegen::compile(ir, name, &options)
             .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-        let compiled = codegen::compile(ir, name, &options).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
         let report_text = compiled.report();
         output(object, Some(compiled.object))?;
         output(report, Some(report_text.into_bytes()))?;
@@ -81,7 +84,11 @@ pub unsafe extern "C" fn nuppCodegenCompile(
 ///
 /// # Safety
 /// `argv` must be readable for `length` bytes; `messages` null or writable.
-pub unsafe extern "C" fn nuppCodegenLink(argv: *const u8, length: usize, messages: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppCodegenLink(
+    argv: *const u8,
+    length: usize,
+    messages: *mut u64,
+) -> i32 {
     status((|| {
         let argv: Vec<String> = text(argv, length, "linker arguments")?
             .split('\0')
@@ -132,7 +139,8 @@ pub unsafe extern "C" fn nuppCodegenImportLibrary(
                 None => (n.to_string(), String::new()),
             })
             .collect();
-        codegen::import_library(dll, path, &names).map_err(|e| super::failed(Status::InvalidArgument, &e))
+        codegen::import_library(dll, path, &names)
+            .map_err(|e| super::failed(Status::InvalidArgument, &e))
     })())
 }
 
@@ -156,7 +164,8 @@ pub unsafe extern "C" fn nuppCodegenArchive(
             .filter(|m| !m.is_empty())
             .map(str::to_string)
             .collect();
-        codegen::archive(path, &members, kind).map_err(|e| super::failed(Status::InvalidArgument, &e))
+        codegen::archive(path, &members, kind)
+            .map_err(|e| super::failed(Status::InvalidArgument, &e))
     })())
 }
 
@@ -168,16 +177,34 @@ pub unsafe extern "C" fn nuppCodegenArchive(
 ///
 /// # Safety
 /// `jobs` must be readable for `length` bytes; `results` writable for one u64.
-pub unsafe extern "C" fn nuppCodegenCompileFiles(jobs: *const u8, length: usize, width: u32, results: *mut u64) -> i32 {
+pub unsafe extern "C" fn nuppCodegenCompileFiles(
+    jobs: *const u8,
+    length: usize,
+    width: u32,
+    results: *mut u64,
+) -> i32 {
     status((|| {
         let mut parsed = Vec::new();
-        for record in text(jobs, length, "compile jobs")?.split('\0').filter(|r| !r.is_empty()) {
+        for record in text(jobs, length, "compile jobs")?
+            .split('\0')
+            .filter(|r| !r.is_empty())
+        {
             let mut fields = record.splitn(3, '\u{1f}');
-            let (Some(ir), Some(object), Some(options)) = (fields.next(), fields.next(), fields.next()) else {
-                return Err(super::failed(Status::InvalidArgument, "a compile job needs an IR path, an object path and options"));
+            let (Some(ir), Some(object), Some(options)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                return Err(super::failed(
+                    Status::InvalidArgument,
+                    "a compile job needs an IR path, an object path and options",
+                ));
             };
-            let options = codegen::CompileOptions::parse(options).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-            parsed.push(codegen::Job { ir: ir.into(), object: object.into(), options });
+            let options = codegen::CompileOptions::parse(options)
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+            parsed.push(codegen::Job {
+                ir: ir.into(),
+                object: object.into(),
+                options,
+            });
         }
         let answers = codegen::compile_files(&parsed, width as usize);
         let mut out = String::new();
@@ -235,9 +262,15 @@ pub unsafe extern "C" fn nuppCodegenKitUnpack(
         let archive = text(archive, archive_length, "kit archive path")?;
         let sha256 = text(sha256, sha256_length, "kit digest")?;
         let root = text(root, root_length, "kit directory")?;
-        let bytes = std::fs::read(archive)
-            .map_err(|e| super::failed(Status::InvalidArgument, &format!("cannot read {archive}: {e}")))?;
-        codegen::kit::verify(&bytes, size, sha256).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-        codegen::kit::unpack(&bytes, std::path::Path::new(root)).map_err(|e| super::failed(Status::InvalidArgument, &e))
+        let bytes = std::fs::read(archive).map_err(|e| {
+            super::failed(
+                Status::InvalidArgument,
+                &format!("cannot read {archive}: {e}"),
+            )
+        })?;
+        codegen::kit::verify(&bytes, size, sha256)
+            .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+        codegen::kit::unpack(&bytes, std::path::Path::new(root))
+            .map_err(|e| super::failed(Status::InvalidArgument, &e))
     })())
 }

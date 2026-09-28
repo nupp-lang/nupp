@@ -28,7 +28,11 @@ fn main() {
         .flag_if_supported("-fasynchronous-unwind-tables")
         .warnings(false);
     if target.contains("apple") {
-        let floor = if target.starts_with("x86_64") { "10.14" } else { "11.0" };
+        let floor = if target.starts_with("x86_64") {
+            "10.14"
+        } else {
+            "11.0"
+        };
         build.flag(format!("-mmacosx-version-min={floor}"));
     }
     build.compile("nupp_aot_runtime");
