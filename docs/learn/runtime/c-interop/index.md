@@ -322,7 +322,8 @@ return {
 ```
 
 `bridge = true` selects the eligible `static inline` definitions in the named
-header. Each entry in `macros` requests one function-like macro and supplies
+header, as the preprocessor leaves it with the dependency's flags, so a
+definition inside `#if 0` or a block for another platform is not wrapped. Each entry in `macros` requests one function-like macro and supplies
 the type C itself does not provide, and omitting `result` means the wrapper
 returns `void`, as `IMAGE_IGNORE` does above. The admitted recipe types are:
 

@@ -212,6 +212,49 @@ function M.macroConstants()
       "unevaluable macro must not be emitted")
 end
 
+local function scratchHeader(name, text)
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local handle = assert(io.open(dir .. "/" .. name, "wb"))
+   handle:write(text)
+   handle:close()
+   return dir .. "/" .. name, dir
+end
+
+function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
+   if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("cc is unavailable")
+   end
+   local path, dir = scratchHeader("vec.h", table.concat({
+      "#ifndef NUPP_VEC_H",
+      "#define NUPP_VEC_H",
+      "#include <stdint.h>",
+      "typedef int32_t vec2_t;",
+      "static inline vec2_t vec2(vec2_t x) { return x * 2; }",
+      "#if 0",
+      "static inline int32_t vec_disabled(int32_t x) { return x; }",
+      "#endif",
+      "#ifdef NUPP_VEC_NEVER_DEFINED",
+      "static inline int32_t vec_elsewhere(int32_t x) { return x; }",
+      "#endif",
+      "#endif",
+   }, "\n") .. "\n")
+   local text, warnings, details = importc.import(path, {bridge = true, bridgeInclude = "vec.h"})
+   assert(text, table.concat(warnings or {}, "; "))
+   assertEq(details.bridged, 1, "only vec2 is compiled on this platform")
+   assert(not details.bridgeSource:find("vec_disabled", 1, true), details.bridgeSource)
+   assert(not details.bridgeSource:find("vec_elsewhere", 1, true), details.bridgeSource)
+   assertContains(details.bridgeSource, "(vec2_t x) {", "the parameter type keeps its name")
+   local source = dir .. "/bridge.c"
+   local handle = assert(io.open(source, "wb"))
+   handle:write(details.bridgeSource)
+   handle:close()
+   local compiled = os.execute(("cc -fsyntax-only -I'%s' '%s'"):format(dir, source)) == 0
+   os.execute("rm -rf '" .. dir .. "'")
+   assert(compiled, "the generated bridge compiles:\n" .. details.bridgeSource)
+end
+
 function M.typedefsResolveThroughTheTranslationUnit()
    -- mini.h has no typedefs of its own; this exercises the resolver on a
    -- header whose vocabulary comes from elsewhere (size_t via stddef.h)

@@ -1180,7 +1180,9 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         local identity = table.concat({"c-bridge-v1", headerBase, logicalName, cDeclaration}, "\0")
         local symbol = "__nupp_bridge_" .. hash.sha256(identity):sub(1, 24)
         bridgePreamble()
-        local wrapperDeclaration = cDeclaration:gsub("%f[%w_]" .. logicalName .. "%f[%W]", symbol, 1)
+        -- The name as a whole identifier: `_` is part of one, so `vec2` must not
+        -- match the front of `vec2_t`.
+        local wrapperDeclaration = cDeclaration:gsub("%f[%w_]" .. logicalName .. "%f[^%w_]", symbol, 1)
         bridgeLines[#bridgeLines + 1] = "NUPP_BRIDGE_EXPORT " .. wrapperDeclaration .. " {"
         local call = callExpression or (logicalName .. "(" .. table.concat(callArgs, ", ") .. ")")
         bridgeLines[#bridgeLines + 1] = (ret and "    return " or "    ") .. call .. ";"
@@ -1204,7 +1206,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         ] = {name = logicalName, kind = callExpression and "bridge-macro" or "bridge-inline", symbol = symbol,}
     end
 
-    local candidates = staticInlineSignatures(normalize(raw:gsub("/%*.-%*/", " "):gsub("//[^\n]*", " ")))
+    local candidates = staticInlineSignatures(targetText)
     if opts.bridge then
         local prototypes = {}
         for _, candidate in ipairs(candidates) do
