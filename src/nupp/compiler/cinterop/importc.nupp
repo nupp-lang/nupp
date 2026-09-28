@@ -5,9 +5,11 @@ Ejecting a typed Nupp module from a C header.
 
 The pipeline: `cc -E` preprocesses; the linemarkers it leaves attribute every
 line to its origin file, so only the requested header's own declarations are
-kept; attributes and asm renames are normalized away; LuaJIT's own C parser
-supplies a neutral declaration model through `nupp.compiler.cinterop.cdecl`; and that model is
-emitted as typed `cdef` declarations. Anything the Nupp C surface cannot express
+kept; decoration LuaJIT does not read is normalized away, while the attributes it
+lays declarations out by are kept; LuaJIT's own C parser supplies a neutral
+declaration model through `nupp.compiler.cinterop.cdecl`; and that model is
+emitted as typed `cdef` declarations. A struct is emitted only when its rendering
+lays out exactly as the header's does. Anything the Nupp C surface cannot express
 is ejected as a comment, since the output is a committed, hand-editable file, never a
 black box.
 
@@ -74,39 +76,145 @@ local function targetMarker(preprocessed, headerPath)
     return fallback or headerPath
 end
 
--- Keeps only lines attributed (by cpp linemarkers) to the exact target header.
-local function filterToHeader(preprocessed, headerPath)
+-- Keeps only lines attributed (by cpp linemarkers) to the exact target header, and
+-- says which line of the header each kept line was: a linemarker names the line that
+-- follows it, and every line after that is one more.
+local function filterToHeader(preprocessed: string, headerPath: string): (string, {integer})
     local target = targetMarker(preprocessed, headerPath)
-    local keep = {}
+    local keep: {string} = {}
+    local lines: {integer} = {}
     local current = ""
+    local lineNumber: integer = 0
     for line in (preprocessed .. "\n"):gmatch("(.-)\n") do
-        local file = line:match('^#%s*%d+%s+"([^"]*)"')
+        local number, file = line:match('^#%s*(%d+)%s+"([^"]*)"')
         if file then
             current = file
-        elseif current == target and line:match("%S") then
-            keep[#keep + 1] = line
+            lineNumber = ((tonumber(number) or 1) as integer) - 1
+        else
+            lineNumber = lineNumber + 1
+            if current == target and line:match("%S") then
+                keep[#keep + 1] = line
+                lines[#lines + 1] = lineNumber
+            end
         end
     end
 
-    return table.concat(keep, "\n")
+    return table.concat(keep, "\n"), lines
 end
 
 ----------------------------------------------------------------------------
 -- Splitting the output into statements
 ----------------------------------------------------------------------------
 
--- Strips compiler-specific decoration LuaJIT's parser may reject.
-local function normalize(text)
-    -- balanced __attribute__((...)) (loop handles nesting)
-    while true do
-        local s2, changed = text:gsub("__attribute__%s*%(%b()%)", "")
-        text = s2
-        if changed == 0 then
-            break
+-- Attributes LuaJIT's parser reads and lays out by. They stay, because dropping one
+-- is what turned a packed or aligned struct into a plain one with the same fields.
+local LUAJIT_ATTRIBUTES: {
+    [string]: boolean
+} = {
+    aligned = true,
+    packed = true,
+    mode = true,
+    vector_size = true,
+    regparm = true,
+    cdecl = true,
+    thiscall = true,
+    fastcall = true,
+    stdcall = true,
+    sseregparm = true,
+}
+
+-- Attributes that change a layout, a calling convention or a symbol, which LuaJIT
+-- would skip without a word. A declaration carrying one is refused rather than
+-- imported as the declaration it would be without it.
+local REFUSED_ATTRIBUTES: {
+    [string]: boolean
+} = {
+    ext_vector_type = true,
+    matrix_type = true,
+    ms_struct = true,
+    gcc_struct = true,
+    transparent_union = true,
+    ms_abi = true,
+    sysv_abi = true,
+    vectorcall = true,
+    regcall = true,
+    pcs = true,
+    overloadable = true,
+    swiftcall = true,
+    swiftasynccall = true,
+    preserve_most = true,
+    preserve_all = true,
+    aarch64_vector_pcs = true,
+    aarch64_sve_pcs = true,
+}
+
+-- What a refused attribute is replaced with, so the declaration holding it can be
+-- found and reported once the text is split into statements.
+local REFUSED_MARKER = "__nupp_refused_attribute_"
+
+-- Every rewrite below keeps the newlines of what it replaces, so a statement's line
+-- in the rewritten text is still its line in the header.
+local function newlinesOf(text: string): string
+    return (text:gsub("[^\n]", ""))
+end
+
+-- The top-level items of an attribute list: `aligned(8), packed` is two.
+local function attributeItems(list: string): {string}
+    local items: {string} = {}
+    local depth, start = 0, 1
+    for index = 1, #list do
+        local ch = list:sub(index, index)
+        if ch == "(" then
+            depth = depth + 1
+        elseif ch == ")" then
+            depth = depth - 1
+        elseif ch == "," and depth == 0 then
+            items[#items + 1] = list:sub(start, index - 1)
+            start = index + 1
         end
     end
-    text = text:gsub("__asm__%s*%b()", "")
-    text = text:gsub("__asm%s*%b()", "")
+    items[#items + 1] = list:sub(start)
+
+    return items
+end
+
+local function rewriteAttribute(whole: string, parens: string, keepLayout: boolean?): string
+    local kept: {string} = {}
+    for _, item in ipairs(attributeItems(parens:sub(3, -3))) do
+        local name = item:match("^%s*([%a_][%w_]*)")
+        if name then
+            local bare = name:gsub("^__", ""):gsub("__$", "")
+            if REFUSED_ATTRIBUTES[bare] then
+                return " " .. REFUSED_MARKER .. bare .. " " .. newlinesOf(whole)
+            end
+            if keepLayout and LUAJIT_ATTRIBUTES[bare] then
+                kept[#kept + 1] = (item:gsub("^%s+", ""):gsub("%s+$", ""))
+            end
+        end
+    end
+    if #kept == 0 then
+        return " " .. newlinesOf(whole)
+    end
+
+    return " __attribute__((" .. table.concat(kept, ", ") .. ")) " .. newlinesOf(whole)
+end
+
+-- Strips compiler-specific decoration LuaJIT's parser may reject. With `keepLayout`,
+-- the attributes LuaJIT lays a declaration out by survive; without it, every attribute
+-- goes, which is what a scan that only looks for names wants.
+local function normalize(text: string, keepLayout: boolean?): string
+    for _, spelling in ipairs({"__attribute__", "__attribute"}) do
+        text = text:gsub(spelling .. "%s*(%(%b()%))", function(parens)
+            -- A lone pair of parentheses is not an attribute list, and whatever it is
+            -- stays as written.
+            if parens:sub(1, 2) ~= "((" then
+                return nil
+            end
+            return rewriteAttribute(spelling .. parens, parens, keepLayout)
+        end)
+    end
+    text = text:gsub("__asm__%s*%b()", newlinesOf)
+    text = text:gsub("__asm%s*%b()", newlinesOf)
     text = text:gsub("__inline__", "inline"):gsub("__inline", "inline")
     for _, word in ipairs({
         "__restrict__",
@@ -122,45 +230,124 @@ local function normalize(text)
     return text
 end
 
+--- One statement of a header: its text, the header line it starts on, and whether a
+--- `#pragma pack` was in force while it was written.
+type importc.Statement = {
+    text: string,
+    line: integer?,
+    packed: boolean
+}
+
+-- `#pragma pack(...)` state after one directive, as a stack of alignments. An empty
+-- stack or a zero top means the default layout.
+local function applyPack(directive: string, stack: {integer}): {integer}
+    local args = directive:match("^%s*#%s*pragma%s+pack%s*(%b())")
+    if not args then
+        return stack
+    end
+    local parts: {string} = {}
+    for part in args:sub(2, -2):gmatch("[^,]+") do
+        parts[#parts + 1] = (part:gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+    local current = stack[#stack] or 0
+    if parts[1] == "push" then
+        stack[#stack + 1] = (tonumber(parts[#parts]) or current) as integer
+    elseif parts[1] == "pop" then
+        stack[#stack] = nil
+    else
+        -- `pack(N)` replaces the top; `pack()` restores the default.
+        stack[math.max(#stack, 1)] = (tonumber(parts[1]) or 0) as integer
+    end
+
+    return stack
+end
+
 -- Splits into statements at ';' outside braces; a struct body rides along with its
 -- statement.
-local function statements(text)
-    local out, buf, depth = {}, {}, 0
-    for ch in text:gmatch(".") do
-        local discard = false
-        if ch == "{" then
-            depth = depth + 1
+--
+-- A directive line the preprocessor left behind, which in practice is a `#pragma`, is
+-- not part of any statement. Glued onto the declaration after it, as it once was, it
+-- took that declaration with it: LuaJIT skips an unknown pragma to the end of its
+-- line, and a statement joined onto one line has nothing after that. The pragma that
+-- matters, `pack`, is tracked instead, so a struct laid out under it can be refused.
+local function statements(text: string, lineMap: {integer}?): {importc.Statement}
+    local out: {importc.Statement} = {}
+    local buf: {string} = {}
+    local depth = 0
+    local line: integer = 1
+    local startLine: integer? = nil
+    local atLineStart = true
+    local pack: {integer} = {}
+    local packed = false
+    local index = 1
+    local length = #text
 
-        elseif ch == "}" then
-            depth = depth - 1
-            if depth == 0 then
-                local prefix = table.concat(buf):gsub("^%s+", "")
-                local aggregate = prefix:match("^typedef%s+struct%f[%W]")
-                    or prefix:match("^typedef%s+union%f[%W]")
-                    or prefix:match("^typedef%s+enum%f[%W]")
-                    or prefix:match("^struct%f[%W]")
-                    or prefix:match("^union%f[%W]")
-                    or prefix:match("^enum%f[%W]")
-                if prefix:find("%b()") and not aggregate then
-                    -- A function definition has no declaration-ending semicolon.
-                    -- Drop it here so it cannot glue itself to the declaration
-                    -- which follows. Header-only functions are inventoried by the
-                    -- bridge scanner separately.
-                    buf = {}
-                    discard = true
+    local function reset()
+        buf = {}
+        startLine = nil
+        packed = false
+    end
+
+    while index <= length do
+        local ch = text:sub(index, index)
+        if atLineStart and ch == "#" then
+            local eol = text:find("\n", index, true) or (length + 1)
+            pack = applyPack(text:sub(index, eol - 1), pack)
+            index = eol
+        else
+            local discard = false
+            if ch == "{" then
+                depth = depth + 1
+
+            elseif ch == "}" then
+                depth = depth - 1
+                if depth == 0 then
+                    local prefix = table.concat(buf):gsub("^%s+", "")
+                    local aggregate = prefix:match("^typedef%s+struct%f[%W]")
+                        or prefix:match("^typedef%s+union%f[%W]")
+                        or prefix:match("^typedef%s+enum%f[%W]")
+                        or prefix:match("^struct%f[%W]")
+                        or prefix:match("^union%f[%W]")
+                        or prefix:match("^enum%f[%W]")
+                    if prefix:find("%b()") and not aggregate then
+                        -- A function definition has no declaration-ending semicolon.
+                        -- Drop it here so it cannot glue itself to the declaration
+                        -- which follows. Header-only functions are inventoried by the
+                        -- bridge scanner separately.
+                        reset()
+                        discard = true
+                    end
                 end
             end
-        end
-        if discard then
-            -- The closing brace belongs to the discarded definition.
-        elseif ch == ";" and depth == 0 then
-            local stmt = table.concat(buf):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-            if #stmt > 0 then
-                out[#out + 1] = stmt
+            if discard then
+                -- The closing brace belongs to the discarded definition.
+            elseif ch == ";" and depth == 0 then
+                local stmt = table.concat(buf):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+                if #stmt > 0 then
+                    out[
+                        #out + 1
+                    ] = {
+                        text = stmt,
+                        line = startLine and (lineMap and lineMap[startLine] or startLine),
+                        packed = packed,
+                    }
+                end
+                reset()
+            else
+                if not ch:match("%s") then
+                    startLine = startLine or line
+                    local top = pack[#pack]
+                    packed = packed or (top ~= nil and top > 0)
+                end
+                buf[#buf + 1] = ch
             end
-            buf = {}
-        else
-            buf[#buf + 1] = ch
+            if ch == "\n" then
+                line = line + 1
+                atLineStart = true
+            elseif not ch:match("%s") then
+                atLineStart = false
+            end
+            index = index + 1
         end
     end
 
@@ -191,10 +378,11 @@ end
 --
 -- A name repeated by two headers keeps its first spelling; a later identical typedef is
 -- legal C and adds nothing.
-local function collectTypedefs(stmts)
+local function collectTypedefs(stmts: {importc.Statement})
     local defs, seen = {}, {}
-    for _, stmt in ipairs(stmts) do
-        if stmt:match("^typedef%f[%W]") and not stmt:find("[{}()]") then
+    for _, statement in ipairs(stmts) do
+        local stmt = statement.text
+        if stmt:match("^typedef%f[%W]") and not stmt:find("[{}()]") and not stmt:find(REFUSED_MARKER, 1, true) then
             local body = stmt:gsub("^typedef%s+", "")
             local base, name = body:match("^(.-)%s*%f[%w_]([%a_][%w_]*)$")
             if base and name and base:match("%S") and not seen[name] then
@@ -250,10 +438,19 @@ end
 local renderType
 local renderFunctionType
 
+-- A name for what a struct reference points at, whether the struct has its own tag or
+-- only a typedef's.
+local function aggregateName(model, knownStructs): string?
+    return model and (model.name or (model.id and knownStructs[model.id] or nil)) or nil
+end
+
 -- Nupp's cdef surface deliberately gives byte strings and opaque primitive pointers
 -- friendly boundary types. Struct identity and every numeric width, however, come from
 -- LuaJIT's parsed model rather than from C spelling.
-renderType = function(model, knownStructs, callbacks)
+--
+-- A type with no rendering comes back as nil and the reason, which is what the skip
+-- that follows reports.
+renderType = function(model, knownStructs): (string?, string?)
     local kind = model and model.kind or "unknown"
     if kind == "boolean" then
         return "boolean"
@@ -264,61 +461,68 @@ renderType = function(model, knownStructs, callbacks)
         if model.bits == 64 then
             return "number"
         end
-        return nil
+        return nil, ("a %d-bit float"):format(model.bits or 0)
     elseif kind == "integer" or kind == "enum" then
         local pair = INTEGER_TYPE[model.bits]
         if not pair then
-            return nil
+            return nil, ("a %d-bit integer"):format(model.bits or 0)
         end
         return model.unsigned and pair[2] or pair[1]
     elseif kind == "struct" or kind == "union" then
-        local name = model.name or (model.id and knownStructs[model.id] or nil)
+        local name = aggregateName(model, knownStructs)
         if name and knownStructs[name] then
             return name
         end
-        return nil
+        return nil, ("%s %s is not imported"):format(kind, tostring(name or "(anonymous)"))
     elseif kind == "pointer" then
         local pointee = model.to
         if pointee and pointee.kind == "integer" and pointee.bits == 8 and model.const then
             return "cstring?"
         end
         if pointee and pointee.kind == "function" then
-            local rendered = renderFunctionType(pointee, knownStructs)
-            return rendered and (rendered .. "?") or nil
+            local rendered, why = renderFunctionType(pointee, knownStructs)
+            return rendered and (rendered .. "?") or nil, why
         end
-        local aggregateName = pointee and (pointee.name or (pointee.id and knownStructs[pointee.id] or nil)) or nil
+        local pointeeName = aggregateName(pointee, knownStructs)
         if pointee
             and (pointee.kind == "struct" or pointee.kind == "union")
-            and aggregateName
-            and knownStructs[aggregateName]
+            and pointeeName
+            and knownStructs[pointeeName]
         then
-            return (model.const and "const " or "") .. aggregateName .. "*?"
+            return (model.const and "const " or "") .. pointeeName .. "*?"
         end
         if pointee and pointee.kind == "void" then
             return "voidptr"
         end
-        local rendered = renderType(pointee, knownStructs, true)
+        local rendered, why = renderType(pointee, knownStructs)
         if rendered then
             return (model.const and "const " or "") .. rendered .. "*?"
         end
-        return nil
+        return nil, why
     elseif kind == "array" then
-        local element = renderType(model.of, knownStructs, true)
-        if not element or not model.count or model.count < 0 or model.count % 1 ~= 0 then
-            return nil
+        local element, why = renderType(model.of, knownStructs)
+        if not element then
+            return nil, why
+        end
+        if not model.count or model.count < 0 or model.count % 1 ~= 0 then
+            return nil, "an array with no fixed length"
         end
         return element .. "[" .. tostring(model.count) .. "]"
+    elseif kind == "vector" then
+        return nil, "a vector type"
+    elseif kind == "complex" then
+        return nil, "a complex type"
     end
 
-    return nil
+    return nil, "a C type Nupp does not spell"
 end
 
-renderFunctionType = function(fn, knownStructs)
+renderFunctionType = function(fn, knownStructs): (string?, string?)
     local params = {}
     for _, param in ipairs(fn.params or {}) do
-        local rendered = renderType(param.type, knownStructs, false)
+        local rendered, why = renderType(param.type, knownStructs)
         if not rendered then
-            return nil
+            return nil, why
         end
         params[#params + 1] = rendered
     end
@@ -327,14 +531,85 @@ renderFunctionType = function(fn, knownStructs)
     end
     local out = "function(" .. table.concat(params, ", ") .. ")"
     if fn.returns and fn.returns.kind ~= "void" then
-        local ret = renderType(fn.returns, knownStructs, false)
+        local ret, why = renderType(fn.returns, knownStructs)
         if not ret then
-            return nil
+            return nil, why
         end
         out = out .. ": " .. ret
     end
 
     return out
+end
+
+-- The C member declaration a rendered field lowers to, spelled from the same model
+-- decisions `renderType` made: the widths it chose, and a pointer for every kind of
+-- pointer, since all of them are one pointer wide. LuaJIT lays these out, and the
+-- answer is compared with the header's own layout.
+local function probeDeclarator(model, name: string, knownStructs): string?
+    local kind = model and model.kind or "unknown"
+    if kind == "integer" or kind == "enum" then
+        if not INTEGER_TYPE[model.bits] then
+            return nil
+        end
+        return ("%sint%d_t %s"):format(model.unsigned and "u" or "", model.bits, name)
+    elseif kind == "boolean" then
+        return "bool " .. name
+    elseif kind == "float" then
+        return (model.bits == 32 and "float " or "double ") .. name
+    elseif kind == "pointer" then
+        return "void *" .. name
+    elseif kind == "struct" or kind == "union" then
+        if model.name then
+            return kind .. " " .. model.name .. " " .. name
+        end
+        local typedef = model.id and knownStructs[model.id] or nil
+        return typedef and (typedef .. " " .. name) or nil
+    elseif kind == "array" and model.count then
+        return probeDeclarator(model.of, name .. "[" .. tostring(model.count) .. "]", knownStructs)
+    end
+
+    return nil
+end
+
+-- Why a struct as rendered would not lay out the way the header's does, or nil when it
+-- would. Size, alignment, and every member's offset and bit position are compared.
+-- What moves them without changing any member's type -- packing, an aligned member or
+-- typedef -- shows up here and nowhere else.
+local function layoutProblem(declaration, knownStructs): string?
+    local body = {}
+    for _, field in ipairs(declaration.fields) do
+        local member = probeDeclarator(field.type, field.name, knownStructs)
+        if not member then
+            return ("member %s has no C spelling"):format(field.name)
+        end
+        body[#body + 1] = member .. (field.bitWidth and (" : " .. tostring(field.bitWidth)) or "") .. ";"
+    end
+    local rendered, err = cdecl.layout(declaration.kind, table.concat(body, " "))
+    if not rendered then
+        return "the rendered members do not parse: " .. tostring(err)
+    end
+    if rendered.size ~= declaration.size then
+        return ("it is %s bytes in C and %s as rendered"):format(tostring(declaration.size), tostring(rendered.size))
+    end
+    if rendered.align ~= declaration.align then
+        return (
+            "it is aligned to %s bytes in C and %s as rendered"
+        ):format(tostring(declaration.align), tostring(rendered.align))
+    end
+    for index, field in ipairs(declaration.fields) do
+        local other = rendered.fields[index]
+        if not other
+            or other.offset ~= field.offset
+            or other.bitPos ~= field.bitPos
+            or other.bitWidth ~= field.bitWidth
+        then
+            return (
+                "member %s is at offset %s in C and %s as rendered"
+            ):format(field.name, tostring(field.offset), tostring(other and other.offset))
+        end
+    end
+
+    return nil
 end
 
 ----------------------------------------------------------------------------
@@ -404,21 +679,29 @@ end
 -- internal-linkage definition with an ordinary parameter list. The original C
 -- compiler still validates the emitted definition; this scanner only identifies the
 -- candidate and never interprets its body.
-local function staticInlineSignatures(raw)
-    local text = normalize(raw:gsub("/%*.-%*/", " "):gsub("//[^\n]*", " "))
+--
+-- `text` is the target header as the preprocessor left it, so a definition in a block
+-- this platform compiles out is not a candidate: bridging one wrote C that called a
+-- function nothing declared. Attributes are blanked, at their own length so positions
+-- still index `text`, because `__attribute__((...))` would otherwise read as the name
+-- of the function.
+local function staticInlineSignatures(text: string)
+    local scan = text:gsub("__attribute_?_?%s*%b()", function(attribute)
+        return (attribute:gsub("[^\n]", " "))
+    end)
     local found = {}
     local cursor = 1
     while true do
-        local startAt, after, name = text:find("%f[%w_]static%s+inline%s+.-%f[%w_]([%a_][%w_]*)%s*%(", cursor)
+        local startAt, after, name = scan:find("%f[%w_]static%s+inline%s+.-%f[%w_]([%a_][%w_]*)%s*%(", cursor)
         if not startAt then
             break
         end
-        local open = text:find("(", after - 1, true)
-        local close = open and balancedEnd(text, open, "(", ")") or nil
-        local body = close and text:find("%S", close + 1) or nil
-        if body and text:sub(body, body) == "{" then
-            local signature = text:sub(startAt, close):gsub("^static%s+inline%s+", "")
-            local bodyEnd = balancedEnd(text, body, "{", "}")
+        local open = scan:find("(", (after as integer) - 1, true)
+        local close = open and balancedEnd(scan, open, "(", ")") or nil
+        local body = close and scan:find("%S", close + 1) or nil
+        if body and scan:sub(body, body) == "{" then
+            local signature = text:sub(startAt, close):gsub("^static%s+inline%s+", ""):gsub("%s+", " ")
+            local bodyEnd = balancedEnd(scan, body, "{", "}")
             found[#found + 1] = {name = name, signature = signature, startAt = startAt, endAt = bodyEnd or close}
             cursor = (bodyEnd or close) + 1
         else
@@ -426,18 +709,19 @@ local function staticInlineSignatures(raw)
         end
     end
 
-    return found, text
+    return found
 end
 
-local function withoutStaticInlineDefinitions(text)
-    local definitions, normalized = staticInlineSignatures(text)
+local function withoutStaticInlineDefinitions(text: string): string
+    local definitions = staticInlineSignatures(text)
     local out = {}
     local cursor = 1
     for _, definition in ipairs(definitions) do
-        out[#out + 1] = normalized:sub(cursor, definition.startAt - 1)
+        out[#out + 1] = text:sub(cursor, definition.startAt - 1)
+        out[#out + 1] = newlinesOf(text:sub(definition.startAt, definition.endAt))
         cursor = definition.endAt + 1
     end
-    out[#out + 1] = normalized:sub(cursor)
+    out[#out + 1] = text:sub(cursor)
 
     return table.concat(out)
 end
@@ -530,7 +814,10 @@ type importc.Disposition = {
     kind: string,
     reason: string?,
     detail: string?,
-    symbol: string?
+    symbol: string?,
+
+    --- The header line the declaration starts on, when it is known.
+    line: integer?
 }
 
 type importc.Details = {
@@ -576,7 +863,12 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         return nil, {"cc -E produced no output for " .. headerPath}
     end
 
-    local text = withoutStaticInlineDefinitions(normalize(filterToHeader(preprocessed, headerPath)))
+    -- The target's own lines, rewritten without moving any of them, so a statement's
+    -- line is still the header's.
+    local filtered, lineMap = filterToHeader(preprocessed, headerPath)
+    local targetText = normalize(filtered, true)
+    local text = withoutStaticInlineDefinitions(targetText)
+    local targetStatements = statements(text, lineMap)
 
     -- The type vocabulary comes from the whole translation unit: a header's own
     -- declarations are usually written in typedefs that live in the headers it
@@ -587,11 +879,11 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     -- declared twice, since pre-declaring one here would fail the parse of the very
     -- header being imported.
     local ownTypedefs = {}
-    for _, def in ipairs(collectTypedefs(statements(text))) do
+    for _, def in ipairs(collectTypedefs(targetStatements)) do
         ownTypedefs[def.name] = true
     end
     local typedefText = {}
-    for _, def in ipairs(collectTypedefs(statements(normalize(stripLinemarkers(preprocessed))))) do
+    for _, def in ipairs(collectTypedefs(statements(normalize(stripLinemarkers(preprocessed), true)))) do
         if not ownTypedefs[def.name] then
             typedefText[#typedefText + 1] = ("typedef %s %s;"):format(def.base, def.name)
         end
@@ -605,23 +897,48 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     -- the header. `fcntl.h` holds one struct laid out from a type whose definition
     -- another header owns, and taking the file as one unit spent `open` and `fcntl` on
     -- it.
-    local units = {}
-    for _, statement in ipairs(statements(text)) do
-        units[#units + 1] = statement .. ";"
+    --
+    -- A statement carrying an attribute that would change it unseen is not offered to
+    -- LuaJIT at all: LuaJIT would take it, without the attribute.
+    local units: {string} = {}
+    local unitStatements: {importc.Statement} = {}
+    local refusedStatements: {importc.Statement} = {}
+    for _, statement in ipairs(targetStatements) do
+        if statement.text:find(REFUSED_MARKER, 1, true) then
+            refusedStatements[#refusedStatements + 1] = statement
+        else
+            units[#units + 1] = statement.text .. ";"
+            unitStatements[#units] = statement
+        end
     end
     local parsed, ffiErr = cdecl.inspect(units, typedefText)
     if not parsed then
         return nil, {"LuaJIT cdef: " .. tostring(ffiErr)}
     end
 
+    local function lineOf(unit: integer?): integer?
+        local statement = unit and unitStatements[unit] or nil
+        return statement and statement.line or nil
+    end
+
+    -- `header.h:12: ` when the line is known, for a warning.
+    local function where(line: integer?): string
+        return line and (headerBase .. ":" .. tostring(line) .. ": ") or ""
+    end
+
+    -- ` at header.h:12` when the line is known, for a comment.
+    local function at(line: integer?): string
+        return line and (" at " .. headerBase .. ":" .. tostring(line)) or ""
+    end
+
     local out = {}
     local exports: {string} = {}
     local knownStructs = {}
-    local details = {direct = 0, bridged = 0, skipped = #parsed.rejected, dispositions = {},}
+    local details = {direct = 0, bridged = 0, skipped = #parsed.rejected + #refusedStatements, dispositions = {},}
     for _, reject in ipairs(parsed.rejected) do
         details.dispositions[
             #details.dispositions + 1
-        ] = {kind = "skipped", reason = "parse-failure", detail = reject.reason,}
+        ] = {kind = "skipped", reason = "parse-failure", detail = reject.reason, line = lineOf(reject.unit),}
     end
 
     local function emit(line)
@@ -641,36 +958,108 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     -- the way out. The count is the part that carries: one skipped declaration out of
     -- thirty is a header with a corner in it, and twenty-seven out of thirty is a
     -- vocabulary that broke upstream and a module not worth having.
-    if #parsed.rejected > 0 then
+    local rejectedTotal = #parsed.rejected + #refusedStatements
+    if rejectedTotal > 0 then
+        for _, statement in ipairs(refusedStatements) do
+            local attribute = statement.text:match(REFUSED_MARKER .. "([%w_]+)") or "?"
+            local reason = ("the %s attribute changes it in a way LuaJIT would not see"):format(attribute)
+            emit(("-- import-c: skipped declaration%s (unsupported-attribute: %s)"):format(at(statement.line), reason))
+            emit("--   " .. statement.text:gsub(REFUSED_MARKER, "__attribute__ "):sub(1, 100))
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {kind = "skipped", reason = "unsupported-attribute", detail = reason, line = statement.line,}
+            warnings[#warnings + 1] = where(statement.line) .. "skipped a declaration: " .. reason
+        end
         for _, reject in ipairs(parsed.rejected) do
-            emit(("-- import-c: skipped declaration (%s)"):format(reject.reason))
+            emit(("-- import-c: skipped declaration%s (%s)"):format(at(lineOf(reject.unit)), reject.reason))
             emit("--   " .. reject.text:sub(1, 100))
         end
         emit("")
+        local first = parsed.rejected[1] and parsed.rejected[1].reason or "an unsupported attribute"
         warnings[
             #warnings + 1
-        ] = ("%d of %d declarations skipped: %s"):format(#parsed.rejected, parsed.declared, parsed.rejected[1].reason)
+        ] = ("%d of %d declarations skipped: %s"):format(rejectedTotal, parsed.declared + #refusedStatements, first)
     end
 
+    -- One skip, said three ways: a comment in the file that is missing the declaration,
+    -- a disposition for tools, and, for a layout the rendering would have got wrong, a
+    -- warning on the way out.
+    local function skip(kind: string, name: string?, reason: string, detail: string?, line: integer?, warn: boolean?)
+        emit(
+            (
+                "-- import-c: skipped %s %s%s (%s%s)"
+            ):format(kind, tostring(name), at(line), reason, detail and (": " .. detail) or "")
+        )
+        details.skipped = details.skipped + 1
+        details.dispositions[
+            #details.dispositions + 1
+        ] = {name = name, kind = "skipped", reason = reason, detail = detail, line = line,}
+        if warn then
+            warnings[
+                #warnings + 1
+            ] = ("%sskipped %s %s: %s"):format(where(line), kind, tostring(name), detail or reason)
+        end
+    end
+
+    -- A struct is imported only when the rendering is the same struct: every member
+    -- named and rendered, and the rendered members laying out at the header's offsets.
+    -- Anything else was the struct that checked, loaded, and was the wrong size.
     for _, declaration in ipairs(parsed.structs) do
         local name = declaration.name
+        local line = lineOf(declaration.unit)
+        local unitStatement = declaration.unit and unitStatements[declaration.unit] or nil
         local fields: {string} = {}
-        local ok = identifier(name) and true or false
-        if ok then
+        local reason, detail, warn = nil, nil, false
+        if not identifier(name) then
+            reason, detail = "reserved-name", "its name is not a Nupp identifier"
+        else
             knownStructs[name] = true
-            knownStructs[declaration.id] = name
-        end -- self pointers are legal
-        for _, field in ipairs(declaration.fields) do
-            local rendered = renderType(field.type, knownStructs, false)
-            if not rendered or not identifier(field.name) then
-                ok = false
-                break
-            end
-            fields[
-                #fields + 1
-            ] = "   " .. field.name .. ": " .. rendered .. (field.bitWidth and " : " .. tostring(field.bitWidth) or "")
+            knownStructs[declaration.id] = name -- self pointers are legal
         end
-        if ok then
+        if not reason and declaration.anonymous > 0 then
+            reason, detail, warn = "anonymous-member", "an anonymous member's fields would promote into it", true
+        end
+        if not reason and declaration.unnamed > 0 then
+            reason, detail, warn = "unnamed-member", "an unnamed member or bitfield pads it", true
+        end
+        if not reason and declaration.size == nil and #declaration.fields > 0 then
+            reason, detail = "incomplete", "C gives it no size"
+        end
+        if not reason then
+            for _, field in ipairs(declaration.fields) do
+                local rendered, why = renderType(field.type, knownStructs)
+                if not identifier(field.name) then
+                    reason, detail = "reserved-name", ("member %s is not a Nupp identifier"):format(field.name)
+                elseif not rendered then
+                    reason, detail = "unsupported-field-type", ("member %s is %s"):format(field.name, tostring(why))
+                elseif field.bitWidth and field.type and field.type.kind == "boolean" then
+                    reason, detail = "unsupported-field-type", ("member %s is a bool bitfield"):format(field.name)
+                end
+                if reason then
+                    break
+                end
+                fields[
+                    #fields + 1
+                ] = "   " .. field.name .. ": " .. (
+                    rendered as string
+                ) .. (field.bitWidth and " : " .. tostring(field.bitWidth) or "")
+            end
+        end
+        if not reason and unitStatement and unitStatement.packed then
+            reason, detail, warn = "pragma-pack", "it is laid out under #pragma pack", true
+        end
+        if not reason and declaration.size ~= nil then
+            local problem = layoutProblem(declaration, knownStructs)
+            if problem then
+                reason, detail, warn = "layout-mismatch", problem, true
+            end
+        end
+        if not reason then
+            if declaration.size == nil then
+                -- A handle: a pointer to it is an ordinary parameter or result, and it
+                -- never exists by value.
+                emit(("-- import-c: %s is incomplete in C: use it only behind a pointer"):format(name))
+            end
             emit("cdef " .. declaration.kind .. " " .. name)
             for _, field in ipairs(fields) do
                 emit(field)
@@ -678,29 +1067,29 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
             emit("end")
             emit("")
             exports[#exports + 1] = name
-            details.dispositions[#details.dispositions + 1] = {name = name, kind = "type-only"}
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {name = name, kind = "type-only", detail = declaration.size == nil and "incomplete" or nil,}
         else
             knownStructs[name] = nil
             knownStructs[declaration.id] = nil
-            emit("-- import-c: skipped " .. declaration.kind .. " " .. tostring(name) .. " (unsupported field type)")
-            details.skipped = details.skipped + 1
-            details.dispositions[
-                #details.dispositions + 1
-            ] = {name = name, kind = "skipped", reason = "unsupported-field-type",}
+            skip(declaration.kind, name, reason, detail, line, warn)
         end
     end
 
     for _, fn in ipairs(parsed.functions) do
         local params = {}
         local ok = identifier(fn.name) and true or false
+        local why: string? = not ok and "its name is not a Nupp identifier" or nil
         local takes = {}
         for _, position in ipairs(takenParameters[fn.name] or {}) do
             takes[position] = true
         end
-        for index, param in ipairs(fn.params or {}) do
-            local rendered = renderType(param.type, knownStructs, true)
+        for index, param in ipairs(ok and fn.params or {}) do
+            local rendered, renderWhy = renderType(param.type, knownStructs)
             if not rendered then
                 ok = false
+                why = ("parameter %d is %s"):format(index, tostring(renderWhy))
                 break
             end
             if takes[index] and cleanupTerminals[fn.name] then
@@ -713,10 +1102,12 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
             params[#params + 1] = "..."
         end
         local ret
-        if fn.returns and fn.returns.kind ~= "void" then
-            ret = renderType(fn.returns, knownStructs, false)
+        if ok and fn.returns and fn.returns.kind ~= "void" then
+            local renderWhy
+            ret, renderWhy = renderType(fn.returns, knownStructs)
             if not ret then
                 ok = false
+                why = "its result is " .. tostring(renderWhy)
             else
                 local cleanup = returnedOwned[fn.name]
                 if cleanup then
@@ -737,11 +1128,8 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
             details.direct = details.direct + 1
             details.dispositions[#details.dispositions + 1] = {name = fn.name, kind = "direct"}
         else
-            emit("-- import-c: skipped function " .. tostring(fn.name) .. " (unsupported C type)")
-            details.skipped = details.skipped + 1
-            details.dispositions[
-                #details.dispositions + 1
-            ] = {name = fn.name, kind = "skipped", reason = "unsupported-c-type",}
+            local reason = identifier(fn.name) and "unsupported-c-type" or "reserved-name"
+            skip("function", fn.name, reason, why, lineOf(fn.unit))
         end
     end
 
@@ -767,7 +1155,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         local callArgs = {}
         local ok = identifier(logicalName) and true or false
         for index, param in ipairs(fn.params or {}) do
-            local rendered = renderType(param.type, knownStructs, true)
+            local rendered = renderType(param.type, knownStructs)
             if not rendered then
                 ok = false
                 break
@@ -778,7 +1166,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         end
         local ret = nil
         if fn.returns and fn.returns.kind ~= "void" then
-            ret = renderType(fn.returns, knownStructs, false)
+            ret = renderType(fn.returns, knownStructs)
             ok = ok and ret ~= nil
         end
         if not ok then
@@ -816,7 +1204,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         ] = {name = logicalName, kind = callExpression and "bridge-macro" or "bridge-inline", symbol = symbol,}
     end
 
-    local candidates = staticInlineSignatures(raw)
+    local candidates = staticInlineSignatures(normalize(raw:gsub("/%*.-%*/", " "):gsub("//[^\n]*", " ")))
     if opts.bridge then
         local prototypes = {}
         for _, candidate in ipairs(candidates) do

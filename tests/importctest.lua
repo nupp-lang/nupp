@@ -372,6 +372,158 @@ function M.typedefsAreDeclaredInTheOrderCCanReadThem()
       "the chain resolved to its base type")
 end
 
+local layoutImport -- shared across cases (import once)
+
+local function layoutImported()
+   if not layoutImport then
+      local text, warnings, details = importc.import(HERE .. "/fixtures/layout.h")
+      assert(text, "layout import failed: " .. table.concat(warnings or {}, "; "))
+      layoutImport = {text = text, warnings = warnings, details = details}
+   end
+   return layoutImport
+end
+
+function M.aStructTheRenderingCannotLayOutIsRefusedWithItsLine()
+   local imported = layoutImported()
+   local byName = {}
+   for _, disposition in ipairs(imported.details.dispositions) do
+      byName[disposition.name] = disposition
+   end
+   local refused = {
+      layout_tagged = {"anonymous-member", 10},
+      layout_bits = {"unnamed-member", 20},
+      layout_wire = {"layout-mismatch", 29},
+      layout_aligned = {"layout-mismatch", 34},
+      layout_typedef_aligned = {"layout-mismatch", 41},
+      layout_pragma_packed = {"pragma-pack", 47},
+      layout_holds_vector = {"unsupported-field-type", 56},
+      layout_flags = {"unsupported-field-type", 65},
+      layout_vector_first = {"unsupported-c-type", 60},
+      layout_complex_make = {"unsupported-c-type", 61},
+      layout_complex_real = {"unsupported-c-type", 62},
+   }
+   for name, want in pairs(refused) do
+      local disposition = byName[name]
+      assert(disposition, name .. " has no disposition")
+      assertEq(disposition.kind, "skipped", name)
+      assertEq(disposition.reason, want[1], name .. " reason")
+      assertEq(disposition.line, want[2], name .. " line")
+      assert(not imported.text:find("cdef struct " .. name .. "\n", 1, true)
+         and not imported.text:find("cdef function " .. name .. "(", 1, true),
+         name .. " must not be emitted:\n" .. imported.text)
+   end
+   for _, name in ipairs({"layout_inner", "layout_mixed", "layout_value", "layout_opaque"}) do
+      assertEq(byName[name] and byName[name].kind, "type-only", name)
+   end
+   assertContains(imported.text, "skipped struct layout_tagged at layout.h:10",
+      "the comment says where the struct is")
+   local warned = table.concat(imported.warnings, "\n")
+   assertContains(warned, "layout.h:29: skipped struct layout_wire",
+      "a layout refusal is a warning on the way out")
+end
+
+function M.anIncompleteStructIsMarkedAsAHandle()
+   local text = layoutImported().text
+   assertContains(text, "-- import-c: layout_opaque is incomplete in C")
+   assertContains(text, "cdef function layout_opaque_new(): layout_opaque*?")
+end
+
+-- The structs an import emits, laid out by LuaJIT from the generated module and by
+-- the C compiler from the header, must be the same bytes.
+function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
+   if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+      return require("assert").skip("cc is unavailable")
+   end
+   local ffi = require("ffi")
+   local gen = require("nupp.compiler.lua.gen")
+   local specs = {
+      {c = "struct layout_inner", name = "layout_inner", fields = {"a", "b"}},
+      {c = "layout_mixed", name = "layout_mixed",
+         fields = {"flag", "inner", "row", "matrix", "id", "callback", "pair"}},
+      {c = "union layout_value", name = "layout_value", fields = {"i", "d", "bytes"}},
+   }
+
+   -- The header's own tags are already in this process's registry, so the emitted
+   -- declarations are renamed to lay themselves out afresh.
+   local blocks, exported, open = {}, {}, nil
+   for line in layoutImported().text:gmatch("([^\n]*)\n") do
+      if line:match("^cdef %a+ layout_[%w_]+$") then
+         open = {line}
+      elseif open then
+         open[#open + 1] = line
+         if line == "end" then
+            blocks[#blocks + 1] = (table.concat(open, "\n"):gsub("layout_", "layoutcc_"))
+            open = nil
+         end
+      end
+   end
+   for _, spec in ipairs(specs) do
+      local renamed = spec.name:gsub("layout_", "layoutcc_")
+      exported[#exported + 1] = renamed .. " = " .. renamed
+   end
+   local source = table.concat(blocks, "\n") .. "\nreturn { " .. table.concat(exported, ", ") .. " }\n"
+   local result = parser.parse(source, "layoutcc.g.nupp")
+   assert(#result.errors == 0, "renamed declarations parse: "
+      .. (result.errors[1] and result.errors[1].msg or "") .. "\n" .. source)
+   local diags = check.check(result, "layoutcc.g.nupp")
+   assert(#diags == 0, "renamed declarations check: " .. (diags[1] and diags[1].msg or ""))
+   local code = gen.generate(result, "layoutcc")
+   local types = assert(loadstring(code, "@layoutcc"))()
+
+   local lines = {}
+   for _, spec in ipairs(specs) do
+      local ct = assert(types[(spec.name:gsub("layout_", "layoutcc_"))], spec.name)
+      lines[#lines + 1] = ("%s size %d align %d"):format(spec.name, ffi.sizeof(ct), ffi.alignof(ct))
+      for _, field in ipairs(spec.fields) do
+         lines[#lines + 1] = ("%s.%s %d"):format(spec.name, field, ffi.offsetof(ct, field))
+      end
+   end
+   local mixed = ffi.new(types.layoutcc_mixed)
+   mixed.mode = 5
+   mixed.level = 17
+   local bytes = ffi.cast("uint8_t *", mixed)
+   local dump = {}
+   for index = 0, ffi.sizeof(mixed) - 1 do
+      dump[#dump + 1] = ("%02x"):format(bytes[index])
+   end
+   lines[#lines + 1] = "bits " .. table.concat(dump)
+   local luajit = table.concat(lines, "\n") .. "\n"
+
+   local program = {
+      "#include <stddef.h>",
+      "#include <stdio.h>",
+      "#include <string.h>",
+      '#include "layout.h"',
+      "int main(void) {",
+   }
+   for _, spec in ipairs(specs) do
+      program[#program + 1] = ('printf("%s size %%d align %%d\\n", (int)sizeof(%s), (int)_Alignof(%s));')
+         :format(spec.name, spec.c, spec.c)
+      for _, field in ipairs(spec.fields) do
+         program[#program + 1] = ('printf("%s.%s %%d\\n", (int)offsetof(%s, %s));')
+            :format(spec.name, field, spec.c, field)
+      end
+   end
+   program[#program + 1] = "layout_mixed m; memset(&m, 0, sizeof m); m.mode = 5; m.level = 17;"
+   program[#program + 1] = 'printf("bits "); for (size_t i = 0; i < sizeof m; i++) '
+      .. 'printf("%02x", ((unsigned char *)&m)[i]); printf("\\n");'
+   program[#program + 1] = "return 0; }"
+
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local handle = assert(io.open(dir .. "/layout.c", "wb"))
+   handle:write(table.concat(program, "\n"), "\n")
+   handle:close()
+   assert(os.execute(("cc -I'%s/fixtures' -o '%s/layout' '%s/layout.c'"):format(HERE, dir, dir)) == 0,
+      "the layout probe compiles")
+   local pipe = assert(io.popen("'" .. dir .. "/layout'"))
+   local compiled = pipe:read("*a")
+   pipe:close()
+   os.execute("rm -rf '" .. dir .. "'")
+   assertEq(luajit, compiled, "LuaJIT's layout of the imported declarations")
+end
+
 function M.outputParsesAndChecksCleanly()
    local text = imported()
    local result = parser.parse(text, "mini.d.nupp")

@@ -66,6 +66,28 @@ function M.completeDirectDeclaratorsDecode()
     assertEq(T.tostring(res.exports.nupp_complete_get_row), "function(): int32[4]*?")
 end
 
+local function scratchHeader(name, text)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'"))
+    local path = dir .. "/" .. name
+    local handle = assert(io.open(path, "wb"))
+    handle:write(text)
+    handle:close()
+    return path, dir
+end
+
+function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
+    local path, dir = scratchHeader("flags.h", "struct NuppFlagsBits { _Bool on : 1; int level : 4; };\n"
+        .. "struct NuppFlagsBits *nupp_flags_new(void);\n")
+    local res = assert(cheaderMod.load(path))
+    os.execute("rm -rf '" .. dir .. "'")
+    local result = res.exports.nupp_flags_new.rets[1]
+    local pointer = result.members[1] == T.nil_ and result.members[2] or result.members[1]
+    assertEq(T.tostring(pointer.elem.byname.on), "boolean")
+    assertEq(T.tostring(pointer.elem.byname.level), "int32")
+end
+
 function M.noPreprocessorNeededForASelfContainedHeader()
     -- the fixture has #ifndef/#include and still loads with no compiler
     local res, err = cheaderMod.load(HERE .. "/fixtures/sink.h")

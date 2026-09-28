@@ -151,4 +151,65 @@ function M.oneBlobIsStillTakenOrLeftWhole()
     assertEq(parsed, nil)
 end
 
+function M.membersWithoutANameAreCountedNotDropped()
+    local parsed, err = cdecl.inspect(table.concat({
+        "struct NuppCdeclAnonMember { int tag; union { int i; double d; }; int after; };",
+        "struct NuppCdeclPadding { unsigned a : 3; unsigned : 0; unsigned b : 3; unsigned : 5; };",
+    }, "\n"))
+    assert(parsed, err)
+    local byName = {}
+    for _, declaration in ipairs(parsed.structs) do
+        byName[declaration.name] = declaration
+    end
+    assertEq(byName.NuppCdeclAnonMember.anonymous, 1, "anonymous members")
+    assertEq(#byName.NuppCdeclAnonMember.fields, 2, "named fields")
+    assertEq(byName.NuppCdeclAnonMember.size, ffi.sizeof("struct NuppCdeclAnonMember"))
+    assertEq(byName.NuppCdeclPadding.unnamed, 2, "unnamed bitfields")
+    assertEq(byName.NuppCdeclPadding.fields[2].bitPos, 0, "b starts the unit the zero-width field opened")
+    assertEq(byName.NuppCdeclPadding.fields[2].offset, 4)
+end
+
+function M.vectorAndComplexTypesAreNotArrays()
+    local parsed, err = cdecl.inspect(table.concat({
+        "typedef float nupp_cdecl_v4 __attribute__((vector_size(16)));",
+        "nupp_cdecl_v4 nuppCdeclVector(double _Complex z);",
+    }, "\n"))
+    assert(parsed, err)
+    local fn = parsed.functions[1]
+    assertEq(fn.returns.kind, "vector")
+    assertEq(fn.params[1].type.kind, "complex")
+end
+
+function M.aBoolBitfieldIsABoolean()
+    local parsed, err = cdecl.inspect("struct NuppCdeclFlags { bool on : 1; int level : 4; };")
+    assert(parsed, err)
+    local fields = parsed.structs[1].fields
+    assertEq(fields[1].type.kind, "boolean")
+    assertEq(fields[1].bitWidth, 1)
+    assertEq(fields[2].type.kind, "integer")
+end
+
+function M.layoutAnswersForAMemberList()
+    local layout = assert(cdecl.layout("struct", "uint8_t kind; uint32_t len; uint16_t a : 3;"))
+    assertEq(layout.size, 12)
+    assertEq(layout.align, 4)
+    assertEq(layout.fields[2].offset, 4)
+    assertEq(layout.fields[3].bitWidth, 3)
+    local packed = cdecl.inspect("struct __attribute__((packed)) NuppCdeclPacked { uint8_t kind; uint32_t len; };")
+    assertEq(packed.structs[1].size, 5, "an attribute LuaJIT reads is laid out by")
+    assertEq(packed.structs[1].fields[2].offset, 1)
+end
+
+function M.eachDeclarationKnowsWhichUnitIntroducedIt()
+    local parsed, err = cdecl.inspect({
+        "int nuppCdeclUnitOne(void);",
+        "struct NuppCdeclUnitTwo { int x; };",
+        "struct NuppCdeclUnitBroken { struct NuppCdeclUnitNever inner; };",
+    })
+    assert(parsed, err)
+    assertEq(parsed.functions[1].unit, 1)
+    assertEq(parsed.structs[1].unit, 2)
+    assertEq(parsed.rejected[1].unit, 3)
+end
+
 return M

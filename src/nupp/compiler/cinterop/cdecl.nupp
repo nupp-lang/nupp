@@ -13,26 +13,31 @@ source.
 local ffi = require("ffi")
 
 -- LuaJIT's BitOp is a global as well as a module, and it is declared as the global, so
--- requiring it as a module is what leaves it untyped. The cast restates the two
+-- requiring it as a module is what leaves it untyped. The cast restates the
 -- operations this file uses, in the words the declaration already gives them.
 local bit = require("bit") as {
     rshift: function(x: number, n: number): integer,
+    lshift: function(x: number, n: number): integer,
     band: function(...: number): integer
 }
 
 local cdecl = {}
 
---- One member of a struct. An unnamed one is skipped rather than modelled, so a member
---- that is here has a name.
+--- One member of a struct. An unnamed one is counted on its struct rather than
+--- modelled, so a member that is here has a name.
 interface cdecl.Member
     name: string
     type: cdecl.CType?
 
-    --- Its byte offset, as this ABI lays the struct out.
+    --- Its byte offset, as this ABI lays the struct out. A bitfield's is the offset of
+    --- the storage unit that holds it.
     offset: integer?
 
     --- Width in bits when this member is a C bitfield.
     bitWidth: integer?
+
+    --- Where a bitfield starts inside its storage unit, in bits.
+    bitPos: integer?
 end
 
 --- One parameter of a function. C lets a declaration leave a parameter unnamed, and a
@@ -51,7 +56,9 @@ end
 --- live in the declaration `structById` returns.
 interface cdecl.CType
     --- "void", "boolean", "integer", "float", "pointer", "struct", "union", "enum",
-    --- "array", "function", or "unknown" for what this model does not spell.
+    --- "array", "vector", "complex", "function", or "unknown" for what this model does
+    --- not spell. A vector or complex type is its own kind rather than an array,
+    --- because neither is passed or returned the way an array of its elements is.
     kind: string
 
     name: string?
@@ -82,6 +89,9 @@ interface cdecl.CType
     --- The ctype id a struct reference keeps, so `structById` can find its members.
     id: integer?
 
+    --- A struct's alignment in bytes, as this ABI lays it out.
+    align: integer?
+
     --- A function's parameters, its result, and whether it takes more.
     params: {cdecl.Param}?
 
@@ -97,6 +107,9 @@ interface cdecl.Function
     params: {cdecl.Param}
     returns: cdecl.CType?
     vararg: boolean?
+
+    --- Which of the declarations given one at a time introduced it.
+    unit: integer?
 end
 
 --- A struct declaration, members and all.
@@ -105,10 +118,27 @@ interface cdecl.Struct
     id: integer
     name: string
 
-    --- Its size in bytes, as this ABI lays it out.
+    --- Its size in bytes, as this ABI lays it out. Absent for an incomplete type.
     size: integer?
 
+    --- Its alignment in bytes.
+    align: integer?
+
     fields: {cdecl.Member}
+
+    --- Members `fields` leaves out because they have no name of their own: an
+    --- anonymous struct or union whose members promote into this one, and an unnamed
+    --- field or bitfield, which is padding. Either changes the layout, so a consumer
+    --- that renders only `fields` renders a different struct.
+    anonymous: integer
+
+    unnamed: integer
+
+    --- Whether `name` came from a typedef rather than the struct's own tag.
+    typedefName: boolean?
+
+    --- Which of the declarations given one at a time introduced it.
+    unit: integer?
 end
 
 --- One enumerator, in the order the header declared it.
@@ -126,12 +156,21 @@ interface cdecl.Enum
     name: string?
     bits: integer
     values: {cdecl.Enumerator}
+    unit: integer?
 end
 
 --- A declaration LuaJIT would not parse, and why.
 interface cdecl.Rejected
     text: string
     reason: string
+    unit: integer?
+end
+
+--- A struct layout as LuaJIT computes it for a body of C member declarations.
+interface cdecl.Layout
+    size: integer?
+    align: integer?
+    fields: {cdecl.Member}
 end
 
 --- What one pass over a blob of C declared.
@@ -159,6 +198,12 @@ local CTF_FP = 0x04000000
 local CTF_UNSIGNED = 0x00800000
 local CTF_CONST = 0x02000000
 local CTF_UNION = 0x00800000
+local CTF_VECTOR = 0x08000000
+local CTF_COMPLEX = 0x04000000
+
+-- An anonymous struct or union member is an attribute entry of this subtype in its
+-- parent's member chain, not a field.
+local CTA_SUBTYPE = 3
 
 local function kindOf(value)
     return bit.rshift(value, 28)
@@ -166,6 +211,11 @@ end
 
 local function refOf(value)
     return bit.band(value, 0xffff)
+end
+
+-- The alignment LuaJIT recorded for a struct, array or number, as a byte count.
+local function alignOf(value): integer
+    return bit.lshift(1, bit.band(bit.rshift(value, 16), 15))
 end
 
 local function info(id)
@@ -281,6 +331,7 @@ decodeType = function(id)
             id = rid,
             name = entry.name,
             size = entry.size,
+            align = alignOf(entry.info),
         }
     elseif kind == CT_ENUM then
         return {
@@ -291,6 +342,12 @@ decodeType = function(id)
             unsigned = bit.band(entry.info, CTF_UNSIGNED) ~= 0,
         }
     elseif kind == CT_ARRAY then
+        if bit.band(entry.info, CTF_VECTOR) ~= 0 then
+            return {kind = "vector", size = entry.size, of = decodeType(refOf(entry.info))}
+        end
+        if bit.band(entry.info, CTF_COMPLEX) ~= 0 then
+            return {kind = "complex", size = entry.size, of = decodeType(refOf(entry.info))}
+        end
         local element = decodeType(refOf(entry.info))
         local count = nil
         if entry.size and element.size and element.size > 0 and entry.size % element.size == 0 then
@@ -306,27 +363,45 @@ end
 
 local function decodeStruct(id, entry)
     local fields = {}
+    local anonymous, unnamed = 0, 0
     local child = entry.sib
     while child do
         local centry = info(child)
         if not centry then
             break
         end
-        if kindOf(centry.info) == CT_FIELD and centry.name then
-            fields[#fields + 1] = {name = centry.name, type = decodeType(refOf(centry.info)), offset = centry.size,}
-        elseif kindOf(centry.info) == CT_BITFIELD and centry.name then
-            local width = bit.band(bit.rshift(centry.info, 8), 0xff)
-            -- Bitfield entries do not carry a normal CType `size`: LuaJIT packs the
-            -- underlying integer's byte width into the low nibble of the byte above
-            -- the field width (the high bit of that byte is signedness).
-            local storageBits = bit.band(bit.rshift(centry.info, 16), 0x0f) * 8
-            fields[
-                #fields + 1
-            ] = {
-                name = centry.name,
-                type = {kind = "integer", bits = storageBits, unsigned = bit.band(centry.info, CTF_UNSIGNED) ~= 0,},
-                bitWidth = width,
-            }
+        local kind = kindOf(centry.info)
+        if kind == CT_FIELD then
+            if centry.name then
+                fields[#fields + 1] = {name = centry.name, type = decodeType(refOf(centry.info)), offset = centry.size,}
+            else
+                unnamed = unnamed + 1
+            end
+        elseif kind == CT_BITFIELD then
+            if centry.name then
+                local width = bit.band(bit.rshift(centry.info, 8), 0x7f)
+                -- Bitfield entries do not carry a normal CType `size`: LuaJIT keeps the
+                -- storage unit's byte width in the byte above the field width, and the
+                -- unit's offset where a field keeps its own.
+                local storageBits = bit.band(bit.rshift(centry.info, 16), 0x7f) * 8
+                -- A `bool` bitfield reads and writes a Lua boolean, not a number.
+                local fieldType = bit.band(centry.info, CTF_BOOL) ~= 0
+                    and {kind = "boolean", bits = storageBits, size = storageBits / 8}
+                    or {kind = "integer", bits = storageBits, unsigned = bit.band(centry.info, CTF_UNSIGNED) ~= 0,}
+                fields[
+                    #fields + 1
+                ] = {
+                    name = centry.name,
+                    type = fieldType,
+                    offset = centry.size,
+                    bitWidth = width,
+                    bitPos = bit.band(centry.info, 0x7f),
+                }
+            else
+                unnamed = unnamed + 1
+            end
+        elseif kind == CT_ATTRIB and bit.band(bit.rshift(centry.info, 16), 0xff) == CTA_SUBTYPE then
+            anonymous = anonymous + 1
         end
         child = centry.sib
     end
@@ -336,7 +411,10 @@ local function decodeStruct(id, entry)
         id = id,
         name = entry.name,
         size = entry.size,
+        align = alignOf(entry.info),
         fields = fields,
+        anonymous = anonymous,
+        unnamed = unnamed,
     }
 end
 
@@ -448,8 +526,10 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     end
 
     local before = {}
+    local top: integer = 0
     for id, entry in ctypes() do
         before[id] = entryFingerprint(entry)
+        top = id
     end
 
     -- Which names the target itself spells, for the same reason `cdecl.declare` keeps
@@ -482,14 +562,24 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     -- struct laid out from a type whose definition lives in a header that was filtered
     -- away, and the rest of the file is unaffected and worth having. The caller is
     -- told what it lost.
+    --
+    -- Each new registry entry is attributed to the declaration that introduced it, so
+    -- a consumer can say where in the header a declaration came from. The registry is
+    -- dense, so the entries one declaration added are the ones past the old top.
     local rejected = {}
-    for _, unit in ipairs(units) do
+    local unitOf: {[integer]: integer} = {}
+    for index, unit in ipairs(units) do
         local ok, err = pcall(ffi.cdef, unit)
+        while info(top + 1) do
+            top = top + 1
+            unitOf[top] = index
+        end
         if not ok then
             rejected[#rejected + 1] = {
                 text = unit,
                 -- LuaJIT prefixes its own chunk name and line
                 reason = tostring(err):gsub("^.-:%d+:%s*", ""),
+                unit = index,
             }
         end
     end
@@ -506,20 +596,28 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
             -- ... } Mode;` names the type and nothing else, and its members are the
             -- point of declaring it.
             if kind == CT_ENUM then
-                enums[#enums + 1] = decodeEnum(id, entry)
+                local declaration = decodeEnum(id, entry)
+                declaration.unit = unitOf[id]
+                enums[#enums + 1] = declaration
             elseif kind == CT_TYPEDEF and entry.name then
                 local rid, target = resolve(refOf(entry.info))
                 if target and kindOf(target.info) == CT_STRUCT and not target.name and not anonymousStructs[rid] then
                     local declaration = decodeStruct(rid, target)
                     declaration.name = entry.name
+                    declaration.typedefName = true
+                    declaration.unit = unitOf[rid] or unitOf[id]
                     structs[#structs + 1] = declaration
                     anonymousStructs[rid] = true
                 end
             elseif entry.name then
                 if kind == CT_STRUCT then
-                    structs[#structs + 1] = decodeStruct(id, entry)
+                    local declaration = decodeStruct(id, entry)
+                    declaration.unit = unitOf[id]
+                    structs[#structs + 1] = declaration
                 elseif kind == CT_FUNC then
-                    functions[#functions + 1] = decodeFunction(entry)
+                    local declaration = decodeFunction(entry)
+                    declaration.unit = unitOf[id]
+                    functions[#functions + 1] = declaration
                 end
             end
         end
@@ -582,6 +680,35 @@ function cdecl.typeFromString(spec: string): cdecl.CType?, string?
     end
 
     return decodeType(id)
+end
+
+-- A layout is asked of the same member list more than once when a header is imported
+-- again, and each question would otherwise add an anonymous ctype to the registry.
+local layoutCache: {[string]: cdecl.Layout} = {}
+
+--- How LuaJIT lays out an anonymous `kind` ("struct" or "union") holding `body`, a
+--- sequence of C member declarations. This is the other half of a layout check: a
+--- consumer that renders a declaration in its own words asks how those words lay out,
+--- and compares the answer with the declaration's own.
+function cdecl.layout(kind: string, body: string): cdecl.Layout?, string?
+    local key = kind .. "\0" .. body
+    local hit = layoutCache[key]
+    if hit then
+        return hit
+    end
+    local ok, ct = pcall(ffi.typeof, kind .. " { " .. body .. " }")
+    if not ok then
+        return nil, (tostring(ct):gsub("^.-:%d+:%s*", ""))
+    end
+    local rid, entry = resolve(tonumber(ct))
+    if not entry or kindOf(entry.info) ~= CT_STRUCT then
+        return nil, "not an aggregate: " .. body
+    end
+    local declaration = decodeStruct(rid, entry)
+    local result = {size = declaration.size, align = declaration.align, fields = declaration.fields}
+    layoutCache[key] = result
+
+    return result
 end
 
 function cdecl.structById(id: integer?): cdecl.Struct?

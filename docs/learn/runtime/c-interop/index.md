@@ -217,11 +217,27 @@ declared twice keeps its first meaning.
 
 An unsupported declaration is skipped with a reason rather than widened to
 `any` or a plausible-looking `voidptr`. The generated module keeps an
-`-- import-c: skipped` comment for a flexible array, an unsupported scalar
-width or calling convention, and a name that collides with a Lua keyword. An
-anonymous member whose fields would promote into an enclosing aggregate is
-skipped too, because Nupp has no member-access semantics for that promotion
-yet.
+`-- import-c: skipped` comment, naming the header line, for a flexible array,
+a vector or `_Complex` type, an unsupported scalar width or calling
+convention, and a name that collides with a Lua keyword.
+
+A struct is imported only when the generated `cdef struct` lays out exactly as
+the header's does. `import-c` asks LuaJIT how the rendered members lay out and
+compares every size, alignment, offset and bit position with the header's own,
+so a struct changes in none of them on the way through. That refuses:
+
+- an anonymous member whose fields would promote into the enclosing aggregate,
+  and an unnamed field or bitfield, which is padding a `cdef struct` cannot
+  spell;
+- a struct that `packed`, `aligned`, an aligned typedef, or `#pragma pack`
+  moves away from its natural layout;
+- a `bool` bitfield, which reads back as a boolean and has no `cdef` spelling.
+
+An attribute that would change a declaration without LuaJIT seeing it, such as
+`ext_vector_type` or a calling-convention attribute, refuses the declaration
+before it is parsed. An incomplete struct, declared but never defined, arrives
+as a fieldless `cdef struct` with a comment saying it is a handle: a pointer
+to it is an ordinary parameter or result, and it is never a value.
 
 A declaration LuaJIT itself will not parse gets the same comment and does not
 take the header down with it. That is commonly a struct laid out from a type
@@ -229,7 +245,9 @@ whose definition belongs to a header this import left alone.
 
 Skips are counted on stderr as `N of M declarations skipped`, and the count is
 the part to read: one of thirty is a corner in the header, and most of thirty
-means the vocabulary broke upstream and the module is not worth keeping.
+means the vocabulary broke upstream and the module is not worth keeping. A
+struct refused for its layout is also a warning of its own, as
+`header.h:LINE: skipped struct NAME: why`.
 
 ## Header-only functions
 
@@ -454,8 +472,11 @@ Disposition kinds are stable integration data:
 | `skipped` | No safe lowering exists; `reason` says why |
 
 Common skip reasons are `bridge-required`, `parse-failure`,
-`unsupported-c-type`, `unsupported-field-type`, `unsupported-bridge-type`, and
-`invalid-macro-signature`.
+`unsupported-c-type`, `unsupported-field-type`, `unsupported-bridge-type`,
+`invalid-macro-signature`, `reserved-name`, `anonymous-member`,
+`unnamed-member`, `layout-mismatch`, `pragma-pack`, `incomplete`, and
+`unsupported-attribute`. A skipped declaration's disposition carries a `detail`
+saying why, and a `line` when the header line is known.
 
 To preview inline bridge eligibility without writing the named bridge, combine
 `--bridge-out` with `--inspect`. Inspection still wins over output, while the
