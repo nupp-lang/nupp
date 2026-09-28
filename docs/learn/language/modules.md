@@ -41,6 +41,11 @@ Only that canonical name may be used by static imports. This prevents one file
 from being initialized twice under different `package.loaded` keys. A `.d.nupp`
 file describes an external interface and cannot declare a source module.
 
+One name belongs to one file. When two files derive the same name -- the same
+path under two include roots, or `util.nupp` beside `util/init.nupp` -- neither
+takes precedence: each of them reports `NUPP1002` naming the other, whether or
+not they carry a `module` line.
+
 Module segments use luacase: lowercase words run together, such as
 `nupp.runtime.hotreload` and `nupp.workers.native`.
 

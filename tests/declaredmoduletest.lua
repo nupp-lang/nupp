@@ -554,6 +554,32 @@ function M.moduleWithChildrenRequiresInitSource()
     )
 end
 
+-- Two include roots can each hold a file that names one module, and only one of
+-- them can be what `require` finds. Which one the checker saw and which one the
+-- build compiled used to depend on the order each walked the files in, so the
+-- refusal belongs to every file providing the name: whichever of them is checked
+-- says so, whether or not the files spell a `module` line.
+function M.twoFilesProvidingOneModuleAreEachRefused()
+    local variants = {
+        declared = {"module util\nexport const v: integer = 1\n", "module util\nexport const v: string = \"s\"\n"},
+        undeclared = {"export const v: integer = 1\n", "export const v: string = \"s\"\n"},
+        mixed = {"module util\nexport const v: integer = 1\n", "export const v: string = \"s\"\n"},
+    }
+    for label, sources in pairs(variants) do
+        withProject({["lib/util.nupp"] = sources[1], ["src/util.nupp"] = sources[2]}, function(dir)
+            local inc = incremental.new(dir, {config = {include = {"lib", "src"}}})
+            for _, root in ipairs({"lib", "src"}) do
+                local path = dir .. "/" .. root .. "/util.nupp"
+                local found = diagnosticContaining(inc.checkFile(path).diags, "more than one file")
+                assert(found, label .. ": " .. root .. "/util.nupp reports the other provider")
+                assertEq(found.code, "NUPP1002", label .. " code")
+                assert(found.line >= 1 and found.col >= 1, label .. ": the report has a position")
+                assert(found.related and found.related[1], label .. ": and names the other file")
+            end
+        end)
+    end
+end
+
 function M.privacyChangesInvalidateImporters()
     withProject(
         {

@@ -716,23 +716,24 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
         activeModules[path] = nil
 
-        if result.declaredModuleName then
-            for _, diagnostic in ipairs(self:get("projectRegistrations", path)) do
-                local token = diagnostic.token or {}
-                diags[
-                    #diags + 1
-                ] = {
-                    code = "NUPP1002",
-                    msg = diagnostic.msg,
-                    filename = path,
-                    severity = "error",
-                    line = token.line or 0,
-                    col = token.col or 0,
-                    offset = token.offset or 0,
-                    length = token.text and #token.text or 0,
-                    related = diagnostic.related,
-                }
-            end
+        -- Not only for a file with a `module` line: two files providing one module
+        -- are refused whether or not either spells the name, and the refusal has to
+        -- surface from whichever of them is checked.
+        for _, diagnostic in ipairs(self:get("projectRegistrations", path)) do
+            local token = diagnostic.token or {}
+            diags[
+                #diags + 1
+            ] = {
+                code = "NUPP1002",
+                msg = diagnostic.msg,
+                filename = path,
+                severity = "error",
+                line = token.line or 0,
+                col = token.col or 0,
+                offset = token.offset or 0,
+                length = token.text and #token.text or 0,
+                related = diagnostic.related,
+            }
         end
 
         return {diags = diags, moduleType = moduleType, exports = exports, result = result,}

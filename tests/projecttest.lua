@@ -1969,6 +1969,42 @@ end
     })
 end
 
+-- Two include roots each providing `util`, with interfaces a consumer accepts
+-- either way. The checker resolved the consumer's `require` through the project
+-- index and the build compiled the other file, so both passed and the typed
+-- `string` result was an integer at run time. Neither may pass now.
+function M.twoRootsProvidingOneModuleAreRefused()
+    local dir = tempProject({
+        ["nupp.lua"] = [[
+return {include = {"lib", "src"}, build = {outDir = "out"}}
+]],
+        ["lib/util.nupp"] = "module util\n\nexport function v(): integer\n    return 42\nend\n",
+        ["src/util.nupp"] = "module util\n\nexport function v(): string\n    return \"from-src\"\nend\n",
+        [
+            "src/b.nupp"
+        ] = [[
+module b
+const util = require("util")
+
+export function run(): string
+    return util.v()
+end
+]],
+    })
+    for _, checkOnly in ipairs({true, false}) do
+        local diagnostics = {}
+        local verb = checkOnly and "check" or "build"
+        assertEq(project.build(dir, {checkOnly = checkOnly, diagnostics = diagnostics}), 1, verb .. " refuses")
+        local found = false
+        for _, diagnostic in ipairs(diagnostics) do
+            found = found or (diagnostic.msg or diagnostic.message or ""):find("more than one file", 1, true) ~= nil
+        end
+        assert(found, verb .. " says two files provide the module")
+    end
+
+    remove(dir)
+end
+
 function M.aHeaderEditRechecksTheModuleThatReadsIt()
     local dir = cheaderProject()
     assertEq(project.build(dir, {checkOnly = true, stats = {}}), 0, "the header's signature fits the call")
