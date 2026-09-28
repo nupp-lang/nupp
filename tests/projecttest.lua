@@ -2005,6 +2005,44 @@ end
     remove(dir)
 end
 
+-- A const-specialized body is emitted with the function's declaration, so what a
+-- declaring module's artifact holds depends on its callers' constant arguments as
+-- well as on its own source. An edit to only a caller leaves the declaring
+-- module's source hash where it was; its specialization hash is what says the
+-- artifact is owed again, and a reuse that ignored it left the caller naming a
+-- body its declaration never emitted.
+function M.aCallersNewConstantRegeneratesTheDeclaringModule()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"}, optimize = 1}}
+]],
+        [
+            "src/lib.nupp"
+        ] = [[
+local function accumulate<const N: integer>(value: number, count: N): number
+    local total = value
+    for offset = 1, count as integer do total = total + offset end
+    return total
+end
+return {accumulate = accumulate}
+]],
+        ["src/main.nupp"] = "local lib = require('lib')\nreturn lib.accumulate(10.0, 4)\n",
+    })
+    assertEq(project.build(dir, {stats = {}}), 0)
+    assertEq(answerFrom(dir .. "/out", dir), "20", "the specialized call answers")
+    local declaration = read(dir .. "/out/lib.lua")
+
+    write(dir .. "/src/main.nupp", "local lib = require('lib')\nreturn lib.accumulate(10.0, 5)\n")
+    local stats = {}
+    assertEq(project.build(dir, {stats = stats}), 0)
+    assert(read(dir .. "/out/lib.lua") ~= declaration, "the declaring module was regenerated for the new constant")
+    assertEq(answerFrom(dir .. "/out", dir), "25", "and the caller reaches the body it names")
+
+    remove(dir)
+end
+
 function M.aHeaderEditRechecksTheModuleThatReadsIt()
     local dir = cheaderProject()
     assertEq(project.build(dir, {checkOnly = true, stats = {}}), 0, "the header's signature fits the call")

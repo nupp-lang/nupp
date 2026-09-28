@@ -156,6 +156,41 @@ function M.anUnreadableSubsystemFallsBackToTheWholeCompiler()
     )
 end
 
+-- The whole-tool stamp is what a build's completion record and every AOT key are
+-- written under, and `nupp.tools.build` is where an artifact is put together, so
+-- it covers the tools tree beside the compiler's. It is read from the tree the
+-- module was loaded out of, so a copy of the module in a tree of its own answers
+-- for that tree alone, and an edit on either side has to move it.
+function M.theToolStampCoversTheToolsTreeAsWellAsTheCompilers()
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = assert(
+            io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb")
+        ):read("*a"),
+        ["nupp/compiler/one.lua"] = "return 1\n",
+        ["nupp/tools/two.lua"] = "return 2\n",
+    })
+
+    -- Loaded afresh each time: the stamp is kept for the life of the module.
+    local function stamp()
+        return dofile(dir .. "/nupp/compiler/project/fingerprint.lua").toolFingerprint()
+    end
+
+    local function edit(path, text)
+        local file = assert(io.open(dir .. "/" .. path, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    local first = stamp()
+    assert(stamp() == first, "an unchanged tree stamps the same")
+    edit("nupp/tools/two.lua", "return 22\n")
+    local tools = stamp()
+    assert(tools ~= first, "an edit to the tools tree left the tool stamp where it was")
+    edit("nupp/compiler/one.lua", "return 11\n")
+    assert(stamp() ~= tools, "an edit to the compiler tree left the tool stamp where it was")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- The first caller in a process may have nowhere to keep the graph -- a check with
 -- no build directory -- and used to be the only caller that could compute it, so a
 -- build in the same process never wrote the store and every later command lexed the
