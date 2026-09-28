@@ -133,6 +133,11 @@ with scope = nupp.tasks.open(limit = 4) do
 end
 ```
 
+A child's family includes the scopes it has opened. Cancelling the child, by
+`Task:cancel`, `scope:cancel`, a deadline or a sibling's failure, cancels those
+scopes too, and the child may still park while it settles them, so its
+grandchildren unwind through their cleanup before the outer scope lets it go.
+
 Cancellation raises one nominal value. `nupp.tasks.isCancelled(problem)`
 recognizes it after a `pcall`; its text includes the child operation and reason.
 A child name is also the operation an installed suspension handler sees when
@@ -233,7 +238,10 @@ or `open(limit = 8, deadline = 500)`.
 calls. It is a settling terminal: it parks until every child has settled and the
 owned worker scope has been closed through the suspension-aware path, and so it
 is refused inside a `@nosuspend` region. A scope may be settled by hand before its
-block ends; it settles once. Operations on a settled scope raise.
+block ends; it settles once. Operations on a settled scope raise. A settle that
+raises before its children have settled, because nothing could complete a wait
+one of them is parked on, still gives the frame back and forgets the scope, and
+may be called again.
 
 Direct `workers.scope()` remains useful in blocking programs. Its terminal
 settles the scope the same way: under a suspension handler it parks until every

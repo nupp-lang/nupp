@@ -452,7 +452,27 @@ local function ownFailure(owner: ScopeState, problem: any): nil
     end
 end
 
-local function requestCancellation(owner: ScopeState, operation: string, reason: string?): nil
+local requestCancellation: function(ScopeState, string, string?): nil
+
+--- Carries a child's cancellation into the scopes it opened, and theirs in turn.
+---
+--- A task's family includes the scopes it holds: cancelling the task has to reach
+--- them, or leaving its outer scope would abandon grandchildren mid-cleanup.
+local function cancelOpened(child: Child): nil
+    const opened = child.openScopes
+    if opened == nil then
+        return
+    end
+    for index = 1, #opened do
+        const nested = opened[index] as ScopeState
+        if nested.cancellation == nil then
+            nested.cancellation = child.cancelled
+        end
+        requestCancellation(nested, child.name, child.reason)
+    end
+end
+
+requestCancellation = function(owner: ScopeState, operation: string, reason: string?): nil
     if owner.cancellation == nil then
         owner.cancellation = cancellation(operation, reason)
     end
@@ -462,6 +482,7 @@ local function requestCancellation(owner: ScopeState, operation: string, reason:
             child.requested = true
             child.cancelled = child.cancelled or owner.cancellation
             markRunnable(owner, child)
+            cancelOpened(child)
         end
     end
     local workerScope = owner.workerScope
@@ -793,6 +814,7 @@ function TaskMT.cancel(self: any, reason: string?): boolean
     end
     child.requested = true
     child.cancelled = cancellation(child.name, reason)
+    cancelOpened(child)
     if child.status == "queued" and not child.entered then
         -- Never started, so there is no stack to unwind and nothing to resume: the
         -- scope settles it here and drops the body it was going to call.
@@ -1289,6 +1311,20 @@ end
 -- Running a scope
 ----------------------------------------------------------------------------
 
+--- Whether a child is settling a scope it opened.
+local function draining(child: Child): boolean
+    const opened = child.openScopes
+    if opened ~= nil then
+        for index = 1, #opened do
+            if (opened[index] as ScopeState).settling then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function newScope(deadline: number?, limit: integer?): tasks.Scope
     const owner: ScopeState = {
         children = {},
@@ -1332,7 +1368,10 @@ local function newScope(deadline: number?, limit: integer?): tasks.Scope
                     break
                 end
                 coroutine.yield()
-                if child.requested then
+                -- A child settling a scope of its own is unwinding its family, which
+                -- is what the cancellation asked for: its drain has to be able to
+                -- park. The scope raises the cancellation once it has drained.
+                if child.requested and not draining(child) then
                     cancel()
                     error(child.cancelled as any, 0)
                 end
@@ -1427,14 +1466,21 @@ local function closeScope(owner: ScopeState): nil
     if owner.closed then
         return
     end
-    settle(owner)
-    owner.closed = true
+    const drained, problem = pcall(settle, owner)
+    -- The frame goes back and the registration goes whatever the drain raised: a
+    -- scope whose block has ended must not go on handling the frame's waits or
+    -- answering `checkpoint` for it. A failed drain stays retryable.
+    owner.settling = false
     unregisterOpen(owner)
     const frame = owner.frame
     if frame ~= nil then
         owner.frame = nil
         frame:release()
     end
+    if not drained then
+        error(problem, 0)
+    end
+    owner.closed = true
     if owner.failed then
         error(owner.failure, 0)
     end

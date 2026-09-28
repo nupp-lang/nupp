@@ -838,4 +838,117 @@ function M.aFamilyOverNothingAnswersNothing()
    assertEq(index, nil, "and no index")
 end
 
+-- A task that opened a scope of its own owns that family too. Cancelling the task
+-- reaches the grandchildren, and they unwind through their cleanup before the outer
+-- scope lets go of the task, whether the task was draining its scope, waiting in
+-- its block, or failed with a sibling.
+local function nestedFamily(inBlock)
+   local state = {grandchild = "not started"}
+   local function grandchild()
+      state.grandchild = "running"
+      local ok = pcall(time.sleep, 5000)
+      state.grandchild = ok and "completed" or "unwound"
+   end
+   local function task()
+      scoped(nil, function(inner)
+         local handle = inner:spawn(grandchild)
+         if inBlock then handle:await() end
+      end)
+   end
+
+   return state, task
+end
+
+function M.cancellingATaskReachesTheScopeItIsDraining()
+   local state, task = nestedFamily(false)
+   local status
+   scoped(nil, function(outer)
+      local handle = outer:spawn(task)
+      outer:spawn(function()
+         time.sleep(10)
+         handle:cancel("stop")
+      end)
+      local ok, problem = pcall(handle.await, handle)
+      assertEq(ok, false, "the cancelled task answered")
+      assertTrue(tasks.isCancelled(problem), "the task raised " .. tostring(problem))
+      status = handle:status()
+   end)
+   assertEq(status, "cancelled", "the task settled")
+   assertEq(state.grandchild, "unwound", "the grandchild outlived the task that owned it")
+end
+
+function M.cancellingATaskReachesTheScopeItIsWaitingIn()
+   local state, task = nestedFamily(true)
+   scoped(nil, function(outer)
+      local handle = outer:spawn(task)
+      outer:spawn(function()
+         time.sleep(10)
+         handle:cancel("stop")
+      end)
+   end)
+   assertEq(state.grandchild, "unwound", "the grandchild outlived the task that owned it")
+end
+
+function M.aSiblingFailureReachesAChildsOwnScope()
+   local state, task = nestedFamily(false)
+   local problem = raises(function()
+      scoped(nil, function(outer)
+         outer:spawn(task)
+         outer:spawn(function()
+            time.sleep(10)
+            error("sibling failed", 0)
+         end)
+      end)
+   end)
+   assertEq(problem, "sibling failed", "the scope's failure")
+   assertEq(state.grandchild, "unwound", "the grandchild outlived the scope that failed")
+end
+
+function M.aSettleThatRaisesGivesBackTheFrame()
+   local before = suspension.handled()
+   local scope = tasks.open()
+   scope:spawn(function()
+      suspension.suspend("never answered", function() return function() end end)
+   end)
+   local ok, problem = pcall(tasks.settle, scope)
+   assertEq(ok, false, "a wait nothing can answer settled")
+   assertTrue(tostring(problem):find("no readiness source", 1, true), tostring(problem))
+   assertEq(suspension.handled(), before, "the scope's frame handler outlived its settle")
+   assertEq(tasks.deadline(), nil, "the scope is still registered on the frame")
+end
+
+function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
+   -- Under a host handler a drain of more children than one turn runs has to give the
+   -- host a turn, which is a park inside the cancelled task. Refusing it would
+   -- abandon the rest of the family where it stood.
+   local handler = {
+      park = function(_, waiting)
+         while not waiting:ready() do
+            suspension.poll()
+         end
+      end,
+      canPark = function() return true end,
+      shutdown = function() end,
+   }
+   local unwound = 0
+   handled(handler, function()
+      scoped(nil, function(outer)
+         local handle = outer:spawn(function()
+            scoped(nil, function(inner)
+               for _ = 1, 150 do
+                  inner:spawn(function()
+                     if not pcall(time.sleep, 5000) then unwound = unwound + 1 end
+                  end)
+               end
+            end)
+         end)
+         outer:spawn(function()
+            time.sleep(10)
+            handle:cancel("stop")
+         end)
+      end)
+   end)
+   assertEq(unwound, 150, "every grandchild unwound before the task let go of them")
+end
+
 return M
