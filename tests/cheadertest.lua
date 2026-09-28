@@ -164,6 +164,14 @@ function M.aParseErrorNamesTheHeadersOwnLine()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aNulByteIsRefused()
+    local path, dir = scratchHeader("nul.h", "int nupp_nul_a(void);\n\0int nupp_nul_b(void);\n")
+    local res, err = cheaderMod.load(path)
+    os.execute("rm -rf '" .. dir .. "'")
+    assertEq(res, nil, "nothing past the NUL would be declared")
+    assert(err:find("nul.h:2: the header holds a NUL byte", 1, true), err)
+end
+
 function M.noPreprocessorNeededForASelfContainedHeader()
     -- the fixture has #ifndef/#include and still loads with no compiler
     local res, err = cheaderMod.load(HERE .. "/fixtures/sink.h")

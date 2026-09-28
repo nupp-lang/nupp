@@ -381,6 +381,18 @@ local function preprocessedLines(text: string): ({string}, {{
     return lines, origins
 end
 
+-- The line of a NUL byte, if the text holds one. LuaJIT reads its input as a C
+-- string, so everything after a NUL would silently be no header at all.
+local function nulLine(text: string): integer?
+    local at = text:find("%z")
+    if not at then
+        return nil
+    end
+    local _, newlines = text:sub(1, at):gsub("\n", "")
+
+    return newlines + 1
+end
+
 -- Only meaningful when the preprocessor runs, but cheap to record always.
 local toolchainCache = {}
 
@@ -479,6 +491,10 @@ local function provenance(path: string, opts: cheader.Options?): (cheader.Proven
     local source = opts.read and opts.read(path) or hostService("fs").readFile(path)
     if not source then
         return nil, "cannot read " .. path, true
+    end
+    local nul = nulLine(source)
+    if nul then
+        return nil, ("%s:%d: the header holds a NUL byte, and LuaJIT would read nothing past it"):format(display, nul)
     end
     local dependencies = {path}
     local lines, origins
