@@ -57,9 +57,18 @@ impl fmt::Display for StreamError {
 
 impl std::error::Error for StreamError {}
 
+/// Output room a flush is always given. zlib starts a fresh empty block on
+/// every flush call that ends with its output full, so a flush that only
+/// ever has a few bytes of room never ends; below this much room, a flush is
+/// produced into a staging buffer and handed out from there.
+const FLUSH_ROOM: usize = 64;
+
 pub struct Encoder {
     stream: Compress,
     finished: bool,
+    /// Flushed bytes not yet handed to the caller, and how many of them were.
+    staged: Vec<u8>,
+    delivered: usize,
 }
 
 impl Encoder {
@@ -73,19 +82,92 @@ impl Encoder {
         Self {
             stream,
             finished: false,
+            staged: Vec::new(),
+            delivered: 0,
         }
     }
 
     pub fn write(&mut self, input: &[u8], output: &mut [u8]) -> Result<Step, StreamError> {
-        self.step(input, output, FlushCompress::None)
+        self.after_staged(input, output, FlushCompress::None)
     }
 
     pub fn flush(&mut self, output: &mut [u8]) -> Result<Step, StreamError> {
-        self.step(&[], output, FlushCompress::Sync)
+        if let Some(step) = self.deliver_staged(output) {
+            return Ok(step);
+        }
+        if self.finished || output.len() >= FLUSH_ROOM {
+            return self.step(&[], output, FlushCompress::Sync);
+        }
+        let mut room = [0u8; FLUSH_ROOM];
+        loop {
+            let before = self.stream.total_out();
+            self.stream
+                .compress(&[], &mut room, FlushCompress::Sync)
+                .map_err(StreamError::encoder)?;
+            let made = (self.stream.total_out() - before) as usize;
+            self.staged.extend_from_slice(&room[..made]);
+            if made < room.len() {
+                break;
+            }
+        }
+        Ok(self.deliver_staged(output).unwrap_or(Step {
+            consumed: 0,
+            written: 0,
+            status: StepStatus::NeedInput,
+        }))
     }
 
     pub fn finish(&mut self, output: &mut [u8]) -> Result<Step, StreamError> {
-        self.step(&[], output, FlushCompress::Finish)
+        self.after_staged(&[], output, FlushCompress::Finish)
+    }
+
+    /// Delivers any staged flush bytes first, then goes on with `flush` in
+    /// whatever room is left.
+    fn after_staged(
+        &mut self,
+        input: &[u8],
+        output: &mut [u8],
+        flush: FlushCompress,
+    ) -> Result<Step, StreamError> {
+        let delivered = match self.deliver_staged(output) {
+            None => 0,
+            Some(step) if step.status == StepStatus::NeedOutput => return Ok(step),
+            Some(step) => step.written,
+        };
+        let mut step = self.step(input, &mut output[delivered..], flush)?;
+        step.written += delivered;
+        if step.status == StepStatus::NeedInput
+            && step.written == output.len()
+            && !output.is_empty()
+        {
+            step.status = StepStatus::NeedOutput;
+        }
+        Ok(step)
+    }
+
+    /// Hands out staged flush bytes. Until they are all delivered, every call
+    /// only delivers them: needing output while some remain, and reporting
+    /// the flush done once the last of them is out.
+    fn deliver_staged(&mut self, output: &mut [u8]) -> Option<Step> {
+        if self.delivered == self.staged.len() {
+            return None;
+        }
+        let remaining = &self.staged[self.delivered..];
+        let written = remaining.len().min(output.len());
+        output[..written].copy_from_slice(&remaining[..written]);
+        self.delivered += written;
+        let status = if self.delivered == self.staged.len() {
+            self.staged.clear();
+            self.delivered = 0;
+            StepStatus::NeedInput
+        } else {
+            StepStatus::NeedOutput
+        };
+        Some(Step {
+            consumed: 0,
+            written,
+            status,
+        })
     }
 
     fn step(
@@ -297,6 +379,67 @@ mod tests {
             let compressed = encode(format, input, 1);
             assert_eq!(decode(format, &compressed, 1), input);
         }
+    }
+
+    #[test]
+    fn a_flush_finishes_with_any_output_room() {
+        // Under five bytes of room, zlib starts a fresh empty block on every
+        // flush call, so a flush that only ever had that much never ended.
+        for room in 1..=8 {
+            let mut encoder = Encoder::new(Format::Gzip, 6);
+            let mut encoded = Vec::new();
+            let mut output = vec![0; 64];
+            let step = encoder.write(b"hello", &mut output).unwrap();
+            assert_eq!(step.consumed, 5);
+            encoded.extend_from_slice(&output[..step.written]);
+            let mut output = vec![0; room];
+            let mut calls = 0;
+            loop {
+                calls += 1;
+                assert!(
+                    calls < 1000,
+                    "a flush with {room} bytes of room never finished"
+                );
+                let step = encoder.flush(&mut output).unwrap();
+                encoded.extend_from_slice(&output[..step.written]);
+                if step.status != StepStatus::NeedOutput {
+                    break;
+                }
+            }
+            let mut output = vec![0; 64];
+            loop {
+                let step = encoder.finish(&mut output).unwrap();
+                encoded.extend_from_slice(&output[..step.written]);
+                if step.status == StepStatus::Finished {
+                    break;
+                }
+            }
+            assert_eq!(decode(Format::Gzip, &encoded, 7), b"hello");
+        }
+    }
+
+    #[test]
+    fn bytes_staged_by_an_unfinished_flush_come_out_first() {
+        let mut encoder = Encoder::new(Format::Zlib, 6);
+        let mut encoded = Vec::new();
+        let mut output = vec![0; 64];
+        let step = encoder.write(b"hello", &mut output).unwrap();
+        encoded.extend_from_slice(&output[..step.written]);
+        let mut small = [0; 2];
+        let step = encoder.flush(&mut small).unwrap();
+        assert_eq!(step.status, StepStatus::NeedOutput);
+        encoded.extend_from_slice(&small[..step.written]);
+        let step = encoder.write(b"abc", &mut output).unwrap();
+        assert_eq!(step.consumed, 3);
+        encoded.extend_from_slice(&output[..step.written]);
+        loop {
+            let step = encoder.finish(&mut output).unwrap();
+            encoded.extend_from_slice(&output[..step.written]);
+            if step.status == StepStatus::Finished {
+                break;
+            }
+        }
+        assert_eq!(decode(Format::Zlib, &encoded, 5), b"helloabc");
     }
 
     #[test]

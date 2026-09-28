@@ -70,6 +70,23 @@ function M.writerAndReaderComposeWithByteIo(): nil
     encoded:close()
 end
 
+function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
+    -- Below five bytes of room, every flush call used to start a fresh empty
+    -- block, so a writer with a tiny workspace never finished flushing.
+    for workspace = 1, 2 do
+        local gzip = compression.format("gzip")
+        local encoded = io.newBuffer()
+        local sink = encoded:newWriter()
+        local writer = gzip:newWriter(sink, {workspaceBytes = workspace, gzip = {level = 6}})
+        assert(writer:write("hello"))
+        assert(writer:flush())
+        assert(writer:write(" world"))
+        assert(writer:finish())
+        assert(gzip:decompress(encoded:getString()) == "hello world")
+        encoded:close()
+    end
+end
+
 function M.spanAndDestinationOverloadsReuseStorage(): nil
     local gzip = compression.format("gzip")
     local text = "span input"
