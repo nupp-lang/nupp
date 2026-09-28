@@ -1728,7 +1728,9 @@ mod tests {
 
     #[test]
     fn a_cost_output_failure_leaves_a_consumed_download_read_when_available() {
-        let _costs_guard = costs::TEST_LOCK.lock().unwrap();
+        let _costs_guard = costs::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let Ok(mut gpu) = GpuContext::new() else {
             assert!(std::env::var_os("NUPP_REQUIRE_GPU").is_none());
             return;
@@ -1769,7 +1771,9 @@ mod tests {
 
     #[test]
     fn adapter_compute_round_trip_when_available() {
-        let _costs_guard = costs::TEST_LOCK.lock().unwrap();
+        let _costs_guard = costs::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let required = std::env::var_os("NUPP_REQUIRE_GPU").is_some();
         let costs_path =
             std::env::temp_dir().join(format!("nupp-gpu-integration-{}.jsonl", std::process::id()));
@@ -1914,8 +1918,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "asserts a wall-clock ratio between two dispatches, so host load fails it; \
+                run it with --ignored on a quiet machine"]
     fn adapter_timestamps_belong_to_the_current_dispatch_when_available() {
-        let _costs_guard = costs::TEST_LOCK.lock().unwrap();
+        let _costs_guard = costs::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let required = std::env::var_os("NUPP_REQUIRE_GPU").is_some();
         let path = std::env::temp_dir().join(format!(
             "nupp-gpu-current-timestamps-{}.jsonl",

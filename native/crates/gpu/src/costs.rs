@@ -156,7 +156,7 @@ mod tests {
     use super::*;
     #[test]
     fn closing_after_a_write_error_preserves_the_error_and_resets_the_sink() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let path =
             std::env::temp_dir().join(format!("nupp-gpu-cost-close-{}.jsonl", std::process::id()));
         configure(Some(path.to_str().unwrap())).unwrap();
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn a_failed_output_still_gives_way_to_the_next_one() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let next =
             std::env::temp_dir().join(format!("nupp-gpu-cost-next-{}.jsonl", std::process::id()));
         let _ = std::fs::remove_file(&next);
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn restoring_the_environment_destination_appends_to_it() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let path =
             std::env::temp_dir().join(format!("nupp-gpu-cost-env-{}.jsonl", std::process::id()));
         std::fs::write(&path, b"stale\n").unwrap();
