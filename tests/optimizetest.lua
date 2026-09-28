@@ -149,7 +149,6 @@ local M = {}
 function M.generatedProgramsAgreeAcrossLevels()
     local programs = require("optimizeprograms")
     local avoid = {
-        ["FRONTEND-07"] = true,
     }
     for seed = 1, 40 do
         local src = table.concat(programs.build(seed, avoid), "\n") .. "\n"
@@ -2271,6 +2270,21 @@ function M.inlineKeepsWhenTheArgumentCanChangeOrTheFrameIsObserved()
         fired = fired or entry.msg == "inline-return-helper: inlines h"
     end
     assertTrue(fired, "an unwritten argument is substituted")
+end
+
+-- A folded negative number is spliced where a name stood, and `-5 ^ 2` reads as
+-- `-(5 ^ 2)`: the fold has to keep the operand one operand.
+function M.foldsANegativeConstantUnderExponentiationAsOneOperand()
+    assertEq(assertAgrees("const n = -5\nprint(n ^ 2)", "test.nupp"), "25")
+    assertEq(assertAgrees("local n: integer = -5\nprint(n ^ 2, n^2 == 25)", "test.nupp"), "25\ttrue")
+    assertEq(assertAgrees("local n = -5\nprint(n ^ 2, -n ^ 2)"), "25\t-25")
+end
+
+-- `//` runs as `math.floor((a) / (b))`, whose zero is a double that keeps a sign
+-- through multiplication. An integer literal does not, so a zero quotient stays.
+function M.keepsAZeroFloorQuotientThatCarriesTheSignOfZero()
+    assertEq(assertAgrees("local x1 = 4\nx1 = -x1\nx1 *= (#\"\" // 3)\nprint(x1, 1 / x1)"), "-0\t-inf")
+    assertEq(assertAgrees("local a = -4\na = a + 0\nlocal z = 0\nprint(a * (z / 3), a * ((7 // 2) - 3))"), "-0\t-0")
 end
 
 -- Reserving array slots moves integer keys out of the hash part, and `#` of a table

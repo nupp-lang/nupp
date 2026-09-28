@@ -1108,6 +1108,28 @@ local function parenthesizeFoldedPrefix(node)
     end
 end
 
+-- Takes back every fold under `node`, so it is generated as written.
+local function unfold(node)
+    if not node or isToken(node) then
+        return
+    end
+    node.folded = nil
+    node.foldedExpression = nil
+    for _, child in ipairs(node) do
+        unfold(child)
+    end
+end
+
+-- A folded negative number is a unary minus in the text it becomes, and `^` binds
+-- tighter than that: `n ^ 2` with `n` folded to `-5` must read `(-5) ^ 2`, not
+-- `-(5 ^ 2)`. The operand of another unary operator is kept whole the same way, and
+-- `- -5` would otherwise open a comment.
+local function parenthesizeFoldedNegative(node)
+    if node and not isToken(node) and node.folded and node.folded:sub(1, 1) == "-" then
+        node.folded = "(" .. node.folded .. ")"
+    end
+end
+
 local function foldExpr(node, current)
     if not node or isToken(node) then
         return nil
@@ -1152,6 +1174,7 @@ local function foldExpr(node, current)
         return value
     elseif kind == "unop" then
         local value = foldExpr(node.operand, current)
+        parenthesizeFoldedNegative(node.operand)
         if not value or not node.op then
             return nil
         end
@@ -1164,6 +1187,7 @@ local function foldExpr(node, current)
             local answer = -value.value
             if math.abs(answer) <= MAX_EXACT_INTEGER then
                 local folded = literal("number", answer, ("%.0f"):format(answer))
+                folded.float = value.float
                 node.folded = folded.code
                 return folded
             end
@@ -1184,6 +1208,9 @@ local function foldExpr(node, current)
             return nil
         end
         local op = node.op.kind
+        if op == "^" then
+            parenthesizeFoldedNegative(node.lhs)
+        end
         if left and left.code and (op == "and" or op == "or" or op == "??") then
             local takeRight = op == "and" and truthy(left)
                 or op == "or" and not truthy(left)
@@ -1205,6 +1232,14 @@ local function foldExpr(node, current)
             return nil
         end
         if left.kind == "number" and right.kind == "number" then
+            if op == "/" and left.value == 0 then
+                -- A division is never folded, and runs as a double. Two literal
+                -- operands would have LuaJIT fold it into an integer zero with no
+                -- sign.
+                unfold(node.lhs)
+                unfold(node.rhs)
+                return nil
+            end
             local answer
             if op == "+" then
                 answer = left.value + right.value
@@ -1216,16 +1251,26 @@ local function foldExpr(node, current)
                 answer = left.value % right.value
             elseif op == "//" and right.value ~= 0 then
                 -- `gen` lowers `//` to `math.floor((a) / (b))`, so the fold performs
-                -- that
-                -- expression rather than an integer division that would disagree with
-                -- it
-                -- where the quotient is not exactly representable.
+                -- that expression rather than an integer division that would disagree
+                -- with it where the quotient is not exactly representable.
                 answer = math.floor(left.value / right.value)
             elseif BITOPS[op] then
                 answer = BITOPS[op](left.value, right.value)
             end
+            -- That lowering computes a double, and so does arithmetic on one. A double
+            -- zero carries a sign that multiplication keeps, where the integer literal
+            -- a fold writes has none, so a zero reached through `//` stays unfolded.
+            -- Its operands are generated as written too: LuaJIT folds arithmetic on
+            -- two literals itself, into the same signless integer.
+            local float = not BITOPS[op] and (op == "//" or left.float or right.float)
+            if answer == 0 and float then
+                unfold(node.lhs)
+                unfold(node.rhs)
+                return nil
+            end
             if answer and math.abs(answer) <= MAX_EXACT_INTEGER then
                 local folded = literal("number", answer, ("%.0f"):format(answer))
+                folded.float = float or nil
                 node.folded = folded.code
                 return folded
             end
