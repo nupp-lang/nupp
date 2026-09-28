@@ -1691,15 +1691,30 @@ function checkMod.check(
 
     -- A type parameter's identity is where its binder was written, so the file it was
     -- written in is part of it. Every caller that resolves an annotation names the file
-    -- it is checking.
+    -- it is checking. The binder's name is not part of that identity, so an edit that
+    -- renames one in place reaches the same object, and it takes the name written now
+    -- the way it takes the bound and default written now.
     c.typevarAt = function(tok, role)
-        return T.typevar(tok.text, (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic"))
+        local tv = T.typevar(
+            tok.text,
+            (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic")
+        )
+        if tv.tag == "typevar" and tv.name ~= tok.text then
+            tv.name = tok.text
+        end
+
+        return tv
     end
     c.packvarAt = function(tok, role)
-        return T.packvar(
+        local pv = T.packvar(
             tok.text,
             (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic-pack")
         )
+        if pv.name ~= tok.text then
+            pv.name = tok.text
+        end
+
+        return pv
     end
     -- The domain a const binder was written with, or nil for a word that is not one.
     -- Hoisting and binding both read it and have to agree: hoisting builds the binder

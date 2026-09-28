@@ -386,10 +386,16 @@ end
 
 function M.anUninferredResultParameterIsAnError()
     local body = table.concat({"local function make<T>(): T", "   error('not reached')", "end",}, "\n") .. "\n"
+    -- A binder written at the same place under another name, as an edit renaming it
+    -- leaves it, is a different binder: the diagnostic below names T, not A.
+    local renamed = body:gsub("<T>%(%): T", "<A>(): A")
+    local earlier = diagnostics(renamed .. "local value = make()\nreturn value\n")
+    assertEq(#earlier, 1, "one uninferred parameter")
+    assert(earlier[1].msg:find("parameter A ", 1, true), earlier[1].msg)
     local found = diagnostics(body .. "local value = make()\nreturn value\n")
     assertEq(#found, 1, "one uninferred parameter")
     assertEq(found[1].code, "NUPP2148")
-    assert(found[1].msg:find("T", 1, true), "diagnostic names the parameter")
+    assert(found[1].msg:find("parameter T ", 1, true), "diagnostic names the parameter: " .. found[1].msg)
     assert(found[1].msg:find("make", 1, true), "diagnostic names the callee")
     assert(found[1].help and found[1].help:find("make<T>(...)", 1, true), "help shows the explicit form")
     clean(body .. "local value = make<string>()\nreturn value\n")
