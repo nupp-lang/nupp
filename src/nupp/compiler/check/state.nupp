@@ -488,9 +488,6 @@ record state.Checker
     cDeclared: {[string]: boolean}
     cDefinedFunctions: {[string]: Type}
 
-    --- `t` without nil, which is what a truthiness test leaves.
-    minusNil: function(t: Type): Type
-
     --- What a condition proves, on each side of it.
     analyzeCond: function(cond: Node): any
 
@@ -676,11 +673,6 @@ record state.Checker
     --- Whether control can run off the end of this block.
     fallsThrough: function(block: Node?): boolean
 
-    --- The visible bindings nothing has assigned yet, and putting them back.
-    unassignedSnapshot: function(): {any}
-
-    unassignedRestore: function(snapshot: {any}): nil
-
     alwaysRaises: function(block: Node?): boolean
 
     --- Whether a node returns a value anywhere inside it.
@@ -711,9 +703,6 @@ record state.Checker
 
     --- Query callback supplied to generic normalization when an open type call closes.
     reductionControl: any
-
-    --- The ownership modes a body's parameters are used with, when it declared none.
-    inferredParameterModes: function(body: any): any
 end
 
 --- The statement handlers one family installs, keyed by the CST kind each answers. The

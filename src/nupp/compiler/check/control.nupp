@@ -408,9 +408,6 @@ function control.install(c: state.Checker): state.StatHandlers
         end
     end
 
-    c.unassignedSnapshot = unassignedSnapshot
-    c.unassignedRestore = unassignedRestore
-
     --- Reports every loop-carried owner whose capability differs, at this back edge,
     --- from the state the snapshot took at the loop header. A `continue` still holds
     --- the loans of the iteration's own locals, which end with the iteration before

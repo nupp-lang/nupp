@@ -409,22 +409,6 @@ function operators.install(c: state.Checker): state.ExprHandlers
         return nil
     end
 
-    --- `t` without nil, which is what a truthiness test leaves. Defined once here
-    --- rather than each time a logical operator is inferred.
-    c.minusNil = function(t)
-        if t.tag == "union" and t.hasNil then
-            local m = {}
-            for _, x in ipairs(t.members) do
-                if x ~= T.nil_ then
-                    m[#m + 1] = x
-                end
-            end
-            return T.union(m)
-        end
-
-        return t
-    end
-
     local handlers = {}
 
     --- The fixed width `+`, `-` and `*` answer, or nothing when they answer

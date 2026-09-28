@@ -1651,8 +1651,6 @@ function functions.install(c: state.Checker): state.StatHandlers
         return inferred
     end
 
-    c.inferredParameterModes = inferredParameterModes
-
     local handlers = {}
 
     ---------------------------------------------------------------------
