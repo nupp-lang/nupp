@@ -149,6 +149,20 @@ record incremental.Inc
     --- Source paths that contributed to one keyed project-index answer.
     projectDependencyPaths: function(name: string, key: string): {string}
 
+    --- The non-module files checking this module read -- a `cheader` header and
+    --- what it includes, the candidates tried before it, a derive provider's
+    --- inputs -- each with a digest of what was there. Persisted by the build,
+    --- because nothing else a later process can see changes when only one of them
+    --- does.
+    externalInputs: function(path: string): {{
+        path: string,
+        fingerprint: string
+    }}
+
+    --- The current digest of one external input, in the terms `externalInputs`
+    --- recorded it: absent and present-but-empty are different answers.
+    externalInputFingerprint: function(path: string): string
+
     --- Writes back what this run worked out that the next one can reuse.
     ---
     --- Nothing depends on it being called: skipping it costs the next command the work
@@ -1107,6 +1121,40 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return projectDependencyPaths(name, key)
     end
 
+    local function externalFingerprint(path: string): string
+        local bytes = q:get("externalFile", path)
+        if bytes == nil then
+            return "absent"
+        end
+
+        return "file:" .. contentDigest(bytes)
+    end
+
+    local function apiExternalInputs(path: string): {{
+        path: string,
+        fingerprint: string
+    }}
+        q:get("checkModule", path)
+        local byPath = q.memo.checkModule
+        local memo = byPath and byPath[path]
+        local inputs: {{
+            path: string,
+            fingerprint: string
+        }} = {}
+        local seen: {[string]: boolean} = {}
+        for _, dep in ipairs(memo and memo.deps or {}) do
+            if dep.name == "externalFile" and type(dep.key) == "string" and not seen[dep.key] then
+                seen[dep.key] = true
+                inputs[#inputs + 1] = {path = dep.key, fingerprint = externalFingerprint(dep.key)}
+            end
+        end
+        table.sort(inputs, function(a, b)
+            return a.path < b.path
+        end)
+
+        return inputs
+    end
+
     local function apiPersist()
         envMod.persist(env)
         headerStore.save()
@@ -1141,6 +1189,8 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         projectDependencies = apiProjectDependencies,
         projectDependencyFingerprint = apiProjectDependencyFingerprint,
         projectDependencyPaths = apiProjectDependencyPaths,
+        externalInputs = apiExternalInputs,
+        externalInputFingerprint = externalFingerprint,
         persist = apiPersist,
         deriveStats = apiDeriveStats
     )

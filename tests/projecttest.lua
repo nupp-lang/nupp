@@ -1946,6 +1946,71 @@ return {
     remove(dir)
 end
 
+-- A header `cheader` reads is as much the module's input as its source is, so the
+-- record a later process reuses has to answer for it. Before it did, an edit to
+-- only the header left check and build reusing what the old header said: a warm
+-- run accepted a call a cold one refused, and the artifact kept the old cdef.
+local function cheaderProject()
+    return tempProject({
+        ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"m"}}}
+]],
+        [
+            "src/m.nupp"
+        ] = [[
+module m
+const C = cheader("probe.h")
+
+export function run(): integer
+    return C.probe_add(1, 2)
+end
+]],
+        ["src/probe.h"] = "int probe_add(int a, int b);\n",
+    })
+end
+
+function M.aHeaderEditRechecksTheModuleThatReadsIt()
+    local dir = cheaderProject()
+    assertEq(project.build(dir, {checkOnly = true, stats = {}}), 0, "the header's signature fits the call")
+    local warm = {}
+    assertEq(project.build(dir, {checkOnly = true, stats = warm}), 0, "and a second check agrees")
+    assertEq(warm.checkedModules, 0, "an unchanged header leaves the record reusable")
+
+    -- Renamed rather than re-signed: this process's FFI already holds the first
+    -- `probe_add`, and LuaJIT keeps a C declaration once made, so only a cold
+    -- process could see its parameters change.
+    write(dir .. "/src/probe.h", "int probe_sum(int a, int b);\n")
+    local diagnostics, edited = {}, {}
+    assertEq(
+        project.build(dir, {checkOnly = true, stats = edited, diagnostics = diagnostics}),
+        1,
+        "a header that no longer declares the function refuses the call"
+    )
+    assertEq(edited.checkedModules, 1, "the header edit rechecked its reader")
+    assert(#diagnostics > 0, "and said why")
+
+    write(dir .. "/src/probe.h", "int probe_add(int a, int b);\n")
+    assertEq(project.build(dir, {checkOnly = true, stats = {}}), 0, "restoring the header restores the answer")
+
+    remove(dir)
+end
+
+function M.aHeaderEditRegeneratesTheModuleThatReadsIt()
+    local dir = cheaderProject()
+    assertEq(project.build(dir, {stats = {}}), 0)
+    local warm = {}
+    assertEq(project.build(dir, {stats = warm}), 0)
+    assertEq(warm.checkedModules, 0, "an unchanged header leaves the artifact reusable")
+
+    write(dir .. "/src/probe.h", "int probe_add(int a, int b);\nint probe_sub(int a, int b);\n")
+    local edited = {}
+    assertEq(project.build(dir, {stats = edited}), 0)
+    assertEq(edited.checkedModules, 1, "the header edit rebuilt its reader")
+    assert(read(dir .. "/out/m.lua"):find("probe_sub", 1, true), "and the artifact carries the new declarations")
+
+    remove(dir)
+end
+
 -- Linking a compiler-carried runtime needs its source closure before the checker sees
 -- it. A prior module record already names that closure; rediscovering it through a
 -- fresh query graph checks the module solely to confirm an otherwise usable cache

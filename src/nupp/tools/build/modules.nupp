@@ -596,6 +596,10 @@ local function copyModuleRecord(record)
     for _, name in ipairs(record.runtimeModules or {}) do
         runtimeModules[#runtimeModules + 1] = name
     end
+    local externalInputs = jsonArray({} as {any})
+    for _, input in ipairs(record.externalInputs or {}) do
+        externalInputs[#externalInputs + 1] = {path = input.path, fingerprint = input.fingerprint}
+    end
     local effects = jsonArray({} as {string})
     for _, effect in ipairs(record.effects or {}) do
         effects[#effects + 1] = effect
@@ -616,6 +620,7 @@ local function copyModuleRecord(record)
         runtimeModules = runtimeModules,
         compilerRuntime = record.compilerRuntime,
         projectDependencies = projectDependencies,
+        externalInputs = externalInputs,
         effects = effects,
         output = record.output,
         external = record.external,
@@ -1347,6 +1352,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             runtimeModules = required,
             compilerRuntime = true,
             projectDependencies = jsonArray({} as {DependencyRecord}),
+            externalInputs = jsonArray({} as {any}),
             effects = carriedEffects,
             output = output,
             diags = jsonArray({} as {any}),
@@ -1563,6 +1569,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             runtimeModules = runtimeModules,
             compilerRuntime = packagedRuntimeModules[name] or nil,
             projectDependencies = jsonArray(projectDependencies),
+            externalInputs = jsonArray(inc.externalInputs(path)),
             effects = jsonArray(effectNames),
             output = output,
             external = external or nil,
@@ -1636,6 +1643,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     and previous.interfaceHash
                     and type(previous.dependencies) == "table"
                     and type(previous.projectDependencies) == "table"
+                    and type(previous.externalInputs) == "table"
                     and type(previous.effects) == "table"
                     and type(previous.runtimeModules) == "table"
                     and type(previous.diags) == "table"
@@ -1665,6 +1673,21 @@ local function buildModules(root: string, outDir: string, config: Config, target
                                 dependencyName as string,
                                 dependencyKey as string
                             ) ~= dependencyFingerprint
+                        then
+                            usable = false
+                            break
+                        end
+                    end
+                end
+                if usable and previous then
+                    -- A header `cheader` read, or anything else the checker took from
+                    -- outside the project's modules. Its bytes are not the source's,
+                    -- so an edit to only the header moves nothing else checked here.
+                    for _, input in ipairs(previous.externalInputs or {}) do
+                        if type(input) ~= "table"
+                            or type(input.path) ~= "string"
+                            or type(input.fingerprint) ~= "string"
+                            or inc.externalInputFingerprint(input.path as string) ~= input.fingerprint
                         then
                             usable = false
                             break

@@ -684,7 +684,10 @@ section's sidebar with every document it holds.
 
 Build state is JSON in `outDir/.nupp-state.json`. Cache keys cover source
 content, configuration, compiler artifacts, native tool versions, flags,
-target settings, and dependency inputs. Generated files are rewritten only
+target settings, and dependency inputs, and each module's record also covers
+the files it read while being checked, such as a `cheader` header and what that
+header includes, so editing only the header rechecks the module that reads it.
+Generated files are rewritten only
 when their content changes. A missing or malformed state file causes a cold
 build.
 

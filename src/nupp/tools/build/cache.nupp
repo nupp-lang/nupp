@@ -64,6 +64,14 @@ type cache.ModuleRecord = {
         fingerprint: string?
     }}?,
 
+    --- Files other than modules that checking this module read, such as a
+    --- `cheader` header, each with the digest of what was there. Its source hash
+    --- cannot see an edit to one of them, so reuse asks each again.
+    externalInputs: {{
+        path: string?,
+        fingerprint: string?
+    }}?,
+
     --- The compiler-recognized runtime features this module needs staging for.
     effects: {string}?,
 
