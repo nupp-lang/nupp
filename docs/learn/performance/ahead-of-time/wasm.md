@@ -102,6 +102,16 @@ application-scoped; arbitrary host paths and processes remain unavailable.
 HTTP accepts absolute `http` and `https` URIs and applies the configured byte,
 effect, response, storage, and deadline limits.
 
+A packaged page application runs under budgets that cover its whole run, not
+each turn: 256 effects, 4 MiB of effect frames, 8 MiB of responses, and 30
+seconds from the moment its guest is ready. A package whose
+program uses worker tasks raises the effect count to 262,144 and both byte
+budgets to 256 MiB; each worker lane starts its budgets over with every task it
+takes. Past a budget the run fails with "Application effect budget exceeded",
+"Application response budget exceeded", or "exceeded its 30000 ms deadline".
+`runPackagedNuppLuaJITApp(url, {limits})` replaces the manifest's values, so a
+long-running page names the ones it needs.
+
 ::: seealso
 - [Ahead-of-time compilation](index.md) for the admitted kernel subset
 - [Workers](../../runtime/concurrency/workers.md) for browser worker tasks

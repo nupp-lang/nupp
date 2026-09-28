@@ -19,8 +19,13 @@ export function applicationPayload(app, initialize = new Uint8Array()) {
   return bytes;
 }
 
+// A page application's budgets cover its whole run: the effect count and bytes, the
+// response bytes, and the deadline armed when the guest is ready. Only a frame
+// `resetLimits` says begins a turn starts them over, which is what a worker lane
+// passes for each task it takes.
 export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = false,
-  signal, limits: overrides, onProgress, resetLimits, workerEntry, workerSetup, ...services}) {
+  signal, limits: overrides, onProgress, resetLimits, workerEntry, workerSetup,
+  createGuest: openGuest = createGuest, ...services}) {
   const limits = {...defaults, ...overrides};
   for (const [key, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`Invalid application limit ${key}`);
@@ -34,7 +39,7 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
     timer = setTimeout(() => controller.abort(new Error(`browser application exceeded its ${limits.deadlineMs} ms deadline`)), limits.deadlineMs);
   };
   const options = {...services, limits, signal: controller.signal};
-  const guest = createGuest({manifestUrl, app: applicationPayload(app, initialize), signal: controller.signal,
+  const guest = openGuest({manifestUrl, app: applicationPayload(app, initialize), signal: controller.signal,
     config: {mode: 'application', managed, workerEntry, workerSetup}, deadlineMs: 30000,
     onProgress(message) { if (message.type === 'ready') arm(); onProgress?.(message); }});
   const aborted = new Promise((_, reject) => {

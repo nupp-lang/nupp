@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 import test from "node:test";
 
 import { handleBrowserEffects } from "../../runtime/wasm/app-runtime.mjs";
+import { runNuppLuaJITApp } from "../../runtime/luajit/app-runtime.mjs";
 import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
@@ -335,6 +336,41 @@ test("a frame without a wake mode answers every request it carries", async () =>
     ],
   });
   assert.deepEqual(result.responses.map((item) => item.id), [1, 2]);
+});
+
+// A guest that asks for `frames` effect frames of one request each, then finishes.
+function scriptedGuest(frames, request = {kind: "time", operation: "now"}) {
+  return ({onProgress}) => {
+    let sent = 0;
+    queueMicrotask(() => onProgress({type: "ready"}));
+    return {
+      async receive() {
+        if (sent === frames) return {type: "done", result: {ok: true, value: JSON.stringify("finished")}};
+        sent += 1;
+        return {type: "effect", result: {kind: "effects", wake: "any", requests: [{id: sent, ...request}]}};
+      },
+      respond() {},
+      close() {},
+    };
+  };
+}
+
+test("a page application's effect budget covers its whole run", async () => {
+  const run = (frames) => runNuppLuaJITApp({app: new Uint8Array(), createGuest: scriptedGuest(frames)});
+  assert.equal(await run(256), "finished", "the documented 256 effects fit");
+  await assert.rejects(run(257), /Application effect budget exceeded/, "one effect per frame still counts");
+});
+
+test("a page application's deadline covers its whole run", async () => {
+  await assert.rejects(
+    runNuppLuaJITApp({
+      app: new Uint8Array(),
+      limits: {deadlineMs: 60},
+      createGuest: scriptedGuest(10, {kind: "time", operation: "sleep", milliseconds: 20}),
+    }),
+    /exceeded its 60 ms deadline/,
+    "no frame starts the deadline over",
+  );
 });
 
 test("browser Web Crypto effects provide random, SHA-256, and HMAC", async () => {
