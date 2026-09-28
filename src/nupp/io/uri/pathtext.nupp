@@ -1,8 +1,27 @@
 @!internal
 module nupp.io.uri.pathtext
 
+-- A segment spelled with percent-encoded dots is a dot segment. RFC 3986
+-- decodes %2E as unreserved before removing dot segments, and WHATWG lists the
+-- encoded spellings among its dot segments, so both specifications agree.
+const DOT_SPELLINGS: {[string]: string} = {["%2e"] = ".", [".%2e"] = "..", ["%2e."] = "..", ["%2e%2e"] = "..",}
+
+local function plainDots(segment: string): string?
+    if #segment < 3 or #segment > 6 then
+        return nil
+    end
+
+    return DOT_SPELLINGS[segment:lower()]
+end
+
+--- RFC 3986 section 5.2.4, with encoded dots read as dots.
+--- @param path the path to reduce
+--- @return the path without `.` and `..` segments
 export function removeDotSegments(path: string): string
     local input = path
+    if input:find("%", 1, true) ~= nil then
+        input = input:gsub("[^/]+", plainDots)
+    end
     local output: {string} = {}
     while input ~= "" do
         if input:sub(1, 3) == "../" then

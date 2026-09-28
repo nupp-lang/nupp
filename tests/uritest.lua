@@ -436,6 +436,34 @@ function M.browserParserAgreesOnPortableUriComponents()
     end
 end
 
+-- A percent-encoded dot is a dot: RFC 3986 decodes %2E as unreserved before
+-- removing dot segments, and WHATWG lists %2e among the dot segments. The
+-- native parser removed `%2e%2e` and the portable one kept it, so a prefix
+-- check on the path held on one target and not the other.
+function M.encodedDotSegmentsAreRemovedByEveryParser()
+    local module = ready()
+    local browser = require("nupp.runtime.browser.uri")
+    local rows = {
+        {"https://ex.com/a/%2e%2e/secret", "/secret"},
+        {"https://ex.com/a/%2E%2E/secret", "/secret"},
+        {"https://ex.com/a/.%2e/secret", "/secret"},
+        {"https://ex.com/a/%2e./secret", "/secret"},
+        {"https://ex.com/a/%2e/b", "/a/b"},
+        {"https://ex.com/a/b/%2e%2e", "/a/"},
+        {"https://ex.com/a/%2e%2e%2e/b", "/a/%2e%2e%2e/b"},
+        {"https://ex.com/a/x%2e%2e/b", "/a/x%2e%2e/b"},
+    }
+    for _, row in ipairs(rows) do
+        local native = assert(module.newURI(row[1]))
+        test.equal(native:path(), row[2], row[1] .. " native path")
+        local parts, reason = browser.parse(row[1])
+        assert(parts, tostring(reason))
+        test.equal(parts.path, row[2], row[1] .. " portable path")
+    end
+    local page = assert(module.newURI("https://ex.com/public/index.html"))
+    test.equal(assert(page:resolve("%2e%2e/secret")):path(), "/secret")
+end
+
 function M.browserParserRefusesMalformedOrUnsupportedHosts()
     local browser = require("nupp.runtime.browser.uri")
     for _, text in ipairs({
