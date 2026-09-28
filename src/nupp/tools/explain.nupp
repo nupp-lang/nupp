@@ -1918,8 +1918,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2301",
-    summary = "cheader's header path is not a literal",
-    rule = "cheader reads the named header at compile time, so its path has to be known to the compiler before the program runs. It accepts only a literal string as its first argument, never a computed or run-time expression.",
+    summary = "cheader's arguments are not the literal form it takes",
+    rule = "cheader reads the named header at compile time, so everything it is given has to be known to the compiler before the program runs. It takes a literal header path, then optionally a literal library name, then optionally the literal \"preprocess\", and nothing more. A computed header path or library name, a third argument other than \"preprocess\", and any argument after the third are each refused.",
     wrong = "local mini = cheader(\"mini\" .. \".h\")\nreturn mini\n",
     right = "local mini = cheader(\"mini.h\")\nreturn mini\n",
     related = {"NUPP2302"},
