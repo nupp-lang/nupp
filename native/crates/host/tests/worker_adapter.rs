@@ -320,3 +320,48 @@ collectgarbage("restart")
     );
     runtime.shutdown().expect("shutdown");
 }
+
+// A list the shim refuses before the push hands every moved block it named
+// back to the allocator, those after the entry it refused included.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_list_the_shim_refuses_frees_every_moved_block() {
+    let mut runtime = runtime(b"return nil");
+    run(
+        &runtime,
+        br#"
+local workers = require("nupp.workers.native")
+local ffi = require("ffi")
+ffi.cdef[[
+typedef struct { unsigned blocks_in_use; size_t size_in_use; size_t max_size_in_use; size_t size_allocated; } adapter_malloc_statistics_t;
+void malloc_zone_statistics(void *zone, adapter_malloc_statistics_t *stats);
+void *malloc(size_t);
+]]
+local stats = ffi.new("adapter_malloc_statistics_t")
+local function used()
+    collectgarbage("collect")
+    ffi.C.malloc_zone_statistics(nil, stats)
+    return tonumber(stats.size_in_use)
+end
+local MB = 1048576
+local function moved(size)
+    local box = ffi.new("void *[1]", ffi.C.malloc(size))
+    return ffi.string(box, ffi.sizeof("void *"))
+end
+
+local channel = assert(workers.channelCreate())
+local before = used()
+-- Large enough that other tests allocating in this process at the same time
+-- cannot pass for, or hide, a leaked block.
+local first, second = moved(256 * MB), moved(256 * MB)
+assert(used() - before >= 512 * MB)
+assert(not workers.channelPushBufferTask(
+    channel, 1, "jobs", "run", 1, "frame", {first, 1, 1, false, 1, 1, second, 1, 1}
+))
+local held = (used() - before) / MB
+assert(held < 128, ("%d MiB of the refused list's moved blocks are still allocated"):format(held))
+workers.channelDestroy(channel)
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}

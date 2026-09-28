@@ -309,30 +309,53 @@ static int push_string_reply(lua_State *state) {
     return push_scalar(state, MESSAGE_STRING_REPLY, 0, 1);
 }
 
+/* A moved entry is a string holding one native pointer; anything else in the
+ * handle position is a region handle or a malformed entry. */
+static void *moved_pointer(lua_State *state, int index) {
+    void *block = NULL;
+    size_t pointer_length = 0;
+    const char *pointer;
+    if (lua_type(state, index) != LUA_TSTRING) return NULL;
+    pointer = lua_tolstring(state, index, &pointer_length);
+    if (pointer_length == sizeof(void *)) memcpy(&block, pointer, sizeof(void *));
+    return block;
+}
+
 /* Moved pointers are transferred from the call onward. A malformed list frees
- * every moved allocation already handed over; region references are borrowed
- * here and cloned by Rust only if the frame forms. */
+ * every moved allocation it names -- before the bad entry, the bad entry
+ * itself, and after it -- which is the same account the Rust push gives of a
+ * list it refuses. Region references are borrowed here and cloned by Rust only
+ * if the frame forms. */
+static void release_listed_moved(lua_State *state, int index, size_t triples) {
+    size_t position;
+    for (position = 0; position < triples; ++position) {
+        void *block;
+        lua_rawgeti(state, index, (int)(position * 3 + 1));
+        block = moved_pointer(state, -1);
+        lua_pop(state, 1);
+        if (block != NULL) free(block);
+    }
+}
+
 static size_t read_attachments(lua_State *state, int index,
     RawAttachment *out) {
     size_t entries, triples, position;
     if (lua_isnoneornil(state, index)) return 0;
     if (lua_type(state, index) != LUA_TTABLE) return (size_t)-1;
     entries = lua_objlen(state, index);
-    if (entries % 3 != 0) return (size_t)-1;
     triples = entries / 3;
-    if (triples > MAX_ATTACHMENTS) return (size_t)-1;
+    if (entries % 3 != 0 || triples > MAX_ATTACHMENTS) {
+        release_listed_moved(state, index, triples);
+        return (size_t)-1;
+    }
     for (position = 0; position < triples; ++position) {
         void *block = NULL;
         int kind = ATTACHMENT_REGION;
         lua_Integer first, length;
         lua_rawgeti(state, index, (int)(position * 3 + 1));
         if (lua_type(state, -1) == LUA_TSTRING) {
-            size_t pointer_length = 0;
-            const char *pointer = lua_tolstring(state, -1, &pointer_length);
-            if (pointer_length == sizeof(void *)) {
-                kind = ATTACHMENT_MOVED;
-                memcpy(&block, pointer, sizeof(void *));
-            }
+            kind = ATTACHMENT_MOVED;
+            block = moved_pointer(state, -1);
         } else {
             block = region_block(state, -1);
         }
@@ -343,11 +366,7 @@ static size_t read_attachments(lua_State *state, int index,
         lua_pop(state, 3);
         if (block == NULL || (kind == ATTACHMENT_MOVED
             ? first < 0 || length < 1 : first < 1 || length < 0)) {
-            size_t undo;
-            if (kind == ATTACHMENT_MOVED && block != NULL) free(block);
-            for (undo = 0; undo < position; ++undo) {
-                if (out[undo].kind == ATTACHMENT_MOVED) free(out[undo].block);
-            }
+            release_listed_moved(state, index, triples);
             return (size_t)-1;
         }
         out[position].kind = kind;
@@ -372,11 +391,13 @@ static int push_buffer(lua_State *state, int kind, int task) {
     RawAttachment attachments[MAX_ATTACHMENTS];
     size_t attachment_count;
     int accepted = 0;
-    /* Moved blocks are owned by whoever reads them: by read_attachments until
-     * it returns, and by the Rust push from the moment it is called. Reject
-     * the fixed arguments first so the blocks are read only when the push
-     * will run to take them. */
+    /* The caller hands its moved blocks over with the call, so a push refused
+     * for its fixed arguments frees them as a refused list would. */
     if (channel == NULL || value == NULL || (task && (module == NULL || member == NULL))) {
+        if (lua_type(state, attachments_index) == LUA_TTABLE) {
+            release_listed_moved(state, attachments_index,
+                lua_objlen(state, attachments_index) / 3);
+        }
         lua_pushboolean(state, 0);
         return 1;
     }
