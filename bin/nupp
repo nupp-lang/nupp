@@ -322,6 +322,17 @@ lock_holder_alive() {
     kill -0 "$holder" 2>/dev/null
 }
 
+# Says that this command is waiting for another build of this tree and whose:
+# once after a short grace, then once a minute. Waiting in silence read as a
+# hang for up to BUILD_LOCK_WAIT. Only on a terminal, so captured output stays
+# what it was. `holder` is what `lock_holder_alive` last read.
+say_waiting_for_build() {
+    [ -t 2 ] || return 0
+    [ "$waited" -eq 3 ] || [ $((waited % 60)) -eq 0 ] || return 0
+    echo "nupp: waiting for the build pid $holder is running in $ROOT" \
+        "(${waited}s so far)" >&2
+}
+
 # 0 holding the lock and with a build still to do, 1 when somebody else's build
 # has already produced what this one was going to.
 #
@@ -349,6 +360,7 @@ take_build_lock() {
         fi
         sleep 1
         waited=$((waited + 1))
+        say_waiting_for_build
         # Whoever holds it is building the same sources this needs built, so
         # their answer is this one's answer.
         if [ "$lock_mode" = share ]; then
@@ -372,6 +384,7 @@ await_build() {
     while [ -d "$BUILD_LOCK" ] && lock_holder_alive; do
         sleep 1
         waited=$((waited + 1))
+        say_waiting_for_build
         if [ "$waited" -ge "$BUILD_LOCK_WAIT" ]; then
             echo "nupp: another build has held $BUILD_LOCK for ${waited}s;" \
                 "running without waiting for it" >&2
