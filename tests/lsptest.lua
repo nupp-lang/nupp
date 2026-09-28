@@ -6,6 +6,12 @@ local test = require("assert")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
 
+-- The URI the server answers with for a path. RFC 8089 gives a Windows drive
+-- path a leading slash, so `C:/x` is `file:///C:/x`, not `file://C:/x`.
+local function fileUri(path)
+    return "file://" .. (path:match("^[A-Za-z]:[/\\]") and "/" or "") .. path
+end
+
 local function assertContains(haystack, needle, label)
     if not haystack:find(needle, 1, true) then
         error(("%s: %q not found in output:\n%s"):format(label or "missing", needle, haystack:sub(1, 2000)), 2)
@@ -466,7 +472,7 @@ function M.anAbsolutePathUnderARelativeRootReusesItsGraph()
     local host = stubHost()
     local client = inProcessSession(relative, host)
     client.dispatch({jsonrpc = "2.0", id = 1, method = "initialize", params = {}})
-    local uri = "file://" .. dir .. "/probe.nupp"
+    local uri = fileUri(dir .. "/probe.nupp")
     client.dispatch({
         jsonrpc = "2.0",
         method = "textDocument/didOpen",
@@ -498,7 +504,7 @@ function M.projectExportDefinitionAndCompletion()
     modelFile:close()
     local usePath = projectDir .. "/use.nupp"
     local source = "local value: ProjectRecord\n"
-    local uri = "file://" .. usePath
+    local uri = fileUri(usePath)
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -507,7 +513,7 @@ function M.projectExportDefinitionAndCompletion()
                 method = "textDocument/didOpen",
                 params = {
                     textDocument = {
-                        uri = "file://" .. modelPath,
+                        uri = fileUri(modelPath),
                         languageId = "nupp",
                         version = 1,
                         text = "global record ProjectRecord\n   id: uint32\nend\n"
@@ -539,7 +545,7 @@ function M.projectExportDefinitionAndCompletion()
     os.execute("rm -rf '" .. projectDir .. "'")
 
     local location = responseWithId(out, 10).result
-    assert(location.uri == "file://" .. modelPath, "project definition URI")
+    assert(location.uri == fileUri(modelPath), "project definition URI")
     assert(location.range.start.line == 0 and location.range.start.character == 14, "project definition range")
     local labels = {}
     for _, item in ipairs(responseWithId(out, 11).result) do
@@ -561,7 +567,7 @@ function M.hoverShowsDocsDeclaredInAnotherFile()
     modelFile:write(model)
     modelFile:close()
     local usePath = projectDir .. "/use.nupp"
-    local uri = "file://" .. usePath
+    local uri = fileUri(usePath)
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -592,7 +598,7 @@ end
 function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
     local projectDir = makeDir()
     local path = projectDir .. "/main.nupp"
-    local uri = "file://" .. path
+    local uri = fileUri(path)
     local source = table.concat(
         {
             "local runtimeOnly = {secret = 1}",
@@ -661,7 +667,7 @@ end
 function M.comptimeTypeIntrinsicsCompleteOnlyOnTheNuppNamespace()
     local projectDir = makeDir()
     local path = projectDir .. "/main.nupp"
-    local uri = "file://" .. path
+    local uri = fileUri(path)
     local source = "return comptime do\n   return nupp.\nend\n"
     local out = runSession(
         {
@@ -712,7 +718,7 @@ end
 function M.queuedRequestsCanBeCancelledWhileComptimeIsInFlight()
     local projectDir = makeDir()
     local path = projectDir .. "/main.nupp"
-    local uri = "file://" .. path
+    local uri = fileUri(path)
     local source = "return comptime do while true do end end\n"
     local out = runSession(
         {
@@ -744,7 +750,7 @@ end
 -- session can be told to stop at.
 function M.compilerWorkStopsAtACheckpointWhenTheRequestIsCancelled()
     local dir = projectUsingShared()
-    local uri = "file://" .. dir .. "/shared.nupp"
+    local uri = fileUri(dir .. "/shared.nupp")
     local host = stubHost()
     local client = inProcessSession(dir, host)
     client.dispatch({jsonrpc = "2.0", id = 1, method = "initialize", params = {}})
@@ -789,7 +795,7 @@ end
 -- again against the text it now has.
 function M.anAnswerOvertakenByAnEditIsDiscarded()
     local dir = projectUsingShared()
-    local uri = "file://" .. dir .. "/shared.nupp"
+    local uri = fileUri(dir .. "/shared.nupp")
     local host = stubHost()
     local client = inProcessSession(dir, host)
     host.sawVersion(uri, 1)
@@ -834,7 +840,7 @@ end
 -- against text it no longer has.
 function M.publishedDiagnosticsCarryTheVersionTheyWereFoundIn()
     local projectDir = makeDir()
-    local uri = "file://" .. projectDir .. "/main.nupp"
+    local uri = fileUri(projectDir .. "/main.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -880,7 +886,7 @@ end
 function M.hoverAndInspectExposeAutomaticCleanup()
     local projectDir = makeDir()
     local path = projectDir .. "/owner.nupp"
-    local uri = "file://" .. path
+    local uri = fileUri(path)
     local source = table.concat(
         {
             "local record Handle",
@@ -953,8 +959,8 @@ function M.republishesDependentDiagnostics()
     local projectDir = os.tmpname()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local modelUri = "file://" .. projectDir .. "/model.g.nupp"
-    local consumerUri = "file://" .. projectDir .. "/consumer.g.nupp"
+    local modelUri = fileUri(projectDir .. "/model.g.nupp")
+    local consumerUri = fileUri(projectDir .. "/consumer.g.nupp")
     local consumer = table.concat(
         {"local item: Shared = new Shared()", "local value: number = item.value", "return value",},
         "\n"
@@ -1054,9 +1060,9 @@ end
 
 function M.diagnosticsLifecycle()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/lifecycle-demo.nupp"
+    local uri = fileUri(root .. "/lifecycle-demo.nupp")
     local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = "file://" .. root, capabilities = {}}},
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = fileUri(root), capabilities = {}}},
         {jsonrpc = "2.0", method = "initialized", params = {}},
         {
             jsonrpc = "2.0",
@@ -1090,7 +1096,7 @@ function M.diagnosticsLifecycle()
 end
 
 function M.syntaxErrorsPublished()
-    local uri = "file://" .. scratchRoot() .. "/broken.nupp"
+    local uri = fileUri(scratchRoot() .. "/broken.nupp")
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
@@ -1116,7 +1122,7 @@ end
 -- so it is asserted here on purpose against two small directories.
 function M.aDocumentOutsideTheWorkspaceIsStillChecked()
     local outside = makeDir()
-    local uri = "file://" .. outside .. "/stray.nupp"
+    local uri = fileUri(outside .. "/stray.nupp")
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
@@ -1160,14 +1166,14 @@ function M.crossFileDiagnosticsPublishRelatedInformation()
     writeInto(projectDir, "b.nupp", "global record Shared end\n")
     local source = "local value: Shared?\nreturn value\n"
     writeInto(projectDir, "use.nupp", source)
-    local uri = "file://" .. projectDir .. "/use.nupp"
+    local uri = fileUri(projectDir .. "/use.nupp")
     local out = runSession(
         {
             {
                 jsonrpc = "2.0",
                 id = 1,
                 method = "initialize",
-                params = {rootUri = "file://" .. projectDir, capabilities = {}}
+                params = {rootUri = fileUri(projectDir), capabilities = {}}
             },
             {jsonrpc = "2.0", method = "initialized", params = {}},
             {
@@ -1189,7 +1195,7 @@ function M.crossFileDiagnosticsPublishRelatedInformation()
 end
 
 function M.definitionLocations()
-    local uri = "file://" .. scratchRoot() .. "/definition-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/definition-demo.nupp")
     local source = table.concat(
         {
             "local record Point",
@@ -1244,7 +1250,7 @@ end
 
 function M.countedByReferencesThePhysicalCountParameter()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/counted-by-demo.nupp"
+    local uri = fileUri(root .. "/counted-by-demo.nupp")
     local source = table.concat(
         {"cdef function visit(", "    borrows values: const int32* countedBy(count),", "    count: uint64", ")",},
         "\n"
@@ -1288,7 +1294,7 @@ end
 
 function M.renamingAnUnaliasedBindingPatternPreservesItsField()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/binding-pattern-rename.nupp"
+    local uri = fileUri(root .. "/binding-pattern-rename.nupp")
     local source = table.concat(
         {
             "local record Point",
@@ -1332,8 +1338,8 @@ end
 
 function M.languageFeaturesAndCdefTooling()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/tooling-demo.nupp"
-    local formatUri = "file://" .. root .. "/format-demo.nupp"
+    local uri = fileUri(root .. "/tooling-demo.nupp")
+    local formatUri = fileUri(root .. "/format-demo.nupp")
     local source = table.concat(
         {
             "--- Adds two C integers.",
@@ -1501,7 +1507,7 @@ function M.languageFeaturesAndCdefTooling()
 end
 
 function M.contractSyntaxSemanticTokens()
-    local uri = "file://" .. scratchRoot() .. "/contracts.nupp"
+    local uri = fileUri(scratchRoot() .. "/contracts.nupp")
     local source = table.concat(
         {
             "@!internal",
@@ -1551,7 +1557,7 @@ function M.contractSyntaxSemanticTokens()
 end
 
 function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
-    local uri = "file://" .. scratchRoot() .. "/safety-keywords.nupp"
+    local uri = fileUri(scratchRoot() .. "/safety-keywords.nupp")
     local source = table.concat(
         {
             "@unsafe do end",
@@ -1593,7 +1599,7 @@ function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
 end
 
 function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
-    local uri = "file://" .. scratchRoot() .. "/embedded-string.nupp"
+    local uri = fileUri(scratchRoot() .. "/embedded-string.nupp")
     local source = table.concat({'@syntax("json")', "local config = dedent [[", "{\"enabled\": true}", "]]",}, "\n")
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1620,7 +1626,7 @@ end
 
 function M.packBindersHaveTypeParameterEditorSemantics()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/pack-tooling.nupp"
+    local uri = fileUri(root .. "/pack-tooling.nupp")
     local source = "local function forward<A...>(...: A...): A... return ... end\n"
     local out = runSession(
         {
@@ -1689,7 +1695,7 @@ function M.packBindersHaveTypeParameterEditorSemantics()
 end
 
 function M.utf16Positions()
-    local uri = "file://" .. scratchRoot() .. "/utf16-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/utf16-demo.nupp")
     local source = "local emoji = '😀'; local value = emoji\n"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1713,7 +1719,7 @@ function M.utf16Positions()
 end
 
 function M.constEditorSemantics()
-    local uri = "file://" .. scratchRoot() .. "/const-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/const-demo.nupp")
     local source = "const answer: integer = 42\nlocal copy = answer\n"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1757,7 +1763,7 @@ function M.constEditorSemantics()
 end
 
 function M.deprecatedApisReachHoverCompletionAndSemanticTokens()
-    local uri = "file://" .. scratchRoot() .. "/deprecated-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/deprecated-demo.nupp")
     local source = table.concat(
         {
             '@deprecated(reason = "kept for compatibility", replacement = "current")',
@@ -1822,7 +1828,7 @@ end
 -- to, so hover falls back to a one-line blurb and a link to where it is
 -- actually documented, and go-to-definition finds nothing to fabricate.
 function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = "file://" .. scratchRoot() .. "/aot-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/aot-demo.nupp")
     local source = table.concat(
         {"@aot", "local function double(x: integer): integer", "    return x * 2", "end", "return double",},
         "\n"
@@ -1867,7 +1873,7 @@ function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
 end
 
 function M.unsafeExpressionHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = "file://" .. scratchRoot() .. "/unsafe-expression.nupp"
+    local uri = fileUri(scratchRoot() .. "/unsafe-expression.nupp")
     local source = table.concat({"local value = @unsafe 1", "return value"}, "\n") .. "\n"
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -1911,7 +1917,7 @@ end
 -- Same stand-in, one level down: a built-in annotation's own member
 -- (`target` on `@aot`) has no field declaration either.
 function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = "file://" .. scratchRoot() .. "/aot-target-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/aot-target-demo.nupp")
     local source = table.concat(
         {
             '@aot(target = "cpu")',
@@ -1959,7 +1965,7 @@ function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
 end
 
 function M.borrowReturnIsAKeyword()
-    local uri = "file://" .. scratchRoot() .. "/borrow-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/borrow-demo.nupp")
     -- column 40 is the `borrows` of the return annotation; column 20 is the
     -- parameter mode, which was already a keyword
     local source = table.concat(
@@ -1998,7 +2004,7 @@ function M.borrowReturnIsAKeyword()
 end
 
 function M.predicateReturnIsAKeyword()
-    local uri = "file://" .. scratchRoot() .. "/predicate-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/predicate-demo.nupp")
     local source = table.concat(
         {
             "local type Value = string | number",
@@ -2035,7 +2041,7 @@ function M.predicateReturnIsAKeyword()
 end
 
 function M.docCommentsDeferToTextMateScopes()
-    local uri = "file://" .. scratchRoot() .. "/doc-comment-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/doc-comment-demo.nupp")
     local source = table.concat(
         {
             "-- ordinary comment",
@@ -2080,7 +2086,7 @@ function M.docCommentsDeferToTextMateScopes()
 end
 
 function M.annotationTypeReferencesHaveDefinitions()
-    local uri = "file://" .. scratchRoot() .. "/annotation-ref-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/annotation-ref-demo.nupp")
     local source = table.concat(
         {
             '@annotation(targets = {"record"})',
@@ -2121,7 +2127,7 @@ function M.annotationTypeReferencesHaveDefinitions()
 end
 
 function M.namedTerminalsHaveDefinitions()
-    local uri = "file://" .. scratchRoot() .. "/own-ref-demo.nupp"
+    local uri = fileUri(scratchRoot() .. "/own-ref-demo.nupp")
     local source = table.concat(
         {
             "cdef function free(takes value: voidptr)",
@@ -2183,7 +2189,7 @@ function M.qualifiedMembersNavigateAcrossFiles()
     shapesFile:close()
 
     local usePath = projectDir .. "/use.nupp"
-    local uri = "file://" .. usePath
+    local uri = fileUri(usePath)
     -- column 34 sits on `Point` in the annotation
     local source = "local shapes = require(\"shapes\")\n" .. "local p: shapes.Point = new shapes.Point(x = 1)\n"
     local out = runSession(
@@ -2215,7 +2221,7 @@ function M.qualifiedMembersNavigateAcrossFiles()
 
     local location = responseWithId(out, 10).result
     assert(location, "qualified member definition missing")
-    assert(location.uri == "file://" .. shapesPath, "qualified member definition URI: " .. tostring(location.uri))
+    assert(location.uri == fileUri(shapesPath), "qualified member definition URI: " .. tostring(location.uri))
     assert(location.range.start.line == 3, "qualified member definition line: " .. tostring(location.range.start.line))
     assert(
         location.range.start.character == 14,
@@ -2243,7 +2249,7 @@ function M.reportsAMissingRequireGentlyWhileEditing()
     )
     modFile:close()
 
-    local uri = "file://" .. projectDir .. "/use.nupp"
+    local uri = fileUri(projectDir .. "/use.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -2280,7 +2286,7 @@ function M.renamesTheMemberAndNotItsTable()
     local projectDir = os.tmpname()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local uri = "file://" .. projectDir .. "/shapes.nupp"
+    local uri = fileUri(projectDir .. "/shapes.nupp")
     local source = "local shapes = {}\n\nrecord shapes.Point\n   x: number\nend\n"
         .. "\nlocal p: shapes.Point = new shapes.Point(x = 1)\n\nreturn shapes\n"
     local out = runSession(
@@ -2337,7 +2343,7 @@ function M.renamesAcrossFilesTheEditorHasNotOpened()
     -- must also stay out of the result.
     writeFile("unrelated.nupp", "local c: number = 1\n")
 
-    local modelUri = "file://" .. projectDir .. "/model.nupp"
+    local modelUri = fileUri(projectDir .. "/model.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -2351,7 +2357,7 @@ function M.renamesAcrossFilesTheEditorHasNotOpened()
                 method = "textDocument/didOpen",
                 params = {
                     textDocument = {
-                        uri = "file://" .. projectDir .. "/opened.nupp",
+                        uri = fileUri(projectDir .. "/opened.nupp"),
                         languageId = "nupp",
                         version = 1,
                         text = "local a: Point\n"
@@ -2410,7 +2416,7 @@ function M.refusesToRenameASymbolTheProjectDoesNotDeclare()
     local projectDir = os.tmpname()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local uri = "file://" .. projectDir .. "/use.nupp"
+    local uri = fileUri(projectDir .. "/use.nupp")
     local source = "local text: string = tostring(1)\n"
     local out = runSession(
         {
@@ -2463,7 +2469,7 @@ function M.completionOffersOnlyNamesThatResolve()
     shapesFile:close()
 
     local usePath = projectDir .. "/use.nupp"
-    local uri = "file://" .. usePath
+    local uri = fileUri(usePath)
     local source = "local value: \n"
     local out = runSession(
         {
@@ -2500,7 +2506,7 @@ function M.completionOffersAMemberAsItsPathInItsOwnFile()
     local projectDir = os.tmpname()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local uri = "file://" .. projectDir .. "/shapes.nupp"
+    local uri = fileUri(projectDir .. "/shapes.nupp")
     -- The document has to check for its own symbols to exist, so the request
     -- sits at the end of a complete annotation rather than a half-typed one.
     local source = "local shapes = {}\n\nrecord shapes.Point\n   x: number\nend\n"
@@ -2582,7 +2588,7 @@ function M.completionAfterAModuleDotOffersOnlyItsMembers()
     )
     local opened = 'local util = require("util")\n\nlocal y = util.double(1)\n'
     local typing = 'local util = require("util")\n\nlocal y = util.\n'
-    local uri = "file://" .. projectDir .. "/use.nupp"
+    local uri = fileUri(projectDir .. "/use.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -2674,7 +2680,7 @@ function M.completionAfterAValueDotOffersItsFields()
     ) .. "\n"
     local typing = source:gsub("local n = p%.x", "local n = p.")
     local method = source:gsub("local n = p%.x", "local n = p:")
-    local uri = "file://" .. projectDir .. "/shapes.nupp"
+    local uri = fileUri(projectDir .. "/shapes.nupp")
     writeInto(projectDir, "shapes.nupp", source)
     local out = runSession(
         {
@@ -2742,7 +2748,7 @@ function M.completionFiltersLexicalScopesAndBuildsCallableSnippets()
         },
         "\n"
     ) .. "\n"
-    local uri = "file://" .. projectDir .. "/main.nupp"
+    local uri = fileUri(projectDir .. "/main.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -2787,7 +2793,7 @@ function M.completionOffersCdefMembersAndRequirePaths()
     ) .. "\n"
     local cTyping = source:gsub("ffi%.C%.magnitude%(1%)", "ffi.C.")
     local requireTyping = source:gsub('require%("lib%.math"%)', 'require("lib.')
-    local uri = "file://" .. projectDir .. "/main.nupp"
+    local uri = fileUri(projectDir .. "/main.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -2864,7 +2870,7 @@ function M.completionInATypePositionOffersOnlyTypes()
         },
         "\n"
     ) .. "\n"
-    local uri = "file://" .. projectDir .. "/shapes.nupp"
+    local uri = fileUri(projectDir .. "/shapes.nupp")
     writeInto(projectDir, "shapes.nupp", source)
     local out = runSession(
         {
@@ -2951,7 +2957,7 @@ function M.plainModuleMembersNavigateAcrossFiles()
     local use = 'local util = require("util")\n\nlocal y = util.double(3)\n'
     local session = withFiles({["util.nupp"] = UTIL, ["use.nupp"] = use}, function(projectDir)
         local path = projectDir .. "/use.nupp"
-        local uri = "file://" .. path
+        local uri = fileUri(path)
         return {
             path = path,
             out = runSession(
@@ -3013,7 +3019,7 @@ function M.plainModuleMembersNavigateAcrossFiles()
     assertContains(hover.contents.value, "Doubles a number.", "and the docblock above it")
 
     local holder = responseWithId(out, 12).result
-    assert(holder and holder.uri == "file://" .. usePath, "the table it is dotted off is still this file's own local")
+    assert(holder and holder.uri == fileUri(usePath), "the table it is dotted off is still this file's own local")
 end
 
 -- References and rename run over the project, the same way they do for a typed
@@ -3031,7 +3037,7 @@ function M.plainModuleMembersAreRenamedAcrossTheProject()
             ] = 'local m = {}\n\nfunction m.double(x: number): number\n' .. "    return x\nend\n\nreturn m\n",
         },
         function(projectDir)
-            local uri = "file://" .. projectDir .. "/use.nupp"
+            local uri = fileUri(projectDir .. "/use.nupp")
             return runSession(
                 {
                     {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3148,7 +3154,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
 
     local use = 'local shared = require("shared")\n\nlocal t: shared.Token?\nreturn t\n'
     writeInto(rootDir, "use.nupp", use)
-    local uri = "file://" .. rootDir .. "/use.nupp"
+    local uri = fileUri(rootDir .. "/use.nupp")
     local out = runSession(
         {
             {
@@ -3157,8 +3163,8 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
                 method = "initialize",
                 params = {
                     workspaceFolders = {
-                        {uri = "file://" .. rootDir, name = "root"},
-                        {uri = "file://" .. otherDir, name = "other"},
+                        {uri = fileUri(rootDir), name = "root"},
+                        {uri = fileUri(otherDir), name = "other"},
                     }
                 }
             },
@@ -3204,7 +3210,7 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
     )
     local use = 'local shared = require("shared")\n\nlocal t: shared.Token?\nreturn t\n'
     writeInto(rootDir, "use.nupp", use)
-    local uri = "file://" .. rootDir .. "/use.nupp"
+    local uri = fileUri(rootDir .. "/use.nupp")
 
     local out = runSession(
         {
@@ -3212,7 +3218,7 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
                 jsonrpc = "2.0",
                 id = 1,
                 method = "initialize",
-                params = {workspaceFolders = {{uri = "file://" .. rootDir, name = "root"}}}
+                params = {workspaceFolders = {{uri = fileUri(rootDir), name = "root"}}}
             },
             {
                 jsonrpc = "2.0",
@@ -3222,7 +3228,7 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
             {
                 jsonrpc = "2.0",
                 method = "workspace/didChangeWorkspaceFolders",
-                params = {event = {added = {{uri = "file://" .. otherDir, name = "other"}}, removed = {}}}
+                params = {event = {added = {{uri = fileUri(otherDir), name = "other"}}, removed = {}}}
             },
             {
                 jsonrpc = "2.0",
@@ -3233,7 +3239,7 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
             {
                 jsonrpc = "2.0",
                 method = "workspace/didChangeWorkspaceFolders",
-                params = {event = {added = {}, removed = {{uri = "file://" .. otherDir, name = "other"}}}}
+                params = {event = {added = {}, removed = {{uri = fileUri(otherDir), name = "other"}}}}
             },
             {
                 jsonrpc = "2.0",
@@ -3289,8 +3295,8 @@ function M.eachFolderIsReadUnderItsOwnConfiguration()
     ) .. "\n"
     writeInto(rootDir, "here.nupp", source)
     writeInto(otherDir, "there.nupp", source)
-    local hereUri = "file://" .. rootDir .. "/here.nupp"
-    local thereUri = "file://" .. otherDir .. "/there.nupp"
+    local hereUri = fileUri(rootDir .. "/here.nupp")
+    local thereUri = fileUri(otherDir .. "/there.nupp")
 
     local out = runSession(
         {
@@ -3300,8 +3306,8 @@ function M.eachFolderIsReadUnderItsOwnConfiguration()
                 method = "initialize",
                 params = {
                     workspaceFolders = {
-                        {uri = "file://" .. rootDir, name = "root"},
-                        {uri = "file://" .. otherDir, name = "other"},
+                        {uri = fileUri(rootDir), name = "root"},
+                        {uri = fileUri(otherDir), name = "other"},
                     }
                 }
             },
@@ -3344,7 +3350,7 @@ function M.answersSayWhichFolderTheyCameFrom()
     local otherDir = makeDir()
     local source = "local other = {}\n\nrecord other.Only\n   n: integer\nend\n" .. "\nreturn other\n"
     writeInto(otherDir, "other.nupp", source)
-    local uri = "file://" .. otherDir .. "/other.nupp"
+    local uri = fileUri(otherDir .. "/other.nupp")
 
     local out = runSession(
         {
@@ -3354,8 +3360,8 @@ function M.answersSayWhichFolderTheyCameFrom()
                 method = "initialize",
                 params = {
                     workspaceFolders = {
-                        {uri = "file://" .. rootDir, name = "root"},
-                        {uri = "file://" .. otherDir, name = "other"},
+                        {uri = fileUri(rootDir), name = "root"},
+                        {uri = fileUri(otherDir), name = "other"},
                     }
                 }
             },
@@ -3409,7 +3415,7 @@ function M.watchedFileCreationJoinsTheProject()
     local rootDir = makeDir()
     local declaration = "global record Point\n   x: number\nend\n"
     writeInto(rootDir, "model.nupp", declaration)
-    local modelUri = "file://" .. rootDir .. "/model.nupp"
+    local modelUri = fileUri(rootDir .. "/model.nupp")
     local references = {
         textDocument = {uri = modelUri},
         position = {line = 0, character = 14},
@@ -3433,7 +3439,7 @@ function M.watchedFileCreationJoinsTheProject()
             {
                 jsonrpc = "2.0",
                 method = "workspace/didChangeWatchedFiles",
-                params = {changes = {{uri = "file://" .. rootDir .. "/late.nupp", type = 1}}}
+                params = {changes = {{uri = fileUri(rootDir .. "/late.nupp"), type = 1}}}
             },
             {jsonrpc = "2.0", id = 11, method = "textDocument/references", params = references},
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
@@ -3463,7 +3469,7 @@ function M.watchedFileChangeRechecksOpenDependents()
     writeModel("Point")
     local use = 'local model = require("model")\n\nlocal p: model.Point?\nreturn p\n'
     writeInto(rootDir, "use.nupp", use)
-    local uri = "file://" .. rootDir .. "/use.nupp"
+    local uri = fileUri(rootDir .. "/use.nupp")
 
     local out = runLiveSession(
         {
@@ -3480,7 +3486,7 @@ function M.watchedFileChangeRechecksOpenDependents()
             {
                 jsonrpc = "2.0",
                 method = "workspace/didChangeWatchedFiles",
-                params = {changes = {{uri = "file://" .. rootDir .. "/model.nupp", type = 2}}}
+                params = {changes = {{uri = fileUri(rootDir .. "/model.nupp"), type = 2}}}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
             {jsonrpc = "2.0", method = "exit"},
@@ -3506,7 +3512,7 @@ function M.watchedFileDeletionLeavesTheProject()
     )
     local use = 'local model = require("model")\n\nlocal p: model.Point?\nreturn p\n'
     writeInto(rootDir, "use.nupp", use)
-    local uri = "file://" .. rootDir .. "/use.nupp"
+    local uri = fileUri(rootDir .. "/use.nupp")
 
     local out = runLiveSession(
         {
@@ -3522,7 +3528,7 @@ function M.watchedFileDeletionLeavesTheProject()
             {
                 jsonrpc = "2.0",
                 method = "workspace/didChangeWatchedFiles",
-                params = {changes = {{uri = "file://" .. rootDir .. "/model.nupp", type = 3}}}
+                params = {changes = {{uri = fileUri(rootDir .. "/model.nupp"), type = 3}}}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
             {jsonrpc = "2.0", method = "exit"},
@@ -3543,7 +3549,7 @@ function M.watchedFileEventsOutsideTheProjectAreIgnored()
     local rootDir = makeDir()
     local use = "local x: number = 1\nreturn x\n"
     writeInto(rootDir, "use.nupp", use)
-    local uri = "file://" .. rootDir .. "/use.nupp"
+    local uri = fileUri(rootDir .. "/use.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3559,7 +3565,7 @@ function M.watchedFileEventsOutsideTheProjectAreIgnored()
                     changes = {
                         {uri = "untitled:Untitled-1", type = 1},
                         {uri = "file:///nowhere/at/all.nupp", type = 3},
-                        {uri = "file://" .. rootDir .. "/notes.txt", type = 1},
+                        {uri = fileUri(rootDir .. "/notes.txt"), type = 1},
                     }
                 }
             },
@@ -3605,7 +3611,7 @@ function M.semanticTokenDeltasDescribeOnlyWhatChanged()
     local projectDir = makeDir()
     local before = "local a = 1\nlocal b = 2\nlocal c = 3\n"
     local after = "local a = 1\nlocal b = 22\nlocal c = 3\n"
-    local uri = "file://" .. projectDir .. "/edit.nupp"
+    local uri = fileUri(projectDir .. "/edit.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3693,7 +3699,7 @@ end
 function M.semanticTokensForARangeAreEncodedFromTheRange()
     local projectDir = makeDir()
     local source = "local a = 1\nlocal b = 2\nlocal c = 3\nlocal d = 4\n"
-    local uri = "file://" .. projectDir .. "/lines.nupp"
+    local uri = fileUri(projectDir .. "/lines.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3740,7 +3746,7 @@ function M.formattingAnswersWithTheLinesThatChanged()
     end
     lines[#lines + 1] = "local z   = 3"
     local source = table.concat(lines, "\n") .. "\n"
-    local uri = "file://" .. projectDir .. "/wide.nupp"
+    local uri = fileUri(projectDir .. "/wide.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3793,7 +3799,7 @@ end
 -- turns method-call parenthesization off reaches the editor too.
 function M.rangeFormattingKeepsQualifiedReferencesBound()
     local projectDir = makeDir()
-    local uri = "file://" .. projectDir .. "/imports.nupp"
+    local uri = fileUri(projectDir .. "/imports.nupp")
     local source = '-- imports stay outside the selection\n\nreturn nupp.io.files.read(  "a"  )\n'
     local out = runSession(
         {
@@ -3828,7 +3834,7 @@ function M.formattingHonorsAManifestThatTurnsMethodParensOff()
     local projectDir = makeDir()
     writeInto(projectDir, "nupp.lua", 'return { fmt = { methodParens = false } }\n')
     local source = "obj:m{a = 1}\n"
-    local uri = "file://" .. projectDir .. "/sugar.nupp"
+    local uri = fileUri(projectDir .. "/sugar.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3860,7 +3866,7 @@ end
 function M.rangeFormattingRefusesEditsThatReachPastTheSelection()
     local projectDir = makeDir()
     local source = "local a   = 1\nlocal b   = 2\n"
-    local uri = "file://" .. projectDir .. "/pair.nupp"
+    local uri = fileUri(projectDir .. "/pair.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3939,7 +3945,7 @@ local OUTLINE = table.concat(
 local function outlineSession(requests)
     local projectDir = makeDir()
     writeInto(projectDir, "shapes.nupp", OUTLINE)
-    local uri = "file://" .. projectDir .. "/shapes.nupp"
+    local uri = fileUri(projectDir .. "/shapes.nupp")
     local messages = {
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
@@ -4167,7 +4173,7 @@ local shown = model:debug()
 return restored, why, codec, shown
 ]]
     writeFile(projectDir .. "/model.nupp", source)
-    local uri = "file://" .. projectDir .. "/model.nupp"
+    local uri = fileUri(projectDir .. "/model.nupp")
 
     local function at(needle, advance)
         local position = positionOf(source, needle)
@@ -4367,7 +4373,7 @@ end
 -- rewrite that leaves the file checking clean is the only proof that matters.
 local function codeActionSession(projectDir, name, source, position, applyTitle)
     local path = projectDir .. "/" .. name
-    local uri = "file://" .. path
+    local uri = fileUri(path)
     local messages = {
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
@@ -4404,7 +4410,7 @@ local function codeActionSession(projectDir, name, source, position, applyTitle)
     local gradual = path:match("%.g%.nupp$") ~= nil
     local base = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "")
     local appliedPath = base .. (gradual and ".applied.g.nupp" or ".applied.nupp")
-    local appliedUri = "file://" .. appliedPath
+    local appliedUri = fileUri(appliedPath)
     table.insert(messages, 3, {
         jsonrpc = "2.0",
         method = "textDocument/didOpen",
@@ -4662,7 +4668,7 @@ local ARTIFACT_SOURCE = table.concat(
 
 --- Opens `source` as `name` and asks one artifact question about it.
 local function artifactSession(projectDir, name, source, method, params, clientOptions)
-    local uri = "file://" .. projectDir .. "/" .. name
+    local uri = fileUri(projectDir .. "/" .. name)
     local request = {textDocument = {uri = uri}}
     for key, value in pairs(params or {}) do
         request[key] = value
@@ -5047,7 +5053,7 @@ local function playRecording(recording, mode)
     end
     local final = recording.states[#recording.states]
     local uriFor = function(name)
-        return "file://" .. projectDir .. "/" .. name
+        return fileUri(projectDir .. "/" .. name)
     end
 
     local messages = {{jsonrpc = "2.0", id = 1, method = "initialize", params = {}},}
@@ -5201,7 +5207,7 @@ function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
     local projectDir = os.tmpname()
     os.remove(projectDir)
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local uri = "file://" .. projectDir .. "/legacy.lua"
+    local uri = fileUri(projectDir .. "/legacy.lua")
     local source = "---@param value integer\n---@return integer\n"
         .. "local function keep(value) return value end\nreturn keep\n"
     local out = runSession(
@@ -5230,7 +5236,7 @@ end
 -- comment, so hover shows what is between them and neither bracket.
 function M.blockCommentDocsHoverWithoutTheirDelimiters()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/block-docs.nupp"
+    local uri = fileUri(root .. "/block-docs.nupp")
     local source = table.concat(
         {
             "--[[ Documented in a block. ]]",
@@ -5275,7 +5281,7 @@ end
 -- fallback; go-to-definition has to agree.
 function M.definitionResolvesAtTheNameRightEdge()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/edge-definition.nupp"
+    local uri = fileUri(root .. "/edge-definition.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -5315,7 +5321,7 @@ end
 -- fixed one.
 function M.signatureHelpHighlightsTheVarargTail()
     local root = scratchRoot()
-    local uri = "file://" .. root .. "/vararg-signature.nupp"
+    local uri = fileUri(root .. "/vararg-signature.nupp")
     local source = table.concat(
         {
             "local function join(first: string, ...: string): string",
@@ -5354,7 +5360,7 @@ end
 -- Full-document sync applies changes in order, so when one didChange carries
 -- several, the document is the last full text in the list.
 function M.aDidChangeBurstAppliesTheLastFullText()
-    local uri = "file://" .. scratchRoot() .. "/burst.nupp"
+    local uri = fileUri(scratchRoot() .. "/burst.nupp")
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {
