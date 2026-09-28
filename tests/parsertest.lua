@@ -964,4 +964,18 @@ function M.aFailedExplicitTypeArgumentCallKeepsItsTokens()
     end
 end
 
+-- A token quoted in a message spells bytes from 0x80 up in hex, so the message is
+-- valid UTF-8 even when the source is not.
+function M.messagesQuoteNonASCIIBytesInHex()
+    local result = parser.parse("local \255 = 2", "latin1.nupp")
+    for _, e in ipairs(result.errors) do
+        assertEq(e.msg:find("[\128-\255]"), nil, "ASCII message: " .. e.msg)
+    end
+    local named = false
+    for _, e in ipairs(result.errors) do
+        named = named or e.msg:find('found "\\xFF"', 1, true) ~= nil
+    end
+    assertEq(named, true, "the byte is named")
+end
+
 return M

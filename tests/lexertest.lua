@@ -310,6 +310,17 @@ local function errorsOf(src)
     return table.concat(out, "; ")
 end
 
+-- A byte that starts no token is named in the message as ASCII, so the message is
+-- valid UTF-8 whatever the source is.
+function M.unexpectedBytesAreNamedInASCII()
+    local _, errors = lexer.lex("local \255\254 = 2")
+    assertEq(#errors, 2)
+    assertEq(errors[1].msg, 'unexpected character "\\xFF"')
+    assertEq(errors[2].msg, 'unexpected character "\\xFE"')
+    local _, others = lexer.lex("x = $")
+    assertEq(others[1].msg, 'unexpected character "$"')
+end
+
 -- LuaJIT skips a hashbang line after a byte-order mark too.
 function M.aHashbangMayFollowAByteOrderMark()
     local src = "\239\187\191#!/usr/bin/env nupp\nprint(1)\n"

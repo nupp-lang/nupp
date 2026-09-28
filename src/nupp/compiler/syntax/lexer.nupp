@@ -748,7 +748,11 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             else
                 pos = pos + 1
                 kind = "error"
-                addError(start, l, c, ("unexpected character %q"):format(sub(source, start, start)))
+                -- A byte from 0x80 up is spelled in hex: the message is valid UTF-8
+                -- whatever the source is, so a JSON report can carry it.
+                local bad = sub(source, start, start)
+                local shown = byte(bad) >= 128 and ('"\\x%02X"'):format(byte(bad)) or ("%q"):format(bad)
+                addError(start, l, c, "unexpected character " .. shown)
             end
         end
 

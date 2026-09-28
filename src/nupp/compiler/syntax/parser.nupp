@@ -230,7 +230,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return tok.kind
         end
 
-        return ("%q"):format(tok.text)
+        -- Bytes from 0x80 up are spelled in hex, so the message is valid UTF-8
+        -- whatever the source is and a JSON report can carry it.
+
+        return (("%q"):format(tok.text):gsub("[\128-\255]", function(b: string): string
+            return ("\\x%02X"):format(b:byte())
+        end))
     end
 
     ---------------------------------------------------------------------
