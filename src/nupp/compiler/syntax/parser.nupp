@@ -1640,7 +1640,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, expectGenericClose("to close call type arguments")).generic = true
                 local args = parseCallargs(false)
                 if not args then
-                    return e
+                    -- The type arguments are already in this node, so it is kept, with
+                    -- the argument list recorded as missing, rather than dropped with
+                    -- them. `parse` never drops a token.
+                    errAt(cur(), "function arguments expected")
+                    add(n, missing("args"))
+                    return n
                 end
                 n.args = add(n, args)
                 e = n

@@ -937,4 +937,13 @@ function M.unsafeOwnershipAlwaysNeedsItsExplicitMarker()
     assertEq(#parser.parse('local unsafe, release, adopt = f, g, h; unsafe() release() adopt()').errors, 0)
 end
 
+-- A call's explicit type arguments are committed to by lookahead, so the arguments
+-- after them can still be missing. The node keeps its tokens and a missing argument
+-- list rather than being dropped along with its `<`.
+function M.aFailedExplicitTypeArgumentCallKeepsItsTokens()
+    for _, src in ipairs({"<.>(", "<...>(", "f<.>(", "local a = <.>(1)", "f<T>", "obj:m<T>"}) do
+        assertRoundtrip(src)
+    end
+end
+
 return M
