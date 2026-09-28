@@ -136,6 +136,19 @@ function M.dynamicSdkLinksAndRunsFromC()
     status, output = run(environment .. quote(executable) .. " " .. quote(fixture(directory)))
     assert(status == 0, output)
     assert(output:find("game.answer(41) = 42", 1, true), output)
+    -- The worker shim's Rust half is reached through a table, not by name, so
+    -- the library exports none of it.
+    local exports
+    if jit.os == "OSX" then
+        exports = "nm -gU " .. quote(library .. "/libnupp.dylib")
+    elseif jit.os == "Linux" then
+        exports = "nm -D --defined-only " .. quote(library .. "/libnupp.so")
+    end
+    if exports then
+        status, output = run(exports)
+        assert(status == 0 and output:find("nupp_runtime_new", 1, true), output)
+        assert(not output:find("nupp_rust_", 1, true), "the embedding library exports worker internals:\n" .. output)
+    end
     if jit.os == "OSX" then
         status, output = run("otool -L " .. quote(library .. "/libnupp.dylib"))
         assert(status == 0, output)
@@ -166,10 +179,10 @@ assert(require("lpeg").P("x"):match("x") == 2)
 local ffi = require("ffi")
 ffi.cdef([=[
 unsigned int nuppNativeAbiVersion(void);
-void *nupp_rust_worker_channel_new(void);
+int nupp_luaopen_workers(void *state);
 ]=])
 assert(ffi.C.nuppNativeAbiVersion() == 2)
-assert(ffi.C.nupp_rust_worker_channel_new ~= nil)
+assert(ffi.C.nupp_luaopen_workers ~= nil)
 ]]
     )
     status, output = run(quote(executable) .. " " .. quote(source))

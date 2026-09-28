@@ -411,6 +411,7 @@ impl HostRuntime {
                     .to_owned(),
             ));
         }
+        worker_adapter::install_shim();
         let host = Box::new(worker_adapter::WorkersHost::new(payload, None));
         let context = (&*host as *const worker_adapter::WorkersHost).cast();
         self.worker_host = Some(host);

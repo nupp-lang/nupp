@@ -63,73 +63,110 @@ typedef struct RawAttachment {
     size_t length;
 } RawAttachment;
 
-/* These functions are Rust panic firewalls as well as ownership adapters. Do
- * not add a direct Rust export here unless its body uses ffi_value/ffi_void. */
-extern void *nupp_rust_worker_channel_new(void);
-extern void nupp_rust_worker_channel_destroy(const void *channel);
-extern void nupp_rust_worker_channel_close(const void *channel);
-extern size_t nupp_rust_worker_channel_count(const void *channel);
-extern int nupp_rust_worker_channel_closed(const void *channel);
-extern int nupp_rust_worker_channel_push(const void *channel, int kind,
-    int64_t id, double number, const uint8_t *first, size_t first_length,
-    const uint8_t *second, size_t second_length, const uint8_t *value,
-    size_t value_length, const RawAttachment *attachments,
-    size_t attachment_count);
-extern void *nupp_rust_worker_channel_pop(const void *channel, int timeout_ms);
-extern void nupp_rust_worker_message_destroy(void *message);
-extern int nupp_rust_worker_message_kind(const void *message);
-extern int64_t nupp_rust_worker_message_id(const void *message);
-extern double nupp_rust_worker_message_number(const void *message);
-extern const uint8_t *nupp_rust_worker_message_bytes(const void *message,
-    int which, size_t *length);
-extern size_t nupp_rust_worker_message_attachment_count(const void *message);
-extern int nupp_rust_worker_message_take_attachment(void *message,
-    size_t index, RawAttachment *out);
-extern size_t nupp_rust_worker_channel_dict_register(const void *channel,
-    const uint8_t *address, size_t length);
-extern size_t nupp_rust_worker_channel_dict_count(const void *channel);
-extern const uint8_t *nupp_rust_worker_channel_dict_address(
-    const void *channel, size_t index, size_t *length);
+/* The Rust half, reached through one table Rust hands over before any state
+ * opens these modules (see install_shim in worker_adapter.rs), so none of it is
+ * a symbol the library exports. Every entry is a Rust panic firewall as well as
+ * an ownership adapter: do not add one unless its body uses ffi_value/ffi_void.
+ * Field order and signatures must exactly match the repr(C) Rust table. */
+typedef struct NuppRustWorkerAdapter {
+    void *(*worker_channel_new)(void);
+    void (*worker_channel_destroy)(const void *channel);
+    void (*worker_channel_close)(const void *channel);
+    size_t (*worker_channel_count)(const void *channel);
+    int (*worker_channel_closed)(const void *channel);
+    int (*worker_channel_push)(const void *channel, int kind, int64_t id, double number, const uint8_t *first, size_t first_length, const uint8_t *second, size_t second_length, const uint8_t *value, size_t value_length, const RawAttachment *attachments, size_t attachment_count);
+    void *(*worker_channel_pop)(const void *channel, int timeout_ms);
+    void (*worker_message_destroy)(void *message);
+    int (*worker_message_kind)(const void *message);
+    int64_t (*worker_message_id)(const void *message);
+    double (*worker_message_number)(const void *message);
+    const uint8_t *(*worker_message_bytes)(const void *message, int which, size_t *length);
+    size_t (*worker_message_attachment_count)(const void *message);
+    int (*worker_message_take_attachment)(void *message, size_t index, RawAttachment *out);
+    size_t (*worker_channel_dict_register)(const void *channel, const uint8_t *address, size_t length);
+    size_t (*worker_channel_dict_count)(const void *channel);
+    const uint8_t *(*worker_channel_dict_address)(const void *channel, size_t index, size_t *length);
+    void *(*region_new)(const uint8_t *data, size_t length);
+    void *(*region_read_file)(const uint8_t *path, size_t length, char *error, size_t error_capacity);
+    void (*region_retain)(const void *region);
+    void (*region_release)(const void *region);
+    const uint8_t *(*region_data)(const void *region);
+    size_t (*region_length)(const void *region);
+    void *(*region_account_new)(void);
+    void (*region_account_destroy)(void *account);
+    size_t (*region_account_charge)(void *account, const void *region);
+    void (*region_account_discharge)(void *account, const void *region);
+    size_t (*region_accounted)(const void *account);
+    void *(*region_builder_new)(void);
+    void (*region_builder_destroy)(void *builder);
+    int (*region_builder_append)(void *builder, const uint8_t *data, size_t length);
+    uint8_t *(*region_builder_reserve)(void *builder, size_t count);
+    int (*region_builder_commit)(void *builder, size_t written);
+    int (*region_builder_open)(const void *builder);
+    void *(*region_builder_freeze)(void *builder);
+    void *(*worker_spawn)(const void *host, const void *inbox, const void *outbox, char *error, size_t error_capacity);
+    int (*worker_join)(void *worker, char *error, size_t error_capacity);
+    int (*worker_task_create)(const void *worker, int64_t id, int has_deadline, double deadline_ms);
+    int (*worker_task_cancel)(const void *worker, int64_t id);
+    int (*worker_task_start)(const void *tasks, int64_t id, int *deadline);
+    int (*worker_task_checkpoint)(const void *tasks, int *deadline);
+    int (*worker_task_finish)(const void *tasks, int64_t id, int *deadline);
+    void (*worker_task_release)(const void *worker, int64_t id);
+    int (*worker_task_status)(const void *worker, int64_t id);
+    size_t (*worker_parallelism)(void);
+} NuppRustWorkerAdapter;
 
-extern void *nupp_rust_region_new(const uint8_t *data, size_t length);
-extern void *nupp_rust_region_read_file(const uint8_t *path, size_t length,
-    char *error, size_t error_capacity);
-extern void nupp_rust_region_retain(const void *region);
-extern void nupp_rust_region_release(const void *region);
-extern const uint8_t *nupp_rust_region_data(const void *region);
-extern size_t nupp_rust_region_length(const void *region);
-extern void *nupp_rust_region_account_new(void);
-extern void nupp_rust_region_account_destroy(void *account);
-extern size_t nupp_rust_region_account_charge(void *account,
-    const void *region);
-extern void nupp_rust_region_account_discharge(void *account,
-    const void *region);
-extern size_t nupp_rust_region_accounted(const void *account);
-extern void *nupp_rust_region_builder_new(void);
-extern void nupp_rust_region_builder_destroy(void *builder);
-extern int nupp_rust_region_builder_append(void *builder,
-    const uint8_t *data, size_t length);
-extern uint8_t *nupp_rust_region_builder_reserve(void *builder, size_t count);
-extern int nupp_rust_region_builder_commit(void *builder, size_t written);
-extern int nupp_rust_region_builder_open(const void *builder);
-extern void *nupp_rust_region_builder_freeze(void *builder);
+static const NuppRustWorkerAdapter *rust;
 
-extern void *nupp_rust_worker_spawn(const void *host, const void *inbox,
-    const void *outbox,
-    char *error, size_t error_capacity);
-extern int nupp_rust_worker_join(void *worker, char *error,
-    size_t error_capacity);
-extern int nupp_rust_worker_task_create(const void *worker, int64_t id,
-    int has_deadline, double deadline_ms);
-extern int nupp_rust_worker_task_cancel(const void *worker, int64_t id);
-extern int nupp_rust_worker_task_start(const void *tasks, int64_t id,
-    int *deadline);
-extern int nupp_rust_worker_task_checkpoint(const void *tasks, int *deadline);
-extern int nupp_rust_worker_task_finish(const void *tasks, int64_t id,
-    int *deadline);
-extern void nupp_rust_worker_task_release(const void *worker, int64_t id);
-extern int nupp_rust_worker_task_status(const void *worker, int64_t id);
-extern size_t nupp_rust_worker_parallelism(void);
+void nupp_worker_shim_install(const NuppRustWorkerAdapter *table) {
+    rust = table;
+}
+
+#define nupp_rust_worker_channel_new (rust->worker_channel_new)
+#define nupp_rust_worker_channel_destroy (rust->worker_channel_destroy)
+#define nupp_rust_worker_channel_close (rust->worker_channel_close)
+#define nupp_rust_worker_channel_count (rust->worker_channel_count)
+#define nupp_rust_worker_channel_closed (rust->worker_channel_closed)
+#define nupp_rust_worker_channel_push (rust->worker_channel_push)
+#define nupp_rust_worker_channel_pop (rust->worker_channel_pop)
+#define nupp_rust_worker_message_destroy (rust->worker_message_destroy)
+#define nupp_rust_worker_message_kind (rust->worker_message_kind)
+#define nupp_rust_worker_message_id (rust->worker_message_id)
+#define nupp_rust_worker_message_number (rust->worker_message_number)
+#define nupp_rust_worker_message_bytes (rust->worker_message_bytes)
+#define nupp_rust_worker_message_attachment_count (rust->worker_message_attachment_count)
+#define nupp_rust_worker_message_take_attachment (rust->worker_message_take_attachment)
+#define nupp_rust_worker_channel_dict_register (rust->worker_channel_dict_register)
+#define nupp_rust_worker_channel_dict_count (rust->worker_channel_dict_count)
+#define nupp_rust_worker_channel_dict_address (rust->worker_channel_dict_address)
+#define nupp_rust_region_new (rust->region_new)
+#define nupp_rust_region_read_file (rust->region_read_file)
+#define nupp_rust_region_retain (rust->region_retain)
+#define nupp_rust_region_release (rust->region_release)
+#define nupp_rust_region_data (rust->region_data)
+#define nupp_rust_region_length (rust->region_length)
+#define nupp_rust_region_account_new (rust->region_account_new)
+#define nupp_rust_region_account_destroy (rust->region_account_destroy)
+#define nupp_rust_region_account_charge (rust->region_account_charge)
+#define nupp_rust_region_account_discharge (rust->region_account_discharge)
+#define nupp_rust_region_accounted (rust->region_accounted)
+#define nupp_rust_region_builder_new (rust->region_builder_new)
+#define nupp_rust_region_builder_destroy (rust->region_builder_destroy)
+#define nupp_rust_region_builder_append (rust->region_builder_append)
+#define nupp_rust_region_builder_reserve (rust->region_builder_reserve)
+#define nupp_rust_region_builder_commit (rust->region_builder_commit)
+#define nupp_rust_region_builder_open (rust->region_builder_open)
+#define nupp_rust_region_builder_freeze (rust->region_builder_freeze)
+#define nupp_rust_worker_spawn (rust->worker_spawn)
+#define nupp_rust_worker_join (rust->worker_join)
+#define nupp_rust_worker_task_create (rust->worker_task_create)
+#define nupp_rust_worker_task_cancel (rust->worker_task_cancel)
+#define nupp_rust_worker_task_start (rust->worker_task_start)
+#define nupp_rust_worker_task_checkpoint (rust->worker_task_checkpoint)
+#define nupp_rust_worker_task_finish (rust->worker_task_finish)
+#define nupp_rust_worker_task_release (rust->worker_task_release)
+#define nupp_rust_worker_task_status (rust->worker_task_status)
+#define nupp_rust_worker_parallelism (rust->worker_parallelism)
 
 /* --- shared region handles and per-state accounting --------------------- */
 

@@ -399,14 +399,12 @@ fn valid_attachment(item: &RawAttachment) -> bool {
     }
 }
 
-#[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_worker_channel_new() -> *const AdapterChannel {
     ffi_value(ptr::null(), || {
         Arc::into_raw(Arc::new(AdapterChannel::new()))
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_destroy(channel: *const AdapterChannel) {
     ffi_void(|| {
         if !channel.is_null() {
@@ -417,7 +415,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_destroy(channel: *const
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_close(channel: *const AdapterChannel) {
     ffi_void(|| {
         if let Some(channel) = borrowed_arc(channel) {
@@ -426,7 +423,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_close(channel: *const A
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_count(
     channel: *const AdapterChannel,
 ) -> usize {
@@ -437,7 +433,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_count(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_closed(
     channel: *const AdapterChannel,
 ) -> c_int {
@@ -448,7 +443,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_closed(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_push(
     channel: *const AdapterChannel,
     kind: c_int,
@@ -497,7 +491,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_push(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_pop(
     channel: *const AdapterChannel,
     timeout_ms: i32,
@@ -510,7 +503,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_pop(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_destroy(message: *mut AdapterMessage) {
     ffi_void(|| {
         if !message.is_null() {
@@ -521,7 +513,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_destroy(message: *mut A
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_kind(
     message: *const AdapterMessage,
 ) -> c_int {
@@ -531,7 +522,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_kind(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_id(message: *const AdapterMessage) -> i64 {
     ffi_value(0, || {
         // SAFETY: C retains the transferred message owner through this getter.
@@ -539,7 +529,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_id(message: *const Adap
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_number(
     message: *const AdapterMessage,
 ) -> f64 {
@@ -549,7 +538,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_number(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_bytes(
     message: *const AdapterMessage,
     which: c_int,
@@ -574,7 +562,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_bytes(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_attachment_count(
     message: *const AdapterMessage,
 ) -> usize {
@@ -584,7 +571,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_attachment_count(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_message_take_attachment(
     message: *mut AdapterMessage,
     index: usize,
@@ -652,7 +638,6 @@ fn release_raw_attachment(raw: RawAttachment) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_register(
     channel: *const AdapterChannel,
     address: *const u8,
@@ -682,7 +667,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_register(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_count(
     channel: *const AdapterChannel,
 ) -> usize {
@@ -693,7 +677,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_count(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_address(
     channel: *const AdapterChannel,
     index: usize,
@@ -718,7 +701,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_dict_address(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_new(
     data: *const u8,
     length: usize,
@@ -735,7 +717,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_new(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_read_file(
     path: *const u8,
     length: usize,
@@ -764,7 +745,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_read_file(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_retain(region: *const Region) {
     ffi_void(|| {
         if !region.is_null() {
@@ -775,7 +755,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_retain(region: *const Region) {
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_release(region: *const Region) {
     ffi_void(|| {
         if !region.is_null() {
@@ -786,7 +765,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_release(region: *const Region) 
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_data(region: *const Region) -> *const u8 {
     ffi_value(ptr::null(), || {
         // SAFETY: the Lua region handle retains a strong Arc owner while C
@@ -797,7 +775,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_data(region: *const Region) -> 
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_length(region: *const Region) -> usize {
     ffi_value(0, || {
         // SAFETY: the Lua region handle retains a strong Arc owner through call.
@@ -805,14 +782,12 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_length(region: *const Region) -
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_region_account_new() -> *mut AdapterAccount {
     ffi_value(ptr::null_mut(), || {
         Box::into_raw(Box::new(AdapterAccount::default()))
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_account_destroy(account: *mut AdapterAccount) {
     ffi_void(|| {
         if !account.is_null() {
@@ -822,7 +797,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_account_destroy(account: *mut A
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_account_charge(
     account: *mut AdapterAccount,
     region: *const Region,
@@ -855,7 +829,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_account_charge(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_account_discharge(
     account: *mut AdapterAccount,
     region: *const Region,
@@ -884,7 +857,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_account_discharge(
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_accounted(
     account: *const AdapterAccount,
 ) -> usize {
@@ -894,7 +866,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_accounted(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_region_builder_new() -> *mut AdapterBuilder {
     ffi_value(ptr::null_mut(), || {
         Box::into_raw(Box::new(AdapterBuilder {
@@ -903,7 +874,6 @@ pub(crate) extern "C" fn nupp_rust_region_builder_new() -> *mut AdapterBuilder {
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_destroy(builder: *mut AdapterBuilder) {
     ffi_void(|| {
         if !builder.is_null() {
@@ -913,7 +883,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_destroy(builder: *mut A
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_append(
     builder: *mut AdapterBuilder,
     data: *const u8,
@@ -936,7 +905,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_append(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_reserve(
     builder: *mut AdapterBuilder,
     count: usize,
@@ -957,7 +925,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_reserve(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_commit(
     builder: *mut AdapterBuilder,
     written: usize,
@@ -971,7 +938,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_commit(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_open(
     builder: *const AdapterBuilder,
 ) -> c_int {
@@ -984,7 +950,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_open(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_region_builder_freeze(
     builder: *mut AdapterBuilder,
 ) -> *const Region {
@@ -1010,7 +975,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_region_builder_freeze(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
     host: *const WorkersHost,
     inbox: *const AdapterChannel,
@@ -1100,7 +1064,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
     worker: *mut AdapterWorker,
     error: *mut c_char,
@@ -1139,7 +1102,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_create(
     worker: *const AdapterWorker,
     id: i64,
@@ -1169,7 +1131,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_create(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_cancel(
     worker: *const AdapterWorker,
     id: i64,
@@ -1197,7 +1158,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_cancel(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_start(
     tasks: *const AdapterTasks,
     id: i64,
@@ -1230,7 +1190,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_start(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_checkpoint(
     tasks: *const AdapterTasks,
     deadline: *mut c_int,
@@ -1265,7 +1224,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_checkpoint(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_finish(
     tasks: *const AdapterTasks,
     id: i64,
@@ -1299,7 +1257,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_finish(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_release(
     worker: *const AdapterWorker,
     id: i64,
@@ -1313,7 +1270,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_release(
     });
 }
 
-#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nupp_rust_worker_task_status(
     worker: *const AdapterWorker,
     id: i64,
@@ -1331,11 +1287,148 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_task_status(
     })
 }
 
-#[unsafe(no_mangle)]
 pub(crate) extern "C" fn nupp_rust_worker_parallelism() -> usize {
     ffi_value(1, || {
         std::thread::available_parallelism().map_or(1, usize::from)
     })
+}
+
+/// The shim's entry points into this module, handed to C as one table so that
+/// none of them is a symbol the library exports. Field order and signatures
+/// match `NuppRustWorkerAdapter` in `worker_shim.c` exactly.
+#[repr(C)]
+pub(crate) struct WorkerAdapterTable {
+    worker_channel_new: extern "C" fn() -> *const AdapterChannel,
+    worker_channel_destroy: unsafe extern "C" fn(*const AdapterChannel),
+    worker_channel_close: unsafe extern "C" fn(*const AdapterChannel),
+    worker_channel_count: unsafe extern "C" fn(*const AdapterChannel) -> usize,
+    worker_channel_closed: unsafe extern "C" fn(*const AdapterChannel) -> c_int,
+    worker_channel_push: unsafe extern "C" fn(
+        *const AdapterChannel,
+        c_int,
+        i64,
+        f64,
+        *const u8,
+        usize,
+        *const u8,
+        usize,
+        *const u8,
+        usize,
+        *const RawAttachment,
+        usize,
+    ) -> c_int,
+    worker_channel_pop: unsafe extern "C" fn(*const AdapterChannel, i32) -> *mut AdapterMessage,
+    worker_message_destroy: unsafe extern "C" fn(*mut AdapterMessage),
+    worker_message_kind: unsafe extern "C" fn(*const AdapterMessage) -> c_int,
+    worker_message_id: unsafe extern "C" fn(*const AdapterMessage) -> i64,
+    worker_message_number: unsafe extern "C" fn(*const AdapterMessage) -> f64,
+    worker_message_bytes:
+        unsafe extern "C" fn(*const AdapterMessage, c_int, *mut usize) -> *const u8,
+    worker_message_attachment_count: unsafe extern "C" fn(*const AdapterMessage) -> usize,
+    worker_message_take_attachment:
+        unsafe extern "C" fn(*mut AdapterMessage, usize, *mut RawAttachment) -> c_int,
+    worker_channel_dict_register:
+        unsafe extern "C" fn(*const AdapterChannel, *const u8, usize) -> usize,
+    worker_channel_dict_count: unsafe extern "C" fn(*const AdapterChannel) -> usize,
+    worker_channel_dict_address:
+        unsafe extern "C" fn(*const AdapterChannel, usize, *mut usize) -> *const u8,
+    region_new: unsafe extern "C" fn(*const u8, usize) -> *const Region,
+    region_read_file: unsafe extern "C" fn(*const u8, usize, *mut c_char, usize) -> *const Region,
+    region_retain: unsafe extern "C" fn(*const Region),
+    region_release: unsafe extern "C" fn(*const Region),
+    region_data: unsafe extern "C" fn(*const Region) -> *const u8,
+    region_length: unsafe extern "C" fn(*const Region) -> usize,
+    region_account_new: extern "C" fn() -> *mut AdapterAccount,
+    region_account_destroy: unsafe extern "C" fn(*mut AdapterAccount),
+    region_account_charge: unsafe extern "C" fn(*mut AdapterAccount, *const Region) -> usize,
+    region_account_discharge: unsafe extern "C" fn(*mut AdapterAccount, *const Region),
+    region_accounted: unsafe extern "C" fn(*const AdapterAccount) -> usize,
+    region_builder_new: extern "C" fn() -> *mut AdapterBuilder,
+    region_builder_destroy: unsafe extern "C" fn(*mut AdapterBuilder),
+    region_builder_append: unsafe extern "C" fn(*mut AdapterBuilder, *const u8, usize) -> c_int,
+    region_builder_reserve: unsafe extern "C" fn(*mut AdapterBuilder, usize) -> *mut u8,
+    region_builder_commit: unsafe extern "C" fn(*mut AdapterBuilder, usize) -> c_int,
+    region_builder_open: unsafe extern "C" fn(*const AdapterBuilder) -> c_int,
+    region_builder_freeze: unsafe extern "C" fn(*mut AdapterBuilder) -> *const Region,
+    worker_spawn: unsafe extern "C" fn(
+        *const WorkersHost,
+        *const AdapterChannel,
+        *const AdapterChannel,
+        *mut c_char,
+        usize,
+    ) -> *mut AdapterWorker,
+    worker_join: unsafe extern "C" fn(*mut AdapterWorker, *mut c_char, usize) -> c_int,
+    worker_task_create: unsafe extern "C" fn(*const AdapterWorker, i64, c_int, f64) -> c_int,
+    worker_task_cancel: unsafe extern "C" fn(*const AdapterWorker, i64) -> c_int,
+    worker_task_start: unsafe extern "C" fn(*const AdapterTasks, i64, *mut c_int) -> c_int,
+    worker_task_checkpoint: unsafe extern "C" fn(*const AdapterTasks, *mut c_int) -> c_int,
+    worker_task_finish: unsafe extern "C" fn(*const AdapterTasks, i64, *mut c_int) -> c_int,
+    worker_task_release: unsafe extern "C" fn(*const AdapterWorker, i64),
+    worker_task_status: unsafe extern "C" fn(*const AdapterWorker, i64) -> c_int,
+    worker_parallelism: extern "C" fn() -> usize,
+}
+
+static WORKER_ADAPTER: WorkerAdapterTable = WorkerAdapterTable {
+    worker_channel_new: nupp_rust_worker_channel_new,
+    worker_channel_destroy: nupp_rust_worker_channel_destroy,
+    worker_channel_close: nupp_rust_worker_channel_close,
+    worker_channel_count: nupp_rust_worker_channel_count,
+    worker_channel_closed: nupp_rust_worker_channel_closed,
+    worker_channel_push: nupp_rust_worker_channel_push,
+    worker_channel_pop: nupp_rust_worker_channel_pop,
+    worker_message_destroy: nupp_rust_worker_message_destroy,
+    worker_message_kind: nupp_rust_worker_message_kind,
+    worker_message_id: nupp_rust_worker_message_id,
+    worker_message_number: nupp_rust_worker_message_number,
+    worker_message_bytes: nupp_rust_worker_message_bytes,
+    worker_message_attachment_count: nupp_rust_worker_message_attachment_count,
+    worker_message_take_attachment: nupp_rust_worker_message_take_attachment,
+    worker_channel_dict_register: nupp_rust_worker_channel_dict_register,
+    worker_channel_dict_count: nupp_rust_worker_channel_dict_count,
+    worker_channel_dict_address: nupp_rust_worker_channel_dict_address,
+    region_new: nupp_rust_region_new,
+    region_read_file: nupp_rust_region_read_file,
+    region_retain: nupp_rust_region_retain,
+    region_release: nupp_rust_region_release,
+    region_data: nupp_rust_region_data,
+    region_length: nupp_rust_region_length,
+    region_account_new: nupp_rust_region_account_new,
+    region_account_destroy: nupp_rust_region_account_destroy,
+    region_account_charge: nupp_rust_region_account_charge,
+    region_account_discharge: nupp_rust_region_account_discharge,
+    region_accounted: nupp_rust_region_accounted,
+    region_builder_new: nupp_rust_region_builder_new,
+    region_builder_destroy: nupp_rust_region_builder_destroy,
+    region_builder_append: nupp_rust_region_builder_append,
+    region_builder_reserve: nupp_rust_region_builder_reserve,
+    region_builder_commit: nupp_rust_region_builder_commit,
+    region_builder_open: nupp_rust_region_builder_open,
+    region_builder_freeze: nupp_rust_region_builder_freeze,
+    worker_spawn: nupp_rust_worker_spawn,
+    worker_join: nupp_rust_worker_join,
+    worker_task_create: nupp_rust_worker_task_create,
+    worker_task_cancel: nupp_rust_worker_task_cancel,
+    worker_task_start: nupp_rust_worker_task_start,
+    worker_task_checkpoint: nupp_rust_worker_task_checkpoint,
+    worker_task_finish: nupp_rust_worker_task_finish,
+    worker_task_release: nupp_rust_worker_task_release,
+    worker_task_status: nupp_rust_worker_task_status,
+    worker_parallelism: nupp_rust_worker_parallelism,
+};
+
+unsafe extern "C" {
+    fn nupp_worker_shim_install(table: *const WorkerAdapterTable);
+}
+
+/// Gives the shim its table. Once per process, before any state can open the
+/// worker modules; `Once` orders that write before every later caller.
+pub(crate) fn install_shim() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        // SAFETY: the table is a static that lives for the whole process, and
+        // the shim only stores the pointer.
+        unsafe { nupp_worker_shim_install(&raw const WORKER_ADAPTER) };
+    });
 }
 
 #[cfg(unix)]
