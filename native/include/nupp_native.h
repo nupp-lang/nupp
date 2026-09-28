@@ -40,6 +40,10 @@
 #define NUPP_NATIVE_FEATURE_NET (UINT64_C(1) << 8)
 #define NUPP_NATIVE_FEATURE_TLS (UINT64_C(1) << 9)
 #define NUPP_NATIVE_FEATURE_COMPRESSION (UINT64_C(1) << 10)
+/* The code generator. Its exports belong to the compiler, which declares
+ * them itself; this header does not. */
+#define NUPP_NATIVE_FEATURE_CODEGEN (UINT64_C(1) << 11)
+#define NUPP_NATIVE_FEATURE_AOT_RUNTIME (UINT64_C(1) << 12)
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,7 +51,14 @@ extern "C" {
 
 NUPP_NATIVE_EXPORT uint32_t nuppNativeAbiVersion(void);
 NUPP_NATIVE_EXPORT uint64_t nuppNativeFeatures(void);
+/* The message of the last call on this thread that failed. A call that
+ * succeeds leaves it as it was, so read it only after a failure. */
 NUPP_NATIVE_EXPORT const char *nuppNativeLastError(void);
+
+/* Present when NUPP_NATIVE_FEATURE_AOT_RUNTIME is set: the table an
+ * ahead-of-time compiled Lua module's registrar is handed. Null when the
+ * runtime cannot find the Lua API in this process. */
+NUPP_NATIVE_EXPORT const void *nuppAotRuntime(void);
 
 NUPP_NATIVE_EXPORT int32_t nuppNativeBytesCreate(
     const uint8_t *data, size_t length, uint64_t *output);

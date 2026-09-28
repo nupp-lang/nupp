@@ -387,6 +387,62 @@ pub unsafe extern "C" fn nuppNativeUuid7(output: *mut u8, capacity: usize) -> i3
 mod tests {
     use super::*;
 
+    /// The functions a declaration list names, each the identifier before
+    /// the first `(` of a statement that starts with `marker`.
+    fn declared(text: &str, marker: &str) -> std::collections::BTreeSet<String> {
+        text.split(marker)
+            .skip(1)
+            .filter_map(|statement| {
+                let head = &statement[..statement.find('(')?];
+                let name = head
+                    .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next()?;
+                Some(name.to_owned())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_header_declares_every_export_and_feature_bit() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let header = std::fs::read_to_string(root.join("../../include/nupp_native.h")).unwrap();
+        for (name, value) in [
+            ("BASE", FEATURE_BASE),
+            ("UUID", FEATURE_UUID),
+            ("GPU", FEATURE_GPU),
+            ("URI", FEATURE_URI),
+            ("HTTP", FEATURE_HTTP),
+            ("PROCESS", FEATURE_PROCESS),
+            ("FILESYSTEM", FEATURE_FILESYSTEM),
+            ("FILES", FEATURE_FILES),
+            ("NET", FEATURE_NET),
+            ("TLS", FEATURE_TLS),
+            ("COMPRESSION", FEATURE_COMPRESSION),
+            ("CODEGEN", FEATURE_CODEGEN),
+            ("AOT_RUNTIME", FEATURE_AOT_RUNTIME),
+        ] {
+            let define = format!(
+                "#define NUPP_NATIVE_FEATURE_{name} (UINT64_C(1) << {})",
+                value.trailing_zeros()
+            );
+            assert!(header.contains(&define), "the header lacks {define}");
+        }
+        // The code generator's exports belong to the compiler, which declares
+        // them itself; everything else this crate exports is the header's.
+        let mut exported = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(root.join("src")).unwrap() {
+            let source = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            exported.extend(
+                declared(&source, "extern \"C\" fn ")
+                    .into_iter()
+                    .filter(|name| name.starts_with("nupp") && !name.starts_with("nuppCodegen")),
+            );
+        }
+        let mut declarations = declared(&header, "NUPP_NATIVE_EXPORT");
+        declarations.retain(|name| name.starts_with("nupp"));
+        assert_eq!(exported, declarations);
+    }
+
     #[test]
     fn bytes_are_validated_by_generation() {
         let mut handle = 0;
