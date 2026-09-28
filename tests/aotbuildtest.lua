@@ -1679,6 +1679,10 @@ assert(wide.checkMultiply(), "signed multiplication did not wrap")
     test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
 end
 
+-- Two 32-bit integers are Lua numbers, so a mixed pair compares by value. The
+-- 64-bit case here is built with `as`, which is erased, so it compares two
+-- ordinary numbers too; `aotdifferentialtest` holds 64-bit cdata operands to
+-- LuaJIT's C rules, where `-1LL < 5ULL` is false.
 function M.mixedSignednessComparisonsAnswerByValue()
     local dir = mixedComparisonProject()
     local out, code = build(dir)

@@ -10,13 +10,15 @@ states outright:
 - binary64 arithmetic carries no fast-math flags, except `contract` inside a
   function the source relaxed with `@relax("fp-contract")`;
 - a comparison of two numbers of different types compares their values, never
-  their bit patterns, so a signed and an unsigned integer are compared as
-  mathematical integers and anything involving a float in binary64;
+  their bit patterns, so a signed and an unsigned 32-bit integer are compared
+  as mathematical integers and a float and a 32-bit integer in binary64;
 - `!=` on floats is unordered-or-unequal, as Lua's `~=` is, and the ordered
   comparisons are false for NaN;
+- a comparison with a 64-bit integer operand is LuaJIT's comparison of cdata:
+  the other operand converts to the 64-bit type, unsigned if either is;
 - conversions from floating point to an integer saturate rather than leave the
-  out-of-range case undefined, and the modular `wrap` is LuaJIT's own
-  reduction.
+  out-of-range case undefined, the modular `wrap` is LuaJIT's own reduction,
+  and a store truncates toward zero through `int64` as LuaJIT's FFI does.
 
 An operation this backend does not emit yet raises an error beginning with
 `expressions.UNSUPPORTED`, which the build reports as the unit being one this
@@ -130,6 +132,29 @@ local function u64Bits(ctx: context.Context, value: string, from: string): strin
     return expressions.convert(ctx, value, from, "u64")
 end
 
+--- A binary64 as the integer LuaJIT's FFI makes of it, which is C's
+--- conversion and not `wrap`: truncate toward zero through `int64`, then keep
+--- the low bits a narrower integer holds. `uint64` takes the union of both
+--- 64-bit ranges, so a negative value keeps its two's-complement pattern where
+--- a plain unsigned conversion would clamp it to zero. Out of those ranges the
+--- conversions saturate, which is defined and is what LuaJIT answers on ARM64.
+function expressions.luaInteger(ctx: context.Context, value: string, from: string, to: string): string
+    if from == "f32" then
+        value = context.value(ctx, ("fpext float %s to double"):format(value))
+    end
+    local signed = expressions.convert(ctx, value, "f64", "i64")
+    if to == "i64" then
+        return signed
+    elseif to == "u64" then
+        local unsigned = expressions.convert(ctx, value, "f64", "u64")
+        local negative = context.value(ctx, ("fcmp olt double %s, 0.0"):format(value))
+
+        return context.value(ctx, ("select i1 %s, i64 %s, i64 %s"):format(negative, signed, unsigned))
+    end
+
+    return context.value(ctx, ("trunc i64 %s to %s"):format(signed, types.require(to)))
+end
+
 ----------------------------------------------------------------------------
 -- Comparisons
 ----------------------------------------------------------------------------
@@ -147,16 +172,45 @@ const UNSIGNED_PREDICATE: {
 } = {["lt"] = "ult", ["le"] = "ule", ["gt"] = "ugt", ["ge"] = "uge", ["eq"] = "eq", ["ne"] = "ne",}
 
 --- A comparison of two values by what they denote.
+---
+--- `byValue` says both operands are Lua numbers whatever their IR type -- a
+--- span count is a `u64` here and an ordinary number in Lua -- so a 64-bit one
+--- compares by value rather than by LuaJIT's cdata rule.
 function expressions.compare(
     ctx: context.Context,
     operation: string,
     left: string,
     leftType: string,
     right: string,
-    rightType: string
+    rightType: string,
+    byValue: boolean?
 ): string
     if leftType == "bool" and rightType == "bool" then
         return context.value(ctx, ("icmp %s i1 %s, %s"):format(SIGNED_PREDICATE[operation] as string, left, right))
+    end
+    local wide = (leftType == "u64" or rightType == "u64") and "u64"
+        or (leftType == "i64" or rightType == "i64") and "i64"
+        or nil
+    if wide ~= nil and leftType ~= rightType and not byValue then
+        -- A 64-bit operand is cdata, and LuaJIT compares cdata by C's rules:
+        -- the other operand converts to the 64-bit type, `uint64` if either
+        -- side is one, so `-1LL < 5ULL` is false and `1LL < 1.5` compares 1
+        -- with 1. A 32-bit operand is a Lua number there, which converts
+        -- exactly.
+        local function operand(value: string, typeName: string): string
+            if types.isFloat(typeName) then
+                return expressions.luaInteger(ctx, value, typeName, wide as string)
+            end
+
+            return expressions.convert(ctx, value, typeName, wide as string)
+        end
+
+        local predicate = wide == "u64" and UNSIGNED_PREDICATE[operation] or SIGNED_PREDICATE[operation]
+
+        return context.value(
+            ctx,
+            ("icmp %s i64 %s, %s"):format(predicate as string, operand(left, leftType), operand(right, rightType))
+        )
     end
     if types.isFloat(leftType) or types.isFloat(rightType) then
         -- Compare in the wider floating type; binary64 holds every value of
@@ -172,8 +226,9 @@ function expressions.compare(
         return context.value(ctx, ("icmp %s %s %s, %s"):format(predicate as string, t, left, right))
     end
 
-    -- Mixed integers: widen both to 65 bits, where every int64 and uint64 is
-    -- representable, and compare signed. Exact, and LLVM legalizes it.
+    -- Mixed 32-bit integers are Lua numbers on both sides, which compare by
+    -- value: widen both to 65 bits, where every one is representable, and
+    -- compare signed. Exact, and LLVM legalizes it.
     local function widen(value: string, typeName: string): string
         return context.value(
             ctx,
@@ -231,11 +286,22 @@ function expressions.math(ctx: context.Context, intrinsic: string, args: {string
         return current
     end
     if intrinsic == "log" and #args == 2 then
-        local log = prelude.libm(ctx.module, "log", 1)
-        local a = context.value(ctx, ("call double %s(double %s)"):format(log, args[1]))
-        local b = context.value(ctx, ("call double %s(double %s)"):format(log, args[2]))
+        if ctx.lua51Math then
+            local log = prelude.libm(ctx.module, "log", 1)
+            local a = context.value(ctx, ("call double %s(double %s)"):format(log, args[1]))
+            local b = context.value(ctx, ("call double %s(double %s)"):format(log, args[2]))
 
-        return context.value(ctx, ("fdiv double %s, %s"):format(a, b))
+            return context.value(ctx, ("fdiv double %s, %s"):format(a, b))
+        end
+        -- LuaJIT's `math.log(x, base)` is `log2(x) * (1 / log2(base))`, and
+        -- keeps the two apart; a quotient of logarithms differs in the last
+        -- bits, which loses exact answers such as `math.log(1e17, 0.1)`.
+        local log2 = prelude.libm(ctx.module, "log2", 1)
+        local a = context.value(ctx, ("call double %s(double %s)"):format(log2, args[1]))
+        local b = context.value(ctx, ("call double %s(double %s)"):format(log2, args[2]))
+        local reciprocal = context.value(ctx, ("fdiv double 1.0, %s"):format(b))
+
+        return context.value(ctx, ("fmul double %s, %s"):format(a, reciprocal))
     end
     if intrinsic == "deg" then
         return context.value(ctx, ("fmul double %s, %s"):format(args[1], text.double(180.0 / math.pi)))
@@ -465,6 +531,19 @@ const WIDE_BINARY: {
     ["i64_mul"] = "mul",
 }
 const BITWISE: {[string]: string} = {["band"] = "and", ["bor"] = "or", ["bxor"] = "xor",}
+
+--- The 64-bit operations a prelude helper defines, because LuaJIT's answer is
+--- not one instruction's.
+const WIDE_HELPER: {
+    [string]: boolean
+} = {
+    ["i64_div"] = true,
+    ["i64_mod"] = true,
+    ["i64_pow"] = true,
+    ["u64_div"] = true,
+    ["u64_mod"] = true,
+    ["u64_pow"] = true,
+}
 
 --- `node`'s operands, emitted in order.
 local function operands(
@@ -761,7 +840,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             -- integers, so the bound stays exact.
             local a, at = integerValue(ctx, binary.left)
             local b, bt = integerValue(ctx, binary.right)
-            return expressions.compare(ctx, operation, a, at, b, bt), "bool"
+            return expressions.compare(ctx, operation, a, at, b, bt, true), "bool"
         end
         local a, at, b, bt = operands(ctx, binary.left, binary.right)
 
@@ -864,6 +943,17 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             ctx,
             ("%s i64 %s, %s"):format(operation == "u64_shl" and "shl" or "lshr", u64Bits(ctx, a, at), shift)
         ), "u64"
+    elseif WIDE_HELPER[operation] then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local helper = prelude.use(ctx.module, "nupp." .. operation:gsub("_", "."))
+
+        return context.value(
+            ctx,
+            ("call i64 %s(i64 %s, i64 %s)"):format(helper, u64Bits(ctx, a, at), u64Bits(ctx, b, bt))
+        ), operation:sub(1, 1) == "u"
+            and "u64"
+            or "i64"
     elseif WIDE_BINARY[operation] ~= nil then
         local binary = node as scalarIR.Fixed
         local a, at, b, bt = operands(ctx, binary.left, binary.right)
@@ -978,9 +1068,16 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         if (nodeType == "u32" or nodeType == "i32") and types.isFloat(t) then
             -- `wrap`: modular, never saturating.
             return u32Bits(ctx, value, t), nodeType
+        elseif nodeType == "u64" and types.isFloat(t) then
+            -- A number meeting `uint64` converts the way LuaJIT converts it.
+            return expressions.luaInteger(ctx, value, t, "u64"), nodeType
         end
 
         return expressions.convert(ctx, value, t, nodeType), nodeType
+    elseif operation == "store_cast" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+
+        return expressions.luaInteger(ctx, value, t, nodeType), nodeType
     elseif operation == "helper_call" then
         return expressions.helperCall(ctx, node as scalarIR.HelperCall), nodeType
     elseif operation == "math" then

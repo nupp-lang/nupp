@@ -600,6 +600,7 @@ const WASM_LIBM: {
     tanh = true,
     exp = true,
     log = true,
+    log2 = true,
     pow = true,
     fmod = true,
     expf = true,

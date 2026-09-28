@@ -5044,48 +5044,6 @@ return {scan = scan}
     )
 end
 
-function M.moduloIsFlooredLikeLuas()
-    -- Lua's `%` takes the divisor's sign: `-1 % 3` is 2. LLVM's `frem`, like
-    -- C's `fmod`, truncates and says -1, so a kernel that rendered `%` as
-    -- `frem` alone disagreed with the same source on the interpreter for every
-    -- negative operand.
-    local dir = project{
-        [
-            "mod.nupp"
-        ] = [[
-@aot
-local function wrap(value: number, modulus: number): number
-    return value % modulus
-end
-
-return {wrap = wrap}
-]],
-    }
-    local out, code = run(dir, "--emit llvm mod.nupp")
-    test.equal(code, 0, out)
-    local wrap = llvmFunction(out, "ks_wrap__%w+")
-    assert(
-        wrap and wrap:find("= call double @nupp.mod(double %t", 1, true),
-        "the operator is a floored helper: " .. out
-    )
-    local helper = assert(llvmFunction(out, "nupp%.mod"), out)
-    for _, step in ipairs({
-        "%r = frem double %a, %b\n",
-        "%rn = fcmp olt double %r, 0.0\n",
-        "%bn = fcmp olt double %b, 0.0\n",
-        "%differ = xor i1 %rn, %bn\n",
-        "%nonzero = fcmp une double %r, 0.0\n",
-        "%fix = and i1 %differ, %nonzero\n",
-        "%moved = fadd double %r, %b\n",
-        "%out = select i1 %fix, double %moved, double %r\n",
-    }) do
-        assert(
-            helper:find(step, 1, true),
-            "which corrects the truncated remainder toward the divisor's sign: " .. helper
-        )
-    end
-end
-
 function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
     local source = [[
 local span = require("nupp.mem.span")

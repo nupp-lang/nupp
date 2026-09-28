@@ -26,6 +26,9 @@ end
 | `nupp.math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
+| 64-bit `/`, `%` in AOT | truncating integer division | LuaJIT's cdata answer for a zero divisor |
+| 64-bit `^`, unary `-` in AOT | wrapping integer power, negation | as LuaJIT's cdata |
+| a `number` stored into an integer field | truncated through int64 | the FFI store's rule, not `wrap` |
 
 Numeric `for` loops evaluate their start and stop once, in source order, before
 entering the loop. Assigning the visible loop variable does not change the next
@@ -45,8 +48,16 @@ refuse to load into an incompatible LuaJIT; this does not silently fall back.
 Ordinary `math.min` and `math.max` follow LuaJIT, which chooses the second
 operand on ties or unordered comparisons. Variadic calls apply that rule from left to right.
 The corrected `nupp.math.f32` operations have their own target-independent
-contract below. `math.log(value, base)` honors its optional base in ordinary
-portable code and AOT alike, computing `log(value) / log(base)`.
+contract below. `math.log(value, base)` honors its optional base. Under LuaJIT,
+ordinary code and AOT both compute `log2(value) * (1 / log2(base))`, keeping
+the two roundings apart as LuaJIT does; a quotient of natural logarithms
+differs in the last bits and loses exact answers such as
+`math.log(1e17, 0.1) == -17`.
+
+`a % b` is Lua's floored modulo, `a - floor(a / b) * b`, computed operation for
+operation and never contracted. It is not `fmod` moved into the divisor's sign:
+the two differ on the sign of a zero result (`-5 % 5` is `+0`), on an infinite
+divisor (Lua answers NaN), and wherever `a / b` rounds (`1 % 0.1`).
 
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
@@ -54,20 +65,32 @@ floating-point exception flags are not observable guarantees. The bit-level
 surface of `nupp.math.f32`, including its canonical NaN behavior, retains the
 stronger guarantees described below.
 
-Signed wrapping arithmetic is performed in the corresponding unsigned C type.
-For int32 and int64 the modular result is converted back to the signed type;
-generated native code relies on GCC 9 and Clang's documented modular
-unsigned-to-signed conversion behavior.
+Signed wrapping arithmetic operates on the two's-complement bits and wraps.
+The integer instructions it lowers to claim no signed overflow, so an
+overflowing `int32` or `int64` result is defined rather than undefined.
 
-A comparison whose operands mix these widths answers by mathematical value.
-C's usual arithmetic conversions would instead decide it in unsigned
-arithmetic -- converting `-1` above `5` -- so generated code widens an
-`int32`/`uint32` pairing into `int64`, routes a signed operand against
-`uint64` through a sign-checked helper, and meets a binary32 operand and an
-integer in binary64. The interpreter, the constant folder, and generated
-native code therefore agree on every mixed comparison; a 64-bit operand
-beyond 2^53 meeting `number` keeps binary64's exactness boundary, because
-the comparison itself is performed in binary64 there.
+A comparison between a signed and an unsigned 32-bit integer answers by
+mathematical value, as the two Lua numbers they are do: generated code widens
+both before comparing, so `-1` stays below `5`. A binary32 value or a `number`
+meeting a 32-bit integer compares in binary64, which holds both exactly.
+
+A 64-bit integer is LuaJIT cdata, and LuaJIT compares and computes with cdata
+by C's rules, so generated code does the same. The other operand converts to
+the 64-bit type, to `uint64` if either side is one: `-1LL < 5ULL` is false,
+`-1LL == 0xffffffffffffffffULL` is true, and `1LL < 1.5` compares 1 with 1.
+A `number` converts as a store does, below. `/` and `%` are C's truncating
+division, and where C has no answer LuaJIT has one: a zero divisor gives
+`INT64_MIN` (2^63 for `uint64`), and so does `INT64_MIN / -1`, whose remainder
+is 0. `^` is an integer power and unary `-` wraps.
+
+A `number` stored into an integer field or span element converts as LuaJIT's
+FFI store does, which is not `wrap`: it truncates toward zero through `int64`
+and keeps the low bits, so storing `1.9` gives 1 and `-1.9` gives -1 at every
+width, and `4294967303.5` stored into an `int32` gives 7. A `uint64`
+destination takes the union of both 64-bit ranges, so a negative value keeps
+its two's-complement pattern. `nupp.math.i32.wrap` and `u32.wrap` are LuaJIT's
+`tobit` instead, and round to nearest. NaN, infinities and values outside
+those ranges convert to target-dependent integers.
 
 The binary32 operations lower to native single-precision instructions, and this
 is exact rather than a relaxation: a binary32 operation over binary32 operands

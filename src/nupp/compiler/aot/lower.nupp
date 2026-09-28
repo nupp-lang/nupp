@@ -156,6 +156,27 @@ function lower.convert(
     return converted as scalarIR.Expr
 end
 
+--- The conversion a physical store into a field or span element performs.
+---
+--- A binary64 stored into an integer is LuaJIT's FFI conversion, which
+--- truncates toward zero through `int64`, and not `wrap`, which rounds: storing
+--- `1.9` into an `int32` field gives 1 in ordinary Nupp, so it must here.
+function lower.storeConvert(
+    value: scalarIR.Expr,
+    targetType: scalarIR.Type,
+    source: scalarIR.Source?,
+    context: lower.Context
+): scalarIR.Expr
+    if value.type == "f64"
+        and (targetType == "i32" or targetType == "u32" or targetType == "i64" or targetType == "u64")
+        and not context.unreachableValues[value]
+    then
+        return new scalarIR.Convert(op = "store_cast", value = value, type = targetType, source = source)
+    end
+
+    return lower.convert(value, targetType, source, context)
+end
+
 --- An exact integer literal that a fixed-width parameter can take as written.
 ---
 --- The checker already counts one as established at every width it fits, so a
@@ -1831,20 +1852,21 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
 
     local arithmetic = admit.ARITHMETIC[written]
     if arithmetic ~= nil then
-        local wide = left.type == "u64" and "u64"
-            or left.type == "i64" and "i64"
-            or right.type == "u64" and "u64"
-            or right.type == "i64" and "i64"
+        -- A 64-bit operand is LuaJIT cdata, and cdata arithmetic is C's: the
+        -- other operand converts to the 64-bit type, `uint64` if either side
+        -- is one, `/` and `%` are integer division that truncates, and `^` is
+        -- an integer power.
+        local wide = (left.type == "u64" or right.type == "u64") and "u64"
+            or (left.type == "i64" or right.type == "i64") and "i64"
             or nil
-        if wide ~= nil and (written == "+" or written == "-" or written == "*") then
+        local wideOps: {
+            [string]: string
+        } = {["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div", ["%"] = "mod", ["^"] = "pow"}
+        if wide ~= nil and wideOps[written] ~= nil then
             left = lower.convert(left, wide as scalarIR.Type, source, context)
             right = lower.convert(right, wide as scalarIR.Type, source, context)
             return new scalarIR.Fixed(
-                op = (
-                    (
-                        wide == "u64" and "u64_" or "i64_"
-                    ) .. (written == "+" and "add" or written == "-" and "sub" or "mul")
-                ) as scalarIR.FixedOp,
+                op = ((wide == "u64" and "u64_" or "i64_") .. (wideOps[written] as string)) as scalarIR.FixedOp,
                 left = left,
                 right = right,
                 type = wide as scalarIR.Type,
@@ -4031,6 +4053,16 @@ local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel)
     end
     -- Negation is binary64 arithmetic like the binary operators, so a fixed-width
     -- or binary32 operand widens into it the same way `binary` promotes one.
+    if written == "-" and (value.type == "i64" or value.type == "u64") then
+        -- 64-bit cdata negates in its own width and wraps, as `0 - value`.
+        return new scalarIR.Fixed(
+            op = (value.type == "u64" and "u64_sub" or "i64_sub") as scalarIR.FixedOp,
+            left = new scalarIR.Int64Constant(op = "constant_i64", value = "0", type = value.type, source = source),
+            right = value,
+            type = value.type,
+            source = source
+        )
+    end
     local negated = written == "-" and lower.conversion(value, "f64", value.source) or nil
     if negated ~= nil then
         return new scalarIR.Unary(op = "neg", value = negated as scalarIR.Expr, type = "f64", source = source)
@@ -6225,7 +6257,7 @@ local function soaStore(
         indexUniqueName = address.indexUniqueName,
         cursor = address.cursor,
         cursorUniqueName = address.cursorUniqueName,
-        value = lower.convert(value, column.type, lower.site(target), kernel.context),
+        value = lower.storeConvert(value, column.type, lower.site(target), kernel.context),
         source = lower.site(target)
     )
 
@@ -6404,7 +6436,7 @@ local function assignStmt(
             indexUniqueName = cursor == nil and kernel.indexUniqueName or nil,
             cursor = cursor,
             cursorUniqueName = cursorBinding ~= nil and cursorBinding.uniqueName or nil,
-            value = lower.convert(value, output.element.type, lower.site(stat), context),
+            value = lower.storeConvert(value, output.element.type, lower.site(stat), context),
             source = lower.site(stat)
         )
         return
@@ -6432,11 +6464,12 @@ local function assignStmt(
     local assignments: {scalarIR.Assignment} = {}
     for position, target in ipairs(targets) do
         local lowered = assignTarget(target, environment, kernel)
+        local store = lowered.kind == "field" and lower.storeConvert or lower.convert
         assignments[
             position
         ] = new scalarIR.Assignment(
             target = lowered,
-            value = lower.convert(values[position], lowered.type as scalarIR.Type, lower.site(stat), context)
+            value = store(values[position], lowered.type as scalarIR.Type, lower.site(stat), context)
         )
     end
     out[#out + 1] = new scalarIR.Assign(op = "assign", values = assignments, source = lower.site(stat))

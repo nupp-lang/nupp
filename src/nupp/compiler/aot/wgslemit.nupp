@@ -172,7 +172,7 @@ local function emitProgram(
             return literal(value.value, value.type)
         elseif op == "bool" then
             return value.value and "true" or "false"
-        elseif op == "numeric_cast" then
+        elseif op == "numeric_cast" or op == "store_cast" then
             return typeName(value.type) .. "(" .. expression(value.value) .. ")"
         elseif BINARY[op] ~= nil then
             return "(" .. expression(value.left) .. " " .. tostring(BINARY[op]) .. " " .. expression(value.right) .. ")"

@@ -40,20 +40,123 @@ end
 
 local DEFINITIONS: {[string]: function(module: builder.Module, attrs: string): string} = {}
 
---- Lua's `%`: fmod, then moved into the divisor's sign.
-DEFINITIONS["nupp.mod"] = function(_: builder.Module, attrs: string): string
+--- Lua's `%`, as LuaJIT and Lua 5.1 both define it: `a - floor(a / b) * b`,
+--- operation for operation and never contracted. An `frem` corrected into the
+--- divisor's sign agrees only on the easy cases; it differs on the sign of a
+--- zero result, an infinite divisor and wherever `a / b` rounds.
+DEFINITIONS["nupp.mod"] = function(module: builder.Module, attrs: string): string
+    local floor = prelude.intrinsic(module, "llvm.floor.f64", "double @NAME(double)")
     return table.concat(
         {
             "define internal double @nupp.mod(double %a, double %b) " .. attrs .. " {",
-            "  %r = frem double %a, %b",
-            "  %rn = fcmp olt double %r, 0.0",
-            "  %bn = fcmp olt double %b, 0.0",
-            "  %differ = xor i1 %rn, %bn",
-            "  %nonzero = fcmp une double %r, 0.0",
-            "  %fix = and i1 %differ, %nonzero",
-            "  %moved = fadd double %r, %b",
-            "  %out = select i1 %fix, double %moved, double %r",
+            "  %q = fdiv double %a, %b",
+            "  %f = call double " .. floor .. "(double %q)",
+            "  %p = fmul double %f, %b",
+            "  %out = fsub double %a, %p",
             "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- LuaJIT's 64-bit cdata division and remainder, `lj_carith_divi64` and its
+--- siblings: C's truncating `/` and `%`, with a defined answer where C has
+--- none. A zero divisor gives `INT64_MIN` (2^63 unsigned), and so does
+--- `INT64_MIN / -1`, whose remainder is 0.
+local function wideDivision(name: string, instruction: string, signed: boolean, remainder: boolean): string
+    local lines = {"define internal i64 @" .. name .. "(i64 %a, i64 %b) ATTRS {", "  %zero = icmp eq i64 %b, 0",}
+    local undefined = "%zero"
+    if signed then
+        lines[#lines + 1] = "  %min = icmp eq i64 %a, -9223372036854775808"
+        lines[#lines + 1] = "  %negone = icmp eq i64 %b, -1"
+        lines[#lines + 1] = "  %overflow = and i1 %min, %negone"
+        lines[#lines + 1] = "  %undefined = or i1 %zero, %overflow"
+        undefined = "%undefined"
+    end
+    lines[#lines + 1] = "  %safe = select i1 " .. undefined .. ", i64 1, i64 %b"
+    lines[#lines + 1] = "  %r = " .. instruction .. " i64 %a, %safe"
+    if signed and remainder then
+        lines[#lines + 1] = "  %edge = select i1 %zero, i64 -9223372036854775808, i64 0"
+        lines[#lines + 1] = "  %out = select i1 %undefined, i64 %edge, i64 %r"
+    else
+        lines[#lines + 1] = "  %out = select i1 " .. undefined .. ", i64 -9223372036854775808, i64 %r"
+    end
+    lines[#lines + 1] = "  ret i64 %out"
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n")
+end
+
+DEFINITIONS["nupp.i64.div"] = function(_: builder.Module, attrs: string): string
+    return (wideDivision("nupp.i64.div", "sdiv", true, false):gsub("ATTRS", attrs))
+end
+
+DEFINITIONS["nupp.i64.mod"] = function(_: builder.Module, attrs: string): string
+    return (wideDivision("nupp.i64.mod", "srem", true, true):gsub("ATTRS", attrs))
+end
+
+DEFINITIONS["nupp.u64.div"] = function(_: builder.Module, attrs: string): string
+    return (wideDivision("nupp.u64.div", "udiv", false, false):gsub("ATTRS", attrs))
+end
+
+DEFINITIONS["nupp.u64.mod"] = function(_: builder.Module, attrs: string): string
+    return (wideDivision("nupp.u64.mod", "urem", false, true):gsub("ATTRS", attrs))
+end
+
+--- LuaJIT's `lj_carith_powu64`: `x ^ k` modulo 2^64, by squaring.
+DEFINITIONS["nupp.u64.pow"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal i64 @nupp.u64.pow(i64 %x, i64 %k) " .. attrs .. " {",
+            "entry:",
+            "  br label %loop",
+            "loop:",
+            "  %r = phi i64 [ 1, %entry ], [ %r2, %step ]",
+            "  %b = phi i64 [ %x, %entry ], [ %b2, %step ]",
+            "  %e = phi i64 [ %k, %entry ], [ %e2, %step ]",
+            "  %done = icmp eq i64 %e, 0",
+            "  br i1 %done, label %exit, label %step",
+            "step:",
+            "  %bit = and i64 %e, 1",
+            "  %odd = icmp ne i64 %bit, 0",
+            "  %m = mul i64 %r, %b",
+            "  %r2 = select i1 %odd, i64 %m, i64 %r",
+            "  %b2 = mul i64 %b, %b",
+            "  %e2 = lshr i64 %e, 1",
+            "  br label %loop",
+            "exit:",
+            "  ret i64 %r",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- LuaJIT's `lj_carith_powi64`: a negative exponent answers 0 except for a
+--- base of 1 or -1, and `INT64_MAX` for a base of 0.
+DEFINITIONS["nupp.i64.pow"] = function(module: builder.Module, attrs: string): string
+    local unsigned = prelude.use(module, "nupp.u64.pow")
+    return table.concat(
+        {
+            "define internal i64 @nupp.i64.pow(i64 %x, i64 %k) " .. attrs .. " {",
+            "entry:",
+            "  %negative = icmp slt i64 %k, 0",
+            "  br i1 %negative, label %inverse, label %power",
+            "power:",
+            "  %p = call i64 " .. unsigned .. "(i64 %x, i64 %k)",
+            "  ret i64 %p",
+            "inverse:",
+            "  %zero = icmp eq i64 %x, 0",
+            "  %one = icmp eq i64 %x, 1",
+            "  %minus = icmp eq i64 %x, -1",
+            "  %bit = and i64 %k, 1",
+            "  %odd = icmp ne i64 %bit, 0",
+            "  %sign = select i1 %odd, i64 -1, i64 1",
+            "  %a = select i1 %minus, i64 %sign, i64 0",
+            "  %c = select i1 %one, i64 1, i64 %a",
+            "  %out = select i1 %zero, i64 9223372036854775807, i64 %c",
+            "  ret i64 %out",
             "}",
         },
         "\n"

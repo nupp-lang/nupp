@@ -245,6 +245,12 @@ const verify.FIXED_BINARY = {
     ["i64_add"] = "i64",
     ["i64_sub"] = "i64",
     ["i64_mul"] = "i64",
+    ["i64_div"] = "i64",
+    ["i64_mod"] = "i64",
+    ["u64_div"] = "u64",
+    ["u64_mod"] = "u64",
+    ["i64_pow"] = "i64",
+    ["u64_pow"] = "u64",
 }
 
 --- The opcodes that convert between representations, which is where -- and
@@ -254,6 +260,7 @@ const verify.CONVERSIONS = {
     ["widen_f32_f64"] = true,
     ["int_to_f64"] = true,
     ["numeric_cast"] = true,
+    ["store_cast"] = true,
     ["f16_to_f32"] = true,
     ["f32_to_f16"] = true,
     ["bf16_to_f32"] = true,
@@ -589,6 +596,11 @@ local function convert(node: scalarIR.Convert, values: {[string]: string}, scope
         holds(node.type == "f32" and from == "u32", "invalid bfloat16 load conversion")
     elseif node.op == "f32_to_bf16" then
         holds(node.type == "u32" and from == "f32", "invalid bfloat16 store conversion")
+    elseif node.op == "store_cast" then
+        holds(
+            (node.type == "i32" or node.type == "u32" or node.type == "i64" or node.type == "u64") and from == "f64",
+            "invalid store conversion"
+        )
     else
         holds(
             (node.type == "i32" or node.type == "u32" or node.type == "i64" or node.type == "u64")

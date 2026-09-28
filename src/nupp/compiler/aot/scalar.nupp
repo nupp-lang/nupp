@@ -612,9 +612,15 @@ type scalarIR.FixedOp = 'f32_add'
     | 'i64_add'
     | 'i64_sub'
     | 'i64_mul'
+    | 'i64_div'
+    | 'i64_mod'
+    | 'i64_pow'
     | 'u64_add'
     | 'u64_sub'
     | 'u64_mul'
+    | 'u64_div'
+    | 'u64_mod'
+    | 'u64_pow'
     | 'u64_and'
     | 'u64_or'
     | 'u64_xor'
@@ -676,10 +682,17 @@ end
 --- These are where a width changes, and the only places it does. An operator
 --- never changes one, which is what keeps `float` a storage fact rather than an
 --- arithmetic type.
+---
+--- `numeric_cast` from binary64 to a 32-bit integer is `wrap`, LuaJIT's
+--- `tobit`, which rounds. `store_cast` is what a physical store of a binary64
+--- into an integer field or span element does instead, LuaJIT's FFI rule:
+--- truncate toward zero through `int64`, then keep the low bits. The two differ
+--- on every fraction, so they are two operations rather than one read two ways.
 type scalarIR.ConvertOp = 'narrow_f64_f32'
     | 'widen_f32_f64'
     | 'int_to_f64'
     | 'numeric_cast'
+    | 'store_cast'
     | 'f16_to_f32'
     | 'f32_to_f16'
     | 'bf16_to_f32'

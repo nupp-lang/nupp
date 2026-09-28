@@ -1097,7 +1097,9 @@ function spirv.program(
             -- Binary64 computes in binary32 lanes here, so float-to-float
             -- conversions are pass-throughs.
             return expression(value.value)
-        elseif op == "numeric_cast" then
+        elseif op == "numeric_cast" or op == "store_cast" then
+            -- A GPU converts a float to an integer by truncating, which is what
+            -- a store means; its narrower contract gives `wrap` the same form.
             local operand = value.value
             -- Integer widening is exact in the source contract. Cancelling this
             -- detour avoids rounding its high bits through the GPU's f32 lane.
