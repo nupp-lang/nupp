@@ -548,13 +548,32 @@ unsafe fn owned_text(slice: NuppHttpSlice, what: &str) -> Result<String, String>
     Ok(value.to_owned())
 }
 
-/// The first of the variable's spellings that names a proxy, the way the
-/// environment proxies reqwest would otherwise register read them.
-fn environment_proxy(names: [&str; 2]) -> Option<String> {
-    names
-        .into_iter()
-        .find_map(|name| std::env::var(name).ok())
-        .filter(|value| !value.is_empty())
+/// The proxies the environment names for HTTPS, HTTP and every scheme, read
+/// the way reqwest reads them for its own environment proxies: the first
+/// spelling that is set, an empty value naming none. Under CGI, where
+/// `REQUEST_METHOD` is set, the request's own `Proxy:` header arrives as
+/// `HTTP_PROXY`, so the environment names no proxy at all (httpoxy).
+fn environment_proxies(lookup: impl Fn(&str) -> Option<String>) -> [Option<String>; 3] {
+    if lookup("REQUEST_METHOD").is_some() {
+        return [None, None, None];
+    }
+    let first = |names: [&str; 2]| {
+        names
+            .into_iter()
+            .find_map(&lookup)
+            .filter(|value| !value.is_empty())
+    };
+    [
+        first(["HTTPS_PROXY", "https_proxy"]),
+        first(["HTTP_PROXY", "http_proxy"]),
+        first(["ALL_PROXY", "all_proxy"]),
+    ]
+}
+
+/// An environment value as text. Presence is what the CGI guard asks about,
+/// so a value that is not Unicode still counts as set.
+fn os_text(value: std::ffi::OsString) -> String {
+    value.to_string_lossy().into_owned()
 }
 
 fn proxy_with_options(
@@ -614,15 +633,17 @@ unsafe fn configure_client(
                 // not this list. Registering the same proxies explicitly is
                 // what lets the caller's exceptions apply to them.
                 builder = builder.no_proxy();
-                if let Some(url) = environment_proxy(["HTTPS_PROXY", "https_proxy"]) {
+                let [https, http, all] =
+                    environment_proxies(|name| std::env::var_os(name).map(os_text));
+                if let Some(url) = https {
                     let configured = Proxy::https(&url).map_err(|error| describe(&error))?;
                     builder = builder.proxy(proxy_with_options(configured, "", no_proxy.clone()));
                 }
-                if let Some(url) = environment_proxy(["HTTP_PROXY", "http_proxy"]) {
+                if let Some(url) = http {
                     let configured = Proxy::http(&url).map_err(|error| describe(&error))?;
                     builder = builder.proxy(proxy_with_options(configured, "", no_proxy.clone()));
                 }
-                if let Some(url) = environment_proxy(["ALL_PROXY", "all_proxy"]) {
+                if let Some(url) = all {
                     let configured = Proxy::all(&url).map_err(|error| describe(&error))?;
                     builder = builder.proxy(proxy_with_options(configured, "", no_proxy));
                 }
@@ -2357,6 +2378,28 @@ mod tests {
             nuppHttpClientDestroy(client);
         }
         drop(server);
+    }
+
+    #[test]
+    fn a_cgi_request_names_no_environment_proxy() {
+        let environment = |cgi: bool| {
+            move |name: &str| match name {
+                "REQUEST_METHOD" if cgi => Some("GET".to_owned()),
+                "HTTP_PROXY" => Some("http://attacker.test:8080".to_owned()),
+                "https_proxy" => Some("http://proxy.test:3128".to_owned()),
+                "ALL_PROXY" => Some(String::new()),
+                _ => None,
+            }
+        };
+        assert_eq!(
+            environment_proxies(environment(false)),
+            [
+                Some("http://proxy.test:3128".to_owned()),
+                Some("http://attacker.test:8080".to_owned()),
+                None,
+            ]
+        );
+        assert_eq!(environment_proxies(environment(true)), [None, None, None]);
     }
 
     #[test]

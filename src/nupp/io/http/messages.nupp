@@ -83,7 +83,9 @@ record http.Options
     insecureHosts: {string}?
 
     --- The proxy to reach every host through. Omitted takes the environment's,
-    --- and an empty string deliberately uses none.
+    --- and an empty string deliberately uses none. Under CGI, where
+    --- `REQUEST_METHOD` is set, the environment names no proxy: a request's own
+    --- `Proxy` header arrives there as `HTTP_PROXY`.
     proxy: string?
 
     --- Hosts to reach directly rather than through the proxy.
