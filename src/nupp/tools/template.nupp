@@ -342,6 +342,15 @@ local function walk(root: string): {string}?, string?
     return found
 end
 
+local function copyOf(library: {[string]: any}): {[string]: any}
+    local copy: {[string]: any} = {}
+    for key, value in pairs(library) do
+        copy[key] = value
+    end
+
+    return copy
+end
+
 --- The sandbox a `template.lua` is read in.
 ---
 --- Deliberately closed, with no `__index` reaching `_G`. The comparable sandbox
@@ -351,6 +360,12 @@ end
 ---
 --- What is left is what a data literal uses. A template that needs more than
 --- this is computing, and a template that computes is not a template.
+---
+--- The libraries are copies. The live `string`, `table` and `math` tables are
+--- shared with every chunk in this process, the planner that runs after the
+--- template among them, so handing one over let a template rebind
+--- `string.gmatch` and answer the planner's own containment check for it. A
+--- template may rebind whatever it likes in its copies; nothing else reads them.
 local function sandbox(): {[string]: any}
     return {
         pairs = pairs,
@@ -360,9 +375,9 @@ local function sandbox(): {[string]: any}
         tonumber = tonumber,
         select = select,
         error = error,
-        string = string,
-        table = table,
-        math = math,
+        string = copyOf(string as {[string]: any}),
+        table = copyOf(table as {[string]: any}),
+        math = copyOf(math as {[string]: any}),
     }
 end
 
@@ -724,20 +739,45 @@ local function readTree(source: template.Source): {[string]: string}?, string?
     return files
 end
 
+--- The primitive `componentsAreSafe` reads a path with, captured when this
+--- module loads and so before any template has run. The check is the last word
+--- on where a file goes, so it does not ask a string's metatable, which reaches
+--- the shared `string` table, for it when it runs.
+local byteAt = string.byte
+
+const SLASH, BACKSLASH, DOT, COLON = 47, 92, 46, 58
+
+local function isLetter(code: integer?): boolean
+    return code ~= nil and ((code >= 65 and code <= 90) or (code >= 97 and code <= 122))
+end
+
+--- Whether a template path stays under its destination.
+---
+--- Read byte by byte rather than with patterns, which keeps it to the one
+--- captured primitive above. A backslash counts as a separator as well as a
+--- slash, since it is one on Windows and a `..` behind it leaves the tree there.
 local function componentsAreSafe(path: string): boolean, string?
-    if path:sub(1, 1) == "/" or path:match("^[A-Za-z]:") then
+    local length = #path
+    local first = byteAt(path, 1)
+    if first == SLASH or first == BACKSLASH or (isLetter(first) and byteAt(path, 2) == COLON) then
         return false, path .. " is absolute, and a template writes only under its destination"
     end
-    for component in path:gmatch("[^/]+") do
-        if component == ".." then
-            return false, path .. " leaves the destination directory"
+    local start = 1
+    for index = 1, length + 1 do
+        local code = index <= length and byteAt(path, index) or SLASH
+        if code == SLASH or code == BACKSLASH then
+            local size = index - start
+            if size == 0 then
+                return false, path .. " has an empty path component"
 
-        elseif component == "." then
-            return false, path .. " has an empty path component"
+            elseif size == 2 and byteAt(path, start) == DOT and byteAt(path, start + 1) == DOT then
+                return false, path .. " leaves the destination directory"
+
+            elseif size == 1 and byteAt(path, start) == DOT then
+                return false, path .. " has an empty path component"
+            end
+            start = index + 1
         end
-    end
-    if path:find("//", 1, true) or path:sub(-1) == "/" then
-        return false, path .. " has an empty path component"
     end
 
     return true

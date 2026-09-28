@@ -388,6 +388,150 @@ function M.aPathLeavingTheDestinationIsRefused()
     )
 end
 
+-- The library tables every Lua chunk in this process shares, so a test that lets
+-- something near them can put them back whatever happened, and say what moved.
+local SHARED = {string = string, table = table, math = math}
+
+local function snapshotShared()
+    local saved = {}
+    for name, library in pairs(SHARED) do
+        saved[name] = {}
+        for key, value in pairs(library) do
+            saved[name][key] = value
+        end
+    end
+
+    return saved
+end
+
+local function restoreShared(saved)
+    local changed = {}
+    for name, library in pairs(SHARED) do
+        local keys = {}
+        for key in pairs(library) do
+            keys[#keys + 1] = key
+        end
+        for key in pairs(saved[name]) do
+            keys[#keys + 1] = key
+        end
+        for _, key in ipairs(keys) do
+            if library[key] ~= saved[name][key] then
+                changed[#changed + 1] = name .. "." .. key
+                library[key] = saved[name][key]
+            end
+        end
+    end
+    table.sort(changed)
+
+    return changed
+end
+
+-- Plans with the shared libraries at risk: `tamper` runs just before planning,
+-- and everything is put back before anything is asserted.
+local function planWhileTampered(files, tamper)
+    local dir = templateDirectory(files)
+    local into = tempDirectory()
+    local saved = snapshotShared()
+    local ok, plan, err = pcall(function()
+        if tamper then
+            tamper()
+        end
+        return template.plan({kind = "directory", path = dir}, into)
+    end)
+    local changed = restoreShared(saved)
+    remove(dir)
+    assert(ok, plan)
+
+    return plan, err, into, changed
+end
+
+function M.aTemplateCannotRebindThePlannersLibraries()
+    -- The planner runs after `template.lua` does, so a template that could reach
+    -- the live `string` table could answer the planner's own path check. This one
+    -- blinds every string primitive that check could use to `..`, then asks for it.
+    local blind = [[
+      local real = {}
+      for _, name in ipairs({"gmatch", "find", "match", "sub", "byte"}) do
+        real[name] = string[name]
+      end
+      local function hides(s)
+        return type(s) == "string" and real.find(s, "..", 1, true) ~= nil
+      end
+      string.gmatch = function(s, p)
+        if hides(s) then return function() return nil end end
+        return real.gmatch(s, p)
+      end
+      string.find = function(s, ...)
+        if hides(s) then return nil end
+        return real.find(s, ...)
+      end
+      string.match = function(s, ...)
+        if hides(s) then return nil end
+        return real.match(s, ...)
+      end
+      string.sub = function(s, i, j)
+        if hides(s) then return "" end
+        return real.sub(s, i, j)
+      end
+      string.byte = function(s, ...)
+        if hides(s) then return 120 end
+        return real.byte(s, ...)
+      end
+      table.sort = function() end
+      math.floor = function() return 1 end
+      return {variables = {up = {default = ".."}}}
+    ]]
+    local plan, err, into, changed = planWhileTampered({["template.lua"] = blind, ["${up}/escaped.txt"] = "x"})
+    assertEq(table.concat(changed, ", "), "", "what the template changed in the host's libraries")
+    assertEq(plan, nil, "a template blinding the string library produces no plan")
+    assert(err:find("leaves the destination", 1, true), err)
+    assert(not exists(into), "and the destination was left alone")
+end
+
+function M.thePathCheckDoesNotAskTheSharedStringLibrary()
+    -- The check is the last word on where a file goes, so it answers from
+    -- primitives captured before any template ran rather than whatever a
+    -- string's metatable reaches when it runs.
+    local plan, err, into = planWhileTampered(
+        {["template.lua"] = [[return {variables = {up = {default = ".."}}}]], ["a/${up}/${up}/escaped.txt"] = "x"},
+        function()
+            local real = {gmatch = string.gmatch, find = string.find, match = string.match, sub = string.sub}
+            local function hides(s)
+                return type(s) == "string" and real.find(s, "/..", 1, true) ~= nil
+            end
+            string.gmatch = function(s, p)
+                if hides(s) then
+                    return function()
+                        return nil
+                    end
+                end
+                return real.gmatch(s, p)
+            end
+            string.find = function(s, ...)
+                if hides(s) then
+                    return nil
+                end
+                return real.find(s, ...)
+            end
+            string.match = function(s, ...)
+                if hides(s) then
+                    return nil
+                end
+                return real.match(s, ...)
+            end
+            string.sub = function(s, i, j)
+                if hides(s) then
+                    return ""
+                end
+                return real.sub(s, i, j)
+            end
+        end
+    )
+    assertEq(plan, nil, "a path check asking a blinded string library produces no plan")
+    assert(err:find("leaves the destination", 1, true), err)
+    assert(not exists(into), "and the destination was left alone")
+end
+
 function M.aValueHoldingASeparatorIsRefusedByName()
     planRefuses(
         {["template.lua"] = [[return {variables = {sub = {default = "a/b"}}}]], ["${sub}.txt"] = "x",},

@@ -306,7 +306,9 @@ nupp init owner/repo@v1.2.0 game --yes
 
 ::: deepdive
 The reduced step list is not caution about `template.lua`, which is loaded in a
-sandbox with no `io`, `os`, `require` or `load` in it. It is that `check`,
+sandbox with no `io`, `os`, `require` or `load` in it, and with its own copies
+of `string`, `table` and `math`, so nothing it rebinds reaches the code that
+plans the scaffold after it. It is that `check`,
 `build` and `test` all load the `nupp.lua` that was just scaffolded, and a
 manifest is ordinary unrestricted Lua. A template allowed to ask for `check`
 could put its payload in the manifest instead, and the sandbox would be
