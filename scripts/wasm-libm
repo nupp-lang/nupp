@@ -15,12 +15,12 @@
 set -eu
 
 # What the backend's IR can call, and so what the module exports to the unit.
-API="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma fmaf"
+API="sin cos tan asin acos atan atan2 sinh cosh tanh exp log log2 pow fmod expf fma fmaf"
 # The sources those need. sqrt, fabs and floor are Wasm instructions rather
 # than musl's portable code (identical results: both are exact).
-SOURCES="sin cos tan asin acos atan atan2 sinh cosh tanh exp log pow fmod expf fma fmaf
+SOURCES="sin cos tan asin acos atan atan2 sinh cosh tanh exp log log2 pow fmod expf fma fmaf
 __sin __cos __tan __rem_pio2 __rem_pio2_large __expo2 expm1 scalbn
-exp_data log_data pow_data exp2f_data
+exp_data log_data log2_data pow_data exp2f_data
 __math_divzero __math_invalid __math_oflow __math_oflowf __math_uflow __math_uflowf __math_xflow __math_xflowf"
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
