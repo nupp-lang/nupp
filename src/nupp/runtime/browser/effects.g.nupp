@@ -4,12 +4,21 @@ module nupp.runtime.browser.effects
 -- Browser effects cross the one yieldable Lua/Wasm boundary as JSON. Providers
 -- enqueue work while subscribing; the suspension provider yields every queued
 -- request together and dispatches the corresponding responses after resumption.
+--
+-- That boundary is the application's root coroutine, the one the page resumes. A
+-- yield from any other coroutine goes to whoever resumed that one, so a park there
+-- would hand the batch to ordinary Lua and strand every request in it. The guest
+-- bridge records the root on `__nuppBrowser.root`; where it has, only the root and
+-- the coroutines relaying to it may park.
 
 local json = require("nupp.runtime.provider.lunajson")
 local effects = {}
 local nextId: integer = 1
 local queued: {any} = {}
 local waiting: {[integer]: any} = {}
+local hostTurns: integer = 0
+local browserHost: any = rawget(_G, "__nuppBrowser")
+local relays: any = setmetatable({}, {__mode = "k"})
 
 local function invalidResponse(detail: string): never
     error("nupp: browser application returned an invalid effect response: " .. detail, 0)
@@ -112,6 +121,51 @@ function effects.request(
     end
 end
 
+--- Whether `thread` can wait on the page, or the main thread where it is nil.
+---
+--- True where no root has been recorded, which is every host but the guest bridge.
+function effects.canParkFrom(thread: thread?): boolean
+    local root = browserHost ~= nil and browserHost.root or nil
+    if root == nil then
+        return true
+    end
+    local current: any = thread
+    while current ~= nil do
+        if current == root then
+            return true
+        end
+        current = relays[current]
+    end
+
+    return false
+end
+
+--- Whether the running coroutine can wait on the page.
+function effects.canPark(): boolean
+    return effects.canParkFrom((coroutine.running()))
+end
+
+--- Records that the running coroutine forwards `thread`'s parks to its own resumer.
+---
+--- For a driver that resumes a nested coroutine and yields whatever it yields, which
+--- is what makes a park there a park on the page.
+function effects.relay(thread: thread): nil
+    relays[thread] = coroutine.running()
+end
+
+--- Whether a request has been made that the host has not answered.
+---
+--- Counts what is queued and what has shipped, including a cancelled request whose
+--- answer still has a resource to hand back.
+function effects.outstanding(): boolean
+    return next(waiting) ~= nil
+end
+
+--- How many times the page has answered a park, which is what a turn is here.
+function effects.turns(): integer
+    return hostTurns
+end
+
 --- Hands the queued requests to the host and dispatches what it answers.
 ---
 --- The host answers a request when it settles rather than when its batch does, so a
@@ -120,9 +174,13 @@ end
 --- own to resume, so the host answers after one with whatever has settled;
 --- otherwise it answers once something has.
 ---
---- @raises string where the host answers malformed or cancels the application, or
----     where a dispatched callback raises
+--- @raises string where the running coroutine is not the application's root, where
+---     the host answers malformed or cancels the application, or where a
+---     dispatched callback raises
 function effects.park(operation: string, turn: boolean?): nil
+    if not effects.canPark() then
+        error("nupp: " .. operation .. " cannot suspend here: only the browser application's root can wait", 0)
+    end
     local encoded: string
     local wake = turn == true and "turn" or "any"
     if #queued == 0 then
@@ -134,6 +192,7 @@ function effects.park(operation: string, turn: boolean?): nil
         queued = {}
     end
     local responseText = coroutine.yield(encoded)
+    hostTurns = hostTurns + 1
     local response, responses = decodedResponse(responseText)
     if response.cancelled then
         error("nupp: browser application was cancelled", 0)

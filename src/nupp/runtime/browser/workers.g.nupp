@@ -57,6 +57,9 @@ local function protectedCall(body: function(): any): (boolean, any)
     -- handler: a raw coroutine would park on the host boundary instead, and inside
     -- a `nupp.suspension` branch that boundary yield is discarded by the driver.
     local thread: any = suspension.create(body)
+    -- Its parks are this frame's parks, handed on below, so a wait with no handler
+    -- inside it may reach the page wherever this frame may.
+    browserEffects.relay(thread)
     local passed: any = nil
     while true do
         local ok, value = coroutine.resume(thread, passed)
@@ -593,13 +596,9 @@ workers.openScope = openScope
 
 --- How many lanes the page's pool runs, which is what a caller sizes chunks against.
 local function parallelism(): integer
-    local answer: any = nil
-    poolRequest({operation = "lanes",}, function(item: any): nil
-        answer = item
+    local answer: any = suspension.suspend("worker lanes", function(resume: function(any): nil): function()
+        return poolRequest({operation = "lanes",}, resume)
     end)
-    while answer == nil do
-        browserEffects.park("worker lanes")
-    end
 
     return (answered(answer).lanes or 1) as integer
 end
@@ -612,13 +611,9 @@ workers.parallelism = parallelism
 
 --- Exchanges one lane frame with the host: an optional reply, then the next task.
 local function laneExchange(payload: any): any
-    local answer: any = nil
-    browserEffects.request("lane", payload, function(item: any): nil
-        answer = item
+    local answer: any = suspension.suspend("worker lane", function(resume: function(any): nil): function()
+        return browserEffects.request("lane", payload, resume)
     end)
-    while answer == nil do
-        browserEffects.park("worker lane")
-    end
 
     return answered(answer)
 end

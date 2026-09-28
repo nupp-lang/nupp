@@ -252,7 +252,10 @@ frame.run(application)
 `suspension.create` creates an ordinary coroutine and makes it inherit the
 handler installed where it was created. Inheritance is fixed at creation.
 Continue to use `coroutine.resume`; no resume wrapper is required. A coroutine
-made with `coroutine.create` inherits no handler.
+made with `coroutine.create` inherits no handler. Natively a wait there drives
+the readiness sources on the current thread; in a browser application, whose
+only wait is a return to the page from its root coroutine, it raises "cannot
+suspend here" and `suspension.canSuspend()` answers false.
 
 A nested handler installation temporarily replaces the current handler and
 restores the outer one when its region ends, so different coroutines may use

@@ -372,6 +372,9 @@ local function main()
         end
     end
     local body = coroutine.create(app)
+    -- The effect layer lets only this coroutine, and those relaying to it, park:
+    -- a yield from anywhere else would reach ordinary Lua instead of the host.
+    _G.__nuppBrowser.root = body
     local response
     while true do
         local ok, value = coroutine.resume(body, response)

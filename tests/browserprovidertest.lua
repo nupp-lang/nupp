@@ -210,4 +210,153 @@ function M.everyParkSaysHowLongTheHostMayHoldIt()
     end
 end
 
+----------------------------------------------------------------------------
+-- Where a wait may reach the page
+----------------------------------------------------------------------------
+
+function M.aGeneratorThatSleepsIsRefusedRatherThanHandedTheBatch()
+    local app = application()
+    local ok, produced, value = app.run(function()
+        local producer = coroutine.wrap(function()
+            app.time.sleep(10)
+            coroutine.yield("the produced value")
+        end)
+
+        return pcall(producer)
+    end)
+    check.equal(ok, true, tostring(produced))
+    -- The yield inside the sleep would otherwise reach the consumer as the page's
+    -- effect frame, and the request in it would never be made.
+    check.equal(produced, false, "a plain coroutine's sleep returned " .. tostring(value))
+    check.matches(tostring(value), "cannot suspend here")
+    check.equal(#app.frames, 0, "nothing reached the page")
+end
+
+function M.aPlainCoroutineCannotSuspendAndSaysSo()
+    local app = application()
+    local ok, inside, outside = app.run(function()
+        local asked = coroutine.wrap(function()
+            return app.suspension.canSuspend()
+        end)
+
+        return asked(), app.suspension.canSuspend()
+    end)
+    check.equal(ok, true, tostring(inside))
+    check.equal(inside, false, "a coroutine the page does not resume cannot park")
+    check.equal(outside, true, "the application's root can")
+end
+
+--- An opaque host handler whose park hands the page a turn, as a frame loop does.
+local function frameHandler(app)
+    return setmetatable({
+        park = function(_, waiting)
+            while not waiting:ready() do
+                app.effects.park("next frame", true)
+                app.suspension.poll()
+            end
+        end,
+        canPark = function()
+            return true
+        end,
+        shutdown = function()
+        end,
+    }, app.suspension.Handler)
+end
+
+function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
+    local app = application()
+    local tasks, suspension = app.tasks, app.suspension
+    local completed = 0
+    local ok, answer = app.run(function()
+        local installed = suspension.install(frameHandler(app))
+        scoped(tasks, function(outer)
+            outer:spawn(function()
+                scoped(tasks, function(inner)
+                    for _ = 1, 150 do
+                        inner:spawn(function()
+                            completed = completed + 1
+                        end)
+                    end
+                end)
+            end)
+        end)
+        installed:release()
+
+        return "finished"
+    end, 100)
+    check.equal(ok, true, tostring(answer))
+    check.equal(answer, "finished")
+    check.equal(completed, 150, "every grandchild ran")
+    local turns = 0
+    for _, frame in ipairs(app.frames) do
+        if frame.wake == "turn" then
+            turns = turns + 1
+        end
+    end
+    -- 150 activations under a 64-activation budget owe the page at least two turns.
+    check.assert(turns >= 2, "the turn budget was not spent: " .. turns .. " turn frames")
+end
+
+function M.parallelismAnswersInsideATask()
+    local app = application({
+        owned = {"nupp.runtime.browser.workers"},
+        workers = true,
+        handlers = {
+            workers = function(request)
+                if request.operation == "lanes" then
+                    return 0, {ok = true, value = {lanes = 4}}
+                end
+            end,
+        },
+    })
+    local workers = app.load("nupp.runtime.browser.workers")
+    local tasks = app.tasks
+    local ok, answer = app.run(function()
+        local lanes
+        scoped(tasks, function(scope)
+            lanes = scope:spawn(function()
+                return workers.parallelism()
+            end):await()
+        end)
+
+        return lanes
+    end, 50)
+    check.equal(ok, true, tostring(answer))
+    check.equal(answer, 4)
+end
+
+----------------------------------------------------------------------------
+-- Liveness
+----------------------------------------------------------------------------
+
+local function unanswerable(suspension)
+    return pcall(suspension.suspend, "waiting on nothing", function()
+        return function()
+        end
+    end)
+end
+
+function M.aWaitNothingCanCompleteIsRefused()
+    local app = application()
+    local ok, completed, problem = app.run(function()
+        return unanswerable(app.suspension)
+    end, 20)
+    check.equal(ok, true, tostring(completed))
+    check.equal(completed, false, "the wait returned")
+    check.matches(tostring(problem), "cannot complete: no readiness source is registered")
+    check.equal(#app.frames, 0, "a wait nothing can answer must not poll the page")
+end
+
+function M.aWaitNothingCanCompleteIsRefusedAfterATimerHasRun()
+    local app = application()
+    local ok, completed, problem = app.run(function()
+        app.time.sleep(5)
+
+        return unanswerable(app.suspension)
+    end, 20)
+    check.equal(ok, true, tostring(completed))
+    check.equal(completed, false, "the wait returned")
+    check.matches(tostring(problem), "no readiness source is registered")
+end
+
 return M

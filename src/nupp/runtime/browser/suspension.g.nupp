@@ -5,10 +5,11 @@ module nupp.runtime.browser.suspension
 --[[
 Browser-effect implementation of the `suspension` API 1 contract.
 
-Parking yields through the browser effect channel. Subscription and handler
-execution avoid yielding across stock Lua 5.1 protected-call boundaries. Source
-polling, nested handler restoration, and subscription cleanup implement the same
-canonical records declared by [](nupp.suspension.spi).
+Parking yields through the browser effect channel, which only the application's
+root coroutine can reach: a wait with no handler anywhere else is refused, as is
+one that nothing queued, in flight, or registered could complete. Source polling,
+nested handler restoration, and subscription cleanup implement the same canonical
+records declared by [](nupp.suspension.spi).
 
 A bounded activation budget returns control to the browser event loop so queued
 callbacks and cancellation can make progress. Resume settles a wait once;
@@ -43,12 +44,15 @@ rawset(suspension, "__isTaskCancellation", isTaskCancellation)
 -- How many child activations an aggregate may run before it owes the host a turn.
 -- The same budget the native provider spends and for the same reason: a scope that
 -- never yields starves whatever else the host is driving. What a turn *is* differs.
--- Natively it is a poll of the readiness sources; here it is a return to JavaScript,
--- which is the only wait this host has, so deferring parks on that boundary directly
--- rather than through whichever handler asked to defer.
+-- Natively it is a poll of the readiness sources; here it is the page answering a
+-- park, which is the only wait this host has. Deferring is an ordinary suspension on
+-- that, so a driver running inside a child parks through the child's handler rather
+-- than yielding its caller's coroutine out from under it.
 local ACTIVATIONS_PER_TURN: integer = 64
+local TURN_PRIORITY: integer = 30
 local turnRemaining: integer = ACTIVATIONS_PER_TURN
 local turnHost: any = nil
+local turnGeneration: integer = -1
 
 type suspension.Source = contract.Source
 suspension.Source = contract.Source
@@ -110,7 +114,11 @@ local function releaseOwned(context: contract.Context): nil
 end
 
 local function contextcanPark(self: contract.Context): boolean
-    return self.handler == nil or self.handler.canPark == nil or self.handler:canPark() ~= false
+    if self.handler == nil then
+        return effects.canPark()
+    end
+
+    return self.handler.canPark == nil or self.handler:canPark() ~= false
 end
 
 type suspension.Waiting = contract.Waiting
@@ -209,27 +217,34 @@ local function boundedTurnHost(): any
     return host
 end
 
-local function turnAvailable(): boolean
+--- The bounded host this turn belongs to, with a fresh budget once the page has
+--- answered a park or the host has changed.
+local function currentTurnHost(): any
     local host = boundedTurnHost()
     if host == nil then
-        return true
+        return nil
     end
-    if turnHost ~= host then
+    local generation = effects.turns()
+    if turnHost ~= host or turnGeneration ~= generation then
         turnHost = host
+        turnGeneration = generation
         turnRemaining = ACTIVATIONS_PER_TURN
+    end
+
+    return host
+end
+
+local function turnAvailable(): boolean
+    if currentTurnHost() == nil then
+        return true
     end
 
     return turnRemaining > 0
 end
 
 local function consumeTurn(): nil
-    local host = boundedTurnHost()
-    if host == nil then
+    if currentTurnHost() == nil then
         return
-    end
-    if turnHost ~= host then
-        turnHost = host
-        turnRemaining = ACTIVATIONS_PER_TURN
     end
     if turnRemaining > 0 then
         turnRemaining = turnRemaining - 1
@@ -250,15 +265,80 @@ local function sourcesActive(): boolean
     return false
 end
 
---- Parks on the host once and polls what the answer woke.
-local function hostPark(operation: string, turn: boolean): nil
-    effects.park(operation, turn or sourcesActive())
-    suspension.poll()
+--- Waits on the page until `ready` answers true, polling what each answer woke.
+---
+--- A wait nothing can complete is refused rather than left polling the page: with no
+--- request outstanding and no source answering that it has something pending, no
+--- answer the page could give would change anything.
+---
+--- @raises string where nothing could complete the wait, or where the park itself
+---     raises
+local function hostWait(operation: string, ready: function(): boolean): nil
+    while not ready() do
+        local turn = sourcesActive()
+        if not turn and not effects.outstanding() then
+            error(("nupp: %s cannot complete: no readiness source is registered"):format(operation), 0)
+        end
+        effects.park(operation, turn)
+        suspension.poll()
+    end
+end
+
+local turnWaiters: {any} = {}
+local turnSource: any = nil
+
+--- Resumes every deferral registered before the page last answered a park.
+local function openNextTurn(): integer
+    local generation = effects.turns()
+    local waking: {any} = {}
+    for index = #turnWaiters, 1, -1 do
+        local waiter = turnWaiters[index]
+        if waiter.generation < generation then
+            table.remove(turnWaiters, index)
+            table.insert(waking, 1, waiter)
+        end
+    end
+    for index = 1, #waking do
+        waking[index].resume(true)
+    end
+
+    return #waking as integer
+end
+
+local function turnDeferralSource(): suspension.Source
+    local existing = turnSource
+    if existing ~= nil and not existing.released then
+        return existing
+    end
+    local created = suspension.source("nupp.suspension.turn", TURN_PRIORITY, openNextTurn, nil, function(
+        _: suspension.Source
+    ): boolean
+        return #turnWaiters > 0
+    end)
+    turnSource = created
+
+    return created
 end
 
 local function deferTurn(): nil
-    turnRemaining = ACTIVATIONS_PER_TURN
-    hostPark("nupp coroutine turn budget", true)
+    suspension.suspend("nupp coroutine turn budget", function(
+        resume: function(boolean): nil,
+        context: suspension.Context
+    ): function()
+        context:uses(turnDeferralSource())
+        local waiter = {resume = resume, generation = effects.turns(),}
+        turnWaiters[#turnWaiters + 1] = waiter
+
+        return function(): nil
+            for index = #turnWaiters, 1, -1 do
+                if turnWaiters[index] == waiter then
+                    table.remove(turnWaiters, index)
+
+                    break
+                end
+            end
+        end
+    end)
 end
 
 rawset(suspension, "__turnAvailable", turnAvailable)
@@ -324,6 +404,9 @@ end
 --- it has taken the slot. `nupp.tasks` builds every scope handler through this.
 function suspension.delegatedCanPark(): function(): boolean
     local captured = installation()
+    -- Where there is no outer handler, the question is whether the frame asking to
+    -- displace it could reach the page, not whichever child asks later.
+    local capturedThread = running()
 
     return function(): boolean
         local current = captured
@@ -331,7 +414,10 @@ function suspension.delegatedCanPark(): function(): boolean
             current = current.previous
         end
         local outer = current ~= nil and current.handler or nil
-        if outer == nil or outer.canPark == nil then
+        if outer == nil then
+            return effects.canParkFrom(capturedThread)
+        end
+        if outer.canPark == nil then
             return true
         end
 
@@ -354,15 +440,19 @@ function suspension.delegatedPark(): function(suspension.Waiting, function(): ni
 
             return
         end
-        while not waiting:ready() do
-            hostPark(waiting.operation, false)
-        end
+        hostWait(waiting.operation, function(): boolean
+            return waiting:ready()
+        end)
     end
 end
 
 function suspension.canSuspend(): boolean
     local current = handler()
-    return current == nil or current.canPark == nil or current:canPark() ~= false
+    if current == nil then
+        return effects.canPark()
+    end
+
+    return current.canPark == nil or current:canPark() ~= false
 end
 
 function suspension.suspend<T>(
@@ -416,12 +506,20 @@ function suspension.suspend<T>(
         operation = operation,
         state = state
     )
+    local parked: boolean, problem: any
     if current ~= nil then
-        current:park(waiting, cancel)
+        parked, problem = pcall(current.park, current, waiting, cancel)
     else
-        while not state.ready do
-            hostPark(operation, false)
-        end
+        parked, problem = pcall(hostWait, operation, function(): boolean
+            return state.ready
+        end)
+    end
+    if not parked then
+        -- Every failed park unsubscribes: a park that raised left the subscription
+        -- live, and nobody else is going to take it down.
+        pcall(cancel)
+        releaseOwned(context)
+        error(problem, 0)
     end
     if not state.ready then
         pcall(cancel)
