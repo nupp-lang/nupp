@@ -47,7 +47,7 @@ An entry may return several numeric or boolean results through its private aggre
 
 ## Explicit SIMD
 
-When vector execution matters, use [`nupp.simd`](simd.md) inside a block kernel. The vector loop, mask, tail, and scalar continuation are visible in the source, and the same C and assembly inspection commands show their lowering. A forced-scalar twin remains available for explicit-SIMD conformance; it is not a performance baseline.
+When vector execution matters, use [`nupp.simd`](simd.md) inside a block kernel. The vector loop, mask, tail, and scalar continuation are visible in the source, and the same LLVM IR and assembly inspection commands show their lowering. A forced-scalar twin remains available for explicit-SIMD conformance; it is not a performance baseline.
 
 ## Benchmarks
 

@@ -5,8 +5,9 @@ order: 630
 # Ahead-of-time compilation
 
 `@aot` lowers a checked top-level local function through verified IR before the
-program runs. CPU entries produce C or Wasm, while `target = "gpu"` produces a
-typed resident-buffer kernel and either a native SPIR-V or browser WGSL artifact.
+program runs. CPU entries produce native code or Wasm through LLVM, while
+`target = "gpu"` produces a typed resident-buffer kernel and either a native
+SPIR-V or browser WGSL artifact.
 
 ```nupp
 @aot

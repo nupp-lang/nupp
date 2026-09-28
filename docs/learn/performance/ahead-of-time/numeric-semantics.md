@@ -107,8 +107,8 @@ out.
 
 `nupp.math.f32.exp` is instead defined by the scalar IR itself: clamp the input
 to `[-104, 88]`, evaluate a degree-12 Taylor polynomial for `exp(x / 128)` in
-Horner order with `fma`, then square seven times. The interpreter, native C, and
-SPIR-V execute that same binary32 sequence; WGPU translates the canonical
+Horner order with `fma`, then square seven times. The interpreter, native code,
+Wasm, and SPIR-V execute that same binary32 sequence; WGPU translates the canonical
 module for the selected native backend, and none asks a platform math library
 to choose a result.
 
@@ -246,24 +246,26 @@ regions carries a fact, because a pair with no fact would be a `restrict` nobody
 justified.
 
 Above that sit the differentials, which establish correctness. Explicit SIMD
-primitives and algorithms run through native vector C and a forced-scalar C
-oracle, alongside independent scalar expectations appropriate to each
-numerical contract:
+primitives and algorithms run through native vector code and a forced-scalar
+twin, alongside independent scalar expectations appropriate to each numerical
+contract. Scalar code runs against ordinary Lua over boundary operands, built
+once with `aot = "off"` and once with `require`, with the JIT off on the
+reference side:
 
 ```bash
 ./bin/nupp test simdprimitivedifferentialtest
 ./bin/nupp test simdreducerdifferentialtest
+./bin/nupp test aotdifferentialtest
 ```
 
 Tails are exercised across supported fixed and preferred species.
 
-The forced-scalar version of an explicit vector body is compiled with the
-optimizer off, which makes it an independent executable answer. On Clang that
-is `__attribute__((optnone))`; the generated oracle restates the floating-point
-contraction contract inside its own braces so its last bits agree with the
-specified operation order.
+The forced-scalar version of an explicit vector body is the same body left as
+written and compiled with the optimizer off (`optnone`), which makes it an
+independent executable answer. It carries the same floating-point flags as the
+source, so its last bits agree with the specified operation order.
 
-The `-O0` oracle is not a speed baseline. Compare complete optimized functions
+The unoptimized oracle is not a speed baseline. Compare complete optimized functions
 when measuring performance, not the forced-scalar conformance route.
 
 The exact reducer contracts are also executed at the one other tier that can
@@ -272,8 +274,7 @@ run them. `tests/wasm-aot/simd-project` reduces the same corpus at Wasm
 a logical-index tree is a claim about the contract rather than about NEON.
 
 The SIMD conformance matrix runs the authored vector corpus on native targets
-and Wasm `simd128`. It checks Clang and GCC where available, with each native
-tier selected explicitly.
+and Wasm `simd128`, with each native tier selected explicitly.
 
 The build's own end of it is exercised the same way, by doing the thing rather
 than asserting it: a project is built under `require` and its answers compared
@@ -299,7 +300,7 @@ initializers, assignments, arguments, return values, and loop conditions, when:
   predicate it never evaluated.
 
 ```nupp
-local span = nupp.mem.span
+local span = require("nupp.mem.span")
 
 local struct Code
     value: int32
@@ -324,29 +325,12 @@ end
 ```
 
 It lowers to one selector `Let`, one result `Let`, an ordered scalar-IR `If`,
-and branch `Assign` operations. For an established `int32` or `uint32` selector with integer cases in its range,
-lowering annotates that ordinary `If` with its exact-width labels and the C
-emitter writes a native `switch` (temporary names are abbreviated here):
-
-```c
-switch (code) {
-case (-INT32_C(2147483647) - INT32_C(1)):
-    result = INT32_C(10);
-    break;
-case INT32_C(1):
-case INT32_C(2):
-    result = INT32_C(20);
-    break;
-default:
-    result = INT32_C(30);
-    break;
-}
-```
-
-The annotation is optional: scalar-IR verification and lane rewriting may ignore
-it and retain the complete equality chain. Nupp `integer` is normally binary64,
-so those selectors deliberately remain equality branches rather than being
-converted. String selectors use the existing Lua-string AOT interface: the
+and branch `Assign` operations. An established `int32` or `uint32` selector
+with integer cases in its range compares in its own width, one `icmp eq` per
+case, and the code generator chooses the physical dispatch: a jump, a native
+`switch`, or, in the map above, lane-wise selects. Nupp `integer` is normally
+binary64, so those selectors deliberately remain binary64 equality branches
+rather than being converted. String selectors use the existing Lua-string AOT interface: the
 selector is evaluated once and rooted, then each case compares its byte length
 and contents with the literal. Comparisons preserve embedded NUL bytes, do not
 allocate case strings, and use byte equality rather than locale rules. Type

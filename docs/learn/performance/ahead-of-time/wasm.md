@@ -93,7 +93,7 @@ frame that carried it.
 ## Limits
 
 Wasm AOT is not a whole-language Nupp-to-Wasm lowering. General Nupp emits
-LuaJIT and runs in the guest; only admitted kernels lower through C to Wasm.
+LuaJIT and runs in the guest; only admitted kernels lower through LLVM to Wasm.
 Independent kernels cannot use raw FFI, arbitrary C interop, or guest-native
 modules. Guest-native AOT cannot be loaded as an independent Wasm kernel.
 

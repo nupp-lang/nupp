@@ -9,7 +9,7 @@ specification. Native targets emit SPIR-V for the Rust WGPU provider, while
 browser targets emit WGSL from the same checked operation sequence.
 
 ```nupp
-local span = nupp.mem.span
+local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function scale(
@@ -42,9 +42,9 @@ specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp
-local gpu = nupp.gpu
+local gpu = require("nupp.gpu")
 local kernels = require("kernels")
-local span = nupp.mem.span
+local span = require("nupp.mem.span")
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof<float>(), 1024)
@@ -91,8 +91,8 @@ The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local gpu = nupp.gpu
-local span = nupp.mem.span
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function reduce(
@@ -161,7 +161,7 @@ A browser target combines `host = "browser"`, the default LuaJIT dialect, and
 storage and WebGPU buffers:
 
 ```nupp
-local span = nupp.mem.span
+local span = require("nupp.mem.span")
 local array = nupp.mem.array
 
 @aot(target = "gpu")
