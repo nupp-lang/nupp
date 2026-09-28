@@ -1,0 +1,5 @@
+local function classify(item)
+    local standalone = item.kind == "doc"
+        --[[note]] or item.kind == "plain" or item.kind == "raw" or item.kind == "comment" or item.kind == "blank"
+    return standalone
+end

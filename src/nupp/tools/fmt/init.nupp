@@ -988,18 +988,32 @@ local function markDocumented(items)
     end
 end
 
+-- Whether an item is a block comment that shares a line with code: written after a
+-- token on its line, or before one. Such a comment is part of the code around it, so
+-- the line breaks beside it are not authored ones -- a pass that breaks a line puts
+-- one there, and honouring it would make the next pass lay the line out differently.
+-- A block comment alone on its line, like a line comment, keeps its line.
+local function inlineBlockComment(item, following): boolean
+    if item.kind ~= "comment" or not item.text:match("^%-%-%[=*%[") then
+        return false
+    end
+    return item.nl == 0 or following ~= nil and following.nl == 0
+end
+
 local function buildLines(items)
     local lines = {}
     local cur = nil
-    for _, item in ipairs(items) do
+    for index, item in ipairs(items) do
         local forced = item.kind == "token" and item.token.forceBreak
         local standalone = item.kind == "doc"
             or item.kind == "plain"
             or item.kind == "raw"
-            or (item.kind == "comment" and item.nl > 0)
+            or (item.kind == "comment" and item.nl > 0 and not inlineBlockComment(item, items[index + 1]))
         local previous = cur and cur.items[#cur.items]
+        local trailingBlock = previous ~= nil and inlineBlockComment(previous, item)
         local afterComment = item.nl > 0
             and previous
+            and not trailingBlock
             and (
                 previous.kind == "comment"
                 or previous.kind == "doc"
