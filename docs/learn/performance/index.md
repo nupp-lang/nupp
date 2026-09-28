@@ -768,7 +768,10 @@ end
 ```
 :::
 
-Repeated concatenation copies the growing string and costs O(n²).
+Repeated concatenation copies the growing string and costs O(n²). The loop has
+to be the only place the string is touched, and it has to end at its `end`: a
+`goto` to a label outside the loop jumps past the point where the buffer becomes
+the string again, so such a loop keeps its concatenation.
 
 ### `OPT-6`, indexed views
 

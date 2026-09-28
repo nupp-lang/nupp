@@ -149,7 +149,6 @@ local M = {}
 function M.generatedProgramsAgreeAcrossLevels()
     local programs = require("optimizeprograms")
     local avoid = {
-        ["FRONTEND-03"] = true,
         ["FRONTEND-04"] = true,
         ["FRONTEND-07"] = true,
         ["FRONTEND-22"] = true,
@@ -2193,6 +2192,20 @@ function M.concatBufferAppendsOneValueOfAMultiValuePiece()
         "local function two() return 'a', 'b' end\n"
             .. "local s = ''\nfor i = 1, 2 do\n    s = s .. i .. two()\nend\nprint(s)"
     ), "1a2a")
+end
+
+-- The accumulator becomes a string where the loop ends, and a `goto` out of the loop
+-- jumps past that statement. Such a loop keeps its concatenation.
+function M.concatBufferDeclinesALoopAGotoLeaves()
+    local src = "local s = ''\nfor i = 1, 3 do\n    s = s .. i\n    if i == 2 then\n        goto done\n    end\nend\n"
+        .. "::done::\nprint(s)"
+    assertEq(assertAgrees(src, "test.nupp"), "12")
+    assertEq(#remarksOf(src, "test.nupp", "OPT-5"), 0, "no buffer for a loop a goto leaves")
+    -- A jump that stays inside the loop is no reason to decline.
+    local inner = "local s = ''\nfor i = 1, 3 do\n    if i == 2 then\n        goto next\n    end\n"
+        .. "    s = s .. i\n    ::next::\nend\nprint(s)"
+    assertEq(assertAgrees(inner, "test.nupp"), "13")
+    assertEq(#remarksOf(inner, "test.nupp", "OPT-5"), 1, "a jump within the loop keeps the buffer")
 end
 
 return M

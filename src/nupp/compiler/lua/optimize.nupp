@@ -578,10 +578,64 @@ local function appendedPieces(expr, definition)
     return pieces
 end
 
+-- Whether a `goto` in `loop` jumps to a label outside it. The accumulator becomes a
+-- string in the statement after the loop's `end`, which `break` lands on and a jump
+-- elsewhere passes over. A goto sees the labels of the blocks enclosing it, so it
+-- stays inside when one of those blocks within the loop holds its label. A function
+-- written in the loop has labels of its own.
+local function leavesByGoto(loop): boolean
+    local enclosing = {}
+    local leaves = false
+
+    local function holdsLabel(block, name): boolean
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "labelStmt" and stat.name and stat.name.text == name then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local function walk(node)
+        if leaves or not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+            return
+        end
+        if node.kind == "gotoStmt" and node.name then
+            local found = false
+            for k = #enclosing, 1, -1 do
+                if holdsLabel(enclosing[k], node.name.text) then
+                    found = true
+                    break
+                end
+            end
+            leaves = not found
+            return
+        end
+        local block = node.kind == "block"
+        if block then
+            enclosing[#enclosing + 1] = node
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+        if block then
+            enclosing[#enclosing] = nil
+        end
+    end
+
+    walk(loop)
+
+    return leaves
+end
+
 -- The one `s = s .. ...` in a loop, when that is every mention of `s` the loop makes.
 -- Anything else -- a second accumulation, a read, a capture by a function written in
 -- the loop -- means the value is observed mid-build and the rewrite is off.
 local function soleAccumulation(loop, definition, asked)
+    if leavesByGoto(loop) then
+        return nil
+    end
     local found, other = nil, false
 
     local function walk(node)
