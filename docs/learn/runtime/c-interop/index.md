@@ -564,7 +564,9 @@ The path must be a literal, or the checker reports it. It is searched
 relative to the file, then as written, then against the project roots, and an
 unreadable path is reported where it is written. The second argument names a
 library to load;
-without it the default namespace is used.
+without it, or with `nil`, the default namespace is used. It too must be a
+literal, and the only third argument is `"preprocess"`; anything else in either
+place is reported rather than ignored.
 
 Without a preprocessor, `cheader` drops `#include` and `#define` lines and
 reads the rest as written, which suits a self-contained project header. A

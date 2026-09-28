@@ -242,6 +242,13 @@ function M.badArgumentsToCheaderAreReported()
     assertEq(diagsOf("local x = cheader('fixtures/missing.h')"), "NUPP2302")
 end
 
+function M.cheaderArgumentsAreLiteralsOrReported()
+    assertEq(diagsOf("local lib = 'z'\nlocal x = cheader('fixtures/sink.h', lib)"), "NUPP2301")
+    assertEq(diagsOf("local x = cheader('fixtures/sink.h', nil, 'preprocessed')"), "NUPP2301")
+    assertEq(diagsOf("local x = cheader('fixtures/sink.h', 'z', 'preprocess', 'more')"), "NUPP2301")
+    assertEq(diagsOf("local x = cheader('fixtures/sink.h', nil)\nreturn x"), "")
+end
+
 function M.generatedCodeDeclaresAndBinds()
     local result = parser.parse("local sink = cheader('fixtures/sink.h')\nreturn sink", HERE .. "/p.nupp")
     assertEq(#result.errors, 0, "parses")

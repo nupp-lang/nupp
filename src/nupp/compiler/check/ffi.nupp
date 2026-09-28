@@ -417,6 +417,23 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 c.diag("NUPP2301", node, "cheader needs a header path written as a literal")
                 return T.any
             end
+            -- The library and the preprocess flag are read here, at compile time, like
+            -- the path. Anything else in their place was dropped without a word: a
+            -- library held in a variable bound the default namespace instead, and a
+            -- misspelled "preprocess" read the header unpreprocessed.
+            if args[2] and not lib and args[2].kind ~= "nilExpr" then
+                c.diag("NUPP2301", args[2], "cheader's library must be a literal string or nil")
+                return T.any
+            end
+            if args[3] and literal(args[3]) ~= "preprocess" then
+                c.diag("NUPP2301", args[3], "cheader's third argument can only be the literal \"preprocess\"")
+                return T.any
+            end
+            if #args > 3 then
+                c.diag("NUPP2301", args[4], "cheader takes a path, a library and \"preprocess\", and nothing more")
+                return T.any
+            end
+            local preprocess = args[3] ~= nil
             local dir = c.filename:match("^(.*)[/\\][^/\\]*$") or "."
             local candidates = {dir .. "/" .. headerPath, headerPath}
             for _, root in ipairs(c.env and c.env.roots or {}) do
@@ -428,10 +445,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 return c.env.externalFile(c.env, externalPath)
             end or nil
             for _, candidate in ipairs(candidates) do
-                loaded, err = cheaderMod.load(candidate, {
-                    preprocess = literal(args[3]) == "preprocess",
-                    read = externalReader,
-                })
+                loaded, err = cheaderMod.load(candidate, {preprocess = preprocess, read = externalReader,})
                 if loaded then
                     node.cheaderCdef = loaded.cdef
                     node.cheaderLib = lib
@@ -451,7 +465,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                         consumer = tostring(c.filename or "<module>") .. ":" .. tostring(consumerLine),
                         binary = false,
                         library = lib,
-                        preprocess = literal(args[3]) == "preprocess",
+                        preprocess = preprocess,
                     }
                     if c.env and c.env.observeExternalInput then
                         c.env.observeExternalInput(c.env, input)
