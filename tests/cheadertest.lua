@@ -249,6 +249,25 @@ function M.cheaderArgumentsAreLiteralsOrReported()
     assertEq(diagsOf("local x = cheader('fixtures/sink.h', nil)\nreturn x"), "")
 end
 
+local function diagnosticsAt(file, src)
+    local result = parser.parse(src, file)
+    assertEq(#result.errors, 0, "syntax")
+    return check.check(result, file, env)
+end
+
+function M.theFirstHeaderThatExistsIsTheOneReported()
+    -- A header beside the file that fails to parse is the answer, from any working
+    -- directory; a later candidate that does not exist must not replace it.
+    local path, dir = scratchHeader("broken.h", "int nupp_broken(int a b);\n")
+    local diags = diagnosticsAt(dir .. "/probe.nupp", "local x = cheader('broken.h')")
+    assertEq(diags[1] and diags[1].code, "NUPP2302")
+    assert(diags[1].msg:find("could not parse", 1, true), diags[1].msg)
+    local absolute = diagnosticsAt(HERE .. "/probe.nupp", ("local x = cheader(%q)"):format(path))
+    assertEq(#absolute, 1, "an absolute path names the one file")
+    assert(absolute[1].msg:find("broken.h:1: ", 1, true), absolute[1].msg)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.generatedCodeDeclaresAndBinds()
     local result = parser.parse("local sink = cheader('fixtures/sink.h')\nreturn sink", HERE .. "/p.nupp")
     assertEq(#result.errors, 0, "parses")

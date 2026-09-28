@@ -434,18 +434,30 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 return T.any
             end
             local preprocess = args[3] ~= nil
-            local dir = c.filename:match("^(.*)[/\\][^/\\]*$") or "."
-            local candidates = {dir .. "/" .. headerPath, headerPath}
-            for _, root in ipairs(c.env and c.env.roots or {}) do
-                candidates[#candidates + 1] = root .. "/" .. headerPath
+            -- An absolute path names one file. A relative one is tried beside the
+            -- file, as written, then under each root, and the first that exists is the
+            -- header: a later candidate that does not exist must not replace the reason
+            -- an earlier one failed.
+            local candidates: {string}
+            if headerPath:match("^[/\\]") or headerPath:match("^%a:[/\\]") then
+                candidates = {headerPath}
+            else
+                local dir = c.filename:match("^(.*)[/\\][^/\\]*$") or "."
+                candidates = {dir .. "/" .. headerPath, headerPath}
+                for _, root in ipairs(c.env and c.env.roots or {}) do
+                    candidates[#candidates + 1] = root .. "/" .. headerPath
+                end
             end
             local cheaderMod = cHeader(c)
-            local loaded, err
+            local loaded, err, missing
             local externalReader = c.env and c.env.externalFile and function(externalPath)
                 return c.env.externalFile(c.env, externalPath)
             end or nil
             for _, candidate in ipairs(candidates) do
-                loaded, err = cheaderMod.load(candidate, {preprocess = preprocess, read = externalReader,})
+                loaded, err, missing = cheaderMod.load(candidate, {preprocess = preprocess, read = externalReader,})
+                if not loaded and not missing then
+                    break
+                end
                 if loaded then
                     node.cheaderCdef = loaded.cdef
                     node.cheaderLib = lib
@@ -474,7 +486,11 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 end
             end
             if not loaded then
-                c.diag("NUPP2302", node, err or ("cannot read " .. headerPath))
+                c.diag(
+                    "NUPP2302",
+                    node,
+                    missing and ("cannot read " .. headerPath) or err or ("cannot read " .. headerPath)
+                )
                 return T.any
             end
             -- A header the program named is the program's own declaration, so its

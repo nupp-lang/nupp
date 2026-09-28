@@ -671,19 +671,18 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
 
     local parsed, err = cdecl.inspect(observed.parseText or text)
     if not parsed then
-        -- LuaJIT names a line of the text it was given, which is the header's own line
-        -- unless the header was preprocessed, when the linemarkers say whose it is.
+        -- LuaJIT names a line of the text it was given, and leaves it off when it is
+        -- the first. That is the header's own line unless the header was
+        -- preprocessed, when the linemarkers say whose line it is.
         local message = tostring(err)
-        local line = tonumber(message:match("at line (%d+)$") or "") as integer?
+        local line = (tonumber(message:match("at line (%d+)$") or "") or 1) as integer
+        message = message:gsub("%s*at line %d+$", "")
         local where = opts.display or path
-        if line then
-            message = message:gsub("%s*at line %d+$", "")
-            local origin = observed.origins and observed.origins[line] or nil
-            if origin then
-                where = origin.file .. ":" .. tostring(origin.line)
-            elseif not observed.origins then
-                where = where .. ":" .. tostring(line)
-            end
+        local origin = observed.origins and observed.origins[line] or nil
+        if origin then
+            where = origin.file .. ":" .. tostring(origin.line)
+        elseif not observed.origins then
+            where = where .. ":" .. tostring(line)
         end
         return nil, ("LuaJIT could not parse %s: %s"):format(where, message)
     end
