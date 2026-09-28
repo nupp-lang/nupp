@@ -200,10 +200,13 @@ impl SocketKind {
 }
 
 impl Stream {
-    fn from_tcp(socket: TokioTcpStream) -> Result<Arc<Self>, String> {
-        let local = socket.local_addr().map_err(|error| error.to_string())?;
-        let peer = socket.peer_addr().map_err(|error| error.to_string())?;
-        Self::from_socket(SocketKind::Tcp(Arc::new(socket)), Some(local), Some(peer))
+    /// Wraps a connected TCP socket. `peer` is the address `accept` or
+    /// `connect` already knows: asking the socket again fails once the peer
+    /// has reset, and a connection that ended that early is still a
+    /// connection, whose reads report the reset.
+    fn from_tcp(socket: TokioTcpStream, peer: SocketAddr) -> Result<Arc<Self>, String> {
+        let local = socket.local_addr().ok();
+        Self::from_socket(SocketKind::Tcp(Arc::new(socket)), local, Some(peer))
     }
 
     #[cfg(unix)]
@@ -829,7 +832,11 @@ pub fn listen_tcp(
         .bind(&SockAddr::from(address))
         .map_err(|error| error.to_string())?;
     socket.listen(backlog).map_err(|error| error.to_string())?;
-    let standard: std::net::TcpListener = socket.into();
+    serve_tcp(socket.into())
+}
+
+/// Starts the accept loop for a bound, listening, non-blocking socket.
+fn serve_tcp(standard: std::net::TcpListener) -> Result<Arc<Listener>, String> {
     let local = standard.local_addr().map_err(|error| error.to_string())?;
     let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
     let listener = {
@@ -950,17 +957,16 @@ async fn accept_tcp_connections(listener: TokioTcpListener, shared: Arc<Listener
             _ = shared.cancel.cancelled() => return,
         };
         match accepted {
-            Ok((socket, _)) => match Stream::from_tcp(socket) {
-                Ok(stream) => {
-                    if !enqueue_accepted(&shared, stream) {
-                        return;
-                    }
-                }
-                Err(error) => {
-                    set_listener_error(&shared, error);
+            // A connection that cannot be admitted is that connection's
+            // failure: dropping it closes the socket, and the listener goes
+            // on to the next one.
+            Ok((socket, peer)) => {
+                if let Ok(stream) = Stream::from_tcp(socket, peer)
+                    && !enqueue_accepted(&shared, stream)
+                {
                     return;
                 }
-            },
+            }
             Err(error) if accept_error_is_transient(&error) => {
                 tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
             }
@@ -983,17 +989,13 @@ async fn accept_unix_connections(listener: TokioUnixListener, shared: Arc<Listen
             _ = shared.cancel.cancelled() => return,
         };
         match accepted {
-            Ok((socket, _)) => match Stream::from_unix(socket) {
-                Ok(stream) => {
-                    if !enqueue_accepted(&shared, stream) {
-                        return;
-                    }
-                }
-                Err(error) => {
-                    set_listener_error(&shared, error);
+            Ok((socket, _)) => {
+                if let Ok(stream) = Stream::from_unix(socket)
+                    && !enqueue_accepted(&shared, stream)
+                {
                     return;
                 }
-            },
+            }
             Err(error) if accept_error_is_transient(&error) => {
                 tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
             }
@@ -1161,14 +1163,19 @@ async fn resolve_and_connect(
                 .await?
                 .collect::<Vec<_>>()
         };
-        connect_sequential(addresses, TokioTcpStream::connect).await
+        connect_sequential(addresses, |address| async move {
+            TokioTcpStream::connect(address)
+                .await
+                .map(|socket| (socket, address))
+        })
+        .await
     };
     let result = tokio::select! {
         result = before_connect_deadline(timeout, operation) => result,
         _ = shared.cancel.cancelled() => return,
     };
     let result = match result {
-        Ok(socket) => Stream::from_tcp(socket),
+        Ok((socket, peer)) => Stream::from_tcp(socket, peer),
         Err(error) => Err(error),
     };
     let mut state = shared
@@ -1957,6 +1964,55 @@ mod tests {
         };
         let status = std::fs::metadata(format!("{directory}/{descriptor}")).ok()?;
         Some((status.dev(), status.ino()))
+    }
+
+    #[test]
+    fn a_peer_that_resets_before_accept_does_not_end_the_listener() {
+        let _network = exclusive_network();
+        let standard = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        standard.set_nonblocking(true).unwrap();
+        let port = standard.local_addr().unwrap().port();
+        // The connection completes in the kernel's queue and is reset before
+        // the accept loop exists to take it.
+        let reset = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        SockRef::from(&reset)
+            .set_linger(Some(Duration::ZERO))
+            .unwrap();
+        drop(reset);
+        std::thread::sleep(Duration::from_millis(50));
+        let listener = serve_tcp(standard).unwrap();
+        let healthy = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let expected = healthy.local_addr().unwrap();
+        let mut arrived = false;
+        wait_until(|| {
+            while let Some(stream) = listener.try_accept().unwrap() {
+                arrived |= stream.peer_addr() == Ok(expected);
+            }
+            arrived
+        });
+        drop(healthy);
+    }
+
+    #[test]
+    fn a_connection_reset_before_it_is_wrapped_is_still_a_connection() {
+        let _network = exclusive_network();
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = server.local_addr().unwrap();
+        let client = std::net::TcpStream::connect(address).unwrap();
+        let (accepted, _) = server.accept().unwrap();
+        SockRef::from(&accepted)
+            .set_linger(Some(Duration::ZERO))
+            .unwrap();
+        drop(accepted);
+        std::thread::sleep(Duration::from_millis(50));
+        client.set_nonblocking(true).unwrap();
+        let socket = {
+            let _guard = nupp_native_runtime::executor().unwrap().enter();
+            TokioTcpStream::from_std(client).unwrap()
+        };
+        let stream = Stream::from_tcp(socket, address).unwrap();
+        assert_eq!(stream.peer_addr(), Ok(address));
+        wait_until(|| matches!(stream.try_read(64), Read::Failed(_) | Read::Eof));
     }
 
     #[test]
