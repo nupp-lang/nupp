@@ -136,9 +136,17 @@ end
 -- exactly, has no uniform answer.
 function M.refusesBoundsWithoutAnExactRange(): nil
     local generator = new random.Xoshiro128(7)
-    const refused: {{number}} = {
-        {0 / 0, 1}, {1, 0 / 0}, {1, math.huge}, {-math.huge, 1}, {1, 2.5}, {0.5, 3},
-        {-9007199254740992, 9007199254740992}, {1, 18014398509481984},
+    const refused: {
+        {number}
+    } = {
+        {0 / 0, 1},
+        {1, 0 / 0},
+        {1, math.huge},
+        {-math.huge, 1},
+        {1, 2.5},
+        {0.5, 3},
+        {-9007199254740992, 9007199254740992},
+        {1, 18014398509481984},
     }
     for _, bounds in ipairs(refused) do
         assert(
