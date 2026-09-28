@@ -104,4 +104,55 @@ function M.drawsRangesAndDeterministicPermutations(): nil
     assertSame(first, second)
 end
 
+-- One draw carries 32 bits, so scaling it over more than 2^32 values reached at
+-- most 2^32 of them, evenly spaced: over [1, 2^53] every draw was odd.
+function M.drawsOverWideRangesReachEveryResidue(): nil
+    local generator = new random.Xoshiro128(42)
+    local even = 0
+    local offGrid = 0
+    for _ = 1, 2000 do
+        local value = generator:integer(1, 9007199254740992)
+        assert(value >= 1 and value <= 9007199254740992 and value % 1 == 0)
+        if value % 2 == 0 then
+            even = even + 1
+        end
+        if value % 2097152 ~= 1 then
+            offGrid = offGrid + 1
+        end
+    end
+    assert(even > 800 and even < 1200, "even draws: " .. tostring(even))
+    assert(offGrid > 1900, "draws off the 2^21 grid: " .. tostring(offGrid))
+
+    local seen: {[integer]: boolean} = {}
+    for _ = 1, 400 do
+        local value = generator:integer(-4294967296, 4294967296)
+        assert(value >= -4294967296 and value <= 4294967296)
+        seen[value % 4] = true
+    end
+    assert(seen[0] and seen[1] and seen[2] and seen[3], "every residue modulo 4 is reached")
+end
+
+-- A bound that is not a finite integer, or a range wider than doubles count
+-- exactly, has no uniform answer.
+function M.refusesBoundsWithoutAnExactRange(): nil
+    local generator = new random.Xoshiro128(7)
+    const refused: {{number}} = {
+        {0 / 0, 1}, {1, 0 / 0}, {1, math.huge}, {-math.huge, 1}, {1, 2.5}, {0.5, 3},
+        {-9007199254740992, 9007199254740992}, {1, 18014398509481984},
+    }
+    for _, bounds in ipairs(refused) do
+        assert(
+            not pcall(function(): nil
+                generator:integer(bounds[1] as integer, bounds[2] as integer)
+            end),
+            "integer(" .. tostring(bounds[1]) .. ", " .. tostring(bounds[2]) .. ") raises"
+        )
+    end
+    assert(
+        not pcall(function(): nil
+            generator:integer((0 / 0) as integer)
+        end)
+    )
+end
+
 return M

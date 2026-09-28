@@ -60,6 +60,9 @@ end
 export const randomBytes = provider.randomBytes
 
 const INV32 = 1.0 / 4294967296.0
+const TWO21 = 2097152
+const TWO32 = 4294967296
+const TWO53 = 9007199254740992
 const DEFAULT_SEED = 0x5EED1234
 const GOLDEN = nupp.math.i32.wrap(0x9E3779B9)
 const ZERO = nupp.math.i32.wrap(0)
@@ -136,7 +139,12 @@ export record Xoshiro128
     end
 
     --- Returns an integer in [1, m], or in [m, n] when both are given.
-    --- @raises string when the selected range is empty
+    ---
+    --- A range of up to 2^32 values takes one draw, so seeded sequences over
+    --- small ranges stay what they were. A wider one takes 53 bits from two
+    --- draws and rejects the uneven tail, so every value in it can come up.
+    --- @raises string when the selected range is empty, when a bound is not a
+    ---     finite integer, or when the range holds more than 2^53 values
     function integer(self, m: integer, n: integer?): integer
         local low: integer = 1
         local high: integer = m
@@ -144,11 +152,37 @@ export record Xoshiro128
             low = m
             high = n
         end
+        if low % 1 ~= 0 or high % 1 ~= 0 or math.abs(low) > TWO53 or math.abs(high) > TWO53 then
+            error(
+                "nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") needs finite integer bounds",
+                2
+            )
+        end
         if high < low then
             error("nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") has an empty range", 2)
         end
+        local span = high - low + 1
+        if span <= TWO32 then
+            return low + math.floor(self:next() * span)
+        end
+        if span > TWO53 then
+            error(
+                "nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") spans more than 2^53 values",
+                2
+            )
+        end
 
-        return low + math.floor(self:next() * (high - low + 1))
+        -- 21 bits of one draw above all 32 of the next give an integer uniform
+        -- in [0, 2^53), exact in a double. Values past the last whole multiple
+        -- of the span would favour the low residues, so they are drawn again;
+        -- at worst that is under half of the draws.
+        local limit = span * math.floor(TWO53 / span)
+        while true do
+            local wide = math.floor(self:next() * TWO21) * TWO32 + self:next() * TWO32
+            if wide < limit then
+                return (low + wide % span) as integer
+            end
+        end
     end
 
     --- Returns the next value in [low, high), or (high, low] when reversed.

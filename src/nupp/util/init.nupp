@@ -86,4 +86,8 @@ export const xpcallse = protected.xpcallse
 export const uuid4: function(): string = uuid.uuid4
 
 --- Generates a time-ordered version 7 UUID, hyphenated and lowercase.
+---
+--- Ordered to the millisecond only: two made in the same millisecond carry
+--- random bits after the timestamp, so they compare in either order. It uses
+--- no RFC 9562 monotonic counter.
 export const uuid7: function(): string = uuid.uuid7
