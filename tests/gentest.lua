@@ -1209,4 +1209,18 @@ function M.explicitTypeArgumentsErase()
     ), "3")
 end
 
+-- A `cdef struct` with no fields is an opaque C type -- `import-c` writes a handle
+-- such as `sqlite3` or `FILE` this way -- and is declared as one, so LuaJIT itself
+-- refuses to allocate the incomplete struct while pointers to it still work.
+function M.aFieldlessCdefStructIsOpaque()
+    assertEq(printed(table.concat({
+        "local ffi = require('ffi')",
+        "cdef struct NuppGenOpaqueHandle end",
+        "local name: string = 'struct NuppGenOpaqueHandle'",
+        "local ok = pcall(ffi.new, name)",
+        "local pointer = ffi.typeof(name .. ' *')",
+        "print(ok, pointer ~= nil)",
+    }, "\n")), "false\ttrue")
+end
+
 return M

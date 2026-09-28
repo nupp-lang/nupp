@@ -6294,18 +6294,21 @@ function gen.generate(
                 end
             end
             local line = sourceLine(x)
+            local aggregate = x.aggregateKind or "struct"
+            -- One with no fields at all is an opaque C type, a handle only reached
+            -- through pointers. Declared bare, LuaJIT refuses to allocate it, where an
+            -- empty body would make it a complete zero-sized struct.
+            local declared = false
+            for _, entry in ipairs(x.entries) do
+                declared = declared or entry.kind == "fieldDecl"
+            end
+            local declaration = declared and ("%s %s { %s };"):format(aggregate, x.name.text, table.concat(fields, " "))
+                or ("%s %s;"):format(aggregate, x.name.text)
             -- pcall tolerates re-declaration when two modules cdef one struct
             e(
                 (
-                    '_G.pcall(__nuppFfi.cdef, "%s %s { %s };") const %s = __nuppFfi.typeof("%s %s")'
-                ):format(
-                    x.aggregateKind or "struct",
-                    x.name.text,
-                    table.concat(fields, " "),
-                    x.name.text,
-                    x.aggregateKind or "struct",
-                    x.name.text
-                ),
+                    '_G.pcall(__nuppFfi.cdef, "%s") const %s = __nuppFfi.typeof("%s %s")'
+                ):format(declaration, x.name.text, aggregate, x.name.text),
                 line
             )
             return
