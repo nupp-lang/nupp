@@ -462,6 +462,7 @@ end
 type gen.Checked = {
     @readonly root: cst.Chunk,
     @readonly tokens: {any}?,
+
     @readonly implicitSideEffects: {[string]: any}?,
 
     --- What the checker resolved this file to, and the native features it recorded.
@@ -2046,6 +2047,24 @@ function gen.generate(
         quote = literal.quote,
         renderData = literal.renderData,
         hotLibraries = hot and hot.libraries or {},
+        -- What separates the statement about to be written from the output before
+        -- it. LuaJIT 2.1 takes `;` after a statement and refuses it anywhere else --
+        -- at the start of a block, or after another `;` -- so this answers `;` only
+        -- when the output so far ends in something that is not one of those.
+        separator = function(): string
+            for index = #out, 1, -1 do
+                local tail = out[index]:match("(%S+)%s*$")
+                if tail then
+                    local word = (" " .. tail):match("[^%w_]([%a_]+)$")
+                    if tail:sub(-1) == ";" or word == "do" or word == "then" or word == "else" or word == "repeat" then
+                        return " "
+                    end
+                    return ";"
+                end
+            end
+
+            return " "
+        end,
         -- The helper `//` on a 64-bit integer operand calls, or nil for any other.
         -- `math.floor` refuses cdata and cdata `/` truncates toward zero, so the
         -- helper takes the truncated quotient one lower when the division was
@@ -7959,7 +7978,7 @@ function gen.generate(
                     emit(x.body)
                 end
                 if x.repeatCondition then
-                    e(";")
+                    e(pluck.separator())
                     emitDepth.beginCondition(x.repeatConditionHeader)
                     emitDepth.lowerSwitches(x.repeatCondition)
                     e(("%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
@@ -8231,7 +8250,7 @@ function gen.generate(
                     end
                 end
                 if x.repeatCondition then
-                    e(";")
+                    e(pluck.separator())
                     emitDepth.beginCondition(x.repeatConditionHeader)
                     emitDepth.lowerSwitches(x.repeatCondition)
                     e(("%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
@@ -9110,6 +9129,15 @@ function gen.generate(
             e(";")
             emitChildren(x)
 
+        elseif kind == "emptyStmt" then
+            -- A `;` the source wrote after a statement stays, since it can be what
+            -- keeps `(f)()` from continuing the statement before it. One at the start
+            -- of a block or after another `;` is an empty statement, which LuaJIT 2.1
+            -- does not have, and it is dropped.
+            if x.separatesStatements and pluck.separator() == ";" then
+                e(";", sourceLine(x))
+            end
+
         elseif kind == "localStmt" and x.concatBuffer then
             -- Keep the string binding for general later uses. An immediate sole
             -- return instead reads the buffer directly and needs no accumulator.
@@ -9153,6 +9181,29 @@ function gen.generate(
     end
 
     planStructTags()
+    -- Which `;` statements follow a statement in their block, and so separate rather
+    -- than stand alone.
+    do
+        local function markSeparators(node)
+            if type(node) ~= "table" or cst.isToken(node) then
+                return
+            end
+            local stats = node.stats
+            if type(stats) == "table" then
+                for index, stat in ipairs(stats) do
+                    if type(stat) == "table" and stat.kind == "emptyStmt" then
+                        local previous = stats[index - 1]
+                        stat.separatesStatements = previous ~= nil and previous.kind ~= "emptyStmt"
+                    end
+                end
+            end
+            for _, child in ipairs(node) do
+                markSeparators(child)
+            end
+        end
+
+        markSeparators(result.root)
+    end
     if hotState and hotState.mode == "patch" then
         local captured: {boolean} = {}
         for _, planned in ipairs(hotState.functions) do

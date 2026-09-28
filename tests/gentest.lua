@@ -1089,4 +1089,42 @@ function M.floorDivisionOnSixtyFourBitIntegersRoundsDown()
     assertEq(printed("local c = -7LL\nc = c // 2LL\nprint(c, 7ULL // 2ULL)"), "-4LL\t3ULL")
 end
 
+-- LuaJIT 2.1 takes `;` after a statement and refuses it anywhere else: at the start of
+-- a block, or after another `;`. Nupp accepts an empty statement wherever Lua 5.2
+-- does, so generation writes a `;` only where it separates two statements.
+function M.emptyStatementsGenerateCodeThatLoads()
+    assertEq(printed(";;print(1);;\nlocal x = 2;\nprint(x);"), "1\n2")
+    assertEq(printed("do ; end\nprint(3)"), "3")
+    assertEq(printed("local function f() ; return 4 end\nif true then ; print(f()) ; else ; end"), "4")
+    assertEq(printed("repeat ; until true\nwhile false do ; end\nfor i = 1, 1 do ; ; print(i) end"), "1")
+    -- The stdlib reviewer's one-line body, each statement separated by `;`.
+    assertEq(printed(
+        "local function read(n: string): string local f = assert(io.open(n, 'rb')); "
+            .. "local s = f:read('*a'); f:close(); return s end\nprint(#read('" .. HERE .. "/gentest.lua') > 0)"
+    ), "true")
+    -- A `;` that keeps a parenthesized statement from reading as a call survives.
+    assertEq(printed("local t = {}\nlocal f = print; (f)('call')"), "call")
+end
+
+-- An affine local that ends a `repeat` body leaves the protected region with no
+-- statement of its own before the hoisted `until` test.
+function M.anAffineLocalCanEndARepeatBody()
+    assertEq(printed(table.concat({
+        "local record Guard",
+        "    name: string",
+        "end",
+        "local function finish(takes guard: Guard): nil",
+        "    print('drop ' .. guard.name)",
+        "end",
+        "local function acquire(name: string): affine(Guard, finish)",
+        "    return new Guard(name = name)",
+        "end",
+        "local i = 0",
+        "repeat",
+        "    i = i + 1",
+        "    local g = acquire('rp' .. i)",
+        "until i >= 2",
+    }, "\n"), "printed.nupp"), "drop rp1\ndrop rp2")
+end
+
 return M
