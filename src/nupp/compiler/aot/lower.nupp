@@ -17,7 +17,6 @@ narrowing that is not in the IR is a narrowing that did not happen.
 local admit = require("nupp.compiler.aot.admit")
 local carriedFacts = require("nupp.compiler.aot.carried")
 local reducers = require("nupp.compiler.aot.reducers")
-local fold = require("nupp.compiler.aot.fold")
 local simdindices = require("nupp.compiler.aot.simdindices")
 local simdcast = require("nupp.compiler.aot.simdcast")
 local lexer = require("nupp.compiler.syntax.lexer")
@@ -5320,8 +5319,8 @@ local function staticTruth(value: scalarIR.Expr): boolean?
         return nil
     end
     local binary = value as scalarIR.Binary
-    local left = fold.exactInteger(binary.left)
-    local right = fold.exactInteger(binary.right)
+    local left = scalarIR.exactInteger(binary.left)
+    local right = scalarIR.exactInteger(binary.right)
     if left == nil or right == nil then
         return nil
     end
@@ -5450,7 +5449,7 @@ local function switchLocal(
         context.reject(lower.site(otherwise), "native switches require expression arms")
     end
 
-    local staticSelector = fold.exactInteger(selector)
+    local staticSelector = scalarIR.exactInteger(selector)
     local staticPrimitive = selector.op == "bool" or selector.type == "lua_nil" or selector.op == "lua_string"
     if staticSelector ~= nil or staticPrimitive then
         -- The selector is a constant -- a monomorphized const carrier -- so

@@ -4564,10 +4564,6 @@ return {
     assert(decoded.functions[1].builderMode == "eager")
     assert(decoded.functions[2].builderMode == "pull")
     assert(decoded.functions[3].builderMode == "serde")
-    for _, fn in ipairs(decoded.functions) do
-        assert(fn.optimization.beforeNodes >= fn.optimization.afterNodes)
-        assert(fn.optimization.specializedHelperCalls >= 0)
-    end
 end
 
 function M.uncheckedRootedByteReadsAreRejected()
@@ -4776,10 +4772,10 @@ return {entry = entry}
     assert(not out:find("stack traceback", 1, true), out)
 end
 
-function M.unrolledCountedLoopsRetainRuntimeCompatibilityGuards()
+function M.countedLoopsRetainRuntimeCompatibilityGuards()
     local dir = project{
         [
-            "unrolled.nupp"
+            "counted.nupp"
         ] = [[
 @aot
 local function total(value: number): number
@@ -4790,24 +4786,12 @@ end
 return {total = total}
 ]]
     }
-    local decoded, raw, code, where = lowered(
-        dir,
-        "--target x86_64-unknown-linux-gnu --features baseline --json unrolled.nupp"
-    )
-    test.equal(code, 0, raw)
-    test.equal(
-        decoded.functions[1].optimization.unrolledLoops,
-        1,
-        where .. ": the fixture really unrolls its counted loop"
-    )
-    local _, steps = decoded.ir:gsub("set result = add%(", "")
-    test.equal(steps, 2, where .. ": into one step per iteration\n" .. decoded.ir)
     local out, bindingCode = run(
         dir,
-        "--target x86_64-unknown-linux-gnu --features baseline --emit binding unrolled.nupp"
+        "--target x86_64-unknown-linux-gnu --features baseline --emit binding counted.nupp"
     )
     test.equal(bindingCode, 0, out)
-    assert(out:find("AOT numeric-for runtime mismatch", 1, true), "unrolling retains original runtime dependency")
+    assert(out:find("AOT numeric-for runtime mismatch", 1, true), "a counted loop depends on the numeric-for runtime")
 end
 
 function M.aForBoundOutsideInt32RetainsItsNumericValue()
@@ -4828,10 +4812,11 @@ return {acc = acc}
     }
     local decoded, raw, code, where = lowered(dir, "--json bigbound.nupp")
     test.equal(code, 0, "a binary64 counted bound is not narrowed\n" .. raw)
-    assert(decoded.ir:find(".. constant:f64 3000000000 ", 1, true), where .. ": " .. decoded.ir)
-    -- 0x41E65A0BC0000000 is 3000000000.0: the counter is a double compared
-    -- against the bound's own value.
-    assert(decoded.llvm:match("%%t%d+ = fcmp ole double %%t%d+, 0x41E65A0BC0000000\n"), where .. ": " .. decoded.llvm)
+    assert(decoded.ir:find("constant:f64 3000000000", 1, true), where .. ": " .. decoded.ir)
+    -- The counter is a double: it steps by 1.0 and is compared as one against
+    -- the bound's own value.
+    assert(decoded.llvm:match("%%t%d+ = fcmp ole double %%t%d+, %%t%d+\n"), where .. ": " .. decoded.llvm)
+    assert(not decoded.llvm:find("fptosi double", 1, true), where .. ": the bound is never narrowed\n" .. decoded.llvm)
 end
 
 function M.aLengthAliasDoesNotOutliveItsScope()
@@ -5300,7 +5285,8 @@ function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
     -- wrap, and one that might keeps the checked access. The tail is a
     -- checked prefix access of the lanes its mask names, the lane count
     -- taken once, and moves its partial vector through registers rather
-    -- than a stack array. Nothing in the loop goes through a double.
+    -- than a stack array. Nothing in the loop computes in a double; a
+    -- literal's conversion is a constant LLVM folds.
     local dir = project{
         [
             "map.nupp"
@@ -5354,7 +5340,7 @@ return {add = add}
         ),
         "the proven load and store are bare vector accesses\n" .. loop
     )
-    assert(not loop:find("double", 1, true), "nothing in the loop goes through a double\n" .. loop)
+    assert(not loop:find("double %", 1, true), "nothing in the loop computes in a double\n" .. loop)
     assert(
         body:match("add nuw i64 %%t%d+, 16\n  %%t%d+ = icmp ule i64 %%t%d+, 4294967295\n"),
         "where a span may not fit, the unchecked path proves its index does not wrap\n" .. body

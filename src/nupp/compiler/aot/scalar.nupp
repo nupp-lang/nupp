@@ -1558,7 +1558,7 @@ record scalarIR.Program
     --- binary64 progression without LuaJIT dual-number normalization.
     numericForRuntime: string?
 
-    --- Captured before unrolling or SIMD rewriting can erase authored loops.
+    --- Captured before SIMD rewriting can erase authored loops.
     numericForRuntimeRequired: boolean?
 
     --- Bumped when the shape changes, so an IR written by an older compiler is
@@ -1665,6 +1665,58 @@ function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): bo
         and right.soa ~= nil
         and left.soa.view == right.soa.view
         and left.soa.layout == right.soa.layout
+end
+
+local function exactIntegerText(text: string): number?
+    local sign, body = text:match("^([+-]?)(.+)$")
+    if body == nil then
+        sign, body = "", text
+    end
+    local mantissa, exponentText = (body as string):match("^([^eE]+)[eE]([+-]?%d+)$")
+    if mantissa == nil then
+        mantissa, exponentText = body, "0"
+    end
+    local whole, fraction = (mantissa as string):match("^(%d*)%.(%d*)$")
+    if whole == nil then
+        whole = (mantissa as string):match("^(%d+)$")
+        fraction = ""
+    end
+    if whole == nil or (whole == "" and fraction == "") then
+        return nil
+    end
+    local exponent = tonumber(exponentText)
+    if exponent == nil or exponent % 1 ~= 0 or math.abs(exponent) > 100000 then
+        return nil
+    end
+    local digits = (whole as string) .. (fraction as string)
+    local decimal = #(whole as string) + exponent
+    if decimal < #digits then
+        if digits:sub(decimal + 1):match("[^0]") ~= nil then
+            return nil
+        end
+        digits = decimal > 0 and digits:sub(1, decimal) or "0"
+    elseif decimal > #digits then
+        digits = digits .. string.rep("0", decimal - #digits)
+    end
+    digits = digits:gsub("^0+", "")
+    if digits == "" then
+        digits = "0"
+    end
+    local limit = "9007199254740992"
+    if #digits > #limit or (#digits == #limit and digits > limit) then
+        return nil
+    end
+
+    return tonumber((sign as string) .. digits)
+end
+
+--- The integer a literal node denotes, when it denotes one exactly within
+--- binary64's contiguous integers; nil for any other node.
+function scalarIR.exactInteger(node: scalarIR.Expr): number?
+    if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
+        return nil
+    end
+    return exactIntegerText(tostring((node as any).value))
 end
 
 --- Whether `param` is a span the entry receives as a pointer and a count.

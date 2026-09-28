@@ -308,7 +308,7 @@ function M.theTimelineNamesTheAheadOfTimePhases()
         ["aot:lookup"] = true,
         ["aot:check"] = true,
         ["aot:lower"] = true,
-        ["aot:optimize"] = true,
+        ["aot:verify"] = true,
         ["aot:emit"] = true,
         ["aot:reuse"] = true,
         ["aot:compile"] = true,
@@ -336,7 +336,7 @@ function M.theTimelineNamesTheAheadOfTimePhases()
     for _, span in ipairs(unchanged.timing.phases) do
         assert(span.name ~= "aot:check", "an unchanged build checks no AOT source")
         assert(span.name ~= "aot:lower", "an unchanged build lowers no AOT program")
-        assert(span.name ~= "aot:optimize", "an unchanged build optimizes no AOT program")
+        assert(span.name ~= "aot:verify", "an unchanged build verifies no AOT program")
         assert(span.name ~= "aot:emit", "an unchanged build emits no AOT unit")
         assert(span.name ~= "aot:compile", "an unchanged build has no compilation to report")
         assert(span.name ~= "aot:link", "and nothing to link")

@@ -1468,18 +1468,16 @@ function M.requireWritesTheLlvmUnitBesideTheBuild()
     )
 end
 
-function M.constGenericAotOmitsTheCarrierAndUnrollsTheBody()
+function M.constGenericAotOmitsTheCarrierAndSpecializesTheBody()
     local dir = constProject("require")
     local out, code = build(dir)
     test.equal(code, 0, out)
     local ir = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
     assert(ir:match("ks_[0-9a-f]+___nupp_const_doubled_"), "the canonical private key reaches the native symbol")
     assert(not ir:find("p_count", 1, true), "the const carrier is absent from the private native ABI")
-    -- IR names no locals, so the unrolling is read from the instructions:
-    -- three doublings and no loop left to run them.
-    local _, doublings = ir:gsub("fmul double %%t%d+, 0x4000000000000000", "")
-    test.equal(doublings, 3, "the specialized arithmetic reached emitted IR, unrolled:\n" .. ir)
-    test.equal(ir:find("br i1", 1, true), nil, "and no loop is left to run it:\n" .. ir)
+    -- The trip count is the specialization's literal, which leaves LLVM a
+    -- three-trip loop to unroll.
+    assert(ir:find("sext i32 3 to i64", 1, true), "the loop runs to the literal count:\n" .. ir)
 end
 
 function M.constGenericSelectsValueStreamModePerVariant()

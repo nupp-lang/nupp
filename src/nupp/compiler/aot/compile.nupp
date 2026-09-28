@@ -2,8 +2,8 @@ module nupp.compiler.aot.compile
 
 --[[
 Compiling one `@aot` function, end to end. The source is lowered, verified,
-optimized, and emitted. Explicit vector values are legalized for the selected
-target before emission.
+and emitted; LLVM does the optimizing. Explicit vector values are legalized for
+the selected target before emission.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
@@ -14,7 +14,6 @@ local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local lower = require("nupp.compiler.aot.lower")
 local loopAnalysis = require("nupp.compiler.aot.loops")
-local aotOptimize = require("nupp.compiler.aot.optimize")
 local parser = require("nupp.compiler.syntax.parser")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
@@ -54,9 +53,6 @@ record compile.Artifacts
     --- The verified IR of every `@aot` function in the file, in source order,
     --- which is what the other three were written from.
     programs: {scalarIR.Program}
-
-    --- One optimizer report per program, in the same order.
-    optimizations: {aotOptimize.Stats}
 
     --- Per-program loop reports, in source order within each program.
     loops: {{loopAnalysis.Report}}
@@ -282,7 +278,7 @@ end
 ---
 --- The deliverable planner supplies semantic demands from every checked module.
 --- Carrier parameters disappear from the private ABI, their values seed the IR
---- environment, and the ordinary optimizer and lane pass consume the result.
+--- environment, and the ordinary verifier and lane pass consume the result.
 --- The single-source fallback remains for the retained backend harness.
 --- @raises string when lowering or verification exposes a compiler bug rather than an
 ---   authored specialization refusal
@@ -625,11 +621,9 @@ function compile.constSpecializations(
             verify.program(program)
         end
 
-        local optimizations: {aotOptimize.Stats} = {}
         local loopReports: {{loopAnalysis.Report}} = {}
         for position, program in ipairs(programs) do
             numericForRuntime(program, selected)
-            optimizations[position] = aotOptimize.program(program)
             verify.program(program)
             local refusals = compile.legalizeVectors(program, filename, selected)
             if refusals ~= nil then
@@ -641,7 +635,6 @@ function compile.constSpecializations(
 
         return new compile.Artifacts(
             programs = programs,
-            optimizations = optimizations,
             loops = loopReports,
             irText = text.programs(programs),
             binding = "",
@@ -759,17 +752,16 @@ function compile.artifacts(
         }
     end
 
-    local optimizations: {aotOptimize.Stats} = {}
     local loopReports: {{loopAnalysis.Report}} = {}
     local gpu: {[string]: gpuartifact.Artifact} = {}
     local cpuPrograms: {scalarIR.Program} = {}
     local declaredModule = parsed ~= nil and cst.declaredModule((parsed as parser.ParseResult).root) ~= nil
     local browser = selected.triple:match("^wasm") ~= nil
-    step("optimize")
+    step("verify")
     for position, program in ipairs(programs) do
         numericForRuntime(program, selected)
-        optimizations[position] = aotOptimize.program(program)
-        -- Every optimized body is checked before any artifact is built from it.
+        -- Every body is checked against its target's numeric runtime before
+        -- any artifact is built from it.
         verify.program(program)
         if program.executionTarget == "gpu" then
             local artifact, rule = gpuartifact.program(program, browser)
@@ -812,7 +804,6 @@ function compile.artifacts(
             end
             programs[#programs + 1] = program
             cpuPrograms[#cpuPrograms + 1] = program
-            optimizations[#optimizations + 1] = (constArtifacts as compile.Artifacts).optimizations[position]
             loopReports[#loopReports + 1] = (constArtifacts as compile.Artifacts).loops[position]
         end
     end
@@ -847,7 +838,6 @@ function compile.artifacts(
 
     return new compile.Artifacts(
         programs = programs,
-        optimizations = optimizations,
         loops = loopReports,
         irText = text.programs(programs),
         binding = generatedBinding,

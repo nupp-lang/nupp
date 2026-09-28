@@ -50,7 +50,7 @@ local result = doubled(5.0, 3)
 
 The build collects closed applications across the module graph, emits a private
 native body per admitted body class, and removes the carrier from that private
-ABI. Constant folding and bounded unrolling run before target legalization. Checked
+ABI, which LLVM then folds and unrolls like any other constant. Checked
 same- and cross-module calls use the private entry; the public function value
 dispatches tuples that were included in the deliverable and reports an unmatched
 tuple instead of silently falling back from an AOT-required build.

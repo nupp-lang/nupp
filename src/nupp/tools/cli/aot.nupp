@@ -62,30 +62,6 @@ local REPORT_SCHEMA = {
                             threads = {type = "integer"},
                         },
                     },
-                    optimization = {
-                        type = "object",
-                        description = "Verified scalar AOT optimizations.",
-                        properties = {
-                            beforeNodes = {type = "integer"},
-                            afterNodes = {type = "integer"},
-                            folds = {type = "integer"},
-                            propagatedConstants = {type = "integer"},
-                            specializedHelperCalls = {type = "integer"},
-                            unrolledLoops = {type = "integer"},
-                            unrolledIterations = {type = "integer"},
-                            removedStatements = {type = "integer"},
-                            iterations = {type = "integer"},
-                            ruleApplications = {
-                                type = "array",
-                                description = "Applied rules and pseudo-rules, sorted by stable ID; "
-                                .. "zero-count rules are omitted.",
-                                items = {
-                                    type = "object",
-                                    properties = {id = {type = "string"}, count = {type = "integer"},},
-                                },
-                            },
-                        },
-                    },
                     loops = {
                         type = "array",
                         description = "One measured decision per loop, in source order.",
@@ -494,7 +470,6 @@ local function run(options: any): integer
                 builderMode = program.builderMode,
                 runtimeAbi = program.runtimeAbi,
                 registrar = program.registrar,
-                optimization = artifacts.optimizations[position],
                 loops = artifacts.loops[position],
             }
         end

@@ -1,7 +1,6 @@
 module nupp.compiler.aot.simdindices
 
 local scalarIR = require("nupp.compiler.aot.scalar")
-local fold = require("nupp.compiler.aot.fold")
 local indices = {}
 
 const MAX_VECTOR_BITS = 512
@@ -33,25 +32,40 @@ local function logicalLanes(element: string, shape: string): integer?
     return lanes as integer
 end
 
+--- The widest integer each index lane type holds exactly.
+const RANGES: {
+    [string]: {number}
+} = {
+    u32 = {0, 4294967295},
+    i32 = {-2147483648, 2147483647},
+    u64 = {0, 9007199254740992},
+    i64 = {-9007199254740992, 9007199254740992},
+}
+
+--- An index lane's literal value: a literal, or one cast to an integer type it
+--- fits (the literal may be negated first).
 local function exactIndex(value: scalarIR.Expr): number?
-    if value.op == "numeric_cast" then
-        local converted = value as scalarIR.Convert
-        if converted.value.op == "neg" then
-            local negative = fold.apply(converted.value, new fold.Context(helpers = {}))
-            if negative ~= nil then
-                value = new scalarIR.Convert(
-                    op = "numeric_cast",
-                    value = negative,
-                    type = value.type,
-                    source = value.source
-                )
-            end
-        end
-        local folded = fold.apply(value, new fold.Context(helpers = {}))
-        return folded ~= nil and fold.exactInteger(folded) or nil
+    if value.op ~= "numeric_cast" then
+        return scalarIR.exactInteger(value)
+    end
+    local converted = value as scalarIR.Convert
+    local inner = converted.value
+    local sign = 1
+    if inner.op == "neg" then
+        inner = (inner as scalarIR.Unary).value
+        sign = -1
+    end
+    local exact = scalarIR.exactInteger(inner)
+    if exact == nil then
+        return nil
+    end
+    local answer = sign * (exact as number)
+    local range = RANGES[tostring(converted.type)]
+    if range == nil then
+        return inner.type == converted.type and answer or nil
     end
 
-    return fold.exactInteger(value)
+    return answer >= range[1] and answer <= range[2] and answer or nil
 end
 
 --- Checks the integer element and logical shape, without selecting a tier.
