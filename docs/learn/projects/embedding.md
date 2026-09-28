@@ -435,6 +435,10 @@ runtime. `nupp_error_status` repeats the returned status when an error object
 must cross another API boundary. Passing a null `nupp_error **` discards the
 owned detail but does not change the returned status.
 
+The message is the whole text of the failure however long it is, a Lua error's
+included. A NUL byte that text carried reads as `?`, so the message is a single
+C string of `nupp_error_message_length` bytes.
+
 Initialize or clear the caller's error pointer before reusing it. Each call
 sets the output to null before doing work; it does not free an older error the
 caller failed to release.

@@ -42,9 +42,16 @@ typedef struct NuppLuaBytes {
     size_t length;
 } NuppLuaBytes;
 
+/* A failure's text, allocated here and handed to Rust whole: a Lua message may
+ * be any length and hold NUL bytes. Rust copies it and releases it with
+ * nupp_lua_error_free, successful call or not. */
+typedef struct NuppLuaError {
+    char *data;
+    size_t length;
+} NuppLuaError;
+
 typedef struct ProtectedCall {
-    char *error;
-    size_t error_capacity;
+    NuppLuaError *error;
     int status;
 } ProtectedCall;
 
@@ -184,16 +191,24 @@ typedef struct ProtectedDispatch {
     lua_CFunction function;
 } ProtectedDispatch;
 
+/* Without memory for the copy the text is dropped, and Rust reports the
+ * failure in its own words. */
 static void copy_error(ProtectedCall *call, const char *text, size_t length) {
-    if (call->error == NULL || call->error_capacity == 0) return;
-    if (length >= call->error_capacity) length = call->error_capacity - 1;
-    if (length != 0) memcpy(call->error, text, length);
-    call->error[length] = '\0';
+    char *copy;
+    if (call->error == NULL) return;
+    free(call->error->data);
+    call->error->data = NULL;
+    call->error->length = 0;
+    copy = length < SIZE_MAX ? malloc(length + 1) : NULL;
+    if (copy == NULL) return;
+    if (length != 0) memcpy(copy, text, length);
+    copy[length] = '\0';
+    call->error->data = copy;
+    call->error->length = length;
 }
 
-static void fallback_error(ProtectedCall *call) {
-    static const char fallback[] = "LuaJIT protected operation failed";
-    copy_error(call, fallback, sizeof fallback - 1);
+void nupp_lua_error_free(char *data) {
+    free(data);
 }
 
 static void fail_call(ProtectedCall *call, const char *text) {
@@ -821,7 +836,6 @@ static int protect(lua_State *state, lua_CFunction function,
     int outer_status;
     ProtectedDispatch dispatch = {call, function};
     call->status = 0;
-    fallback_error(call);
     /* lua_cpcall enters a protected LuaJIT C frame without allocating a Lua
      * closure first. Any allocation failure or metamethod error below returns
      * here instead of longjmping through the Rust caller. */
@@ -832,26 +846,25 @@ static int protect(lua_State *state, lua_CFunction function,
     return outer_status != 0 ? outer_status : call->status;
 }
 
-int nupp_lua_openlibs(lua_State *state, char *error, size_t error_capacity) {
-    ProtectedCall call = {error, error_capacity, 0};
+int nupp_lua_openlibs(lua_State *state, NuppLuaError *error) {
+    ProtectedCall call = {error, 0};
     return protect(state, open_libraries, &call);
 }
 
-int nupp_lua_install_host_record(lua_State *state, char *error,
-    size_t error_capacity) {
-    ProtectedCall call = {error, error_capacity, 0};
+int nupp_lua_install_host_record(lua_State *state, NuppLuaError *error) {
+    ProtectedCall call = {error, 0};
     return protect(state, install_host_record, &call);
 }
 
 int nupp_lua_set_executable(lua_State *state, const char *data, size_t length,
-    char *error, size_t error_capacity) {
-    StringCall context = {{error, error_capacity, 0}, data, length};
+    NuppLuaError *error) {
+    StringCall context = {{error, 0}, data, length};
     return protect(state, set_executable, &context.call);
 }
 
 int nupp_lua_set_arguments(lua_State *state, const NuppLuaBytes *arguments,
-    size_t count, char *error, size_t error_capacity) {
-    ArgumentsCall context = {{error, error_capacity, 0}, arguments, count};
+    size_t count, NuppLuaError *error) {
+    ArgumentsCall context = {{error, 0}, arguments, count};
     if (count > INT_MAX) {
         static const char too_many[] =
             "too many arguments for LuaJIT's arg table";
@@ -862,109 +875,103 @@ int nupp_lua_set_arguments(lua_State *state, const NuppLuaBytes *arguments,
 }
 
 int nupp_lua_run(lua_State *state, const char *chunk, size_t chunk_length,
-    const char *name, char *error, size_t error_capacity) {
+    const char *name, NuppLuaError *error) {
     RunCall context = {
-        {error, error_capacity, 0}, chunk, chunk_length, name
+        {error, 0}, chunk, chunk_length, name
     };
     return protect(state, run_chunk, &context.call);
 }
 
 int nupp_lua_preload(lua_State *state, const char *module,
     const char *source, size_t source_length, const char *name,
-    char *error, size_t error_capacity) {
+    NuppLuaError *error) {
     PreloadCall context = {
-        {error, error_capacity, 0}, module, source, source_length, name
+        {error, 0}, module, source, source_length, name
     };
     return protect(state, preload_module, &context.call);
 }
 
 int nupp_lua_preload_c(lua_State *state, const char *module,
-    lua_CFunction opener, char *error, size_t error_capacity) {
+    lua_CFunction opener, NuppLuaError *error) {
     CFunctionCall context = {
-        {error, error_capacity, 0}, module, opener
+        {error, 0}, module, opener
     };
     return protect(state, preload_c_function, &context.call);
 }
 
 int nupp_lua_register_aot_builders(lua_State *state, const char *key,
-    lua_CFunction registrar, char *error, size_t error_capacity) {
+    lua_CFunction registrar, NuppLuaError *error) {
     CFunctionCall context = {
-        {error, error_capacity, 0}, key, registrar
+        {error, 0}, key, registrar
     };
     return protect(state, register_aot_builders, &context.call);
 }
 
 int nupp_lua_verify_compatibility(lua_State *state, int allow_missing,
-    char *error, size_t error_capacity) {
-    CompatibilityCall context = {{error, error_capacity, 0}, allow_missing};
+    NuppLuaError *error) {
+    CompatibilityCall context = {{error, 0}, allow_missing};
     return protect(state, verify_compatibility, &context.call);
 }
 
-int nupp_lua_add_feature(lua_State *state, const char *name, char *error,
-    size_t error_capacity) {
-    FeatureCall context = {{error, error_capacity, 0}, name};
+int nupp_lua_add_feature(lua_State *state, const char *name, NuppLuaError *error) {
+    FeatureCall context = {{error, 0}, name};
     return protect(state, add_feature, &context.call);
 }
 
 int nupp_lua_add_resource(lua_State *state, const char *path,
-    const char *data, size_t length, char *error, size_t error_capacity) {
-    ResourceCall context = {{error, error_capacity, 0}, path, data, length};
+    const char *data, size_t length, NuppLuaError *error) {
+    ResourceCall context = {{error, 0}, path, data, length};
     return protect(state, add_resource, &context.call);
 }
 
 int nupp_lua_install_worker_modules(lua_State *state, const void *host,
-    char *error, size_t error_capacity) {
-    WorkerModulesCall context = {{error, error_capacity, 0}, host};
+    NuppLuaError *error) {
+    WorkerModulesCall context = {{error, 0}, host};
     return protect(state, install_worker_modules, &context.call);
 }
 
 int nupp_lua_worker_host_installed(lua_State *state, int *installed,
-    char *error, size_t error_capacity) {
-    WorkerHostQuery context = {{error, error_capacity, 0}, 0};
+    NuppLuaError *error) {
+    WorkerHostQuery context = {{error, 0}, 0};
     int status = protect(state, worker_host_installed, &context.call);
     if (status == 0) *installed = context.installed;
     return status;
 }
 
 int nupp_lua_set_worker_context(lua_State *state, const void *inbox,
-    const void *outbox, const void *tasks, char *error,
-    size_t error_capacity) {
+    const void *outbox, const void *tasks, NuppLuaError *error) {
     WorkerContextCall context = {
-        {error, error_capacity, 0}, inbox, outbox, tasks
+        {error, 0}, inbox, outbox, tasks
     };
     return protect(state, set_worker_context, &context.call);
 }
 
-int nupp_lua_clear_worker_context(lua_State *state, char *error,
-    size_t error_capacity) {
-    ProtectedCall call = {error, error_capacity, 0};
+int nupp_lua_clear_worker_context(lua_State *state, NuppLuaError *error) {
+    ProtectedCall call = {error, 0};
     return protect(state, clear_worker_context, &call);
 }
 
 int nupp_lua_install_component(lua_State *state, const char *chunk,
-    size_t chunk_length, const char *name, int *reference, char *error,
-    size_t error_capacity) {
+    size_t chunk_length, const char *name, int *reference, NuppLuaError *error) {
     ComponentCall context = {
-        {error, error_capacity, 0}, chunk, chunk_length, name, 0
+        {error, 0}, chunk, chunk_length, name, 0
     };
     int status = protect(state, install_component, &context.call);
     if (status == 0) *reference = context.reference;
     return status;
 }
 
-int nupp_lua_host_frozen(lua_State *state, int *frozen, char *error,
-    size_t error_capacity) {
-    HostFrozenQuery context = {{error, error_capacity, 0}, 0};
+int nupp_lua_host_frozen(lua_State *state, int *frozen, NuppLuaError *error) {
+    HostFrozenQuery context = {{error, 0}, 0};
     int status = protect(state, host_frozen, &context.call);
     if (status == 0) *frozen = context.frozen;
     return status;
 }
 
 int nupp_lua_start_component(lua_State *state, int reference,
-    const NuppLuaBytes *arguments, size_t count, char *error,
-    size_t error_capacity) {
+    const NuppLuaBytes *arguments, size_t count, NuppLuaError *error) {
     ComponentStartCall context = {
-        {error, error_capacity, 0}, reference, arguments, count
+        {error, 0}, reference, arguments, count
     };
     if (count > INT_MAX) {
         fail_call(&context.call, "too many component arguments");
@@ -974,26 +981,25 @@ int nupp_lua_start_component(lua_State *state, int reference,
 }
 
 int nupp_lua_find_export(lua_State *state, int component, const char *name,
-    int *reference, char *error, size_t error_capacity) {
+    int *reference, NuppLuaError *error) {
     ExportCall context = {
-        {error, error_capacity, 0}, component, name, 0
+        {error, 0}, component, name, 0
     };
     int status = protect(state, find_export, &context.call);
     if (status == 0) *reference = context.reference;
     return status;
 }
 
-int nupp_lua_release_reference(lua_State *state, int reference, char *error,
-    size_t error_capacity) {
-    ReferenceCall context = {{error, error_capacity, 0}, reference};
+int nupp_lua_release_reference(lua_State *state, int reference, NuppLuaError *error) {
+    ReferenceCall context = {{error, 0}, reference};
     return protect(state, release_reference, &context.call);
 }
 
 int nupp_lua_call(lua_State *state, int callable,
     const NuppLuaValue *arguments, size_t argument_count, int *results,
-    size_t *result_count, char *error, size_t error_capacity) {
+    size_t *result_count, NuppLuaError *error) {
     ValuesCall context = {
-        {error, error_capacity, 0}, callable, arguments, argument_count, 0, 0
+        {error, 0}, callable, arguments, argument_count, 0, 0
     };
     int status;
     if (argument_count > INT_MAX) {
@@ -1009,9 +1015,9 @@ int nupp_lua_call(lua_State *state, int callable,
 }
 
 int nupp_lua_result_info(lua_State *state, int results, size_t index,
-    NuppLuaValue *value, char *error, size_t error_capacity) {
+    NuppLuaValue *value, NuppLuaError *error) {
     ResultCall context = {
-        {error, error_capacity, 0}, results, index, NULL, 0, {0}
+        {error, 0}, results, index, NULL, 0, {0}
     };
     int status = protect(state, result_info, &context.call);
     if (status == 0) *value = context.value;
@@ -1019,10 +1025,9 @@ int nupp_lua_result_info(lua_State *state, int results, size_t index,
 }
 
 int nupp_lua_take_result(lua_State *state, int results, size_t index,
-    char *data, size_t capacity, NuppLuaValue *value, char *error,
-    size_t error_capacity) {
+    char *data, size_t capacity, NuppLuaValue *value, NuppLuaError *error) {
     ResultCall context = {
-        {error, error_capacity, 0}, results, index, data, capacity, *value
+        {error, 0}, results, index, data, capacity, *value
     };
     int status = protect(state, take_result, &context.call);
     if (status == 0) *value = context.value;
@@ -1030,15 +1035,15 @@ int nupp_lua_take_result(lua_State *state, int results, size_t index,
 }
 
 int nupp_lua_add_package_path(lua_State *state, const char *directory,
-    char *error, size_t error_capacity) {
-    PathCall context = {{error, error_capacity, 0}, directory};
+    NuppLuaError *error) {
+    PathCall context = {{error, 0}, directory};
     return protect(state, add_package_path, &context.call);
 }
 
 int nupp_lua_module_member(lua_State *state, const char *module,
-    const char *name, int *reference, char *error, size_t error_capacity) {
+    const char *name, int *reference, NuppLuaError *error) {
     MemberCall context = {
-        {error, error_capacity, 0}, module, 0, name, 0
+        {error, 0}, module, 0, name, 0
     };
     int status = protect(state, module_member, &context.call);
     if (status == 0) *reference = context.result;
@@ -1046,9 +1051,9 @@ int nupp_lua_module_member(lua_State *state, const char *module,
 }
 
 int nupp_lua_value_member(lua_State *state, int value, const char *name,
-    int *reference, char *error, size_t error_capacity) {
+    int *reference, NuppLuaError *error) {
     MemberCall context = {
-        {error, error_capacity, 0}, NULL, value, name, 0
+        {error, 0}, NULL, value, name, 0
     };
     int status = protect(state, value_member, &context.call);
     if (status == 0) *reference = context.result;

@@ -1078,6 +1078,21 @@ return {
     }
 
     #[test]
+    fn lua_error_text_arrives_whole() {
+        let runtime = runtime();
+        let error = runtime
+            .run_buffer(b"error('before\\0after-NUL', 0)", "=nul", &[])
+            .expect_err("Lua failure");
+        assert_eq!(error.to_string(), "before\0after-NUL");
+        let error = runtime
+            .run_buffer(b"error(string.rep('x', 70000) .. 'TAIL', 0)", "=long", &[])
+            .expect_err("Lua failure");
+        let text = error.to_string();
+        assert_eq!(text.len(), 70004);
+        assert!(text.ends_with("xTAIL"));
+    }
+
+    #[test]
     fn setup_metamethod_cannot_longjmp_across_rust() {
         let mut runtime = runtime();
         runtime

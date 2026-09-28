@@ -2342,6 +2342,55 @@ end
     }
 
     #[test]
+    fn an_export_failure_reports_its_whole_message() {
+        const FAILING: &[u8] = br#"-- NUPP-COMPONENT 1
+return { format = 1, hostAbi = 1, install = function() return {
+  exports = { fail = function() error(("before\0after-NUL"):rep(400), 0) end },
+  start = function() end } end }
+"#;
+        unsafe {
+            let runtime = new_runtime();
+            let mut component = ptr::null_mut();
+            assert_eq!(
+                nupp_component_load(
+                    runtime,
+                    FAILING.as_ptr().cast(),
+                    FAILING.len(),
+                    c"=failing".as_ptr(),
+                    &mut component,
+                    ptr::null_mut(),
+                ),
+                STATUS_OK
+            );
+            let fail = find(runtime, component, c"fail");
+            let mut error = ptr::null_mut();
+            assert_eq!(
+                nupp_call(
+                    runtime,
+                    fail,
+                    ptr::null(),
+                    0,
+                    ptr::null_mut(),
+                    0,
+                    ptr::null_mut(),
+                    &mut error
+                ),
+                STATUS_RUNTIME
+            );
+            // One C string: a NUL the Lua message carried reads as `?`.
+            let length = nupp_error_message_length(error);
+            assert_eq!(length, 16 * 400);
+            let text = CStr::from_ptr(nupp_error_message(error)).to_bytes();
+            assert_eq!(text.len(), length);
+            assert!(text.starts_with(b"before?after-NULbefore?"));
+            nupp_error_free(error);
+            nupp_handle_release(runtime, fail, ptr::null_mut());
+            nupp_component_release(component);
+            nupp_runtime_free(runtime);
+        }
+    }
+
+    #[test]
     fn runtime_calls_are_thread_affine() {
         unsafe {
             let runtime = new_runtime();

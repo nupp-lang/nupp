@@ -14,7 +14,6 @@ use std::rc::Rc;
 
 const LUAJIT_VMDEF: &[u8] = include_bytes!(env!("NUPP_LUAJIT_VMDEF"));
 const LUAJIT_ZONE: &[u8] = include_bytes!(env!("NUPP_LUAJIT_ZONE"));
-const ERROR_CAPACITY: usize = 4096;
 
 #[repr(C)]
 pub struct LuaState {
@@ -22,6 +21,13 @@ pub struct LuaState {
 }
 
 pub type LuaFunction = unsafe extern "C" fn(*mut LuaState) -> c_int;
+
+/// A failure's text as the shim allocated it: whole, NUL bytes included.
+#[repr(C)]
+pub(crate) struct LuaError {
+    data: *mut c_char,
+    length: usize,
+}
 
 #[repr(C)]
 struct LuaBytes {
@@ -60,37 +66,31 @@ unsafe extern "C" {
     // These are the only Rust-to-LuaJIT edges. `luaL_newstate` returns a new
     // state or null and `lua_close` is LuaJIT's non-throwing terminal edge.
     // Every `nupp_lua_*` function enters `lua_cpcall` before touching the Lua
-    // stack, restores the original top, copies errors into caller storage, and
+    // stack, restores the original top, hands failure text back whole, and
     // returns only after its C protected frame has caught every longjmp.
     fn luaL_newstate() -> *mut LuaState;
+    fn nupp_lua_error_free(data: *mut c_char);
     fn lua_close(state: *mut LuaState);
-    fn nupp_lua_openlibs(state: *mut LuaState, error: *mut c_char, error_capacity: usize) -> c_int;
-    fn nupp_lua_install_host_record(
-        state: *mut LuaState,
-        error: *mut c_char,
-        error_capacity: usize,
-    ) -> c_int;
+    fn nupp_lua_openlibs(state: *mut LuaState, error: *mut LuaError) -> c_int;
+    fn nupp_lua_install_host_record(state: *mut LuaState, error: *mut LuaError) -> c_int;
     fn nupp_lua_set_executable(
         state: *mut LuaState,
         data: *const c_char,
         length: usize,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_set_arguments(
         state: *mut LuaState,
         arguments: *const LuaBytes,
         count: usize,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_run(
         state: *mut LuaState,
         chunk: *const c_char,
         chunk_length: usize,
         name: *const c_char,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_preload(
         state: *mut LuaState,
@@ -98,42 +98,36 @@ unsafe extern "C" {
         source: *const c_char,
         source_length: usize,
         name: *const c_char,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_preload_c(
         state: *mut LuaState,
         module: *const c_char,
         opener: LuaFunction,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_register_aot_builders(
         state: *mut LuaState,
         key: *const c_char,
         registrar: LuaFunction,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_verify_compatibility(
         state: *mut LuaState,
         allow_missing: c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_add_feature(
         state: *mut LuaState,
         name: *const c_char,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_add_resource(
         state: *mut LuaState,
         path: *const c_char,
         data: *const c_char,
         length: usize,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_install_component(
         state: *mut LuaState,
@@ -141,58 +135,50 @@ unsafe extern "C" {
         chunk_length: usize,
         name: *const c_char,
         reference: *mut c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_host_frozen(
         state: *mut LuaState,
         frozen: *mut c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_start_component(
         state: *mut LuaState,
         reference: c_int,
         arguments: *const LuaBytes,
         count: usize,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_find_export(
         state: *mut LuaState,
         component: c_int,
         name: *const c_char,
         reference: *mut c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_add_package_path(
         state: *mut LuaState,
         directory: *const c_char,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_module_member(
         state: *mut LuaState,
         module: *const c_char,
         name: *const c_char,
         reference: *mut c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_value_member(
         state: *mut LuaState,
         value: c_int,
         name: *const c_char,
         reference: *mut c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_release_reference(
         state: *mut LuaState,
         reference: c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_call(
         state: *mut LuaState,
@@ -201,16 +187,14 @@ unsafe extern "C" {
         argument_count: usize,
         results: *mut c_int,
         result_count: *mut usize,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_result_info(
         state: *mut LuaState,
         results: c_int,
         index: usize,
         value: *mut RawLuaValue,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_take_result(
         state: *mut LuaState,
@@ -219,34 +203,26 @@ unsafe extern "C" {
         data: *mut c_char,
         capacity: usize,
         value: *mut RawLuaValue,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_install_worker_modules(
         state: *mut LuaState,
         host: *const c_void,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_worker_host_installed(
         state: *mut LuaState,
         installed: *mut c_int,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_set_worker_context(
         state: *mut LuaState,
         inbox: *const c_void,
         outbox: *const c_void,
         tasks: *const c_void,
-        error: *mut c_char,
-        error_capacity: usize,
+        error: *mut LuaError,
     ) -> c_int;
-    fn nupp_lua_clear_worker_context(
-        state: *mut LuaState,
-        error: *mut c_char,
-        error_capacity: usize,
-    ) -> c_int;
+    fn nupp_lua_clear_worker_context(state: *mut LuaState, error: *mut LuaError) -> c_int;
 }
 
 #[cfg(feature = "lpeg")]
@@ -307,7 +283,7 @@ impl Lua {
     }
 
     fn verify_compatibility(&self, allow_missing: bool) -> Result<(), String> {
-        self.protected(|error, capacity| {
+        self.protected(|error| {
             // SAFETY: the state is caller-owned, live, owner-thread-affine, and
             // outlives `self`; the C shim protects every Lua stack operation.
             unsafe {
@@ -315,17 +291,16 @@ impl Lua {
                     self.state.as_ptr(),
                     c_int::from(allow_missing),
                     error,
-                    capacity,
                 )
             }
         })
     }
 
     fn open_libraries(&self) -> Result<(), String> {
-        self.protected(|error, capacity| {
+        self.protected(|error| {
             // SAFETY: `self` owns or is attached to a live owner-thread state;
             // the C shim contains allocation failures and restores the stack.
-            unsafe { nupp_lua_openlibs(self.state.as_ptr(), error, capacity) }
+            unsafe { nupp_lua_openlibs(self.state.as_ptr(), error) }
         })?;
         self.preload_lua("jit.vmdef", LUAJIT_VMDEF)?;
         self.preload_lua("jit.zone", LUAJIT_ZONE)
@@ -338,9 +313,7 @@ impl Lua {
     pub(crate) fn install_host_record(&self) -> Result<(), String> {
         // SAFETY: the state is live and owner-thread-affine; the shim protects
         // all allocating Lua operations and restores the stack before return.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_install_host_record(self.state.as_ptr(), error, capacity)
-        })
+        self.protected(|error| unsafe { nupp_lua_install_host_record(self.state.as_ptr(), error) })
     }
 
     pub(crate) fn install_compiled_features(&self, open_libraries: bool) -> Result<(), String> {
@@ -372,13 +345,12 @@ impl Lua {
     pub(crate) fn set_executable(&self, executable: &[u8]) -> Result<(), String> {
         // SAFETY: the byte slice lives through this synchronous protected call;
         // the shim copies it into Lua before returning.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_set_executable(
                 self.state.as_ptr(),
                 executable.as_ptr().cast(),
                 executable.len(),
                 error,
-                capacity,
             )
         })
     }
@@ -393,13 +365,12 @@ impl Lua {
             .collect::<Vec<_>>();
         // SAFETY: every descriptor and its backing Vec remain live through the
         // synchronous call; the shim copies all bytes below `lua_cpcall`.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_set_arguments(
                 self.state.as_ptr(),
                 arguments.as_ptr(),
                 arguments.len(),
                 error,
-                capacity,
             )
         })
     }
@@ -407,14 +378,13 @@ impl Lua {
     pub(crate) fn run(&self, chunk: &[u8], name: &CStr) -> Result<(), String> {
         // SAFETY: chunk and NUL-terminated name outlive the synchronous call;
         // load, execution, error conversion, and stack repair stay in C.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_run(
                 self.state.as_ptr(),
                 chunk.as_ptr().cast(),
                 chunk.len(),
                 name.as_ptr(),
                 error,
-                capacity,
             )
         })
     }
@@ -422,22 +392,16 @@ impl Lua {
     pub(crate) fn add_feature(&self, name: &CStr) -> Result<(), String> {
         // SAFETY: the name is NUL-terminated and borrowed for this call only;
         // table access and any metamethod longjmp are protected by the shim.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_add_feature(self.state.as_ptr(), name.as_ptr(), error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_add_feature(self.state.as_ptr(), name.as_ptr(), error)
         })
     }
 
     pub(crate) fn preload_c(&self, module: &CStr, opener: LuaFunction) -> Result<(), String> {
         // SAFETY: `opener` uses the Lua C callback ABI and must not unwind. The
         // shim roots it in `package.preload` below a protected Lua frame.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_preload_c(
-                self.state.as_ptr(),
-                module.as_ptr(),
-                opener,
-                error,
-                capacity,
-            )
+        self.protected(|error| unsafe {
+            nupp_lua_preload_c(self.state.as_ptr(), module.as_ptr(), opener, error)
         })
     }
 
@@ -448,28 +412,21 @@ impl Lua {
     ) -> Result<(), String> {
         // SAFETY: `registrar` uses the Lua C callback ABI and must not unwind;
         // the shim invokes it with `lua_pcall` and validates its result in C.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_register_aot_builders(
-                self.state.as_ptr(),
-                key.as_ptr(),
-                registrar,
-                error,
-                capacity,
-            )
+        self.protected(|error| unsafe {
+            nupp_lua_register_aot_builders(self.state.as_ptr(), key.as_ptr(), registrar, error)
         })
     }
 
     pub(crate) fn add_resource(&self, path: &CStr, bytes: &[u8]) -> Result<(), String> {
         // SAFETY: path and bytes remain live until the synchronous shim has
         // copied them into Lua; table/metamethod errors remain protected.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_add_resource(
                 self.state.as_ptr(),
                 path.as_ptr(),
                 bytes.as_ptr().cast(),
                 bytes.len(),
                 error,
-                capacity,
             )
         })
     }
@@ -477,8 +434,8 @@ impl Lua {
     pub(crate) fn install_worker_modules(&self, host: *const c_void) -> Result<(), String> {
         // SAFETY: `host` remains owned by `HostRuntime` while the Lua state can
         // invoke worker callbacks; the shim only stores it as lightuserdata.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_install_worker_modules(self.state.as_ptr(), host, error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_install_worker_modules(self.state.as_ptr(), host, error)
         })
     }
 
@@ -489,8 +446,8 @@ impl Lua {
         let mut installed: c_int = 0;
         // SAFETY: `installed` is written only on success, below a protected
         // frame that performs a raw globals read and nothing else.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_worker_host_installed(self.state.as_ptr(), &raw mut installed, error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_worker_host_installed(self.state.as_ptr(), &raw mut installed, error)
         })?;
         Ok(installed != 0)
     }
@@ -504,8 +461,8 @@ impl Lua {
         // SAFETY: the worker lane owns Arc strong references for all three
         // pointers until its Lua state stops invoking callbacks; C stores only
         // non-owning lightuserdata and never dereferences it itself.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_set_worker_context(self.state.as_ptr(), inbox, outbox, tasks, error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_set_worker_context(self.state.as_ptr(), inbox, outbox, tasks, error)
         })
     }
 
@@ -513,16 +470,14 @@ impl Lua {
         // SAFETY: this state is live and owner-thread-affine. The C shim uses
         // protected raw global writes, so no metatable callback can retain or
         // observe the soon-to-be-invalid Rust ownership pointers.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_clear_worker_context(self.state.as_ptr(), error, capacity)
-        })
+        self.protected(|error| unsafe { nupp_lua_clear_worker_context(self.state.as_ptr(), error) })
     }
 
     pub(crate) fn install_component(&self, bytes: &[u8], name: &CStr) -> Result<c_int, String> {
         let mut reference = 0;
         // SAFETY: source/name/output live through the synchronous call; the C
         // shim loads, executes, validates, and roots the component protected.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_install_component(
                 self.state.as_ptr(),
                 bytes.as_ptr().cast(),
@@ -530,7 +485,6 @@ impl Lua {
                 name.as_ptr(),
                 &mut reference,
                 error,
-                capacity,
             )
         })?;
         Ok(reference)
@@ -541,8 +495,8 @@ impl Lua {
         let mut frozen: c_int = 0;
         // SAFETY: `frozen` is written only on success, below a protected frame
         // that reads one registry field.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_host_frozen(self.state.as_ptr(), &raw mut frozen, error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_host_frozen(self.state.as_ptr(), &raw mut frozen, error)
         })?;
         Ok(frozen != 0)
     }
@@ -555,14 +509,13 @@ impl Lua {
         let arguments = argument_bytes(arguments);
         // SAFETY: the registry reference belongs to this state and argument
         // backing storage remains live while the protected shim copies it.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_start_component(
                 self.state.as_ptr(),
                 reference,
                 arguments.as_ptr(),
                 arguments.len(),
                 error,
-                capacity,
             )
         })
     }
@@ -571,14 +524,13 @@ impl Lua {
         let mut reference = 0;
         // SAFETY: the component reference belongs to this state, `name` and the
         // output pointer live through the call, and the shim protects lookup.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_find_export(
                 self.state.as_ptr(),
                 component,
                 name.as_ptr(),
                 &mut reference,
                 error,
-                capacity,
             )
         })?;
         Ok(reference)
@@ -587,8 +539,8 @@ impl Lua {
     pub(crate) fn add_package_path(&self, directory: &CStr) -> Result<(), String> {
         // SAFETY: the directory lives through this synchronous call and the shim
         // rewrites `package.path` below its protected C frame.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_add_package_path(self.state.as_ptr(), directory.as_ptr(), error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_add_package_path(self.state.as_ptr(), directory.as_ptr(), error)
         })
     }
 
@@ -598,14 +550,13 @@ impl Lua {
         let mut reference = 0;
         // SAFETY: both names and the output pointer live through the call, and
         // the shim protects the require and the lookup behind it.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_module_member(
                 self.state.as_ptr(),
                 module.as_ptr(),
                 name.as_ptr(),
                 &mut reference,
                 error,
-                capacity,
             )
         })?;
         Ok(reference)
@@ -615,14 +566,13 @@ impl Lua {
         let mut reference = 0;
         // SAFETY: `value` is rooted in this state, and the name and output live
         // through the protected lookup.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_value_member(
                 self.state.as_ptr(),
                 value,
                 name.as_ptr(),
                 &mut reference,
                 error,
-                capacity,
             )
         })?;
         Ok(reference)
@@ -631,8 +581,8 @@ impl Lua {
     pub(crate) fn release_reference(&self, reference: c_int) -> Result<(), String> {
         // SAFETY: registry ownership is serialized on this state's owner thread;
         // the protected shim contains any LuaJIT bookkeeping failure.
-        self.protected(|error, capacity| unsafe {
-            nupp_lua_release_reference(self.state.as_ptr(), reference, error, capacity)
+        self.protected(|error| unsafe {
+            nupp_lua_release_reference(self.state.as_ptr(), reference, error)
         })
     }
 
@@ -646,7 +596,7 @@ impl Lua {
         let mut count = 0;
         // SAFETY: all references belong to this state and raw argument backing
         // storage outlives the synchronous protected call.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_call(
                 self.state.as_ptr(),
                 callable,
@@ -655,7 +605,6 @@ impl Lua {
                 &mut results,
                 &mut count,
                 error,
-                capacity,
             )
         })?;
 
@@ -666,15 +615,8 @@ impl Lua {
                 let mut value = RawLuaValue::default();
                 // SAFETY: `results` is rooted in this state and the output lives
                 // through this protected, owner-thread-affine inspection.
-                self.protected(|error, capacity| unsafe {
-                    nupp_lua_result_info(
-                        self.state.as_ptr(),
-                        results,
-                        index,
-                        &mut value,
-                        error,
-                        capacity,
-                    )
+                self.protected(|error| unsafe {
+                    nupp_lua_result_info(self.state.as_ptr(), results, index, &mut value, error)
                 })?;
                 let answer = match value.kind {
                     0 => LuaAnswer::Nil,
@@ -684,7 +626,7 @@ impl Lua {
                         let mut bytes = vec![0; value.length];
                         // SAFETY: the destination allocation is exactly the size
                         // reported by the rooted result and lives through copy.
-                        self.protected(|error, capacity| unsafe {
+                        self.protected(|error| unsafe {
                             nupp_lua_take_result(
                                 self.state.as_ptr(),
                                 results,
@@ -693,7 +635,6 @@ impl Lua {
                                 bytes.len(),
                                 &mut value,
                                 error,
-                                capacity,
                             )
                         })?;
                         LuaAnswer::Bytes(bytes)
@@ -701,7 +642,7 @@ impl Lua {
                     5 => {
                         // SAFETY: the result table is rooted in this state; the
                         // shim creates another registry owner before returning.
-                        self.protected(|error, capacity| unsafe {
+                        self.protected(|error| unsafe {
                             nupp_lua_take_result(
                                 self.state.as_ptr(),
                                 results,
@@ -710,7 +651,6 @@ impl Lua {
                                 0,
                                 &mut value,
                                 error,
-                                capacity,
                             )
                         })?;
                         created_references.push(value.reference);
@@ -742,7 +682,7 @@ impl Lua {
             .expect("embedded chunk names contain no NUL");
         // SAFETY: all strings and bytes outlive this synchronous call; the shim
         // compiles and stores the loader entirely below its protected C frame.
-        self.protected(|error, capacity| unsafe {
+        self.protected(|error| unsafe {
             nupp_lua_preload(
                 self.state.as_ptr(),
                 key.as_ptr(),
@@ -750,22 +690,34 @@ impl Lua {
                 source.len(),
                 chunk_name.as_ptr(),
                 error,
-                capacity,
             )
         })
     }
 
-    fn protected(&self, call: impl FnOnce(*mut c_char, usize) -> c_int) -> Result<(), String> {
-        let mut error = [0_u8; ERROR_CAPACITY];
-        let status = call(error.as_mut_ptr().cast(), error.len());
+    fn protected(&self, call: impl FnOnce(*mut LuaError) -> c_int) -> Result<(), String> {
+        let mut error = LuaError {
+            data: std::ptr::null_mut(),
+            length: 0,
+        };
+        let status = call(&raw mut error);
+        let text = (!error.data.is_null()).then(|| {
+            // SAFETY: the shim allocated `length` bytes at `data` for this call
+            // and gave them to us; they are copied, then released exactly once.
+            let bytes =
+                unsafe { std::slice::from_raw_parts(error.data.cast::<u8>(), error.length) }
+                    .to_vec();
+            // SAFETY: `data` came from the shim's allocator and nothing else
+            // holds it.
+            unsafe { nupp_lua_error_free(error.data) };
+            bytes
+        });
         if status == 0 {
             return Ok(());
         }
-        let length = error
-            .iter()
-            .position(|byte| *byte == 0)
-            .unwrap_or(error.len());
-        Err(String::from_utf8_lossy(&error[..length]).into_owned())
+        Err(text.map_or_else(
+            || "LuaJIT protected operation failed".to_owned(),
+            |text| String::from_utf8_lossy(&text).into_owned(),
+        ))
     }
 }
 
