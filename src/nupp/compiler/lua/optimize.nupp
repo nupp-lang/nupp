@@ -857,6 +857,13 @@ local function literal(kind, value, code)
     return {kind = kind, value = value, code = code}
 end
 
+-- A string as Lua source on one line. `%q` writes a newline in the value as a
+-- backslash and a real newline, which moves everything after it on the source line
+-- down one in the generated chunk; `\n` reads back as the same string.
+local function quoteString(value: string): string
+    return (string.format("%q", value):gsub("\n", "n"))
+end
+
 local function integerLiteral(node)
     if not node.token then
         return nil
@@ -893,7 +900,7 @@ local function stringLiteral(node)
         return nil
     end
 
-    return literal("string", value, string.format("%q", value))
+    return literal("string", value, quoteString(value))
 end
 
 -- A comptime result is already canonical Lua source, not source supplied by the
@@ -917,7 +924,7 @@ local function comptimeLiteral(node)
         if chunk then
             local ok, value = pcall(chunk)
             if ok and type(value) == "string" then
-                return literal("string", value, string.format("%q", value))
+                return literal("string", value, quoteString(value))
             end
         end
     end
@@ -1085,7 +1092,7 @@ local function resolvedLiteral(node)
     then
         return literal("number", t.constant, ("%.0f"):format(t.constant))
     elseif t.base and t.base.tag == "string" and type(t.constant) == "string" then
-        return literal("string", t.constant, string.format("%q", t.constant))
+        return literal("string", t.constant, quoteString(t.constant))
     elseif t.base and t.base.tag == "boolean" and type(t.constant) == "boolean" then
         return literal("boolean", t.constant, tostring(t.constant))
     end
@@ -1275,7 +1282,7 @@ local function foldExpr(node, current)
                 return folded
             end
         elseif op == ".." and left.kind == "string" and right.kind == "string" then
-            local folded = literal("string", left.value .. right.value, string.format("%q", left.value .. right.value))
+            local folded = literal("string", left.value .. right.value, quoteString(left.value .. right.value))
             node.folded = folded.code
             return folded
         end

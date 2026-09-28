@@ -2287,6 +2287,18 @@ function M.keepsAZeroFloorQuotientThatCarriesTheSignOfZero()
     assertEq(assertAgrees("local a = -4\na = a + 0\nlocal z = 0\nprint(a * (z / 3), a * ((7 // 2) - 3))"), "-0\t-0")
 end
 
+-- A folded string is written back on the line it came from: a newline in its value
+-- is spelled `\n`, or everything after it on that source line moves down one.
+function M.foldedStringsKeepLineIdentity()
+    assertEq(
+        assertAgrees("local x2 = #((\"x\\ny\" .. (x1)) .. tostring((x1)))"),
+        "ERROR differential.g.nupp:1: attempt to concatenate global 'x1' (a nil value)"
+    )
+    local code = compile("local s = \"a\\nb\" .. \"c\"\nlocal t = s .. nothing\nreturn s")
+    assertEq(code:find("\\\n"), nil, "no quoted newline spans two generated lines: " .. code)
+    assertTrue(code:find("\"a\\nbc\"", 1, true) ~= nil, "the fold is one quoted line: " .. code)
+end
+
 -- Reserving array slots moves integer keys out of the hash part, and `#` of a table
 -- with holes answers from wherever they were placed. Array slots are reserved for a
 -- run from 1 of values that are never nil, and any other integer key leaves the table
