@@ -101,6 +101,10 @@ impl SharedBytesBuilder {
         if self.reserved.is_some() {
             return Err(BuilderError::ReservationOpen);
         }
+        // Growth the allocator cannot satisfy is a refusal, not an abort.
+        self.bytes
+            .try_reserve(bytes.len())
+            .map_err(|_| BuilderError::TooLarge)?;
         self.bytes.extend_from_slice(bytes);
         Ok(())
     }
@@ -111,6 +115,9 @@ impl SharedBytesBuilder {
         }
         let start = self.bytes.len();
         let end = start.checked_add(count).ok_or(BuilderError::TooLarge)?;
+        self.bytes
+            .try_reserve_exact(count)
+            .map_err(|_| BuilderError::TooLarge)?;
         self.bytes.resize(end, 0);
         self.reserved = Some(start..end);
         Ok(&mut self.bytes[start..end])
@@ -176,6 +183,25 @@ mod tests {
         builder.reserve(8).unwrap()[..3].copy_from_slice(b"two");
         builder.commit(3).unwrap();
         assert_eq!(builder.freeze().unwrap().as_slice(), b"onetwo");
+    }
+
+    #[test]
+    fn growth_the_allocator_cannot_satisfy_is_refused_not_fatal() {
+        let mut builder = SharedBytesBuilder::default();
+        builder.append(b"kept").unwrap();
+        assert_eq!(
+            builder.reserve(usize::MAX / 2).err(),
+            Some(BuilderError::TooLarge)
+        );
+        assert_eq!(
+            builder.reserve(usize::MAX - 2).err(),
+            Some(BuilderError::TooLarge)
+        );
+        // A refused reservation leaves the builder as it was.
+        assert!(!builder.reservation_open());
+        builder.reserve(2).unwrap().copy_from_slice(b"!!");
+        builder.commit(2).unwrap();
+        assert_eq!(builder.freeze().unwrap().as_slice(), b"kept!!");
     }
 
     #[test]
