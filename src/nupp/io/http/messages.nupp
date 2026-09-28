@@ -53,8 +53,9 @@ record http.Options
     --- How long establishing a connection may take, 10000 by default.
     connectTimeoutMs: integer?
 
-    --- How long a transfer may make no progress before it fails, 0 to allow any
-    --- pause and the default.
+    --- How long a response body may make no progress before the transfer fails,
+    --- 0 to allow any pause and the default. The wait for the response headers
+    --- and a streamed upload are bounded by `timeoutMs` alone.
     stallTimeoutMs: integer?
 
     --- How many redirects one request may follow, 5 by default.
@@ -165,7 +166,8 @@ record http.Request is nupp.Closeable
     --- How long this request may take end to end, or the client's limit.
     timeoutMs: integer?
 
-    --- How long this request may make no progress, or the client's limit.
+    --- How long this request's response body may make no progress, or the
+    --- client's limit.
     stallTimeoutMs: integer?
 
     --- How many response bytes this request may take, or the client's limit.
