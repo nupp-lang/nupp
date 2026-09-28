@@ -894,6 +894,19 @@ impl HostRuntime {
             return Ok(());
         }
         if self.phase.get() == Phase::Running {
+            // A session the host never closed is closed here, as a failed one:
+            // its latch lives in the Lua state, which an attached runtime
+            // leaves running for whatever attaches next.
+            let open = self.reloads.get_mut().keys().copied().collect::<Vec<_>>();
+            for id in open {
+                let _ = self.reload_close(
+                    Reload {
+                        runtime: self.id,
+                        id,
+                    },
+                    false,
+                );
+            }
             self.phase.set(Phase::ShuttingDown);
             let mut release_error = None;
             if let Some(lua) = self.lua.as_ref() {

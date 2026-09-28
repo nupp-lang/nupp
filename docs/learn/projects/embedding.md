@@ -626,7 +626,9 @@ entirely to the host.
 ### Closing
 
 `nupp_reload_close` retires the session and `nupp_reload_free` releases the
-handle to it. The program's own values survive both, and every function it handed
+handle to it. A session still open when its runtime shuts down is closed then,
+as a failed one, so a runtime attached to the same state later can open its
+own. The program's own values survive both, and every function it handed
 out keeps answering; what stops is reloading them. A process holds one session at
 a time: opening a second before the first closes is refused.
 

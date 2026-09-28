@@ -352,6 +352,102 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
     assert(status == 0, output)
 end
 
+-- A runtime attached to a host's state shuts down without closing that state, so
+-- a session it left open must still be closed by the shutdown: the session latch
+-- lives in the state, and a later runtime there would otherwise be told a
+-- session is already open.
+local REOPEN_DRIVER = [[
+#include "nupp.h"
+#include <stdio.h>
+
+static int report(const char *what, nupp_status status, nupp_error *error) {
+    if (status == NUPP_STATUS_OK) return 0;
+    fprintf(stderr, "%s: %s\n", what, error ? nupp_error_message(error) : "unknown error");
+    nupp_error_free(error);
+    return 1;
+}
+
+static int open_attached(nupp_runtime *owner, char **argv, nupp_runtime **runtime,
+    nupp_reload **reload, const char *what) {
+    nupp_config config;
+    nupp_reload_config reloading;
+    nupp_error *error = NULL;
+    nupp_config_init(&config);
+    config.flags = 0;
+    if (report("attach", nupp_runtime_attach(nupp_runtime_lua_state(owner), &config,
+            runtime, &error), error)) return 1;
+    nupp_reload_config_init(&reloading);
+    reloading.compiler_path = argv[1];
+    reloading.root = argv[2];
+    reloading.entry = argv[3];
+    error = NULL;
+    return report(what, nupp_reload_open(*runtime, &reloading, reload, &error), error);
+}
+
+int main(int argc, char **argv) {
+    nupp_runtime *owner = NULL, *first = NULL, *second = NULL;
+    nupp_reload *reload = NULL;
+    nupp_error *error = NULL;
+    FILE *entry;
+    char path[2048];
+
+    if (argc != 4) return 2;
+    snprintf(path, sizeof path, "%s/%s", argv[2], argv[3]);
+    entry = fopen(path, "wb");
+    if (!entry) return 2;
+    fputs("local function update(): integer\n    return 1\nend\n\nreturn {update = update}\n", entry);
+    fclose(entry);
+    if (report("runtime", nupp_runtime_new(NULL, &owner, &error), error)) return 1;
+    if (open_attached(owner, argv, &first, &reload, "first open")) return 1;
+    error = NULL;
+    if (report("first shutdown", nupp_runtime_shutdown(first, &error), error)) return 1;
+    nupp_reload_free(reload);
+    nupp_runtime_free(first);
+    if (open_attached(owner, argv, &second, &reload, "second open")) return 1;
+    printf("reopened\n");
+    error = NULL;
+    nupp_reload_close(second, reload, 1, &error);
+    nupp_error_free(error);
+    nupp_reload_free(reload);
+    nupp_runtime_free(second);
+    nupp_runtime_free(owner);
+    return 0;
+}
+]]
+
+function M.anAttachedShutdownClosesTheSessionItLeftOpen()
+    local compilerModules = ROOT .. "/build"
+    local present = io.open(compilerModules .. "/nupp/tools/hostreload.lua", "rb")
+    if not present then
+        test.skip("hot reload needs the compiler's Lua modules under build/")
+    end
+    present:close()
+    local directory, library = temporary(), sdk()
+    local project = directory .. "/project"
+    assert(os.execute("mkdir -p " .. quote(project)) == 0)
+    local source = directory .. "/reopen.c"
+    write(source, REOPEN_DRIVER)
+    local executable = directory .. "/reopen"
+    if jit.os == "Windows" then
+        executable = executable .. ".exe"
+    end
+    local status, output = run(
+        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+            quote(compiler()),
+            quote(library),
+            quote(source),
+            quote(library .. "/libnupp.a"),
+            platformLibraries(library),
+            quote(executable)
+        )
+    )
+    assert(status == 0, output)
+    status, output = run(
+        ("%s %s %s main.nupp"):format(quote(executable), quote(compilerModules), quote(project))
+    )
+    assert(status == 0 and output:find("reopened", 1, true), output)
+end
+
 -- The plan's own acceptance case, in C: a loaded component, a callable retained
 -- across the edit, an update prepared away from the safe point and applied at one,
 -- and module state that outlives the commit.
