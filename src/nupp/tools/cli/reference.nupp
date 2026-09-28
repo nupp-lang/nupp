@@ -93,10 +93,19 @@ local function run(options: any): integer
         local chosen: {any} = {}
         if wantedSection then
             local section, chapter = reference.findSection(wantedSection)
-            if not section then
+            if section then
+                chosen[1] = {section = section, chapter = chapter}
+            else
+                -- A diagnostic's pointer may name the documentation rather than this
+                -- reference. Its pages are read from the checkout the compiler runs
+                -- from, which is the documentation of this same compiler.
+                for _, found in ipairs(reference.pointerSections(wantedSection, os.getenv("NUPP_COMPILER_ROOT"))) do
+                    chosen[#chosen + 1] = found
+                end
+            end
+            if #chosen == 0 then
                 return usageError("no reference section named " .. wantedSection .. "; `nupp reference` lists them")
             end
-            chosen[1] = {section = section, chapter = chapter}
         else
             for _, found in ipairs(reference.sectionsFor(wantedCode)) do
                 chosen[#chosen + 1] = found

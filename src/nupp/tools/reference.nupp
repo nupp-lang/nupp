@@ -50,6 +50,10 @@ record reference.Section
     --- example of the thing readers most often get wrong would be the wrong one to
     --- leave unchecked.
     context: {[string]: string}?
+
+    --- Where a section came from when it is not one of this reference's own: a page
+    --- of the documentation, or the diagnostic index. Nil for every section here.
+    origin: string?
 end
 
 --- One chapter groups related reference sections under a stable top-level heading.
@@ -3141,7 +3145,7 @@ end
 --- The section a slug names, and the chapter holding it.
 ---
 --- Accepts what a reader actually has in hand rather than only the bare slug: a whole
---- `docs` pointer such as `docs/reference/diagnostics.md#diagnostic-index`, a bare
+--- `docs` pointer such as `docs/learn/language/modules.md#modules`, a bare
 --- `#anchor`, or the heading written out. Everything before a `#` is a file name this
 --- reference does not have and does not need, since the anchor is what identifies
 --- the section.
@@ -3156,6 +3160,123 @@ function reference.findSection(name: string): (reference.Section?, reference.Cha
     end
 
     return nil, nil
+end
+
+-- The lines of a documentation page's section: the heading the anchor names and
+-- everything under it up to the next heading at its level or above, or the whole
+-- page when the anchor is empty. Headings inside a fenced block are text.
+local function pageSection(source: string, anchor: string): (string?, string?)
+    local headingId = require("nupp.tools.doc.strings").headingId
+    source = source:gsub("^%-%-%-\r?\n.-\r?\n%-%-%-\r?\n", "")
+    local title: string? = nil
+    local level: integer = 0
+    local body: {string} = {}
+    local fence: string? = nil
+    for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+        local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+        local hashes, text = nil, nil
+        if not fence then
+            hashes, text = line:match("^(#+)%s+(.-)%s*$")
+        end
+        if marker then
+            if not fence then
+                fence = marker
+            elseif marker:sub(1, 1) == fence:sub(1, 1) and #marker >= #fence then
+                fence = nil
+            end
+        end
+        if title then
+            if hashes and #hashes <= level then
+                break
+            end
+            body[#body + 1] = line
+        elseif hashes and text and (anchor == "" or headingId(text) == anchor) then
+            title, level = text:gsub("`", ""), anchor == "" and 0 or #hashes
+        end
+    end
+    if not title then
+        return nil, nil
+    end
+
+    return title, (table.concat(body, "\n"):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- The diagnostic index entry for one code, as the site renders it.
+local function indexEntry(entry: explain.Entry): string
+    local out: {string} = {entry.summary .. ".", ""}
+    if entry.wrong then
+        out[#out + 1] = "```nupp [Reported]\n" .. entry.wrong:gsub("%s+$", "") .. "\n```"
+        out[#out + 1] = ""
+    end
+    out[#out + 1] = entry.rule
+    if entry.right then
+        out[#out + 1] = ""
+        out[#out + 1] = "```nupp [Accepted]\n" .. entry.right:gsub("%s+$", "") .. "\n```"
+    end
+
+    return table.concat(out, "\n")
+end
+
+--- What a `docs` pointer names when no section of this reference has its anchor.
+---
+--- A diagnostic's pointer names the documentation, which is a larger thing than this
+--- reference, and following it is what `--section` promises. So a pointer at a code's
+--- entry in the diagnostic index is answered from the entry every code carries; one at
+--- a page is answered from that page when `root` is a checkout holding it; and one
+--- that is neither is answered with the sections of this reference covering the codes
+--- that carry it.
+---
+--- @param pointer a `docs` pointer, `path#anchor` or a module name
+--- @param root the directory the documentation pages are under, if any
+--- @return the sections it names, empty when nothing answers it
+function reference.pointerSections(pointer: string, root: string?): {{
+    section: reference.Section,
+    chapter: reference.Chapter
+}}
+    local found: {{
+        section: reference.Section,
+        chapter: reference.Chapter
+    }} = {}
+    local path, anchor = pointer:match("^([^#]*)#?(.*)$")
+    path, anchor = path or pointer, anchor or ""
+    local chapter = reference.chapters[1]
+    local code = anchor:upper()
+    if path == "docs/reference/diagnostics.md" and code:match("^NUPP%d+$") then
+        local entry = explain.lookup(code)
+        if entry and not entry.family then
+            local section = new reference.Section(
+                title = code,
+                body = indexEntry(entry),
+                codes = {code},
+                origin = "the diagnostic index"
+            )
+            found[1] = {section = section, chapter = chapter}
+            return found
+        end
+    end
+    local safe = path:match("^docs/[%w%-%._/]+%.md$") and not path:find("%.%.")
+    local source = root and safe and require("nupp.compiler.fs").readFile(root .. "/" .. path) or nil
+    if source then
+        local title, body = pageSection(source, anchor)
+        if title and body then
+            local section = new reference.Section(title = title, body = body, codes = {}, origin = path)
+            found[1] = {section = section, chapter = chapter}
+            return found
+        end
+    end
+    local seen: {[string]: boolean} = {}
+    for _, entry in ipairs(explain.entries) do
+        if entry.docs == pointer then
+            for _, covering in ipairs(reference.sectionsFor(entry.code)) do
+                if not seen[covering.section.title] then
+                    seen[covering.section.title] = true
+                    found[#found + 1] = covering
+                end
+            end
+        end
+    end
+
+    return found
 end
 
 --- Every section that says what one diagnostic code means, with its chapter.
@@ -3306,7 +3427,9 @@ end
 --- @param chapter the chapter that gives the section its context
 --- @return standalone Markdown for the section
 function reference.sectionMarkdown(section: reference.Section, chapter: reference.Chapter): string
-    local out: {string} = {"# " .. section.title, "", "From the Nupp " .. chapter.title .. " reference.", ""}
+    local from = section.origin and "From " .. section.origin .. "."
+        or "From the Nupp " .. chapter.title .. " reference."
+    local out: {string} = {"# " .. section.title, "", from, ""}
     renderSection(out, section, 2, false)
 
     return (table.concat(out, "\n"):gsub("\n+$", ""))

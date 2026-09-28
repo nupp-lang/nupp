@@ -116,7 +116,10 @@ local function section(
         trail[#trail + 1] = "Related: " .. table.concat(names, ", ") .. "."
     end
     local target = entry.docs:match("^([^#]+)") or entry.docs
-    if published[target] then
+    if entry.docs == "docs/reference/diagnostics.md" .. anchor(code) then
+        -- This entry is the whole of what the documentation says about the code, so a
+        -- reference to it would only point at itself.
+    elseif published[target] then
         trail[#trail + 1] = "Reference: [" .. entry.docs .. "](" .. entry.docs .. ")."
     elseif not target:find("/", 1, true) then
         -- A module name rather than a page path: the rule is written in that module's

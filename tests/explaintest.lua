@@ -179,6 +179,56 @@ function M.everyCodeTheCompilerCanEmitHasAReference()
    assert(seen > 50, "the scrape found the codes: " .. seen)
 end
 
+-- Every diagnostic carries a `docs` pointer, and `nupp reference --section` takes
+-- the pointer itself. So each one has to lead somewhere: a section of the
+-- reference, a code's entry in the diagnostic index, or a heading that exists on
+-- the page it names. A pointer at a page must name the page and the heading, not
+-- merely reach the codes it is carried by.
+function M.everyDocsPointerLeadsToASection()
+   local reference = require("nupp.tools.reference")
+   local trace = require("nupp.profile.trace")
+   local root = HERE .. "/.."
+   local pointers = {}
+   for _, code in ipairs(explain.codes()) do
+      pointers[#pointers + 1] = {code, explain.lookup(code).docs}
+   end
+   for _, code in ipairs({"NUPP0001", "NUPP1005", "NUPP2617", "NUPP3004"}) do
+      pointers[#pointers + 1] = {code, explain.lookup(code).docs}
+   end
+   for _, reason in ipairs(trace.records()) do
+      pointers[#pointers + 1] = {reason.id, explain.reasonDocs(reason.id, reason.class)}
+   end
+   local unresolved = {}
+   for _, pair in ipairs(pointers) do
+      local code, pointer = pair[1], pair[2]
+      local path = pointer:match("^([^#]*)")
+      local ok = reference.findSection(pointer) ~= nil
+      if not ok then
+         local found = reference.pointerSections(pointer, root)
+         local origin = found[1] and found[1].section.origin
+         if path:find("/", 1, true) then
+            ok = origin == path or origin == "the diagnostic index"
+         else
+            ok = #found > 0
+         end
+      end
+      if not ok then
+         unresolved[#unresolved + 1] = code .. " -> " .. pointer
+      end
+   end
+   assert(#unresolved == 0, "pointers that lead nowhere:\n  " .. table.concat(unresolved, "\n  "))
+
+   local pipe = assert(io.popen(("'%s' reference --section %s 2>&1"):format(NUPP,
+      "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells")))
+   local out = pipe:read("*a")
+   pipe:close()
+   assert(out:find("# Dynamic boundaries and managed cells", 1, true), "the command follows a page pointer: " .. out)
+   pipe = assert(io.popen(("'%s' reference --section docs/reference/diagnostics.md#nupp2004 2>&1"):format(NUPP)))
+   out = pipe:read("*a")
+   pipe:close()
+   assert(out:find("From the diagnostic index.", 1, true), "and a code's index entry: " .. out)
+end
+
 function M.lookupIsCaseInsensitiveThroughTheCommand()
    local pipe = assert(io.popen(("'%s' explain nupp2119 --json 2>/dev/null"):format(NUPP)))
    local out = pipe:read("*a")

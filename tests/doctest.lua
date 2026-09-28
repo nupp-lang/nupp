@@ -3642,7 +3642,7 @@ function M.diagnosticSectionsShowBothProgramsAsText()
     assert(reported < accepted)
     assert(not body:find(":playground", 1, true), "an index section embedded an editor")
     assert(body:find("`exhaustiveness` lint", 1, true), body)
-    assert(body:find("](docs/reference/lints.md)", 1, true), body)
+    assert(body:find("](docs/reference/lints.md#exhaustiveness)", 1, true), body)
     assert(body:find("/playground/#source=", 1, true), body)
 end
 

@@ -1417,7 +1417,12 @@ followed straight through:
 nupp reference --section docs/learn/language/modules.md#modules
 ```
 
-That prints the same section as `--section modules`. `--for CODE` goes the other
+That prints the same section as `--section modules`. A pointer whose anchor is
+no heading of the reference is still followed. One at a code's entry in the
+diagnostic index, such as `docs/reference/diagnostics.md#nupp2004`, prints that
+entry. One at another page prints that page's section, read from the checkout
+the compiler runs from. Without a checkout, it prints the reference sections
+that cover the codes carrying the pointer. `--for CODE` goes the other
 way and prints whichever sections explain a diagnostic, which is what a reader
 holding one actually has:
 
