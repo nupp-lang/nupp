@@ -1078,4 +1078,15 @@ function M.loweringsReachRuntimeGlobalsPastAShadowingLocal()
     ), "1")
 end
 
+-- `math.floor` refuses cdata and cdata `/` truncates toward zero, so `//` on 64-bit
+-- integers is lowered on its own: the quotient rounds toward negative infinity, as it
+-- does for numbers.
+function M.floorDivisionOnSixtyFourBitIntegersRoundsDown()
+    assertEq(
+        printed("local a = 7LL\nlocal b = -7LL\nprint(a // 2LL, b // 2LL, a // -2LL, b // -2LL, 6LL // -3LL)"),
+        "3LL\t-4LL\t-4LL\t3LL\t-2LL"
+    )
+    assertEq(printed("local c = -7LL\nc = c // 2LL\nprint(c, 7ULL // 2ULL)"), "-4LL\t3ULL")
+end
+
 return M

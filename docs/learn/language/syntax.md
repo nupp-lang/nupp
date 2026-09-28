@@ -507,7 +507,10 @@ the level-1 `is` test.
 
 A lowering reaches the runtime functions it needs through `_G`, so a local
 named `math`, `type`, `select`, `tostring` or `setmetatable` in the program
-does not change what the construct means.
+does not change what the construct means. `//` on an `int64` or `uint64`
+operand calls a helper instead, because `math.floor` refuses cdata and cdata
+`/` truncates toward zero; the helper rounds the quotient down, as `//` does
+for numbers.
 
 The rest of level 1 erases: annotations, `as`, generics, `@unsafe do` (which
 becomes `do`), and the `interface` and `type` declarations, which have no

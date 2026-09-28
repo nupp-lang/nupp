@@ -2046,6 +2046,28 @@ function gen.generate(
         quote = literal.quote,
         renderData = literal.renderData,
         hotLibraries = hot and hot.libraries or {},
+        -- The helper `//` on a 64-bit integer operand calls, or nil for any other.
+        -- `math.floor` refuses cdata and cdata `/` truncates toward zero, so the
+        -- helper takes the truncated quotient one lower when the division was
+        -- inexact and the operands' signs differ.
+        wideFloorDivision = function(...)
+            for index = 1, select("#", ...) do
+                local node = select(index, ...)
+                local t = node and not cst.isToken(node) and node.inferredType or nil
+                if t and t.tag == "literal" then
+                    t = t.base
+                end
+                if t and (t.tag == "int64" or t.tag == "uint64") then
+                    return declareHelper(
+                        "__nuppFloorDiv",
+                        "a,b",
+                        "local q=a/b;if q*b~=a and (a<0)~=(b<0) then q=q-1 end;return q"
+                    )
+                end
+            end
+
+            return nil
+        end,
         -- The node's closing `end` token, searched from the back, so generated
         -- code can close on the source's own line. Carried here for the same
         -- upvalue reason as everything else on this table.
@@ -6561,6 +6583,15 @@ function gen.generate(
             e(")")
 
         elseif kind == "binop" and x.op.kind == "//" then
+            local wide = pluck.wideFloorDivision(x.lhs, x.rhs)
+            if wide then
+                e(wide .. "(", x.op.line)
+                emit(x.lhs)
+                e(",")
+                emit(x.rhs)
+                e(")")
+                return
+            end
             e("_G.math.floor((", x.op.line)
             emit(x.lhs)
             e(") / (")
@@ -6592,6 +6623,10 @@ function gen.generate(
                     e(slot .. "=")
                     emit(x.value)
                     e(" end")
+                elseif base == "//" and pluck.wideFloorDivision(target, x.value) then
+                    e(("%s = %s(%s,"):format(slot, pluck.wideFloorDivision(target, x.value), read), at)
+                    emit(x.value)
+                    e(")")
                 elseif base == "//" then
                     e(("%s = _G.math.floor((%s) / ("):format(slot, read), at)
                     emit(x.value)
