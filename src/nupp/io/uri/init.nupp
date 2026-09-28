@@ -105,7 +105,9 @@ through a configured service address.
 ## Resolving a reference
 
 `resolve` applies RFC reference resolution, the way a browser resolves a link
-against the page it is on. It answers nil and a reason when the reference
+against the page it is on. A reference that repeats the page's scheme without
+an authority, such as `https:other.html`, is relative, as browsers and RFC 3986's
+non-strict reading take it. It answers nil and a reason when the reference
 cannot be resolved:
 
 ```nupp
@@ -469,8 +471,15 @@ export record URI
     --- @return the resolved URI, or nil when the reference cannot be resolved
     --- @return a failure reason, when unsuccessful
     function resolve(self, reference: string): (URI?, string?)
-        if reference:match("^[A-Za-z][A-Za-z0-9+.-]*:") then
-            return newURI(reference)
+        local scheme, rest = reference:match("^([A-Za-z][A-Za-z0-9+.-]*):(.*)$")
+        if scheme ~= nil then
+            -- RFC 3986 section 5.2.2, read non-strictly as browsers do: a
+            -- reference repeating this scheme without an authority is relative.
+            -- Parsed on its own, `http:g` would make `g` the host.
+            if scheme:lower() ~= self._scheme:lower() or rest:sub(1, 2) == "//" then
+                return newURI(reference)
+            end
+            reference = rest
         end
         local prefix = self._scheme .. ":"
         if reference:sub(1, 2) == "//" then
