@@ -926,7 +926,7 @@ return collect("ignored", nil, 3)]]
 
     local code = generate("local function f(...args) return args.n end")
     assert(code:find("...", 1, true), "plain vararg remains in output")
-    assert(code:find("local args = { n = select", 1, true), "named vararg table is lowered")
+    assert(code:find("local args = { n = _G.select", 1, true), "named vararg table is lowered")
     assert(not code:find("...args", 1, true), "named spelling is erased")
 end
 
@@ -1021,6 +1021,61 @@ function M.sharedLanguageSemanticsSurviveLegacyRetirement()
 
         verify(chunk())
     end
+end
+
+-- Checks, generates and runs `src`, returning what it printed. `filename` picks the
+-- dialect: a `.g.nupp` name is gradual, a `.nupp` name strict.
+local function printed(src, filename)
+    filename = filename or "printed.g.nupp"
+    local result = parser.parse(src, filename)
+    assertEq(#result.errors, 0, "syntax errors in test source")
+    for _, d in ipairs(check.check(result, filename, env)) do
+        assert(d.severity ~= "error", "check error for " .. src .. ": " .. tostring(d.msg or d.message))
+    end
+    local code, diags = gen.generate(result, filename)
+    assertEq(#diags, 0, "gen diagnostics for " .. src)
+    local chunk = assert(loadstring(code, "@" .. filename))
+    local out = {}
+    setfenv(chunk, setmetatable({
+        print = function(...)
+            local parts = {}
+            for i = 1, select("#", ...) do
+                parts[i] = tostring((select(i, ...)))
+            end
+            out[#out + 1] = table.concat(parts, "\t")
+        end,
+    }, {__index = _G}))
+    chunk()
+    return table.concat(out, "\n")
+end
+
+-- A lowering that needs a runtime function reaches it through `_G`, so a local of the
+-- same name in the program -- `type` in a parser, `math` in a geometry module -- does
+-- not change what `a // 2` or `v is number` means.
+function M.loweringsReachRuntimeGlobalsPastAShadowingLocal()
+    assertEq(printed(
+        "local math = {floor = function(x: number): number return 42 end}\nlocal a: integer = 7\nprint(a // 2)",
+        "printed.nupp"
+    ), "3")
+    assertEq(printed("local math = {}\nlocal a = 7\na //= 2\nprint(a)"), "3")
+    assertEq(printed(
+        "local type = function(x: any): string return 'table' end\nlocal v: any = 5\nprint(v is number, v is string)"
+    ), "true\tfalse")
+    assertEq(printed(
+        "local getmetatable = function(x: any): any return nil end\nlocal record R\n    x: integer\nend\n"
+            .. "local r: any = new R(x = 1)\nprint(r is R)"
+    ), "true")
+    assertEq(printed(
+        "local select = function(...: any): integer return 99 end\n"
+            .. "local function f(...rest: any): integer\n    return rest.n\nend\nprint(f(1, 2))"
+    ), "2")
+    assertEq(printed(
+        "local tostring = function(x: any): string return 'T' end\nlocal n = 5\nprint(`n=${n}`)"
+    ), "n=5")
+    assertEq(printed(
+        "local setmetatable = function(t: any, m: any): any return 'hijacked' end\n"
+            .. "local record P\n    x: integer\nend\nlocal p = new P(x = 1)\nprint(p.x)"
+    ), "1")
 end
 
 return M

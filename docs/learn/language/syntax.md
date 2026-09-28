@@ -498,12 +498,16 @@ the level-1 `is` test.
 
 | Written | Generated |
 | --- | --- |
-| `a // b` | `math.floor((a) / (b))` |
-| `a //= b` | `a = math.floor((a) / (b))` |
+| `a // b` | `_G.math.floor((a) / (b))` |
+| `a //= b` | `a = _G.math.floor((a) / (b))` |
 | `x ??= "set"` | `if x == nil then x = "set" end` |
-| `function(...xs)` | `function(...) const xs = {n = select("#", ...), ...}` |
-| `` `a is ${a}` `` | `("a is " .. tostring(a))` |
-| `v is Point` | a `type()` comparison, with nil compared directly |
+| `function(...xs)` | `function(...) const xs = {n = _G.select("#", ...), ...}` |
+| `` `a is ${a}` `` | `("a is " .. _G.tostring(a))` |
+| `v is Point` | a `_G.type()` comparison, with nil compared directly |
+
+A lowering reaches the runtime functions it needs through `_G`, so a local
+named `math`, `type`, `select`, `tostring` or `setmetatable` in the program
+does not change what the construct means.
 
 The rest of level 1 erases: annotations, `as`, generics, `@unsafe do` (which
 becomes `do`), and the `interface` and `type` declarations, which have no

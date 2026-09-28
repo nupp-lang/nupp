@@ -2612,7 +2612,7 @@ function gen.generate(
         local line = sourceLine(planned.node)
         e("function(" .. table.concat(names, ",") .. ")", line)
         if body.varargParam then
-            e(("local %s={n=select(\"#\",...),...}"):format(body.varargParam.name.text))
+            e(("local %s={n=_G.select(\"#\",...),...}"):format(body.varargParam.name.text))
         end
         emitDepth.fn = emitDepth.fn + 1
         beginActivation()
@@ -2789,7 +2789,7 @@ function gen.generate(
             coverageHit("function", body)
         end
         if body.varargParam then
-            e(("local %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+            e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(body.varargParam.name.text))
         end
         if body.body then
             emit(body.body)
@@ -2811,9 +2811,9 @@ function gen.generate(
         end
         local registry = nextTemp()
         local family = nextTemp()
-        e(";local " .. registry .. "=rawget(_G,\"__nuppConstSpecializations\")", sourceLine(declaration))
-        e(";if not " .. registry .. " then " .. registry .. "=setmetatable({},{__mode=\"k\"});")
-        e("rawset(_G,\"__nuppConstSpecializations\"," .. registry .. ") end")
+        e(";local " .. registry .. "=_G.rawget(_G,\"__nuppConstSpecializations\")", sourceLine(declaration))
+        e(";if not " .. registry .. " then " .. registry .. "=_G.setmetatable({},{__mode=\"k\"});")
+        e("_G.rawset(_G,\"__nuppConstSpecializations\"," .. registry .. ") end")
         e(";local " .. family .. "=" .. registry .. "[" .. declaration.name.text .. "]")
         e(";if not " .. family .. " then " .. family .. "={};" .. registry .. "[")
         e(declaration.name.text .. "]=" .. family .. " end")
@@ -2871,11 +2871,11 @@ function gen.generate(
         if t.kind == "tname" and t.base.kind == "nil" then
             e("(" .. subject .. "==nil)", line)
         elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
-            e(('(type(%s)==%q)'):format(subject, IS_TYPE[t.base.text]), line)
+            e(('(_G.type(%s)==%q)'):format(subject, IS_TYPE[t.base.text]), line)
         elseif t.primitiveTest then
-            e(('(type(%s)==%q)'):format(subject, t.primitiveTest), line)
+            e(('(_G.type(%s)==%q)'):format(subject, t.primitiveTest), line)
         elseif t.kind == "tfunc" then
-            e(('(type(%s)=="function")'):format(subject), line)
+            e(('(_G.type(%s)=="function")'):format(subject), line)
         elseif t.wherePredicate then
             e("(" .. predicate.test(t.wherePredicate, subject) .. ")", line)
         elseif t.recordName and recordIdentity then
@@ -4829,7 +4829,7 @@ function gen.generate(
         )
         e(
             (
-                "return setmetatable(%s,{__call=function(_,...) if not %s then %s(%q,2) end; "
+                "return _G.setmetatable(%s,{__call=function(_,...) if not %s then %s(%q,2) end; "
             ):format(wrapper, active, cleanupGlobals.error, "nupp: affine closure was already called or dropped")
         )
         e(("%s=false; return %s(...) end}) end)("):format(active, callable))
@@ -6380,17 +6380,17 @@ function gen.generate(
                 emit(x.expr)
                 e("== nil )")
             elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
-                e("( type(", firstTok and firstTok.line)
+                e("( _G.type(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(') == "' .. IS_TYPE[t.base.text] .. '" )')
             elseif t.primitiveTest then
                 -- The same test, for a name that resolved to a primitive without
                 -- naming one: an alias of `string` is a string at run time.
-                e("( type(", firstTok and firstTok.line)
+                e("( _G.type(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(') == "' .. t.primitiveTest .. '" )')
             elseif t.kind == "tfunc" then
-                e("( type(", firstTok and firstTok.line)
+                e("( _G.type(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(') == "function" )')
             elseif t.wherePredicate then
@@ -6432,7 +6432,7 @@ function gen.generate(
                 -- directly stamped instance arrives at `R` by the same step a linked
                 -- one does. The subject is read once, and a value with no metatable at
                 -- all falls out as false rather than raising.
-                e("( getmetatable(", firstTok and firstTok.line)
+                e("( _G.getmetatable(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(")?.__index == " .. t.recordName .. " )")
             elseif t.recordNames then
@@ -6507,7 +6507,7 @@ function gen.generate(
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
             if x.varargParam then
-                e(("local %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+                e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(x.varargParam.name.text))
             end
             if x.expr then
                 -- Parentheses force the expression form to return exactly one result,
@@ -6549,7 +6549,7 @@ function gen.generate(
                     if piecesOpen then
                         e("..")
                     end
-                    e("tostring(")
+                    e("_G.tostring(")
                     emit(child)
                     e(")")
                     piecesOpen = true
@@ -6561,7 +6561,7 @@ function gen.generate(
             e(")")
 
         elseif kind == "binop" and x.op.kind == "//" then
-            e("math.floor((", x.op.line)
+            e("_G.math.floor((", x.op.line)
             emit(x.lhs)
             e(") / (")
             emit(x.rhs)
@@ -6593,7 +6593,7 @@ function gen.generate(
                     emit(x.value)
                     e(" end")
                 elseif base == "//" then
-                    e(("%s = math.floor((%s) / ("):format(slot, read), at)
+                    e(("%s = _G.math.floor((%s) / ("):format(slot, read), at)
                     emit(x.value)
                     e("))")
                 else
@@ -7360,7 +7360,7 @@ function gen.generate(
             -- named them or left them to the declaration's order, because that is
             -- where the source put the evaluation of their values.
             local line = sourceLine(x)
-            e("setmetatable({", line)
+            e("_G.setmetatable({", line)
             for index, binding in ipairs(x.recordFields or {}) do
                 if index > 1 then
                     e(", ")
@@ -7442,7 +7442,7 @@ function gen.generate(
             else
                 e(
                     (
-                        "function %s.%s(%s) local self = setmetatable({%s}, %s)"
+                        "function %s.%s(%s) local self = _G.setmetatable({%s}, %s)"
                     ):format(
                         owner,
                         constructorMember(x.constructorIndex),
@@ -7454,7 +7454,7 @@ function gen.generate(
                 )
             end
             if body.varargParam then
-                e(("local %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+                e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
             local priorConstructorReturnName = emitDepth.constructorReturnName
             local instanceName = nextTemp()
@@ -7471,7 +7471,7 @@ function gen.generate(
             local endTok = pluck.endToken(body)
             if split then
                 local allocation = x.structAllocator and (x.structAllocator .. "()")
-                    or ("setmetatable({}, " .. owner .. ")")
+                    or ("_G.setmetatable({}, " .. owner .. ")")
                 e(
                     (
                         "return %s end function %s.%s(%s) return %s.%s(%s%s) end"
@@ -7532,7 +7532,7 @@ function gen.generate(
                 )
             end
             if body.varargParam then
-                e(("local %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+                e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
@@ -7567,7 +7567,7 @@ function gen.generate(
                 line
             )
             if x.body.varargParam then
-                e(("local %s = { n = select(\"#\", ...), ... }"):format(x.body.varargParam.name.text))
+                e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(x.body.varargParam.name.text))
             end
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
@@ -8634,7 +8634,7 @@ function gen.generate(
                         if coverageOn then
                             coverageHit("function", x)
                         end
-                        e(("local %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+                        e(("local %s = { n = _G.select(\"#\", ...), ... }"):format(x.varargParam.name.text))
                     end
                     if emitDepth.hoist and emitDepth.hoist.done and child == emitDepth.hoist.endTok then
                         pluck.skipHoistedEnd(child.line)

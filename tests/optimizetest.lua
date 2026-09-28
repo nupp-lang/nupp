@@ -2150,7 +2150,7 @@ local ok = pcall(render, 6)
 return ok
 ]]
     local plain = assert(loadstring((compile(source, 0))))()
-    assertEq(plain, false, "the generated conversion reads the shadowed builtin")
+    assertEq(plain, true, "the generated conversion reaches the builtin past the local")
     assertEq(run(source), plain, "cleanup must preserve the scope of implicit reads")
 end
 
