@@ -112,14 +112,25 @@ function effects.request(
     end
 end
 
-function effects.park(operation: string): nil
+--- Hands the queued requests to the host and dispatches what it answers.
+---
+--- The host answers a request when it settles rather than when its batch does, so a
+--- short sleep shipped beside a scope's deadline timer is not held until the
+--- deadline. `turn` says this side owes the event loop a turn and has work of its
+--- own to resume, so the host answers after one with whatever has settled;
+--- otherwise it answers once something has.
+---
+--- @raises string where the host answers malformed or cancels the application, or
+---     where a dispatched callback raises
+function effects.park(operation: string, turn: boolean?): nil
     local encoded: string
+    local wake = turn == true and "turn" or "any"
     if #queued == 0 then
-        encoded = json.encode({kind = "poll", operation = operation,})
+        encoded = json.encode({kind = "poll", operation = operation, wake = wake,})
     else
         -- Encode before clearing, so a failed encode leaves the queue intact
         -- instead of stranding every dequeued request's waiter.
-        encoded = json.encode({kind = "effects", requests = queued,})
+        encoded = json.encode({kind = "effects", requests = queued, wake = wake,})
         queued = {}
     end
     local responseText = coroutine.yield(encoded)

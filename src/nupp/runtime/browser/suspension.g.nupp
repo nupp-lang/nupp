@@ -236,10 +236,29 @@ local function consumeTurn(): nil
     end
 end
 
+--- Whether a registered readiness source has something outstanding, which only a
+--- poll after a host turn can observe. A source that cannot say is assumed to.
+local function sourcesActive(): boolean
+    for index = 1, #sources do
+        local source = sources[index] as suspension.Source
+        local active = source.active
+        if not source.released and (active == nil or (active as function(suspension.Source): boolean)(source)) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Parks on the host once and polls what the answer woke.
+local function hostPark(operation: string, turn: boolean): nil
+    effects.park(operation, turn or sourcesActive())
+    suspension.poll()
+end
+
 local function deferTurn(): nil
     turnRemaining = ACTIVATIONS_PER_TURN
-    effects.park("nupp coroutine turn budget")
-    suspension.poll()
+    hostPark("nupp coroutine turn budget", true)
 end
 
 rawset(suspension, "__turnAvailable", turnAvailable)
@@ -336,8 +355,7 @@ function suspension.delegatedPark(): function(suspension.Waiting, function(): ni
             return
         end
         while not waiting:ready() do
-            effects.park(waiting.operation)
-            suspension.poll()
+            hostPark(waiting.operation, false)
         end
     end
 end
@@ -402,8 +420,7 @@ function suspension.suspend<T>(
         current:park(waiting, cancel)
     else
         while not state.ready do
-            effects.park(operation)
-            suspension.poll()
+            hostPark(operation, false)
         end
     end
     if not state.ready then

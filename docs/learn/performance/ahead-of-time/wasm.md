@@ -85,7 +85,10 @@ lanes and the same verified manifest.
 Browser facades select implementations for HTTP, files, suspension, time,
 random bytes, UUIDs, WebGPU, and worker tasks. Effects cross a bounded protocol;
 ordinary Lua and AOT kernels stay within the guest or kernel until they request
-a service.
+a service. The page answers each request when it settles rather than when the
+rest of its batch does, so a short sleep shipped beside a task scope's deadline
+timer ends on time. Only a request that lends guest memory is answered in the
+frame that carried it.
 
 ## Limits
 

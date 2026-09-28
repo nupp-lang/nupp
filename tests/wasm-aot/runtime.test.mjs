@@ -266,6 +266,77 @@ test("browser time effects use Worker clocks and cancellable timers", async () =
   ]);
 });
 
+test("a waiting frame is answered when its first request settles, not its last", async () => {
+  const options = {};
+  const started = performance.now();
+  const first = await handleBrowserEffects({
+    kind: "effects",
+    wake: "any",
+    requests: [
+      {id: 1, kind: "time", operation: "sleep", milliseconds: 5},
+      {id: 2, kind: "time", operation: "sleep", milliseconds: 400},
+    ],
+  }, options);
+  // A scope deadline ships beside its children's waits. Holding the frame for the
+  // longer timer would answer a short sleep at the deadline.
+  assert.deepEqual(first.responses, [{id: 1, ok: true, value: null}]);
+  assert.ok(performance.now() - started < 300, "the short sleep waited on the long one");
+  const later = await handleBrowserEffects({kind: "poll", operation: "a task", wake: "any"}, options);
+  assert.deepEqual(later.responses, [{id: 2, ok: true, value: null}], "a detached request arrives in a later frame");
+});
+
+test("a turn frame returns after one host turn with whatever has settled", async () => {
+  const turn = await handleBrowserEffects({
+    kind: "effects",
+    wake: "turn",
+    requests: [
+      {id: 1, kind: "time", operation: "now"},
+      {id: 2, kind: "time", operation: "sleep", milliseconds: 60},
+    ],
+  }, {performance: {now: () => 3}});
+  assert.deepEqual(turn.responses, [{id: 1, ok: true, value: 3}]);
+});
+
+test("a frame holds every request that names a transfer lease", async () => {
+  let released = 0;
+  const transfers = {
+    lease: () => ({view: new Uint8Array(4), bytes: 4}),
+    release: () => { released += 1; },
+  };
+  const result = await handleBrowserEffects({
+    kind: "effects",
+    wake: "any",
+    requests: [
+      {id: 1, kind: "time", operation: "sleep", milliseconds: 0},
+      {id: 2, kind: "slow", lease: 9},
+    ],
+  }, {
+    transfers,
+    effectHandlers: {
+      slow: async (effect, options) => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        options.transfers.release(effect.lease);
+        return "done";
+      },
+    },
+  });
+  // The lease belongs to this frame's transfer batch, which must be settled before
+  // the frame is answered, so the request cannot be left for a later one.
+  assert.deepEqual(result.responses.map((item) => item.id).sort(), [1, 2]);
+  assert.equal(released, 1);
+});
+
+test("a frame without a wake mode answers every request it carries", async () => {
+  const result = await handleBrowserEffects({
+    kind: "effects",
+    requests: [
+      {id: 1, kind: "time", operation: "sleep", milliseconds: 0},
+      {id: 2, kind: "time", operation: "sleep", milliseconds: 30},
+    ],
+  });
+  assert.deepEqual(result.responses.map((item) => item.id), [1, 2]);
+});
+
 test("browser Web Crypto effects provide random, SHA-256, and HMAC", async () => {
   const result = await handleBrowserEffects({
     kind: "effects",

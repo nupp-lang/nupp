@@ -807,42 +807,93 @@ async function performFilesEffect(effect, options) {
   return current;
 }
 
-export async function handleBrowserEffects(message, options = {}) {
-  if (message?.kind === "poll") {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return {responses: []};
+async function performEffect(effect, options) {
+  if (!Number.isInteger(effect?.id) || effect.id < 1) {
+    return {id: effect?.id, ok: false, error: "browser effect id is invalid"};
   }
-  if (message?.kind !== "effects" || !Array.isArray(message.requests)) {
+  try {
+    let value;
+    const supplied = options.effectHandlers?.[effect.kind];
+    if (supplied) value = await supplied(effect, options);
+    else if (effect.kind === "http") value = await performHttpEffect(effect, options);
+    else if (effect.kind === "files") value = await performFilesEffect(effect, options);
+    else if (effect.kind === "time") value = await performTimeEffect(effect, options);
+    else if (effect.kind === "random") value = await performRandomEffect(effect, options);
+    else if (effect.kind === "system") {
+      const count = globalThis.navigator?.hardwareConcurrency;
+      value = {availableParallelism: Number.isInteger(count) && count > 0 ? count : 1};
+    }
+    else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
+    else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
+    else if (effect.kind === "gpu") value = await performGpuEffect(effect, options);
+    else throw new Error(`unsupported browser effect ${effect.kind}`);
+    return {id: effect.id, ok: true, value};
+  } catch (error) {
+    return {id: effect.id, ok: false, error: String(error?.message || error)};
+  }
+}
+
+// A transfer lease belongs to the frame that carried it: the guest takes its bytes
+// back when the frame is answered, so a request naming one settles inside it.
+function boundToFrame(effect) {
+  return effect?.lease !== undefined || effect?.bodyLease !== undefined ||
+    effect?.resultLease !== undefined || effect?.spans !== undefined;
+}
+
+function detachedEffects(options) {
+  return options.detachedEffects ||= {pending: 0, settled: [], wake: null};
+}
+
+function nextHostTurn() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// A frame says how long it may be held. `any`: the application has nothing else to
+// do, so answer once something settles. `turn`: it owes the event loop a turn and
+// has work of its own, so answer after one with whatever has settled. Either way a
+// request without a lease is not held for its batch: a short sleep shipped beside a
+// scope's deadline timer is answered when it ends, and the timer in a later frame.
+// A frame naming neither is answered once every request it carries has settled.
+export async function handleBrowserEffects(message, options = {}) {
+  const wake = message?.wake;
+  if (wake !== undefined && wake !== "any" && wake !== "turn") {
+    throw new Error("the Nupp app yielded an unknown browser effect wake mode");
+  }
+  if (message?.kind !== "poll" && (message?.kind !== "effects" || !Array.isArray(message.requests))) {
     throw new Error("the Nupp app yielded an unknown browser effect message");
   }
-  options.limits ||= checkedLimits(options.limitOverrides);
-  if (message.requests.length > options.limits.maxEffects) {
-    throw new Error(`browser application yielded more than ${options.limits.maxEffects} effects`);
-  }
-  const responses = await Promise.all(message.requests.map(async (effect) => {
-    if (!Number.isInteger(effect?.id) || effect.id < 1) {
-      return {id: effect?.id, ok: false, error: "browser effect id is invalid"};
+  const detached = detachedEffects(options);
+  const held = [];
+  if (message.kind === "effects") {
+    options.limits ||= checkedLimits(options.limitOverrides);
+    if (message.requests.length > options.limits.maxEffects) {
+      throw new Error(`browser application yielded more than ${options.limits.maxEffects} effects`);
     }
-    try {
-      let value;
-      const supplied = options.effectHandlers?.[effect.kind];
-      if (supplied) value = await supplied(effect, options);
-      else if (effect.kind === "http") value = await performHttpEffect(effect, options);
-      else if (effect.kind === "files") value = await performFilesEffect(effect, options);
-      else if (effect.kind === "time") value = await performTimeEffect(effect, options);
-      else if (effect.kind === "random") value = await performRandomEffect(effect, options);
-      else if (effect.kind === "system") {
-        const count = globalThis.navigator?.hardwareConcurrency;
-        value = {availableParallelism: Number.isInteger(count) && count > 0 ? count : 1};
+    for (const effect of message.requests) {
+      const settling = performEffect(effect, options);
+      if (wake === undefined || boundToFrame(effect)) {
+        held.push(settling);
+        continue;
       }
-      else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
-      else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
-      else if (effect.kind === "gpu") value = await performGpuEffect(effect, options);
-      else throw new Error(`unsupported browser effect ${effect.kind}`);
-      return {id: effect.id, ok: true, value};
-    } catch (error) {
-      return {id: effect.id, ok: false, error: String(error?.message || error)};
+      detached.pending += 1;
+      settling.then((response) => {
+        detached.pending -= 1;
+        detached.settled.push(response);
+        const notify = detached.wake;
+        detached.wake = null;
+        notify?.();
+      });
     }
-  }));
+  }
+  const responses = await Promise.all(held);
+  if (wake === "any") {
+    if (responses.length === 0 && detached.settled.length === 0) {
+      if (detached.pending > 0) await new Promise((resolve) => { detached.wake = resolve; });
+      else await nextHostTurn();
+    }
+  } else if (message.kind === "poll" || wake === "turn") {
+    await nextHostTurn();
+  }
+  responses.push(...detached.settled.splice(0));
   return {responses};
 }
