@@ -2401,7 +2401,7 @@ interface nupp.__DeprecatedAnnotation
     --- Why callers should stop using the API.
     reason: string?
 
-    --- The API spelling callers should migrate to.
+    --- The API name callers should migrate to.
     replacement: string?
 end
 
@@ -2811,7 +2811,7 @@ record nupp.QuatLibrary
     --- components rather than the arc.
     ---
     --- Cheaper than `slerp` and not constant in angular speed. If the short route ends
-    --- at `-b`, that spelling is kept through `t == 1` so the four components stay
+    --- at `-b`, that endpoint form is kept through `t == 1` so the four components stay
     --- continuous.
     --- @param ax the starting rotation's x component
     --- @param ay the starting rotation's y component
@@ -2843,7 +2843,7 @@ record nupp.QuatLibrary
     ---
     --- Nearly parallel endpoints fall back to `nlerp`, whose answer they agree on
     --- where the arc the spherical form divides by has vanished. If the short route
-    --- ends at `-b`, that spelling is kept through `t == 1` so the four components
+    --- ends at `-b`, that endpoint form is kept through `t == 1` so the four components
     --- stay continuous.
     --- @param ax the starting rotation's x component
     --- @param ay the starting rotation's y component

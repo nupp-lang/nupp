@@ -52,8 +52,8 @@ end
 --- Binders are compared by counting only. A declaration and the definition that fills
 --- it reach the same types through binders that stand for the same thing without being
 --- the same binder -- the definition may restate the owner's parameters, or introduce
---- its own -- and telling an honest restatement from a mistake needs an alignment
---- neither signature carries. How many values cross the boundary is still the
+--- its own -- and distinguishing an equivalent restatement from a mistake needs an
+--- alignment neither signature carries. How many values cross the boundary is still the
 --- declaration's to state, and that much is answered without one.
 ---
 --- @param supplied what the definition is

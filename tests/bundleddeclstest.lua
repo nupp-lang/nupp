@@ -240,6 +240,10 @@ function M.everyBundledDeclarationResolvesUnderStrict()
             ", "
         )
     )
+    local util = assert(env.resolveModule(env, "jit.util"))
+    assertEq(util.byname.traceir.rets[1].hasNil, true, "an absent trace has no IR mode")
+    assertEq(util.byname.tracek.rets[2].hasNil, true, "an absent IR constant has no type")
+    assertEq(util.byname.ircalladdr.rets[1].hasNil, true, "an absent IR call has no address")
 end
 
 function M.stringBufferKeepsItsMembersUnderStrict()

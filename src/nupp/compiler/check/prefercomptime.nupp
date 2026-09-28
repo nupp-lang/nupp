@@ -1,7 +1,7 @@
 module nupp.compiler.check.prefercomptime
 
 --[[
-A closed runtime function doing work the comptime evaluator can erase.
+Identifies closed runtime functions whose work the comptime evaluator can erase.
 
 This is deliberately a lint rather than implicit partial evaluation. Moving work to
 checking changes when failures happen and spends the compiler's bounded evaluation

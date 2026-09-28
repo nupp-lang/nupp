@@ -1576,7 +1576,7 @@ function control.install(c: state.Checker): state.StatHandlers
             end
         end
         -- The body runs only while the iterator's first value is not nil, so the
-        -- nil an honest iterator declares for its end is never what the first loop
+        -- nil an iterator declares for its end is never what the first loop
         -- variable holds. An iterator that answers one of several packs, such as a
         -- match's captures or nothing, is read the same way: an arm whose first slot
         -- is nil is the loop ending, and the survivors say what the body sees.

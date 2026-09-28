@@ -2383,7 +2383,7 @@ function checkMod.check(
         -- type, so it widens; a write inside a function body runs after the module
         -- has loaded, if it runs at all, so it cannot establish the field on its own
         -- and the field is absent until then; and two writes that disagree leave
-        -- the union, which is the one answer both are honest under.
+        -- the union, which is the one answer valid for both.
         local written = t or T.any
         if written.tag == "literal" then
             written = written.base or T.string

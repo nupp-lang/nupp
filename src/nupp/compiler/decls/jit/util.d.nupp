@@ -1,8 +1,8 @@
 --[[
 Declarations for LuaJIT's jit.util module, loaded for `require("jit.util")`.
 
-Not a field on `jit`: LuaJIT registers this under `package.loaded` only, so it
-has to be require()d.
+Call `require("jit.util")`; LuaJIT registers the module only under
+`package.loaded`, not as a field on `jit`.
 
 Everything here reads VM internals, meaning bytecode, IR, snapshots and machine code,
 whose shape tracks the LuaJIT build rather than any stable contract, and an index
@@ -62,17 +62,18 @@ local record JitUtil
     --- @param tr the trace number
     --- @param idx the IR reference
     --- @return the IR mode, the opcode and type byte, the two operands, and
-    ---     the previous reference in the chain
-    traceir: function(tr: integer, idx: integer): (integer, integer, integer, integer, integer)
+    ---     the previous reference in the chain, or five nil values when the
+    ---     trace or reference does not exist
+    traceir: function(tr: integer, idx: integer): (integer?, integer?, integer?, integer?, integer?)
 
     --- Reads a constant referenced by a trace's IR.
     ---
     --- @param tr the trace number
     --- @param idx the IR reference of the constant
     --- @return the constant value
-    --- @return its IR type
+    --- @return its IR type, or nil when the trace or reference does not exist
     --- @return the stack slot it was loaded from, when there was one
-    tracek: function(tr: integer, idx: integer): (any, integer, integer?)
+    tracek: function(tr: integer, idx: integer): (any, integer?, integer?)
 
     --- Reads a trace snapshot: the stack map an exit restores from.
     ---
@@ -100,8 +101,8 @@ local record JitUtil
     ---
     --- @param idx the index into the IR call table, which
     ---     `require("jit.vmdef").ircall` names
-    --- @return the address
-    ircalladdr: function(idx: integer): integer
+    --- @return the address, or nil when the index is out of range
+    ircalladdr: function(idx: integer): integer?
 end
 
 local util: JitUtil

@@ -1,6 +1,8 @@
 module nupp.compiler.check.derive
 
--- Declaration derives share one closed provider and recipe pipeline.
+--[[
+Declaration derives use one closed provider and recipe pipeline.
+]]
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")

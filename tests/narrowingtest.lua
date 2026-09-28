@@ -5,6 +5,8 @@ local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local mutation = require("nupp.compiler.check.mutation")
 local analysis = require("nupp.compiler.analysis")
+local narrowing = require("nupp.compiler.types.narrowing")
+local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -33,6 +35,22 @@ end
 local CFG = table.concat({"local record Cfg", "    port: number?", "    name: string", "end",}, "\n")
 
 local M = {}
+
+function M.subtractingAWholeSingleTypeLeavesNever()
+    assertEq(narrowing.subtract(T.boolean, T.boolean), T.never)
+    assertEq(narrowing.subtract(T.string, T.string), T.never)
+    assertEq(narrowing.subtract(T.any, T.nil_), T.any)
+    assertEq(narrowing.subtract(T.unknown, T.nil_), T.unknown)
+end
+
+function M.aNilGuardDoesNotEraseAGradualValue()
+    assertClean(
+        table.concat(
+            {"local function field(v: any): any", "    if v == nil then return nil end", "    return v.member", "end",},
+            "\n"
+        )
+    )
+end
 
 -- `type(u) == "table"` classifies an `unknown` for the branch it holds in. The
 -- test proves nothing about a declared type, which `is` narrows, and the other

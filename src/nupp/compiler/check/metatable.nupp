@@ -1,7 +1,7 @@
 module nupp.compiler.check.metatable
 
 --[[
-Checking what a metatable literal puts under its keys.
+Checks what a metatable literal puts under its keys.
 
 A declaration may contract for an operator, and a metatable literal is where the
 value fulfilling it is written. The contract says what that value has to be, so
@@ -11,7 +11,7 @@ declaration that renders and is never read.
 Where no contract says, LuaJIT still does. `__mode` is read as a string,
 `__index` is a table to defer to or a function to run, and everything else it
 knows is called. A `__` name it does not know is a broken contract rather than
-an ordinary field, so it keeps its spelling repair.
+an ordinary field, so it keeps its name correction.
 
 Only literals. What a function returns cannot be seen from here, so a computed
 metatable stays gradual, which is what the documentation has always said.
