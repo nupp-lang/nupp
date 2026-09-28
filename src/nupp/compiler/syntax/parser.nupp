@@ -1544,7 +1544,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if cur().kind ~= "," then
                     break
                 end
-                add(n, advance())
+                add(n, advance()).typeSeparator = true
             until false
             add(n, expectGenericClose("to close method type arguments")).generic = true
         end
@@ -1635,7 +1635,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     if cur().kind ~= "," then
                         break
                     end
-                    add(n, advance())
+                    add(n, advance()).typeSeparator = true
                 until false
                 add(n, expectGenericClose("to close call type arguments")).generic = true
                 local args = parseCallargs(false)

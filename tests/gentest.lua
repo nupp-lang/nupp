@@ -1188,4 +1188,25 @@ function M.typeCasesAndCdefsReachRuntimeGlobalsPastAShadowingLocal()
     }, "\n")), "3")
 end
 
+-- Explicit type arguments erase with the rest of the type layer: the angle brackets
+-- and the commas between the types are type material, not code.
+function M.explicitTypeArgumentsErase()
+    assertEq(printed(
+        "local function id<T>(x: T): T return x end\n"
+            .. "local function pair<A, B>(a: A, b: B): (A, B) return a, b end\n"
+            .. "print(id<number>(5), pair<string, integer>('a', 1))",
+        "printed.nupp"
+    ), "5\ta\t1")
+    assertEq(printed(
+        "local ffi = require('ffi')\nlocal span = nupp.mem.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
+            .. "local v = span.fromCarray<uint8>(s, 4)\nprint(#v)"
+    ), "4")
+    assertEq(printed(
+        "local record Box\n    v: integer\nend\n"
+            .. "function Box:get<T>(fallback: T): integer | T return self.v end\n"
+            .. "local b = new Box(v = 3)\nprint(b:get<string>('none'))",
+        "printed.nupp"
+    ), "3")
+end
+
 return M

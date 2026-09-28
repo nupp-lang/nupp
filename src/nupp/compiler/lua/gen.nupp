@@ -5064,7 +5064,9 @@ function gen.generate(
             if x.missing or x.kind == "eof" then
                 return
             end
-            if x.typeColon or x.typeSeparator or x.typeBracket then
+            -- An angle bracket of a generic clause or an explicit type argument list
+            -- is type material and erases with the types it encloses.
+            if x.typeColon or x.typeSeparator or x.typeBracket or x.generic then
                 return
             end
             local text = x.text
