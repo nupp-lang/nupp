@@ -78,8 +78,8 @@ record http.Options
     compressed: boolean?
 
     --- Hosts whose certificates are not verified, each an exact host name or IP
-    --- literal. Naming any of them makes this client follow redirects itself, so
-    --- that the exemption is applied per hop rather than to the whole chain.
+    --- literal. Redirects are followed one hop at a time, so the exemption is
+    --- applied per hop rather than to the whole chain.
     insecureHosts: {string}?
 
     --- The proxy to reach every host through. Omitted takes the environment's,

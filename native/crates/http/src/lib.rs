@@ -588,17 +588,14 @@ unsafe fn configure_client(
         .connect_timeout(Duration::from_millis(options.connect_timeout_ms))
         .pool_max_idle_per_host(options.max_connections_per_host as usize)
         .danger_accept_invalid_certs(insecure)
-        // Reqwest's certificate policy belongs to a whole Client. Following a
-        // redirect from the selectively insecure pool would silently extend that
-        // policy to the destination, so automatic redirects are disabled whenever
-        // that pool exists. The checked layer can route each hop deliberately.
-        .redirect(
-            if options.max_redirects == 0 || options.has_insecure_hosts != 0 {
-                reqwest::redirect::Policy::none()
-            } else {
-                reqwest::redirect::Policy::limited(options.max_redirects as usize)
-            },
-        );
+        // The transport never follows a redirect; the checked layer routes each
+        // hop itself. Reqwest's own following keeps a caller's Host header on a
+        // hop to another origin and adds a Referer carrying the previous URL's
+        // query, and its certificate policy belongs to a whole Client, so a hop
+        // from the selectively insecure pool would extend that policy to the
+        // destination. `max_redirects` is the checked layer's bound.
+        .redirect(reqwest::redirect::Policy::none())
+        .referer(false);
     if options.compressed == 0 {
         builder = builder.no_deflate().no_gzip();
     }
@@ -2328,6 +2325,38 @@ mod tests {
             assert_eq!(last_failure(), Failure::InvalidArgument);
             nuppHttpClientDestroy(client);
         }
+    }
+
+    #[test]
+    fn the_transport_answers_a_redirect_instead_of_following_it() {
+        let (address, server) = recording_server(
+            4,
+            b"HTTP/1.1 302 Found\r\nLocation: http://localhost:9/next\r\nContent-Length: 0\r\n\r\n",
+        );
+        let url = format!("http://{address}/start");
+        let mut options = options();
+        options.max_redirects = 5;
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = nuppHttpClientCreate(&options);
+            let descriptor = request(url.as_bytes());
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            let mut head = NuppHttpResponseHead {
+                status: 0,
+                version: 0,
+                url: ptr::null(),
+                url_length: 0,
+                headers: ptr::null(),
+                headers_length: 0,
+            };
+            while nuppHttpTransferPollHeaders(transfer, &mut head) == HEAD_PENDING {
+                wait(client);
+            }
+            assert_eq!(head.status, 302);
+            nuppHttpTransferDestroy(transfer);
+            nuppHttpClientDestroy(client);
+        }
+        drop(server);
     }
 
     #[test]

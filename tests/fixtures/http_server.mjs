@@ -36,6 +36,21 @@ const server = createServer((req, res) => {
       });
       return;
     }
+    if (req.url.startsWith("/redirect-host")) {
+      const { port } = server.address();
+      send(res, 302, undefined, {
+        Location: `http://localhost:${port}/host?token=secret`,
+      });
+      return;
+    }
+    if (req.url.startsWith("/host")) {
+      // What a cross-origin hop arrived with: its own Host, and no Referer
+      // carrying the previous URL's query.
+      const body = Buffer.from(
+        `${req.headers.host ?? "none"} ${req.headers.referer ?? "none"}`, "ascii");
+      send(res, 200, body);
+      return;
+    }
     if (req.url === "/loop") {
       loopHits += 1;
       send(res, 302, undefined, { Location: "/loop" });

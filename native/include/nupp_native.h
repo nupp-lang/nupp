@@ -416,7 +416,9 @@ typedef struct {
     NuppNativeHttpSlice value;
 } NuppNativeHttpHeader;
 
-/* The connect timeout and the three limits must be nonzero. */
+/* The connect timeout and the three limits must be nonzero. The provider
+ * never follows a redirect: a 3xx comes back as a response, and the caller
+ * routes each hop and applies max_redirects itself. */
 typedef struct {
     uint64_t connect_timeout_ms;
     uint32_t max_redirects;

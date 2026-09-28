@@ -214,7 +214,9 @@ local function copiedOptions(options: http.Options?): any
         error("nupp: HTTP compressed must be a boolean", 3)
     end
     local _, _, packedHeaders = mergedHeaders(nil, headers, nil)
-    local manualRedirects = next(insecure) ~= nil
+    -- Every redirect is followed here rather than by the transport, which
+    -- would keep a caller's Host header across origins and add a Referer.
+    local manualRedirects = true
 
     return {
         headers = headers,
@@ -909,8 +911,9 @@ end
 --- Suspends until the headers arrive, so the body is still being produced when
 --- this returns. Redirects are followed up to the client's `maxRedirects`: a 303,
 --- and a 301 or 302 answering a POST, continue as a GET with no body, and a hop to
---- a different origin drops the authorization, cookie and host headers. A status is
---- an answer; only a transport failure comes back as a reason.
+--- a different origin drops the authorization, cookie and host headers. No hop adds
+--- a `referer`. A status is an answer; only a transport failure comes back as a
+--- reason.
 ---
 --- ```nupp
 --- do

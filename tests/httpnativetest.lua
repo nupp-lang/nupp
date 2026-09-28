@@ -233,6 +233,22 @@ function M.selectivelyInsecureClientsStripCookiesAcrossOrigins()
     client:close()
 end
 
+-- The documented rule holds on every client, not only a selectively insecure
+-- one: a hop to another origin carries its own Host and no Referer, which
+-- would hand the new origin the first URL's query.
+function M.aCrossOriginRedirectCarriesNeitherTheOldHostNorAReferer()
+    local client = ready()
+    local response, reason = client:send({
+        url = endpoint("/redirect-host?token=first"),
+        headers = {Host = "127.0.0.1:" .. port},
+    })
+    assert(response, reason)
+    test.equal(response.url:host(), "localhost")
+    test.equal(response.body:read(64), "localhost:" .. port .. " none")
+    response:close()
+    client:close()
+end
+
 -- The bound is this side's as well: a chain past it answers this module's own
 -- reason, which it can only do when each hop is its own request.
 function M.selectivelyInsecureClientsEnforceMaxRedirectsThemselves()
