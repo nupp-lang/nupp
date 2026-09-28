@@ -145,7 +145,11 @@ function cdef.install(
                 if bitWidth then
                     local width = tonumber(bitWidth.text)
                     local bits = 0
-                    if ft == T.int8 or ft == T.uint8 then
+                    -- C's `bool` holds one bit, and a plain struct's `boolean : 1`
+                    -- lowers to exactly that declaration.
+                    if ft == T.boolean then
+                        bits = 1
+                    elseif ft == T.int8 or ft == T.uint8 then
                         bits = 8
                     elseif ft == T.int16 or ft == T.uint16 then
                         bits = 16

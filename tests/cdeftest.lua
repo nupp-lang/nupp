@@ -514,6 +514,30 @@ function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
     assertEq((diagsOf(table.concat({"cdef struct nuppBadBits", "   field: number : 2", "end",}, "\n"))), "NUPP2203:2")
 end
 
+-- C's `bool` is a bitfield base one bit wide, as it is for a plain struct, so an
+-- imported C struct with a bool bitfield can be declared.
+function M.cdefBooleanBitfieldsHoldOneBit()
+    assertEq(
+        run(
+            table.concat(
+                {
+                    "cdef struct nuppTestFlags",
+                    "   ready: boolean : 1",
+                    "   mode: uint32 : 3",
+                    "end",
+                    "local flags = new nuppTestFlags()",
+                    "flags.ready = true",
+                    "flags.mode = 5",
+                    "return (flags.ready and 1 or 0) + flags.mode",
+                },
+                "\n"
+            )
+        ),
+        6
+    )
+    assertEq((diagsOf(table.concat({"cdef struct nuppWideFlag", "   ready: boolean : 2", "end",}, "\n"))), "NUPP2203:2")
+end
+
 function M.ownIsStaticAndDropIsExplicit()
     assertEq(
         run(
