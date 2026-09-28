@@ -194,6 +194,13 @@ function index.install(c: state.Checker): state.ExprHandlers
                 end
                 node.qualifiedModule = candidate
                 node.qualifiedMembers = suffix
+                -- The whole path names a module, so a local bound to it holds that
+                -- module the way one bound to `require` does: `local span =
+                -- nupp.mem.span` makes `span.WriteSpan` its exported type.
+                if #suffix == 0 then
+                    (node as any).requiredModule = candidate
+                end
+                (node as any).namespacePath = written
                 if #suffix == 1 then
                     node.exactCallExport = {
                         module = candidate,
@@ -375,8 +382,17 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             local token = root and root.kind == "name" and root.token or nil
             local builtin = c.env and c.env.globals and c.env.globals.nupp or nil
+            -- A local bound to a namespace path stands for that path, so
+            -- `local i32 = nupp.math.i32` leaves `i32.andBits` the intrinsic it names.
+            local canonical = nil
             if token and builtin and token.definition == builtin.definition then
-                node.scalarIntrinsic = scalarIntrinsics.forPath(intrinsicPath)
+                canonical = intrinsicPath
+            elseif token and token.definition and token.definition.namespacePath then
+                canonical = token.definition.namespacePath .. intrinsicPath:sub(#token.text + 1)
+            end
+            if canonical then
+                (node as any).namespacePath = canonical
+                node.scalarIntrinsic = scalarIntrinsics.forPath(canonical)
             end
         end
         -- Keep the exact value identity beside the projection. Function types are

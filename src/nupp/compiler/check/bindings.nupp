@@ -582,6 +582,19 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundEntry.definition.scalarIntrinsic = scalarIdentity
                 end
             end
+            -- A local bound to a namespace path, `local i32 = nupp.math.i32`, keeps
+            -- the path its members are spelled under, so intrinsic identities read
+            -- through it reach the same entries the full spelling does.
+            local initDynamic: any = initNode
+            local namespacePath = initDynamic and initDynamic.namespacePath
+                or initNode
+                and initNode.kind == "name"
+                and initNode.token
+                and initNode.token.definition
+                and initNode.token.definition.namespacePath
+            if boundEntry and boundEntry.definition and namespacePath then
+                boundEntry.definition.namespacePath = namespacePath
+            end
             -- `local kind = node.kind` copies a discriminant out of the value it
             -- discriminates. Remembering where it came from is what lets a later test
             -- on the copy narrow the original, which is how dispatch loops are actually

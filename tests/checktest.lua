@@ -1860,6 +1860,47 @@ function M.aBrokenCalleePathIsReportedOnce()
     assertEq((diagsOf(R .. "local y = r.nope.goes(1)\nprint(y)")), "NUPP2004:5")
 end
 
+-- A local bound to a namespace path stands for the path: its exported types
+-- resolve through it, and a scalar intrinsic read through it keeps the identity
+-- the full spelling has, which is what native lowering admits.
+function M.aNamespaceAliasKeepsTypesAndIntrinsics()
+    local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+    local env = require("nupp.compiler.project.env").new(here .. "/..")
+    local spanSource = table.concat({
+        "local span = nupp.mem.span",
+        "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
+        "    for index = 1, #output do output[index] = input[index] end",
+        "end",
+        "return copy",
+    }, "\n")
+    assertEq((checkedDiags(spanSource, env)), "", spanSource)
+    local source = table.concat({
+        "local i32 = nupp.math.i32",
+        "local math32 = nupp.math",
+        "local function mask(a: int32, b: int32): (int32, int32, int32)",
+        "    return i32.andBits(a, b), nupp.math.i32.andBits(a, b), math32.i32.andBits(a, b)",
+        "end",
+        "return mask",
+    }, "\n")
+    local result = parser.parse(source, "test.g.nupp")
+    local diags = check.check(result, "test.g.nupp", env)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local identities = {}
+    local function walk(node)
+        if type(node) ~= "table" or node.kind == nil then
+            return
+        end
+        if node.kind == "call" then
+            identities[#identities + 1] = tostring(node.scalarIntrinsic)
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(result.root)
+    assertEq(table.concat(identities, " "), "i32.andBits i32.andBits i32.andBits")
+end
+
 -- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
 -- the type of `x`. Keeping it as a member made every field read fail.
 function M.neverAddsNothingToAUnion()
