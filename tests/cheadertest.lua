@@ -287,6 +287,23 @@ function M.aStructHasOneIdentityWhicheverWayItIsReached()
     assertEq(#diags, 0, diags[1] and diags[1].msg)
 end
 
+function M.enumMembersAreExported()
+    local path, dir = scratchHeader("modes.h", table.concat({
+        "enum NuppModes { NUPP_MODE_OFF = 0, NUPP_MODE_ON = 2 };",
+        "int nupp_mode_set(enum NuppModes mode);",
+    }, "\n") .. "\n")
+    local res = assert(cheaderMod.load(path))
+    assertEq(T.tostring(res.exports.NUPP_MODE_ON), "int32")
+    local file = dir .. "/probe.nupp"
+    local diags = diagnosticsAt(file, "local h = cheader('modes.h')\nlocal rc: int32 = h.nupp_mode_set(h.NUPP_MODE_ON)")
+    assertEq(#diags, 0, diags[1] and diags[1].msg)
+    local result = parser.parse("local h = cheader('modes.h')\nreturn h.NUPP_MODE_ON", dir .. "/probe.g.nupp")
+    check.check(result, dir .. "/probe.g.nupp", env)
+    local chunk = assert(loadstring(gen.generate(result, dir .. "/probe.g.nupp"), "@modes"))
+    assertEq(chunk(), 2, "the namespace answers the constant")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.generatedCodeDeclaresAndBinds()
     local result = parser.parse("local sink = cheader('fixtures/sink.h')\nreturn sink", HERE .. "/p.nupp")
     assertEq(#result.errors, 0, "parses")

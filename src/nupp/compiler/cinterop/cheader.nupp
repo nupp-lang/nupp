@@ -738,6 +738,16 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
     for _, fn in ipairs(parsed.functions) do
         exports[fn.name] = modelFunction(fn, structs)
     end
+    -- An enum's members are constants the library namespace answers, as import-c
+    -- exports them. C gives them `int` in every place they appear.
+    for _, declaration in ipairs(parsed.enums) do
+        for _, member in ipairs(declaration.values) do
+            if exports[member.name] == nil then
+                exports[member.name] = T.int32
+            end
+        end
+    end
+
     local result = {
         exports = exports,
         cdef = text,
