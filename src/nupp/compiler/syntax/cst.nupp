@@ -3219,34 +3219,6 @@ function cst.dump(x: cst.Child): string
     return table.concat(parts)
 end
 
---- Renders a node as an indented outline for people reading parser output. Each node
---- occupies one line; tokens show their lexical kind and quoted source text.
----
---- @param x the node or token to render
-function cst.pretty(x: cst.Child): string
-    local lines: {string} = {}
-
-    local function walk(y: cst.Child, depth: integer)
-        local indent = string.rep("  ", depth)
-        if isToken(y) then
-            if y.missing then
-                lines[#lines + 1] = indent .. y.kind .. " «missing»"
-            else
-                lines[#lines + 1] = indent .. y.kind .. " " .. ("%q"):format(y.text)
-            end
-            return
-        end
-        lines[#lines + 1] = indent .. y.kind
-        for _, child in ipairs(y) do
-            walk(child, depth + 1)
-        end
-    end
-
-    walk(x, 0)
-
-    return table.concat(lines, "\n")
-end
-
 const LOOPS: {[string]: boolean} = {whileStmt = true, fornumStmt = true, forinStmt = true, repeatStmt = true,}
 
 --- The first `continue` of a `repeat` loop's own -- not one of a loop nested in

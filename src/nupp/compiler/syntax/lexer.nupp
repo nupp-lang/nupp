@@ -933,13 +933,6 @@ function lexer.triviaText(tok: lexer.Token, index: integer): string
     return sub(arena.source, offset, offset + length - 1)
 end
 
---- Where `tok`'s `index`-th trivia starts: offset, line and column.
-function lexer.triviaAt(tok: lexer.Token, index: integer): integer, integer, integer
-    local _, offset, _, line, col = tok.trivia:record(triviaIndex(tok, index))
-
-    return offset, line, col
-end
-
 --- One trivia as scalar fields, without constructing a record.
 function lexer.triviaFields(tok: lexer.Token, index: integer): string, string, integer, integer, integer
     local arena = tok.trivia
