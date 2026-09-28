@@ -334,26 +334,196 @@ pub fn remove(path: &Path, recursive: bool) -> io::Result<()> {
     remove_tree(path, glob::MAX_WALK_DEPTH)
 }
 
+fn deeper_than_the_walk_allows(path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+            "{}: the directory tree is deeper than {} levels",
+            path.display(),
+            glob::MAX_WALK_DEPTH
+        ),
+    )
+}
+
+/// Removes a directory tree by descriptor. Every directory below `path` is
+/// opened relative to its parent's descriptor with `O_NOFOLLOW`, and every
+/// entry is unlinked relative to it, so a directory swapped for a symlink
+/// while the walk runs is removed as the link it now is rather than followed.
+#[cfg(unix)]
 fn remove_tree(path: &Path, depth: usize) -> io::Result<()> {
-    if depth == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "{}: the directory tree is deeper than {} levels",
-                path.display(),
-                glob::MAX_WALK_DEPTH
-            ),
-        ));
-    }
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            remove_tree(&entry.path(), depth - 1)?;
-        } else {
-            fs::remove_file(entry.path())?;
-        }
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+    match walk::open_directory(libc::AT_FDCWD, &name) {
+        Ok(directory) => walk::empty(&directory, depth, path)?,
+        // Swapped for something that is not a directory since it was
+        // examined: it is removed as whatever it now is.
+        Err(error) if walk::not_a_directory(&error) => return fs::remove_file(path),
+        Err(error) => return Err(error),
     }
     fs::remove_dir(path)
+}
+
+/// Windows' standard removal already opens each child relative to its parent
+/// handle and never follows a reparse point.
+#[cfg(not(unix))]
+fn remove_tree(path: &Path, _depth: usize) -> io::Result<()> {
+    fs::remove_dir_all(path)
+}
+
+#[cfg(unix)]
+mod walk {
+    use super::{deeper_than_the_walk_allows, io};
+    use std::ffi::{CStr, CString};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+    use std::path::Path;
+
+    pub(super) fn not_a_directory(error: &io::Error) -> bool {
+        matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR))
+    }
+
+    pub(super) fn open_directory(parent: RawFd, name: &CStr) -> io::Result<OwnedFd> {
+        // SAFETY: `name` is NUL-terminated and `parent` is AT_FDCWD or a
+        // descriptor the caller holds open for the duration of the call.
+        let fd = unsafe {
+            libc::openat(
+                parent,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fd` was just returned by openat and is owned by nobody else.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    fn unlink(parent: &OwnedFd, name: &CStr, flags: libc::c_int) -> io::Result<()> {
+        // SAFETY: `name` is NUL-terminated and `parent` is open.
+        if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), flags) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        // Somebody else removed it first; the goal is met either way.
+        if error.raw_os_error() == Some(libc::ENOENT) {
+            return Ok(());
+        }
+        Err(error)
+    }
+
+    /// The directory's entries, read in full before any is removed so the
+    /// removal never races the directory stream's own position.
+    fn entries(directory: &OwnedFd) -> io::Result<Vec<(CString, Option<bool>)>> {
+        // fdopendir takes ownership of its descriptor, so it gets a duplicate
+        // and the caller keeps the original for openat and unlinkat.
+        let duplicate = directory.try_clone()?;
+        let raw = duplicate.as_raw_fd();
+        // SAFETY: `raw` is an open directory descriptor; on success the stream
+        // owns it, so ownership is released only after fdopendir succeeds.
+        let stream = unsafe { libc::fdopendir(raw) };
+        if stream.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        std::mem::forget(duplicate);
+        let mut names = Vec::new();
+        let result = loop {
+            // SAFETY: errno is thread-local; readdir distinguishes the end of
+            // the stream from an error only through it.
+            unsafe { *errno() = 0 };
+            // SAFETY: `stream` is a live directory stream owned here.
+            let entry = unsafe { libc::readdir(stream) };
+            if entry.is_null() {
+                let error = io::Error::last_os_error();
+                break match error.raw_os_error() {
+                    Some(0) | None => Ok(()),
+                    Some(_) => Err(error),
+                };
+            }
+            // SAFETY: readdir returned a valid entry whose name is
+            // NUL-terminated and lives until the next readdir call.
+            let (name, kind) =
+                unsafe { (CStr::from_ptr((*entry).d_name.as_ptr()), (*entry).d_type) };
+            let bytes = name.to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            let directory = match kind {
+                libc::DT_DIR => Some(true),
+                libc::DT_UNKNOWN => None,
+                _ => Some(false),
+            };
+            names.push((name.to_owned(), directory));
+        };
+        // SAFETY: `stream` is live and closed exactly once, with its descriptor.
+        unsafe { libc::closedir(stream) };
+        result.map(|()| names)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+    fn errno() -> *mut libc::c_int {
+        // SAFETY: returns this thread's errno slot.
+        unsafe { libc::__error() }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd")))]
+    fn errno() -> *mut libc::c_int {
+        // SAFETY: returns this thread's errno slot.
+        unsafe { libc::__errno_location() }
+    }
+
+    fn is_directory(parent: &OwnedFd, name: &CStr) -> io::Result<bool> {
+        let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `name` is NUL-terminated, `parent` is open, and `status` is
+        // written in full on success.
+        let result = unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                status.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: fstatat succeeded.
+        let mode = unsafe { status.assume_init() }.st_mode;
+        Ok(mode & libc::S_IFMT == libc::S_IFDIR)
+    }
+
+    /// Removes everything inside `directory`, leaving it empty.
+    pub(super) fn empty(directory: &OwnedFd, depth: usize, root: &Path) -> io::Result<()> {
+        if depth == 0 {
+            return Err(deeper_than_the_walk_allows(root));
+        }
+        for (name, kind) in entries(directory)? {
+            let is_directory = match kind {
+                Some(known) => known,
+                None => match is_directory(directory, &name) {
+                    Ok(known) => known,
+                    Err(error) if error.raw_os_error() == Some(libc::ENOENT) => continue,
+                    Err(error) => return Err(error),
+                },
+            };
+            if !is_directory {
+                unlink(directory, &name, 0)?;
+                continue;
+            }
+            #[cfg(test)]
+            super::tests::before_descend(name.to_bytes());
+            match open_directory(directory.as_raw_fd(), &name) {
+                Ok(child) => {
+                    empty(&child, depth - 1, root)?;
+                    drop(child);
+                    unlink(directory, &name, libc::AT_REMOVEDIR)?;
+                }
+                Err(error) if not_a_directory(&error) => unlink(directory, &name, 0)?,
+                Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
@@ -612,6 +782,23 @@ fn path_bytes(path: PathBuf) -> io::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    type DescendHook = Box<dyn FnMut(&[u8])>;
+
+    thread_local! {
+        static BEFORE_DESCEND: RefCell<Option<DescendHook>> = RefCell::new(None);
+    }
+
+    /// Runs between a recursive remove deciding an entry is a directory and
+    /// descending into it: the window a concurrent swap exploits.
+    pub(super) fn before_descend(name: &[u8]) {
+        BEFORE_DESCEND.with(|hook| {
+            if let Some(hook) = hook.borrow_mut().as_mut() {
+                hook(name);
+            }
+        });
+    }
 
     fn root(name: &str) -> PathBuf {
         let mut random = [0u8; 8];
@@ -651,6 +838,33 @@ mod tests {
         );
         remove(&root.join("nested"), true).unwrap();
         assert!(!root.join("nested").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_remove_never_follows_a_directory_swapped_for_a_symlink() {
+        let root = root("remove-race");
+        let tree = root.join("tree");
+        let outside = root.join("outside");
+        create_directory(&tree.join("sub")).unwrap();
+        fs::write(tree.join("sub/victim"), b"inside").unwrap();
+        create_directory(&outside).unwrap();
+        fs::write(outside.join("victim"), b"outside").unwrap();
+        let (sub, aside, target) = (tree.join("sub"), root.join("aside"), outside.clone());
+        BEFORE_DESCEND.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |name| {
+                if name == b"sub" {
+                    fs::rename(&sub, &aside).unwrap();
+                    std::os::unix::fs::symlink(&target, &sub).unwrap();
+                }
+            }));
+        });
+        let removed = remove(&tree, true);
+        BEFORE_DESCEND.with(|hook| hook.borrow_mut().take());
+        assert_eq!(fs::read(outside.join("victim")).unwrap(), b"outside");
+        removed.unwrap();
+        assert!(!tree.exists());
         fs::remove_dir_all(root).unwrap();
     }
 
