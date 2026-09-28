@@ -128,6 +128,17 @@ fn lookup<'a>(
     entry.value()
 }
 
+/// A backlog the platform's `listen` can be given, which takes a C int.
+fn listen_backlog(backlog: u32) -> Result<(), i32> {
+    if i32::try_from(backlog).is_err() {
+        return Err(super::failed(
+            Status::InvalidArgument,
+            "the listen backlog is too large",
+        ));
+    }
+    Ok(())
+}
+
 unsafe fn text<'a>(slice: NetSlice, what: &str) -> Result<&'a str, i32> {
     let value = super::input(slice.data, slice.length)
         .map_err(|_| super::failed(Status::InvalidArgument, &format!("{what} is null")))?;
@@ -320,6 +331,15 @@ pub unsafe extern "C" fn nuppNativeNetListenerCreate(
         }
         Err(status) => return status,
     };
+    if host.parse::<std::net::IpAddr>().is_err() {
+        return super::failed(
+            Status::InvalidArgument,
+            &format!("{host} is not an address to bind"),
+        );
+    }
+    if let Err(status) = listen_backlog(options.backlog) {
+        return status;
+    }
     let value =
         match transport::listen_tcp(host, options.port, options.backlog, options.reuse_port != 0) {
             Ok(value) => value,
@@ -358,6 +378,9 @@ pub unsafe extern "C" fn nuppNativeNetPathListenerCreate(
         }
         Err(status) => return status,
     };
+    if let Err(status) = listen_backlog(options.backlog) {
+        return status;
+    }
     let value = match transport::listen_path(path, options.backlog) {
         Ok(value) => value,
         Err(error) => return super::failed(Status::Internal, &error),
@@ -1315,6 +1338,25 @@ mod tests {
         assert!(stream(handle.raw()).is_err());
         let _ = resources().lock().unwrap().remove(handle).unwrap();
         assert!(self::listener(handle.raw()).is_err());
+    }
+
+    #[test]
+    fn impossible_listen_requests_are_the_caller_s_mistake() {
+        for (host, backlog) in [(&b"127.0.0.1"[..], u32::MAX), (&b"localhost"[..], 8)] {
+            let options = NetListenOptions {
+                host: NetSlice {
+                    data: host.as_ptr(),
+                    length: host.len(),
+                },
+                port: 0,
+                backlog,
+                reuse_port: 0,
+            };
+            let mut output = 0;
+            // SAFETY: the options and output are live for the call.
+            let status = unsafe { nuppNativeNetListenerCreate(&options, &mut output) };
+            assert_eq!(status, Status::InvalidArgument.code());
+        }
     }
 
     #[test]
