@@ -324,13 +324,14 @@ local function validState(state: any): boolean
     return true
 end
 
-local function loadState(path: string): cache.State
-    local text = readFile(path)
-    if not text then
-        return emptyState()
-    end
-    local ok, state = pcall(json.decode, text, json.NULL)
-    if not ok or type(state) ~= "table" or state.version ~= STATE_VERSION then
+--- A state read back from anywhere, as one this version can trust, or an empty one.
+---
+--- The build's JSON file and the check's store both come through here: a store
+--- only knows that its bytes decoded under the right stamp, not that what they
+--- decoded to is a state, and a check handed a wrongly shaped one crashed where a
+--- build started cold.
+local function adoptState(state: any): cache.State
+    if type(state) ~= "table" or state.version ~= STATE_VERSION then
         return emptyState()
     end
     state.modules = state.modules or {}
@@ -344,7 +345,20 @@ local function loadState(path: string): cache.State
         return emptyState()
     end
 
-    return state
+    return state as cache.State
+end
+
+local function loadState(path: string): cache.State
+    local text = readFile(path)
+    if not text then
+        return emptyState()
+    end
+    local ok, state = pcall(json.decode, text, json.NULL)
+    if not ok then
+        return emptyState()
+    end
+
+    return adoptState(state)
 end
 
 local function saveState(path: string, state: cache.State): boolean?, string?
@@ -353,6 +367,7 @@ end
 
 cache.jsonArray = jsonArray
 cache.loadState = loadState
+cache.adoptState = adoptState
 cache.saveState = saveState
 cache.emptyState = emptyState
 

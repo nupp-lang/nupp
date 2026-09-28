@@ -2314,6 +2314,25 @@ return {
         assertEq(answerOf(), cold, "a damaged cache gives the cold answer")
     end
 
+    -- Damage the store cannot see for itself: a value that decodes, under the
+    -- right stamp, into something that is not a check state. A build validates
+    -- the state it reads back, and a check crashed on these instead.
+    local shapes = {
+        "a string",
+        {},
+        {version = 5, modules = 5, dependencies = {}, outputs = {}, targets = {}},
+        {version = 5, modules = {main = "a record"}, dependencies = {}, outputs = {}, targets = {}},
+        {version = 5, modules = {}, dependencies = {}, outputs = {}, targets = {app = {1}}},
+    }
+    for index, shape in ipairs(shapes) do
+        local doctored = store.openValue(dir .. "/out/cache/checks.buf", "checks/1")
+        doctored.set(shape)
+        doctored.save()
+        local ok, answer = pcall(answerOf)
+        assert(ok, "wrongly shaped check state " .. index .. " crashed the check: " .. tostring(answer))
+        assertEq(answer, cold, "wrongly shaped check state " .. index .. " gives the cold answer")
+    end
+
     remove(contentCacheDir(dir, "out"))
     remove(dir .. "/out/cache")
     assertEq(answerOf(), cold, "no cache at all gives the cold answer")
