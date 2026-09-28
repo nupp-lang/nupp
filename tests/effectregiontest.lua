@@ -115,6 +115,22 @@ function M.aGradualIndexMayRaise()
     assertEq(found[1].code, "NUPP2711", "raising diagnostic")
 end
 
+-- `table` says no more about a metatable than `any` does, and a bracketed key
+-- reaches `__index` and `__newindex` the same way a dotted one does.
+function M.everyGradualIndexMayRaise()
+    for _, access in ipairs({
+        "local function f(t: table): any local n: any = nil @noraise do n = t.field end return n end",
+        "local function f(t: any, k: string): any local n: any = nil @noraise do n = t[k] end return n end",
+        "local function f(t: table, k: string): any local n: any = nil @noraise do n = t[k] end return n end",
+        "local function f(t: table): nil @noraise do t.x = 1 end end",
+        "local function f(t: table, k: string): nil @noraise do t[k] = 1 end end",
+    }) do
+        local found = refusals(access)
+        assertEq(#found, 1, access)
+        assertEq(found[1].code, "NUPP2711", access)
+    end
+end
+
 function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
     local found = refusals(
         table.concat(

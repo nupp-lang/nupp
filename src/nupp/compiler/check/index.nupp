@@ -461,12 +461,11 @@ function index.install(c: state.Checker): state.ExprHandlers
             if exported then
                 return exported
             end
-            if base == T.any then
-                -- Nothing says what is indexed: a table with an `__index` that runs
-                -- user code, or a value that cannot be indexed at all. Either way the
-                -- access may raise, which is what a `@noraise` region asks about.
-                node.gradualIndex = true
-            end
+            -- Nothing says what is indexed: a table with an `__index` that runs user
+            -- code, or a value that cannot be indexed at all. `table` says no more
+            -- about its metatable than `any` does. Either way the access may raise,
+            -- which is what a `@noraise` region asks about.
+            node.gradualIndex = true
             return T.any
         end
         -- safe navigation tolerates nil in the object
@@ -927,6 +926,9 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
         end
         if ot == T.any or ot == T.table_ then
+            -- The same as a dotted read or write of a gradual value: an `__index` or
+            -- `__newindex` may run, or the value may not be indexable at all.
+            (node as any).gradualIndex = true
             return T.any
         end
         -- remembered for the assignment rule: only a real container may have an entry
