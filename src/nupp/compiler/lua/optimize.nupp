@@ -134,6 +134,56 @@ local function fieldTargetBase(target)
     return nameText(target.obj)
 end
 
+-- The checked types a value of which is never nil. A name typed `T?`, `any` or a
+-- type parameter may hold nil, and nil is a hole `ipairs` stops at.
+local NEVER_NIL = {
+    boolean = true,
+    string = true,
+    number = true,
+    integer = true,
+    float = true,
+    table = true,
+    array = true,
+    map = true,
+    tuple = true,
+    shape = true,
+    func = true,
+    nominal = true,
+}
+
+-- Whether a constructor item stores exactly one value that is not nil, so the item
+-- count is the length `ipairs` sees. `nil`, `...` and a call are out: the first is a
+-- hole, the other two may expand to any number of values in last position or store
+-- nil anywhere else.
+local function oneNonNilValue(value): boolean
+    if not value or isToken(value) then
+        return false
+    end
+    local kind = value.kind
+    if kind == "paren" then
+        return oneNonNilValue(value.expr)
+    end
+    if kind == "number"
+        or kind == "string"
+        or kind == "trueExpr"
+        or kind == "falseExpr"
+        or kind == "tableExpr"
+        or kind == "funcExpr"
+        or kind == "shortfn"
+    then
+        return true
+    end
+    if kind == "name" and value.token then
+        local t = value.token.inferredType
+        if t and t.tag == "literal" then
+            t = t.base
+        end
+        return t ~= nil and NEVER_NIL[t.tag] == true
+    end
+
+    return false
+end
+
 -- The key a write adds, as a kind and a value: a name or a string literal is a hash key
 -- that can be told apart from other hash keys, a positive integer literal claims an
 -- array slot, and anything else is one hash slot of unknown identity.
@@ -214,14 +264,18 @@ end
 -- Over-counting is safe, since a table sized for more than it receives wastes a little
 -- memory and nothing else, so a conditional write is counted, an opaque key is counted
 -- as one slot, and a run that is cut short simply keeps what it had. Under-counting is
--- safe too. Capacity is not observable, which is what makes this pass free of any
--- promise about behaviour.
+-- safe too. Hash capacity is not observable. Array capacity is, through `#`: a table
+-- with holes has more than one border, and which one `#` answers depends on where
+-- the integer keys were placed. So array slots are reserved only for a run 1, 2, 3,
+-- ... of values that are never nil, which is a sequence with one border however it
+-- is laid out, and any other integer literal key leaves the table as written.
 local function planPresize(stats, at, name)
     local hashKeys, opaque, array = {}, 0, 0
     local hashCount, writeCount = 0, 0
     local stoppedAt = nil
     local constructorFields, constructorKeys = {}, {}
     local constructorGap, constructorRejected = false, false
+    local hole = nil
     for j = at + 1, #stats do
         local stat = stats[j]
         local writes = fieldWrites(stat, name)
@@ -243,12 +297,18 @@ local function planPresize(stats, at, name)
             end
         end
         writeCount = writeCount + #writes
+        -- One value that is never nil, written alone, is the only write that can
+        -- extend a run of array slots.
+        local sole = #writes == 1
+            and #(stat.targets or {}) == 1
+            and #(stat.exprs or {}) == 1
+            and oneNonNilValue(stat.exprs[1])
         for _, target in ipairs(writes) do
             local kind, value = writtenKey(target)
-            if kind == "array" then
-                if value > array then
-                    array = value
-                end
+            if kind == "array" and sole and value == array + 1 then
+                array = value
+            elseif kind == "array" then
+                hole = hole or target
             elseif kind == "hash" and value then
                 if not hashKeys[value] then
                     hashKeys[value] = true
@@ -263,8 +323,11 @@ local function planPresize(stats, at, name)
     if constructorRejected or #constructorFields ~= writeCount then
         constructorFields = nil
     end
+    if hole then
+        return 0, 0, stoppedAt, nil, hole
+    end
 
-    return array, hashCount + opaque, stoppedAt, constructorFields
+    return array, hashCount + opaque, stoppedAt, constructorFields, nil
 end
 
 -- Whether an expression is `{}` written with no entries at all. A constructor with
@@ -314,8 +377,21 @@ local function presizeBlock(stats, remarks)
         then
             local name = stat.names[1].text
             local constructor = stat.exprs[1]
-            local array, hash, stoppedAt, constructorFields = planPresize(stats, i, name)
-            if array + hash >= PRESIZE_MIN then
+            local array, hash, stoppedAt, constructorFields, hole = planPresize(stats, i, name)
+            if hole then
+                remark(
+                    remarks,
+                    constructor,
+                    "OPT-1",
+                    (
+                        "presize: %s is not presized, because an integer key that does not "
+                        .. "extend a sequence leaves a hole, and where it is placed decides "
+                        .. "what # answers"
+                    ):format(name),
+                    relatedAt(firstToken(hole), "written here"),
+                    "declined"
+                )
+            elseif array + hash >= PRESIZE_MIN then
                 constructor.presize = {narr = array, nhash = hash}
                 if constructorFields then
                     constructor.presizeFields = constructorFields
@@ -376,56 +452,6 @@ local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = t
 -- fixed array without changing what `nupp.compiler.analysis` knows. So it is
 -- collected
 -- here, beside the decision it serves.
--- The checked types a value of which is never nil. A name typed `T?`, `any` or a
--- type parameter may hold nil, and nil is a hole `ipairs` stops at.
-local NEVER_NIL = {
-    boolean = true,
-    string = true,
-    number = true,
-    integer = true,
-    float = true,
-    table = true,
-    array = true,
-    map = true,
-    tuple = true,
-    shape = true,
-    func = true,
-    nominal = true,
-}
-
--- Whether a constructor item stores exactly one value that is not nil, so the item
--- count is the length `ipairs` sees. `nil`, `...` and a call are out: the first is a
--- hole, the other two may expand to any number of values in last position or store
--- nil anywhere else.
-local function oneNonNilValue(value): boolean
-    if not value or isToken(value) then
-        return false
-    end
-    local kind = value.kind
-    if kind == "paren" then
-        return oneNonNilValue(value.expr)
-    end
-    if kind == "number"
-        or kind == "string"
-        or kind == "trueExpr"
-        or kind == "falseExpr"
-        or kind == "tableExpr"
-        or kind == "funcExpr"
-        or kind == "shortfn"
-    then
-        return true
-    end
-    if kind == "name" and value.token then
-        local t = value.token.inferredType
-        if t and t.tag == "literal" then
-            t = t.base
-        end
-        return t ~= nil and NEVER_NIL[t.tag] == true
-    end
-
-    return false
-end
-
 local function denseLiteralLengths(body)
     local lengths = {}
 

@@ -150,7 +150,6 @@ function M.generatedProgramsAgreeAcrossLevels()
     local programs = require("optimizeprograms")
     local avoid = {
         ["FRONTEND-07"] = true,
-        ["FRONTEND-22"] = true,
     }
     for seed = 1, 40 do
         local src = table.concat(programs.build(seed, avoid), "\n") .. "\n"
@@ -2272,6 +2271,19 @@ function M.inlineKeepsWhenTheArgumentCanChangeOrTheFrameIsObserved()
         fired = fired or entry.msg == "inline-return-helper: inlines h"
     end
     assertTrue(fired, "an unwritten argument is substituted")
+end
+
+-- Reserving array slots moves integer keys out of the hash part, and `#` of a table
+-- with holes answers from wherever they were placed. Array slots are reserved for a
+-- run from 1 of values that are never nil, and any other integer key leaves the table
+-- as written.
+function M.presizingReservesArraySlotsOnlyForASequence()
+    assertEq(assertAgrees("local t = {}\nt.c = 1\nt[3] = 2\nprint(#t)"), "0")
+    assertEq(sized("local t = {}\nt.c = 1\nt[3] = 2\nreturn t"), nil, "a key after a gap keeps the table as written")
+    assertEq(remarksOf("local t = {}\nt.c = 1\nt[3] = 2\nreturn t", nil, "OPT-1")[1].status, "declined")
+    assertEq(sized("local function f(v)\n    local t = {}\n    t[1] = v\n    t[2] = 2\n    return t\nend\nreturn f"), nil,
+        "a value that may be nil does not extend the run")
+    assertEq(sized("local t = {}\nt[1] = 1\nt[2] = 2\nt[3] = 3\nreturn t"), "3", "a run from 1 is still reserved")
 end
 
 return M

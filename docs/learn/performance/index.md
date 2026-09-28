@@ -345,7 +345,10 @@ end
 
 Other write patterns use `table.new` to reserve capacity and avoid growth and
 copying. Reads, reassignment, conditional writes, or passing the table elsewhere
-limit how much capacity can be reserved in advance.
+limit how much capacity can be reserved in advance. Array slots are reserved only
+for a run of keys `1, 2, 3, ...` whose values are never nil. An integer key after
+a gap leaves the table as written, because where a key of a table with holes is
+placed decides which border `#` reports.
 
 ### `OPT-2`, numeric `ipairs`
 
