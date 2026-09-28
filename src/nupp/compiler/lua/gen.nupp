@@ -174,7 +174,7 @@ local DECL_KINDS = {recordDecl = true, typeAlias = true,}
 local CP -- assigned to C_PRIM below (cdefCType is defined first)
 
 -- Maps a syntactic type node to a C type string for cdef emission. Uses checker hints
--- (cdefName) for named C structs. Returns nil when the type has no C spelling.
+-- (cdefName) for named C structs. Returns nil when the type has no C representation.
 local function cdefCType(t)
     if t.resolvedType then
         local rendered = cabi.declaration(t.resolvedType, "", "ffi")
@@ -497,12 +497,12 @@ function gen.generate(
     52 for the same algorithm spelled with these.
 
     A segment is literal text, a number naming an argument, or `@name` for the
-    BitOp primitive of that name. Arguments are parenthesised where they meet
+    BitOp primitive of that name. Arguments are parenthesized where they meet
     an operator and appear exactly once, so nothing is evaluated twice and
     nothing is reassociated.
 
     `mul`, `toU32` and the whole `u32` family stay calls: an unsigned result is
-    normalised with a comparison that would have to evaluate its subject twice
+    normalized with a comparison that would have to evaluate its subject twice
     to inline as an expression, and `mul32` is not one primitive. `lessThan`
     and `lessOrEqual` stay calls because a call is a statement in Lua and a
     comparison is not.
@@ -604,7 +604,7 @@ function gen.generate(
     -- and the module died at load -- which is every linked list and tree.
     --
     -- C names the struct and forward-declares the tag, and so does this. Only the
-    -- targets that need it are named, and only pointers to them change spelling, so a
+    -- targets that need it are named, and only pointers to them change form, so a
     -- program without a forward or self reference generates exactly what it did.
     local function planStructTags()
         local structs: {cst.RecordDecl} = {}
@@ -629,7 +629,7 @@ function gen.generate(
         -- otherwise collide, the second `cdef` would be swallowed by its pcall, and the
         -- second module would silently get the first one's layout.
         --
-        -- Derived from the module, the name, and the declaration's own field spelling,
+        -- Derived from the module, the name, and the declaration's own field names,
         -- so it is stable across rebuilds (which `fixpoint` requires) and differs
         -- whenever the layout does. Two identical declarations sharing a tag is
         -- correct: same body, same layout.
@@ -687,7 +687,7 @@ function gen.generate(
         end
 
         -- Seed: a pointer that reaches at or after itself. A pointer backwards reaches
-        -- a ctype that already exists and keeps today's spelling.
+        -- a ctype that already exists and keeps today's representation.
         for at, decl in ipairs(structs) do
             for _, entry in ipairs(decl.entries or {}) do
                 if entry.kind == "fieldDecl" and entry.type then
@@ -1110,7 +1110,7 @@ function gen.generate(
                         elseif structural and (structural.kind == "cdefFunc" or structural.kind == "cdefStruct") then
                             -- Keyed checked C metadata owns declaration presence,
                             -- semantics, and runtime-binding compatibility. Keeping
-                            -- source spelling in the structural stream would turn a
+                            -- source text in the structural stream would turn a
                             -- harmless reorder into a restart before that comparison.
                         else
                             local shape = compactSource(statement)
@@ -2501,7 +2501,7 @@ function gen.generate(
     ---------------------------------------------------------------------
 
     -- The parameter names a function is written with, in order: a vararg of either
-    -- spelling is `...`. `dropSelf` leaves out a first parameter named `self`, for a
+    -- form is `...`. `dropSelf` leaves out a first parameter named `self`, for a
     -- body whose receiver is written out by the caller rather than declared here.
     function pluck.paramNames(params, dropSelf: boolean): {string}
         local names = {}
@@ -2532,10 +2532,10 @@ function gen.generate(
         end
     end
 
-    -- Spells what `slot op= value` stores, given `emitRead` spelling the slot's
+    -- Emits what `slot op= value` stores, given `emitRead` emitting the slot's
     -- current value: the bitops helper applied to it when the operator has no
-    -- spelling in this dialect, and the operator applied to it otherwise. The value
-    -- is parenthesised so its own operators bind before the compound one.
+    -- form in this dialect, and the operator applied to it otherwise. The value
+    -- is parenthesized so its own operators bind before the compound one.
     function pluck.emitCompoundValue(x, emitRead, lead: string?, line)
         if lead then
             e(lead, line)
@@ -4401,7 +4401,7 @@ function gen.generate(
 
     -- Turns the owner declarations in one lexical block into a semantic cleanup region.
     -- The checker supplied the exact cleanup entries; this pass never
-    -- guesses from a type name or a method spelling. Activations retain their source
+    -- guesses from a type or method name. Activations retain their source
     -- positions inside the protected body, so staggered acquisitions fuse without
     -- moving intervening work or extending an inner block's lifetime.
     emitAutomaticBlock = function(block)
@@ -5934,7 +5934,7 @@ function gen.generate(
             return
         end
         if kind == "ifStmt" and pluck.hasBindingClause(x) then
-            -- `if NAME = EXPR then` has no Lua spelling. The value is held in a
+            -- `if NAME = EXPR then` has no Lua form. The value is held in a
             -- temporary tested against nil and NAME is a local of the arm, so a
             -- later arm that reads an outer NAME still sees the outer one. Every
             -- opening lands on the clause's own line and every closing on the
@@ -6109,9 +6109,9 @@ function gen.generate(
                         -- `T[?]` has no size and never reaches here, since the field
                         -- rule refuses it.
                         local element = t.element
-                        local spelling = element and element.kind == "tname" and C_PRIM[element.base.text] or nil
-                        if spelling then
-                            cdecl[#cdecl + 1] = spelling .. " " .. fname .. "[" .. cst.textOf(t.count) .. "];"
+                        local cType = element and element.kind == "tname" and C_PRIM[element.base.text] or nil
+                        if cType then
+                            cdecl[#cdecl + 1] = cType .. " " .. fname .. "[" .. cst.textOf(t.count) .. "];"
                         elseif element and element.kind == "tname" and structTag[cst.lastName(element) or ""] then
                             cdecl[
                                 #cdecl + 1
@@ -6223,7 +6223,7 @@ function gen.generate(
                         local width = entry.bitWidth and " : " .. entry.bitWidth.text or ""
                         fields[#fields + 1] = ct .. width .. ";"
                     else
-                        emitDepth.diag(entry.name, "NUPP3003", "cdef field type has no C spelling")
+                        emitDepth.diag(entry.name, "NUPP3003", "cdef field type has no C representation")
                     end
                 end
             end
@@ -6252,7 +6252,7 @@ function gen.generate(
             -- module local; coverage instrumentation needs one capture slot of its own.
             local sig, signatureWhy = require("nupp.compiler.cinterop.cabi").prototype(x.cAbiSignature, true)
             if not sig then
-                emitDepth.diag(x.name, "NUPP3003", "cdef signature has no C spelling: " .. tostring(signatureWhy))
+                emitDepth.diag(x.name, "NUPP3003", "cdef signature has no C representation: " .. tostring(signatureWhy))
                 sig = "void " .. name .. "(void);"
             end
             local line = sourceLine(x)
@@ -6364,7 +6364,7 @@ function gen.generate(
                 e(') == "' .. IS_TYPE[t.base.text] .. '" )')
             elseif t.primitiveTest then
                 -- The same test, for a name that resolved to a primitive without
-                -- spelling one: an alias of `string` is a string at run time.
+                -- naming one: an alias of `string` is a string at run time.
                 e("( type(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(') == "' .. t.primitiveTest .. '" )')
@@ -6807,9 +6807,9 @@ function gen.generate(
             for j, output in ipairs(x.ffiOutContracts) do
                 holders[j] = "__nuppH" .. tostring(j)
                 outputAt[output.cIndex] = holders[j]
-                local spelling = cdefCType(output.typeNode) or "void **"
-                spelling = spelling:gsub("%s*%*$", "") .. "[1]"
-                body[#body + 1] = ("const %s=__nuppFfi.new(%q); "):format(holders[j], spelling)
+                local cType = cdefCType(output.typeNode) or "void **"
+                cType = cType:gsub("%s*%*$", "") .. "[1]"
+                body[#body + 1] = ("const %s=__nuppFfi.new(%q); "):format(holders[j], cType)
             end
 
             -- The C positions the caller fills become parameters; the rest are the
@@ -7008,7 +7008,7 @@ function gen.generate(
             needsFfi = true
             local line = sourceLine(x)
             -- a declared struct is already a ctype value; anything else is named by its
-            -- C spelling
+            -- C representation
             local ctypeExpr = x.ffiTypeName
             if not ctypeExpr then
                 local typeNode = x.ffiTypeNode
@@ -7029,16 +7029,16 @@ function gen.generate(
                         return
                     end
                 end
-                local spelling = x.ffiTypeNode and cdefCType(x.ffiTypeNode)
-                if not spelling then
+                local cType = x.ffiTypeNode and cdefCType(x.ffiTypeNode)
+                if not cType then
                     emitDepth.diag(
                         x.name or (x[1] and cst.isToken(x[1]) and x[1]),
                         "NUPP3004",
-                        "this type has no C spelling for an ffi operation"
+                        "this type has no C representation for an ffi operation"
                     )
-                    spelling = "void *"
+                    cType = "void *"
                 end
-                ctypeExpr = ("%q"):format(spelling)
+                ctypeExpr = ("%q"):format(cType)
             end
             e(("__nuppFfi.%s(%s"):format(x.ffiIntrinsic, ctypeExpr), line)
             for _, arg in ipairs(x.args and x.args.exprs or {}) do
@@ -8979,7 +8979,7 @@ function gen.generate(
             return
 
         elseif kind == "call" and x.layoutOf then
-            -- The compiler knows the name and the field spellings; sizes, offsets and
+            -- The compiler knows the name and field names; sizes, offsets, and
             -- padding are this platform's, so the helper asks the FFI at run time and
             -- caches per ctype. Emitted at the call site, so a program that never asks
             -- carries nothing.

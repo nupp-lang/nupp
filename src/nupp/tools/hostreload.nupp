@@ -62,7 +62,7 @@ type hostreload.Session = {
 
 --- The one string a host gets in place of a compiler report.
 ---
---- A diagnostic's rendering is a terminal's: colour, a quoted source line and a
+--- A diagnostic's rendering is a terminal's: color, a quoted source line, and a
 --- caret. Across the C boundary there is no terminal to render into and no promise
 --- that anything reads stderr, so each diagnostic becomes one line naming where it
 --- was, what it was, and what it said.

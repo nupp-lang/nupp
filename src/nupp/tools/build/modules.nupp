@@ -53,7 +53,7 @@ end
 --- The source set one explicitly scoped target owns.
 ---
 --- `sources` has always meant project-relative files or directories to the docs
---- target. Module targets use the same spelling and recursion here; the only
+--- target. Module targets use the same source form and recursion here; the only
 --- difference is the file kinds they can compile. A glob may select files, while a
 --- directory selected without a glob is walked recursively. Every selection has to
 --- name something so a misspelling cannot quietly produce a smaller artifact.
@@ -827,8 +827,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local checkMs = opened.checkMs
 
     -- One digest for every cache key this build writes. A native host has a compiled
-    -- XXH64 that answers exactly what the portable spelling answers, so which one ran
-    -- is never visible in a record -- only in how long the run took. The wrapper
+    -- XXH64 that answers exactly what the portable implementation answers, so which one
+    -- ran is never visible in a record -- only in how long the run took. The wrapper
     -- shadows the module-level `hashFile` so every site below reaches it without
     -- carrying the digest through its own signature.
     local contentDigest = fingerprint.contentDigest(true)

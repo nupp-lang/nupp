@@ -180,7 +180,7 @@ cycles. A target's `dialect`, when present, must be `"luajit"`.
 Configuration errors name the invalid field before any build work starts.
 
 Every table in the manifest takes a closed set of keys, and one that is not in
-it is refused by name, with the nearest spelling when there is one:
+it is refused by name, with the nearest valid name when there is one:
 
 ```text
 nupp: build.targets.site has no key "custmCss"; did you mean "customCss"?
@@ -476,7 +476,7 @@ A target profile says what a destination admits, as distinct from what its
 pointers are: whether it has a dynamic loader, a tracing JIT, working FFI
 callbacks, a VM that resolves default-namespace symbols out of the process
 image, and a toolchain that produces static AOT archives. Every publicly
-modelled triple has a built-in profile and answers yes to all of them, except
+modeled triple has a built-in profile and answers yes to all of them, except
 `wasm32-unknown-emscripten`, which has no tracing JIT and no native archive.
 
 The profile is what static linkage is checked against. A build that selects
@@ -517,7 +517,7 @@ takes an optional `profile`:
 
 Every capability must be stated: an omitted one is one nobody verified, and
 defaulting it to the permissive answer is the mistake profiles exist to
-prevent. `layoutModel` names an already modelled triple, so admitting a target
+prevent. `layoutModel` names an already modeled triple, so admitting a target
 does not also open the set of layout models. A descriptor wins over the
 built-in answer for the same triple, because a vendor port of a public triple is
 still that vendor's port.

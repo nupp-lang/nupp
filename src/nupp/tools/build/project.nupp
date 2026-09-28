@@ -491,7 +491,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local newState = cache.emptyState()
     -- Every cache key below this line goes through one digest. A native host has a
     -- compiled one that answers identically, so resolve it once here and hand it
-    -- down rather than letting each site fall back to the portable spelling.
+    -- down rather than letting each site fall back to the portable implementation.
     local contentDigest = fingerprint.contentDigest(true)
     newState.compilerHash = toolFingerprint(contentDigest)
     -- Dated here, before a single source has been read, and published by the rename
@@ -1322,7 +1322,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     end
     -- The built-in runner is another compiler command. In a source checkout the
     -- process itself is build/nupp/tools/main.lua, not the launcher a shell can
-    -- execute, so resolve the conventional manifest spelling back to that launcher.
+    -- execute, so resolve the conventional manifest path back to that launcher.
     -- A stamped compiler has no checkout root and is already its own executable.
     if argv[1] == "nupp" and argv[2] == "test" and argv[3] == "--internal-runner" then
         local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")

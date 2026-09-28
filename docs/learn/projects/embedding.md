@@ -502,8 +502,8 @@ proves it is patching the code that is actually running or refuses to open; a
 tree that has moved on since the component was built is a rebuild, not a patch.
 
 A handle taken before a commit keeps working after it. A watch build dispatches
-every named function through a slot, so `nupp_export_find` — or
-`nupp_reload_find`, for a member of an entry opened from source — answers a value
+every named function through a slot, so `nupp_export_find`, or
+`nupp_reload_find` for a member of an entry opened from source, answers a value
 that stays valid for the life of the session, and so does every other value the
 program has already handed out.
 
@@ -570,7 +570,7 @@ afterwards.
 
 Today the two do not meet, and that is enforced rather than merely unreachable.
 Opening a session in a state that carries the native worker adapter is refused,
-and so is installing the adapter while a session is open — the exclusion holds
+and so is installing the adapter while a session is open. The exclusion holds
 whichever order a host tries, and whether the adapter was installed by this
 runtime or by the stamped binary whose state it attached to.
 

@@ -285,7 +285,7 @@ local mentionsGpuTarget = aot.mentionsGpuTarget
 --- The tree the checker produced rather than a fresh parse of the same bytes.
 --- What the backend needs from a parameter, a call target or an annotation is
 --- what each of those resolved to, and only a checked tree carries that; a parse
---- carries the spelling and leaves the backend to guess the rest.
+--- carries the source form and leaves the backend to guess the rest.
 ---
 --- Nothing, rather than an error, when the source does not check. The module
 --- build checks the same file through the same graph a moment later and reports
@@ -658,9 +658,9 @@ end
 --- ships a program that only runs from one directory, or absolute, which ships
 --- one that only runs on one machine. Neither is something to hand to anyone.
 ---
---- No directory depth in it. The runtime walks up from the module, so one
---- spelling serves a module at whatever nesting its name gives it and the same
---- module inlined at the root of a bundle.
+--- No directory depth in it. The runtime walks up from the module, so one relative
+--- reference serves a module at whatever nesting its name gives it and the same module
+--- inlined at the root of a bundle.
 function aot.libraryReference(name: string, suffix: string): string
     return "@lib/" .. aot.libraryFile(name, suffix)
 end

@@ -220,8 +220,8 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Recomputing a project is one long synchronous stretch as far as the process is
     -- concerned, and it is made of two repeated units: the header of a file, and the
     -- check of a module. Between them the environment's host is asked to read whatever
-    -- input has arrived and whether the request this work belongs to was cancelled by
-    -- it, and a cancelled one stops here rather than finishing an answer nobody is
+    -- input has arrived and whether the request this work belongs to was canceled by
+    -- it, and a canceled one stops here rather than finishing an answer nobody is
     -- waiting for.
     --
     -- Raising is what abandons the work: a query that raises leaves no memo behind, so
@@ -302,6 +302,14 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Deciding what changed
     ---------------------------------------------------------------------
 
+    local function sameDeprecation(left: any?, right: any?): boolean
+        if left == nil or right == nil then
+            return left == right
+        end
+
+        return left.reason == right.reason and left.replacement == right.replacement
+    end
+
     local function sameHeader(a: incremental.Header?, b: incremental.Header?): boolean
         if not a or not b then
             return false
@@ -328,6 +336,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 or left.statKind ~= right.statKind
                 or left.visibility ~= right.visibility
                 or left.isAnnotation ~= right.isAnnotation
+                or not sameDeprecation(left.deprecated, right.deprecated)
                 or left.signature ~= right.signature
                 or left.token.offset ~= right.token.offset
             then
@@ -398,6 +407,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             kind = entry.kind,
             signature = entry.signature,
             isAnnotation = entry.isAnnotation,
+            deprecated = entry.deprecated,
             offset = entry.definition and entry.definition.token and entry.definition.token.offset or nil,
         }
     end
@@ -681,7 +691,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         local external = envMod.isDependencyTypePath(env, path)
         local diags, moduleType, exports = check.check(result, path, qenv, {
             moduleName = checkedModuleName(path),
-            -- A dependency owns the judgement of its declaration surface. A
+            -- A dependency owns the judgment of its declaration surface. A
             -- consumer's `--strict` must not reinterpret that foreign contract.
             strict = external and false or strict,
             dialect = dialect,
@@ -786,14 +796,6 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end
 
         return true
-    end
-
-    local function sameDeprecation(left, right)
-        if left == nil or right == nil then
-            return left == right
-        end
-
-        return left.reason == right.reason and left.replacement == right.replacement
     end
 
     local function sameDefinitionMap(left, right)

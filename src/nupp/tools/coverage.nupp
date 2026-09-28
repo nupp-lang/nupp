@@ -4,7 +4,7 @@ module nupp.tools.coverage
 Coverage aggregation and the self-contained static report.
 
 The generated program owns counting; this module deliberately owns none of the
-hot path.  It reads the coverage build state and the one shard the built-in
+hot path. It reads the coverage build state and the one shard the built-in
 runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
 HTML from that model.
 ]]

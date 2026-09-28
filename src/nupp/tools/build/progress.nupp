@@ -465,7 +465,7 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
     return new progress.Reporter(
         stream = target,
         showing = showing,
-        -- Rewriting a line needs the escapes that colour needs, so one answer settles
+        -- Rewriting a line needs the escapes that color needs, so one answer settles
         -- both. A terminal that has said it cannot take them gets a line per step.
         rewriting = showing and ansi.colorEnabled(target),
         style = ansi.style(target),

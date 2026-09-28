@@ -348,7 +348,10 @@ function release.catalog(
         if not value then
             return nil, decodeErr
         end
-        if type(value) == "table" and value.kind == "kit" then
+        if type(value) ~= "table" then
+            return nil, path .. " is not a release record"
+        end
+        if value.kind == "kit" then
             local key = tostring(value.platform)
             if kits[key] ~= nil then
                 return nil, "duplicate kit record for " .. key

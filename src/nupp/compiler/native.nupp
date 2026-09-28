@@ -702,7 +702,7 @@ end
 
 --- Marks the prelude's exact member types with their runtime effects. The identity
 --- follows aliases, so binding an ambient namespace to a local and reaching a member
---- through it stays as precise as spelling the intrinsic path directly. A facility
+--- through it stays as precise as accessing the intrinsic path directly. A facility
 --- that has become a module is reached by requiring it instead, and records its
 --- effect at the require or at the qualified path that selects it.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}

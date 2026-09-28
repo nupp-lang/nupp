@@ -839,10 +839,7 @@ function M.workerCancellationStopsIsolatedEvaluation()
             return true
         end,
     })
-    assertTrue(
-        failure and failure.message:find("cancelled", 1, true),
-        "cancelled worker reports a cancellation failure"
-    )
+    assertTrue(failure and failure.message:find("canceled", 1, true), "canceled worker reports a cancellation failure")
     assertTrue(pumped > 0, "the host is serviced while the worker is in flight")
 end
 

@@ -116,7 +116,7 @@ The official release workflow builds these compiler hosts and catalog stubs:
 | `x86_64-pc-windows-msvc` | `nupp-windows-x86_64.zip` | not yet published | GNU |
 
 The Windows names describe two different contracts. Nupp's AOT artifacts use
-the public `x86_64-pc-windows-msvc` target spelling and layout, and LLVM
+the public `x86_64-pc-windows-msvc` target name and layout, and LLVM
 compiles them for `x86_64-w64-windows-gnu`.
 The Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain.
 The base release host and ordinary Windows source checkout therefore use the

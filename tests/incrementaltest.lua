@@ -500,6 +500,38 @@ function M.deprecationMetadataInvalidatesModuleDependents()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.deprecationMetadataInvalidatesProjectTypeDependents()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "'")
+    local modelPath = dir .. "/model.nupp"
+    local mainPath = dir .. "/main.nupp"
+
+    local function write(path, text)
+        local file = assert(io.open(path, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    local model = table.concat({"global record Shared", "   value: number", "end",}, "\n")
+    write(modelPath, model)
+    write(mainPath, "local item: Shared? = nil\nreturn item\n")
+
+    local inc = incremental.new(dir, {cache = false})
+    assertEq(#inc.checkFile(mainPath).diags, 0, "project type starts current")
+    local coldChecks = inc.q.stats.checkModule
+    inc.changeDocument(modelPath, '@deprecated(replacement = "Current")\n' .. model)
+    local changed = inc.checkFile(mainPath)
+    assertEq(inc.q.stats.checkModule, coldChecks + 2, "deprecation metadata rechecks the declaration and dependent")
+    assertEq(
+        changed.diags[1] and changed.diags[1].code,
+        "NUPP2513",
+        "the dependent observes project deprecation metadata"
+    )
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.publicPackChangesInvalidateTypeDependents()
     local dir = os.tmpname()
     os.remove(dir)

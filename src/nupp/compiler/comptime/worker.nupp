@@ -52,7 +52,7 @@ end
 -- a document. So every string crossing this protocol is escaped to ASCII on the way
 -- out and restored on the way in, keys as well as values. Both ends do it to every
 -- string unconditionally, which is what makes it reversible -- a decoded string never
--- has to be guessed at, because there is only one spelling it can have arrived in.
+-- has to be guessed at, because it can only have arrived in one representation.
 local function escapeBytes(text: string): string
     if not text:find("[\128-\255\\]") then
         return text
@@ -465,7 +465,7 @@ function worker.evaluate(
             help = "make the computation smaller or move the unbounded work to run time",
         }
     elseif code == 125 then
-        return nil, {code = "NUPP2412", message = "comptime evaluation was cancelled"}
+        return nil, {code = "NUPP2412", message = "comptime evaluation was canceled"}
     end
     if #output > MAX_PROTOCOL_BYTES then
         return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes",}
@@ -613,7 +613,7 @@ local function requestService(request: any, executable: string, host: any?): any
         end
         if host and host.cancelled and host.cancelled() then
             stopService(true)
-            return nil, {code = "NUPP2412", message = "comptime evaluation was cancelled"}
+            return nil, {code = "NUPP2412", message = "comptime evaluation was canceled"}
         end
         if child.backend:now() >= deadline then
             stopService(true)

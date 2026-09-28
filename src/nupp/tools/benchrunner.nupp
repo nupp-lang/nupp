@@ -368,8 +368,8 @@ end
 --- shared key answers for the compiler and the benchmark tree; each entry answers
 --- for its own file.
 ---
---- Never load-bearing: a cache that is missing, stale or unreadable costs the
---- listing children it would have saved and changes no answer.
+--- A cache that is missing, stale, or unreadable costs the listing children it
+--- would have saved and changes no answer.
 local function rememberedListings(key: string?): {[string]: any}
     if key == nil then
         return {}
@@ -761,7 +761,7 @@ local function fromPerOperation(measurement: any, value: number): number
     return value
 end
 
---- A sorted, canonical spelling of one fork's allocation sites.
+--- A sorted, canonical representation of one fork's allocation sites.
 ---
 --- Site records are tables, so comparing the lists directly compares table identity
 --- and reports every fork after the first as a disagreement. What has to match is the

@@ -167,7 +167,7 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
                 return node("literal", nil, text, at)
             end,
             -- The parser hands every class over sorted and deduplicated, which is
-            -- the canonical spelling the blueprint fingerprint depends on.
+            -- the canonical representation the blueprint fingerprint depends on.
             set = function(text)
                 return node("set", nil, text, at)
             end,

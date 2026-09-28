@@ -223,7 +223,7 @@ end
 
 --- The array part of a table: entries `1..n` for the largest `n` with no hole. Every
 --- other key is a keyed entry, integers past the first hole included, so how sparse a
---- table is has one spelling and does not depend on how it was built.
+--- table is has one representation and does not depend on how it was built.
 local function arrayLength(t)
     local n = 0
     while t[n + 1] ~= nil do
@@ -237,15 +237,15 @@ end
 ---
 --- An integral value in the exact range prints as an integer, matching `OPT-3`.
 --- Anything
---- else needs a round trip rather than a tidy spelling: LuaJIT's default `%.14g` loses
---- the last bits of a double, so the shortest spelling that reads back identically is
+--- else needs a round trip rather than a tidy literal: LuaJIT's default `%.14g` loses
+--- the last bits of a double, so the shortest literal that reads back identically is
 --- searched for and `%.17g` is the fallback that always works.
 local function quoteNumber(value, node)
     if value ~= value then
-        fail("NUPP2413", node, "NaN has no literal spelling")
+        fail("NUPP2413", node, "NaN has no source literal")
     end
     if value == math.huge or value == -math.huge then
-        fail("NUPP2413", node, "an infinity has no literal spelling")
+        fail("NUPP2413", node, "an infinity has no source literal")
     end
     if value == 0 then
         -- Negative zero is a different value from zero and the sign is the whole of the
@@ -262,7 +262,7 @@ local function quoteNumber(value, node)
         end
     end
 
-    fail("NUPP2413", node, "this number has no spelling that reads back unchanged")
+    fail("NUPP2413", node, "this number has no source literal that reads back unchanged")
 end
 
 --- A value as canonical Lua source.
@@ -680,8 +680,8 @@ local function numberLike(value)
     return kind == "number" or (kind == "string" and tonumber(value) ~= nil)
 end
 
---- Whether a value concatenates. Lua spells a number into a string here, and nothing
---- else has a spelling `..` may assume.
+--- Whether a value concatenates. Lua renders a number as a string here, and `..`
+--- may assume no representation for anything else.
 local function concatenable(value)
     local kind = type(value)
     return kind == "string" or kind == "number"

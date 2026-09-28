@@ -229,7 +229,7 @@ end
 -- Fingerprints
 ----------------------------------------------------------------------------
 
---- C declarations are runtime ABI, including layout, symbol spelling and library.
+--- C declarations are runtime ABI, including layout, symbol name, and library.
 --- Fingerprint their token stream rather than the whole file so an ordinary body edit
 --- remains patchable while every declaration change is conservatively restart-only.
 local function cdefFingerprint(parsed)

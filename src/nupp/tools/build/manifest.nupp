@@ -1154,7 +1154,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             .. "every file to it regardless"
     end
     -- After `strict`, so the key that was retired by name keeps saying what replaced it
-    -- rather than being answered with a guess at the nearest spelling.
+    -- rather than being answered with a guess at the nearest name.
     valid, err = validateKeys(config, CONFIG_KEYS, "nupp.lua")
     if not valid then
         return nil, err
