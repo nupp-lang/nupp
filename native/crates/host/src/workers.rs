@@ -572,6 +572,13 @@ impl Worker {
     /// Closes ingress, cancels outstanding tasks, drains results, and joins the
     /// native thread. A running task is cancelled cooperatively: shutdown waits
     /// for a runner that ignores its token rather than detaching a live state.
+    /// Whether the worker's thread has ended.
+    pub(crate) fn is_finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(|thread| thread.is_finished())
+    }
+
     pub fn shutdown(&mut self) -> Result<(), WorkerError> {
         self.check_owner()?;
         self.input.close();

@@ -371,3 +371,39 @@ workers.channelDestroy(channel)
     );
     runtime.shutdown().expect("shutdown");
 }
+
+// A lane's outbox makes its scheduler wait for room, so joining a lane whose
+// replies nobody read must not wait on that scheduler forever; and joining at
+// once must not refuse the scheduler its startup acknowledgement.
+#[test]
+fn joining_a_lane_neither_strands_nor_refuses_its_scheduler() {
+    let payload = br#"
+local workers = require("nupp.workers.native")
+local _, outbox = workers.current()
+assert(workers.channelPush(outbox, "ready", ""))
+for index = 1, 1100 do
+    assert(workers.channelPush(outbox, "reply", tostring(index)))
+end
+"#;
+    let mut runtime = runtime(payload);
+    run(
+        &runtime,
+        br#"
+local workers = require("nupp.workers.native")
+for _, wait in ipairs({true, false}) do
+    local inbox = assert(workers.channelCreate())
+    local outbox = assert(workers.channelCreate())
+    local worker = assert(workers.workerSpawn(inbox, outbox))
+    if wait then
+        while workers.channelCount(outbox) < 1024 do end
+    end
+    workers.channelClose(inbox)
+    local status, problem = workers.workerJoin(worker)
+    assert(status == 0, problem)
+    workers.channelDestroy(inbox)
+    workers.channelDestroy(outbox)
+end
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}

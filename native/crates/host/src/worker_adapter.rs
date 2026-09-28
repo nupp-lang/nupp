@@ -1067,11 +1067,22 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
         // SAFETY: workerJoin consumes the one Box owner returned by workerSpawn;
         // the Lua scheduler removes the handle after this call and never joins twice.
         let mut worker = unsafe { Box::from_raw(worker) };
-        // Closed first: a scheduler waiting for room in its outbox would
-        // otherwise wait for a parent that is now waiting for it.
         worker.inbox.close();
+        // A scheduler waiting for room in its outbox would be waiting for a
+        // parent that is now waiting for it, so replies are drained while the
+        // join waits; nothing reads a lane's replies past its join.
+        let event = loop {
+            match worker.worker.poll(Some(Duration::from_millis(10))) {
+                Ok(None) => {
+                    while worker.outbox.pop(0).is_some() {}
+                    if worker.worker.is_finished() {
+                        break worker.worker.poll(Some(Duration::ZERO));
+                    }
+                }
+                answer => break answer,
+            }
+        };
         worker.outbox.close();
-        let event = worker.worker.poll(None);
         let (status, problem) = match event {
             Ok(Some(WorkerEvent::Completed { .. })) => (0, None),
             Ok(Some(WorkerEvent::Failed { error, .. })) => (1, Some(error)),
