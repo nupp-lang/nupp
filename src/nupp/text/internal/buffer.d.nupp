@@ -24,7 +24,9 @@ record Buffer
     putf: function(exclusive b: Buffer, fmt: string, ...: any): Buffer borrows (b)
 
     --- Consumes successive requested byte counts and returns one string per count.
-    --- With no count, consumes all unread bytes.
+    --- With no count, consumes all unread bytes. Counts are taken in order, so
+    --- when one is negative or fractional and raises, the reads before it have
+    --- already consumed their bytes.
     get: function(exclusive b: Buffer, ...: integer?): (string,...string)
 
     --- Copies unread bytes into a string without advancing the FIFO.

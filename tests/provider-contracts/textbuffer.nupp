@@ -1,5 +1,6 @@
 @!internal
 module nupp.tests.providers.textbuffer
+
 local suite = {}
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
@@ -45,6 +46,17 @@ function suite.test(provider: any): (boolean, string?)
             first == "ab" and second == "cde" and binary:get() == "f",
             "multiple FIFO counts must consume consecutive prefixes"
         )
+        -- Counts are taken in order, so a failing one leaves the reads before
+        -- it done. Both providers must agree on how much is left.
+        local partial = provider.new()
+        partial:put("abcde")
+        assert(
+            not pcall(function(): any
+                return partial:get(2, -1)
+            end),
+            "a negative count must raise"
+        )
+        assert(#partial == 3 and partial:get() == "cde", "a failing count must leave the earlier reads consumed")
     end)
     if not ok then
         return false, tostring(problem)

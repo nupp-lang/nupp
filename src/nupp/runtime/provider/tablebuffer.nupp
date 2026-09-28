@@ -43,15 +43,26 @@ local record Buffer
     --- Appends each argument, in order.
     ---
     --- A number is written the way `tostring` writes it, and anything else has to
-    --- answer `tostring` itself, which is what LuaJIT's buffer accepts too.
+    --- answer `tostring` itself through a `__tostring` metamethod, which is what
+    --- LuaJIT's buffer accepts too. Values are appended in order, so one that is
+    --- refused leaves the values before it appended, as the native buffer does.
     ---
     --- @param ... the values to append
     --- @return this buffer, so calls chain
+    --- @raises string when a value is neither a string, a number, nor a value
+    ---     with a `__tostring` metamethod
     function put(self, ...: any): Buffer
         const arrived = select("#", ...)
         for index = 1, arrived do
             const value = select(index, ...)
-            const text = type(value) == "string" and value as string or tostring(value)
+            const kind = type(value)
+            if kind ~= "string" and kind ~= "number" then
+                const meta = getmetatable(value)
+                if type(meta) ~= "table" or (meta as table).__tostring == nil then
+                    error("buffer put value must be a string, a number or have __tostring, not " .. kind, 2)
+                end
+            end
+            const text = kind == "string" and value as string or tostring(value)
             if #text > 0 then
                 self.count = self.count + 1
                 self.pieces[self.count] = text
@@ -71,11 +82,9 @@ local record Buffer
         if arrived == 0 then
             return self:take(nil)
         end
+        -- Taken in order without checking the later counts first, as the native
+        -- buffer does, so a failing count leaves the same reads done on both.
         local counts: {integer?} = {...}
-        for index = 1, arrived do
-            local count = counts[index]
-            assert(count == nil or count >= 0 and count % 1 == 0, "buffer get count must be a nonnegative integer")
-        end
         local values: {string} = {}
         for index = 1, arrived do
             values[index] = self:take(counts[index])
