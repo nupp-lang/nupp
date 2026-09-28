@@ -6,7 +6,10 @@ The error-tolerant recursive-descent parser.
 It never throws and never drops a token. Every token, including garbage, ends up
 in exactly one node's array part, so reprinting the root reproduces the source
 for arbitrary input, which is what the formatter and the language server rely
-on. A syntax error becomes an error record plus an error node and zero-width
+on. The one exception is a file's leading inner annotations, `@!internal` and
+`@!nofmt`: they belong to the file rather than to any statement, so they are
+recorded as flags on the root and their tokens kept in `root.innerAnnotations`,
+and reprinting the root starts after them. A syntax error becomes an error record plus an error node and zero-width
 missing tokens, and parsing continues to the end of the file.
 
 The grammar is `docs/grammar.abnf`, whose level 0 is the untyped LuaJIT 3.0 base.
@@ -116,7 +119,9 @@ local EXPR_START = {
 ---
 --- Never throws and never drops a token: every token, garbage included, ends up in
 --- exactly one node's array part, so printing the root reproduces the input for
---- arbitrary text.
+--- arbitrary text. A file's leading inner annotations are the exception: their
+--- tokens are in `root.innerAnnotations`, outside the array part, so compilation
+--- never sees them, and printing the root reproduces the input after them.
 ---
 --- @param source the file's bytes
 --- @param filename what to call it in diagnostics
@@ -3651,7 +3656,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             break
         end
         -- An inner annotation belongs to the file rather than a statement. It is
-        -- deliberately absent from the tree's array part, so compilation ignores it.
+        -- deliberately absent from the tree's array part, so compilation ignores it;
+        -- its tokens are kept beside the tree for whatever needs to print them.
+        root.innerAnnotations = root.innerAnnotations or {}
+        for offset = 0, 2 do
+            root.innerAnnotations[#root.innerAnnotations + 1] = tokens[i + offset]
+        end
         root.formatDisabled = root.formatDisabled or name == "nofmt"
         root.documentationInternal = root.documentationInternal or name == "internal"
         tokens[i].startsStat = true

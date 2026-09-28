@@ -1,5 +1,6 @@
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -976,6 +977,24 @@ function M.messagesQuoteNonASCIIBytesInHex()
         named = named or e.msg:find('found "\\xFF"', 1, true) ~= nil
     end
     assertEq(named, true, "the byte is named")
+end
+
+-- A file's leading inner annotations belong to the file, not a statement: they set
+-- flags on the root and keep their tokens beside the tree, and the tree reprints the
+-- rest of the file.
+function M.innerAnnotationsSitBesideTheTree()
+    local src = "@!internal\n@!nofmt\nlocal x = 1\n"
+    local result = parser.parse(src, "inner.nupp")
+    assertEq(#result.errors, 0)
+    assertEq(result.root.documentationInternal, true)
+    assertEq(result.root.formatDisabled, true)
+    local printed = {}
+    for _, token in ipairs(result.root.innerAnnotations) do
+        printed[#printed + 1] = lexer.textOf({token})
+    end
+    local annotations = table.concat(printed)
+    assertEq(annotations, "@!internal\n@!nofmt")
+    assertEq(annotations .. cst.textOf(result.root), src, "annotations and tree together are the file")
 end
 
 return M

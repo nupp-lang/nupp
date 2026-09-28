@@ -708,6 +708,10 @@ record cst.Chunk is cst.Hints
     --- A leading `@!nofmt` inner annotation, which applies to this file only.
     formatDisabled: boolean?
 
+    --- The tokens of the file's leading inner annotations, `@`, `!` and the name for
+    --- each, in order. They are outside the array part, so compilation never sees them.
+    innerAnnotations: {lexer.Token}?
+
     --- A leading `@!internal` inner annotation. Documentation hides this file; on an
     --- `init.nupp`, it also hides every module beneath that namespace.
     documentationInternal: boolean?
@@ -2983,7 +2987,8 @@ function cst.lastToken(x: cst.Child?): lexer.Token?
 end
 
 --- Reconstructs the exact source text of a node or token, trivia included. This is the
---- round-trip identity: printing a parse yields its input.
+--- round-trip identity: printing a parse yields its input, after any leading inner
+--- annotations, whose tokens the root keeps in `innerAnnotations` instead.
 ---
 --- @param x the node or token to print
 function cst.textOf(x: cst.Child): string
