@@ -251,7 +251,36 @@ static int open_libraries(lua_State *state) {
     return 0;
 }
 
+/* The registry key that says a component has loaded into this state. It is the
+ * state's, not a runtime's, because every runtime attached to one state shares
+ * the providers generated code has already observed. */
+#define HOST_FROZEN_KEY "nupp.host.frozen"
+
+typedef struct HostFrozenQuery {
+    ProtectedCall call;
+    int frozen;
+} HostFrozenQuery;
+
 static int install_host_record(lua_State *state) {
+    ProtectedCall *call = (ProtectedCall *)lua_touserdata(state, 1);
+    /* A state another runtime already set up keeps its record: replacing it
+     * would drop the features and resources that runtime declared. */
+    lua_pushliteral(state, "__nuppHost");
+    lua_rawget(state, LUA_GLOBALSINDEX);
+    if (!lua_isnil(state, -1)) {
+        int shared = 0;
+        if (lua_type(state, -1) == LUA_TTABLE) {
+            lua_getfield(state, -1, "hostAbi");
+            shared = lua_tointeger(state, -1) == 1;
+            lua_pop(state, 1);
+        }
+        if (!shared) {
+            fail_call(call,
+                "the Lua state has a __nuppHost global that is not a Nupp host record");
+        }
+        return 0;
+    }
+    lua_pop(state, 1);
     lua_createtable(state, 0, 3);
     lua_pushinteger(state, 1);
     lua_setfield(state, -2, "hostAbi");
@@ -536,6 +565,15 @@ static int install_component(lua_State *state) {
         return 0;
     }
     context->reference = luaL_ref(state, LUA_REGISTRYINDEX);
+    lua_pushboolean(state, 1);
+    lua_setfield(state, LUA_REGISTRYINDEX, HOST_FROZEN_KEY);
+    return 0;
+}
+
+static int host_frozen(lua_State *state) {
+    HostFrozenQuery *context = (HostFrozenQuery *)lua_touserdata(state, 1);
+    lua_getfield(state, LUA_REGISTRYINDEX, HOST_FROZEN_KEY);
+    context->frozen = lua_toboolean(state, -1);
     return 0;
 }
 
@@ -881,6 +919,14 @@ int nupp_lua_install_component(lua_State *state, const char *chunk,
     };
     int status = protect(state, install_component, &context.call);
     if (status == 0) *reference = context.reference;
+    return status;
+}
+
+int nupp_lua_host_frozen(lua_State *state, int *frozen, char *error,
+    size_t error_capacity) {
+    HostFrozenQuery context = {{error, error_capacity, 0}, 0};
+    int status = protect(state, host_frozen, &context.call);
+    if (status == 0) *frozen = context.frozen;
     return status;
 }
 

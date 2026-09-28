@@ -160,6 +160,14 @@ nupp_runtime *runtime = NULL;
 nupp_status status = nupp_runtime_attach(existing_state, &config, &runtime, &error);
 ```
 
+A state that already carries a Nupp host record, because a stamped binary or
+another runtime set it up, keeps that record: an attached runtime shares its
+features and resources rather than replacing them, and attaching is refused
+when a `__nuppHost` global exists that is not one. The registration freeze
+described under [Host configuration](#host-configuration) belongs to the state
+as well, so once any runtime has loaded a component into it, every runtime
+attached to it is refused further registrations.
+
 Use `flags = 0` only when the host already opened the libraries the component
 needs. Leave `NUPP_CONFIG_OPEN_LIBRARIES` enabled when Nupp must call
 `luaL_openlibs` during attachment. The host must keep the state alive until

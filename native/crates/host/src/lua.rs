@@ -143,6 +143,12 @@ unsafe extern "C" {
         error: *mut c_char,
         error_capacity: usize,
     ) -> c_int;
+    fn nupp_lua_host_frozen(
+        state: *mut LuaState,
+        frozen: *mut c_int,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
     fn nupp_lua_start_component(
         state: *mut LuaState,
         reference: c_int,
@@ -513,6 +519,17 @@ impl Lua {
             )
         })?;
         Ok(reference)
+    }
+
+    /// Whether a component has loaded into this state, through any runtime.
+    pub(crate) fn host_frozen(&self) -> Result<bool, String> {
+        let mut frozen: c_int = 0;
+        // SAFETY: `frozen` is written only on success, below a protected frame
+        // that reads one registry field.
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_host_frozen(self.state.as_ptr(), &raw mut frozen, error, capacity)
+        })?;
+        Ok(frozen != 0)
     }
 
     pub(crate) fn start_component(

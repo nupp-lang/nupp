@@ -332,7 +332,7 @@ impl HostRuntime {
     }
 
     pub fn add_feature(&self, name: &str) -> Result<(), HostError> {
-        if self.frozen.get() {
+        if self.frozen()? {
             return Err(HostError::Lua(
                 "Nupp host features freeze when the first component loads".to_owned(),
             ));
@@ -342,7 +342,7 @@ impl HostRuntime {
     }
 
     pub fn add_resource(&self, path: &str, bytes: &[u8]) -> Result<(), HostError> {
-        if self.frozen.get() {
+        if self.frozen()? {
             return Err(HostError::Lua(
                 "Nupp host resources freeze when the first component loads".to_owned(),
             ));
@@ -354,7 +354,7 @@ impl HostRuntime {
     }
 
     pub fn preload(&self, module: &str, opener: LuaFunction) -> Result<(), HostError> {
-        if self.frozen.get() {
+        if self.frozen()? {
             return Err(HostError::Lua(
                 "Nupp host modules freeze when the first component loads".to_owned(),
             ));
@@ -370,7 +370,7 @@ impl HostRuntime {
         key: &str,
         registrar: LuaFunction,
     ) -> Result<(), HostError> {
-        if self.frozen.get() {
+        if self.frozen()? {
             return Err(HostError::Lua(
                 "AOT builders must be registered before a component is loaded".to_owned(),
             ));
@@ -390,7 +390,7 @@ impl HostRuntime {
     /// worker state created by this runtime.
     pub fn enable_workers(&mut self, payload: &[u8]) -> Result<(), HostError> {
         self.lua()?;
-        if self.frozen.get() {
+        if self.frozen()? {
             return Err(HostError::Lua(
                 "Nupp host features freeze when the first component loads".to_owned(),
             ));
@@ -961,6 +961,12 @@ impl HostRuntime {
         Ok(())
     }
 
+    /// Whether providers are frozen: a component has loaded, through this
+    /// runtime or any other attached to the same state.
+    fn frozen(&self) -> Result<bool, HostError> {
+        Ok(self.frozen.get() || self.lua()?.host_frozen().map_err(HostError::Lua)?)
+    }
+
     fn lua(&self) -> Result<&Lua, HostError> {
         self.check_owner()?;
         if self.phase.get() != Phase::Running {
@@ -1246,6 +1252,42 @@ end
             .to_string();
         assert!(refused.contains("commits into one state"), "{refused}");
         attached.shutdown().unwrap();
+        owner.shutdown().unwrap();
+    }
+
+    #[test]
+    fn attaching_keeps_the_states_host_record_and_its_freeze() {
+        let mut owner = HostRuntime::owned(true, None).unwrap();
+        owner.add_feature("engine.clock").unwrap();
+        owner.add_resource("engine/defaults.json", b"{}").unwrap();
+        owner.load_component(COMPONENT, "=owner").unwrap();
+        let state = owner.lua_state();
+        let mut attached = unsafe { HostRuntime::attach(state, false) }.unwrap();
+        attached
+            .run_buffer(
+                b"assert(__nuppHost.hostFeatures['engine.clock']); assert(__nuppHost.resources['engine/defaults.json'] == '{}')",
+                "=kept",
+                &[],
+            )
+            .expect("attaching kept the host record the state already had");
+        // The state froze when its first component loaded, whichever runtime
+        // is asking now.
+        assert!(attached.add_feature("late").is_err());
+        assert!(attached.add_resource("late", b"").is_err());
+        assert!(attached.enable_workers(b"return nil").is_err());
+        attached.shutdown().unwrap();
+        owner.shutdown().unwrap();
+
+        // A global of that name the runtime did not make is not one to share.
+        let mut owner = HostRuntime::owned(true, None).unwrap();
+        owner
+            .run_buffer(b"__nuppHost = 42", "=foreign", &[])
+            .unwrap();
+        let state = owner.lua_state();
+        let refused = unsafe { HostRuntime::attach(state, false) }
+            .err()
+            .expect("a foreign __nuppHost is refused");
+        assert!(refused.to_string().contains("__nuppHost"), "{refused}");
         owner.shutdown().unwrap();
     }
 
