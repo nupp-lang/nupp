@@ -344,7 +344,8 @@ nupp_status status = nupp_call(
 Every non-scalar Lua result, including a table, function, thread, userdata, or
 cdata value, returns as `NUPP_VALUE_HANDLE`. Passing that value into a later
 call pushes the rooted Lua value. A handle belongs to one runtime; calls reject
-a handle from another runtime or one already released.
+a handle from another runtime or one already released, including a copy of a
+result value whose other copy was released.
 
 Returned strings and bytes own their buffers. Release every written result
 with `nupp_value_release`; that function also releases a result whose kind is
@@ -460,7 +461,10 @@ application which needs cleanup failures calls `nupp_runtime_shutdown`
 explicitly first.
 
 After shutdown, ordinary runtime operations fail. Calling shutdown again is
-allowed and succeeds; double-freeing any C pointer remains invalid C.
+allowed and succeeds. Components, handles and reload sessions are opaque names
+rather than addresses, and a name is never issued twice, so a call given one
+that was already released is refused instead of reaching whatever took its
+place. Freeing a runtime twice remains invalid C.
 
 ## Hot reload
 

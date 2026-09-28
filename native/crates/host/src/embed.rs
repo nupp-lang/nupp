@@ -1,15 +1,20 @@
 //! The public C embedding ABI declared by `host/include/nupp.h`.
 //!
-//! Opaque C pointers own Rust boxes. LuaJIT is only entered through
-//! `HostRuntime`, whose C shim protects every operation that can raise.
+//! A runtime pointer owns a Rust box. Components, handles and reload sessions
+//! are names instead: opaque, never-reused keys into a process-wide table, so a
+//! released name is refused rather than dereferenced, and one kind cannot be
+//! mistaken for another. LuaJIT is only entered through `HostRuntime`, whose C
+//! shim protects every operation that can raise.
 
 use crate::{
     Component, HostError, HostRuntime, LuaFunction, LuaState, ManagedHandle, ManagedValue, Reload,
     ReloadVerdict,
 };
+use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 const EMBED_ABI_VERSION: u32 = 1;
 const CONFIG_OPEN_LIBRARIES: u32 = 1;
@@ -75,12 +80,26 @@ pub struct NuppRuntime {
     inner: HostRuntime,
 }
 
-pub struct NuppComponent {
-    component: Component,
+impl Drop for NuppRuntime {
+    fn drop(&mut self) {
+        // Every name this runtime issued dies with it. A host that frees a
+        // component after the runtime finds nothing to release, which is what
+        // releasing it would have done anyway.
+        let runtime = self.inner.id;
+        registry()
+            .names
+            .retain(|_, object| object.runtime() != runtime);
+    }
 }
 
+/// Never dereferenced: the pointer value is a key into `REGISTRY`.
+pub struct NuppComponent {
+    _opaque: [u8; 0],
+}
+
+/// Never dereferenced: the pointer value is a key into `REGISTRY`.
 pub struct NuppHandle {
-    handle: ManagedHandle,
+    _opaque: [u8; 0],
 }
 
 #[repr(C)]
@@ -93,12 +112,68 @@ pub struct NuppReloadConfig {
     entry: *const c_char,
 }
 
+/// Never dereferenced: the pointer value is a key into `REGISTRY`.
 pub struct NuppReload {
+    _opaque: [u8; 0],
+}
+
+struct ReloadName {
     reload: Reload,
     // The last poll's diagnostics, kept here because a verdict is not a failed
     // call: the host reads it through `nupp_reload_message` until the next poll
-    // replaces it.
+    // replaces it. The boxed bytes do not move when the table rebalances.
     message: Option<Box<[u8]>>,
+}
+
+enum Named {
+    Component(Component),
+    Handle(ManagedHandle),
+    Reload(ReloadName),
+}
+
+impl Named {
+    fn runtime(&self) -> u64 {
+        match self {
+            Self::Component(component) => component.runtime,
+            Self::Handle(handle) => handle.runtime,
+            Self::Reload(reload) => reload.reload.runtime,
+        }
+    }
+}
+
+/// The names handed to C. A key is issued once and never again, so a stale
+/// name finds nothing rather than whatever took its place.
+struct Registry {
+    next: usize,
+    names: BTreeMap<usize, Named>,
+}
+
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
+    next: 1,
+    names: BTreeMap::new(),
+});
+
+fn registry() -> MutexGuard<'static, Registry> {
+    REGISTRY.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn issue<T>(object: Named) -> Result<*mut T, Failure> {
+    let mut registry = registry();
+    let key = registry.next;
+    // Wrapping would reissue a released name, which is the one thing a name
+    // must never do; running out is a refusal instead.
+    registry.next = key.checked_add(1).ok_or_else(|| {
+        Failure::invalid(
+            ERROR_RUNTIME,
+            "this process has issued every embedding name it can",
+        )
+    })?;
+    registry.names.insert(key, object);
+    Ok(ptr::without_provenance_mut(key))
+}
+
+fn key<T>(name: *const T) -> usize {
+    name.addr()
 }
 
 pub struct NuppError {
@@ -273,7 +348,15 @@ fn component_for(
             "this call needs a component",
         ));
     }
-    let component = unsafe { (*component).component };
+    let component = match registry().names.get(&key(component)) {
+        Some(Named::Component(component)) => *component,
+        _ => {
+            return Err(Failure::invalid(
+                ERROR_COMPONENT,
+                "the component has been released or was never issued",
+            ));
+        }
+    };
     if component.runtime != runtime.id {
         return Err(Failure::invalid(
             ERROR_COMPONENT,
@@ -290,7 +373,15 @@ fn handle_for(runtime: &HostRuntime, handle: *const NuppHandle) -> Result<Manage
             "this call needs a managed handle",
         ));
     }
-    let handle = unsafe { (*handle).handle };
+    let handle = match registry().names.get(&key(handle)) {
+        Some(Named::Handle(handle)) => *handle,
+        _ => {
+            return Err(Failure::invalid(
+                ERROR_RUNTIME,
+                "the managed handle has been released or was never issued",
+            ));
+        }
+    };
     if handle.runtime != runtime.id {
         return Err(Failure::invalid(
             ERROR_RUNTIME,
@@ -523,7 +614,7 @@ pub unsafe extern "C" fn nupp_component_load(
             let component = runtime
                 .load_component(data, name)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
-            out.write(Box::into_raw(Box::new(NuppComponent { component })));
+            out.write(issue(Named::Component(component))?);
             Ok(())
         })
     }
@@ -572,7 +663,7 @@ pub unsafe extern "C" fn nupp_export_find(
             let handle = runtime
                 .find_export(component, name)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
-            out.write(Box::into_raw(Box::new(NuppHandle { handle })));
+            out.write(issue_handle(runtime, handle)?);
             Ok(())
         })
     }
@@ -610,7 +701,18 @@ fn discard_answers(runtime: &mut HostRuntime, values: Vec<ManagedValue>) {
     }
 }
 
-unsafe fn write_answer(target: *mut NuppValue, value: ManagedValue) {
+/// Names a rooted value for C. A name that cannot be issued would leave the
+/// registry root with no owner, so the root is released with the refusal.
+fn issue_handle(
+    runtime: &mut HostRuntime,
+    handle: ManagedHandle,
+) -> Result<*mut NuppHandle, Failure> {
+    issue(Named::Handle(handle)).inspect_err(|_| {
+        let _ = runtime.release_handle(handle);
+    })
+}
+
+fn answer_value(runtime: &mut HostRuntime, value: ManagedValue) -> Result<NuppValue, Failure> {
     let mut answer = NuppValue::default();
     match value {
         ManagedValue::Nil => {}
@@ -633,10 +735,23 @@ unsafe fn write_answer(target: *mut NuppValue, value: ManagedValue) {
         }
         ManagedValue::Handle(handle) => {
             answer.kind = VALUE_HANDLE;
-            answer.handle = Box::into_raw(Box::new(NuppHandle { handle }));
+            answer.handle = issue_handle(runtime, handle)?;
         }
     }
-    unsafe { target.write(answer) };
+    Ok(answer)
+}
+
+/// Undoes `answer_value` for answers that never reached the caller.
+unsafe fn discard_value(runtime: &mut HostRuntime, value: NuppValue) {
+    if value.kind == VALUE_BYTES && !value.data.is_null() {
+        let slice = ptr::slice_from_raw_parts_mut(value.data, value.length);
+        drop(unsafe { Box::from_raw(slice) });
+    } else if value.kind == VALUE_HANDLE {
+        let named = registry().names.remove(&key(value.handle));
+        if let Some(Named::Handle(handle)) = named {
+            let _ = runtime.release_handle(handle);
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -683,8 +798,24 @@ pub unsafe extern "C" fn nupp_call(
                     message: "the result buffer is smaller than the call answered".to_owned(),
                 });
             }
-            for (index, answer) in answers.into_iter().enumerate() {
-                write_answer(results.add(index), answer);
+            // Every answer is named before any is written, so a refusal leaves
+            // the caller's buffer untouched and nothing it would have to free.
+            let mut values = Vec::with_capacity(answers.len());
+            let mut answers = answers.into_iter();
+            for answer in answers.by_ref() {
+                match answer_value(runtime, answer) {
+                    Ok(value) => values.push(value),
+                    Err(failure) => {
+                        for value in values {
+                            discard_value(runtime, value);
+                        }
+                        discard_answers(runtime, answers.collect());
+                        return Err(failure);
+                    }
+                }
+            }
+            for (index, value) in values.into_iter().enumerate() {
+                results.add(index).write(value);
             }
             Ok(())
         })
@@ -712,7 +843,7 @@ pub unsafe extern "C" fn nupp_handle_release(
             let runtime = runtime_mut(runtime)?;
             let managed = handle_for(runtime, handle)?;
             release_managed(runtime, managed)?;
-            drop(Box::from_raw(handle));
+            registry().names.remove(&key(handle));
             Ok(())
         })
     }
@@ -737,7 +868,7 @@ pub unsafe extern "C" fn nupp_value_release(
                 let runtime = runtime_mut(runtime)?;
                 let managed = handle_for(runtime, value.handle)?;
                 release_managed(runtime, managed)?;
-                drop(Box::from_raw(value.handle));
+                registry().names.remove(&key(value.handle));
             }
             *value = NuppValue::default();
             Ok(())
@@ -773,14 +904,31 @@ pub unsafe extern "C" fn nupp_runtime_poll(
     }
 }
 
-unsafe fn reload_mut<'a>(reload: *mut NuppReload) -> Result<&'a mut NuppReload, Failure> {
+fn reload_for(reload: *const NuppReload) -> Result<Reload, Failure> {
     if reload.is_null() {
         return Err(Failure::invalid(
             ERROR_CONFIGURATION,
             "this call needs a reload session",
         ));
     }
-    Ok(unsafe { &mut *reload })
+    match registry().names.get(&key(reload)) {
+        Some(Named::Reload(name)) => Ok(name.reload),
+        _ => Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            "the reload session has been freed or was never issued",
+        )),
+    }
+}
+
+/// Names an open session for C, closing it again if no name can be issued.
+fn issue_reload(runtime: &mut HostRuntime, reload: Reload) -> Result<*mut NuppReload, Failure> {
+    issue(Named::Reload(ReloadName {
+        reload,
+        message: None,
+    }))
+    .inspect_err(|_| {
+        let _ = runtime.reload_close(reload, false);
+    })
 }
 
 unsafe fn optional_utf8<'a>(
@@ -867,10 +1015,7 @@ pub unsafe extern "C" fn nupp_reload_open(
             let reload = runtime
                 .reload_open(compiler, root, entry, config.flags & RELOAD_STRICT != 0)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
-            out.write(Box::into_raw(Box::new(NuppReload {
-                reload,
-                message: None,
-            })));
+            out.write(issue_reload(runtime, reload)?);
             Ok(())
         })
     }
@@ -892,10 +1037,7 @@ pub unsafe extern "C" fn nupp_reload_attach(
             let reload = runtime
                 .reload_attach(compiler, root, config.flags & RELOAD_STRICT != 0)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
-            out.write(Box::into_raw(Box::new(NuppReload {
-                reload,
-                message: None,
-            })));
+            out.write(issue_reload(runtime, reload)?);
             Ok(())
         })
     }
@@ -912,7 +1054,7 @@ pub unsafe extern "C" fn nupp_reload_find(
     unsafe {
         status_boundary(error, || {
             let runtime = runtime_mut(runtime)?;
-            let reload = reload_mut(reload)?;
+            let reload = reload_for(reload)?;
             if out.is_null() {
                 return Err(Failure::invalid(
                     ERROR_RUNTIME,
@@ -922,9 +1064,9 @@ pub unsafe extern "C" fn nupp_reload_find(
             out.write(ptr::null_mut());
             let name = utf8(name, "a reloading member", ERROR_RUNTIME)?;
             let handle = runtime
-                .reload_member(reload.reload, name)
+                .reload_member(reload, name)
                 .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
-            out.write(Box::into_raw(Box::new(NuppHandle { handle })));
+            out.write(issue_handle(runtime, handle)?);
             Ok(())
         })
     }
@@ -938,10 +1080,9 @@ unsafe fn reload_step(
     step: fn(&mut HostRuntime, Reload) -> Result<crate::ReloadReport, HostError>,
 ) -> Result<(), Failure> {
     let runtime = unsafe { runtime_mut(runtime) }?;
-    let reload = unsafe { reload_mut(reload) }?;
-    reload.message = None;
-    let report =
-        step(runtime, reload.reload).map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+    let session = reload_for(reload)?;
+    set_reload_message(reload, None);
+    let report = step(runtime, session).map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
     if let Some(message) = report.message {
         let mut bytes = message.into_bytes();
         for byte in &mut bytes {
@@ -950,7 +1091,7 @@ unsafe fn reload_step(
             }
         }
         bytes.push(0);
-        reload.message = Some(bytes.into_boxed_slice());
+        set_reload_message(reload, Some(bytes.into_boxed_slice()));
     }
     if !verdict.is_null() {
         unsafe {
@@ -967,6 +1108,12 @@ unsafe fn reload_step(
         unsafe { generation.write(report.generation) };
     }
     Ok(())
+}
+
+fn set_reload_message(reload: *const NuppReload, message: Option<Box<[u8]>>) {
+    if let Some(Named::Reload(name)) = registry().names.get_mut(&key(reload)) {
+        name.message = message;
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1039,10 +1186,14 @@ pub unsafe extern "C" fn nupp_reload_message(reload: *const NuppReload) -> *cons
     if reload.is_null() {
         return ptr::null();
     }
-    match unsafe { &(*reload).message } {
-        Some(message) => message.as_ptr().cast(),
-        None => ptr::null(),
-    }
+    catch_unwind(|| match registry().names.get(&key(reload)) {
+        Some(Named::Reload(ReloadName {
+            message: Some(message),
+            ..
+        })) => message.as_ptr().cast(),
+        _ => ptr::null(),
+    })
+    .unwrap_or(ptr::null())
 }
 
 #[unsafe(no_mangle)]
@@ -1055,9 +1206,9 @@ pub unsafe extern "C" fn nupp_reload_close(
     unsafe {
         status_boundary(error, || {
             let runtime = runtime_mut(runtime)?;
-            let reload = reload_mut(reload)?;
+            let reload = reload_for(reload)?;
             runtime
-                .reload_close(reload.reload, ok != 0)
+                .reload_close(reload, ok != 0)
                 .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))
         })
     }
@@ -1066,18 +1217,24 @@ pub unsafe extern "C" fn nupp_reload_close(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_reload_free(reload: *mut NuppReload) {
     if !reload.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-            drop(Box::from_raw(reload));
-        }));
+        let _ = catch_unwind(|| {
+            let mut registry = registry();
+            if let Some(Named::Reload(_)) = registry.names.get(&key(reload)) {
+                registry.names.remove(&key(reload));
+            }
+        });
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_component_release(component: *mut NuppComponent) {
     if !component.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-            drop(Box::from_raw(component));
-        }));
+        let _ = catch_unwind(|| {
+            let mut registry = registry();
+            if let Some(Named::Component(_)) = registry.names.get(&key(component)) {
+                registry.names.remove(&key(component));
+            }
+        });
     }
 }
 
@@ -1715,6 +1872,135 @@ return {
             nupp_component_release(component);
             nupp_runtime_free(first);
             nupp_runtime_free(second);
+        }
+    }
+
+    fn number(value: f64) -> NuppValue {
+        NuppValue {
+            kind: VALUE_NUMBER,
+            number: value,
+            ..NuppValue::default()
+        }
+    }
+
+    #[test]
+    fn a_released_handle_is_refused_and_its_name_is_never_reissued() {
+        unsafe {
+            let runtime = new_runtime();
+            let component = load(runtime);
+            let answer = find(runtime, component, c"answer");
+            assert_eq!(
+                nupp_handle_release(runtime, answer, ptr::null_mut()),
+                STATUS_OK
+            );
+            // The allocator would hand the freed wrapper straight back to the
+            // next export, so the stale name would run `read` instead.
+            let read = find(runtime, component, c"read");
+            assert_ne!(answer, read, "a released handle's name was issued again");
+            let argument = number(41.0);
+            let mut results = std::array::from_fn::<_, 3, _>(|_| NuppValue::default());
+            let mut count = 0;
+            let mut error = ptr::null_mut();
+            assert_eq!(
+                nupp_call(
+                    runtime,
+                    answer,
+                    &argument,
+                    1,
+                    results.as_mut_ptr(),
+                    results.len(),
+                    &mut count,
+                    &mut error
+                ),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert_eq!(count, 0);
+            let text = CStr::from_ptr(nupp_error_message(error))
+                .to_string_lossy()
+                .into_owned();
+            assert!(text.contains("released"), "{text}");
+            nupp_error_free(error);
+            assert_eq!(
+                nupp_handle_release(runtime, answer, ptr::null_mut()),
+                STATUS_INVALID_ARGUMENT
+            );
+
+            // A copied result value released through one copy is stale in the
+            // other.
+            let doubled = find(runtime, component, c"answer");
+            assert_eq!(
+                nupp_call(
+                    runtime,
+                    doubled,
+                    &argument,
+                    1,
+                    results.as_mut_ptr(),
+                    results.len(),
+                    &mut count,
+                    ptr::null_mut()
+                ),
+                STATUS_OK
+            );
+            let mut copy = NuppValue {
+                kind: results[2].kind,
+                handle: results[2].handle,
+                ..NuppValue::default()
+            };
+            assert_eq!(
+                nupp_value_release(runtime, &mut copy, ptr::null_mut()),
+                STATUS_OK
+            );
+            let mut out = NuppValue::default();
+            assert_eq!(
+                nupp_call(
+                    runtime,
+                    read,
+                    &results[2],
+                    1,
+                    &mut out,
+                    1,
+                    &mut count,
+                    ptr::null_mut()
+                ),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                nupp_value_release(runtime, &mut results[2], ptr::null_mut()),
+                STATUS_INVALID_ARGUMENT
+            );
+            for index in 0..2 {
+                nupp_value_release(runtime, &mut results[index], ptr::null_mut());
+            }
+
+            // A handle is not a component, and a released component is gone.
+            let mut handle = ptr::null_mut();
+            assert_eq!(
+                nupp_export_find(
+                    runtime,
+                    read.cast::<NuppComponent>(),
+                    c"answer".as_ptr(),
+                    &mut handle,
+                    ptr::null_mut()
+                ),
+                STATUS_INVALID_ARGUMENT
+            );
+            nupp_component_release(component);
+            assert_eq!(
+                nupp_export_find(
+                    runtime,
+                    component,
+                    c"answer".as_ptr(),
+                    &mut handle,
+                    ptr::null_mut()
+                ),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert!(handle.is_null());
+            nupp_component_release(component);
+            nupp_handle_release(runtime, read, ptr::null_mut());
+            nupp_handle_release(runtime, doubled, ptr::null_mut());
+            assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
+            nupp_runtime_free(runtime);
         }
     }
 

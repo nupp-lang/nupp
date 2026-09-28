@@ -21,6 +21,9 @@ extern "C" {
 typedef struct lua_State lua_State;
 typedef int (*nupp_lua_CFunction)(lua_State *state);
 
+/* A runtime pointer addresses the runtime. Components, handles and reload
+ * sessions are opaque names instead: a released name is refused by every later
+ * call that is given it, and is never issued again. */
 typedef struct nupp_runtime nupp_runtime;
 typedef struct nupp_component nupp_component;
 typedef struct nupp_handle nupp_handle;
