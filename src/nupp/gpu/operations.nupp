@@ -213,6 +213,24 @@ function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
     return copied(self._strides)
 end
 
+--- Refuses one allocation bound for reading and for writing in the same binding.
+---
+--- WebGPU and wgpu track buffer usage per allocation rather than per range, so a read
+--- slot and a write slot naming views of one root conflict however far apart the
+--- views are, and the device drops the dispatch instead of running it. Refused where
+--- it is bound, the same way by every provider.
+---
+--- @param bound the allocation states already bound on the other side of the binding
+--- @param buffer the buffer being bound
+--- @raises string where the buffer's allocation is already bound on the other side
+function gpu.refuseReadWriteAlias<T>(bound: {any}, borrows buffer: gpu.Buffer<T>): nil
+    for _, other in pairs(bound) do
+        if rawequal(other, buffer._state) then
+            error("nupp: a GPU buffer cannot be bound for both reading and writing in one dispatch", 3)
+        end
+    end
+end
+
 function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
     liveBuffer(buffer)
     local _, _, dense = layoutFacts(buffer._shape, buffer._strides, 2)

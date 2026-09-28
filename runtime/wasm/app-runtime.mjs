@@ -178,6 +178,11 @@ async function gpuDevice(options) {
       const adapter = await webGpu(options).requestAdapter();
       if (!adapter) throw new Error("no WebGPU adapter is available");
       const device = await adapter.requestDevice();
+      // An error no scope caught is still the program's: it is reported by the next
+      // GPU operation rather than lost to the console.
+      device.addEventListener?.("uncapturederror", (event) => {
+        options.gpuUncaptured ||= String(event?.error?.message || event?.error || "unknown error");
+      });
       device.lost?.then((info) => {
         options.gpuDevice = null;
         options.gpuPipeline = null;
@@ -200,6 +205,30 @@ async function gpuPipeline(device, options) {
       : Promise.resolve(device.createComputePipeline(descriptor));
   }
   return options.gpuPipeline;
+}
+
+// WebGPU reports validation and allocation failures asynchronously, so a call that
+// returned has not succeeded. Each synchronous run of device calls sits inside its
+// own scopes, pushed and popped with no await between them so concurrent operations
+// cannot pop each other's, and a failure it caught becomes the operation's error.
+async function gpuChecked(device, work) {
+  if (typeof device.pushErrorScope !== "function") return work();
+  device.pushErrorScope("validation");
+  device.pushErrorScope("out-of-memory");
+  let value, failure, failed = false;
+  try {
+    value = work();
+  } catch (error) {
+    failure = error;
+    failed = true;
+  }
+  const memory = device.popErrorScope();
+  const validation = device.popErrorScope();
+  const [outOfMemory, invalid] = await Promise.all([memory, validation]);
+  if (failed) throw failure;
+  if (invalid) throw new Error(`WebGPU validation failed: ${invalid.message}`);
+  if (outOfMemory) throw new Error(`WebGPU is out of memory: ${outOfMemory.message}`);
+  return value;
 }
 
 function gpuRuntime(options) {
@@ -281,6 +310,11 @@ async function performGpuOperation(effect, options) {
   const usage = webGpuUsage(options);
   const device = await gpuDevice(options);
   if (options.gpuFailure) throw new Error(options.gpuFailure);
+  if (options.gpuUncaptured) {
+    const message = options.gpuUncaptured;
+    options.gpuUncaptured = null;
+    throw new Error(`WebGPU device error: ${message}`);
+  }
   const runtime = gpuRuntime(options);
   if (effect.operation === "runtime-open") return {driver: "webgpu"};
   if (effect.operation === "runtime-close") {
@@ -302,12 +336,10 @@ async function performGpuOperation(effect, options) {
   if (effect.operation === "runtime-create-buffer") {
     const bytes = uint32(effect.bytes, "buffer byte length");
     if (bytes === 0 || bytes % 4 !== 0) throw new Error("browser GPU buffers need a positive four-byte size");
+    const buffer = await gpuChecked(device, () =>
+      device.createBuffer({size: bytes, usage: usage.STORAGE | usage.COPY_DST | usage.COPY_SRC}));
     const id = runtime.nextBuffer++;
-    runtime.buffers.set(id, {
-      bytes,
-      buffer: device.createBuffer({size: bytes, usage: usage.STORAGE | usage.COPY_DST | usage.COPY_SRC}),
-      download: null,
-    });
+    runtime.buffers.set(id, {bytes, buffer, download: null});
     return {buffer: id};
   }
   if (effect.operation === "runtime-destroy-buffer") {
@@ -329,13 +361,11 @@ async function performGpuOperation(effect, options) {
         effect.uniformBytes % 4 !== 0 || !Number.isInteger(effect.threads) || effect.threads < 1 || effect.threads > 256) {
       throw new Error("browser GPU kernel descriptor is invalid");
     }
-    const descriptor = {
-      layout: "auto",
-      compute: {module: device.createShaderModule({code: effect.wgsl}), entryPoint: effect.entrypoint},
-    };
+    const module = await gpuChecked(device, () => device.createShaderModule({code: effect.wgsl}));
+    const descriptor = {layout: "auto", compute: {module, entryPoint: effect.entrypoint}};
     const pipeline = device.createComputePipelineAsync
       ? await device.createComputePipelineAsync(descriptor)
-      : device.createComputePipeline(descriptor);
+      : await gpuChecked(device, () => device.createComputePipeline(descriptor));
     const id = runtime.nextKernel++;
     runtime.kernels.set(id, {pipeline, readonly: effect.readonly, writable: effect.writable,
       uniformBytes: effect.uniformBytes, threads: effect.threads});
@@ -349,7 +379,7 @@ async function performGpuOperation(effect, options) {
     const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
     const range = gpuBufferRange(effect, resource);
     const lease = memoryLease(effect, options, range.bytes);
-    device.queue.writeBuffer(resource.buffer, range.offset, lease.view);
+    await gpuChecked(device, () => device.queue.writeBuffer(resource.buffer, range.offset, lease.view));
     return null;
   }
   if (effect.operation === "runtime-dispatch") {
@@ -361,25 +391,36 @@ async function performGpuOperation(effect, options) {
       throw new Error("browser GPU dispatch has the wrong binding count");
     }
     const count = uint32(effect.count, "dispatch count");
+    // The dispatch is one-dimensional. Past the device's per-dimension bound WebGPU
+    // drops it and reports nothing to the caller, so refuse it here, in the native
+    // provider's words.
+    const groups = Math.ceil(count / kernel.threads);
+    const limit = device.limits?.maxComputeWorkgroupsPerDimension ?? 65535;
+    if (groups > limit) {
+      throw new Error(`GPU dispatch workgroup count [${groups}, 1, 1] exceeds the per-dimension limit ${limit}`);
+    }
     const lease = memoryLease(effect, options, kernel.uniformBytes);
     const entries = [];
     let binding = 0;
     for (const id of effect.read) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "read buffer")).buffer}});
     for (const id of effect.write) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "write buffer")).buffer}});
-    const uniform = device.createBuffer({size: kernel.uniformBytes, usage: usage.UNIFORM | usage.COPY_DST});
+    let uniform;
     try {
-      device.queue.writeBuffer(uniform, 0, lease.view);
-      entries.push({binding, resource: {buffer: uniform}});
-      const bindGroup = device.createBindGroup({layout: kernel.pipeline.getBindGroupLayout(0), entries});
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(kernel.pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.dispatchWorkgroups(Math.ceil(count / kernel.threads));
-      pass.end();
-      device.queue.submit([encoder.finish()]);
+      await gpuChecked(device, () => {
+        uniform = device.createBuffer({size: kernel.uniformBytes, usage: usage.UNIFORM | usage.COPY_DST});
+        device.queue.writeBuffer(uniform, 0, lease.view);
+        entries.push({binding, resource: {buffer: uniform}});
+        const bindGroup = device.createBindGroup({layout: kernel.pipeline.getBindGroupLayout(0), entries});
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(kernel.pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.dispatchWorkgroups(groups);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+      });
     } finally {
-      uniform.destroy();
+      uniform?.destroy();
     }
     return null;
   }
@@ -387,10 +428,22 @@ async function performGpuOperation(effect, options) {
     const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
     const range = gpuBufferRange(effect, resource);
     if (resource.download) throw new Error("browser GPU buffer already has a queued download");
-    const readback = device.createBuffer({size: range.bytes, usage: usage.MAP_READ | usage.COPY_DST});
-    const encoder = device.createCommandEncoder();
-    encoder.copyBufferToBuffer(resource.buffer, range.offset, readback, 0, range.bytes);
-    device.queue.submit([encoder.finish()]);
+    let readback;
+    try {
+      await gpuChecked(device, () => {
+        readback = device.createBuffer({size: range.bytes, usage: usage.MAP_READ | usage.COPY_DST});
+        const encoder = device.createCommandEncoder();
+        encoder.copyBufferToBuffer(resource.buffer, range.offset, readback, 0, range.bytes);
+        device.queue.submit([encoder.finish()]);
+      });
+    } catch (error) {
+      readback?.destroy();
+      throw error;
+    }
+    if (resource.download) {
+      readback.destroy();
+      throw new Error("browser GPU buffer already has a queued download");
+    }
     const download = {buffer: readback, bytes: range.bytes, ready: false, synchronized: false, error: null};
     resource.download = download;
     download.promise = Promise.resolve(readback.mapAsync(webGpuMapMode(options).READ)).then(
@@ -419,10 +472,12 @@ async function performGpuOperation(effect, options) {
       const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
       const range = gpuBufferRange(effect, resource);
       memoryLease(effect, options, range.bytes, true);
-      readback = device.createBuffer({size: range.bytes, usage: usage.MAP_READ | usage.COPY_DST});
-      const encoder = device.createCommandEncoder();
-      encoder.copyBufferToBuffer(resource.buffer, range.offset, readback, 0, range.bytes);
-      device.queue.submit([encoder.finish()]);
+      await gpuChecked(device, () => {
+        readback = device.createBuffer({size: range.bytes, usage: usage.MAP_READ | usage.COPY_DST});
+        const encoder = device.createCommandEncoder();
+        encoder.copyBufferToBuffer(resource.buffer, range.offset, readback, 0, range.bytes);
+        device.queue.submit([encoder.finish()]);
+      });
       await readback.mapAsync(webGpuMapMode(options).READ);
       // Mapping yields to the host. Memory may grow or the lease may be revoked
       // before it completes, so project a fresh checked view at the actual write.

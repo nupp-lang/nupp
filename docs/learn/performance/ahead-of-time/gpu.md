@@ -141,7 +141,9 @@ The `nupp.gpu.layout` module (imported as `layout`) provides
 Host transfers and dispatch-indexed spans require dense layouts. Cursor-indexed
 kernels may consume other input layouts by passing dimensions and strides as
 scalar uniforms. Writable views also require disjoint coordinates and a
-complete span extent, so broadcast and overlapping writes are refused.
+complete span extent, so broadcast and overlapping writes are refused. One
+allocation cannot be bound for both reading and writing in a dispatch, even
+through disjoint views: devices track usage per allocation, not per range.
 
 The fixed-width math modules make binary16 and bfloat16 conversion explicit.
 Narrow integer names remain available as physical span and buffer element types,
@@ -176,6 +178,13 @@ The portable WebGPU profile admits complete-span maps over `int32` and
 `uint32` storage with scalar uniforms. It refuses floats, structs,
 cursor-indexed storage, and workgroup phases. WebGPU is required; no different
 graphics API is substituted when it is unavailable.
+
+WebGPU reports a rejected call later rather than at the call, so the page checks
+every GPU operation before answering it. A validation or out-of-memory error
+fails the operation that caused it, and an error nothing was waiting for fails
+the next one. A dispatch whose workgroup count exceeds the device's
+per-dimension limit is refused before it is submitted, with the same message
+the native provider gives.
 
 See [wasm.md](wasm.md#browser-package) for the application package and Worker
 host around this kernel.

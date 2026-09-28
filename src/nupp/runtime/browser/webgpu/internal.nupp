@@ -362,6 +362,23 @@ function gpu.Context.compileGenerated(
     )
 end
 
+--- The allocation states bound on one side of a binding: its read slots or its
+--- write slots.
+local function boundStates(borrows binding: gpu.Binding, writing: boolean): {any}
+    local readonly = binding._kernel._readonlyBuffers
+    local first = writing and readonly + 1 or 1
+    local last = writing and readonly + binding._kernel._writableBuffers or readonly
+    local states: {any} = {}
+    for index = first, last do
+        local state = binding._bufferStates[index]
+        if state ~= nil then
+            states[#states + 1] = state
+        end
+    end
+
+    return states
+end
+
 function gpu.Binding.setRead<T>(
     borrows self: gpu.Binding,
     slot: integer,
@@ -383,6 +400,7 @@ function gpu.Binding.setRead<T>(
     if matchCount and (not dense or extent ~= self.count) then
         error("nupp: browser GPU dispatch-indexed buffer has the wrong count", 2)
     end
+    operations.refuseReadWriteAlias(boundStates(self, true), buffer)
     self._read[slot + 1] = buffer._handle
     self._bufferStates[slot + 1] = buffer._state
     self._readCounts[slot + 1] = extent
@@ -413,6 +431,7 @@ function gpu.Binding.setWrite<T>(
     if matchCount and (not dense or extent ~= self.count) then
         error("nupp: browser GPU dispatch-indexed buffer has the wrong count", 2)
     end
+    operations.refuseReadWriteAlias(boundStates(self, false), buffer)
     self._write[slot + 1] = buffer._handle
     self._bufferStates[self._kernel._readonlyBuffers + slot + 1] = buffer._state
     self._writeCounts[slot + 1] = extent

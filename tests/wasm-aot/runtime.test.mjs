@@ -575,6 +575,94 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
   assert.equal(options.gpuRuntime.kernels.size, 0);
 });
 
+// A device that keeps WebGPU's error scopes and limits, and reports a usage conflict
+// the way WebGPU does: asynchronously, through whichever scope is open.
+function scopedGpuDevice() {
+  const scopes = [];
+  const listeners = [];
+  const device = {
+    submitted: 0,
+    limits: {maxComputeWorkgroupsPerDimension: 4},
+    lost: {then() {}},
+    addEventListener(type, listener) { if (type === "uncapturederror") listeners.push(listener); },
+    raise(message) {
+      const scope = [...scopes].reverse().find((entry) => entry.filter === "validation");
+      if (scope) scope.error ||= {message};
+      else for (const listener of listeners) listener({error: {message}});
+    },
+    pushErrorScope(filter) { scopes.push({filter, error: null}); },
+    popErrorScope() { return Promise.resolve(scopes.pop().error); },
+    queue: {writeBuffer() {}, submit() { device.submitted += 1; }, async onSubmittedWorkDone() {}},
+    createShaderModule: () => ({}),
+    createComputePipelineAsync: async () => ({getBindGroupLayout: () => ({})}),
+    createBuffer: ({size}) => ({size, destroy() {}}),
+    createBindGroup({entries}) {
+      const buffers = entries.map((entry) => entry.resource.buffer);
+      if (new Set(buffers).size !== buffers.length) {
+        device.raise("Writable storage buffer binding aliasing found");
+      }
+      return {entries};
+    },
+    createCommandEncoder() {
+      const pass = {setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {}, end() {}};
+      return {beginComputePass: () => pass, finish: () => ({})};
+    },
+  };
+  const options = {
+    gpu: {requestAdapter: async () => ({requestDevice: async () => device})},
+    GPUBufferUsage: {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, UNIFORM: 8, MAP_READ: 16},
+    GPUMapMode: {READ: 1},
+    transfers: {lease: () => ({view: new Uint8Array(16), bytes: 16}), release() {}},
+  };
+  let id = 0;
+  const perform = async (operation) => {
+    const result = await handleBrowserEffects({kind: "effects", requests: [{id: ++id, kind: "gpu", ...operation}]}, options);
+    return result.responses[0];
+  };
+  return {device, perform};
+}
+
+test("the browser GPU host refuses a dispatch past the per-dimension workgroup limit", async () => {
+  const {device, perform} = scopedGpuDevice();
+  const input = (await perform({operation: "runtime-create-buffer", bytes: 64})).value.buffer;
+  const output = (await perform({operation: "runtime-create-buffer", bytes: 64})).value.buffer;
+  const kernel = (await perform({
+    operation: "runtime-compile", wgsl: "fn main() {}", entrypoint: "main",
+    readonly: 1, writable: 1, uniformBytes: 20, threads: 2,
+  })).value.kernel;
+  const dispatch = (count) => perform({
+    operation: "runtime-dispatch", kernel, read: [input], write: [output], count, lease: 1,
+  });
+  assert.equal((await dispatch(8)).ok, true, "four groups of two fit the limit");
+  const submitted = device.submitted;
+  const refused = await dispatch(9);
+  assert.equal(refused.ok, false, "a dispatch WebGPU would drop was answered as done");
+  // The native provider's wording, so a program sees one refusal on both targets.
+  assert.equal(refused.error, "GPU dispatch workgroup count [5, 1, 1] exceeds the per-dimension limit 4");
+  assert.equal(device.submitted, submitted, "the refused dispatch was submitted");
+});
+
+test("the browser GPU host surfaces validation errors instead of reporting success", async () => {
+  const {device, perform} = scopedGpuDevice();
+  const buffer = (await perform({operation: "runtime-create-buffer", bytes: 64})).value.buffer;
+  const kernel = (await perform({
+    operation: "runtime-compile", wgsl: "fn main() {}", entrypoint: "main",
+    readonly: 1, writable: 1, uniformBytes: 20, threads: 1,
+  })).value.kernel;
+  const aliased = await perform({
+    operation: "runtime-dispatch", kernel, read: [buffer], write: [buffer], count: 1, lease: 1,
+  });
+  assert.equal(aliased.ok, false, "an aliased dispatch was answered as done");
+  assert.match(aliased.error, /WebGPU validation failed: Writable storage buffer binding aliasing/);
+
+  // An error no scope caught still reaches the program, at its next operation.
+  device.raise("the device saw something wrong");
+  const next = await perform({operation: "runtime-synchronize"});
+  assert.equal(next.ok, false);
+  assert.match(next.error, /WebGPU device error: the device saw something wrong/);
+  assert.equal((await perform({operation: "runtime-synchronize"})).ok, true, "one error is reported once");
+});
+
 test("browser GPU download refreshes a lease after memory growth and rejects revoked permissions", async () => {
   for (const revoke of [false, true, "readonly"]) {
     const memory = new WebAssembly.Memory({initial: 1, maximum: 2});

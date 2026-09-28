@@ -359,4 +359,77 @@ function M.aWaitNothingCanCompleteIsRefusedAfterATimerHasRun()
     check.matches(tostring(problem), "no readiness source is registered")
 end
 
+----------------------------------------------------------------------------
+-- WebGPU bindings
+----------------------------------------------------------------------------
+
+--- A browser GPU context over a host that hands out handles and runs nothing.
+local function gpuContext()
+    local handles = 0
+    local host = {
+        await = function(_, effect)
+            if effect.operation == "runtime-open" then
+                return {driver = "webgpu"}
+            end
+            handles = handles + 1
+            if effect.operation == "runtime-create-buffer" then
+                return {buffer = handles}
+            elseif effect.operation == "runtime-compile" then
+                return {kernel = handles}
+            end
+        end,
+    }
+    local browser = providerstate.browserGpu(host)
+    local context = browser.open()
+    local element = require("ffi").typeof("uint32_t")
+    local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
+
+    return context, element, kernel
+end
+
+function M.aWritableViewThatRepeatsAnElementIsRefused()
+    local context, element, kernel = gpuContext()
+    local layout = require("nupp.gpu.layout")
+    local output = context:buffer(element, 4)
+    local binding = context:bindKernel(kernel, 4)
+    -- Every element of the view is the allocation's first: four threads would race to
+    -- write it, which no dispatch result can make sense of.
+    local repeated = output:view(layout.new(0, {4}, {0}))
+    local ok, problem = pcall(binding.setWrite, binding, 0, repeated, false)
+    check.equal(ok, false, "a repeating writable view was bound")
+    check.matches(tostring(problem), "not a disjoint span")
+    local overlapping = output:view(layout.new(0, {2, 2}, {1, 1}))
+    ok, problem = pcall(binding.setWrite, binding, 0, overlapping, false)
+    check.equal(ok, false, "an overlapping writable view was bound")
+    check.matches(tostring(problem), "not a disjoint span")
+    binding:setWrite(0, output:view(layout.new(0, {2, 2}, {2, 1})), false)
+end
+
+function M.oneAllocationCannotBeBoundForReadingAndWriting()
+    local context, element, kernel = gpuContext()
+    local layout = require("nupp.gpu.layout")
+    local shared = context:buffer(element, 8)
+    local other = context:buffer(element, 8)
+
+    local binding = context:bindKernel(kernel, 4)
+    binding:setRead(0, shared, false)
+    local ok, problem = pcall(binding.setWrite, binding, 0, shared, false)
+    check.equal(ok, false, "a buffer bound for reading was bound for writing")
+    check.matches(tostring(problem), "both reading and writing")
+
+    -- Usage is tracked per allocation, so disjoint views of one root conflict too,
+    -- whichever side is bound first.
+    local reversed = context:bindKernel(kernel, 4)
+    reversed:setWrite(0, shared:view(layout.new(4, {4}, {1})), false)
+    ok, problem = pcall(reversed.setRead, reversed, 0, shared:view(layout.new(0, {4}, {1})), false)
+    check.equal(ok, false, "a view of a buffer bound for writing was bound for reading")
+    check.matches(tostring(problem), "both reading and writing")
+
+    -- Rebinding a slot replaces what it held.
+    local rebound = context:bindKernel(kernel, 4)
+    rebound:setRead(0, shared, false)
+    rebound:setRead(0, other, false)
+    rebound:setWrite(0, shared, false)
+end
+
 return M
