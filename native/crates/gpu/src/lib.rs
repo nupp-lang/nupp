@@ -631,6 +631,7 @@ impl GpuContext {
         let start = costs::clock();
         validate_kernel_descriptor(descriptor, &self.device.limits())?;
         let words = spirv_words(descriptor.spirv)?;
+        check_workgroup_size(&words, descriptor.entry_point, descriptor.workgroup_size)?;
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let readonly_layout = self.storage_layout(descriptor.readonly_bindings, true);
         let writable_layout = self.storage_layout(descriptor.writable_bindings, false);
@@ -1530,6 +1531,80 @@ fn spirv_words(bytes: &[u8]) -> Result<Vec<u32>, GpuError> {
     Ok(words)
 }
 
+const OP_ENTRY_POINT: u32 = 15;
+const OP_EXECUTION_MODE: u32 = 16;
+const EXECUTION_MODEL_GL_COMPUTE: u32 = 5;
+const EXECUTION_MODE_LOCAL_SIZE: u32 = 17;
+
+/// The instructions after the five-word header, each as its opcode and
+/// operands, refusing a word count that is zero or runs past the module.
+fn spirv_instructions(words: &[u32]) -> Result<Vec<(u32, &[u32])>, GpuError> {
+    let mut instructions = Vec::new();
+    let mut at = 5.min(words.len());
+    while at < words.len() {
+        let count = (words[at] >> 16) as usize;
+        if count == 0 || at + count > words.len() {
+            return Err(GpuError::InvalidArgument(format!(
+                "SPIR-V instruction at word {at} has an invalid length"
+            )));
+        }
+        instructions.push((words[at] & 0xffff, &words[at + 1..at + count]));
+        at += count;
+    }
+    Ok(instructions)
+}
+
+/// The words of a SPIR-V literal string, NUL-terminated and padded to a word.
+fn spirv_string(words: &[u32]) -> (Vec<u8>, usize) {
+    let mut bytes = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        for byte in word.to_le_bytes() {
+            if byte == 0 {
+                return (bytes, index + 1);
+            }
+            bytes.push(byte);
+        }
+    }
+    (bytes, words.len())
+}
+
+/// Refuses a declared workgroup size that is not the one the entry point's
+/// `LocalSize` execution mode compiles in. Dispatch geometry is computed from
+/// the declared size, so a wrong one silently covers the wrong elements.
+fn check_workgroup_size(
+    words: &[u32],
+    entry_point: &str,
+    declared: [u32; 3],
+) -> Result<(), GpuError> {
+    let instructions = spirv_instructions(words)?;
+    let entry = instructions.iter().find_map(|(opcode, operands)| {
+        if *opcode != OP_ENTRY_POINT
+            || operands.len() < 3
+            || operands[0] != EXECUTION_MODEL_GL_COMPUTE
+        {
+            return None;
+        }
+        let (name, _) = spirv_string(&operands[2..]);
+        (name == entry_point.as_bytes()).then_some(operands[1])
+    });
+    let Some(entry) = entry else {
+        return Ok(());
+    };
+    let compiled = instructions.iter().find_map(|(opcode, operands)| {
+        (*opcode == OP_EXECUTION_MODE
+            && operands.len() == 5
+            && operands[0] == entry
+            && operands[1] == EXECUTION_MODE_LOCAL_SIZE)
+            .then(|| [operands[2], operands[3], operands[4]])
+    });
+    match compiled {
+        Some(compiled) if compiled != declared => Err(GpuError::InvalidArgument(format!(
+            "GPU kernel declares workgroup size {declared:?}, but {entry_point} is compiled for {compiled:?}"
+        ))),
+        _ => Ok(()),
+    }
+}
+
 fn validate_kernel_descriptor(
     descriptor: &KernelDescriptor<'_>,
     limits: &wgpu::Limits,
@@ -1759,6 +1834,29 @@ mod tests {
         assert!(binds(&[None, slot(7)], 7));
         assert!(!binds(&[None, slot(7)], 8));
         assert!(!binds(&[None, None], 7));
+    }
+
+    fn module_with_local_size(size: [u32; 3]) -> Vec<u32> {
+        let mut words = vec![0x0723_0203, 0x0001_0300, 0, 20, 0];
+        // OpEntryPoint GLCompute %4 "main"
+        words.extend([(5 << 16) | OP_ENTRY_POINT, EXECUTION_MODEL_GL_COMPUTE, 4]);
+        words.push(u32::from_le_bytes(*b"main"));
+        words.push(0);
+        // OpExecutionMode %4 LocalSize x y z
+        words.extend([(6 << 16) | OP_EXECUTION_MODE, 4, EXECUTION_MODE_LOCAL_SIZE]);
+        words.extend(size);
+        words
+    }
+
+    #[test]
+    fn a_declared_workgroup_size_must_be_the_compiled_one() {
+        let words = module_with_local_size([64, 1, 1]);
+        assert_eq!(check_workgroup_size(&words, "main", [64, 1, 1]), Ok(()));
+        assert!(check_workgroup_size(&words, "main", [128, 1, 1]).is_err());
+        assert_eq!(check_workgroup_size(&words, "other", [128, 1, 1]), Ok(()));
+        let mut truncated = words.clone();
+        truncated.truncate(words.len() - 1);
+        assert!(check_workgroup_size(&truncated, "main", [64, 1, 1]).is_err());
     }
 
     #[test]
