@@ -177,6 +177,39 @@ local function run(options: any): integer
     local checkPlain = function(modulePath: string, env: any): boolean
         return compile.check(modulePath, env, {strict = settings.strict, dialect = settings.dialect}) ~= nil
     end
+    -- The program's `arg` is its own, as it is for a script `luajit` runs: `arg[0]` the
+    -- program and `arg[1]` onwards what followed it. The compiler's command line is
+    -- still what compiling reads, and a module the program requires is compiled while
+    -- it runs, so each compile puts the compiler's back for its duration: the comptime
+    -- worker and compiler packs find the executable through it.
+    local toolArg: any = rawget(_G, "arg")
+    local programArg: {[integer]: string} = {[0] = path}
+    for index, value in ipairs(programArgs) do
+        programArg[index] = value
+    end
+    local compileProgram, checkProgram = compileLoaded, checkPlain
+    compileLoaded = function(modulePath: string, env: any): string?, string?
+        local current: any = rawget(_G, "arg")
+        rawset(_G, "arg", toolArg)
+        local ok, code, problem = pcall(compileProgram, modulePath, env)
+        rawset(_G, "arg", current)
+        if not ok then
+            error(code, 0)
+        end
+
+        return code, problem
+    end
+    checkPlain = function(modulePath: string, env: any): boolean
+        local current: any = rawget(_G, "arg")
+        rawset(_G, "arg", toolArg)
+        local ok, clean = pcall(checkProgram, modulePath, env)
+        rawset(_G, "arg", current)
+        if not ok then
+            error(clean, 0)
+        end
+
+        return clean
+    end
     local preparationDepth = 0
 
     local function preparing(active: boolean): nil
@@ -236,7 +269,9 @@ local function run(options: any): integer
         end
     end
 
+    rawset(_G, "arg", programArg)
     local ok, runErr = pcall(chunk, unpack(programArgs))
+    rawset(_G, "arg", toolArg)
     if tracing then
         tracing:pause()
     end

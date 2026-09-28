@@ -689,6 +689,36 @@ function M.schemaStopsAtTheProgramBoundary()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A program reads its arguments from `arg` as well as from its varargs, the way a
+-- Lua script run by `luajit` does: `arg[0]` is the program and `arg[1]` its first
+-- argument, not the compiler's own command line. A module the program requires is
+-- still compiled while it runs, and that compile, comptime worker included, keeps
+-- seeing the compiler's.
+function M.runGivesTheProgramItsOwnArgTable()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local files = {
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        ["s.lua"] = 'print(arg[0], arg[1], arg[2], #arg, select("#", ...))\n',
+        ["v.nupp"] = 'local args = rawget(_G, "arg") as {[integer]: string}\n'
+            .. 'local later = require("later")\n'
+            .. 'print(args[0], args[1], args[2], #args, later)\n',
+        ["later.nupp"] = "local answer = comptime do\n    return 6 * 7\nend\n\nreturn answer\n",
+    }
+    for name, text in pairs(files) do
+        local file = assert(io.open(dir .. "/" .. name, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    local output, ok = captureAt(dir, "run s.lua input.txt -v")
+    assert(ok and output == "s.lua\tinput.txt\t-v\t2\t2\n", "a Lua program's arg: " .. output)
+    output, ok = captureAt(dir, "run v.nupp input.txt -v")
+    assert(ok and output == "v.nupp\tinput.txt\t-v\t2\t42\n", "a Nupp program's arg: " .. output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.lintsUsesDefaultsOutsideAConfiguredProject()
     local dir = os.tmpname()
     os.remove(dir)

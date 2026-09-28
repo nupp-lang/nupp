@@ -1832,8 +1832,10 @@ Options:
 ```
 
 The first non-option argument is the program; everything after it goes to the
-program, options included. Arguments arrive as the chunk's varargs. A `.nupp`
-file is compiled first; anything else is loaded as Lua directly.
+program, options included. Arguments arrive as the chunk's varargs and in the
+global `arg`, where `arg[0]` is the program and `arg[1]` onwards what followed
+it, as for a script `luajit` runs. A `.nupp` file is compiled first; anything
+else is loaded as Lua directly.
 
 ```text [nupp run src/main.nupp]
 Hello, world
