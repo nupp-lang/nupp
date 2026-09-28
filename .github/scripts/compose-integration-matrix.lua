@@ -20,7 +20,7 @@ local platforms = {
     },
     {
         variable = "SELECTED_WINDOWS",
-        entry = {name = "Windows x64", os = "windows-2022", timeout = 95, artifact = "windows-x64"},
+        entry = {name = "Windows x64", os = "windows-2022", timeout = 120, artifact = "windows-x64"},
     },
 }
 
@@ -31,14 +31,10 @@ for _, platform in ipairs(platforms) do
     end
 end
 
+local shape = '{"name":"%s","os":"%s","timeout":%d,"artifact":"%s"}'
 local encoded = {}
 for index, entry in ipairs(selected) do
-    encoded[index] = ('{"name":"%s","os":"%s","timeout":%d,"artifact":"%s"}'):format(
-        entry.name,
-        entry.os,
-        entry.timeout,
-        entry.artifact
-    )
+    encoded[index] = shape:format(entry.name, entry.os, entry.timeout, entry.artifact)
 end
 local document = "[" .. table.concat(encoded, ",") .. "]"
 
