@@ -3242,4 +3242,102 @@ function cst.pretty(x: cst.Child): string
     return table.concat(lines, "\n")
 end
 
+const LOOPS: {[string]: boolean} = {whileStmt = true, fornumStmt = true, forinStmt = true, repeatStmt = true,}
+
+--- The first `continue` of a `repeat` loop's own -- not one of a loop nested in
+--- it, nor one inside a function -- with the index of the body statement that
+--- holds it.
+---
+--- Taken gradually, as `functionName` is: the walk crosses every statement and
+--- expression kind, and reads only `kind`, `body` and the children.
+---
+--- @param loop a `repeatStmt`
+--- @return the `continueStmt` and its statement's index, or nothing
+--- @raises never
+function cst.repeatContinue(loop: any): (any, integer?)
+    local found: any = nil
+
+    local function walk(node: any): nil
+        if found ~= nil or node == nil or isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "continueStmt" then
+            found = node
+            return
+        end
+        if FUNCTION_DECLARATIONS[kind] or kind == "funcbody" then
+            return
+        end
+        for _, child in ipairs(node) do
+            if not (LOOPS[kind] and child == node.body) then
+                walk(child)
+            end
+        end
+    end
+
+    local stats = loop.body ~= nil and loop.body.stats or {}
+    for index, stat in ipairs(stats) do
+        walk(stat)
+        if found ~= nil then
+            return found, index as integer
+        end
+    end
+
+    return nil, nil
+end
+
+--- Where a `repeat` loop's condition reads a local its body declares after the
+--- body's first `continue`. Lua evaluates `until` in the body's scope, so that
+--- `continue` would reach the condition with the local never declared.
+---
+--- @param loop a `repeatStmt`
+--- @return the `continueStmt`, and the name in the condition that reads the local
+--- @raises never
+function cst.skippedUntilLocal(loop: any): (any, lexer.Token?)
+    local continued, first = cst.repeatContinue(loop)
+    if continued == nil or loop.cond == nil then
+        return nil, nil
+    end
+    local later: {[string]: boolean} = {}
+    local stats = loop.body.stats
+    for index = first as integer, #stats do
+        local stat = stats[index]
+        if stat.kind == "localStmt" then
+            for _, name in ipairs(stat.names or {}) do
+                later[name.text] = true
+            end
+            for _, entry in ipairs(stat.pattern or {}) do
+                local bound = entry.alias or entry.sourceName
+                if bound ~= nil then
+                    later[bound.text] = true
+                end
+            end
+        elseif stat.kind == "localFuncStmt" and stat.name ~= nil then
+            later[stat.name.text] = true
+        end
+    end
+    local reading: lexer.Token? = nil
+
+    local function read(node: any): nil
+        if reading ~= nil or node == nil or isToken(node) then
+            return
+        end
+        if node.kind == "name" and node.token ~= nil and later[node.token.text] then
+            reading = node.token
+            return
+        end
+        for _, child in ipairs(node) do
+            read(child)
+        end
+    end
+
+    read(loop.cond)
+    if reading == nil then
+        return nil, nil
+    end
+
+    return continued, reading
+end
+
 export = cst

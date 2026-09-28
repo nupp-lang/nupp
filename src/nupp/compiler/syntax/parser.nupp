@@ -3196,6 +3196,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             repeatConditionDepth = repeatConditionDepth + 1
             n.cond = add(n, parseExp())
             repeatConditionDepth = repeatConditionDepth - 1
+            local skipping, reading = cst.skippedUntilLocal(n)
+            if skipping ~= nil then
+                local name = (reading as Token).text
+                errAt(
+                    cst.firstToken(skipping) as Token,
+                    ("continue skips local '%s', which the until condition reads"):format(name),
+                    nil,
+                    ("declare '%s' before the first continue, or test the condition without it"):format(name)
+                )
+            end
             return n
 
         elseif kind == "name"

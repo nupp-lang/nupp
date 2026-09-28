@@ -360,6 +360,14 @@ function M.continueStatements()
         #assertRoundtrip("while true do local function f() continue end end").errors > 0,
         "continue cannot cross a function boundary"
     )
+
+    local skipped = assertRoundtrip("repeat if x then continue end local y = 1 until y > 0")
+    assertEq(skipped.errors[1].msg, "continue skips local 'y', which the until condition reads")
+    assertEq(
+        #assertRoundtrip("repeat local y = 1 if x then continue end local z = 2 until y > 0").errors,
+        0,
+        "a local declared before the continue is in scope for the condition"
+    )
 end
 
 function M.returnEndsItsBlock()

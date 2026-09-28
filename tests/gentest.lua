@@ -876,6 +876,38 @@ until n >= 3
 return hits]]),
         1
     )
+    -- The until condition is in the body's scope, so a continue ahead of a
+    -- later local would jump into that local's scope.
+    assertEq(
+        run([[
+local total, i = 0, 0
+repeat
+   i += 1
+   local before = i
+   if i % 2 == 0 then continue end
+   local doubled = i * 2
+   total += doubled
+until before >= 10
+return total]]),
+        50
+    )
+    assertEq(
+        run([[
+local total, i = 0, 0
+repeat
+   i += 1
+   local kept = do
+      if i == 2 then continue end
+      yield i
+   end
+   for j = 1, 2 do
+      if j == 1 then continue end
+      total += kept
+   end
+until i >= 4
+return total]]),
+        8
+    )
 end
 
 function M.namedVarargSemantics()

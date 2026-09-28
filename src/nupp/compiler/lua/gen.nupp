@@ -3940,44 +3940,16 @@ function gen.generate(
         return labels
     end
 
-    -- A synthetic one-iteration repeat keeps a `continue` ahead of a lowered switch
-    -- in an authored repeat condition inside the body's scope.
+    -- A synthetic one-iteration repeat keeps a `continue` inside the body's scope.
+    -- Lua's `until` sits in the body's block, so a `continue` that jumps to it
+    -- ahead of a later local -- authored, or one a lowered statement declares --
+    -- jumps into that local's scope and does not load, and a lowered switch in
+    -- the condition needs the body's locals as well. The wrapper evaluates the
+    -- condition where each `continue` is instead. The parser refuses the one
+    -- loop it cannot serve, a condition reading a local a `continue` skipped,
+    -- where that read would bind some other variable.
     function pluck.loopNeedsWrapper(loop): boolean
-        if not (loop.kind == "repeatStmt" and emitDepth.switchContains(loop.cond)) then
-            return false
-        end
-        local found = false
-
-        local function walk(node)
-            if found or not node or cst.isToken(node) then
-                return
-            end
-            local kind = node.kind
-            if kind == "continueStmt" then
-                found = true
-                return
-            end
-            if kind == "funcbody" or kind == "funcExpr" or kind == "shortfn" then
-                return
-            end
-            if node ~= loop.body
-                and (kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt")
-            then
-                for _, child in ipairs(node) do
-                    if child ~= node.body then
-                        walk(child)
-                    end
-                end
-                return
-            end
-            for _, child in ipairs(node) do
-                walk(child)
-            end
-        end
-
-        walk(loop.body)
-
-        return found
+        return loop.kind == "repeatStmt" and cst.repeatContinue(loop) ~= nil and cst.skippedUntilLocal(loop) == nil
     end
 
     -- The wrapper's `until true` closes the body's scope before an authored `until`
