@@ -1127,4 +1127,25 @@ function M.anAffineLocalCanEndARepeatBody()
     }, "\n"), "printed.nupp"), "drop rp1\ndrop rp2")
 end
 
+-- Generated Lua that does not load is the compiler's fault, and the report says so
+-- at a real position: the start of the line LuaJIT named. Its help names no command,
+-- because every command that prints generated code stops at the same failure.
+function M.unloadableOutputIsReportedAtItsLine()
+    local src = "local a = 1\nlocal b = 'x'\nreturn a, b"
+    local result = parser.parse(src, "broken.g.nupp")
+    -- A string the lexer would never let through, so only the load check sees it.
+    for _, token in ipairs(result.tokens) do
+        if token.text == "'x'" then
+            token.text = "'\\q'"
+        end
+    end
+    local _, diags = gen.generate(result, "broken.g.nupp")
+    assertEq(#diags, 1, "one diagnostic")
+    assertEq(diags[1].code, "NUPP3005")
+    assertEq(diags[1].line, 2, "the line LuaJIT named")
+    assertEq(diags[1].col, 1)
+    assertEq(diags[1].offset, #"local a = 1\n" + 1, "the offset of that line's first byte")
+    assertEq(diags[1].help:find("nupp bc", 1, true), nil, "no command that fails the same way")
+end
+
 return M

@@ -463,6 +463,8 @@ type gen.Checked = {
     @readonly root: cst.Chunk,
     @readonly tokens: {any}?,
 
+    --- The text that was parsed, which positions a report of output that will not load.
+    @readonly source: string?,
     @readonly implicitSideEffects: {[string]: any}?,
 
     --- What the checker resolved this file to, and the native features it recorded.
@@ -10068,11 +10070,23 @@ function gen.generate(
                 help = "pass some of them as arguments, or gather what it reads into one " .. "value and capture that"
             else
                 message = "generated code does not load: " .. (text:gsub("^[^:]*:%d+:%s*", ""))
-                help = "this is a bug in the compiler rather than in this file; `nupp bc " .. tostring(
-                    filename or ""
-                ) .. "` shows what it generated"
+                help = "this is a bug in the compiler rather than in this file; "
+                    .. "report it with the smallest source that reproduces it"
             end
-            diag({line = line, col = 1, offset = 0, text = ""}, "NUPP3005", message, help)
+            -- Positioned at the start of the line LuaJIT named, which is the source
+            -- line too, so the range is a real one rather than the start of nothing.
+            line = math.max(line, 1)
+            local offset, reached = 1, 1
+            local source = result.source
+            while source and reached < line do
+                local newline = source:find("\n", offset, true)
+                if not newline then
+                    break
+                end
+                offset = newline + 1
+                reached = reached + 1
+            end
+            diag({line = line, col = 1, offset = offset, text = ""}, "NUPP3005", message, help)
         end
     end
 
