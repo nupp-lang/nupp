@@ -11,8 +11,10 @@ doing the build, so `long` and `size_t` follow the target platform instead of a
 generated bindings file.
 
 Most headers a project owns need no preprocessing at all: dropping the
-directives is enough for LuaJIT. Headers that pull in a system include closure
-need `cc -E` first, which the caller asks for explicitly.
+directives is enough for LuaJIT. A conditional is not, since only a preprocessor
+can pick its branch, so one is refused unless C itself settles it. Headers that
+pull in a system include closure, or branch, need `cc -E` first, which the caller
+asks for explicitly.
 ]]
 
 local T = require("nupp.compiler.types")
@@ -37,7 +39,10 @@ type cheader.Options = {
     @readonly preprocess: boolean?,
     @readonly cc: string?,
     @readonly ccArgs: {string}?,
-    @readonly read: (function(path: string): string?)?
+    @readonly read: (function(path: string): string?)?,
+
+    --- The path as the program wrote it, for messages.
+    @readonly display: string?
 }
 
 --- A header as the checker takes it: what it declares, and the text to hand the
@@ -54,7 +59,16 @@ type cheader.Provenance = {
     cdef: string,
     sourcePath: string,
     dependencies: {string},
-    semanticFingerprint: string
+    semanticFingerprint: string,
+
+    --- The text as LuaJIT parses it at check time: `cdef` with every line in place.
+    parseText: string?,
+
+    --- Where each line of `parseText` came from, when the header was preprocessed.
+    origins: {{
+        file: string,
+        line: integer
+    }?}?
 }
 
 local INT_BY_BITS = {
@@ -193,18 +207,178 @@ modelFunction = function(fn, structs, resolver)
     )
 end
 
--- Strips directives and comments; enough for a header that does not need a
--- preprocessor, and harmless for one that has already been through it.
-local function stripDirectives(text)
-    text = text:gsub("/%*.-%*/", " ")
-    local out = {}
+local function newlinesOf(text: string): string
+    return (text:gsub("[^\n]", ""))
+end
+
+local function linesOf(text: string): {string}
+    local lines: {string} = {}
     for line in (text .. "\n"):gmatch("(.-)\n") do
-        if not line:match("^%s*#") then
-            out[#out + 1] = (line:gsub("//.*$", ""))
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+-- A conditional that tests `__cplusplus`, which a C compiler never defines, so its
+-- branch is known without a preprocessor. Answers whether the branch it opens is
+-- taken, or nil when the line is some other conditional.
+local function cplusplusBranch(line: string): boolean?
+    local compact = line:gsub("%s+", "")
+    if compact == "#ifdef__cplusplus" or compact == "#ifdefined(__cplusplus)" or compact == "#ifdefined__cplusplus" then
+        return false
+    end
+    if compact == "#ifndef__cplusplus"
+        or compact == "#if!defined(__cplusplus)"
+        or compact == "#if!defined__cplusplus"
+    then
+        return true
+    end
+
+    return nil
+end
+
+-- The name a whole-file include guard tests, from its opening line.
+local function guardName(line: string): string?
+    return line:match("^%s*#%s*ifndef%s+([%a_][%w_]*)%s*$")
+        or line:match("^%s*#%s*if%s*!%s*defined%s*%(%s*([%a_][%w_]*)%s*%)%s*$")
+        or line:match("^%s*#%s*if%s*!%s*defined%s+([%a_][%w_]*)%s*$")
+end
+
+-- The lines of a header read without a preprocessor, as LuaJIT will see them:
+-- comments and directives blanked, every line still where it was, so a line LuaJIT
+-- reports is the header's own.
+--
+-- Dropping directives is enough for most project headers, but not for a
+-- conditional. Both branches of `#ifdef _WIN32 ... #else ... #endif` reached LuaJIT,
+-- which kept the first, and a block under `#if 0` was declared. So a conditional is
+-- refused, naming its line, unless it is one whose branch C itself settles: the
+-- whole-file include guard, which is taken, and a test of `__cplusplus`, which is not.
+local function unpreprocessedLines(text: string, display: string): ({string}?, string?)
+    text = text:gsub("/%*.-%*/", function(comment)
+        return " " .. newlinesOf(comment)
+    end)
+    local lines = linesOf(text)
+    for index, line in ipairs(lines) do
+        lines[index] = line:gsub("//.*$", "")
+    end
+
+    -- The guard: the first line that says anything opens it, the next defines the
+    -- name it tests, and its #endif is the last line that says anything.
+    local significant: {integer} = {}
+    for index, line in ipairs(lines) do
+        if line:match("%S") then
+            significant[#significant + 1] = index
+        end
+    end
+    local guardAt: integer? = nil
+    local name = significant[1] and guardName(lines[significant[1]]) or nil
+    local define = significant[2] and lines[significant[2]]:match("^%s*#%s*define%s+([%a_][%w_]*)") or nil
+    local last = significant[#significant]
+    if name and name == define and last and lines[last]:match("^%s*#%s*endif") then
+        guardAt = significant[1]
+    end
+
+    local out: {string} = {}
+    local stack: {{
+        kind: string,
+        taken: boolean,
+        sawElse: boolean
+    }} = {}
+
+    local function live(): boolean
+        for _, frame in ipairs(stack) do
+            if not frame.taken then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    local function refuse(index: integer, why: string): ({string}?, string?)
+        return nil, ("%s:%d: %s"):format(display, index, why)
+    end
+
+    for index, line in ipairs(lines) do
+        local directive = line:match("^%s*#%s*(%a*)")
+        if directive then
+            out[index] = ""
+            local head = line:match("^%s*(#%s*%a*[^\n]*)") or line
+            head = head:gsub("%s+$", "")
+            if directive == "if" or directive == "ifdef" or directive == "ifndef" then
+                local branch = cplusplusBranch(line)
+                if index == guardAt then
+                    stack[#stack + 1] = {kind = "guard", taken = true, sawElse = false}
+                elseif branch ~= nil then
+                    stack[#stack + 1] = {kind = "cplusplus", taken = branch, sawElse = false}
+                else
+                    return refuse(
+                        index,
+                        head
+                        .. " needs cheader's \"preprocess\" argument, since only the preprocessor can pick its branch"
+                    )
+                end
+            elseif directive == "elif" or directive == "elifdef" or directive == "elifndef" then
+                return refuse(
+                    index,
+                    head .. " needs cheader's \"preprocess\" argument, since only the preprocessor can pick its branch"
+                )
+            elseif directive == "else" then
+                local top = stack[#stack]
+                if not top or top.kind ~= "cplusplus" or top.sawElse then
+                    return refuse(
+                        index,
+                        "#else needs cheader's \"preprocess\" argument, since only the preprocessor can pick its branch"
+                    )
+                end
+                top.taken = not top.taken
+                top.sawElse = true
+            elseif directive == "endif" then
+                if #stack == 0 then
+                    return refuse(index, "#endif closes no conditional")
+                end
+                stack[#stack] = nil
+            end
+        else
+            out[index] = live() and line or ""
+        end
+    end
+    if #stack > 0 then
+        return nil, display .. ": a conditional is never closed"
+    end
+
+    return out
+end
+
+-- The lines of a preprocessed header, with the linemarkers and pragmas the
+-- preprocessor left behind blanked, and where each line came from.
+local function preprocessedLines(text: string): ({string}, {{
+    file: string,
+    line: integer
+}?})
+    local lines = linesOf(text)
+    local origins: {{
+        file: string,
+        line: integer
+    }?} = {}
+    local file: string = "?"
+    local number: integer = 0
+    for index, line in ipairs(lines) do
+        local marker, markerFile = line:match('^%s*#%s*(%d+)%s+"([^"]*)"')
+        if marker then
+            file, number = markerFile, (tonumber(marker) as integer) - 1
+            lines[index] = ""
+        elseif line:match("^%s*#") then
+            number = number + 1
+            lines[index] = ""
+        else
+            number = number + 1
+            origins[index] = {file = file, line = number}
         end
     end
 
-    return table.concat(out, "\n")
+    return lines, origins
 end
 
 -- Only meaningful when the preprocessor runs, but cheap to record always.
@@ -298,29 +472,52 @@ end
 
 local cache = {}
 
-local function provenance(path: string, opts: cheader.Options?): cheader.Provenance?, string?
+local function provenance(path: string, opts: cheader.Options?): (cheader.Provenance?, string?, boolean?)
     opts = opts or {} as cheader.Options
+    local display = opts.display or path
     path = hostService("fs").canonical(path)
     local source = opts.read and opts.read(path) or hostService("fs").readFile(path)
     if not source then
-        return nil, "cannot read " .. path
+        return nil, "cannot read " .. path, true
     end
-    local text = source
     local dependencies = {path}
+    local lines, origins
     if opts.preprocess then
         local expanded, discovered, problem = preprocessHeader(path, opts)
         if not expanded then
             return nil, problem
         end
-        text = expanded
         dependencies = discovered
+        lines, origins = preprocessedLines(expanded)
+    else
+        local read, problem = unpreprocessedLines(source, display)
+        if not read then
+            return nil, problem
+        end
+        lines = read
     end
-    text = stripDirectives(text)
+    local parseText = table.concat(lines, "\n")
+    -- What runs is the same text without the lines that hold nothing, since every
+    -- line of it becomes a line of generated Lua.
+    local kept: {string} = {}
+    for _, line in ipairs(lines) do
+        if line:match("%S") then
+            kept[#kept + 1] = line
+        end
+    end
+    local text = table.concat(kept, "\n")
     local semanticFingerprint = hash.digest(
         table.concat({"cheader-v2", cdecl.abiTag(), toolchainIdentity(opts), semanticText(text)}, "\0")
     )
 
-    return {cdef = text, sourcePath = path, dependencies = dependencies, semanticFingerprint = semanticFingerprint,}
+    return {
+        cdef = text,
+        sourcePath = path,
+        dependencies = dependencies,
+        semanticFingerprint = semanticFingerprint,
+        parseText = parseText,
+        origins = origins,
+    }
 end
 
 cheader.provenance = provenance
@@ -428,11 +625,15 @@ end
 -- Returns { exports = {name -> type}, cdef = string } or nil plus a reason.
 -- `opts.preprocess` runs the system compiler first, for headers whose declarations are
 -- written in a vocabulary their includes define.
-function cheader.load(path: string, opts: cheader.Options?): cheader.Header?, string?
+
+--- Loads a header. A failure is the reason, and a third result saying the header
+--- could not be read at all, which is what lets a caller try its next candidate path
+--- without mistaking a header that failed to parse for one that is not there.
+function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, string?, boolean?)
     opts = opts or {} as cheader.Options
-    local observed, problem = provenance(path, opts)
+    local observed, problem, missing = provenance(path, opts)
     if not observed then
-        return nil, problem
+        return nil, problem, missing
     end
     local text = observed.cdef
     local dependencies = observed.dependencies
@@ -451,9 +652,23 @@ function cheader.load(path: string, opts: cheader.Options?): cheader.Header?, st
         }
     end
 
-    local parsed, err = cdecl.inspect(text)
+    local parsed, err = cdecl.inspect(observed.parseText or text)
     if not parsed then
-        return nil, ("LuaJIT could not parse %s: %s"):format(path, tostring(err))
+        -- LuaJIT names a line of the text it was given, which is the header's own line
+        -- unless the header was preprocessed, when the linemarkers say whose it is.
+        local message = tostring(err)
+        local line = tonumber(message:match("at line (%d+)$") or "") as integer?
+        local where = opts.display or path
+        if line then
+            message = message:gsub("%s*at line %d+$", "")
+            local origin = observed.origins and observed.origins[line] or nil
+            if origin then
+                where = origin.file .. ":" .. tostring(origin.line)
+            elseif not observed.origins then
+                where = where .. ":" .. tostring(line)
+            end
+        end
+        return nil, ("LuaJIT could not parse %s: %s"):format(where, message)
     end
 
     -- Structs first, so a function mentioning one can refer to it.

@@ -564,6 +564,20 @@ unreadable path is reported where it is written. The second argument names a
 library to load;
 without it the default namespace is used.
 
+Without a preprocessor, `cheader` drops `#include` and `#define` lines and
+reads the rest as written, which suits a self-contained project header. A
+conditional is refused with its line, because only the preprocessor can pick
+its branch, unless C itself settles it: a whole-file include guard is taken,
+and a test of `__cplusplus` is not, so the usual `extern "C"` wrapper needs
+nothing. For any other conditional, or a header written in its includes'
+vocabulary, pass `"preprocess"` as the third argument to run `cc -E` first:
+
+```nupp
+local api = cheader("native/api.h", "api", "preprocess")
+```
+
+A parse error names the header's own line either way.
+
 This suits a header that changes often, or one you would rather not vendor a
 translation of. `import-c` suits a header you want to prune and annotate, since
 its output is yours to edit. `cheader` uses the same direct declaration model

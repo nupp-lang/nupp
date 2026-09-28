@@ -88,6 +88,82 @@ function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
     assertEq(T.tostring(pointer.elem.byname.level), "int32")
 end
 
+function M.aConditionalNeedsThePreprocessor()
+    local header = table.concat({
+        "#ifndef NUPP_COND_H",
+        "#define NUPP_COND_H",
+        "#ifdef _WIN32",
+        "typedef unsigned short nupp_cond_wide;",
+        "#else",
+        "typedef unsigned int nupp_cond_wide;",
+        "#endif",
+        "nupp_cond_wide nupp_cond_width(nupp_cond_wide x);",
+        "#endif",
+    }, "\n") .. "\n"
+    local path, dir = scratchHeader("cond.h", header)
+    local res, err = cheaderMod.load(path)
+    assertEq(res, nil, "both branches would reach LuaJIT")
+    assert(err:find("cond.h:3: #ifdef _WIN32 needs cheader's \"preprocess\" argument", 1, true), err)
+    if os.execute("cc --version >/dev/null 2>&1") == 0 then
+        local preprocessed = assert(cheaderMod.load(path, {preprocess = true}))
+        local want = require("ffi").os == "Windows" and "function(uint16): uint16" or "function(uint32): uint32"
+        assertEq(T.tostring(preprocessed.exports.nupp_cond_width), want, "the preprocessor picks the branch")
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+
+    local disabled, disabledDir = scratchHeader("off.h", "#if 0\nint nupp_off_hidden(void);\n#endif\nint nupp_off_shown(void);\n")
+    local _, offErr = cheaderMod.load(disabled)
+    os.execute("rm -rf '" .. disabledDir .. "'")
+    assert(offErr and offErr:find("off.h:1: #if 0 needs", 1, true), tostring(offErr))
+end
+
+function M.aCplusplusGuardIsSettledWithoutAPreprocessor()
+    local path, dir = scratchHeader("cpp.h", table.concat({
+        "/* A project header's usual shape. */",
+        "#ifndef NUPP_CPP_H",
+        "#define NUPP_CPP_H",
+        "#ifdef __cplusplus",
+        "extern \"C\" {",
+        "#endif",
+        "int nupp_cpp_add(int a, int b);",
+        "#if defined(__cplusplus)",
+        "}",
+        "#else",
+        "int nupp_cpp_c_only(void);",
+        "#endif",
+        "#endif",
+    }, "\n") .. "\n")
+    local res, err = cheaderMod.load(path)
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(res, err)
+    assertEq(T.tostring(res.exports.nupp_cpp_add), "function(int32, int32): int32")
+    assertEq(T.tostring(res.exports.nupp_cpp_c_only), "function(): int32")
+end
+
+function M.aParseErrorNamesTheHeadersOwnLine()
+    local header = table.concat({
+        "/* A header with a long",
+        "   multi-line comment",
+        "   spanning three lines */",
+        "#ifndef NUPP_BAD_H",
+        "#define NUPP_BAD_H",
+        "#include <stdint.h>",
+        "",
+        "int nupp_bad_good(int a);",
+        "int nupp_bad_broken(int a b);",
+        "#endif",
+    }, "\n") .. "\n"
+    local path, dir = scratchHeader("bad.h", header)
+    local _, err = cheaderMod.load(path)
+    assert(err and err:find("bad.h:9: ", 1, true), "the broken declaration is on line 9: " .. tostring(err))
+    if os.execute("cc --version >/dev/null 2>&1") == 0 then
+        local _, preprocessedErr = cheaderMod.load(path, {preprocess = true})
+        assert(preprocessedErr and preprocessedErr:find("bad.h:9: ", 1, true),
+            "linemarkers name the header's line: " .. tostring(preprocessedErr))
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.noPreprocessorNeededForASelfContainedHeader()
     -- the fixture has #ifndef/#include and still loads with no compiler
     local res, err = cheaderMod.load(HERE .. "/fixtures/sink.h")
