@@ -1796,12 +1796,24 @@ local function check(a: Type, b: Type): boolean, string?
         if a.varargType and b.varargType and not isA(b.varargType, a.varargType) then
             return false, ("%s is not a %s (extra arguments)"):format(T.tostring(a), T.tostring(b))
         end
+        -- A pack tail's mode is part of the contract, except where the slot's extra
+        -- arguments are plain `any` or `unknown`: nothing owned reaches such a slot,
+        -- so a callee that promises to keep nothing fits it, and `print` stands in a
+        -- `function(...: any)`. Not the other way round: a slot that lends its extra
+        -- arguments may hand over an owner a plain callee is free to keep.
         local aTail, bTail = a.paramPack.tail, b.paramPack.tail
+        local aTailMode = aTail and aTail.mode or "plain"
+        local bTailMode = bTail and bTail.mode or "plain"
+        local bTailType = bTail and bTail.kind == "homogeneous" and bTail.type or nil
+        local mootTail = (bTailType == T.any or bTailType == T.unknown)
+            and (aTailMode == "scoped" or aTailMode == "borrows")
+            and bTailMode == "plain"
         if aTail
             and bTail
             and aTail.kind == "homogeneous"
             and bTail.kind == "homogeneous"
-            and (aTail.mode or "plain") ~= (bTail.mode or "plain")
+            and aTailMode ~= bTailMode
+            and not mootTail
         then
             return false, ("%s is not a %s (extra argument ownership mode)"):format(T.tostring(a), T.tostring(b))
         end

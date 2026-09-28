@@ -1792,6 +1792,22 @@ function M.gradualDefaults()
     assertEq((diagsOf("local f: function() = function() end\nf = nil")), "NUPP2001:2")
 end
 
+-- A callee that borrows its extra arguments keeps none of them, and nothing owned
+-- reaches a plain `...: any`, so it fits one. A slot that lends its extra
+-- arguments still refuses a callee free to keep them.
+function M.aBorrowingVarargTailFitsAPlainOne()
+    assertClean(table.concat({
+        "local f1: function(...: any) = print",
+        "local f2: function(...: any): nil = print",
+        "local f3: function(s: string): nil = print",
+        "f1('a') f2('b') f3('c')",
+    }, "\n"))
+    assertEq(
+        (diagsOf("local function keep(...: any): nil end\nlocal f: function(borrows ...: any): nil = keep\nf(1)")),
+        "NUPP2001:2"
+    )
+end
+
 -- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
 -- the type of `x`. Keeping it as a member made every field read fail.
 function M.neverAddsNothingToAUnion()
