@@ -264,6 +264,28 @@ local heapArrayParts = rawget(heapModule as table, "__heapArrayParts")
 local heapArrayFromParts = rawget(heapModule as table, "__heapArrayFromParts")
 local heapArrayFree = rawget(heapModule as table, "__heapArrayFree")
 
+local sharedbytesModule = require("nupp.mem.sharedbytes") as any
+local regionParts = rawget(sharedbytesModule as table, "__regionParts")
+local regionFromParts = rawget(sharedbytesModule as table, "__regionFromParts")
+local sharedbytesNative = require("nupp.mem.sharedbytes.native") as any
+
+--- Whether a region's extent still lies inside the storage it names. Its parts
+--- are private fields, and a message must not carry an extent the far side
+--- would read past.
+local function regionIntact(region: any): boolean
+    local handle, first, length = (regionParts as function(any): (any, any, any))(region)
+    local size = sharedbytesNative.length(handle)
+
+    return type(size) == "number"
+        and type(first) == "number"
+        and type(length) == "number"
+        and first >= 1
+        and length >= 0
+        and first == math.floor(first as number)
+        and length == math.floor(length as number)
+        and first + length - 1 <= size
+end
+
 ----------------------------------------------------------------------------
 -- What may be transferred
 ----------------------------------------------------------------------------
@@ -282,6 +304,9 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
         if metatable == (_G.nupp and rawget(_G.nupp, "__regionMetatable")) then
             -- An engine-owned region crosses by reference: a leaf here, an
             -- attachment on the message, a fresh local handle on the far side.
+            if not regionIntact(value) then
+                return ("%s is a region whose extent lies outside its storage"):format(path)
+            end
             state.hasRegions = true
 
             return nil
@@ -508,10 +533,6 @@ local function decodePacked(target: Channel, count: number, bytes: string): Pack
 
     return {values = value as {any}, count = count as integer}
 end
-
-local sharedbytesModule = require("nupp.mem.sharedbytes") as any
-local regionParts = rawget(sharedbytesModule as table, "__regionParts")
-local regionFromParts = rawget(sharedbytesModule as table, "__regionFromParts")
 
 ----------------------------------------------------------------------------
 -- Attachments

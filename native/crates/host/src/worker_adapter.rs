@@ -332,32 +332,47 @@ fn attachments(raw: *const RawAttachment, count: usize) -> Option<Vec<Option<Att
     answer
 }
 
+/// Every entry is checked before any becomes an owning `Attachment`, so a
+/// refusal has built nothing that frees a block on drop: the blocks are still
+/// the raw array's, and `attachments` frees each of them exactly once.
 fn convert_attachments(raw: &[RawAttachment]) -> Option<Vec<Option<Attachment>>> {
-    let mut answer = Vec::with_capacity(raw.len());
-    for item in raw {
-        if item.kind == 0 {
-            let region = borrowed_arc(item.block.cast::<Region>())?;
-            let zero = item.first.checked_sub(1)?;
-            let end = zero.checked_add(item.length)?;
-            if end > region.bytes.len() {
-                return None;
-            }
-            answer.push(Some(Attachment::Region {
-                region: Arc::clone(&region),
-                first: item.first,
-                length: item.length,
-            }));
-        } else if item.kind == 1 && !item.block.is_null() && item.length >= 1 {
-            answer.push(Some(Attachment::Moved {
-                pointer: item.block,
-                count: item.first,
-                layout: item.length,
-            }));
-        } else {
-            return None;
-        }
+    if !raw.iter().all(valid_attachment) {
+        return None;
     }
-    Some(answer)
+    Some(
+        raw.iter()
+            .map(|item| {
+                Some(if item.kind == 0 {
+                    let region = borrowed_arc(item.block.cast::<Region>())
+                        .expect("a validated region entry names a region");
+                    Attachment::Region {
+                        region: Arc::clone(&region),
+                        first: item.first,
+                        length: item.length,
+                    }
+                } else {
+                    Attachment::Moved {
+                        pointer: item.block,
+                        count: item.first,
+                        layout: item.length,
+                    }
+                })
+            })
+            .collect(),
+    )
+}
+
+fn valid_attachment(item: &RawAttachment) -> bool {
+    match item.kind {
+        0 => borrowed_arc(item.block.cast::<Region>()).is_some_and(|region| {
+            item.first
+                .checked_sub(1)
+                .and_then(|zero| zero.checked_add(item.length))
+                .is_some_and(|end| end <= region.bytes.len())
+        }),
+        1 => !item.block.is_null() && item.length >= 1,
+        _ => false,
+    }
 }
 
 #[unsafe(no_mangle)]

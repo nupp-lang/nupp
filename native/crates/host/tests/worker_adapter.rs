@@ -210,3 +210,42 @@ end
     );
     runtime.shutdown().expect("shutdown");
 }
+
+// A moved block handed to the push belongs to it whatever happens next, so a
+// later entry the push refuses must not free that block twice: once with the
+// partly built attachment list and once with the raw array.
+#[test]
+fn a_refused_region_after_a_moved_block_frees_the_block_once() {
+    let mut runtime = runtime(b"return nil");
+    run(
+        &runtime,
+        br#"
+local workers = require("nupp.workers.native")
+local bytes = require("nupp.mem.sharedbytes.native")
+local ffi = require("ffi")
+ffi.cdef[[void *malloc(size_t);]]
+
+local function moved(size)
+    local box = ffi.new("void *[1]", ffi.C.malloc(size))
+    return ffi.string(box, ffi.sizeof("void *"))
+end
+
+local channel = assert(workers.channelCreate())
+local region = assert(bytes.fromString("abc"))
+for round = 1, 64 do
+    -- Bytes 1..99 of a 3-byte block.
+    assert(not workers.channelPushBufferTask(
+        channel, round, "jobs", "run", 1, "frame", {moved(64), 1, 1, region, 1, 99}
+    ))
+    assert(not workers.channelPushBufferReply(
+        channel, round, 1, "frame", {moved(64), 1, 1, region, 3, 2}
+    ))
+end
+assert(workers.channelCount(channel) == 0)
+-- The region the refusals borrowed is still the caller's.
+assert(bytes.text(region, 1, 3) == "abc")
+workers.channelDestroy(channel)
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}
