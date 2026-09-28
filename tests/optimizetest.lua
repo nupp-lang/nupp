@@ -149,7 +149,6 @@ local M = {}
 function M.generatedProgramsAgreeAcrossLevels()
     local programs = require("optimizeprograms")
     local avoid = {
-        ["FRONTEND-01"] = true,
         ["FRONTEND-03"] = true,
         ["FRONTEND-04"] = true,
         ["FRONTEND-07"] = true,
@@ -1323,6 +1322,63 @@ function M.keepsIpairsWhenDenseEntryIsNotProven()
         )
     )
     assertTrue(code:find("in ipairs", 1, true) ~= nil, "an array type alone does not prove its Lua boundary: " .. code)
+end
+
+-- The remarks one pass made on `src` at `-O2`.
+local function remarksOf(src, filename, code)
+    filename = filename or "test.g.nupp"
+    local result = parser.parse(src, filename)
+    check.check(result, filename, env)
+    local found = {}
+    for _, entry in ipairs(runOptimizer(result, {level = 2, filename = filename})) do
+        if entry.code == code then
+            found[#found + 1] = entry
+        end
+    end
+    return found
+end
+
+-- An item a constructor may store as nil, or expand into several values, leaves the
+-- item count saying nothing about where `ipairs` stops.
+function M.numericIpairsDeclinesALiteralThatMayHoldAHoleOrExpand()
+    local loop = "    local n = 0\n    for i, v in ipairs(t) do n = n + i end\n    return n\nend\n"
+    local cases = {
+        {"local function f(...)\n    local t = {...}\n" .. loop .. "print(f('p', 'q', 'r'))", "test.g.nupp"},
+        {"local function f()\n    local t = {1, nil, 3}\n" .. loop .. "print(f())", "test.g.nupp"},
+        {"local function f(a, b, c)\n    local t = {a, b, c}\n" .. loop .. "print(f(1, nil, 3))", "test.g.nupp"},
+        {
+            "local function two() return 'a', 'b' end\nlocal function f()\n    local t = {'x', two()}\n"
+                .. loop .. "print(f())",
+            "test.g.nupp",
+        },
+        {
+            "local function none() return nil end\nlocal function f()\n    local t = {1, none(), 3}\n"
+                .. loop .. "print(f())",
+            "test.g.nupp",
+        },
+        {
+            "local function count(a: integer?, b: integer?, c: integer?): integer\n"
+                .. "    local t = {a, b, c}\n    local n: integer = 0\n"
+                .. "    for i, _ in ipairs(t) do n = n + i end\n    return n\nend\nprint(count(1, nil, 3))",
+            "test.nupp",
+        },
+        {
+            "local function count(...: string): integer\n    local t = {...}\n    local n: integer = 0\n"
+                .. "    for i, _ in ipairs(t) do n = n + i end\n    return n\nend\nprint(count('p', 'q', 'r'))",
+            "test.nupp",
+        },
+    }
+    for _, case in ipairs(cases) do
+        assertAgrees(case[1], case[2])
+        local remarks = remarksOf(case[1], case[2], "OPT-2")
+        assertEq(#remarks, 1, "one OPT-2 decision for\n" .. case[1])
+        assertEq(remarks[1].status, "declined", "the rewrite is declined for\n" .. case[1])
+    end
+    -- Items that are one value each and never nil are still a proved bound.
+    local dense = "local function f(a: integer, s: string)\n    local t = {a, s, 3, true, {}}\n"
+        .. "    local n = 0\n    for i, v in ipairs(t) do n = n + i end\n    return n\nend\nprint(f(1, 'x'))"
+    assertEq(assertAgrees(dense, "test.nupp"), "15")
+    assertEq(remarksOf(dense, "test.nupp", "OPT-2")[1].status, "fired", "a dense literal still rewrites")
 end
 
 function M.keepsIpairsWhenArrayShapeChanges()

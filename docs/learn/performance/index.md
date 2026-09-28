@@ -350,7 +350,10 @@ limit how much capacity can be reserved in advance.
 ### `OPT-2`, numeric `ipairs`
 
 A loop over a dense literal becomes numeric when the compiler can prove the
-array and its length stay fixed:
+array and its length stay fixed. Dense means every item is one value that is
+never nil: a literal, a table or function, or a name whose type excludes nil.
+`nil`, `...`, a call, and a name typed `T?` or `any` each keep `ipairs`, which
+stops at the first nil and counts every value an expansion produces:
 
 ::: code-group
 ```nupp [Nupp]

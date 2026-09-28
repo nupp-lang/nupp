@@ -376,6 +376,56 @@ local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = t
 -- fixed array without changing what `nupp.compiler.analysis` knows. So it is
 -- collected
 -- here, beside the decision it serves.
+-- The checked types a value of which is never nil. A name typed `T?`, `any` or a
+-- type parameter may hold nil, and nil is a hole `ipairs` stops at.
+local NEVER_NIL = {
+    boolean = true,
+    string = true,
+    number = true,
+    integer = true,
+    float = true,
+    table = true,
+    array = true,
+    map = true,
+    tuple = true,
+    shape = true,
+    func = true,
+    nominal = true,
+}
+
+-- Whether a constructor item stores exactly one value that is not nil, so the item
+-- count is the length `ipairs` sees. `nil`, `...` and a call are out: the first is a
+-- hole, the other two may expand to any number of values in last position or store
+-- nil anywhere else.
+local function oneNonNilValue(value): boolean
+    if not value or isToken(value) then
+        return false
+    end
+    local kind = value.kind
+    if kind == "paren" then
+        return oneNonNilValue(value.expr)
+    end
+    if kind == "number"
+        or kind == "string"
+        or kind == "trueExpr"
+        or kind == "falseExpr"
+        or kind == "tableExpr"
+        or kind == "funcExpr"
+        or kind == "shortfn"
+    then
+        return true
+    end
+    if kind == "name" and value.token then
+        local t = value.token.inferredType
+        if t and t.tag == "literal" then
+            t = t.base
+        end
+        return t ~= nil and NEVER_NIL[t.tag] == true
+    end
+
+    return false
+end
+
 local function denseLiteralLengths(body)
     local lengths = {}
 
@@ -389,7 +439,7 @@ local function denseLiteralLengths(body)
                 if value and value.kind == "tableExpr" then
                     local length, dense = 0, true
                     for _, field in ipairs(value.fields or {}) do
-                        if field.kind == "fieldItem" then
+                        if field.kind == "fieldItem" and oneNonNilValue(field.value) then
                             length = length + 1
                         else
                             dense = false
