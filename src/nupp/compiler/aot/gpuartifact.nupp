@@ -56,6 +56,13 @@ const STORAGE_TYPE: {
 
 const UNIFORM_TYPE: {[string]: boolean} = {f32 = true, i32 = true, u32 = true,}
 
+--- Storage narrower than 32 bits. SPIR-V reaches it through the
+--- `StorageBuffer8BitAccess` and `StorageBuffer16BitAccess` capabilities, and
+--- WGPU's SPIR-V front end, which every native backend goes through, refuses
+--- the first and cannot validate the second. Refused here, at the kernel,
+--- rather than when a context first compiles it.
+const NARROW_STORAGE: {[string]: boolean} = {int8 = true, int16 = true, uint8 = true, uint16 = true,}
+
 local function identifier(value: string): string
     return (value:gsub("[^%w_]", "_"))
 end
@@ -103,6 +110,22 @@ local function outsideSubset(
             end
         else
             return "GPU subset does not admit scalar ABI parameters"
+        end
+    end
+    for _, param in ipairs(program.params) do
+        if param.sourceType ~= nil and NARROW_STORAGE[param.sourceType as string] == true then
+            return "GPU span " .. param.name .. " has " .. tostring(
+                param.sourceType
+            ) .. " elements; GPU kernels need 32-bit storage (WGPU refuses 8- and 16-bit storage buffers)"
+        end
+    end
+    for _, layout in ipairs(program.layouts or {}) do
+        for _, field in ipairs(layout.fields) do
+            if field.sourceType ~= nil and NARROW_STORAGE[field.sourceType as string] == true then
+                return "GPU struct field " .. layout.name .. "." .. field.name .. " is " .. tostring(
+                    field.sourceType
+                ) .. "; GPU kernels need 32-bit storage (WGPU refuses 8- and 16-bit storage buffers)"
+            end
         end
     end
     if #writable < 1 then

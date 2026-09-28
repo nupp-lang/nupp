@@ -803,26 +803,16 @@ return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
     )
 end
 
-function M.gpuTargetLoadsAndStoresBinary16Bits()
+-- WGPU's SPIR-V front end, which every native GPU backend goes through,
+-- refuses 8-bit storage buffers and cannot validate 16-bit ones, so a GPU
+-- kernel over narrow storage is refused where it is written rather than when a
+-- context first compiles it. The CPU twins keep their narrow storage.
+function M.gpuTargetRefusesNarrowStorage()
     local dir = project({
         [
             "half.nupp"
         ] = [[
 local span = require("nupp.mem.span")
-
-@aot(target = "gpu")
-local function roundTrip(
-    exclusive output: span.WriteSpan<float>,
-    exclusive packed: span.WriteSpan<uint16>,
-    borrows input: span.Span<uint16>
-): nil
-    assert(#output == #packed and #output == #input, "length mismatch")
-    for i = 1, #output do
-        local value = nupp.math.f32.fromF16Bits(input[i])
-        output[i] = value
-        packed[i] = nupp.math.f32.toF16Bits(value)
-    end
-end
 
 @aot
 local function roundTripCpu(
@@ -835,20 +825,6 @@ local function roundTripCpu(
         local value = nupp.math.f32.fromF16Bits(input[i])
         output[i] = value
         packed[i] = nupp.math.f32.toF16Bits(value)
-    end
-end
-
-@aot(target = "gpu")
-local function roundTripBf16(
-    exclusive output: span.WriteSpan<float>,
-    exclusive packed: span.WriteSpan<uint16>,
-    borrows input: span.Span<uint16>
-): nil
-    assert(#output == #packed and #output == #input, "length mismatch")
-    for i = 1, #output do
-        local value = nupp.math.f32.fromBF16Bits(input[i])
-        output[i] = value
-        packed[i] = nupp.math.f32.toBF16Bits(value)
     end
 end
 
@@ -865,40 +841,56 @@ local function roundTripBf16Cpu(
         packed[i] = nupp.math.f32.toBF16Bits(value)
     end
 end
+return {roundTripCpu = roundTripCpu, roundTripBf16Cpu = roundTripBf16Cpu}
+]],
+        [
+            "halfgpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function roundTrip(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<uint16>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.f32.fromF16Bits(input[i])
+    end
+end
+return {roundTrip = roundTrip}
+]],
+        [
+            "signedgpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+local struct Pixel
+    level: int8
+end
 
 @aot(target = "gpu")
 local function signedToFloat(
     exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<int8>
+    borrows input: span.Span<Pixel>
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.narrow(input[i])
+        output[i] = nupp.math.f32.narrow(input[i].level)
     end
 end
-return {
-    roundTrip = roundTrip,
-    roundTripCpu = roundTripCpu,
-    roundTripBf16 = roundTripBf16,
-    roundTripBf16Cpu = roundTripBf16Cpu,
-    signedToFloat = signedToFloat,
-}
+return {signedToFloat = signedToFloat, Pixel = Pixel}
 ]],
     })
-    local module, code = run(dir, "--emit spirv --function roundTrip half.nupp")
-    test.equal(code, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
-    assert(spirvOpcodeCount(module, 113) > 0, "half conversion emitted no OpUConvert")
-    assert(spirvOpcodeCount(module, 124) > 0, "half conversion emitted no OpBitcast")
+    local module, code = run(dir, "--emit spirv --function roundTrip halfgpu.nupp")
+    test.equal(code, 1, module)
+    assert(module:find("GPU span input has uint16 elements; GPU kernels need 32-bit storage", 1, true), module)
+    local signed, signedCode = run(dir, "--emit spirv --function signedToFloat signedgpu.nupp")
+    test.equal(signedCode, 1, signed)
+    assert(signed:find("GPU struct field Pixel.level is int8", 1, true), signed)
 
-    local signedModule, signedCode = run(dir, "--emit spirv --function signedToFloat half.nupp")
-    test.equal(signedCode, 0, signedModule)
-    assert(spirvOpcodeCount(signedModule, 114) > 0, "signed storage emitted no OpSConvert")
-
-    -- The CPU twins take the same conversions, and the packed span keeps its
-    -- sixteen-bit storage rather than widening to the value it carries.
-    local decoded, raw, code, where = lowered(dir, "--json half.nupp")
-    test.equal(code, 0, raw)
+    local decoded, raw, lowerCode, where = lowered(dir, "--json half.nupp")
+    test.equal(lowerCode, 0, raw)
     local llvm = decoded.llvm
     assert(llvm:find("call float @nupp.f16.to.f32(", 1, true), where .. ": binary16 widens exactly\n" .. llvm)
     assert(llvm:find("call i32 @nupp.f32.to.f16(", 1, true), where .. ": and narrows back\n" .. llvm)

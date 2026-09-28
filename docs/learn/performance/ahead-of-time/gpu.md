@@ -146,9 +146,12 @@ allocation cannot be bound for both reading and writing in a dispatch, even
 through disjoint views: devices track usage per allocation, not per range.
 
 The fixed-width math modules make binary16 and bfloat16 conversion explicit.
-Narrow integer names remain available as physical span and buffer element types,
-so applications can define their storage interpretation while keeping
-accumulation explicit binary32.
+GPU kernels need 32-bit storage: a span or struct field of `int8`, `uint8`,
+`int16` or `uint16` is refused where the kernel is written, because WGPU's
+SPIR-V front end, which every native backend goes through, refuses 8-bit
+storage buffers and cannot validate 16-bit ones. Keep a binary16 or bfloat16
+value in the low half of a `uint32` element and convert it with
+`fromF16Bits`/`fromBF16Bits`, accumulating in explicit binary32.
 
 ## Browser GPU kernels
 
