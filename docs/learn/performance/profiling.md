@@ -313,7 +313,11 @@ nupp bench --gpu-costs build/gpu-costs
 files for each case, variant, fork, and comparison executable. Native hosts can
 set `NUPP_GPU_COSTS` to a unique path before starting the process. The runtime
 helper `nupp.runtime.provider.nativegpu.costsOutput(path)` selects an output;
-passing `nil` restores the environment default.
+passing `nil` restores the environment default, which is truncated only the
+first time the process opens it and appended to when restored. `sequence` runs
+on across every output a process writes. A failed write never fails the GPU
+work it describes: the next call that can fail cleanly reports it, and
+`costsOutput` reports it while still switching to the new output.
 
 Each line is a JSON object with `schemaVersion: 1`, `processId`, `sequence`,
 `context`, `target: "gpu"`, and `operation`. Records distinguish adapter/device

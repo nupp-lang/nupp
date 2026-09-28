@@ -17,7 +17,11 @@ struct Output {
     initialized: bool,
     file: Option<File>,
     error: Option<String>,
+    /// Numbers every record this process writes, across every destination.
     sequence: u64,
+    /// The environment's destination has been opened once already. Restoring
+    /// it later appends, where truncating would lose what it holds.
+    environment_opened: bool,
 }
 
 fn output() -> &'static Mutex<Output> {
@@ -25,37 +29,42 @@ fn output() -> &'static Mutex<Output> {
     OUTPUT.get_or_init(|| Mutex::new(Output::default()))
 }
 
-fn open(path: &str) -> Result<File, GpuError> {
+fn open(path: &str, truncate: bool) -> Result<File, GpuError> {
     OpenOptions::new()
         .write(true)
         .create(true)
-        .truncate(true)
+        .truncate(truncate)
+        .append(!truncate)
         .open(path)
         .map_err(|error| GpuError::InvalidArgument(format!("GPU cost output {path}: {error}")))
 }
 
 /// A missing override restores the environment default. Each call closes the
-/// previous output, surfacing any write failure before opening a new destination.
+/// previous output and switches to the new one, then reports any write failure
+/// the previous output had: the switch happens either way, so a caller moving
+/// away from a failing destination gets there.
 pub fn configure(path: Option<&str>) -> Result<(), GpuError> {
     let mut state = output().lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(error) = state.error.take() {
-        ACTIVE.store(false, Ordering::Release);
-        CONFIGURED.store(false, Ordering::Release);
-        *state = Output::default();
-        return Err(GpuError::InvalidArgument(error));
-    }
-    let file = match path {
-        Some(path) => Some(open(path)?),
-        None => None,
+    let previous = state.error.take();
+    let (file, failure) = match path.map(|path| open(path, true)).transpose() {
+        Ok(file) => (file, None),
+        Err(error) => (None, Some(error)),
     };
     ACTIVE.store(file.is_some(), Ordering::Release);
-    CONFIGURED.store(path.is_some(), Ordering::Release);
+    CONFIGURED.store(path.is_some() && file.is_some(), Ordering::Release);
     *state = Output {
-        initialized: path.is_some(),
+        initialized: path.is_some() && file.is_some(),
         file,
-        ..Output::default()
+        error: None,
+        sequence: state.sequence,
+        environment_opened: state.environment_opened,
     };
-    Ok(())
+    match (previous, failure) {
+        (Some(previous), Some(error)) => Err(GpuError::CostOutput(format!("{previous}; {error}"))),
+        (Some(previous), None) => Err(GpuError::CostOutput(previous)),
+        (None, Some(error)) => Err(error),
+        (None, None) => Ok(()),
+    }
 }
 
 pub fn enabled() -> bool {
@@ -66,18 +75,33 @@ pub fn enabled() -> bool {
     if !state.initialized {
         state.initialized = true;
         if let Ok(path) = std::env::var("NUPP_GPU_COSTS") {
-            if !path.is_empty() {
-                match open(&path) {
-                    Ok(file) => state.file = Some(file),
-                    Err(error) => state.error = Some(error.to_string()),
-                }
-            }
+            open_environment(&mut state, &path);
         }
     }
     let active = state.file.is_some();
     ACTIVE.store(active, Ordering::Release);
     CONFIGURED.store(true, Ordering::Release);
     active
+}
+
+/// Opens the environment's destination: truncated the first time this process
+/// opens it, appended to every time a caller restores it after that.
+fn open_environment(state: &mut Output, path: &str) {
+    if path.is_empty() {
+        return;
+    }
+    match open(path, !state.environment_opened) {
+        Ok(file) => {
+            state.file = Some(file);
+            state.environment_opened = true;
+        }
+        Err(error) => state.error = Some(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn inject_failure(message: &str) {
+    output().lock().unwrap_or_else(|p| p.into_inner()).error = Some(message.to_owned());
 }
 
 pub fn clock() -> Option<Instant> {
@@ -122,7 +146,7 @@ pub fn cleanup(start: Option<Instant>) -> Value {
 pub fn check() -> Result<(), GpuError> {
     let mut state = output().lock().unwrap_or_else(|p| p.into_inner());
     match state.error.take() {
-        Some(error) => Err(GpuError::InvalidArgument(error)),
+        Some(error) => Err(GpuError::CostOutput(error)),
         None => Ok(()),
     }
 }
@@ -143,7 +167,7 @@ mod tests {
         }
         let result = configure(None);
         assert!(
-            matches!(result, Err(GpuError::InvalidArgument(error)) if error == "injected write failure")
+            matches!(result, Err(GpuError::CostOutput(error)) if error == "injected write failure")
         );
         {
             let state = output().lock().unwrap();
@@ -153,10 +177,48 @@ mod tests {
             );
             assert!(state.error.is_none());
             assert!(!state.initialized);
-            assert_eq!(state.sequence, 0);
+            assert_eq!(
+                state.sequence, 7,
+                "the sequence runs on across destinations"
+            );
         }
         assert!(!ACTIVE.load(Ordering::Acquire));
         assert!(!CONFIGURED.load(Ordering::Acquire));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_failed_output_still_gives_way_to_the_next_one() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let next =
+            std::env::temp_dir().join(format!("nupp-gpu-cost-next-{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&next);
+        inject_failure("injected write failure");
+        let result = configure(Some(next.to_str().unwrap()));
+        assert!(
+            matches!(result, Err(GpuError::CostOutput(error)) if error == "injected write failure")
+        );
+        assert!(next.exists(), "the new destination was not opened");
+        assert!(enabled());
+        configure(None).unwrap();
+        std::fs::remove_file(next).unwrap();
+    }
+
+    #[test]
+    fn restoring_the_environment_destination_appends_to_it() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let path =
+            std::env::temp_dir().join(format!("nupp-gpu-cost-env-{}.jsonl", std::process::id()));
+        std::fs::write(&path, b"stale\n").unwrap();
+        let path_text = path.to_str().unwrap();
+        let mut state = Output::default();
+        open_environment(&mut state, path_text);
+        state.file.as_mut().unwrap().write_all(b"first\n").unwrap();
+        state.file = None;
+        open_environment(&mut state, path_text);
+        state.file.as_mut().unwrap().write_all(b"second\n").unwrap();
+        drop(state);
+        assert_eq!(std::fs::read(&path).unwrap(), b"first\nsecond\n");
         std::fs::remove_file(path).unwrap();
     }
 

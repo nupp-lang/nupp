@@ -62,6 +62,7 @@ fn gpu_status(error: &GpuError) -> Status {
         | GpuError::Device(_)
         | GpuError::Poll(_)
         | GpuError::Map(_)
+        | GpuError::CostOutput(_)
         | GpuError::Internal(_) => Status::Internal,
     }
 }

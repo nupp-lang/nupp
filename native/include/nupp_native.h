@@ -561,7 +561,10 @@ NUPP_NATIVE_EXPORT size_t nuppNativeProcessAbandonedTotal(void);
 
 /* Present when NUPP_NATIVE_FEATURE_GPU is set. Every object is an opaque,
  * generational integer handle; no provider-owned pointer crosses the ABI. */
-/* Empty path restores NUPP_GPU_COSTS. Nonempty paths select process-local JSONL. */
+/* Empty path restores NUPP_GPU_COSTS, appending to it after the first time the
+ * process opened it. Nonempty paths select process-local JSONL. The switch
+ * happens even when the previous output had a write failure, which is then
+ * reported as INTERNAL. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuCostsOutput(const uint8_t *path, size_t length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuCostsEnabled(void);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuCostMetadata(

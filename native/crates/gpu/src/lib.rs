@@ -87,6 +87,9 @@ pub enum GpuError {
     Poll(String),
     Map(String),
     Capacity,
+    /// The opt-in cost output could not be written. It never undoes the GPU
+    /// work it was describing.
+    CostOutput(String),
     Internal(&'static str),
 }
 
@@ -151,6 +154,7 @@ impl fmt::Display for GpuError {
             Self::Poll(message) => write!(formatter, "poll GPU device: {message}"),
             Self::Map(message) => write!(formatter, "map GPU download: {message}"),
             Self::Capacity => formatter.write_str("GPU resource capacity exhausted"),
+            Self::CostOutput(message) => formatter.write_str(message),
             Self::Internal(message) => write!(formatter, "GPU internal invariant: {message}"),
         }
     }
@@ -1401,7 +1405,10 @@ impl GpuContext {
             json!({"buffer": handle, "version": entry.completed_download_version, "offset": offset,
             "bytes": size, "layout": entry.completed_download_layout, "hostCopies": 1, "hostMs": costs::elapsed(start)})
         );
-        costs::check()
+        // The bytes are already the caller's. A cost output that failed to
+        // record the copy is reported by the next call that can still fail
+        // cleanly, not by this one after the download is gone.
+        Ok(())
     }
 
     fn finish_validation_scope(&self, scope: wgpu::ErrorScopeGuard) -> Result<(), GpuError> {
@@ -1698,6 +1705,24 @@ mod tests {
         gpu.set_write_buffer(bindings, 0, buffer, 0, 3).unwrap();
         gpu.release_bindings(bindings).unwrap();
         gpu.release_kernel(kernel).unwrap();
+        gpu.release_buffer(buffer).unwrap();
+    }
+
+    #[test]
+    fn a_cost_output_failure_leaves_a_consumed_download_read_when_available() {
+        let _costs_guard = costs::TEST_LOCK.lock().unwrap();
+        let Ok(mut gpu) = GpuContext::new() else {
+            assert!(std::env::var_os("NUPP_REQUIRE_GPU").is_none());
+            return;
+        };
+        let buffer = gpu.create_buffer(16).unwrap();
+        gpu.upload(buffer, 0, &[9; 16]).unwrap();
+        gpu.queue_download(buffer, 0, 16).unwrap();
+        gpu.synchronize().unwrap();
+        assert_eq!(gpu.read_download(buffer, 0, 16).unwrap(), [9; 16]);
+        costs::inject_failure("injected write failure");
+        assert_eq!(gpu.copied_download(buffer, 0, 16, None), Ok(()));
+        assert!(matches!(costs::check(), Err(GpuError::CostOutput(_))));
         gpu.release_buffer(buffer).unwrap();
     }
 
