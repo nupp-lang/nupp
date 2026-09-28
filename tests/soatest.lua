@@ -613,6 +613,70 @@ return zero.byteSize == 0
     assertEq(value, true, "zero sentinel and checked failures")
 end
 
+-- NaN fails every comparison, so a guard written `index < 1 or index > count`
+-- used to pass it and the column store truncated it onto the view's first
+-- row, outside a slice. Every row index, slice bound and copy range must
+-- refuse NaN and a fraction, and leave the rows as they were.
+function M.nanAndFractionalRowIndexesAreRefused()
+    local value = runs(
+        PRELUDE
+        .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 4)
+local source = soa.allocate(ffi.typeof<Particle>(), 4)
+do
+    local rows = particles:write()
+    rows[1].x = 1
+    rows[2].x = 2
+    rows[3].x = 3
+    rows[4].x = 4
+    nupp.drop(rows)
+end
+local accepted = {}
+for _, bad in ipairs({0 / 0, 1.5}) do
+    local index = bad as integer
+    local outcomes = {
+        pcall(function()
+            local rows = particles:write()
+            local tail = rows:slice(3, 4)
+            tail[index].x = 99
+            nupp.drop(tail)
+            nupp.drop(rows)
+        end),
+        pcall(function()
+            local rows = particles:write()
+            nupp.drop(rows:slice(index, 4))
+            nupp.drop(rows)
+        end),
+        pcall(function()
+            local rows = particles:write()
+            rows:copyFrom(index, source:read(), 1, 1)
+            nupp.drop(rows)
+        end),
+        pcall(function()
+            local rows = particles:write()
+            rows:copyFrom(1, source:read(), 1, index)
+            nupp.drop(rows)
+        end),
+        pcall(function() return particles:read():slice(3, 4)[index].x end),
+        pcall(function() return #particles:read():slice(index, 4) end),
+        pcall(function() return #particles:read():slice(1, index) end),
+    }
+    for at = 1, 7 do
+        if outcomes[at] then
+            accepted[#accepted + 1] = tostring(bad) .. "#" .. at
+        end
+    end
+end
+local rows = particles:read()
+if #accepted == 0 and rows[1].x == 1 and rows[2].x == 2 and rows[3].x == 3 and rows[4].x == 4 then
+    return true
+end
+return "accepted " .. table.concat(accepted, ",") .. "; rows " .. rows[1].x .. rows[2].x .. rows[3].x .. rows[4].x
+]]
+    )
+    assertEq(value, true, "NaN and fractional SoA indexes")
+end
+
 function M.sharedRowsRejectWrites()
     assertEq(
         codes(

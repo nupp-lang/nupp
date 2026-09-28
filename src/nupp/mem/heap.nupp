@@ -230,7 +230,7 @@ end)
 
 rawset(heap as table, "__heapArrayFromParts", function(pointer: any, count: integer, tag: integer): any
     local pointerType = pointerTypeByTag[tag]
-    if pointerType == nil or count < 0 then
+    if pointerType == nil or count % 1 ~= 0 or count < 0 then
         return nil
     end
 

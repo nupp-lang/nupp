@@ -891,4 +891,87 @@ print(range)
     assert(text:find("standard Span or SoA view", 1, true), text)
 end
 
+-- NaN fails every comparison, so a guard written `index < 1 or index > count`
+-- used to pass it, and the pointer store truncated it onto the parent's first
+-- element, outside the slice. Every index, slice bound, split point and count
+-- must refuse NaN and a fraction, through the lowered access at -O1 and the
+-- wrapper methods at -O0, and leave the storage as it was.
+function M.nanAndFractionalIndexesAreRefused()
+    local source = [[
+local span = require("nupp.mem.span")
+local Probe = {}
+function Probe.writeTail(exclusive storage: int32[?], index: integer): nil
+    const values = span.writeCarray(storage, 4)
+    const tail = values:slice(3, 4)
+    tail[index] = 99
+    nupp.drop(tail)
+    nupp.drop(values)
+end
+function Probe.writeSlice(exclusive storage: int32[?], index: integer): nil
+    const values = span.writeCarray(storage, 4)
+    const part = values:slice(index, 4)
+    part[1] = 99
+    nupp.drop(part)
+    nupp.drop(values)
+end
+function Probe.split(exclusive storage: int32[?], index: integer): nil
+    const values = span.writeCarray(storage, 4)
+    const parts = values:splitAt(index)
+    parts.right[1] = 99
+    nupp.drop(values)
+end
+function Probe.readTail(borrows storage: int32[?], index: integer): int32
+    const values = span.fromCarray(storage, 4)
+    const tail = values:slice(3, 4)
+    return tail[index]
+end
+function Probe.sliceFirst(borrows storage: int32[?], index: integer): integer
+    const values = span.fromCarray(storage, 4)
+    return #values:slice(index, 4)
+end
+function Probe.sliceLast(borrows storage: int32[?], index: integer): integer
+    const values = span.fromCarray(storage, 4)
+    return #values:slice(1, index)
+end
+function Probe.count(borrows storage: int32[?], index: integer): integer
+    const values = span.fromCarray(storage, index)
+    return #values
+end
+function Probe.fixedRead(borrows storage: int32[4], index: integer): int32
+    const values = span.fromFixedCarray(storage, 4)
+    return values[index]
+end
+function Probe.fixedWrite(exclusive storage: int32[4], index: integer): nil
+    const values = span.writeFixedCarray(storage, 4)
+    values[index] = 99
+    nupp.drop(values)
+end
+function Probe.fixedSlice(borrows storage: int32[4], index: integer): int32
+    const values = span.fromFixedCarray(storage, 4)
+    return values:slice(index, 4)[1]
+end
+return Probe
+]]
+    local ffi = require("ffi")
+    for _, level in ipairs({0, 1}) do
+        local _, _, raw = compile(source, {level = level})
+        local probe = assert(loadstring(raw, "@nan-probe-" .. level))()
+        for _, bad in ipairs({0 / 0, 1.5}) do
+            for _, name in ipairs({
+                "writeTail", "writeSlice", "split", "readTail", "sliceFirst", "sliceLast",
+                "count", "fixedRead", "fixedWrite", "fixedSlice",
+            }) do
+                local storage = ffi.new("int32_t[4]", {1, 2, 3, 4})
+                local ok, got = pcall(probe[name], storage, bad)
+                assert(not ok, ("-O%d %s(%s) was accepted and gave %s"):format(level, name, tostring(bad), tostring(got)))
+                assert(tostring(got):find("out of bounds", 1, true) or tostring(got):find("cannot be negative", 1, true),
+                    ("-O%d %s(%s): %s"):format(level, name, tostring(bad), tostring(got)))
+                for at = 0, 3 do
+                    assertEq(storage[at], at + 1, ("-O%d %s(%s) left element %d"):format(level, name, tostring(bad), at + 1))
+                end
+            end
+        end
+    end
+end
+
 return M

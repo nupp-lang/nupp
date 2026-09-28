@@ -42,9 +42,10 @@ assert(#points == 4)
 assert(points[1].x == 0)
 ```
 
-Indexes start at one. `view[index]` raises when the index is outside `1` through
-`#view`. `slice(first, last)` includes both endpoints and borrows the parent;
-omitting `last` extends through the end. An empty slice uses `first, first - 1`.
+Indexes start at one. `view[index]` raises unless the index is an integer from
+`1` through `#view`, so NaN and a fraction are refused like any other bad index.
+`slice(first, last)` includes both endpoints and borrows the parent; omitting
+`last` extends through the end. An empty slice uses `first, first - 1`.
 
 The operator surface replaces the former element methods and public count
 field. Each former member is a migration error, not a deprecated alternative:
@@ -260,9 +261,9 @@ local record SpanImpl<T> is span.Span<T>
     count: integer
 
     --- Returns one element after checking the one-based index.
-    --- @raises string when index is outside 1 through count
+    --- @raises string when index is not an integer from 1 through count
     function get(self: SpanImpl<T>, index: integer): T
-        if index < 1 or index > self.count then
+        if index % 1 ~= 0 or index < 1 or index > self.count then
             error("span index out of bounds", 2)
         end
         @unsafe
@@ -275,7 +276,7 @@ local record SpanImpl<T> is span.Span<T>
     --- @raises string when the requested range is outside this span
     function slice(self: SpanImpl<T>, first: integer, last: integer?): span.Span<T> borrows (self)
         local finish = last or self.count
-        if first < 1 or finish < first - 1 or finish > self.count then
+        if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
             error("span slice out of bounds", 2)
         end
 
@@ -322,7 +323,7 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
     count: N
 
     function get(self: FixedSpanImpl<T, N>, index: integer): T
-        if index < 1 or index > (self.count as integer) then
+        if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("span index out of bounds", 2)
         end
         @unsafe
@@ -333,7 +334,7 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
 
     function slice(self: FixedSpanImpl<T, N>, first: integer, last: integer?): span.Span<T> borrows (self)
         local finish = last or (self.count as integer)
-        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+        if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > (self.count as integer) then
             error("span slice out of bounds", 2)
         end
 
@@ -459,9 +460,9 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     drop: @nosuspend function(takes self: WriteSpanImpl<T>): nil
 
     --- Returns a checked mutable element reference tied to this write borrow.
-    --- @raises string when index is outside 1 through count
+    --- @raises string when index is not an integer from 1 through count
     function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows (self)
-        if index < 1 or index > self.count then
+        if index % 1 ~= 0 or index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
         @unsafe
@@ -473,9 +474,9 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     --- Private checked read used by generated operator fallback code.
-    --- @raises string when index is outside 1 through count
+    --- @raises string when index is not an integer from 1 through count
     function get(self: WriteSpanImpl<T>, index: integer): T
-        if index < 1 or index > self.count then
+        if index % 1 ~= 0 or index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
         @unsafe
@@ -485,7 +486,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     function set(exclusive self: WriteSpanImpl<T>, index: integer, value: T): nil
-        if index < 1 or index > self.count then
+        if index % 1 ~= 0 or index < 1 or index > self.count then
             error("write span index out of bounds", 2)
         end
         @unsafe
@@ -520,7 +521,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     --- @raises string when the requested range is outside this span
     function slice(exclusive self: WriteSpanImpl<T>, first: integer, last: integer?): span.Writable<T> borrows (self)
         local finish = last or self.count
-        if first < 1 or finish < first - 1 or finish > self.count then
+        if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
             error("write span slice out of bounds", 2)
         end
 
@@ -535,7 +536,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     --- Partitions this range at a zero-based boundary count.
     --- @raises string when mid is negative or greater than count
     function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows (self)
-        if mid < 0 or mid > self.count then
+        if mid % 1 ~= 0 or mid < 0 or mid > self.count then
             error("write span split point out of bounds", 2)
         end
         @unsafe
@@ -578,7 +579,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     drop: @nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
     function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
-        if index < 1 or index > (self.count as integer) then
+        if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("write span index out of bounds", 2)
         end
         @unsafe
@@ -590,9 +591,9 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     end
 
     --- Private checked read used by generated operator fallback code.
-    --- @raises string when index is outside 1 through count
+    --- @raises string when index is not an integer from 1 through count
     function get(self: FixedWriteSpanImpl<T, N>, index: integer): T
-        if index < 1 or index > (self.count as integer) then
+        if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("write span index out of bounds", 2)
         end
         @unsafe
@@ -602,7 +603,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     end
 
     function set(exclusive self: FixedWriteSpanImpl<T, N>, index: integer, value: T): nil
-        if index < 1 or index > (self.count as integer) then
+        if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("write span index out of bounds", 2)
         end
         @unsafe
@@ -637,7 +638,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         last: integer?
     ): span.Writable<T> borrows (self)
         local finish = last or (self.count as integer)
-        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+        if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > (self.count as integer) then
             error("write span slice out of bounds", 2)
         end
 
@@ -650,7 +651,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     end
 
     function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows (self)
-        if mid < 0 or mid > (self.count as integer) then
+        if mid % 1 ~= 0 or mid < 0 or mid > (self.count as integer) then
             error("write span split point out of bounds", 2)
         end
         @unsafe
@@ -763,7 +764,7 @@ rawset(span as table, "__foreignSpan", foreignSpan)
 --- @export
 --- @raises string when count is negative
 function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows (source)
-    if count < 0 then
+    if count % 1 ~= 0 or count < 0 then
         error("span count cannot be negative", 2)
     end
     return (
@@ -817,7 +818,7 @@ end
 --- @export
 --- @raises string when count is negative
 function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writable<T> borrows (source)
-    if count < 0 then
+    if count % 1 ~= 0 or count < 0 then
         error("write span count cannot be negative", 2)
     end
     return (

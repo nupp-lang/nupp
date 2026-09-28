@@ -94,7 +94,7 @@ local record MemoryReader is Reader
             if written == nil then
                 return nil, reason
             end
-            if written < 1 or written > #rest then
+            if written % 1 ~= 0 or written < 1 or written > #rest then
                 return nil, "writer made invalid transfer progress"
             end
             self._at = self._at + written

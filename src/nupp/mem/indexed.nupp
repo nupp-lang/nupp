@@ -59,12 +59,12 @@ end
 --- @raises string when no view is supplied or the bounds exceed a supplied view
 function indexed.range(first: integer, last: integer, borrows ...: any): indexed.Range
     local count = select("#", ...)
-    if count < 1 or first < 1 or last < first - 1 then
+    if count < 1 or first % 1 ~= 0 or last % 1 ~= 0 or first < 1 or last < first - 1 then
         error("indexed range out of bounds", 2)
     end
     for index = 1, count do
         local candidate = select(index, ...) as any
-        if last > candidate.count then
+        if not (last <= candidate.count) then
             error("indexed range out of bounds", 2)
         end
     end
@@ -77,11 +77,11 @@ end
 --- @raises string when no count is supplied or the bounds exceed one
 function indexed._rangeCounts(first: integer, last: integer, ...: integer): indexed.Range
     local count = select("#", ...)
-    if count < 1 or first < 1 or last < first - 1 then
+    if count < 1 or first % 1 ~= 0 or last % 1 ~= 0 or first < 1 or last < first - 1 then
         error("indexed range out of bounds", 2)
     end
     for index = 1, count do
-        if last > select(index, ...) then
+        if not (last <= select(index, ...)) then
             error("indexed range out of bounds", 2)
         end
     end
@@ -93,7 +93,7 @@ end
 --- @raises string when the requested inclusive bounds exceed the supplied count
 function indexed._sliceFinish(count: integer, first: integer, last: integer?, message: string): integer
     local finish = last or count
-    if first < 1 or finish < first - 1 or finish > count then
+    if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or not (finish <= count) then
         error(message, 2)
     end
 
@@ -105,7 +105,7 @@ end
 --- dynamic scalar representation without allocating a wrapper.
 --- @raises string when count is negative
 function indexed._rootCount(count: integer, message: string): integer
-    if count < 0 then
+    if count % 1 ~= 0 or count < 0 then
         error(message, 2)
     end
 
@@ -114,9 +114,9 @@ end
 
 --- Private logical-index check for a scalar-replaced view. The physical adapter
 --- adds its own offset after this preserves the public wrapper's error.
---- @raises string when index is outside 1 through count
+--- @raises string when index is not an integer from 1 through count
 function indexed._checkedIndex(count: integer, index: integer, message: string): integer
-    if index < 1 or index > count then
+    if index % 1 ~= 0 or index < 1 or not (index <= count) then
         error(message, 2)
     end
 
