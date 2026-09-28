@@ -21,7 +21,7 @@ type process.Options = {
     cwd: (string | Path)?,
 
     --- Variables overlaid on the inherited environment, or the whole environment
-    --- when `clearEnv` is set.
+    --- when `clearEnv` is set. A name must be non-empty and contain no `=`.
     env: {[string]: string}?,
 
     --- Whether to start from an empty environment rather than this process's.

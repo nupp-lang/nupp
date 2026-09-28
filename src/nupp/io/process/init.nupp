@@ -1369,6 +1369,11 @@ validateOptions = function(options: process.Options): nil
         if type(name) ~= "string" or type(value) ~= "string" then
             error("nupp: process env must have string names and values", 3)
         end
+        -- The child would split such a name at its first `=` and see another
+        -- variable altogether.
+        if name == "" or name:find("=", 1, true) ~= nil then
+            error("nupp: process env names must be non-empty and contain no '='", 3)
+        end
     end
     if given.clearEnv ~= nil and type(given.clearEnv) ~= "boolean" then
         error("nupp: process clearEnv must be a boolean", 3)

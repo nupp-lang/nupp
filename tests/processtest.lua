@@ -1305,6 +1305,8 @@ function M.plainLuaInputsAreValidatedBeforeTheyReachTheProvider()
         {{args = {[1] = "echo", [3] = "gap"}}, "dense list"},
         {{args = {"echo"}, cwd = false}, "cwd must be a string or path"},
         {{args = {"echo"}, env = {GOOD = false}}, "env must have string names and values"},
+        {{args = {"echo"}, env = {["A=B"] = "C"}}, "env names must be non-empty and contain no '='"},
+        {{args = {"echo"}, env = {[""] = "C"}}, "env names must be non-empty and contain no '='"},
         {{args = {"echo"}, clearEnv = "yes"}, "clearEnv must be a boolean"},
     }
     for _, case in ipairs(invalidOptions) do

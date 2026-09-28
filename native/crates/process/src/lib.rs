@@ -406,6 +406,18 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     if options.args.is_empty() {
         return Err("a spawn needs a program to run".to_owned());
     }
+    // A name holding `=` cannot be expressed in an environment block: the
+    // child would split it at the first `=` and see some other variable.
+    if let Some((name, _)) = options
+        .env
+        .iter()
+        .find(|(name, _)| name.is_empty() || name.as_encoded_bytes().contains(&b'='))
+    {
+        return Err(format!(
+            "environment variable name {:?} must be non-empty and contain no '='",
+            name.to_string_lossy()
+        ));
+    }
     let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
     let mut command = Command::new(&options.args[0]);
     command.args(&options.args[1..]);
@@ -1290,6 +1302,20 @@ mod tests {
         );
         output.close();
         spawned.child.reap().unwrap();
+    }
+
+    #[test]
+    fn environment_names_that_cannot_be_expressed_are_refused() {
+        for name in ["A=B", "=A", ""] {
+            let refused = spawn(SpawnOptions {
+                args: vec![OsString::from("true")],
+                env: vec![(OsString::from(name), OsString::from("C"))],
+                clear_env: false,
+                cwd: None,
+                modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+            });
+            assert!(refused.is_err(), "{name:?} was accepted");
+        }
     }
 
     #[test]
