@@ -837,4 +837,106 @@ function M.browserMemoryUsesTheActiveGuestOrTheWasmFallback()
     assert(not ok and tostring(problem):find("memory transport is unavailable", 1, true), tostring(problem))
 end
 
+-- Every facade that picks a provider copies the same rule: the unique highest
+-- priority wins, and a tie for it is refused rather than settled by discovery
+-- order. Loosening one copy's comparison let the later provider win a tie
+-- silently and no suite noticed, so every copy is held to the rule here. The
+-- table is the consumer inventory; a new facade that selects a provider
+-- belongs in it.
+local SELECTING_FACADES = {
+    {"nupp.checksum", "nupp.checksum.spi.Provider"},
+    {"nupp.codec.json.provider", "nupp.codec.json.spi.JsonProvider"},
+    {"nupp.compression", "nupp.compression.spi.Provider"},
+    {"nupp.digest", "nupp.digest.spi.Provider"},
+    {"nupp.gpu", "nupp.gpu.spi.Provider"},
+    {"nupp.io.files", "nupp.io.files.spi.Provider"},
+    {"nupp.io.http", "nupp.io.http.spi.Provider"},
+    {"nupp.io.net", "nupp.io.net.spi.Provider"},
+    {"nupp.io.path.provider", "nupp.io.path.spi.PathProvider"},
+    {"nupp.io.process", "nupp.io.process.spi.Provider"},
+    {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
+    {"nupp.io.uri.provider", "nupp.io.uri.spi.UriTextProvider"},
+    {"nupp.mac", "nupp.mac.spi.Provider"},
+    {"nupp.random", "nupp.random.spi.CryptoProvider"},
+    {"nupp.runtime.bitops", "nupp.runtime.bitops.spi.BitopsProvider"},
+    {"nupp.runtime.int64", "nupp.runtime.representation.spi.Int64Provider"},
+    {"nupp.runtime.representation", "nupp.runtime.representation.spi.CstorageProvider"},
+    {"nupp.runtime.timeprovider", "nupp.time.spi.TimeProvider"},
+    {"nupp.runtime.uuid", "nupp.runtime.uuid.spi.UuidProvider"},
+    {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
+    {"nupp.suspension", "nupp.suspension.spi.Provider"},
+    {"nupp.system", "nupp.system.spi.Provider"},
+    {"nupp.text", "nupp.text.spi.TextBufferProvider"},
+}
+
+-- Loads `facade` afresh against a provider index holding `priorities`, one
+-- fixture per entry, and puts every module table back afterwards so the rest
+-- of the process never sees the fixtures.
+local function loadWithProviders(facade, interface, priorities)
+    local before = {}
+    for name, value in pairs(package.loaded) do
+        before[name] = value
+    end
+    local preloads = {}
+    local names = {}
+    for index, priority in ipairs(priorities) do
+        local name = "spitest.fixture" .. index
+        names[index] = name
+        preloads[name] = package.preload[name]
+        package.preload[name] = function()
+            -- `false` stands for a provider that states no priority, which
+            -- counts as 0.
+            return setmetatable({priority = priority or nil}, {
+                __index = function(_, member)
+                    if member == "priority" then
+                        return nil
+                    end
+                    return function()
+                        error("fixture does not implement " .. tostring(member))
+                    end
+                end
+            })
+        end
+    end
+    package.loaded["nupp.spi"] = nil
+    package.loaded[facade] = nil
+    package.loaded["nupp.spi.index"] = {[interface] = names}
+    local ok, problem = pcall(require, facade)
+    for name in pairs(package.loaded) do
+        if before[name] == nil then
+            package.loaded[name] = nil
+        end
+    end
+    for name, value in pairs(before) do
+        package.loaded[name] = value
+    end
+    for name, previous in pairs(preloads) do
+        package.preload[name] = previous
+    end
+
+    return ok, problem
+end
+
+function M.everySelectingFacadeRefusesATieForTheHighestPriority()
+    for _, row in ipairs(SELECTING_FACADES) do
+        local facade, interface = row[1], row[2]
+        for _, priorities in ipairs({{5, 5}, {1, 5, 5}, {5, 1, 5}, {false, 0}}) do
+            local ok, problem = loadWithProviders(facade, interface, priorities)
+            assert(
+                not ok and tostring(problem):find("multiple implementations have the highest priority", 1, true),
+                facade .. " with priorities " .. table.concat(
+                    (function()
+                        local shown = {}
+                        for index = 1, #priorities do
+                            shown[index] = tostring(priorities[index])
+                        end
+                        return shown
+                    end)(),
+                    ","
+                ) .. ": " .. (ok and "loaded" or tostring(problem))
+            )
+        end
+    end
+end
+
 return M
