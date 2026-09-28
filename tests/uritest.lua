@@ -344,6 +344,32 @@ function M.resolvingFollowsTheReferenceRules()
     end
 end
 
+-- A `with` argument is one component. A scheme holding more than a scheme, or
+-- a host holding a port, used to be spliced into the text and reparsed, so the
+-- replacement moved the authority.
+function M.derivingRefusesTextThatIsNotTheComponent()
+    local module = ready()
+    local base = assert(module.newURI("https://example.com/x"))
+    for _, scheme in ipairs({"http://evil/", "a:b", "", "1http", "ht tp", "http/"}) do
+        test.raises(function()
+            base:withScheme(scheme)
+        end, "scheme")
+    end
+    for _, host in ipairs({"h:1", "evil.example:1", "[::1]:80"}) do
+        test.raises(function()
+            base:withHost(host)
+        end, "host")
+    end
+    test.equal(base:withHost("[::1]"):host(), "[::1]")
+    test.equal(base:withScheme("HTTP"):toString(), "http://example.com/x")
+    -- A scheme change that would move text into the authority is refused
+    -- rather than letting the new parse find a host the old URI did not have.
+    local mail = assert(module.newURI("mailto:evil.example"))
+    test.raises(function()
+        mail:withScheme("http")
+    end, "scheme")
+end
+
 -- The endpoint says where to go and the receiver says what to ask for, which is
 -- what reroutes a request through a configured address.
 function M.rerootingKeepsThePathQueryAndFragment()

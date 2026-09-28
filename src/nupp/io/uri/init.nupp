@@ -85,7 +85,9 @@ assert(endpoint:host() == "example.com")
 The operations are `withScheme`, `withUserInfo`, `withHost`, `withPort`,
 `withPath`, `withQuery` and `withFragment`. Passing nil removes an optional
 component. A port must be an integer from 0 through 65535, and anything else
-raises.
+raises. So does text that is more than the component: a scheme holding anything
+but a scheme, a host holding a `:` outside IPv6 brackets, or a scheme change
+that would make the rest of the URI parse with a different host.
 
 `concatPath` appends path text without interpreting it as a reference:
 
@@ -283,9 +285,26 @@ export record URI
     --- @param self this URI
     --- @param value the scheme to use, without the colon
     --- @return the new URI, or this one when nothing changes
-    --- @raises string when the scheme cannot be used here
+    --- @raises string when value is not a scheme, or when the rest of this URI
+    ---     would not keep its authority under the new scheme
     function withScheme(self, value: string): URI
-        return assert(newURI(value .. self._text:sub(#self._scheme + 1)))
+        -- Checked before splicing: text beyond a scheme would otherwise be
+        -- reparsed as an authority, so `http://evil/` would become the host.
+        if not value:match("^[A-Za-z][A-Za-z0-9+.-]*$") then
+            error("nupp: a URI scheme is a letter and then letters, digits, +, - or ., not " .. ("%q"):format(value), 2)
+        end
+        local result, reason = newURI(value .. self._text:sub(#self._scheme + 1))
+        if result == nil then
+            error("nupp: the scheme " .. value .. " cannot be used here: " .. tostring(reason), 2)
+        end
+        -- A special scheme parses `mailto:evil.example` with a host, so the same
+        -- text could gain an authority it did not have. The host must survive.
+        local before, after = self._host, result:host()
+        if (before == nil) ~= (after == nil) or (before ~= nil and before:lower() ~= (after as string):lower()) then
+            error("nupp: the scheme " .. value .. " cannot be used here: it would change the host", 2)
+        end
+
+        return result
     end
 
     --- The URI with its user information replaced.
@@ -532,6 +551,12 @@ local function fromComponents(components: any): (string?, string?)
         if value ~= nil and (value as string):find(delimiters) ~= nil then
             return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"
         end
+    end
+    -- A colon in a host ends it and starts the port, unless it is inside an
+    -- IPv6 literal's brackets.
+    local host = components.host
+    if host ~= nil and (host as string):find(":", 1, true) ~= nil and not (host as string):match("^%[[^%]]*%]$") then
+        return nil, "nupp: URI component host cannot contain a component delimiter"
     end
     -- RFC 3986 section 3.3: beside an authority a path is empty or rooted, and
     -- without one it must not begin with `//`, which would reparse as one.
