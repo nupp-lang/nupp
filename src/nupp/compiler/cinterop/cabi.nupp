@@ -325,8 +325,15 @@ function cabi.prototype(signature: any, erased: boolean?): string?, string?
     return "void " .. named .. ";"
 end
 
+-- A C identifier for a macro derived from a path or a name. A leading underscore
+-- followed by a capital is reserved to the implementation, and a leading digit is no
+-- identifier at all, so a name that would start with either is prefixed.
 local function macroName(name: string): string
-    local rendered = name:upper():gsub("[^A-Z0-9]", "_")
+    local rendered = name:upper():gsub("[^A-Z0-9]", "_"):gsub("^_+", "")
+    if not rendered:match("^[A-Z]") then
+        rendered = "NUPP_" .. rendered
+    end
+
     return rendered
 end
 

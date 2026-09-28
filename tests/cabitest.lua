@@ -99,6 +99,15 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
     assertEq(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
 end
 
+function M.aGuardIsAlwaysACIdentifier()
+    local exports = checked(SOURCE)
+    local position = assert(cabi.aggregate(exports.types.Position, TARGET))
+    local header = assert(cabi.header({position}, {}, "3d-game.h"))
+    assert(header:find("#ifndef NUPP_3D_GAME_H\n", 1, true), header:sub(1, 120))
+    local absolute = assert(cabi.header({position}, {}, "/tmp/out/game.h"))
+    assert(absolute:find("#ifndef TMP_OUT_GAME_H\n", 1, true), "no reserved leading underscore: " .. absolute:sub(1, 120))
+end
+
 function M.functionRecordsRejectUnmodelledCallingConventions()
     local signature = cabi.functionRecord("callback", {}, nil, false, "stdcall")
     local prototype, why = cabi.prototype(signature)

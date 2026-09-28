@@ -494,6 +494,24 @@ return game
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.exportCDerivesAValidGuardFromAnyPath()
+    local dir = exportProject([[
+local game = {}
+struct game.Position
+   x: float
+   y: float
+end
+return game
+]])
+    local output, code = captureStatusAt(dir, "export-c -o 3d-game.h src/game.nupp game.Position")
+    assert(code == 0, output)
+    local header = assert(io.open(dir .. "/3d-game.h", "rb")):read("*a")
+    assert(header:find("#ifndef NUPP_3D_GAME_H\n", 1, true), header:sub(1, 200))
+    assert(os.execute(("cd '%s' && cc -std=c11 -fsyntax-only 3d-game.h"):format(dir)) == 0,
+        "the guard is a C identifier")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.exportCEmitsTheCanonicalTypedHeader()
     local dir = os.tmpname()
     os.remove(dir)
