@@ -811,26 +811,49 @@ select_host_features() {
     host_cargo_features=$(normalize_rust_features "${host_cargo_features#,}")
 }
 
+# The archives of LLVM, lld, the glue around them and libstdc++, as one
+# colon-separated --exclude-libs value (-Wl splits its argument at commas).
+# Empty without the code generator.
+codegen_archive_exclusions() {
+    case ",$host_cargo_features," in
+        *,native-codegen,*) ;;
+        *) return 0 ;;
+    esac
+    excluded=libstdc++.a:libnupp_codegen_glue.a
+    for archive in "$LLVM_OUT"/lib/lib*.a; do
+        [ -f "$archive" ] && excluded="$excluded:${archive##*/}"
+    done
+    printf '%s\n' "$excluded"
+}
+
+# The host exports what LuaJIT's FFI resolves by name in its own process:
+# the C surface of the runtime, Lua and the providers. Nothing looks for LLVM
+# or lld by name, and exporting them costs twice -- a symbol table the size of
+# the rest of the binary, and every one of their functions kept live against
+# dead stripping. macOS also drops local symbols; Linux keeps them, because a
+# crashed worker's core dump is read back through them.
 host_export_arguments() {
+    excluded=$(codegen_archive_exclusions)
     case "$PLATFORM" in
-        darwin) printf '%s\n' '-C' 'link-arg=-Wl,-export_dynamic' ;;
-        windows)
-            printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols'
-            # A PE image holds at most 65535 exports, and exporting all of
-            # LLVM's would pass it. Nothing looks for LLVM, lld, the glue
-            # around them or libstdc++ by name, so their archives stay out.
-            case ",$host_cargo_features," in
-                *,native-codegen,*)
-                    # Colon-separated: -Wl splits its argument at commas.
-                    excluded=libstdc++.a:libnupp_codegen_glue.a
-                    for archive in "$LLVM_OUT"/lib/lib*.a; do
-                        [ -f "$archive" ] && excluded="$excluded:${archive##*/}"
-                    done
-                    printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs=$excluded"
-                    ;;
-            esac
+        darwin)
+            # ld64 has no --exclude-libs, but C++ and Rust symbols are the
+            # mangled ones, and the C API is LLVM's by prefix.
+            printf '%s\n' '-C' 'link-arg=-Wl,-export_dynamic'
+            printf '%s\n' '-C' 'link-arg=-Wl,-unexported_symbol,__Z*'
+            printf '%s\n' '-C' 'link-arg=-Wl,-unexported_symbol,__R*'
+            printf '%s\n' '-C' 'link-arg=-Wl,-unexported_symbol,_LLVM*'
+            printf '%s\n' '-C' 'link-arg=-Wl,-x'
             ;;
-        *) printf '%s\n' '-C' 'link-arg=-Wl,-E' ;;
+        windows)
+            # A PE image also holds at most 65535 exports, which LLVM's alone
+            # would pass.
+            printf '%s\n' '-C' 'link-arg=-Wl,--export-all-symbols'
+            [ -z "$excluded" ] || printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs=$excluded"
+            ;;
+        *)
+            printf '%s\n' '-C' 'link-arg=-Wl,-E'
+            [ -z "$excluded" ] || printf '%s\n' '-C' "link-arg=-Wl,--exclude-libs=$excluded"
+            ;;
     esac
 }
 
@@ -897,7 +920,15 @@ $vendor_arguments
 EOF
     fi
     [ -z "$host_cargo_features" ] || set -- "$@" --features "$host_cargo_features"
-    set -- "$@" -- -C link-dead-code
+    # Cargo may discard exports reached only through LuaJIT FFI. A binary's
+    # linker roots dead stripping at its exports, which are exactly those, so
+    # it strips; Windows keeps every function until its linker is shown to root
+    # --export-all-symbols the same way, and the static application archive
+    # has no exports of its own until it is linked.
+    set -- "$@" --
+    if [ "$host_kind" = application ] || [ "$PLATFORM" = windows ]; then
+        set -- "$@" -C link-dead-code
+    fi
     if [ "$host_kind" != application ]; then
         while IFS= read -r argument; do
             set -- "$@" "$argument"
