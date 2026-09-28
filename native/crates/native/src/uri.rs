@@ -28,48 +28,6 @@ fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, i32> 
     Ok(value)
 }
 
-fn why_not(value: &str) -> &'static str {
-    let bytes = value.as_bytes();
-    let Some(first) = bytes.first() else {
-        return "relative URL without a base";
-    };
-    if !first.is_ascii_alphabetic() {
-        return "relative URL without a base";
-    }
-    let Some(scheme_end) = bytes.iter().position(|byte| *byte == b':') else {
-        return "relative URL without a base";
-    };
-    if !bytes[1..scheme_end]
-        .iter()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
-    {
-        return "relative URL without a base";
-    }
-
-    let after = &bytes[scheme_end + 1..];
-    if after.starts_with(b"//") {
-        let authority = &after[2..after[2..]
-            .iter()
-            .position(|byte| matches!(byte, b'/' | b'?' | b'#'))
-            .map_or(after.len(), |at| at + 2)];
-        if authority.contains(&b'[') && !authority.contains(&b']') {
-            return "invalid IPv6 address";
-        }
-        if authority.is_empty() {
-            return "empty host";
-        }
-    } else {
-        let scheme = &value[..scheme_end];
-        if ["http", "https", "ws", "wss", "ftp", "file"]
-            .iter()
-            .any(|special| scheme.eq_ignore_ascii_case(special))
-        {
-            return "empty host";
-        }
-    }
-    "the URI is not valid"
-}
-
 fn cloned(raw: u64) -> Result<Url, i32> {
     let arena = uris()
         .lock()
@@ -96,8 +54,9 @@ fn hold(value: Url, output: *mut u64) -> i32 {
     Status::Ok.code()
 }
 
-fn part(value: &Url, kind: u32) -> Option<&str> {
-    match kind {
+/// One component, or `None` for a kind that names no component.
+fn part(value: &Url, kind: u32) -> Option<Option<&str>> {
+    Some(match kind {
         0 => Some(value.as_str()),
         1 => Some(value.scheme()),
         2 if value.has_authority() => Some(&value[Position::BeforeUsername..Position::BeforePath]),
@@ -107,8 +66,9 @@ fn part(value: &Url, kind: u32) -> Option<&str> {
         5 => value.host_str().filter(|host| !host.is_empty()),
         6 => Some(value.path()),
         7 => value.query(),
-        _ => value.fragment(),
-    }
+        8 => value.fragment(),
+        _ => return None,
+    })
 }
 
 fn joined_path(left: &str, right: &str) -> String {
@@ -144,7 +104,8 @@ pub unsafe extern "C" fn nuppNativeUriParse(
     };
     let value = match Url::parse(source) {
         Ok(value) => value,
-        Err(_) => return failed(Status::InvalidArgument, why_not(source)),
+        // The parser's own reason names the rule the text broke.
+        Err(error) => return failed(Status::InvalidArgument, &error.to_string()),
     };
     hold(value, output)
 }
@@ -185,7 +146,9 @@ pub unsafe extern "C" fn nuppNativeUriPart(
         Ok(value) => value,
         Err(status) => return failed(status, "URI handle is stale"),
     };
-    let found = part(value, kind);
+    let Some(found) = part(value, kind) else {
+        return failed(Status::InvalidArgument, "URI component kind is invalid");
+    };
     let bytes = found.unwrap_or_default().as_bytes();
     // SAFETY: both scalar outputs were checked above.
     unsafe {
@@ -456,6 +419,18 @@ mod tests {
     }
 
     #[test]
+    fn a_component_kind_outside_the_list_is_refused() {
+        let handle = parse("https://example.com/#top");
+        let mut length = 0;
+        let mut present = 0;
+        assert_eq!(
+            unsafe { nuppNativeUriPart(handle, 9, ptr::null_mut(), 0, &mut length, &mut present) },
+            Status::InvalidArgument.code()
+        );
+        assert_eq!(nuppNativeUriRelease(handle), 0);
+    }
+
+    #[test]
     fn opaque_and_empty_authorities_remain_distinct() {
         let opaque = parse("mailto:someone@example.com");
         assert_eq!(component(opaque, 2), None);
@@ -495,6 +470,9 @@ mod tests {
             ("", "relative URL without a base"),
             ("http://[", "invalid IPv6 address"),
             ("http:", "empty host"),
+            ("http://example.com:99999/", "invalid port number"),
+            ("http://exa mple.com/", "invalid international domain name"),
+            ("http://999.1.1.1/", "invalid IPv4 address"),
         ] {
             let mut handle = 0;
             assert_eq!(
