@@ -867,6 +867,17 @@ impl GpuContext {
         }
         let layout = self.resources.buffer(buffer)?.metadata.clone();
         let entry = self.resources.binding_mut(bindings)?;
+        let other_side = if writable {
+            &entry.readonly
+        } else {
+            &entry.writable
+        };
+        if binds(other_side, buffer) {
+            return Err(GpuError::InvalidArgument(
+                "a GPU buffer cannot be bound for both reading and writing in one dispatch"
+                    .to_owned(),
+            ));
+        }
         let slots = if writable {
             &mut entry.writable
         } else {
@@ -1464,6 +1475,13 @@ fn require_copy_alignment(name: &'static str, value: u64) -> Result<(), GpuError
     }
 }
 
+/// Whether any of `slots` names `buffer`. The device tracks usage per
+/// allocation, so one allocation bound to a read slot and a write slot of the
+/// same dispatch is refused however far apart the ranges are.
+fn binds(slots: &[Option<BufferSlot>], buffer: BufferHandle) -> bool {
+    slots.iter().flatten().any(|slot| slot.buffer == buffer)
+}
+
 /// How many bytes a copy or binding of `length` at `offset` moves. Both are
 /// whole words; a range whose length is not one may still end the buffer,
 /// and then takes the padding after its last byte along with it.
@@ -1724,6 +1742,21 @@ mod tests {
         assert_eq!(gpu.copied_download(buffer, 0, 16, None), Ok(()));
         assert!(matches!(costs::check(), Err(GpuError::CostOutput(_))));
         gpu.release_buffer(buffer).unwrap();
+    }
+
+    #[test]
+    fn one_allocation_is_not_bound_for_reading_and_writing() {
+        let slot = |buffer| {
+            Some(BufferSlot {
+                buffer,
+                offset: 0,
+                size: 4,
+                layout: Value::Null,
+            })
+        };
+        assert!(binds(&[None, slot(7)], 7));
+        assert!(!binds(&[None, slot(7)], 8));
+        assert!(!binds(&[None, None], 7));
     }
 
     #[test]
