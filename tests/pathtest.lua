@@ -319,6 +319,21 @@ function M.verbatimWindowsPathsAreCarriedUntouched()
     -- Joining appends the one separator the system reads there.
     test.equal(pathtext.pushPart("\\\\?\\C:\\a", "b", true), "\\\\?\\C:\\a\\b")
     test.equal(pathtext.with("\\\\?\\C:\\a\\file.txt", "bak", true, true), "\\\\?\\C:\\a\\file.bak")
+    -- The prefix carries the disk, or the UNC server and share, as Windows
+    -- reads it: `\\?\C:` alone names the raw volume, not its root, so the
+    -- parent of a file on the disk is `\\?\C:\`, and the root has none.
+    test.equal(pathtext.part("\\\\?\\C:\\foo", 0, true), "\\\\?\\C:\\")
+    test.equal(pathtext.part("\\\\?\\C:\\foo", 1, true), "foo")
+    test.equal(pathtext.part("\\\\?\\C:\\", 0, true), nil)
+    test.equal(pathtext.part("\\\\?\\C:\\", 1, true), nil)
+    test.equal(pathtext.part("\\\\?\\C:\\a\\b", 0, true), "\\\\?\\C:\\a")
+    test.equal(pathtext.part("\\\\?\\UNC\\server\\share\\x", 0, true), "\\\\?\\UNC\\server\\share\\")
+    test.equal(pathtext.part("\\\\?\\UNC\\server\\share\\", 1, true), nil)
+    test.equal(pathtext.prefixLength("\\\\?\\C:\\foo", true), 6)
+    test.equal(pathtext.prefixLength("\\\\?\\UNC\\server\\share\\x", true), 20)
+    test.equal(pathtext.prefixLength("\\\\?\\", true), 4)
+    test.equal(pathtext.part("\\\\.\\C:\\foo", 0, true), "//./C:/")
+    test.equal(pathtext.with("\\\\?\\C:\\foo", "bar", false, true), "\\\\?\\C:\\bar")
     -- Expressing one is exactly the component reasoning verbatim opts out of.
     local answer, reason = pathtext.relative("\\\\?\\C:\\a\\b", "\\\\?\\C:\\a", true)
     test.equal(answer, nil)

@@ -85,7 +85,8 @@ local function isVerbatim(text: string, windows: boolean): boolean
 end
 
 --- How many leading bytes of `text` are its prefix: none on POSIX, and on
---- Windows the drive, the share, or the verbatim marker.
+--- Windows the drive, the share, or a verbatim or device marker together with
+--- the disk, device or UNC share it names.
 ---
 --- @param text the path
 --- @param windows whether Windows rules apply
@@ -99,20 +100,46 @@ function pathtext.prefixLength(text: string, windows: boolean): integer
         return 2
     end
     if length >= 2 and isSeparator(byte(text, 1), windows) and isSeparator(byte(text, 2), windows) then
-        -- `\\?\` and `\\.\` reach as far as the next separator; a share reaches
-        -- past the server and the share name both.
-        local at: integer = 2
         local third = byte(text, 3)
-        local parts: integer = (length >= 4 and (third == 63 or third == DOT) and isSeparator(byte(text, 4), windows))
-            and 1
-            or 2
+        if length >= 4 and (third == 63 or third == DOT) and isSeparator(byte(text, 4), windows) then
+            -- `\\?\` and `\\.\` carry the next component with them, as Windows
+            -- and Rust's `Prefix` read them: the disk in `\\?\C:`, the device in
+            -- `\\.\COM1`, and in `\\?\UNC\server\share` the server and share too.
+            -- Stopping at the marker made `C:` a name, so the parent of
+            -- `\\?\C:\foo` was `\\?\C:`, which names the raw volume rather than
+            -- its root directory.
+            local at: integer = 4
+            local parts: integer = 1
+            local seen: integer = 0
+            while seen < parts do
+                local begin = at + 1
+                while at < length and not isSeparator(byte(text, at + 1), windows) do
+                    at = at + 1
+                end
+                seen = seen + 1
+                if seen == 1 and third == 63 and at - begin == 2 and text:sub(begin, at):upper() == "UNC" then
+                    parts = 3
+                end
+                if seen < parts then
+                    if at == length then
+                        break
+                    end
+                    at = at + 1
+                end
+            end
+
+            return at
+        end
+
+        -- A share reaches past the server and the share name both.
+        local at: integer = 2
         local seen: integer = 0
-        while seen < parts do
+        while seen < 2 do
             while at < length and not isSeparator(byte(text, at + 1), windows) do
                 at = at + 1
             end
             seen = seen + 1
-            if seen < parts then
+            if seen < 2 then
                 while at < length and isSeparator(byte(text, at + 1), windows) do
                     at = at + 1
                 end
