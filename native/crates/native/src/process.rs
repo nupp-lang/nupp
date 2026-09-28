@@ -317,7 +317,7 @@ pub unsafe extern "C" fn nuppNativeProcessPollExit(raw: u64, output: *mut Proces
         Ok(value) => value,
         Err(status) => return status,
     };
-    let exit = child.poll_exit();
+    let exit = child.collect_exit();
     // SAFETY: output was validated above.
     unsafe {
         output.write(match exit {

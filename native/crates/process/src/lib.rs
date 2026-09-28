@@ -326,6 +326,8 @@ impl KillControl {
 
 struct ChildState {
     exit: Option<Exit>,
+    /// The exit has been handed to the caller, so it no longer answers waits.
+    collected: bool,
     released: bool,
 }
 
@@ -345,6 +347,21 @@ impl ChildProcess {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .exit
+    }
+
+    /// The exit, recording that the caller has now seen it. Until then the
+    /// exit makes every wait on this child ready; after, a wait is left to its
+    /// streams, one of which something the child started may hold open long
+    /// after the child itself is gone.
+    pub fn collect_exit(&self) -> Option<Exit> {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.collected |= state.exit.is_some();
+        state.exit
+    }
+
+    fn exit_uncollected(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.exit.is_some() && !state.collected
     }
 
     pub fn kill(&self, force: bool) -> Result<(), String> {
@@ -427,6 +444,7 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     let child_state = Arc::new(ChildProcess {
         pid,
         state: Arc::new(Mutex::new(ChildState {
+            collected: false,
             exit: None,
             released: false,
         })),
@@ -969,7 +987,7 @@ pub fn wait_ready(
     let started = Instant::now();
     loop {
         let seen = activity().generation();
-        let ready = usize::from(child.is_some_and(|child| child.poll_exit().is_some()))
+        let ready = usize::from(child.is_some_and(|child| child.exit_uncollected()))
             + streams.iter().filter(|stream| stream.ready()).count();
         if ready != 0 || started.elapsed() >= timeout {
             return ready;
@@ -1244,6 +1262,33 @@ mod tests {
                 killed: false
             }
         );
+        spawned.child.reap().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_collected_exit_leaves_a_wait_to_its_streams() {
+        let _guard = child_test_guard();
+        // The child exits at once; the sleep it started keeps stdout open.
+        let spawned = shell("sleep 1 & exit 0");
+        let output = Arc::clone(spawned.streams[1].as_ref().unwrap());
+        wait_for_exit(&spawned.child);
+        assert_eq!(
+            wait_ready(Some(&spawned.child), &[Arc::clone(&output)], Duration::ZERO),
+            1,
+            "an exit nobody has collected is news"
+        );
+        assert!(spawned.child.collect_exit().is_some());
+        assert_eq!(
+            wait_ready(
+                Some(&spawned.child),
+                &[Arc::clone(&output)],
+                Duration::from_millis(50)
+            ),
+            0,
+            "a collected exit is not news again"
+        );
+        output.close();
         spawned.child.reap().unwrap();
     }
 

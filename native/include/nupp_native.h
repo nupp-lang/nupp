@@ -549,6 +549,9 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamWrite(
     uint64_t stream, const uint8_t *data, size_t length,
     uint32_t *state, size_t *accepted);
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamRelease(uint64_t stream);
+/* Returns how many of the child and the listed streams are ready. The child
+ * counts until nuppNativeProcessPollExit has reported its exit; after that a
+ * wait is left to its streams, which a descendant may hold open. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
     uint64_t process,
     const uint64_t *readable, size_t readable_count,
