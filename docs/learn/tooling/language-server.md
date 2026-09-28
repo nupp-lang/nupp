@@ -262,7 +262,10 @@ character is an error rather than a guess.
 
 `rename` previews its project-wide edits and changes files only with
 `--write`. It refuses a new name that is not an identifier or is a keyword, and
-refuses a symbol not declared in a project file. `--only refactor` selects the
+refuses a symbol not declared in a project file. It also refuses a new name that
+would change what the program means: one already bound where the declaration or
+a use stands, so that a use would resolve to a different declaration afterwards,
+or a member name the module already declares. `--only refactor` selects the
 `refactor.rewrite` kind.
 
 `trace-check` selects the smallest enclosing checked function and returns the

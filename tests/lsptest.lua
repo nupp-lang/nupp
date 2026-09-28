@@ -2321,6 +2321,90 @@ function M.renamesTheMemberAndNotItsTable()
     end
 end
 
+-- A rename changes spellings, never meanings. A new name that is already bound
+-- where the declaration or a use stands would capture one or the other, and the
+-- program that results can check clean and still do something else: renaming
+-- `first` to `second` below leaves both calls running the second function. Each
+-- such rename is refused; renames into a name bound only somewhere unrelated go
+-- through.
+function M.refusesARenameThatWouldRebindAName()
+    local projectDir = os.tmpname()
+    os.remove(projectDir)
+    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
+    local cases = {
+        -- the later declaration captures the renamed one's use
+        {
+            name = "silent.nupp",
+            source = "local function first(): string\n    return \"first\"\nend\n\n"
+                .. "local function second(): string\n    return \"second\"\nend\n\n"
+                .. "print(first(), second())\n",
+            line = 0, character = 15, newName = "second", refused = true,
+        },
+        -- an inner binding captures a use of the renamed function
+        {
+            name = "inner.nupp",
+            source = "local function greet(name: string): string\n    return \"hi \" .. name\nend\n\n"
+                .. "local function other(): string\n    local hello = \"x\"\n    return greet(hello)\nend\n\n"
+                .. "print(greet(\"x\"), other())\n",
+            line = 0, character = 15, newName = "hello", refused = true,
+        },
+        -- the renamed declaration shadows a use of an earlier one in its scope
+        {
+            name = "same.nupp",
+            source = "local a = 1\nlocal b = 2\nprint(a, b)\n",
+            line = 1, character = 6, newName = "a", refused = true,
+        },
+        -- a global the renamed function's scope would hide
+        {
+            name = "global.nupp",
+            source = "local function show(): string\n    return \"x\"\nend\n\nprint(show())\n",
+            line = 0, character = 15, newName = "print", refused = true,
+        },
+        -- the same name bound in an unrelated scope is no conflict
+        {
+            name = "unrelated.nupp",
+            source = "local function f(): integer\n    local x = 1\n    return x\nend\n\n"
+                .. "local function g(): integer\n    local y = 2\n    return y\nend\n\nprint(f(), g())\n",
+            line = 6, character = 10, newName = "x", refused = false,
+        },
+    }
+    local messages = {{jsonrpc = "2.0", id = 1, method = "initialize", params = {}}}
+    for index, case in ipairs(cases) do
+        case.uri = fileUri(projectDir .. "/" .. case.name)
+        messages[#messages + 1] = {
+            jsonrpc = "2.0",
+            method = "textDocument/didOpen",
+            params = {textDocument = {uri = case.uri, languageId = "nupp", version = 1, text = case.source}}
+        }
+        messages[#messages + 1] = {
+            jsonrpc = "2.0",
+            id = 10 + index,
+            method = "textDocument/rename",
+            params = {
+                textDocument = {uri = case.uri},
+                position = {line = case.line, character = case.character},
+                newName = case.newName
+            }
+        }
+    end
+    messages[#messages + 1] = {jsonrpc = "2.0", id = 2, method = "shutdown"}
+    messages[#messages + 1] = {jsonrpc = "2.0", method = "exit"}
+    local out = runSession(messages, projectDir)
+    os.execute("rm -rf '" .. projectDir .. "'")
+
+    for index, case in ipairs(cases) do
+        local response = responseWithId(out, 10 + index)
+        assert(response, case.name .. ": no answer\n" .. out)
+        if case.refused then
+            assert(response.error, case.name .. ": the rename is refused: " .. json.encode(response))
+            assertContains(response.error.message, case.newName, case.name .. ": the refusal names the new name")
+        else
+            local edits = response.result and response.result.changes[case.uri]
+            assert(edits and #edits == 2, case.name .. ": the rename goes through: " .. json.encode(response))
+        end
+    end
+end
+
 -- A rename reaches the project, not the tabs. A file that uses the symbol but
 -- is not open is still a file the rename has to edit: skipping it would leave
 -- the project broken with nothing said, which is worse than refusing outright.

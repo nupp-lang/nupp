@@ -60,6 +60,31 @@ local semanticTypes = semantic.semanticTypes
 local signatureAt = complete.signatureAt
 local uriToPath = text.uriToPath
 
+-- One edit of a rename, as the bytes it replaces.
+local type RenameSpan = {
+    from: integer,
+    to: integer,
+    text: string
+}
+
+-- A file a rename rewrites: what it read before, and what it reads after.
+local type RenameFile = {
+    path: string,
+    source: string,
+    result: any,
+    open: boolean,
+    spans: {RenameSpan},
+    text: string
+}
+
+local function bySpanStart(a: RenameSpan, b: RenameSpan): boolean
+    return a.from < b.from
+end
+
+local function byRenamePath(a: RenameFile, b: RenameFile): boolean
+    return a.path < b.path
+end
+
 ----------------------------------------------------------------------------
 -- What a session is
 ----------------------------------------------------------------------------
@@ -1211,7 +1236,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 if projectPath == path then
                     return doc, tok, function(includeDeclaration)
                         return memberReferences(member, includeDeclaration)
-                    end
+                    end, nil, member
                 end
             end
         end
@@ -1233,13 +1258,174 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         respond(id, {range = tokenRange(doc.text, tok), placeholder = tok.text,})
     end
 
+    -- The text and parse a rename rewrites a file from: the buffer when it is open,
+    -- since that is what the edits were measured against, and the disk otherwise.
+    local function renameInput(path: string): (string?, any, boolean)
+        for uri, open in pairs(s.documents) do
+            if uriToPath(uri) == path and open.result then
+                return open.text, open.result, true
+            end
+        end
+        local source = s.inc.fileText(path)
+        local checked = source and s.inc.checkFile(path) or nil
+
+        return source, checked and checked.result or nil, false
+    end
+
+    --- Why a rename would change what the program means, or nil when it would not.
+    ---
+    --- A new name already bound where the declaration or a use stands captures one or
+    --- the other, and the result can check clean while doing something else. So the
+    --- rewritten files are checked, and every name in them has to resolve to the same
+    --- declaration it did before, moved only by the edits: a use of the renamed symbol
+    --- that now means another, a use of another that now means the renamed one, or an
+    --- unbound name the renamed one now claims, is each a capture.
+    ---
+    --- The rewritten text is checked as an overlay and the previous one put back
+    --- afterwards, whatever happened in between.
+    ---
+    --- @raises any whatever checking the rewritten files raised, cancellation
+    --- included, once the overlays are restored
+    local function renameCapture(changes: {[string]: {any}}, target: any, newName: string): string?
+        local targetKey = symbolKey(target)
+        if not targetKey then
+            return nil
+        end
+        local files: {[string]: RenameFile} = {}
+        local list: {RenameFile} = {}
+        for uri, edits in pairs(changes) do
+            local path = uriToPath(uri)
+            local source, result, open = renameInput(path)
+            if not source or not result or not result.tokens then
+                return nil
+            end
+            local spans: {RenameSpan} = {}
+            for _, edit in ipairs(edits) do
+                local from = offsetAtPosition(source, edit.range.start)
+                local to = offsetAtPosition(source, edit.range["end"])
+                if not from or not to then
+                    return nil
+                end
+                spans[#spans + 1] = {from = from, to = to, text = edit.newText}
+            end
+            table.sort(spans, bySpanStart)
+            local pieces: {string} = {}
+            local at: integer = 1
+            for _, span in ipairs(spans) do
+                pieces[#pieces + 1] = source:sub(at, span.from - 1)
+                pieces[#pieces + 1] = span.text
+                at = span.to
+            end
+            pieces[#pieces + 1] = source:sub(at)
+            local file: RenameFile = {
+                path = path,
+                source = source,
+                result = result,
+                open = open,
+                spans = spans,
+                text = table.concat(pieces)
+            }
+            files[path] = file
+            list[#list + 1] = file
+        end
+        table.sort(list, byRenamePath)
+
+        -- Where a byte of the original stands after the edits. The token an edit starts
+        -- at is the renamed name, which ends the replacement: a pattern entry's edit
+        -- spells `source as newName`.
+        local function moved(path: string, offset: integer): integer
+            local file = files[path]
+            if not file then
+                return offset
+            end
+            local shift: integer = 0
+            for _, span in ipairs(file.spans) do
+                if span.from == offset then
+                    return offset + shift + #span.text - #newName
+                elseif span.from < offset then
+                    shift = shift + #span.text - (span.to - span.from)
+                end
+            end
+
+            return offset + shift
+        end
+
+        local function movedKey(key: string?): string?
+            local path, offset = (key or ""):match("^(.*):(%d+)$")
+            if not path or not offset then
+                return key
+            end
+
+            return path .. ":" .. tostring(moved(path, tonumber(offset) as integer))
+        end
+
+        local renamedKey = movedKey(targetKey)
+
+        local function compare(): string?
+            for _, file in ipairs(list) do
+                s.inc.changeDocument(file.path, file.text)
+            end
+            for _, file in ipairs(list) do
+                local path = file.path
+                local checked = s.inc.checkFile(path)
+                local after: {[integer]: any} = {}
+                for _, tok in ipairs(checked and checked.result and checked.result.tokens or {}) do
+                    after[tok.offset] = tok
+                end
+                for _, tok in ipairs(file.result.tokens) do
+                    if tok.kind == "name" then
+                        local before = symbolKey(tok.definition)
+                        local at = moved(path, tok.offset)
+                        local now = after[at]
+                        local nowKey = now and symbolKey(now.definition) or nil
+                        local captured = before
+                            and movedKey(before) ~= nowKey
+                            and (before == targetKey or nowKey == renamedKey)
+                        if captured or (not before and nowKey == renamedKey) then
+                            local lineStart = at
+                            while lineStart > 1 and file.text:byte(lineStart - 1) ~= 10 do
+                                lineStart = lineStart - 1
+                            end
+
+                            return (
+                                "renaming to %s would change which declaration %s at %s:%d:%d refers to"
+                            ):format(
+                                newName,
+                                now and now.text or tok.text,
+                                path,
+                                positionAtOffset(file.text, at).line + 1,
+                                at - lineStart + 1
+                            )
+                        end
+                    end
+                end
+            end
+
+            return nil
+        end
+
+        local ok, problem = pcall(compare)
+        for _, file in ipairs(list) do
+            if file.open then
+                s.inc.changeDocument(file.path, file.source)
+            else
+                s.inc.closeDocument(file.path)
+            end
+        end
+        if not ok then
+            error(problem, 0)
+        end
+
+        return problem
+    end
+
     handlers["textDocument/rename"] = function(id, params)
         local newName = params and params.newName
         if not newName or not newName:match("^[A-Za-z_][A-Za-z0-9_]*$") or lexer.KEYWORDS[newName] then
             respondError(id, -32602, "new name is not a valid identifier")
             return
         end
-        local _, tok, references, generated = renameSubject(params)
+        local _, tok, references, generated, member = renameSubject(params)
         if not tok then
             if generated then
                 respondError(
@@ -1274,6 +1460,21 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 range = location.range,
                 newText = declarationEdit and (patternEntry.sourceName.text .. " as " .. newName) or newName,
             }
+        end
+        local capture = nil
+        if member then
+            -- A member is not a name the checker binds, so the comparison below cannot
+            -- see two of them merge; a declaration already standing under the new name
+            -- is the collision.
+            if newName ~= member.name and memberDeclaration(member.moduleName, newName) then
+                capture = ("%s already declares a member named %s"):format(member.moduleName, newName)
+            end
+        else
+            capture = renameCapture(changes, tok.definition, newName)
+        end
+        if capture then
+            respondError(id, -32602, capture)
+            return
         end
         respond(id, {changes = changes})
     end

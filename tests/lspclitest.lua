@@ -320,6 +320,31 @@ function M.renamePreviewsThenWritesEverySemanticReference()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A rename that would rebind a name is refused and writes nothing: a member the
+-- module already declares, and a local whose new name a later declaration
+-- already holds, where the calls would silently run the other function.
+function M.renameRefusesToRebindANameAndWritesNothing()
+   local main = "local function first(): string\n    return \"first\"\nend\n\n"
+      .. "local function second(): string\n    return \"second\"\nend\n\n"
+      .. "print(first(), second())\n"
+   local lib = "local lib = {}\n\nfunction lib.double(value: number): number\n    return value * 2\nend\n\n"
+      .. "function lib.triple(value: number): number\n    return value * 3\nend\n\nreturn lib\n"
+   local dir = tempProject({
+      ["lib.nupp"] = lib,
+      ["main.nupp"] = main,
+   })
+   local output = capture(dir, "lsp rename --write main.nupp 1 16 second 2>&1; echo rc=$?")
+   contains(output, "rc=1", "the capturing rename fails")
+   contains(output, "second at main.nupp:9:7", "the refusal names the captured use")
+   assert(readFile(dir .. "/main.nupp") == main, "a refused rename writes nothing")
+
+   output = capture(dir, "lsp rename --write lib.nupp 3 14 triple 2>&1; echo rc=$?")
+   contains(output, "rc=1", "the colliding member rename fails")
+   contains(output, "already declares a member named triple", "the refusal names the member")
+   assert(readFile(dir .. "/lib.nupp") == lib, "a refused member rename writes nothing")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.actionsAndJsonDiagnosticsAreMachineReadable()
    local dir = tempProject({
       ["nupp.lua"] = [[return {
