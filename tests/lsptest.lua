@@ -985,6 +985,53 @@ function M.publishedDiagnosticsCarryTheVersionTheyWereFoundIn()
     )
 end
 
+-- The name of a `local function` is where a reader hovers first, and it names
+-- the same function every call of it does. The checker leaves a placeholder on
+-- that one token before the body is checked; the answer is the declaration's.
+function M.hoverOnALocalFunctionNameShowsItsSignature()
+    local projectDir = makeDir()
+    local uri = fileUri(projectDir .. "/main.nupp")
+    local source = "local function greet(name: string): string\n    return \"hi \" .. name\nend\n\n"
+        .. "return greet(\"x\")\n"
+    local out = runSession(
+        {
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 10,
+                method = "textDocument/hover",
+                params = {textDocument = {uri = uri}, position = {line = 0, character = 16}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 11,
+                method = "$/nupp/inspect",
+                params = {textDocument = {uri = uri}, position = {line = 0, character = 16}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 12,
+                method = "$/nupp/inspect",
+                params = {textDocument = {uri = uri}, position = {line = 4, character = 8}}
+            },
+            {jsonrpc = "2.0", id = 2, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
+        },
+        projectDir
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+
+    local signature = "function(name: string): string"
+    assertContains(responseWithId(out, 10).result.contents.value, signature, "hover on the declaration")
+    test.equal(responseWithId(out, 11).result.type, signature)
+    test.equal(responseWithId(out, 12).result.type, signature)
+end
+
 function M.hoverAndInspectExposeAutomaticCleanup()
     local projectDir = makeDir()
     local path = projectDir .. "/owner.nupp"

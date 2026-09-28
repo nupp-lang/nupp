@@ -565,6 +565,17 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- Request handlers
     ---------------------------------------------------------------------
 
+    --- The type a position shows: what the checker inferred there, except on the name
+    --- a function is declared by. That token is stamped before the body is checked,
+    --- with a placeholder, and the declaration knows the finished signature.
+    local function shownType(tok, def): any
+        if def and def.kind == "function" and def.type and def.token == tok then
+            return def.type
+        end
+
+        return tok.inferredType or def and def.type
+    end
+
     local handlers = {}
 
     handlers["initialize"] = function(id, params)
@@ -832,7 +843,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return
         end
         local def = tok and tok.definition
-        local t = tok and (tok.inferredType or def and def.type)
+        local t = tok and shownType(tok, def)
         -- A plain module member has a type now that a module's surface is published,
         -- but the surface is a shape and a shape carries no declaration sites. Where
         -- the checker cannot say where something was written, the declaration as
@@ -965,7 +976,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return
         end
         local def = tok.definition
-        local t = tok.inferredType or def and def.type
+        local t = shownType(tok, def)
         if not t then
             respond(id, json.NULL);
             return
