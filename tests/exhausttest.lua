@@ -33,6 +33,23 @@ local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 
 local M = {}
 
+-- A branch that cannot produce a value adds no member to the value's type, so a
+-- ternary with a failing arm still dispatches over the literal union.
+function M.aFailingArmDoesNotHideTheDispatch()
+   assertEq(diagsOf(table.concat({
+      "local type Mode = 'a' | 'b' | 'c'",
+      "local function fail(msg: string): never error(msg) end",
+      "local function f(m: Mode, ok: boolean): integer",
+      "   local c = ok ? m : fail('no')",
+      "   if c == 'a' then return 1",
+      "   elseif c == 'b' then return 2",
+      "   end",
+      "   return 0",
+      "end",
+      "return f",
+   }, "\n")), "NUPP2107")
+end
+
 function M.aDispatchMissingAMemberIsReported()
    local src = COLOR .. table.concat({
       "",

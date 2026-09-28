@@ -36,11 +36,120 @@ local CFG = table.concat({"local record Cfg", "    port: number?", "    name: st
 
 local M = {}
 
-function M.subtractingAWholeSingleTypeLeavesNever()
-    assertEq(narrowing.subtract(T.boolean, T.boolean), T.never)
-    assertEq(narrowing.subtract(T.string, T.string), T.never)
-    assertEq(narrowing.subtract(T.any, T.nil_), T.any)
-    assertEq(narrowing.subtract(T.unknown, T.nil_), T.unknown)
+-- A type that is not a union survives subtraction whole, as narrowing.md's
+-- "Exhausted subtraction" says; only a union that loses every member is `never`.
+function M.aWholeSingleTypeSurvivesSubtraction()
+    local function shown(t)
+        return T.tostring(t)
+    end
+    assertEq(shown(narrowing.subtract(T.boolean, T.boolean)), "boolean")
+    assertEq(shown(narrowing.subtract(T.string, T.string)), "string")
+    assertEq(shown(narrowing.subtract(T.nil_, T.nil_)), "nil")
+    assertEq(shown(narrowing.subtract(T.boolean, T.literal(true, T.boolean))), "false")
+    assertEq(shown(narrowing.subtract(T.union({T.string, T.integer}), T.union({T.string, T.integer}))), "never")
+    assertEq(shown(narrowing.subtract(T.any, T.nil_)), "any")
+    assertEq(shown(narrowing.subtract(T.unknown, T.nil_)), "unknown")
+end
+
+local SHAPES = table.concat(
+    {
+        "local record Circle",
+        "    kind: 'circle'",
+        "    radius: number",
+        "end",
+        "local record Square",
+        "    kind: 'square'",
+        "    side: number",
+        "end",
+    },
+    "\n"
+)
+
+-- The same rule at program level: the else arm after an exhaustive `is` chain
+-- holds the last member rather than `never`, so defensive code there checks.
+function M.theElseOfAnExhaustiveIsChainKeepsTheLastMember()
+    assertClean(
+        SHAPES .. "\n" .. table.concat(
+            {
+                "local function area(v: Circle | Square): number",
+                "    if v is Circle then",
+                "        return v.radius",
+                "    elseif v is Square then",
+                "        return v.side",
+                "    else",
+                "        error('unexpected shape ' .. tostring(v.kind))",
+                "    end",
+                "end",
+                "return area",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A fact the checker could not see go stale still leaves the declared shape on
+-- the arm it rules out, rather than a `never` that would accept anything there.
+function M.aStaleFactDoesNotEmptyAType()
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record R",
+                    "    v: string?",
+                    "end",
+                    "local function poke(target: R): nil",
+                    "    target.v = 'hi'",
+                    "end",
+                    "local r = new R(v = nil)",
+                    "local holder = {inner = r}",
+                    "r.v = nil",
+                    "poke(holder.inner)",
+                    "if r.v ~= nil then",
+                    "    local n: number = r.v + 1",
+                    "    print(n)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2003:12"
+    )
+end
+
+-- `if v = x` on a type parameter: T may be instantiated with an optional, so it
+-- is not "never nil". One bounded by a type that is never nil still is.
+function M.anIfBindingAcceptsAnOpenTypeParameter()
+    assertClean(
+        table.concat(
+            {
+                "local function firstOr<T>(x: T, d: T): T",
+                "    if v = x then",
+                "        return v",
+                "    end",
+                "    return d",
+                "end",
+                "return firstOr",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local function f<T is string>(x: T): T",
+                    "    if v = x then",
+                    "        return v",
+                    "    end",
+                    "    return x",
+                    "end",
+                    "return f",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:2"
+    )
 end
 
 function M.aNilGuardDoesNotEraseAGradualValue()

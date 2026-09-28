@@ -1493,13 +1493,24 @@ function control.install(c: state.Checker): state.StatHandlers
                     c.callMayMutate = false
                 end
                 local bound = valueType
+                local rawValue = rawType(valueType)
+                -- A type parameter may be instantiated with an optional, so whether
+                -- it admits nil is unknown here rather than known to be false. One
+                -- bounded by a type that cannot be nil can still say so below.
+                local openParameter = rawValue.tag == "typevar"
+                    and (rawValue.bound == nil or isA(T.nil_, rawValue.bound as T.Type))
                 if valueType == T.any or valueType == T.unknown then
                     bound = T.any
+                elseif openParameter and not ownershipKind(valueType) then
+                    bound = valueType
                 elseif ownershipKind(valueType) then
                     c.diag("NUPP2603", cond, "an if binding cannot take an owned or borrowed value")
                     bound = T.any
                 else
                     bound = narrowing.subtract(valueType, T.nil_)
+                    if valueType == T.nil_ then
+                        bound = T.never
+                    end
                     if bound == valueType then
                         c.diag(
                             "NUPP2001",

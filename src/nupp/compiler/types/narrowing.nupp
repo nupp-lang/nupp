@@ -33,6 +33,13 @@ local type Type = T.Type
 --- so subtracting from one would erase it. `boolean` is the two literals, so removing
 --- one leaves the other rather than leaving `boolean` whole.
 ---
+--- A type that is not a union survives subtraction whole: the false arm of a test
+--- that could not have failed says what the declaration said rather than `never`.
+--- A fact can be stale, since a write through an alias the checker does not follow
+--- leaves it standing, and `never` fits everywhere, so a stale fact that emptied the
+--- type would accept anything on that arm. Only a union loses every member, when a
+--- chain of tests has taken each one away.
+---
 --- @param t the type to narrow
 --- @param rem what the test ruled out
 --- @return what `t` still admits
@@ -68,7 +75,7 @@ function narrowing.subtract(t: Type, rem: Type): Type
     end
 
     if t.tag ~= "union" then
-        return without(t) or T.never
+        return without(t) or t
     end
     local out: {Type} = {}
     local changed = false

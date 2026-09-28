@@ -1792,6 +1792,36 @@ function M.gradualDefaults()
     assertEq((diagsOf("local f: function() = function() end\nf = nil")), "NUPP2001:2")
 end
 
+-- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
+-- the type of `x`. Keeping it as a member made every field read fail.
+function M.neverAddsNothingToAUnion()
+    assertEq(T.union({T.never, T.string}), T.string)
+    assertEq(T.union({T.never}), T.never)
+    assertEq(T.union({}), T.never)
+    assertEq(T.optional(T.never), T.nil_)
+    local shape = "local record Circle\n    kind: 'circle'\n    radius: number\nend\n"
+    assertClean(
+        shape .. table.concat(
+            {
+                "local function a(input: Circle?): number",
+                "    local s = input or error('missing')",
+                "    return s.radius",
+                "end",
+                "local function b(input: Circle?): number",
+                "    local s = input ?? error('missing')",
+                "    return s.radius",
+                "end",
+                "local function c(input: {radius: number}?): number",
+                "    local s = input or error('missing')",
+                "    return s.radius",
+                "end",
+                "return a, b, c",
+            },
+            "\n"
+        )
+    )
+end
+
 -- A colon call reaches a member the way a field read does, so a receiver that may
 -- be nil, a union whose alternatives disagree, `unknown`, an unbounded type
 -- parameter, an array and a function all lack a method until narrowed. Each of

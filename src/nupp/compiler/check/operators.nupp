@@ -829,8 +829,13 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             return T.boolean
         elseif op == "??" then
-            -- yields the left unless it is nil, so nil drops out of it
-            return T.union({subtract(lt, T.nil_), rt})
+            -- yields the left unless it is nil, so nil drops out of it; a left that
+            -- is only nil contributes nothing but the right
+            local present = subtract(lt, T.nil_)
+            if present == T.nil_ then
+                present = T.never
+            end
+            return T.union({present, rt})
         elseif operators.logical[op] then
             -- These operators select an operand value rather than producing a
             -- boolean. The left contributes its falsy possibilities to `and` and

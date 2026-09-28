@@ -1529,6 +1529,10 @@ local function pushUnionMember(
         for _, m in ipairs(t.members) do
             pushUnionMember(m, seen, flat, functionByContract)
         end
+    elseif t == types.never then
+        -- `never` has no values, so a union gains nothing from it: `x or error(...)`
+        -- is the type of `x`.
+        return
     elseif t.tag == "func" and functionByContract[t.unlabeledId] then
         local at = functionByContract[t.unlabeledId] as integer
         local prior = flat[at] as types.Func
@@ -1555,9 +1559,10 @@ end
 --- A union of types.
 ---
 --- Nested unions flatten, duplicates drop by identity, and members sort by id, so any
---- way of writing the same union reaches one type. A single surviving member is
---- returned unwrapped, `any` swallows the rest, and `table` drops beside a structure it
---- is already gradual toward.
+--- way of writing the same union reaches one type. `never` contributes nothing, a
+--- single surviving member is returned unwrapped and none at all is `never`, `any`
+--- swallows the rest, and `table` drops beside a structure it is already gradual
+--- toward.
 function types.union(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
@@ -1565,6 +1570,9 @@ function types.union(members: {types.Type}): types.Type
 
     for _, m in ipairs(members) do
         pushUnionMember(m, seen, flat, functionByContract)
+    end
+    if #flat == 0 then
+        return types.never
     end
     if #flat == 1 then
         return flat[1]
