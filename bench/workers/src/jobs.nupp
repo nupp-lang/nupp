@@ -71,7 +71,7 @@ end
 export function bump(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyArray)
     local writable = frame:write()
     writable[1] = seed % 256
-    drop writable
+    nupp.drop(writable)
 
     return frame
 end

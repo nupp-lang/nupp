@@ -330,7 +330,7 @@ for sample = 1, SAMPLES + 2 do
         smallMoveSamples[#smallMoveSamples + 1] = now() - started
     end
 end
-drop small
+nupp.drop(small)
 rows[
     #rows + 1
 ] = {
@@ -359,7 +359,7 @@ end
 if frame.count ~= FRAME_BYTES then
     error("a moved buffer changed size across lanes")
 end
-drop frame
+nupp.drop(frame)
 rows[
     #rows + 1
 ] = {

@@ -99,7 +99,7 @@ function arena.parse(source: string): Document
     local tapeStorage = ffi.new("uint32_t[?]", capacity) as uint32[?]
     local tapeWrite = span.writeCarray(tapeStorage, length)
     local tapeCount, indexStatus, indexPosition = indexer.index(span.fromString(source), tapeWrite)
-    drop tapeWrite
+    nupp.drop(tapeWrite)
     if indexStatus ~= indexer.OK then
         fail(indexPosition, "indexing", indexStatus, 2)
     end
@@ -118,9 +118,9 @@ function arena.parse(source: string): Document
         linkWrite,
         frameWrite
     )
-    drop nodeWrite
-    drop linkWrite
-    drop frameWrite
+    nupp.drop(nodeWrite)
+    nupp.drop(linkWrite)
+    nupp.drop(frameWrite)
     if status ~= parser.OK then
         fail(errorByte, "parser", status, 2)
     end

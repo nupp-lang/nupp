@@ -157,7 +157,7 @@ function matrix.sliceVirtual(exclusive output: span.WriteSpan<float>, repeats: i
         for index = 1, #window do
             window[index] += 1
         end
-        drop window
+        nupp.drop(window)
     end
 end
 
@@ -169,7 +169,7 @@ function matrix.sliceMaterialized(exclusive output: span.WriteSpan<float>, repea
         for index = 1, #window do
             window[index] += 1
         end
-        drop window
+        nupp.drop(window)
     end
 end
 
@@ -193,7 +193,7 @@ function matrix.writableRoot(exclusive storage: float[?], count: integer, repeat
         for index = 1, #values do
             values[index] += 1
         end
-        drop values
+        nupp.drop(values)
     end
 end
 
@@ -205,8 +205,8 @@ function matrix.nestedWritableRoot(exclusive storage: float[?], count: integer, 
         for index = 1, #window do
             window[index] += 1
         end
-        drop window
-        drop root
+        nupp.drop(window)
+        nupp.drop(root)
     end
 end
 
@@ -220,7 +220,7 @@ function matrix.heapSharedRoot(count: integer, repeats: integer): number
             total += values[index]
         end
     end
-    drop storage
+    nupp.drop(storage)
 
     return total
 end
@@ -233,9 +233,9 @@ function matrix.heapWritableRoot(count: integer, repeats: integer): nil
         for index = 1, #values do
             values[index] += 1
         end
-        drop values
+        nupp.drop(values)
     end
-    drop storage
+    nupp.drop(storage)
 end
 
 @relax("frames")
@@ -249,7 +249,7 @@ function matrix.soaSharedRoot(count: integer, repeats: integer): number
             total += xs[index]
         end
     end
-    drop storage
+    nupp.drop(storage)
 
     return total
 end
@@ -265,9 +265,9 @@ function matrix.soaWritableRoot(count: integer, repeats: integer): nil
                 xs[index] += 1
             end
         end
-        drop rows
+        nupp.drop(rows)
     end
-    drop storage
+    nupp.drop(storage)
 end
 
 local function sumStatic(borrows values: span.Span<float>): number
@@ -342,7 +342,7 @@ function matrix.tecsDirtyRoot(exclusive storage: float[?], count: integer, repea
         for index = 1, #values do
             values[index] += 1
         end
-        drop values
+        nupp.drop(values)
     end
 
     return tecsDirtyCount - before

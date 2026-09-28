@@ -114,7 +114,7 @@ function kernel.rootGcCopy(
         end
         output[index].x = input[index].x
     end
-    drop output
+    nupp.drop(output)
 end
 
 return kernel
