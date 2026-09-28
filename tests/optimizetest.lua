@@ -60,7 +60,109 @@ local function run(src, ...)
     return chunk(...)
 end
 
+-- Differential execution. Every pass above promises the same values as the tree it
+-- rewrote, and asserting the rewritten shape does not test that promise: a pass that
+-- fires on a program it should have declined still produces the expected shape. So
+-- a program is compiled at `-O0` and at `-O2`, both are run with `print` captured,
+-- and the transcripts have to match. Every Lua `OPT-n` pass is on at `-O1`, so `-O2`
+-- covers both optimizing levels.
+
+-- Runs generated code and returns what it printed, one line per call, with an error
+-- appended as a last line. The chunk gets its own globals so programs cannot see each
+-- other, and an instruction budget turns a runaway loop into a transcript line.
+local function transcript(code, filename, normalize)
+    local chunk, err = loadstring(code, "@" .. filename)
+    if not chunk then
+        return "LOAD " .. tostring(err)
+    end
+    local out = {}
+    local globals = setmetatable({}, {__index = _G})
+    globals.print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do
+            parts[i] = tostring((select(i, ...)))
+        end
+        out[#out + 1] = table.concat(parts, "\t")
+    end
+    setfenv(chunk, globals)
+    local budget = 0
+    debug.sethook(function()
+        budget = budget + 1
+        if budget > 200 then
+            error("instruction budget exhausted", 0)
+        end
+    end, "", 100000)
+    local ok, failure = pcall(chunk)
+    debug.sethook()
+    if not ok then
+        out[#out + 1] = "ERROR " .. tostring(failure)
+    end
+    local text = table.concat(out, "\n")
+    if normalize then
+        -- An inlined helper body runs on its caller's line, and a folded read names
+        -- what it read differently, so the generated programs compare errors by kind.
+        text = text:gsub("[%w_.]+:%d+: ", ""):gsub("(attempt to %w+) %w+ '[%w_]+'", "%1 X")
+    end
+    return text
+end
+
+-- The transcript of `src` at `level`, or the refusal that stopped it.
+local function executeAt(src, level, filename, normalize)
+    local result = parser.parse(src, filename)
+    if #result.errors > 0 then
+        return "PARSE " .. tostring(result.errors[1].msg)
+    end
+    for _, diagnostic in ipairs(check.check(result, filename, env) or {}) do
+        if diagnostic.severity == "error" then
+            return "CHECK " .. tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg or diagnostic.message)
+        end
+    end
+    runOptimizer(result, {level = level, filename = filename})
+    local code, diags = gen.generate(result, filename)
+    if #diags > 0 then
+        return "GEN " .. tostring(diags[1].code) .. " " .. tostring(diags[1].msg or diags[1].message)
+    end
+    return transcript(code, filename, normalize)
+end
+
+-- Requires `-O0` and `-O2` to print the same thing, and returns the transcript.
+-- `filename` picks the dialect: a `.g.nupp` name is gradual, a `.nupp` name strict.
+local function assertAgrees(src, filename, normalize)
+    filename = filename or "differential.g.nupp"
+    local plain = executeAt(src, 0, filename, normalize)
+    local optimized = executeAt(src, 2, filename, normalize)
+    if plain ~= optimized then
+        error(("-O0 and -O2 disagree\n  -O0: %s\n  -O2: %s\n---\n%s"):format(
+            (plain:gsub("\n", " | ")),
+            (optimized:gsub("\n", " | ")),
+            src
+        ), 2)
+    end
+    return plain
+end
+
 local M = {}
+
+-- Seeded random programs from `optimizeprograms`, each run at both levels. The seeds
+-- are fixed, so a failure names one program for good, and the message carries its
+-- source. `avoid` holds the shapes of findings that are still open.
+function M.generatedProgramsAgreeAcrossLevels()
+    local programs = require("optimizeprograms")
+    local avoid = {
+        ["FRONTEND-01"] = true,
+        ["FRONTEND-03"] = true,
+        ["FRONTEND-04"] = true,
+        ["FRONTEND-07"] = true,
+        ["FRONTEND-22"] = true,
+    }
+    for seed = 1, 40 do
+        local src = table.concat(programs.build(seed, avoid), "\n") .. "\n"
+        local ok, failure = pcall(assertAgrees, src, "generated.g.nupp", true)
+        if not ok then
+            error(("seed %d: %s"):format(seed, failure), 0)
+        end
+    end
+end
 
 function M.presizesARunOfNamedFields()
     local code = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t")
