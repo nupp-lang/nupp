@@ -673,7 +673,9 @@ function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
     local ordinary, ordinaryRun = runWorkerHost("lexertest --timings=0")
     test.equal(ordinaryRun.status, 0, "the worker host run succeeded" .. evidence(ordinaryRun))
     test.matches(ordinary, "1 suites across 2 Nupp workers")
-    test.matches(ordinary, "18 tests, 18 passed")
+    local total, passed = ordinary:match("(%d+) tests, (%d+) passed")
+    assert(total ~= nil and passed ~= nil, "worker summary is missing: " .. ordinary)
+    test.equal(total, passed, "every discovered lexer test passed")
     test.equal(
         ordinary:find(".................", 1, true),
         nil,

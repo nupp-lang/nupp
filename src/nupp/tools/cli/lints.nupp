@@ -51,7 +51,7 @@ local REPORT_SCHEMA = {
 local LEVEL_SEVERITY = {error = "error", warning = "warning", note = "note",}
 
 --- A level that is not a severity is one that reports nothing, and is painted faint
---- rather than in a colour that would claim it does.
+--- rather than in a color that would claim it does.
 local function levelPaint(style: cliModule.Style, level: string): function(string): string
     local severity = LEVEL_SEVERITY[level]
 

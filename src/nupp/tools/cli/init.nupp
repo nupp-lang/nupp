@@ -7,7 +7,7 @@ Every public subcommand is a derived command record under `nupp/tools/cli`.
 The root command owns their order and each record owns its grammar and run method.
 
 What is here is the part they share: finding the command, parsing against its
-grammar, honouring `--help` and `--color` before either can matter, and turning
+grammar, honoring `--help` and `--color` before either can matter, and turning
 a parse failure into the conventional status 2. A command therefore never sees a
 malformed argument list, and never has to remember to check for `--help`.
 

@@ -1161,7 +1161,7 @@ local function runTraceCheck(client, opts)
     elseif not value.functionName then
         io.write("No checked function at that position\n")
     elseif #value.findings == 0 then
-        io.write(value.functionName .. ": no catalogued trace blockers or risks\n")
+        io.write(value.functionName .. ": no cataloged trace blockers or risks\n")
     else
         io.write(
             ("%s: %d trace finding%s\n"):format(value.functionName, #value.findings, #value.findings == 1 and "" or "s")

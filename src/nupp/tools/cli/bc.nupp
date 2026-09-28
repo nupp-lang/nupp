@@ -93,7 +93,7 @@ local function width(options: any): integer?
     return cliModule.colorEnabled(io.stdout) and cliModule.columns(io.stdout) or nil
 end
 
---- The listing's colours, wired from the terminal highlighter.
+--- The listing's colors, wired from the terminal highlighter.
 ---
 --- The source is highlighted once, here, rather than a line at a time inside the
 --- rendering: classifying a Nupp line needs the file around it, and the listing

@@ -5,7 +5,7 @@ module nupp.tools.cli.explain
 
 A diagnostic has room for what is wrong with one program. This has room for the
 rule behind it, a program that breaks the rule, and the same program corrected.
-The catalogue is `nupp.tools.explain`; nothing here knows any of the content.
+The catalog is `nupp.tools.explain`; nothing here knows any of the content.
 ]]
 
 local cliError = require("nupp.tools.cli.error")

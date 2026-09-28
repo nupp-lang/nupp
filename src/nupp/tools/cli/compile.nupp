@@ -42,7 +42,7 @@ record compile.Settings
 
     --- Where diagnostics go when the caller is reporting them itself. Present for
     --- `--json`, which has to put them in a document rather than let each one say
-    --- itself as it is found. Same favour `nupp.tools.build.project` already does.
+    --- itself as it is found. Same favor `nupp.tools.build.project` already does.
     diagnostics: {any}?
 
     --- Public materialization observations collected while checking this command.

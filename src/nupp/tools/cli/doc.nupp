@@ -41,16 +41,32 @@ local function run(options: any): integer
         positional[#positional + 1] = path
     end
     local values = options
+    local asJson = values.format == "json"
+    local settings: any = nil
+
+    local function fail(problem: any): integer
+        io.stderr:write("nupp: " .. tostring(problem) .. "\n")
+        if asJson then
+            require("nupp.tools.cli.report").write({
+                ok = false,
+                files = {},
+                output = values.output or settings and settings.outDir or "",
+                format = values.kind and FORMATS[values.kind] or settings and settings.format or "",
+            })
+        end
+
+        return 1
+    end
+
     local doc = require("nupp.tools.doc")
     local config, configErr = doc.loadConfig(".")
     if not config then
-        io.stderr:write("nupp: " .. tostring(configErr) .. "\n")
-        return 1
+        return fail(configErr)
     end
-    local settings, settingsErr = doc.manifestSettings(config, values.target)
+    local settingsErr: any = nil
+    settings, settingsErr = doc.manifestSettings(config, values.target)
     if not settings then
-        io.stderr:write("nupp: " .. tostring(settingsErr) .. "\n")
-        return 1
+        return fail(settingsErr)
     end
     -- What the docs target depends on is what the renderer loads. A project that names
     -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
@@ -58,8 +74,7 @@ local function run(options: any): integer
     local deps = require("nupp.tools.build.deps")
     local installed, depErr = deps.build(".", settings.outDir or "build", config as Config, {}, settings as Target)
     if not installed then
-        io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
-        return 1
+        return fail(depErr)
     end
     local opts: {[string]: any} = {output = values.output, title = values.title}
     -- The format is the first word when it is one of the format names. Anything else in
@@ -79,7 +94,6 @@ local function run(options: any): integer
     if values.all then
         settings.all = true
     end
-    local asJson = values.format == "json"
     local written: {string} = {}
     if asJson then
         opts.written = written

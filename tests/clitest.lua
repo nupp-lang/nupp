@@ -781,6 +781,14 @@ function M.initListRefusesAJsonSpellingItCannotProduce()
     assert(output:sub(1, 1) ~= "{", "template text is not mislabeled JSON")
 end
 
+function M.docJsonReportsEarlyConfigurationFailures()
+    local output, code = captureStatusAt(HERE .. "/..", "doc --json --target definitely-missing")
+    assert(code == 1, "an unknown documentation target must fail: " .. output)
+    local report = json.decode(assert(output:match("({[^\n]+})"), "the JSON report is missing: " .. output))
+    assert(report.ok == false, "the JSON report records the failure: " .. output)
+    assert(report.output == "" and report.format == "" and #report.files == 0, "the failed report has no outputs")
+end
+
 function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     local dir = os.tmpname()
     os.remove(dir)

@@ -2037,7 +2037,7 @@ Export canonical C declarations for Nupp structs.
 Examples:
 
     nupp export-c -o include/game.h src/game.nupp game.Position
-    nupp export-c --target library -o include/library.h library.Widget
+    nupp export-c --target library -o include/library.h src/library.nupp library.Widget
     nupp export-c --json -o include/game.h src/game.nupp game.Position
 
 Usage:
