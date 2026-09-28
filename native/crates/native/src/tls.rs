@@ -5,6 +5,7 @@ use nupp_native_abi::{Arena, Handle, Status};
 use nupp_native_tls as transport;
 use std::ptr;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::{self, ThreadId};
 
 const PENDING: u32 = 0;
 const READY: u32 = 1;
@@ -28,8 +29,15 @@ pub struct TlsOptions {
     pub verify: i32,
 }
 
-fn sessions() -> &'static Mutex<Arena<Arc<transport::Session>>> {
-    static SESSIONS: OnceLock<Mutex<Arena<Arc<transport::Session>>>> = OnceLock::new();
+/// A session and the runtime lane that created it. Like the network stream
+/// it was made from, a session answers only on its own lane.
+struct SessionEntry {
+    owner: ThreadId,
+    session: Arc<transport::Session>,
+}
+
+fn sessions() -> &'static Mutex<Arena<SessionEntry>> {
+    static SESSIONS: OnceLock<Mutex<Arena<SessionEntry>>> = OnceLock::new();
     SESSIONS.get_or_init(|| Mutex::new(Arena::new()))
 }
 
@@ -38,10 +46,16 @@ fn session(raw: u64) -> Result<(Handle, Arc<transport::Session>), i32> {
     let arena = sessions()
         .lock()
         .map_err(|_| super::failed(Status::Internal, "TLS session store is poisoned"))?;
-    arena
+    let entry = arena
         .get(handle)
-        .map(|value| (handle, Arc::clone(value)))
-        .map_err(|status| super::failed(status, "TLS session handle is stale"))
+        .map_err(|status| super::failed(status, "TLS session handle is stale"))?;
+    if entry.owner != thread::current().id() {
+        return Err(super::failed(
+            Status::InvalidArgument,
+            "TLS session handle belongs to another runtime lane",
+        ));
+    }
+    Ok((handle, Arc::clone(&entry.session)))
 }
 
 unsafe fn bytes<'a>(slice: NetSlice, what: &str) -> Result<&'a [u8], i32> {
@@ -90,8 +104,12 @@ fn protocols(packed: &[u8]) -> Result<Vec<Vec<u8>>, i32> {
 }
 
 fn insert(value: Arc<transport::Session>, output: *mut u64) -> i32 {
+    let entry = SessionEntry {
+        owner: thread::current().id(),
+        session: value,
+    };
     let handle = match sessions().lock() {
-        Ok(mut arena) => match arena.insert(value) {
+        Ok(mut arena) => match arena.insert(entry) {
             Ok(handle) => handle,
             Err(status) => return super::failed(status, "TLS handle capacity is exhausted"),
         },
@@ -428,8 +446,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn failed_tls_creation_consumes_the_stream_handle() {
+    /// A connected loopback pair: listener, connect, client and server.
+    fn connected_pair() -> (u64, u64, u64, u64) {
         let host = b"127.0.0.1";
         let listen = super::super::net::NetListenOptions {
             host: NetSlice {
@@ -505,6 +523,73 @@ mod tests {
         assert_ne!(client, 0);
         assert_ne!(server, 0);
 
+        (listener, connect, client, server)
+    }
+
+    fn release_pair(listener: u64, connect: u64, server: u64) {
+        assert_eq!(
+            super::super::net::nuppNativeNetStreamRelease(server),
+            Status::Ok.code()
+        );
+        assert_eq!(
+            super::super::net::nuppNativeNetConnectRelease(connect),
+            Status::Ok.code()
+        );
+        assert_eq!(
+            super::super::net::nuppNativeNetListenerRelease(listener),
+            Status::Ok.code()
+        );
+    }
+
+    fn empty() -> NetSlice {
+        NetSlice {
+            data: ptr::null(),
+            length: 0,
+        }
+    }
+
+    #[test]
+    fn a_tls_session_answers_only_on_its_own_lane() {
+        let (listener, connect, client, server) = connected_pair();
+        let options = TlsOptions {
+            hostname: empty(),
+            certificate: empty(),
+            private_key: empty(),
+            authority: empty(),
+            protocols: empty(),
+            authority_present: 0,
+            server: 0,
+            verify: 0,
+        };
+        let mut tls = 0;
+        // SAFETY: the options and output are live for the call.
+        assert_eq!(
+            unsafe { nuppNativeTlsCreate(client, &options, &mut tls) },
+            Status::Ok.code()
+        );
+        let elsewhere = thread::spawn(move || {
+            let mut connected = -1;
+            (
+                boolean(tls, &mut connected, transport::Session::is_connected),
+                nuppNativeTlsRelease(tls),
+            )
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            elsewhere,
+            (
+                Status::InvalidArgument.code(),
+                Status::InvalidArgument.code()
+            )
+        );
+        assert_eq!(nuppNativeTlsRelease(tls), Status::Ok.code());
+        release_pair(listener, connect, server);
+    }
+
+    #[test]
+    fn failed_tls_creation_consumes_the_stream_handle() {
+        let (listener, connect, client, server) = connected_pair();
         let hostname = b"localhost";
         let options = TlsOptions {
             hostname: NetSlice {
