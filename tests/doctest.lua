@@ -2653,6 +2653,36 @@ function M.siteBuildRemovesFilesItNoLongerProduces()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The record of the last build's files is read back from the output directory, which
+-- may have been committed or unpacked from somewhere else. Only its entries strictly
+-- below the output are the site's to remove: not a sibling, not a directory whose name
+-- merely starts with the output's, and not one that climbs back out through `..`.
+function M.siteRemovalStaysInsideItsOutputDirectory()
+    local dir = tempProject({
+        ["src/math.nupp"] = SOURCE,
+        ["victim.txt"] = "SENTINEL\n",
+        ["site2/victim.txt"] = "SENTINEL\n",
+        ["site/keep/victim.txt"] = "SENTINEL\n",
+    })
+    local config = {include = {"src"}}
+    local record = assert(io.open(dir .. "/site/.nupp-doc-files.json", "wb"))
+    record:write(
+        '["' .. dir .. '/site/../victim.txt", "'
+            .. dir .. '/victim.txt", "'
+            .. dir .. '/site2/victim.txt", "'
+            .. dir .. '/site/keep/../../victim.txt", "'
+            .. dir .. '/site/./keep/..", 5, "site/../victim.txt"]\n'
+    )
+    record:close()
+    assert(doc.build(dir, config, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    for _, name in ipairs({"victim.txt", "site2/victim.txt", "site/keep/victim.txt"}) do
+        local handle = io.open(dir .. "/" .. name, "rb")
+        assert(handle, "a recorded path outside the site removed " .. name)
+        handle:close()
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.siteMatchesTheNuppdocPageModel()
     local dir = tempProject({
         [

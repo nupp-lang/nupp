@@ -735,7 +735,8 @@ Every page also emits a colocated `llms.txt` holding its Markdown. The output
 root adds an `llms.txt` index and `llms-full.txt`, the whole reference
 concatenated. A successful site build records the files it owns and removes any
 that the next successful build no longer produces, including pages whose route
-changed or whose source disappeared.
+changed or whose source disappeared. It removes only paths strictly inside the
+output directory, so a record that names anything outside it is ignored.
 
 ## Docs target
 

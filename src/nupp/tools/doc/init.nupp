@@ -1545,13 +1545,30 @@ local function removeReplaced(path: string): nil
     end
 end
 
+-- Whether a path recorded by an earlier build names something strictly below the
+-- output directory. The record is read back from that directory, which may have been
+-- committed or unpacked from elsewhere, so it is input rather than state: a prefix
+-- test alone passes `site/../victim`, because normalizing keeps `..`.
+local function insideOutput(output: string, path: string): boolean
+    if path:sub(1, #output + 1) ~= output .. "/" or path:find("%z") then
+        return false
+    end
+    for segment in (path:sub(#output + 2) .. "/"):gmatch("([^/]*)/") do
+        if segment == "" or segment == "." or segment == ".." then
+            return false
+        end
+    end
+
+    return true
+end
+
 -- A site directory is owned a file at a time rather than wholesale: copied public
 -- assets and generated routes share it, and another target may share its parent. Keep
 -- the last successful file set inside that directory, remove only its disappeared
 -- members, then replace the record. Empty route directories are removed on the way up.
 local function reconcileSiteFiles(output: string, written: {string}): boolean?, string?
     local statePath = join(output, ".nupp-doc-files.json")
-    local previous: {string} = {}
+    local previous: {any} = {}
     local encoded = readFile(statePath)
     if encoded then
         local ok, decoded = pcall(json.decode, encoded, json.NULL)
@@ -1563,9 +1580,9 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     for _, path in ipairs(written) do
         current[normalize(path)] = true
     end
-    for _, path in ipairs(previous) do
-        path = normalize(path)
-        if not current[path] and path:sub(1, #output + 1) == output .. "/" then
+    for _, entry in ipairs(previous) do
+        local path = type(entry) == "string" and normalize(entry) or ""
+        if not current[path] and insideOutput(output, path) then
             removeReplaced(path)
             -- A route directory that still holds something is the ordinary case, not a
             -- contended one, and so is every directory above it: stop at the first that
