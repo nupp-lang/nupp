@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -16,10 +16,20 @@ struct Pattern<'a> {
 /// matched need not be UTF-8 on Unix.
 pub fn expand(pattern: &str) -> io::Result<Vec<Vec<u8>>> {
     let pattern = parse(pattern)?;
-    let mut matches = BTreeSet::new();
+    let mut found = Found::default();
     let mut prefix = pattern.root.as_bytes().to_vec();
-    descend(&pattern, &mut prefix, 0, MAX_WALK_DEPTH, &mut matches)?;
-    Ok(matches.into_iter().collect())
+    descend(&pattern, &mut prefix, 0, MAX_WALK_DEPTH, &mut found)?;
+    Ok(found.matches.into_iter().collect())
+}
+
+/// What a walk has found, and which recursive wildcards it has already
+/// expanded from which directory. Two recursive wildcards reach the same
+/// directory at the same pattern position by many routes, and walking it
+/// again from there can find nothing new.
+#[derive(Default)]
+struct Found {
+    matches: BTreeSet<Vec<u8>>,
+    expanded: HashSet<(usize, Vec<u8>)>,
 }
 
 fn invalid(message: &'static str) -> io::Error {
@@ -34,6 +44,10 @@ fn parse(text: &str) -> io::Result<Pattern<'_>> {
             continue;
         }
         check_component(component)?;
+        // `**/**` names what `**` does.
+        if component == "**" && components.last() == Some(&"**") {
+            continue;
+        }
         components.push(component);
     }
     if components.is_empty() && root.is_empty() {
@@ -188,18 +202,18 @@ fn descend(
     prefix: &mut Vec<u8>,
     component: usize,
     depth: usize,
-    matches: &mut BTreeSet<Vec<u8>>,
+    found: &mut Found,
 ) -> io::Result<()> {
     if component == pattern.components.len() {
         if !prefix.is_empty() && fs::symlink_metadata(opening(prefix)?).is_ok() {
-            matches.insert(prefix.clone());
+            found.matches.insert(prefix.clone());
         }
         return Ok(());
     }
 
     let text = pattern.components[component];
     if text == "**" {
-        return recurse(pattern, prefix, component, depth, matches);
+        return recurse(pattern, prefix, component, depth, found);
     }
     if !has_wildcard(text) {
         // A run of literal components is one path, so it costs one frame
@@ -214,12 +228,12 @@ fn descend(
             push_component(prefix, pattern.components[next].as_bytes());
             next += 1;
         }
-        let answer = descend(pattern, prefix, next, depth, matches);
+        let answer = descend(pattern, prefix, next, depth, found);
         prefix.truncate(restore);
         return answer;
     }
 
-    let entries = match fs::read_dir(opening(prefix)?) {
+    let entries = match read_directory(prefix) {
         Ok(entries) => entries,
         // The existing provider treats an unreadable branch as having no
         // matches rather than failing an otherwise useful recursive query.
@@ -229,7 +243,7 @@ fn descend(
         let entry = entry?;
         let name = super::name_bytes(entry.file_name())?;
         if matches_name(text.as_bytes(), &name) {
-            with_child(pattern, prefix, &name, component + 1, depth, matches)?;
+            with_child(pattern, prefix, &name, component + 1, depth, found)?;
         }
     }
     Ok(())
@@ -240,7 +254,7 @@ fn recurse(
     prefix: &mut Vec<u8>,
     component: usize,
     depth: usize,
-    matches: &mut BTreeSet<Vec<u8>>,
+    found: &mut Found,
 ) -> io::Result<()> {
     if depth == 0 {
         return Err(io::Error::new(
@@ -249,8 +263,11 @@ fn recurse(
         ));
     }
 
-    descend(pattern, prefix, component + 1, depth, matches)?;
-    let entries = match fs::read_dir(opening(prefix)?) {
+    if !found.expanded.insert((component, prefix.clone())) {
+        return Ok(());
+    }
+    descend(pattern, prefix, component + 1, depth, found)?;
+    let entries = match read_directory(prefix) {
         Ok(entries) => entries,
         Err(_) => return Ok(()),
     };
@@ -262,7 +279,7 @@ fn recurse(
         let name = super::name_bytes(entry.file_name())?;
         let restore = prefix.len();
         push_component(prefix, &name);
-        recurse(pattern, prefix, component, depth - 1, matches)?;
+        recurse(pattern, prefix, component, depth - 1, found)?;
         prefix.truncate(restore);
     }
     Ok(())
@@ -274,13 +291,19 @@ fn with_child(
     name: &[u8],
     component: usize,
     depth: usize,
-    matches: &mut BTreeSet<Vec<u8>>,
+    found: &mut Found,
 ) -> io::Result<()> {
     let restore = prefix.len();
     push_component(prefix, name);
-    let answer = descend(pattern, prefix, component, depth, matches);
+    let answer = descend(pattern, prefix, component, depth, found);
     prefix.truncate(restore);
     answer
+}
+
+fn read_directory(prefix: &[u8]) -> io::Result<fs::ReadDir> {
+    #[cfg(test)]
+    tests::READS.with(|reads| reads.set(reads.get() + 1));
+    fs::read_dir(opening(prefix)?)
 }
 
 fn push_component(prefix: &mut Vec<u8>, name: &[u8]) {
@@ -301,7 +324,35 @@ fn opening(prefix: &[u8]) -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::fs;
+
+    thread_local! {
+        pub(super) static READS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[test]
+    fn repeated_recursive_wildcards_read_each_directory_a_bounded_number_of_times() {
+        let root = root("repeated");
+        let mut deepest = root.clone();
+        for level in 0..12 {
+            deepest.push(format!("d{level}"));
+        }
+        fs::create_dir_all(&deepest).unwrap();
+        fs::write(deepest.join("x"), b"x").unwrap();
+        let single = format!("{}/**/x", root.display());
+        let repeated = format!("{}/{}x", root.display(), "**/".repeat(8));
+        let spread = format!("{}/**/d3/**/d7/**/x", root.display());
+        let expected = expand(&single).unwrap();
+        assert_eq!(expected.len(), 1);
+        for pattern in [repeated, spread] {
+            READS.with(|reads| reads.set(0));
+            assert_eq!(expand(&pattern).unwrap(), expected);
+            let reads = READS.with(Cell::get);
+            assert!(reads < 200, "{pattern} read directories {reads} times");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn root(name: &str) -> std::path::PathBuf {
         let mut random = [0u8; 8];
