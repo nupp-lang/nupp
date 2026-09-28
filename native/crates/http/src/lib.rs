@@ -34,6 +34,47 @@ use tokio_util::io::ReaderStream;
 
 use nupp_native_abi::set_last_error as set_error;
 
+/// What kind of refusal the last failed call on this thread made, beside the
+/// text in the last-error slot, so a caller never sorts failures by message.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Failure {
+    InvalidArgument,
+    Capacity,
+    Closed,
+    Internal,
+}
+
+thread_local! {
+    static LAST_FAILURE: std::cell::Cell<Failure> = const { std::cell::Cell::new(Failure::Internal) };
+}
+
+fn refuse(kind: Failure, message: impl std::fmt::Display) {
+    LAST_FAILURE.with(|last| last.set(kind));
+    set_error(message);
+}
+
+/// The kind of the last refusal `nuppHttpClientCreate` or `nuppHttpClientSend`
+/// made on this thread.
+pub fn last_failure() -> Failure {
+    LAST_FAILURE.with(std::cell::Cell::get)
+}
+
+/// An error with every cause beneath it. Reqwest's own text for a transport
+/// failure names only the URL; what went wrong lives in its sources.
+fn describe(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let cause_text = cause.to_string();
+        if !text.contains(&cause_text) {
+            text.push_str(": ");
+            text.push_str(&cause_text);
+        }
+        source = cause.source();
+    }
+    text
+}
+
 const MAX_HEADER_BYTES: usize = 256 * 1024;
 const RESPONSE_WINDOW_BYTES: usize = 1024 * 1024;
 const UPLOAD_WINDOW_BYTES: usize = 1024 * 1024;
@@ -528,10 +569,14 @@ fn proxy_with_options(
     proxy.no_proxy(no_proxy)
 }
 
-unsafe fn build_client(options: &NuppHttpClientOptions, insecure: bool) -> Result<Client, String> {
-    unsafe { configure_client(Client::builder(), options, insecure) }?
+unsafe fn build_client(
+    options: &NuppHttpClientOptions,
+    insecure: bool,
+) -> Result<Client, (Failure, String)> {
+    unsafe { configure_client(Client::builder(), options, insecure) }
+        .map_err(|error| (Failure::InvalidArgument, error))?
         .build()
-        .map_err(|error| error.to_string())
+        .map_err(|error| (Failure::Internal, describe(&error)))
 }
 
 unsafe fn configure_client(
@@ -573,22 +618,22 @@ unsafe fn configure_client(
                 // what lets the caller's exceptions apply to them.
                 builder = builder.no_proxy();
                 if let Some(url) = environment_proxy(["HTTPS_PROXY", "https_proxy"]) {
-                    let configured = Proxy::https(&url).map_err(|error| error.to_string())?;
+                    let configured = Proxy::https(&url).map_err(|error| describe(&error))?;
                     builder = builder.proxy(proxy_with_options(configured, "", no_proxy.clone()));
                 }
                 if let Some(url) = environment_proxy(["HTTP_PROXY", "http_proxy"]) {
-                    let configured = Proxy::http(&url).map_err(|error| error.to_string())?;
+                    let configured = Proxy::http(&url).map_err(|error| describe(&error))?;
                     builder = builder.proxy(proxy_with_options(configured, "", no_proxy.clone()));
                 }
                 if let Some(url) = environment_proxy(["ALL_PROXY", "all_proxy"]) {
-                    let configured = Proxy::all(&url).map_err(|error| error.to_string())?;
+                    let configured = Proxy::all(&url).map_err(|error| describe(&error))?;
                     builder = builder.proxy(proxy_with_options(configured, "", no_proxy));
                 }
             }
         }
         1 => builder = builder.no_proxy(),
         2 => {
-            let configured = Proxy::all(&proxy).map_err(|error| error.to_string())?;
+            let configured = Proxy::all(&proxy).map_err(|error| describe(&error))?;
             builder = builder.proxy(proxy_with_options(configured, &credentials, no_proxy));
         }
         _ => return Err("proxy mode is not valid".to_owned()),
@@ -912,7 +957,7 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
     let mut response = match builder.send().await {
         Ok(response) => response,
         Err(error) => {
-            transfer.fail_before_headers(error);
+            transfer.fail_before_headers(describe(&error));
             return;
         }
     };
@@ -978,7 +1023,7 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
             Ok(Some(chunk)) => chunk,
             Ok(None) => break,
             Err(error) => {
-                transfer.fail_body(error);
+                transfer.fail_body(describe(&error));
                 return;
             }
         };
@@ -1096,7 +1141,7 @@ fn with_transfer<T>(
 
 pub unsafe fn nuppHttpClientCreate(options: *const NuppHttpClientOptions) -> *mut NuppHttpClient {
     if options.is_null() {
-        set_error("HTTP client options are null");
+        refuse(Failure::InvalidArgument, "HTTP client options are null");
         return ptr::null_mut();
     }
     let options = unsafe { &*options };
@@ -1105,26 +1150,29 @@ pub unsafe fn nuppHttpClientCreate(options: *const NuppHttpClientOptions) -> *mu
         || options.max_connections == 0
         || options.max_connections_per_host == 0
     {
-        set_error("HTTP connection timeouts and limits must be positive");
+        refuse(
+            Failure::InvalidArgument,
+            "HTTP connection timeouts and limits must be positive",
+        );
         return ptr::null_mut();
     }
     install_tls_provider();
     if let Err(error) = runtime() {
-        set_error(error);
+        refuse(Failure::Internal, error);
         return ptr::null_mut();
     }
     let secure = match unsafe { build_client(options, false) } {
         Ok(client) => client,
-        Err(error) => {
-            set_error(error);
+        Err((kind, error)) => {
+            refuse(kind, error);
             return ptr::null_mut();
         }
     };
     let insecure = if options.has_insecure_hosts != 0 {
         match unsafe { build_client(options, true) } {
             Ok(client) => Some(client),
-            Err(error) => {
-                set_error(error);
+            Err((kind, error)) => {
+                refuse(kind, error);
                 return ptr::null_mut();
             }
         }
@@ -1159,12 +1207,12 @@ pub unsafe fn nuppHttpClientSend(
     request: *const NuppHttpRequest,
 ) -> *const Transfer {
     if client.is_null() || request.is_null() {
-        set_error("HTTP client or request is null");
+        refuse(Failure::InvalidArgument, "HTTP client or request is null");
         return ptr::null();
     }
     let client = unsafe { &*client };
     if client.inner.closed.load(Ordering::Acquire) {
-        set_error("the HTTP client is closed");
+        refuse(Failure::Closed, "the HTTP client is closed");
         return ptr::null();
     }
     let admitted =
@@ -1175,7 +1223,10 @@ pub unsafe fn nuppHttpClientSend(
                 (active < client.inner.max_pending).then_some(active + 1)
             });
     if admitted.is_err() {
-        set_error("the HTTP client has reached maxPendingRequests");
+        refuse(
+            Failure::Capacity,
+            "the HTTP client has reached maxPendingRequests",
+        );
         return ptr::null();
     }
     let id = client.inner.next_id.fetch_add(1, Ordering::Relaxed);
@@ -1187,7 +1238,7 @@ pub unsafe fn nuppHttpClientSend(
             // retires it too, and retiring is idempotent where a bare
             // decrement is not.
             client.inner.retire(&transfer);
-            set_error(error);
+            refuse(Failure::InvalidArgument, error);
             return ptr::null();
         }
     };
@@ -1202,7 +1253,7 @@ pub unsafe fn nuppHttpClientSend(
         Ok(runtime) => runtime.spawn(run_transfer(task_transfer, owned)),
         Err(error) => {
             client.inner.retire(&transfer);
-            set_error(error);
+            refuse(Failure::Internal, error);
             return ptr::null();
         }
     };
@@ -2221,6 +2272,62 @@ mod tests {
         options.max_pending_requests = 0;
         // SAFETY: the options are live for the call.
         assert!(unsafe { nuppHttpClientCreate(&options) }.is_null());
+    }
+
+    #[test]
+    fn a_transport_failure_names_its_cause() {
+        // Nothing listens on the discard port, so the connection is refused.
+        let options = options();
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = nuppHttpClientCreate(&options);
+            let descriptor = request(b"http://127.0.0.1:9/");
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            let mut head = NuppHttpResponseHead {
+                status: 0,
+                version: 0,
+                url: ptr::null(),
+                url_length: 0,
+                headers: ptr::null(),
+                headers_length: 0,
+            };
+            while nuppHttpTransferPollHeaders(transfer, &mut head) == HEAD_PENDING {
+                wait(client);
+            }
+            let reason = match &(*transfer).state.lock().unwrap().head {
+                Head::Failed(reason) => reason.to_string_lossy().to_lowercase(),
+                _ => String::new(),
+            };
+            assert!(reason.contains("refused"), "{reason}");
+            nuppHttpTransferDestroy(transfer);
+            nuppHttpClientDestroy(client);
+        }
+    }
+
+    #[test]
+    fn refusals_carry_their_kind_as_well_as_their_text() {
+        let mut options = options();
+        options.max_connections = 0;
+        // SAFETY: the options are live for the call.
+        assert!(unsafe { nuppHttpClientCreate(&options) }.is_null());
+        assert_eq!(last_failure(), Failure::InvalidArgument);
+        options.max_connections = 4;
+        options.max_pending_requests = 1;
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = nuppHttpClientCreate(&options);
+            let descriptor = request(b"http://127.0.0.1:9/");
+            let first = nuppHttpClientSend(client, &descriptor);
+            assert!(!first.is_null());
+            assert!(nuppHttpClientSend(client, &descriptor).is_null());
+            assert_eq!(last_failure(), Failure::Capacity);
+            let refused = request(b"ftp://127.0.0.1/");
+            nuppHttpTransferCancel(first);
+            nuppHttpTransferDestroy(first);
+            assert!(nuppHttpClientSend(client, &refused).is_null());
+            assert_eq!(last_failure(), Failure::InvalidArgument);
+            nuppHttpClientDestroy(client);
+        }
     }
 
     #[test]

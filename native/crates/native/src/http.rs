@@ -3,10 +3,9 @@
 //! The transport keeps `Arc` pointers inside Rust. This facade gives LuaJIT only
 //! generational integers and copies every response byte into caller-owned storage.
 
-use nupp_native_abi::{Arena, Handle, Status, last_error_ptr, set_last_error};
+use nupp_native_abi::{Arena, Handle, Status, set_last_error};
 use nupp_native_http as transport;
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -140,25 +139,14 @@ fn failed(status: Status, message: &str) -> i32 {
     status.code()
 }
 
-fn create_failure_status() -> Status {
-    // SAFETY: the ABI crate always retains a NUL-terminated thread-local error.
-    let message = unsafe { CStr::from_ptr(last_error_ptr()) }.to_bytes();
-    if message == b"HTTP connection timeouts and limits must be positive" {
-        Status::InvalidArgument
-    } else {
-        Status::Internal
-    }
-}
-
-fn send_failure_status() -> Status {
-    // SAFETY: the ABI crate always retains a NUL-terminated thread-local error.
-    let message = unsafe { CStr::from_ptr(last_error_ptr()) }.to_bytes();
-    if message == b"the HTTP client has reached maxPendingRequests" {
-        Status::Capacity
-    } else if message == b"the HTTP client is closed" {
-        Status::Closed
-    } else {
-        Status::InvalidArgument
+/// The status for the refusal the transport just made on this thread, from
+/// the kind it recorded beside the message.
+fn refusal_status() -> Status {
+    match transport::last_failure() {
+        transport::Failure::InvalidArgument => Status::InvalidArgument,
+        transport::Failure::Capacity => Status::Capacity,
+        transport::Failure::Closed => Status::Closed,
+        transport::Failure::Internal => Status::Internal,
     }
 }
 
@@ -243,7 +231,7 @@ pub unsafe extern "C" fn nuppNativeHttpClientCreate(
     // SAFETY: pointers were validated above and the transport copies options.
     let pointer = unsafe { transport::nuppHttpClientCreate(options) };
     if pointer.is_null() {
-        return create_failure_status().code();
+        return refusal_status().code();
     }
     let entry = Arc::new(ClientEntry {
         address: pointer as usize,
@@ -299,7 +287,7 @@ pub unsafe extern "C" fn nuppNativeHttpClientSend(
     // SAFETY: descriptor storage is valid for this call and the transport copies it.
     let pointer = unsafe { transport::nuppHttpClientSend(owner.pointer(), request) };
     if pointer.is_null() {
-        return send_failure_status().code();
+        return refusal_status().code();
     }
     let entry = Arc::new(TransferEntry {
         address: pointer as usize,
