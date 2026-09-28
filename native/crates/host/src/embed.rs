@@ -975,7 +975,8 @@ pub unsafe extern "C" fn nupp_runtime_shutdown(
             }
             // SAFETY: this is the only call running in the state, so no other
             // reference to the runtime exists for the length of this borrow.
-            (&mut (*entry.runtime).inner)
+            (*entry.runtime)
+                .inner
                 .shutdown()
                 .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))
         })
@@ -2083,8 +2084,8 @@ return {
                 nupp_value_release(runtime, &mut results[2], ptr::null_mut()),
                 STATUS_INVALID_ARGUMENT
             );
-            for index in 0..2 {
-                nupp_value_release(runtime, &mut results[index], ptr::null_mut());
+            for result in &mut results[..2] {
+                nupp_value_release(runtime, result, ptr::null_mut());
             }
 
             // A handle is not a component, and a released component is gone.
