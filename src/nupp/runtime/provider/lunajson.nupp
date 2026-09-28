@@ -222,8 +222,29 @@ function json.arrayOf(shape: any?): any
     return {[ARRAY_SHAPE] = shape == nil and true or shape,}
 end
 
+-- The vendored decoder and encoder raise with their own chunk and line in front
+-- of the reason. A caller is told what is wrong with its value or text, in the
+-- form the native decoder uses, rather than where in the vendored code it was
+-- noticed.
+local function vendorProblem(problem: any): string
+    local text = tostring(problem)
+    text = text:gsub("^%a:[^\n:]-:%d+: ", "", 1)
+    text = text:gsub("^[^\n:]-:%d+: ", "", 1)
+    local at, reason = text:match("^parse error at (%d+): (.*)$")
+    if at ~= nil then
+        return "invalid JSON at byte " .. at .. ": " .. reason
+    end
+
+    return text
+end
+
 function json.encode(value: any, nullValue: any?): string
-    return core.encode(container(value, nullValue, {}, 0), json.NULL)
+    local ok, encoded = pcall(core.encode, container(value, nullValue, {}, 0), json.NULL)
+    if not ok then
+        error(vendorProblem(encoded), 0)
+    end
+
+    return encoded
 end
 
 json.serialize = json.encode
@@ -232,7 +253,12 @@ function json.decode(text: string, nullValue: any?): any
     if not validUtf8(text) then
         error("invalid UTF-8 in JSON", 0)
     end
-    return mark(core.decode(text, nil, nullValue, true), nullValue)
+    local ok, value = pcall(core.decode, text, nil, nullValue, true)
+    if not ok then
+        error(vendorProblem(value), 0)
+    end
+
+    return mark(value, nullValue)
 end
 
 function json.isArray(value: any): boolean

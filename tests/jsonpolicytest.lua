@@ -117,4 +117,23 @@ function M.providersShareTheDecodeNestingBoundary()
     end
 end
 
+-- A decode failure describes the caller's text, not where in a decoder it was
+-- noticed: no chunk-and-line prefix from the vendored parser, and one message
+-- form on both providers.
+function M.decodeProblemsNameTheTextNotTheDecoder()
+    local providers = {require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}
+    local malformed = {"1.", "[1,]", "{\"a\" 1}", "[] []", "tru", string.rep("[", 1025) .. string.rep("]", 1025)}
+    for _, provider in ipairs(providers) do
+        for _, text in ipairs(malformed) do
+            local ok, problem = pcall(provider.decode, text)
+            assert(not ok, ("%q was accepted"):format(text))
+            problem = tostring(problem)
+            assert(not problem:find("%.lua:%d") and not problem:find("%.nupp:%d"), problem)
+            assert(problem:find("^invalid JSON at byte %d+: "), problem)
+        end
+    end
+    local ok, problem = pcall(require("nupp.runtime.provider.lunajson").encode, math.huge)
+    assert(not ok and not tostring(problem):find("%.lua:%d"), tostring(problem))
+end
+
 return M

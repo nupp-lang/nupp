@@ -1500,6 +1500,17 @@ local function leaveWriteContainer(value: any, state: any): nil
     end
 end
 
+-- A decode problem is about the document. The traversal raises with a level
+-- that names serde's own protected call, and the JSON decoders can prefix a
+-- chunk and line, so that position is dropped from the answer.
+local function withoutPosition(problem: any): string
+    local text = tostring(problem)
+    text = text:gsub("^%a:[^\n:]-:%d+: ", "", 1)
+    text = text:gsub("^[^\n:]-:%d+: ", "", 1)
+
+    return text
+end
+
 local record PreparedImpl<T> is Prepared<T>
     @private
     valueType: T?
@@ -1526,7 +1537,7 @@ local record PreparedImpl<T> is Prepared<T>
         local state = preparedStates[self]
         local ok, value = pcall(state.fallbackDecode, text)
         if not ok then
-            return nil, tostring(value)
+            return nil, withoutPosition(value)
         end
 
         return value as T, nil
@@ -1536,7 +1547,7 @@ local record PreparedImpl<T> is Prepared<T>
         local state = preparedStates[self]
         local ok, value = pcall(state.fallbackDecodeBuffer, input)
         if not ok then
-            return nil, tostring(value)
+            return nil, withoutPosition(value)
         end
 
         return value as T, nil

@@ -160,6 +160,34 @@ return {
     )
 end
 
+-- The problem a prepared decode answers is about the document. It used to
+-- carry the chunk and line inside serde, or inside the vendored parser, where
+-- the failure was raised.
+function M.preparedDecodeProblemsCarryNoSourcePosition()
+    local result = run(
+        [=[
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string?
+end
+
+local prepared = nupp.serde.json():prepare(nupp.serde.of(User))
+local problems = {}
+for _, text in ipairs({[[{"id":1,"extra":2}]], [[{"name":"x"}]], [[{"id":01}]], [[{"id":1} x]]}) do
+    local value, problem = prepared:decode(text)
+    problems[#problems + 1] = value == nil and tostring(problem) or "accepted " .. text
+end
+return problems
+]=]
+    )
+    assert(#result == 4)
+    for _, problem in ipairs(result) do
+        assert(not problem:find("^accepted"), problem)
+        assert(not problem:find("%.lua:%d") and not problem:find("%.nupp:%d"), problem)
+    end
+end
+
 function M.profilesRenameKeysAndIgnoreUnknownValues()
     local result = run(
         [=[
