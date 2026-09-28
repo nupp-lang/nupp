@@ -2549,8 +2549,11 @@ local INLINE_MAX_DUPLICATED_OPS = 1
 --
 -- What makes the substitution sound is checked rather than assumed: exact arity,
 -- arguments that are names or literals so duplicating or dropping one cannot be
--- observed, a binding nothing reassigns, no recursion, no generics, and no free name
--- of the body either shadowed where the call stands or declared twice at module level.
+-- observed, a binding nothing reassigns, no recursion, no generics, a callee that is
+-- the helper's own binding, and every free name of the body bound at the call to what
+-- it was bound to in the helper. Those last two are decided by the definitions the
+-- checker attached rather than by spelling, because one spelling can name a loop
+-- variable, a parameter, a later local or a global depending on where it stands.
 
 -- The field-name tokens in a subtree. `t.x`, `t:m()`, and `{x = 1}` each hold a name
 -- token that refers to nothing, so a parameter must not be read out of one.
@@ -2589,12 +2592,13 @@ local function referencedNames(node, found, fields)
 end
 
 -- One node copied, with each parameter read replaced by a copy of its argument.
+-- `subs` holds the arguments and `params` the parameters' definitions, by name.
 --
 -- Copied tokens take the call's position. The tokens came from the helper, but the
 -- code is being generated where the call was written, and this pass may not move a
 -- line to somewhere it was not.
 local spliceCopy
-spliceCopy = function(node, subs, at)
+spliceCopy = function(node, subs, at, params)
     if isToken(node) then
         local copied = {}
         for key, value in pairs(node) do
@@ -2607,12 +2611,16 @@ spliceCopy = function(node, subs, at)
         return copied
     end
     if node.kind == "name" and node.token and subs[node.token.text] then
-        return spliceCopy(subs[node.token.text], {}, at)
+        -- Only a read of the parameter itself: a helper inlined into this body
+        -- earlier may have brought a free name spelled like a parameter.
+        if node.token.definition == params[node.token.text] then
+            return spliceCopy(subs[node.token.text], {}, at, {})
+        end
     end
 
     local copied, mapped = {}, {}
     for index, child in ipairs(node) do
-        local fresh = spliceCopy(child, subs, at)
+        local fresh = spliceCopy(child, subs, at, params)
         copied[index] = fresh
         mapped[child] = fresh
     end
@@ -2630,14 +2638,14 @@ spliceCopy = function(node, subs, at)
             if mapped[value] then
                 copied[key] = mapped[value]
             elseif type(value) == "table" and not isToken(value) and (value as any).kind ~= nil then
-                copied[key] = spliceCopy(value, subs, at)
+                copied[key] = spliceCopy(value, subs, at, params)
             elseif type(value) == "table" and not isToken(value) and #value > 0 then
                 local list = {}
                 for index, entry in ipairs(value) do
                     if mapped[entry] then
                         list[index] = mapped[entry]
                     elseif type(entry) == "table" then
-                        list[index] = spliceCopy(entry as any, subs, at)
+                        list[index] = spliceCopy(entry as any, subs, at, params)
                     else
                         list[index] = entry
                     end
@@ -2844,12 +2852,39 @@ local function hasInlineScope(node)
     return false
 end
 
+-- Whether a body can tell which frame it runs in. `error(message, level)` blames a
+-- frame counted from its own, and `debug`, `getfenv` and `setfenv` read frames by
+-- level, so moving the body into its caller changes what each of them answers.
+local function observesFrames(node, free): boolean
+    if free.debug or free.getfenv or free.setfenv then
+        return true
+    end
+    local found = false
+
+    local function walk(at)
+        if found or not at or isToken(at) then
+            return
+        end
+        if at.kind == "call" and nameText(at.obj) == "error" and at.args and #(at.args.exprs or {}) > 1 then
+            found = true
+            return
+        end
+        for _, child in ipairs(at) do
+            walk(child)
+        end
+    end
+
+    walk(node)
+
+    return found
+end
+
 -- The helpers a chunk declares that this pass may inline, by name.
 local function inlinableHelpers(root)
     local found = {}
     for _, block in ipairs(root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "localFuncStmt" and stat.name and stat.body then
+            if stat.kind == "localFuncStmt" and stat.name and stat.name.definition and stat.body then
                 local body = stat.body
                 local stats = body.body and body.body.stats or {}
                 local returned = stats[1]
@@ -2869,13 +2904,15 @@ local function inlinableHelpers(root)
                 end
                 if single and not body.varargParam and not body.generics and not hasInlineScope(expr) then
                     local params: {string} = {}
+                    local definitions = {}
                     local ok = true
                     for _, param in ipairs(body.params or {}) do
                         local name = param.name and param.name.text or nil
-                        if not name or param.modeTok or param.vararg or param.constTok then
+                        if not name or param.modeTok or param.vararg or param.constTok or not param.name.definition then
                             ok = false
                         else
                             params[#params + 1] = name
+                            definitions[name] = param.name.definition
                         end
                     end
                     local expr = returned.exprs[1]
@@ -2884,15 +2921,28 @@ local function inlinableHelpers(root)
                         free[name] = nil
                     end
                     -- A helper naming itself is recursive, and substituting one into
-                    -- its own call site does not terminate.
-                    if ok and expr and not free[stat.name.text] then
+                    -- its own call site does not terminate. `self` is bound without a
+                    -- declaration by every method, so no definition can vouch for it.
+                    if ok
+                        and expr
+                        and not free[stat.name.text]
+                        and not free.self
+                        and not observesFrames(expr, free)
+                    then
                         local named = {}
                         for _, name in ipairs(params) do
                             named[name] = true
                         end
                         found[
                             stat.name.text
-                        ] = {params = params, expr = expr, free = free, prefix = prefixParameters(expr, named, {}),}
+                        ] = {
+                            definition = stat.name.definition,
+                            params = params,
+                            definitions = definitions,
+                            expr = expr,
+                            free = free,
+                            prefix = prefixParameters(expr, named, {}),
+                        }
                     end
                 end
             end
@@ -2950,9 +3000,176 @@ local function dropRebound(root, candidates)
     end
 end
 
--- The pass. One walk carrying the names bound in scopes inside the enclosing top-level
--- statement, which is what says whether a free name of a helper body would mean
--- something else where the call stands.
+-- The nodes a declaration's binding cannot outlive. A local is visible to the end of
+-- its block, a parameter within its function, a control variable within its loop,
+-- and a `repeat` body's local in the `until` after it too.
+local SCOPE_NODES = {block = true, funcbody = true, shortfn = true, fornumStmt = true, forinStmt = true,}
+
+-- Every declaration in the chunk, by name: its definition, where it is declared, and
+-- the source extent that holds every place it can be visible. The extent is the
+-- innermost scope-owning node around the declaration, which may be wider than the
+-- binding's real scope -- a `with` or a `switch` case binds within its enclosing block
+-- -- and never narrower, so a call outside it certainly does not see the binding.
+local function declarationScopes(root)
+    local scopes = {}
+    local stack = {}
+
+    local function visit(node, parent)
+        if isToken(node) then
+            local definition = node.kind == "name" and node.definition or nil
+            if definition and definition.token == node then
+                local owner = stack[#stack]
+                local first = owner and firstToken(owner) or nil
+                local last = owner and cst.lastToken(owner) or nil
+                local list = scopes[node.text]
+                if not list then
+                    list = {}
+                    scopes[node.text] = list
+                end
+                list[
+                    #list + 1
+                ] = {
+                    definition = definition,
+                    at = node.offset or 0,
+                    from = first and first.offset or 0,
+                    to = last and last.offset and (last.offset + #(last.text or "")) or math.huge,
+                }
+            end
+            return
+        end
+        local owner = SCOPE_NODES[node.kind] and node or nil
+        if owner and node.kind == "block" and parent and parent.kind == "repeatStmt" then
+            owner = parent
+        end
+        if owner then
+            stack[#stack + 1] = owner
+        end
+        for _, child in ipairs(node) do
+            visit(child, node)
+        end
+        if owner then
+            stack[#stack] = nil
+        end
+    end
+
+    visit(root, nil)
+
+    return scopes
+end
+
+-- The names a helper's body reads that are not its parameters, each with the
+-- definition it resolved to. Worked out again at every call, because a helper inlined
+-- into this body earlier brings its own free names with it.
+local function freeReads(helper)
+    local fields = fieldNameTokens(helper.expr, {})
+    local reads = {}
+
+    local function walk(node)
+        if not node or node.kind == "annotationApply" then
+            return
+        end
+        if isToken(node) then
+            if node.kind == "name" and not fields[node] then
+                local param = helper.definitions[node.text]
+                if param == nil or node.definition ~= param then
+                    reads[#reads + 1] = node
+                end
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(helper.expr)
+
+    return reads
+end
+
+-- Whether a name read that resolved to `definition` in the helper resolves to the same
+-- binding at `offset`. It does not when another declaration of that name is visible
+-- there: declared before the call, in an extent that holds it. A name the chunk
+-- declares nowhere else is a global, or an import, in both places.
+local function sameBindingAt(scopes, text, definition, offset): boolean
+    for _, declared in ipairs(scopes[text] or {}) do
+        if declared.definition ~= definition
+            and declared.at < offset
+            and declared.from <= offset
+            and offset < declared.to
+        then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- Whether a body makes any call, which is how a variable read after the call can
+-- have been written since it.
+local function makesCall(node): boolean
+    if not node or isToken(node) then
+        return false
+    end
+    local kind = node.kind
+    if kind == "call" or kind == "methodCall" or kind == "safeCall" or kind == "newExpr" then
+        return true
+    end
+    for _, child in ipairs(node) do
+        if makesCall(child) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Whether any name an argument reads is a binding the chunk writes somewhere.
+local function readsWrittenBinding(node, writes): boolean
+    if not node or isToken(node) then
+        return false
+    end
+    if node.kind == "name" and node.token then
+        return writes[bindingKey(node.token)] == true or writes[node.token.text] == true
+    end
+    for _, child in ipairs(node) do
+        if readsWrittenBinding(child, writes) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Whether every name an argument computes with is a number. A computed argument moves
+-- into the body, where it may run later or not at all; arithmetic over numbers cannot
+-- raise or dispatch a metamethod, so neither is observable.
+local function numericOperands(node): boolean
+    if not node or isToken(node) then
+        return false
+    end
+    local kind = node.kind
+    if kind == "number" then
+        return true
+    elseif kind == "name" and node.token then
+        local t = node.token.inferredType
+        if t and t.tag == "literal" then
+            t = t.base
+        end
+        return t ~= nil and (t.tag == "number" or t.tag == "integer" or t.tag == "float")
+    elseif kind == "paren" or kind == "castExpr" then
+        return numericOperands(node.expr)
+    elseif kind == "unop" then
+        return numericOperands(node.operand)
+    elseif kind == "binop" then
+        return numericOperands(node.lhs) and numericOperands(node.rhs)
+    end
+
+    return false
+end
+
+-- The pass. One walk over the chunk, rewriting each call whose callee is a candidate's
+-- binding and whose free names mean the same thing where the call stands.
 local function inlineReturnHelperWalk(result, remarks)
     local root = result.root
     local candidates = inlinableHelpers(root)
@@ -2964,27 +3181,22 @@ local function inlineReturnHelperWalk(result, remarks)
     if not next(candidates) then
         return false
     end
+    local byDefinition = {}
+    for name, helper in pairs(candidates) do
+        helper.name = name
+        byDefinition[helper.definition] = helper
+    end
+    local scopes = declarationScopes(root)
+    local writes = {}
+    writtenBindings(root, writes)
 
     local changed = false
-    local shadowed = {}
     local callerGrowth = 0
     -- A call in statement position is a statement, and a parenthesized expression is
     -- not one. `f(x)` alone on a line has nowhere to become `(body)`, so it stays a
     -- call however inlinable the helper is.
     local statementCalls = {}
     local walkNode
-
-    local function shadow(name)
-        if name then
-            shadowed[name] = (shadowed[name] or 0) + 1
-        end
-    end
-
-    local function unshadow(name)
-        if name and shadowed[name] then
-            shadowed[name] = shadowed[name] > 1 and shadowed[name] - 1 or nil
-        end
-    end
 
     -- Whether this call may become its helper's expression.
     local function helperFor(node)
@@ -3005,13 +3217,19 @@ local function inlineReturnHelperWalk(result, remarks)
         then
             return nil
         end
-        local name = nameText(node.obj)
-        local helper = name and candidates[name] or nil
-        if not helper or shadowed[name] then
+        local callee = node.obj
+        local token = not isToken(callee) and callee.kind == "name" and callee.token or nil
+        local helper = token and token.definition and byDefinition[token.definition] or nil
+        if not helper then
             return nil
         end
-        for free in pairs(helper.free) do
-            if shadowed[free] then
+        local at = firstToken(node)
+        local offset = at and at.offset
+        if not offset then
+            return nil
+        end
+        for _, read in ipairs(freeReads(helper)) do
+            if not sameBindingAt(scopes, read.text, read.definition, offset) then
                 return nil
             end
         end
@@ -3019,6 +3237,9 @@ local function inlineReturnHelperWalk(result, remarks)
         if not args or #args ~= #helper.params or node.args.table or node.args.str or node.args.typeArg then
             return nil
         end
+        -- An argument is read where its parameter stands, after anything the body
+        -- calls first. A variable the chunk writes may have changed by then.
+        local calls = makesCall(helper.expr)
         local subs = {}
         for position, param in ipairs(helper.params) do
             local argument = args[position]
@@ -3028,10 +3249,17 @@ local function inlineReturnHelperWalk(result, remarks)
             if helper.prefix[param] and argument.kind ~= "name" then
                 return nil
             end
+            if calls and readsWrittenBinding(argument, writes) then
+                return nil
+            end
+            local kind = argument.kind
+            if (kind == "binop" or kind == "unop") and not numericOperands(argument) then
+                return nil
+            end
             subs[param] = argument
         end
 
-        return helper, subs, name
+        return helper, subs, helper.name
     end
 
     -- The call node becomes the parenthesized expression in place, so every array
@@ -3045,7 +3273,7 @@ local function inlineReturnHelperWalk(result, remarks)
         if not at then
             return false
         end
-        local spliced = spliceCopy(helper.expr, subs, at)
+        local spliced = spliceCopy(helper.expr, subs, at, helper.definitions)
         local inferred, resolved = node.inferredType, node.resolvedType
         for key in pairs(node) do
             node[key] = nil
@@ -3100,38 +3328,10 @@ local function inlineReturnHelperWalk(result, remarks)
         elseif kind == "funcbody" or kind == "shortfn" then
             local enclosingGrowth = callerGrowth
             callerGrowth = 0
-            local names: {string} = {}
-            for _, param in ipairs(node.params or {}) do
-                local text = param.name and param.name.text or nil
-                names[#names + 1] = text
-                shadow(text)
-            end
             for _, child in ipairs(node) do
                 walkNode(child)
             end
-            for _, text in ipairs(names) do
-                unshadow(text)
-            end
             callerGrowth = enclosingGrowth
-
-            return
-        elseif kind == "block" then
-            local introduced: {string} = {}
-            for _, stat in ipairs(node.stats or {}) do
-                walkNode(stat)
-                if stat.kind == "localStmt" then
-                    for _, declared in ipairs(stat.names or {}) do
-                        introduced[#introduced + 1] = declared.text
-                        shadow(declared.text)
-                    end
-                elseif stat.kind == "localFuncStmt" and stat.name then
-                    introduced[#introduced + 1] = stat.name.text
-                    shadow(stat.name.text)
-                end
-            end
-            for _, text in ipairs(introduced) do
-                unshadow(text)
-            end
 
             return
         end
@@ -3140,8 +3340,6 @@ local function inlineReturnHelperWalk(result, remarks)
         end
     end
 
-    -- The chunk's own statements. A helper is declared at this level, so its name
-    -- being bound here is what makes the call resolvable rather than what stops it.
     for _, block in ipairs(root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
             walkNode(stat)

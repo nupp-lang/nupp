@@ -149,7 +149,6 @@ local M = {}
 function M.generatedProgramsAgreeAcrossLevels()
     local programs = require("optimizeprograms")
     local avoid = {
-        ["FRONTEND-04"] = true,
         ["FRONTEND-07"] = true,
         ["FRONTEND-22"] = true,
     }
@@ -2206,6 +2205,73 @@ function M.concatBufferDeclinesALoopAGotoLeaves()
         .. "    s = s .. i\n    ::next::\nend\nprint(s)"
     assertEq(assertAgrees(inner, "test.nupp"), "13")
     assertEq(#remarksOf(inner, "test.nupp", "OPT-5"), 1, "a jump within the loop keeps the buffer")
+end
+
+-- OPT-7 decides by the definitions the checker attached, not by spelling: a call
+-- inlines only when its callee is the helper's binding and every free name of the
+-- body means at the call what it meant in the helper.
+function M.inlineKeepsAHelperWhereItsFreeNamesMeanSomethingElse()
+    local cases = {
+        -- a numeric `for` variable
+        "local k = 10\nk = k + 1\nlocal function getk() return k end\nfor k = 1, 2 do\n    print(getk())\nend",
+        -- a generic `for` variable
+        "local v = 'outer'\nv = v .. '!'\nlocal function getv() return v end\n"
+            .. "for _, v in ipairs({'a', 'b'}) do\n    print(getv())\nend",
+        -- a local function whose own body calls the helper
+        "local k = 10\nk = k + 0\nlocal function addk(x) return x + k end\nlocal function outer()\n"
+            .. "    local function k() return addk(1) end\n    return k()\nend\nprint(pcall(outer))",
+        -- a call written before the helper is declared names a global
+        "print(type(1))\nlocal function type(p) return 'mine' end\nprint(type(1))",
+        -- a free global the module declares as a local later
+        "local function getk() return k end\nlocal k = 5\nk = k + 1\nprint(getk(), k)",
+        -- a free name that reaches the call through another helper
+        "local x = 7\nx = x + 0\nlocal function inner() return x end\nlocal function outer(a) return inner() * a end\n"
+            .. "do\n    local x = 100\n    x = x + 1\n    print(outer(2))\nend",
+    }
+    for _, src in ipairs(cases) do
+        assertAgrees(src)
+    end
+    assertEq(assertAgrees(
+        "local function helper(k: integer): integer\n    return k\nend\n"
+            .. "local k: integer = 10\nk = k + 1\nlocal function getk(): integer return k end\n"
+            .. "for k = 1, 2 do\n    print(getk() + helper(k))\nend",
+        "test.nupp"
+    ), "12\n13")
+end
+
+-- A substituted argument is read where the parameter stands in the body, which is
+-- later than the call read it. That is only the same value when nothing in between
+-- can write the variable, and only the same error when the body cannot tell which
+-- frame it runs in.
+function M.inlineKeepsWhenTheArgumentCanChangeOrTheFrameIsObserved()
+    assertEq(assertAgrees(
+        "local x = 1\nlocal function bump() x = x + 10; return 0 end\n"
+            .. "local function h(p) return bump() + p end\nprint(h(x))"
+    ), "1")
+    assertEq(assertAgrees(
+        "local x: integer = 1\nlocal function bump(): integer x = x + 10\n    return 0\nend\n"
+            .. "local function h(p: integer): integer return bump() + p end\nprint(h(x))",
+        "test.nupp"
+    ), "1")
+    assertAgrees(
+        "local function need(x) return x or error('value required', 2) end\n"
+            .. "local function user(v)\n    local r = need(v)\n    return r\nend\n"
+            .. "local function caller()\n    local r = user(nil)\n    return r\nend\nprint(pcall(caller))"
+    )
+    assertAgrees(
+        "local function where() return debug.getinfo(2, 'l').currentline end\n"
+            .. "local function f()\n    local t = {}\n    t.a = where()\n    t.b = where()\n    return t\nend\n"
+            .. "local t = f()\nprint(t.a, t.b)"
+    )
+    -- An argument nothing writes, into a body that calls, still inlines.
+    local src = "local function bump(): integer return 0 end\n"
+        .. "local function h(p: integer): integer return bump() + p end\nlocal x: integer = 1\nprint(h(x))"
+    assertEq(assertAgrees(src, "test.nupp"), "1")
+    local fired = false
+    for _, entry in ipairs(remarksOf(src, "test.nupp", "OPT-7")) do
+        fired = fired or entry.msg == "inline-return-helper: inlines h"
+    end
+    assertTrue(fired, "an unwritten argument is substituted")
 end
 
 return M

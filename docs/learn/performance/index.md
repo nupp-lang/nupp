@@ -976,10 +976,21 @@ end
 Inlining requires:
 
 - A nonrecursive, nongeneric local helper with one return expression.
-- Stable bindings: no reassignment, duplicate module declarations, or shadowed free names.
-- Exactly one argument per parameter, using names, literals, or non-allocating operators whose evaluation can safely repeat or disappear.
+- Stable bindings: no reassignment or duplicate module declarations, a callee
+  that is the helper's own binding, and every free name of the body bound at
+  the call to what it was bound to in the helper. A loop variable, parameter, or
+  later local of the same name keeps the call.
+- Exactly one argument per parameter, using names, literals, or arithmetic over
+  numbers, whose evaluation can safely repeat or disappear.
+- No argument naming a variable the module writes when the body makes a call,
+  since the body reads the argument after that call rather than before it.
+- No `error` with a level, `debug`, `getfenv` or `setfenv` in the body, which
+  would see the caller's frame instead of the helper's.
 - Name arguments for parameters used as field, index, method, or call receivers.
 - A call in expression position.
+
+An inlined body runs on the caller's line, so an error raised inside it names
+the line of the call rather than the line of the helper.
 
 The compiler limits code growth and repeated argument computation so inlining
 does not make the caller excessively large.
