@@ -885,14 +885,24 @@ async fn supervise_child(
             }
         }
     };
-    let mut value = match exit {
+    let value = match exit {
         Ok(status) => exit_from(status),
         Err(_) => Exit {
             code: 1,
             killed: false,
         },
     };
-    value.killed |= killed;
+    // On Unix the status itself says whether a signal ended the child: one
+    // that exits after a kill was requested, whether it raced the signal or
+    // answered it, exited on its own. Windows termination leaves exit code 1,
+    // so there a requested kill counts unless the child reported success.
+    #[cfg(unix)]
+    let _ = killed;
+    #[cfg(not(unix))]
+    let value = Exit {
+        killed: value.killed || (killed && value.code != 0),
+        ..value
+    };
     state.lock().unwrap_or_else(|error| error.into_inner()).exit = Some(value);
     activity().notify();
 }
@@ -1203,6 +1213,38 @@ mod tests {
         spawned.child.reap().unwrap();
         // SAFETY: signal zero checks existence without changing the process.
         assert_eq!(unsafe { libc::kill(descendant.0, 0) }, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_child_that_exits_on_its_own_after_a_kill_request_was_not_killed() {
+        let _guard = child_test_guard();
+        // The child answers the polite kill by exiting with status zero, the
+        // same outcome as a child whose own exit races the kill.
+        let spawned = shell("trap 'exit 0' TERM; echo ready; while :; do sleep 1 & wait $!; done");
+        let output = spawned.streams[1].as_ref().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut bytes = Vec::new();
+        let mut scratch = [0_u8; 32];
+        while !bytes.contains(&b'\n') && Instant::now() < deadline {
+            match output.try_read(&mut scratch).unwrap() {
+                Read::Data(count) => bytes.extend_from_slice(&scratch[..count]),
+                Read::WouldBlock => {
+                    wait_ready(None, &[Arc::clone(output)], Duration::from_millis(50));
+                }
+                Read::Gone => break,
+            }
+        }
+        assert_eq!(bytes, b"ready\n");
+        spawned.child.kill(false).unwrap();
+        assert_eq!(
+            wait_for_exit(&spawned.child),
+            Exit {
+                code: 0,
+                killed: false
+            }
+        );
+        spawned.child.reap().unwrap();
     }
 
     #[test]
