@@ -8,7 +8,8 @@ type tls.ClientOptions = {
     --- The DNS name or IP address to expect on the peer's certificate. A DNS
     --- name is also sent as SNI. Given whenever `verify` is on, because a
     --- certificate verified against no name is a certificate belonging to
-    --- anybody.
+    --- anybody. Without verification it defaults to the peer's address, which
+    --- a path connection does not have, so a client over one names its host.
     hostname: string?,
 
     --- Certificates to trust, as PEM. Nil uses the platform's root

@@ -282,15 +282,23 @@ fn system_roots() -> Result<RootCertStore, String> {
         .clone()
 }
 
+/// The name an unverified client gives a peer it was not told the name of:
+/// its address, which a path connection does not have.
+fn unnamed_peer(peer: Option<std::net::SocketAddr>) -> Result<String, String> {
+    peer.map(|peer| peer.ip().to_string())
+        .ok_or_else(|| "a TLS client over a path connection needs a hostname".to_owned())
+}
+
 fn client_config(
     stream: &Stream,
     options: &ClientOptions<'_>,
 ) -> Result<Arc<ClientConfig>, String> {
-    let peer = stream.peer_addr()?;
-    let port = peer.port().to_be_bytes();
+    // A named host needs no peer address, and a path connection has none.
+    let peer = stream.peer_address()?;
+    let port = peer.map_or(0, |peer| peer.port()).to_be_bytes();
     let fallback_hostname;
     let hostname = if options.hostname.is_empty() {
-        fallback_hostname = peer.ip().to_string();
+        fallback_hostname = unnamed_peer(peer)?;
         fallback_hostname.as_str()
     } else {
         options.hostname
@@ -391,7 +399,7 @@ impl Session {
         validate_protocols(options.protocols)?;
         let config = client_config(&stream, &options)?;
         let hostname = if options.hostname.is_empty() {
-            stream.peer_addr()?.ip().to_string()
+            unnamed_peer(stream.peer_address()?)?
         } else {
             options.hostname.to_owned()
         };
@@ -768,6 +776,13 @@ mod tests {
 
     fn pair(listener: &Arc<nupp_native_net::Listener>) -> (Arc<Stream>, Arc<Stream>) {
         let connect = connect_tcp("127.0.0.1", listener.port(), Duration::from_secs(5)).unwrap();
+        pair_from(listener, &connect)
+    }
+
+    fn pair_from(
+        listener: &Arc<nupp_native_net::Listener>,
+        connect: &nupp_native_net::Connect,
+    ) -> (Arc<Stream>, Arc<Stream>) {
         let mut client = None;
         let mut server = None;
         for _ in 0..5000 {
@@ -1030,6 +1045,49 @@ mod tests {
             "a verifying client accepted a certificate no root vouches for"
         );
         listener.close();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_verified_client_runs_over_a_path_connection() {
+        // A path connection has no internet peer address, and a client that
+        // names its host has no need of one.
+        let path = std::env::temp_dir().join(format!("nupp-tls-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = nupp_native_net::listen_path(path.to_str().unwrap(), 4).unwrap();
+        let connect =
+            nupp_native_net::connect_path(path.to_str().unwrap(), Duration::from_secs(5)).unwrap();
+        let (client_stream, server_stream) = pair_from(&listener, &connect);
+        let server = Session::server(
+            server_stream,
+            ServerOptions {
+                certificate: CERTIFICATE,
+                private_key: PRIVATE_KEY,
+                protocols: &[],
+            },
+        )
+        .unwrap();
+        let client = Session::client(
+            client_stream,
+            ClientOptions {
+                hostname: "localhost",
+                authority: Some(CERTIFICATE),
+                protocols: &[],
+                verify: true,
+            },
+        )
+        .unwrap();
+        shake(&client, &server).unwrap();
+        assert!(client.is_verified());
+        assert_eq!(client.try_write(b"over a path"), Write::Accepted(11));
+        assert_eq!(
+            read_eventually(&server, 64),
+            Read::Data(b"over a path".to_vec())
+        );
+        client.close();
+        server.close();
+        listener.close();
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
