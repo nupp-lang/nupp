@@ -99,10 +99,11 @@ local function nuppType(model, structs, resolver)
     elseif kind == "pointer" then
         local pointee = model.to
         local readOnly = model.const
-        if pointee and pointee.kind == "integer" and pointee.bits == 8 and not pointee.unsigned then
-            -- A plain or signed character pointer is C text, and LuaJIT fills one
-            -- straight from a Lua string. Unsigned character pointers remain byte
-            -- pointers below.
+        if pointee and pointee.kind == "integer" and pointee.bits == 8 and not pointee.unsigned and readOnly then
+            -- A const plain or signed character pointer is C text, and LuaJIT fills
+            -- one straight from a Lua string. A writable one is a buffer LuaJIT will
+            -- not fill from an immutable string, so it stays a byte pointer below, as
+            -- import-c renders it. Unsigned character pointers are byte pointers too.
             return T.optional(T.cstring)
         end
         -- Every C pointer may be NULL, and the header does not say which ones are, so

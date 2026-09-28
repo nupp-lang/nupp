@@ -77,6 +77,22 @@ local function scratchHeader(name, text)
     return path, dir
 end
 
+function M.onlyAConstCharPointerIsText()
+    -- LuaJIT fills a `const char *` from a Lua string and refuses one for a
+    -- writable `char *`, so only the first is `cstring`.
+    local path, dir = scratchHeader("charp.h", table.concat({
+        "void nupp_charp_fill(char *buf, unsigned long n);",
+        "char *nupp_charp_dup(const char *s);",
+        "void nupp_charp_signed(signed char *bytes);",
+    }, "\n"))
+    local res = assert(cheaderMod.load(path))
+    os.execute("rm -rf '" .. dir .. "'")
+    local width = require("ffi").os == "Windows" and "uint32" or "uint64"
+    assertEq(T.tostring(res.exports.nupp_charp_fill), "function(int8*?, " .. width .. ")")
+    assertEq(T.tostring(res.exports.nupp_charp_dup), "function(cstring?): int8*?")
+    assertEq(T.tostring(res.exports.nupp_charp_signed), "function(int8*?)")
+end
+
 function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
     local path, dir = scratchHeader("flags.h", "struct NuppFlagsBits { _Bool on : 1; int level : 4; };\n"
         .. "struct NuppFlagsBits *nupp_flags_new(void);\n")
