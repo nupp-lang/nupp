@@ -437,6 +437,21 @@ impl Stream {
         }
     }
 
+    #[cfg(all(test, unix))]
+    fn raw_descriptor(&self) -> Option<i32> {
+        use std::os::fd::AsRawFd;
+        let socket = self
+            .shared
+            .socket
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()?;
+        Some(match socket.as_ref() {
+            SocketKind::Tcp(socket) => socket.as_raw_fd(),
+            SocketKind::Unix(socket) => socket.as_raw_fd(),
+        })
+    }
+
     pub fn close(&self) {
         let mut state = self
             .shared
@@ -1895,6 +1910,53 @@ mod tests {
             assert!(connect.ready());
             assert!(matches!(connect.poll(), ConnectPoll::Failed(_)));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closing_a_stream_releases_its_socket_while_the_peer_is_idle() {
+        use std::io::Read as _;
+        let _network = exclusive_network();
+        let listener = listen_tcp("127.0.0.1", 0, 8, false).unwrap();
+        let mut peer = std::net::TcpStream::connect(("127.0.0.1", listener.port())).unwrap();
+        let mut accepted = None;
+        wait_until(|| {
+            accepted = listener.try_accept().unwrap();
+            accepted.is_some()
+        });
+        let accepted = accepted.unwrap();
+        let descriptor = accepted.raw_descriptor().unwrap();
+        let identity = descriptor_identity(descriptor).unwrap();
+        accepted.close();
+        // The socket is released only once the reader and writer tasks that
+        // share it have stopped. Ending the writer alone sends a FIN, and any
+        // byte from the peer would wake the reader, so the peer stays idle
+        // and the descriptor itself is watched instead.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while descriptor_identity(descriptor) == Some(identity) {
+            assert!(
+                Instant::now() < deadline,
+                "the closed stream kept its socket"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let mut byte = [0u8; 1];
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        assert_eq!(peer.read(&mut byte).unwrap(), 0);
+    }
+
+    /// The device and inode behind a descriptor, so a number the kernel has
+    /// already handed to somebody else does not read as the same socket.
+    #[cfg(unix)]
+    fn descriptor_identity(descriptor: i32) -> Option<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        let directory = if cfg!(target_os = "linux") {
+            "/proc/self/fd"
+        } else {
+            "/dev/fd"
+        };
+        let status = std::fs::metadata(format!("{directory}/{descriptor}")).ok()?;
+        Some((status.dev(), status.ino()))
     }
 
     #[test]
