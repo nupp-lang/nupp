@@ -563,7 +563,9 @@ pub unsafe extern "C" fn nuppNativeHttpBodyRead(
     if !unsafe {
         transport::nuppHttpBodyRead(entry.pointer(), output, capacity, &mut kind, &mut copied)
     } {
-        return Status::Internal.code();
+        // Unreachable while the checks above match the transport's own, but a
+        // failure never leaves an earlier call's message in the error slot.
+        return failed(Status::Internal, "HTTP body read failed");
     }
     // SAFETY: outputs were checked above.
     unsafe {
