@@ -249,12 +249,19 @@ local function compare(ctx: context.Context, node: scalarIR.Expr): (string, stri
     return context.value(ctx, ("icmp %s %s %s, %s"):format(table[intrinsic] as string, left.vector, a, b)), typeName
 end
 
+--- Whether this tier selects vector lanes by a mask register's bits rather
+--- than its lanes' signs: SSE2's and/and-not/or at baseline, NEON's `bit`.
+local function bitSelects(ctx: context.Context): boolean
+    return ctx.vectorRegister == "w" or ctx.vectorRegister ~= "" and ctx.tier == "baseline"
+end
+
 --- The lane-wide register a loop carries mask `node` in, when it is such a
---- local, its lanes are as wide as `found`'s, and the tier has no blend that
---- reads a lane's sign (SSE2's baseline); nil otherwise. Everywhere else one
---- blend instruction already selects by the carried register.
+--- local, its lanes are as wide as `found`'s, and the tier selects by a mask's
+--- bits (SSE2's baseline and NEON's `bit`/`bsl`); nil otherwise. There a
+--- select through `<N x i1>` rebuilds the register from the lane signs every
+--- time, where AVX's blends read the sign directly.
 local function carriedMask(ctx: context.Context, node: scalarIR.Expr, found: species.Species): string?
-    if node.op ~= "local" or ctx.vectorRegister == "" or ctx.tier ~= "baseline" then
+    if node.op ~= "local" or not bitSelects(ctx) then
         return nil
     end
     local slot = ctx.locals[tostring((node as scalarIR.Name).uniqueName)]
@@ -305,14 +312,15 @@ local function selectLanes(ctx: context.Context, node: scalarIR.Expr): (string, 
 end
 
 --- Mask `node` as lanes as wide as they are -- all ones or all zeros, the
---- register a compare fills -- for a loop's lane-wide slot on SSE2. There a
---- mask spanning several registers has no `<N x i1>` form: LLVM packs it into
---- one register's narrower lanes and widens it back for every use. Built lane
+--- register a compare fills -- for a loop's lane-wide slot where masks select
+--- by their bits. There a mask spanning several registers has no `<N x i1>`
+--- form: LLVM packs it into one register's narrower lanes and widens it back
+--- for every use. Built lane
 --- wide from its compares, each pinned so it is not folded back to i1, the
 --- logic is the registers' own `and`/`or`/`xor`. Nil where this is not that
 --- tier, slot, or kind of expression.
 function vectors.wideMask(ctx: context.Context, node: scalarIR.Expr, slot: context.Slot): string?
-    if ctx.tier ~= "baseline" or ctx.vectorRegister == "" or not slot.carried then
+    if not bitSelects(ctx) or not slot.carried then
         return nil
     end
     local found = context.species(ctx, slot.type)

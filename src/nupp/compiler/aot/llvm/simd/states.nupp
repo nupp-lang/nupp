@@ -78,11 +78,23 @@ end
 local function pairwise(module: builder.Module, operator: string, empty: string): (string, string, string)
     local stem = "nupp.pairwise." .. (operator == "fadd" and "sum" or "product")
     local a = attrs(module)
+    -- The partial sums and the counter never share memory, but a level is an
+    -- index LLVM cannot bound, so without saying so every partial stored
+    -- might be the counter, which then stays in memory for the whole loop.
+    -- Type-based aliasing says it, as C's types did.
+    local root = builder.metadata(module, '!{!"nupp pairwise state"}')
+
+    local function tag(name: string): string
+        local scalar = builder.metadata(module, ('!{!"%s", %s, i64 0}'):format(name, root))
+        return ", !tbaa " .. builder.metadata(module, ("!{%s, %s, i64 0}"):format(scalar, scalar))
+    end
+
+    local partials, counter = tag("partial"), tag("count")
     local add = define(module, stem .. ".add", {
         "define internal void @" .. stem .. ".add(ptr %state, double %value) " .. a .. " {",
         "entry:",
         "  %countp = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 1",
-        "  %count = load i64, ptr %countp",
+        "  %count = load i64, ptr %countp" .. counter,
         "  br label %carry",
         "carry:",
         "  %occupied = phi i64 [ %count, %entry ], [ %shifted, %merge ]",
@@ -93,23 +105,23 @@ local function pairwise(module: builder.Module, operator: string, empty: string)
         "  br i1 %busy, label %merge, label %place",
         "merge:",
         "  %slot = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 0, i64 %level",
-        "  %partial = load double, ptr %slot",
+        "  %partial = load double, ptr %slot" .. partials,
         "  %combined = " .. operator .. " double %partial, %carried",
         "  %shifted = lshr i64 %occupied, 1",
         "  %next = add i64 %level, 1",
         "  br label %carry",
         "place:",
         "  %target = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 0, i64 %level",
-        "  store double %carried, ptr %target",
+        "  store double %carried, ptr %target" .. partials,
         "  %more = add i64 %count, 1",
-        "  store i64 %more, ptr %countp",
+        "  store i64 %more, ptr %countp" .. counter,
         "  ret void",
         "}",
     })
     local init = define(module, stem .. ".init", {
         "define internal void @" .. stem .. ".init(ptr %state, double %initial) " .. a .. " {",
         "  %countp = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 1",
-        "  store i64 0, ptr %countp",
+        "  store i64 0, ptr %countp" .. counter,
         "  call void " .. add .. "(ptr %state, double %initial)",
         "  ret void",
         "}",
@@ -118,7 +130,7 @@ local function pairwise(module: builder.Module, operator: string, empty: string)
         "define internal double @" .. stem .. ".value(ptr %state) " .. a .. " {",
         "entry:",
         "  %countp = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 1",
-        "  %count = load i64, ptr %countp",
+        "  %count = load i64, ptr %countp" .. counter,
         "  br label %walk",
         "walk:",
         "  %level = phi i64 [ 0, %entry ], [ %next, %step ]",
@@ -130,7 +142,7 @@ local function pairwise(module: builder.Module, operator: string, empty: string)
         "  br i1 %set, label %take, label %step",
         "take:",
         "  %slot = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 0, i64 %level",
-        "  %partial = load double, ptr %slot",
+        "  %partial = load double, ptr %slot" .. partials,
         "  %joined = " .. operator .. " double %partial, %result",
         "  %taken = select i1 %have, double %joined, double %partial",
         "  br label %step",
