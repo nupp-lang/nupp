@@ -49,7 +49,16 @@ local type Native = {
     builderFreeze: @nosuspend function(any): (any?, any),
     accounted: @nosuspend function(): integer
 }
-local native = require("nupp.mem.sharedbytes.native") as Native
+-- Regions are engine blocks, so without the engine host there is nothing for
+-- this module to stand on; say that rather than which file a search missed.
+local loadedNative, nativeModule = pcall(require, "nupp.mem.sharedbytes.native")
+if not loadedNative then
+    if tostring(nativeModule):find("module 'nupp.mem.sharedbytes.native' not found", 1, true) then
+        error("nupp: nupp.mem.sharedbytes needs the Nupp engine host, which a stamped binary provides", 0)
+    end
+    error(nativeModule, 0)
+end
+local native = nativeModule as Native
 local ffi = require("ffi")
 
 local foreignByteSpan = rawget(

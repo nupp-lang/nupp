@@ -100,6 +100,19 @@ function M.aNanOrFractionalBoundIsRefused()
     assert(region:slice(2, 3):size() == 2)
 end
 
+function M.withoutTheEngineHostTheModuleSaysWhatItNeeds()
+    local savedModule, savedNative = package.loaded[moduleName], package.loaded[nativeName]
+    local savedPreload = package.preload[nativeName]
+    package.loaded[moduleName], package.loaded[nativeName] = nil, nil
+    package.preload[nativeName] = nil
+    local ok, problem = pcall(require, moduleName)
+    package.loaded[moduleName], package.loaded[nativeName] = savedModule, savedNative
+    package.preload[nativeName] = savedPreload
+    assert(not ok)
+    assert(tostring(problem):find("needs the Nupp engine host", 1, true), tostring(problem))
+    assert(not tostring(problem):find("not found", 1, true), tostring(problem))
+end
+
 function M.typedViewsUseTheAddressAlignmentRatherThanTheElementWidth()
     local triple = ffi.typeof("struct { int32_t a; int32_t b; int32_t c; }")
     local region = sharedbytes.copy(string.rep("\0", 28)):slice(5, 28)
