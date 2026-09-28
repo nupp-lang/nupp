@@ -118,6 +118,14 @@ exact-feature Rust native provider. Pass the `staticLinkFlags` array from
 and frameworks selected by the SDK features. The SDK does not require separate
 LuaJIT, LPeg, or provider archives.
 
+The dynamic library exports the `nupp_*` functions in the header and not
+LuaJIT's own C API. A host that calls the Lua C API itself therefore links
+`libnupp.a`, whose LuaJIT VM is the one those calls reach. That covers a
+preload opener or an AOT builder registrar, any use of the state
+`nupp_runtime_lua_state` returns, and attaching to a state the host created.
+Linking a separate LuaJIT beside `libnupp.dylib` does not fill the gap: it is a
+second VM, and `nupp_runtime_attach` cannot use a state that VM made.
+
 ## Runtime ownership
 
 A runtime either owns a new state or attaches to one supplied by the host. The
@@ -178,7 +186,7 @@ after `nupp_runtime_free`, and it must not call `lua_close` while Nupp owns
 registry roots in the state.
 
 `nupp_runtime_lua_state` returns the application state for a host which also
-uses the Lua C API. Calls made directly through that API use the host's stack
+uses the Lua C API, which means linking the static library. Calls made directly through that API use the host's stack
 discipline and protection rules; the managed Nupp calls described below do not
 manage a stack frame the host creates itself.
 
