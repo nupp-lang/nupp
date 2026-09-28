@@ -256,6 +256,7 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
     local savedHost, savedPublic = _G.__nuppHost, _G.__nuppComponentExports
     local savedShared = _G.__nuppComponentSharedModules
     local savedLogLoaded, savedLogPreload = package.loaded["nupp.log"], package.preload["nupp.log"]
+    package.loaded["nupp.log"], package.preload["nupp.log"] = nil, nil
     _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
     local first = one.install()
     local second = two.install()
