@@ -99,6 +99,19 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
     assertEq(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
 end
 
+function M.aPointerToAnArrayKeepsItsParentheses()
+    -- The spelling is what LuaJIT lays out, so the check is on the C text and on
+    -- the size LuaJIT gives it: a pointer to four ints, not four pointers.
+    local T = require("nupp.compiler.types")
+    local ffi = require("ffi")
+    local row = T.ptr(T.carray(T.int32, 4))
+    local rows = T.carray(T.ptr(T.int32), 4)
+    assertEq(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
+    assertEq(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
+    assertEq(ffi.sizeof("struct { " .. cabi.declaration(row, "row", "ffi") .. "; }"), ffi.sizeof("void *"))
+    assertEq(ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"), 4 * ffi.sizeof("void *"))
+end
+
 function M.aGuardIsAlwaysACIdentifier()
     local exports = checked(SOURCE)
     local position = assert(cabi.aggregate(exports.types.Position, TARGET))
