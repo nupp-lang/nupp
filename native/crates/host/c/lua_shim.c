@@ -401,19 +401,49 @@ static int register_aot_builders(lua_State *state) {
     return 0;
 }
 
+typedef struct CompatibilityCall {
+    ProtectedCall call;
+    int allow_missing;
+} CompatibilityCall;
+
+/* Reads the state's own jit library, raw and through the C API alone, so the
+ * version checked is the one the host's LuaJIT reported rather than one opening
+ * libraries here would install, and a bare state needs no base library. A state
+ * with no jit library passes only when the caller is about to open libraries,
+ * which then installs this LuaJIT's. */
+static void push_raw_field(lua_State *state, int table, const char *name) {
+    if (lua_type(state, table) == LUA_TTABLE) {
+        lua_pushstring(state, name);
+        lua_rawget(state, table < 0 && table > LUA_REGISTRYINDEX ? table - 1 : table);
+    } else {
+        lua_pushnil(state);
+    }
+}
+
 static int verify_compatibility(lua_State *state) {
-    static const char check[] =
-        "local major,minor,build=tostring(jit and jit.version or '')"
-        ":match('^LuaJIT (%d+)%.(%d+)%.(%d+)$'); "
-        "major,minor,build=tonumber(major),tonumber(minor),tonumber(build); "
-        "assert(major and (major>2 or (major==2 and (minor>1 or "
-        "(minor==1 and build>=1784535649)))), "
-        "'nupp: attached state requires LuaJIT 2.1.1784535649 or newer')";
-    ProtectedCall *call = (ProtectedCall *)lua_touserdata(state, 1);
-    int status = luaL_loadbuffer(state, check, sizeof check - 1,
-        "=nupp-compatibility");
-    if (status == 0) status = lua_pcall(state, 0, 0, 0);
-    if (status != 0) capture_error(state, call, status);
+    CompatibilityCall *context = (CompatibilityCall *)lua_touserdata(state, 1);
+    const char *version;
+    int major = 0, minor = 0, consumed = 0;
+    long long build = 0;
+    lua_pushliteral(state, "jit");
+    lua_rawget(state, LUA_GLOBALSINDEX);
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_pushliteral(state, "package");
+        lua_rawget(state, LUA_GLOBALSINDEX);
+        push_raw_field(state, -1, "loaded");
+        push_raw_field(state, -1, "jit");
+    }
+    if (lua_isnil(state, -1) && context->allow_missing) return 0;
+    push_raw_field(state, -1, "version");
+    version = lua_type(state, -1) == LUA_TSTRING ? lua_tostring(state, -1) : "";
+    if (sscanf(version, "LuaJIT %d.%d.%lld%n", &major, &minor, &build,
+            &consumed) != 3 || version[consumed] != '\0'
+        || !(major > 2 || (major == 2 && (minor > 1
+            || (minor == 1 && build >= 1784535649LL))))) {
+        fail_call(&context->call,
+            "nupp: attached state requires LuaJIT 2.1.1784535649 or newer");
+    }
     return 0;
 }
 
@@ -864,10 +894,10 @@ int nupp_lua_register_aot_builders(lua_State *state, const char *key,
     return protect(state, register_aot_builders, &context.call);
 }
 
-int nupp_lua_verify_compatibility(lua_State *state, char *error,
-    size_t error_capacity) {
-    ProtectedCall call = {error, error_capacity, 0};
-    return protect(state, verify_compatibility, &call);
+int nupp_lua_verify_compatibility(lua_State *state, int allow_missing,
+    char *error, size_t error_capacity) {
+    CompatibilityCall context = {{error, error_capacity, 0}, allow_missing};
+    return protect(state, verify_compatibility, &context.call);
 }
 
 int nupp_lua_add_feature(lua_State *state, const char *name, char *error,

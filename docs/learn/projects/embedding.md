@@ -149,7 +149,10 @@ default.
 
 Attachment keeps the host's allocator, heap, globals, module tables, and GC.
 It verifies that the state is LuaJIT 2.1.1784535649 or newer before publishing
-Nupp's host record.
+Nupp's host record. The check reads the state's own `jit` library before Nupp
+opens any libraries, so asking Nupp to open them cannot hide an older LuaJIT.
+A bare state with no `jit` library is accepted only when
+`NUPP_CONFIG_OPEN_LIBRARIES` asks Nupp to open the libraries.
 
 ```c
 nupp_config config;

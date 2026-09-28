@@ -117,6 +117,7 @@ unsafe extern "C" {
     ) -> c_int;
     fn nupp_lua_verify_compatibility(
         state: *mut LuaState,
+        allow_missing: c_int,
         error: *mut c_char,
         error_capacity: usize,
     ) -> c_int;
@@ -295,15 +296,29 @@ impl Lua {
             owned: false,
             _thread_affine: PhantomData,
         };
+        // Checked before opening libraries, which would replace the state's jit
+        // library with this one and leave nothing of the host's to check.
+        lua.verify_compatibility(open_libraries)?;
         if open_libraries {
             lua.open_libraries()?;
+            lua.verify_compatibility(false)?;
         }
-        lua.protected(|error, capacity| {
-            // SAFETY: `state` is caller-owned, live, owner-thread-affine, and
-            // outlives `lua`; the C shim protects every Lua stack operation.
-            unsafe { nupp_lua_verify_compatibility(lua.state.as_ptr(), error, capacity) }
-        })?;
         Ok(lua)
+    }
+
+    fn verify_compatibility(&self, allow_missing: bool) -> Result<(), String> {
+        self.protected(|error, capacity| {
+            // SAFETY: the state is caller-owned, live, owner-thread-affine, and
+            // outlives `self`; the C shim protects every Lua stack operation.
+            unsafe {
+                nupp_lua_verify_compatibility(
+                    self.state.as_ptr(),
+                    c_int::from(allow_missing),
+                    error,
+                    capacity,
+                )
+            }
+        })
     }
 
     fn open_libraries(&self) -> Result<(), String> {

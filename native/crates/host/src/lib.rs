@@ -1292,6 +1292,38 @@ end
     }
 
     #[test]
+    fn attaching_checks_the_states_own_luajit_before_opening_libraries() {
+        // A host state from an older LuaJIT, as its own jit library reports it.
+        let mut owner = HostRuntime::owned(true, None).unwrap();
+        owner
+            .run_buffer(b"jit.version = 'LuaJIT 2.1.0-beta3'", "=old", &[])
+            .unwrap();
+        let state = owner.lua_state();
+        for open_libraries in [false, true] {
+            let refused = unsafe { HostRuntime::attach(state, open_libraries) }
+                .err()
+                .expect("an old LuaJIT is refused whether or not Nupp opens libraries");
+            assert!(refused.to_string().contains("requires LuaJIT"), "{refused}");
+        }
+        owner
+            .run_buffer(
+                b"assert(jit.version == 'LuaJIT 2.1.0-beta3')",
+                "=untouched",
+                &[],
+            )
+            .expect("a refused attach did not reopen the host's libraries");
+        owner.shutdown().unwrap();
+
+        // A bare state has no jit library to ask; opening libraries gives it
+        // this one's.
+        let mut bare = HostRuntime::owned(false, None).unwrap();
+        let state = bare.lua_state();
+        let mut attached = unsafe { HostRuntime::attach(state, true) }.unwrap();
+        attached.shutdown().unwrap();
+        bare.shutdown().unwrap();
+    }
+
+    #[test]
     fn attached_runtime_does_not_close_its_callers_state() {
         let mut owner = HostRuntime::owned(true, None).unwrap();
         let state = owner.lua_state();
