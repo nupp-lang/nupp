@@ -1922,7 +1922,7 @@ function declare.install(
                         if super.intrinsicAffine then
                             local term = super.constArgs and super.constArgs[1] or nil
                             local named = term and term.tag == "constLiteral" and term.value or nil
-                            local method = type(named) == "string" and named:match("^self%.([%a_][%w_]*)$") or nil
+                            local method = named is string and named:match("^self%.([%a_][%w_]*)$") or nil
                             if method then
                                 inheritedMethod = method
                                 inherited = T.methodCleanup(method)

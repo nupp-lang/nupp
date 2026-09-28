@@ -52,7 +52,7 @@ assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() 
 local iterated = {}
 for kind, current in cliModule.getopt({"--flag", "value"}) do
     assert(kind == assert(current):kind())
-    iterated[#iterated + 1] = current:raw()
+    iterated[#iterated + 1] = assert(current):raw()
 end
 assert(#iterated == 2 and iterated[2] == "value")
 

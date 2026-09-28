@@ -1007,7 +1007,7 @@ function M.templateConstructionAndOneSegmentExtractionAreFinite()
                 "local event: Event<'ready'> = 'readyChanged'",
                 "@comptime local function Parameter(Path: type): type",
                 "   local info = nupp.types.describe(Path)",
-                "   local name = info.kind == 'literal' and info.value:match(':(.+)$') or nil",
+                "   local name = info.kind == 'literal' and (info.value as string):match(':(.+)$') or nil",
                 "   if name then return nupp.types.literal(name) end",
                 "   return nupp.types.never",
                 "end",

@@ -1792,6 +1792,33 @@ function M.gradualDefaults()
     assertEq((diagsOf("local f: function() = function() end\nf = nil")), "NUPP2001:2")
 end
 
+-- A colon call reaches a member the way a field read does, so a receiver that may
+-- be nil, a union whose alternatives disagree, `unknown`, an unbounded type
+-- parameter, an array and a function all lack a method until narrowed. Each of
+-- these used to type the call as `any` and say nothing.
+function M.aColonCallNeedsTheMethodOnEveryAlternative()
+    local R = "local record R\n    v: integer\n    function get(self): integer\n        return self.v\n    end\nend\n"
+    local cases = {
+        {"local function f(s: string?): string return s:upper() end", "NUPP2004:1"},
+        {"local function f(r: R?): integer return r:get() end", "NUPP2004:7", R},
+        {"local function f(u: string | integer): string return u:upper() end", "NUPP2004:1"},
+        {"local function f(u: unknown): integer return u:status() end", "NUPP2004:1"},
+        {"local function f<T>(x: T): integer return x:size() end", "NUPP2004:1"},
+        {"local function f(xs: {integer}): integer return xs:count() end", "NUPP2004:1"},
+        {"local function f(g: function(): nil): integer return g:call() end", "NUPP2004:1"},
+    }
+    for _, case in ipairs(cases) do
+        local source = (case[3] or "") .. case[1]
+        assertEq((diagsOf(source)), case[2], source)
+    end
+    -- Narrowed first, or called through the safe form, the method is there.
+    assertClean("local function f(s: string?): string? return s?.:upper() end")
+    assertClean("local function f(s: string?): string if s then return s:upper() end return '' end")
+    assertClean(R .. "local function f(r: R?): integer if r then return r:get() end return 0 end")
+    assertClean("local function f(u: 'a' | 'b' | string): string return u:upper() end")
+    assertClean("local function f(x: any, t: table): nil x:anything() t:anything() end")
+end
+
 -- `unknown` accepts anything, but using one without narrowing or casting
 -- first is an ordinary type error -- the same one any other mismatched type
 -- would get, since nothing in the checker gives `unknown` a pass the way it

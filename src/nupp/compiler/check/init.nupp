@@ -1272,7 +1272,7 @@ function checkMod.check(
         c.diags[#c.diags + 1] = diagnostic
     end
 
-    if declaredModuleNode then
+    if declaredModuleNode and declaredModuleName then
         local first = nil
         local declarations = 0
         for _, block in ipairs(result.root.blocks or {}) do

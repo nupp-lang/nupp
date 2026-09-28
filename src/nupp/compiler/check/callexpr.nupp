@@ -2687,41 +2687,66 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
 
-            local function cannotHaveMethods(t: Type): boolean
-                t = rawType(t)
-                if t.tag == "literal" then
-                    t = t.base
-                end
-
-                return t.tag == "nil"
-                    or t.tag == "boolean"
-                    or t.tag == "number"
-                    or t.tag == "integer"
-                    or t.tag == "float"
-                    or t.tag == "int8"
-                    or t.tag == "int16"
-                    or t.tag == "int32"
-                    or t.tag == "int64"
-                    or t.tag == "uint8"
-                    or t.tag == "uint16"
-                    or t.tag == "uint32"
-                    or t.tag == "uint64"
-            end
-
             local receiverDetails: any = receiver
             while receiverDetails.kind == "paren" and receiverDetails.expr do
                 receiverDetails = receiverDetails.expr
             end
+            -- The string metatable is shared and may be extended at run time, so a
+            -- name the library does not declare is not refused on a string.
+            local receiverType = rawType(named)
+
+            local function stringLike(t: Type): boolean
+                if t == T.string or t.tag == "literal" and t.base == T.string then
+                    return true
+                end
+                if t.tag ~= "union" then
+                    return false
+                end
+                for _, alternative in ipairs(t.members) do
+                    if not stringLike(alternative) then
+                        return false
+                    end
+                end
+
+                return true
+            end
+
+            local gradual = receiverType == T.any or receiverType == T.table_ or receiverType.tag == "map"
+            -- An owned nominal reaches its terminal through the qualifier rather than
+            -- on the record, as above.
+            local ownedNominal = named ~= receiverType and receiverType.tag == "nominal"
+            -- Every other receiver answers the question field access does: a member
+            -- has to be on every alternative, so a union that may be nil, one whose
+            -- alternatives disagree, `unknown` and an unbounded type parameter all
+            -- lack it until narrowed.
             if not receiverDetails.primitiveUntrusted
-                and rawType(named) ~= T.string
-                and (named.tag == "shape" or named.tag == "nominal" or cannotHaveMethods(named))
+                and not gradual
+                and not ownedNominal
+                and not stringLike(receiverType)
+                and receiverType ~= T.never
             then
                 local fixes = (named.tag == "shape" or named.tag == "nominal")
                     and c.edits.nameSpellingFix(member, c.fieldNames(named))
                     or nil
-                c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(named)), fixes, {
-                    help = fixes and "use the suggested method spelling"
+                local help = fixes and "use the suggested method spelling"
                     or "check the receiver type and available methods"
+                if receiverType.tag == "union" then
+                    local maybeNil = false
+                    for _, alternative in ipairs(receiverType.members) do
+                        if alternative == T.nil_ then
+                            maybeNil = true
+                        end
+                    end
+                    help = maybeNil
+                        and ("the receiver may be nil: test it first, or call it as `?.:%s(...)`"):format(member.text)
+                        or "not every alternative has this method: narrow the receiver first"
+                elseif receiverType == T.unknown then
+                    help = "narrow the unknown value with a test or an `is` check first"
+                elseif receiverType.tag == "typevar" then
+                    help = "bound the type parameter by a type that declares this method"
+                end
+                c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(named)), fixes, {
+                    help = help
                 })
             end
         end

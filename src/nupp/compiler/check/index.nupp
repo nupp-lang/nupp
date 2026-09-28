@@ -348,10 +348,10 @@ function index.install(c: state.Checker): state.ExprHandlers
             -- nothing to shadow, and skipping the shortcut there breaks the ordinary
             -- case instead of protecting it.
             local declared = key and c.lookupEntry(key)
-            if declared then
+            if key and declared then
                 local rootName = key:match("^[^.]+")
                 local globalRoot = rootName and c.env and c.env.globals and c.env.globals[rootName]
-                local localRoot = globalRoot and c.lookupEntry(rootName)
+                local localRoot = globalRoot and rootName and c.lookupEntry(rootName)
                 local shadowed = globalRoot and localRoot and localRoot.definition ~= globalRoot.definition
                 if not shadowed then
                     c.infer(target)
