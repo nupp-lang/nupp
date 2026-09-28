@@ -539,6 +539,23 @@ pub extern "C" fn nuppNativeProcessAbandonedTotal() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem::{offset_of, size_of};
+
+    /// The same offsets `native/tests/abi_smoke.c` holds the header to.
+    #[test]
+    fn process_records_keep_the_header_layout() {
+        let word = size_of::<usize>();
+        assert_eq!(offset_of!(ProcessEnv, value), size_of::<ProcessSlice>());
+        assert_eq!(offset_of!(ProcessSpawn, env), 2 * word);
+        assert_eq!(offset_of!(ProcessSpawn, cwd), 4 * word);
+        let cwd_present = 4 * word + size_of::<ProcessSlice>();
+        assert_eq!(offset_of!(ProcessSpawn, cwd_present), cwd_present);
+        assert_eq!(offset_of!(ProcessSpawn, stdin_mode), cwd_present + 8);
+        assert_eq!(offset_of!(ProcessSpawn, stderr_mode), cwd_present + 10);
+        assert_eq!(offset_of!(ProcessStarted, pid), 32);
+        assert_eq!(size_of::<ProcessStarted>(), 40);
+        assert_eq!(offset_of!(ProcessExit, killed), 8);
+    }
 
     #[test]
     fn arenas_reject_wrong_kind_and_stale_handles() {

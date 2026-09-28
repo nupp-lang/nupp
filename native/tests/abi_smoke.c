@@ -42,6 +42,28 @@ _Static_assert(offsetof(NuppNativeTlsOptions, authority_present)
 _Static_assert(offsetof(NuppNativeTlsOptions, verify)
         == 5 * sizeof(NuppNativeNetSlice) + 2 * sizeof(int32_t),
     "TLS verify flag has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessEnv, value)
+        == sizeof(NuppNativeProcessSlice),
+    "process environment value has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessSpawn, env) == 2 * sizeof(void *),
+    "process spawn environment has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessSpawn, cwd) == 4 * sizeof(void *),
+    "process spawn working directory has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessSpawn, cwd_present)
+        == 4 * sizeof(void *) + sizeof(NuppNativeProcessSlice),
+    "process spawn cwd-present flag has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessSpawn, stdin_mode)
+        == offsetof(NuppNativeProcessSpawn, cwd_present) + 2 * sizeof(int32_t),
+    "process spawn stdin mode has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessSpawn, stderr_mode)
+        == offsetof(NuppNativeProcessSpawn, stdin_mode) + 2,
+    "process spawn stderr mode has an unexpected offset");
+_Static_assert(offsetof(NuppNativeProcessStarted, pid) == 4 * sizeof(uint64_t),
+    "process started pid has an unexpected offset");
+_Static_assert(sizeof(NuppNativeProcessStarted) == 5 * sizeof(uint64_t),
+    "process started record has an unexpected size");
+_Static_assert(offsetof(NuppNativeProcessExit, killed) == 2 * sizeof(int32_t),
+    "process exit killed flag has an unexpected offset");
 
 static int failed(const char *operation, int32_t status) {
     fprintf(stderr, "%s: status %d: %s\n", operation, status,
