@@ -41,6 +41,21 @@ nupp lsp serve [root]
 Document sync is full text. Inlay hints, call hierarchy and type hierarchy have
 no handler, and an unknown request is answered `method not found` (-32601).
 
+## Lifecycle and framing
+
+The server follows the protocol's lifecycle. A request before `initialize` is
+answered `ServerNotInitialized` (-32002), and a request after `shutdown` is
+answered `InvalidRequest` (-32600). The process exits 0 when `exit` follows
+`shutdown`, and 1 when the client exits without `shutdown` or its input ends
+without one.
+
+A frame whose body is not JSON is answered `ParseError` (-32700), and JSON that
+is not a request or notification is answered `InvalidRequest`. Both answers
+carry a null `id`, and the session goes on. A frame may declare at most 64 MiB,
+which is also the largest document the server takes. A larger `Content-Length`
+ends the session with a message on stderr and exit status 1, because the only
+way past such a frame is to read it.
+
 ## Cancellation
 
 The server reads its input while it is working, so news of a request can reach

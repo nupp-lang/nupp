@@ -35,6 +35,7 @@ local symbols = require("nupp.tools.lsp.symbols")
 local complete = require("nupp.tools.lsp.complete")
 local semantic = require("nupp.tools.lsp.semantic")
 local artifactsMod = require("nupp.tools.lsp.artifacts")
+local transportMod = require("nupp.tools.lsp.transport")
 
 -- The declarations `@jit` can decorate: the ones the pragma checker attaches a
 -- contract to.
@@ -91,7 +92,11 @@ end
 
 type lsp.Session = {
     dispatch: function(any),
-    running: function(): boolean
+    running: function(): boolean,
+
+    --- What the process should exit with once the session has ended: 0 when the
+    --- client asked for `shutdown` first, 1 when it did not.
+    exitCode: function(): integer
 }
 
 --- The transport, as the work running above it sees it.
@@ -158,6 +163,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     }
 
     local running = true
+    -- Where the session is in the protocol's lifecycle: nothing but `initialize` is
+    -- answered before it, and nothing but `exit` after `shutdown`.
+    local initialized, shutDown = false, false
 
     local send = emit
 
@@ -1842,6 +1850,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 inc.persist()
             end)
         end)
+        shutDown = true
         respond(id, json.NULL)
     end
 
@@ -1866,6 +1875,18 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
 
     local function dispatch(msg)
         if type(msg) == "table" and msg.method then
+            if msg.method ~= "exit" and (shutDown or (not initialized and msg.method ~= "initialize")) then
+                if msg.id ~= nil then
+                    send({
+                        jsonrpc = "2.0",
+                        id = msg.id,
+                        error = shutDown and {code = -32600, message = "the server is shutting down"}
+                        or {code = -32002, message = "the server is not initialized"},
+                    })
+                end
+                return
+            end
+            initialized = true
             if msg.id and host and host.isCancelled(msg.id) then
                 host.clearCancelled(msg.id)
                 send({jsonrpc = "2.0", id = msg.id, error = {code = -32800, message = "request cancelled"}})
@@ -1908,6 +1929,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         running = function()
             return running
         end,
+        exitCode = function(): integer
+            return shutDown and 0 or 1
+        end,
     }
 end
 
@@ -1932,20 +1956,38 @@ function lsp.readerMain(): integer
             end
             local length = line:match("^[Cc]ontent%-[Ll]ength:%s*(%d+)")
             if length then
+                -- Checked before anything is read, because reading is what allocates:
+                -- asked for a length nobody could send, the read itself runs the
+                -- process out of memory.
+                if #length > 12 or (tonumber(length) or 0) > transportMod.MAX_FRAME then
+                    io.stderr:write(
+                        (
+                            "nupp-lsp: frame declares %s bytes, more than the %d a frame may hold\n"
+                        ):format(length, transportMod.MAX_FRAME)
+                    )
+                    return 1
+                end
                 contentLength = tonumber(length)
             end
         end
         if not contentLength then
+            io.stderr:write("nupp-lsp: frame has no Content-Length header\n")
             return 1
         end
         local body = io.stdin:read(contentLength)
         if body == nil or #body ~= contentLength then
+            io.stderr:write("nupp-lsp: input ended inside a frame\n")
             return 1
         end
         io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
     end
 end
 
+--- Serves one client over stdio until it exits.
+---
+--- @return 0 when the client shut the session down before it ended, 1 when it
+--- exited without `shutdown`, its input ended without one, or the input could not
+--- be read
 function lsp.run(rootDir: string?): integer
     io.stdout:setvbuf("no")
 
@@ -1976,66 +2018,15 @@ function lsp.run(rootDir: string?): integer
     -- at each use instead.
     local relayOwner = nupp.manage(new process.Process(relayOptions))
     local relay = relayOwner:alias()
-    local buffered = ""
-    local queued = {}
-    local cancelled = {}
-    -- The newest version of each document the client has told this process about,
-    -- recorded as the message is read rather than as it is handled. Long work asks
-    -- about it to find out that what it is answering has already been replaced.
-    local versions = {}
+    -- Frames, cancellations, and the newest version of each document the client has
+    -- told this process about, recorded as each message is read rather than as it is
+    -- handled. Long work asks about them to find out that what it is answering has
+    -- already been cancelled or replaced.
+    local frames = transportMod.new()
+    -- Why the input cannot go on, once a frame has said something the transport
+    -- cannot read past.
+    local broken: string? = nil
     local host: lsp.Host
-
-    local function takeMessage(): any
-        local headerEnd = buffered:find("\r\n\r\n", 1, true)
-        if not headerEnd then
-            return nil
-        end
-        local header = buffered:sub(1, headerEnd - 1)
-        local length = tonumber(header:match("[Cc]ontent%-[Ll]ength:%s*(%d+)"))
-        if not length then
-            buffered = ""
-            return nil
-        end
-        local bodyAt = headerEnd + 4
-        if #buffered < bodyAt + length - 1 then
-            return nil
-        end
-        local body = buffered:sub(bodyAt, bodyAt + length - 1)
-        buffered = buffered:sub(bodyAt + length)
-        local ok, message = pcall(json.decode, body, json.NULL)
-        -- A frame that does not decode is consumed and skipped: nil means the buffer
-        -- holds no complete frame, and a bad frame saying that would leave every
-        -- frame behind it waiting for input that may never come.
-        if not ok or type(message) ~= "table" then
-            return false
-        end
-
-        return message
-    end
-
-    local function harvest(): nil
-        while true do
-            local message = takeMessage()
-            if message == nil then
-                break
-            end
-            if message == false then
-                -- skip the undecodable frame and keep reading
-            elseif message.method == "$/cancelRequest" and message.params then
-                cancelled[message.params.id] = true
-            else
-                local document = type(message.params) == "table" and message.params.textDocument or nil
-                local version = type(document) == "table" and tonumber(document.version) or nil
-                if version and type(document.uri) == "string" then
-                    local known = versions[document.uri]
-                    if not known or version > known then
-                        versions[document.uri] = version
-                    end
-                end
-                queued[#queued + 1] = message
-            end
-        end
-    end
 
     --- Reads from the relay through the cell. This frame owns the cell and closes it
     --- after the loop below, so the cell being gone cannot happen here.
@@ -2059,15 +2050,20 @@ function lsp.run(rootDir: string?): integer
         return chunk
     end
 
+    local function feed(chunk: string): nil
+        if not broken then
+            broken = frames.feed(chunk)
+        end
+    end
+
     local function pump(): nil
         while true do
             local chunk = read(false)
             if chunk == nil or #chunk == 0 then
                 break
             end
-            buffered = buffered .. chunk
+            feed(chunk)
         end
-        harvest()
     end
 
     host = {
@@ -2075,20 +2071,12 @@ function lsp.run(rootDir: string?): integer
         cancellation = {},
         pump = pump,
         cancelled = function(): boolean
-            return host.currentId ~= nil and cancelled[host.currentId] == true
+            return host.currentId ~= nil and frames.isCancelled(host.currentId)
         end,
-        cancel = function(id): nil
-            cancelled[id] = true
-        end,
-        isCancelled = function(id): boolean
-            return cancelled[id] == true
-        end,
-        clearCancelled = function(id): nil
-            cancelled[id] = nil
-        end,
-        documentVersion = function(uri): integer?
-            return versions[uri]
-        end,
+        cancel = frames.cancel,
+        isCancelled = frames.isCancelled,
+        clearCancelled = frames.clearCancelled,
+        documentVersion = frames.documentVersion,
     }
 
     local session = lsp.newSession(rootDir, send, host)
@@ -2097,27 +2085,44 @@ function lsp.run(rootDir: string?): integer
     -- run is still two discharges of one owner as far as the checker can see, and it is
     -- right to say so: nothing here proves the reader ending is the end of the loop.
     local ended = false
-    while session.running() and not ended do
+    while session.running() and not ended and not broken do
         pump()
-        while #queued == 0 do
+        while not frames.pending() and not broken do
             local chunk = read(true)
             if chunk == nil then
                 ended = true
                 break
             end
-            buffered = buffered .. chunk
-            harvest()
+            feed(chunk)
         end
-        if not ended then
-            local msg = table.remove(queued, 1)
+        local msg = not ended and not broken and frames.take() or nil
+        if msg and msg.malformed then
+            send({jsonrpc = "2.0", id = json.NULL, error = {code = msg.code, message = msg.message}})
+        elseif msg then
             host.currentId = msg.id
             session.dispatch(msg)
             host.currentId = nil
         end
     end
+    -- The relay has stopped by the time its output ends. One that stopped because it
+    -- could not read a frame has already said why, and the session it was feeding did
+    -- not end the way the client meant it to.
+    local relayFailed = false
+    if ended then
+        relay:with(function(borrows child: process.Process): nil
+            relayFailed = not child:wait():succeeded()
+        end)
+    end
     nupp.drop(relayOwner)
+    if broken then
+        io.stderr:write("nupp-lsp: " .. broken .. "\n")
+        return 1
+    end
+    if relayFailed then
+        return 1
+    end
 
-    return 0
+    return session.exitCode()
 end
 
 export = lsp

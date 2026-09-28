@@ -1,0 +1,167 @@
+module nupp.tools.lsp.transport
+
+--[[
+The server's side of the stdio framing, apart from the pipe it reads.
+
+Frames arrive as `Content-Length` headers and JSON bodies, split across reads in
+any way the pipe likes. This takes the bytes as they come, cuts them into
+messages, and keeps the two facts the session asks about while it is busy:
+which requests the client has cancelled, and the newest version of each
+document it has sent. Both are recorded as a message is read rather than as it
+is handled, because the point of them is news that arrives during the work.
+
+Everything read from the client is untrusted. A frame that does not decode, or
+decodes to something that is not a request, is answered with the protocol's
+error for it rather than ending the session; a frame larger than `MAX_FRAME` is
+the one thing that does end it, because the only way to skip one is to read it.
+]]
+
+local json = require("nupp.codec.json")
+
+local transport = {}
+
+--- The largest body one frame may declare, in bytes. A document the editor opens
+--- travels in one frame, so this is also the largest file the server will take,
+--- and it is far above any source file while still something a process can hold.
+transport.MAX_FRAME = 64 * 1024 * 1024
+
+--- A frame that could not be taken as a message, and the protocol error that
+--- answers it: -32700 for a body that is not JSON, -32600 for JSON that is not a
+--- request or notification.
+type transport.Malformed = {
+    malformed: boolean,
+    code: integer,
+    message: string
+}
+
+--- One direction of the framing, and what it has learned from what it read.
+type transport.Transport = {
+    --- Takes bytes as they arrive. Answers why the stream cannot go on when a frame
+    --- declares a body larger than `MAX_FRAME`; nil otherwise.
+    feed: function(string): string?,
+
+    --- The next message read and not yet taken, a `Malformed` in its place, or nil
+    --- when nothing complete has arrived.
+    take: function(): any,
+
+    --- Whether anything is waiting to be taken.
+    pending: function(): boolean,
+    cancel: function(any): nil,
+    isCancelled: function(any): boolean,
+    clearCancelled: function(any): nil,
+
+    --- The newest version of a document any message read so far has named.
+    documentVersion: function(string): integer?
+}
+
+--- A new, empty transport.
+function transport.new(): transport.Transport
+    local buffered = ""
+    local queued: {any} = {}
+    local cancelled: {[any]: boolean} = {}
+    local versions: {[string]: integer} = {}
+
+    local function malformed(code: integer, message: string): transport.Malformed
+        return {malformed = true, code = code, message = message}
+    end
+
+    -- One frame off the front of the buffer: nil while none is complete, the decoded
+    -- message, or a Malformed standing in for a frame that was consumed without being
+    -- one. A bad frame must still be consumed: answering nil for it would leave every
+    -- frame behind it waiting for input that may never come.
+    local function frame(): (any, string?)
+        local headerEnd = buffered:find("\r\n\r\n", 1, true)
+        if not headerEnd then
+            return nil
+        end
+        local header = buffered:sub(1, headerEnd - 1)
+        local digits = header:match("[Cc]ontent%-[Ll]ength:%s*(%d+)")
+        local bodyAt = headerEnd + 4
+        if not digits then
+            buffered = buffered:sub(bodyAt)
+            return malformed(-32700, "frame has no Content-Length")
+        end
+        local length = tonumber(digits)
+        if #digits > 12 or not length or length > transport.MAX_FRAME then
+            return nil, (
+                "frame declares %s bytes, more than the %d a frame may hold"
+            ):format(digits, transport.MAX_FRAME)
+        end
+        if #buffered < bodyAt + length - 1 then
+            return nil
+        end
+        local body = buffered:sub(bodyAt, bodyAt + length - 1)
+        buffered = buffered:sub(bodyAt + length)
+        local ok, message = pcall(json.decode, body, json.NULL)
+        if not ok then
+            return malformed(-32700, "frame body is not JSON")
+        end
+        if type(message) ~= "table" or (message.method == nil and message.id == nil) then
+            return malformed(-32600, "frame body is not a request or notification")
+        end
+
+        return message
+    end
+
+    -- The bookkeeping that has to happen as a message is read. Each field is checked
+    -- before it is trusted: a cancellation without an id, or params that are not an
+    -- object, is a malformed notification and not a reason to stop reading.
+    local function note(message: any): nil
+        local params = message.params
+        if message.method == "$/cancelRequest" then
+            if type(params) == "table" and params.id ~= nil and params.id ~= json.NULL then
+                cancelled[params.id] = true
+            end
+            return
+        end
+        local document = type(params) == "table" and params.textDocument or nil
+        local version = type(document) == "table" and tonumber(document.version) or nil
+        if version and type(document.uri) == "string" then
+            local known = versions[document.uri]
+            if not known or version > known then
+                versions[document.uri] = version as integer
+            end
+        end
+        queued[#queued + 1] = message
+    end
+
+    return {
+        feed = function(chunk: string): string?
+            buffered = buffered .. chunk
+            while true do
+                local message, fatal = frame()
+                if fatal then
+                    return fatal
+                end
+                if message == nil then
+                    return nil
+                end
+                if message.malformed then
+                    queued[#queued + 1] = message
+                else
+                    note(message)
+                end
+            end
+        end,
+        take = function(): any
+            return table.remove(queued, 1)
+        end,
+        pending = function(): boolean
+            return #queued > 0
+        end,
+        cancel = function(id: any): nil
+            cancelled[id] = true
+        end,
+        isCancelled = function(id: any): boolean
+            return cancelled[id] == true
+        end,
+        clearCancelled = function(id: any): nil
+            cancelled[id] = nil
+        end,
+        documentVersion = function(uri: string): integer?
+            return versions[uri]
+        end,
+    }
+end
+
+export = transport

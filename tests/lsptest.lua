@@ -5497,4 +5497,122 @@ return double
     test.equal(answer["function"].aotSource, "kernel.nupp")
 end
 
+-- The stdio transport, driven with raw bytes through the real server. What a
+-- client sends is untrusted, and the dispatcher guards every handler so one bad
+-- message cannot end a session; these are the messages that used to end it
+-- before any handler ran.
+local function serveRaw(input, rootDir)
+    local infile, outfile, errfile = os.tmpname(), os.tmpname(), os.tmpname()
+    local f = assert(io.open(infile, "wb"))
+    f:write(input)
+    f:close()
+    local status = os.execute(
+        ("'%s/bin/nupp' lsp serve '%s' < '%s' > '%s' 2>'%s'"):format(ROOT, rootDir or scratchRoot(), infile, outfile, errfile)
+    )
+    local out = assert(io.open(outfile, "rb")):read("*a")
+    local err = assert(io.open(errfile, "rb")):read("*a")
+    os.remove(infile)
+    os.remove(outfile)
+    os.remove(errfile)
+
+    return out, err, status
+end
+
+function M.aCancellationWithoutAnIdLeavesTheServerRunning()
+    local input = {frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}})}
+    for _, params in ipairs({{}, 5, "x", {id = json.NULL}}) do
+        input[#input + 1] = frame({jsonrpc = "2.0", method = "$/cancelRequest", params = params})
+    end
+    input[#input + 1] = frame({jsonrpc = "2.0", id = 2, method = "shutdown"})
+    input[#input + 1] = frame({jsonrpc = "2.0", method = "exit"})
+    local out, err, status = serveRaw(table.concat(input))
+    assert(responseWithId(out, 2), "the request after the cancellations is answered: " .. err)
+    assert(status == 0, "and the session ends cleanly: " .. tostring(status) .. " " .. err)
+end
+
+-- A frame is read whole before it is decoded, so a length nobody could send is
+-- one the server cannot skip past. It stops, says why, and says it failed: a
+-- clean exit would tell the client the session ended on purpose.
+function M.anOversizedFrameEndsTheServerWithAFailure()
+    for _, length in ipairs({"99999999999999999999", "4000000000"}) do
+        local out, err, status = serveRaw(
+            frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}})
+                .. "Content-Length: " .. length .. "\r\n\r\n{}"
+        )
+        assert(responseWithId(out, 1), "the frame before it is answered")
+        assert(status ~= 0, length .. ": the server reports a failure: " .. tostring(status))
+        assertContains(err, "more than", length .. ": and says why")
+        assert(not err:find("not enough memory", 1, true), err)
+    end
+end
+
+-- The lifecycle the protocol lays down: nothing but `initialize` before
+-- `initialize`, nothing but `exit` after `shutdown`, an `exit` that did not
+-- follow `shutdown` is a failure, and a frame that is not a message is answered
+-- with the error for it rather than dropped.
+function M.theServerFollowsTheProtocolLifecycle()
+    local out, err, status = serveRaw(table.concat({
+        frame({jsonrpc = "2.0", id = 1, method = "textDocument/hover", params = {}}),
+        frame({jsonrpc = "2.0", id = 2, method = "initialize", params = {}}),
+        "Content-Length: 5\r\n\r\n{abc}",
+        "Content-Length: 2\r\n\r\n[]",
+        frame({jsonrpc = "2.0", id = 3, method = "shutdown"}),
+        frame({jsonrpc = "2.0", id = 4, method = "textDocument/hover", params = {}}),
+        frame({jsonrpc = "2.0", method = "exit"}),
+    }))
+    assert(responseWithId(out, 1).error.code == -32002, "a request before initialize: " .. out)
+    assert(responseWithId(out, 2).result.capabilities, "initialize is answered")
+    assert(responseWithId(out, 4).error.code == -32600, "a request after shutdown: " .. out)
+    local codes = {}
+    for _, message in ipairs(decodeMessages(out)) do
+        if message.id == json.NULL and message.error then
+            codes[#codes + 1] = message.error.code
+        end
+    end
+    assert(table.concat(codes, " ") == "-32700 -32600", "malformed frames are answered: " .. out)
+    assert(status == 0, "exit after shutdown succeeds: " .. tostring(status) .. " " .. err)
+
+    local _, _, abrupt = serveRaw(table.concat({
+        frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}}),
+        frame({jsonrpc = "2.0", method = "exit"}),
+    }))
+    assert(abrupt ~= 0, "exit without shutdown fails")
+    local _, _, ended = serveRaw(frame({jsonrpc = "2.0", id = 1, method = "initialize", params = {}}))
+    assert(ended ~= 0, "input that ends without shutdown fails")
+end
+
+-- What the transport records as it reads, rather than as the session handles:
+-- the newest version of each document, whatever order they arrive in, and every
+-- frame of a chunk even when one of them is not a message.
+function M.theTransportKeepsTheNewestVersionAndEveryFrame()
+    local transport = require("nupp.tools.lsp.transport")
+    local t = transport.new()
+    local function change(version)
+        return frame({
+            jsonrpc = "2.0",
+            method = "textDocument/didChange",
+            params = {textDocument = {uri = "file:///a.nupp", version = version}, contentChanges = {}}
+        })
+    end
+    assert(t.feed(change(3) .. change(2)) == nil)
+    test.equal(t.documentVersion("file:///a.nupp"), 3)
+    assert(t.feed(change(4)) == nil)
+    test.equal(t.documentVersion("file:///a.nupp"), 4)
+
+    local u = transport.new()
+    local ping = frame({jsonrpc = "2.0", id = 7, method = "ping"})
+    assert(u.feed("Content-Length: 5\r\n\r\n{abc}" .. ping:sub(1, 10)) == nil)
+    assert(u.feed(ping:sub(11)) == nil)
+    local first, second = u.take(), u.take()
+    assert(first and first.malformed and first.code == -32700, "the bad frame is reported")
+    assert(second and second.id == 7, "and the frame behind it in the same chunk still arrives")
+    assert(u.take() == nil)
+
+    local v = transport.new()
+    assert(v.feed(frame({jsonrpc = "2.0", method = "$/cancelRequest", params = {}})) == nil)
+    assert(v.feed(frame({jsonrpc = "2.0", method = "$/cancelRequest", params = {id = 9}})) == nil)
+    assert(v.isCancelled(9) and v.take() == nil, "cancellations are recorded, not queued")
+    assert(v.feed("Content-Length: " .. (transport.MAX_FRAME + 1) .. "\r\n\r\n"), "an oversized frame is fatal")
+end
+
 return M
