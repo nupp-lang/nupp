@@ -54,11 +54,11 @@ fn gpu_status(error: &GpuError) -> Status {
         | GpuError::DownloadPending(_)
         | GpuError::DownloadUnread(_)
         | GpuError::DownloadNotReady(_)
-        | GpuError::DownloadMismatch { .. }
-        | GpuError::AdapterUnavailable(_) => Status::InvalidArgument,
+        | GpuError::DownloadMismatch { .. } => Status::InvalidArgument,
         GpuError::StaleHandle(_) => Status::StaleHandle,
         GpuError::Capacity => Status::Capacity,
-        GpuError::DeviceRequest(_)
+        GpuError::AdapterUnavailable(_)
+        | GpuError::DeviceRequest(_)
         | GpuError::Validation(_)
         | GpuError::Device(_)
         | GpuError::Poll(_)
@@ -561,6 +561,18 @@ mod tests {
         );
         assert_eq!(nuppNativeGpuContextRelease(fresh), 0);
         assert_eq!(nuppNativeGpuContextRelease(context), 0);
+    }
+
+    #[test]
+    fn a_missing_adapter_is_not_the_caller_s_mistake() {
+        assert_eq!(
+            gpu_status(&GpuError::AdapterUnavailable("none".to_owned())),
+            Status::Internal
+        );
+        assert_eq!(
+            gpu_status(&GpuError::CostOutput("disk full".to_owned())),
+            Status::Internal
+        );
     }
 
     #[test]

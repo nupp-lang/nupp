@@ -571,7 +571,26 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
 NUPP_NATIVE_EXPORT size_t nuppNativeProcessAbandonedTotal(void);
 
 /* Present when NUPP_NATIVE_FEATURE_GPU is set. Every object is an opaque,
- * generational integer handle; no provider-owned pointer crosses the ABI. */
+ * generational integer handle; no provider-owned pointer crosses the ABI.
+ *
+ * - A context, and every buffer, kernel and binding set made in it, is used
+ *   only from the thread that created the context. Another thread's call is
+ *   refused with INVALID_ARGUMENT. Contexts do not wait on one another.
+ * - Upload, download and binding offsets and sizes are multiples of 4 bytes,
+ *   except that a range ending the buffer may end partway through a word.
+ *   Binding offsets are also multiples of the device's minimum storage
+ *   buffer offset alignment.
+ * - One allocation may not be bound for reading and for writing in the same
+ *   binding set.
+ * - The workgroup size a kernel is created with must be the LocalSize its
+ *   entry point compiles in. A dispatch covers ceil(work items / workgroup
+ *   size) workgroups per dimension, at most the device's per-dimension limit
+ *   (65535 on common adapters).
+ * - A buffer holds at most one download: queue it, synchronize, then read
+ *   it, before queuing the next.
+ * - Validation failures inside the device and device faults are reported by
+ *   the next synchronize, not by the call that caused them.
+ * - No usable adapter fails context creation with INTERNAL. */
 /* Empty path restores NUPP_GPU_COSTS, appending to it after the first time the
  * process opened it. Nonempty paths select process-local JSONL. The switch
  * happens even when the previous output had a write failure, which is then
