@@ -3168,7 +3168,8 @@ end
 
 -- The lines of a documentation page's section: the heading the anchor names and
 -- everything under it up to the next heading at its level or above, or the whole
--- page when the anchor is empty. Headings inside a fenced block are text.
+-- page when the anchor is empty. Headings inside a fenced block are text, and an
+-- explicit `<a id>` names the heading after it.
 local function pageSection(source: string, anchor: string): (string?, string?)
     local headingId = require("nupp.tools.doc.strings").headingId
     source = source:gsub("^%-%-%-\r?\n.-\r?\n%-%-%-\r?\n", "")
@@ -3176,6 +3177,7 @@ local function pageSection(source: string, anchor: string): (string?, string?)
     local level: integer = 0
     local body: {string} = {}
     local fence: string? = nil
+    local named = false
     for line in (source .. "\n"):gmatch("([^\n]*)\n") do
         local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
         local hashes, text = nil, nil
@@ -3194,8 +3196,10 @@ local function pageSection(source: string, anchor: string): (string?, string?)
                 break
             end
             body[#body + 1] = line
-        elseif hashes and text and (anchor == "" or headingId(text) == anchor) then
+        elseif hashes and text and (named or anchor == "" or headingId(text) == anchor) then
             title, level = text:gsub("`", ""), anchor == "" and 0 or #hashes
+        elseif not fence and anchor ~= "" and line:find('<a id="' .. anchor .. '"', 1, true) then
+            named = true
         end
     end
     if not title then
