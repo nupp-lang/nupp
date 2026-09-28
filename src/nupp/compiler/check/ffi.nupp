@@ -57,6 +57,13 @@ type ffi.Intrinsic = function(
     argStr: any
 ): Type?
 
+--- Whether `t` is a cdef aggregate that declares no fields. That is how an incomplete
+--- C struct is spelled -- `import-c` renders one so -- and C gives it no size, so it
+--- exists only behind a pointer.
+local function fieldlessCdef(t: any): boolean
+    return t ~= nil and t.tag == "nominal" and t.cdefName ~= nil and #(t.fieldOrder or {}) == 0
+end
+
 --- The text inside a string literal, whichever way it was quoted.
 local function cdefBody(text: string): string?
     return text:match("^%[%[(.*)%]%]$")
@@ -174,6 +181,16 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             for j, e in ipairs(argExprs) do
                 ffiArgs[j] = c.infer(e)
             end
+            if name == "new" and fieldlessCdef(argT) then
+                c.diag(
+                    "NUPP2203",
+                    node,
+                    (
+                        "%s declares no fields, so C gives it no size; use it only behind a pointer"
+                    ):format(tostring((argT as any).name))
+                )
+                return argT
+            end
             if name == "new" or name == "cast" then
                 if name == "cast" and c.pointerShaped(argT) and ffiArgs[1] and isA(ffiArgs[1], T.string) then
                     local roots = c.own.provenanceOwners(argExprs[1])
@@ -254,6 +271,16 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             local countT = args[2] and c.infer(args[2]) or nil
             if not elemT or elemT.tag ~= "nominal" or elemT.declKind ~= "struct" then
                 c.diag("NUPP2401", node, "carray needs a struct type as its first argument")
+                return T.any
+            end
+            if fieldlessCdef(elemT) then
+                c.diag(
+                    "NUPP2401",
+                    node,
+                    (
+                        "%s declares no fields, so C gives it no size and an array of it has no elements"
+                    ):format(tostring(elemT.name))
+                )
                 return T.any
             end
             if not countT or not (countT == T.any or isA(countT, T.number)) then

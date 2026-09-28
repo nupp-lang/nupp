@@ -255,7 +255,9 @@ An attribute that would change a declaration without LuaJIT seeing it, such as
 `ext_vector_type` or a calling-convention attribute, refuses the declaration
 before it is parsed. An incomplete struct, declared but never defined, arrives
 as a fieldless `cdef struct` with a comment saying it is a handle: a pointer
-to it is an ordinary parameter or result, and it is never a value.
+to it is an ordinary parameter or result, and it is never a value. The checker
+holds that for any fieldless `cdef struct`: `ffi.new<T>` reports NUPP2203 and
+`carray(T, n)` reports NUPP2401, since C gives it no size.
 
 A declaration LuaJIT itself will not parse gets the same comment and does not
 take the header down with it. That is commonly a struct laid out from a type

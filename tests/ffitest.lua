@@ -50,6 +50,15 @@ function M.newReturnsTheTypeItWasGiven()
     assertEq(diagsOf(P .. "\nlocal p = ffi.new<P>()\nlocal v = p.nope"), "NUPP2004")
 end
 
+function M.aFieldlessCdefStructIsNeverAllocated()
+    -- import-c renders an incomplete C struct this way. C gives it no size, so the
+    -- storage behind a value of it would be whatever C writes past.
+    local opaque = "cdef struct Opaque\nend"
+    assertEq(diagsOf(opaque .. "\nlocal p: Opaque*? = nil\nreturn p"), "")
+    assertEq(diagsOf(opaque .. "\nlocal o = ffi.new<Opaque>()"), "NUPP2203")
+    assertEq(diagsOf(opaque .. "\nlocal o = carray(Opaque, 4)"), "NUPP2401")
+end
+
 function M.castReturnsTheTargetType()
     assertEq(
         diagsOf(
