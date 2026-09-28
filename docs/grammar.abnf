@@ -218,13 +218,14 @@ fieldsep       = "," / ";"
 ;;; Lexical grammar
 ;;; ------------------------------------------------------------------
 
-; A source file is a sequence of tokens with trivia interleaved. A BOM and a
-; hashbang line may only appear at the very start of the file.
+; A source file is a sequence of tokens with trivia interleaved. A BOM may only
+; appear at the very start of the file, and a hashbang line only at the start or
+; directly after the BOM.
 
 Trivia         = Whitespace / Comment / Hashbang / BOM
 Whitespace     = 1*(%x20 / %x09 / %x0A / %x0B / %x0C / %x0D)
 Comment        = "--" (LongBracket / *(%x00-09 / %x0B-10FFFF))   ; to end of line
-Hashbang       = "#" *(%x00-09 / %x0B-10FFFF)                    ; only at offset 0
+Hashbang       = "#" *(%x00-09 / %x0B-10FFFF)                    ; offset 0, or after BOM
 BOM            = %xEF.BB.BF                                       ; only at offset 0
 
 Name           = NameStart *NameChar                              ; minus Keyword

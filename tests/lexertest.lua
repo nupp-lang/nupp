@@ -300,4 +300,22 @@ function M.backtickBodiesQuoteEscapedQuotesOnce()
     end
 end
 
+-- The errors `lex` reports for `src`, as "line:col message" strings.
+local function errorsOf(src)
+    local _, errors = lexer.lex(src)
+    local out = {}
+    for _, e in ipairs(errors) do
+        out[#out + 1] = ("%d:%d %s"):format(e.line, e.col, e.msg)
+    end
+    return table.concat(out, "; ")
+end
+
+-- LuaJIT skips a hashbang line after a byte-order mark too.
+function M.aHashbangMayFollowAByteOrderMark()
+    local src = "\239\187\191#!/usr/bin/env nupp\nprint(1)\n"
+    assertEq(errorsOf(src), "")
+    assertEq(kindsOf(src), "name ( number )")
+    assertRoundtrip(src)
+end
+
 return M
