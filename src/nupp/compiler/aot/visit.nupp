@@ -212,7 +212,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.right = rewrite(value.right)
             yield nil
         end
-        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_div", "u32_mod", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i64_add", "i64_sub", "i64_mul", "i64_div", "i64_mod", "i64_pow", "u64_add", "u64_sub", "u64_mul", "u64_div", "u64_mod", "u64_pow", "u64_and", "u64_or", "u64_xor", "u64_shl", "u64_shr" -> do
+        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_div", "u32_mod", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i32_rotl", "i32_rotr", "u32_rotl", "u32_rotr", "i64_add", "i64_sub", "i64_mul", "i64_div", "i64_mod", "i64_pow", "u64_add", "u64_sub", "u64_mul", "u64_div", "u64_mod", "u64_pow", "u64_and", "u64_or", "u64_xor", "u64_shl", "u64_shr" -> do
             local value = node as scalarIR.Fixed
             value.left = rewrite(value.left)
             value.right = rewrite(value.right)
@@ -228,7 +228,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.value = rewrite(value.value)
             yield nil
         end
-        case "narrow_f64_f32", "widen_f32_f64", "int_to_f64", "numeric_cast", "store_cast", "f16_to_f32", "f32_to_f16", "bf16_to_f32", "f32_to_bf16" -> do
+        case "narrow_f64_f32", "widen_f32_f64", "int_to_f64", "numeric_cast", "store_cast", "f32_from_bits", "f32_to_bits", "f16_to_f32", "f32_to_f16", "bf16_to_f32", "f32_to_bf16" -> do
             local value = node as scalarIR.Convert
             value.value = rewrite(value.value)
             yield nil

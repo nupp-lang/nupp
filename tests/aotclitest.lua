@@ -4961,6 +4961,29 @@ return {first = first}
     )
 end
 
+function M.aMethodOnAStringIsRefusedAsOne()
+    -- Only a SIMD value has native methods. `s:sub(i)` on a string used to be
+    -- refused as "not an admitted SIMD operation", which sent the reader to
+    -- the SIMD pages for a question about strings.
+    local dir = project{
+        [
+            "method.nupp"
+        ] = [[
+@aot
+local function rest(source: string, from: integer): string
+    return source:sub(from)
+end
+return {rest = rest}
+]],
+    }
+    local out, code = run(dir, "--emit ir method.nupp")
+    test.equal(code, 1, out)
+    assert(
+        out:find("method.nupp:3:12: aot: method :sub on a string is not admitted", 1, true),
+        "the refusal names the receiver: " .. out
+    )
+end
+
 function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     -- `cursor < #source` outside the loop bounds the read on the first pass
     -- only: the body moves the cursor, and the second pass reads wherever it

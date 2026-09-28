@@ -234,6 +234,10 @@ const verify.FIXED_BINARY = {
     ["u32_xor"] = "u32",
     ["u32_shl"] = "u32",
     ["u32_shr"] = "u32",
+    ["i32_rotl"] = "i32",
+    ["i32_rotr"] = "i32",
+    ["u32_rotl"] = "u32",
+    ["u32_rotr"] = "u32",
     ["u64_add"] = "u64",
     ["u64_sub"] = "u64",
     ["u64_mul"] = "u64",
@@ -261,6 +265,8 @@ const verify.CONVERSIONS = {
     ["int_to_f64"] = true,
     ["numeric_cast"] = true,
     ["store_cast"] = true,
+    ["f32_from_bits"] = true,
+    ["f32_to_bits"] = true,
     ["f16_to_f32"] = true,
     ["f32_to_f16"] = true,
     ["bf16_to_f32"] = true,
@@ -596,6 +602,10 @@ local function convert(node: scalarIR.Convert, values: {[string]: string}, scope
         holds(node.type == "f32" and from == "u32", "invalid bfloat16 load conversion")
     elseif node.op == "f32_to_bf16" then
         holds(node.type == "u32" and from == "f32", "invalid bfloat16 store conversion")
+    elseif node.op == "f32_from_bits" then
+        holds(node.type == "f32" and from == "u32", "invalid binary32 bit reinterpretation")
+    elseif node.op == "f32_to_bits" then
+        holds(node.type == "u32" and from == "f32", "invalid binary32 bit reinterpretation")
     elseif node.op == "store_cast" then
         holds(
             (node.type == "i32" or node.type == "u32" or node.type == "i64" or node.type == "u64") and from == "f64",

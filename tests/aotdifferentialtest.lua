@@ -144,6 +144,75 @@ return m
 local m = {}
 
 @aot
+local function iandb(a: int32, b: int32): int32
+    return nupp.math.i32.andBits(a, b)
+end
+@aot
+local function iorb(a: int32, b: int32): int32
+    return nupp.math.i32.orBits(a, b)
+end
+@aot
+local function ixorb(a: int32, b: int32): int32
+    return nupp.math.i32.xorBits(a, b)
+end
+@aot
+local function inotb(a: int32): int32
+    return nupp.math.i32.notBits(a)
+end
+@aot
+local function ishlb(a: int32, b: int32): int32
+    return nupp.math.i32.shiftLeft(a, b)
+end
+@aot
+local function isar(a: int32, b: int32): int32
+    return nupp.math.i32.shiftRightArithmetic(a, b)
+end
+@aot
+local function irol(a: int32, b: int32): int32
+    return nupp.math.i32.rotateLeft(a, b)
+end
+@aot
+local function iror(a: int32, b: int32): int32
+    return nupp.math.i32.rotateRight(a, b)
+end
+@aot
+local function iless(a: int32, b: int32): boolean
+    return nupp.math.i32.lessThan(a, b)
+end
+@aot
+local function ilesseq(a: int32, b: int32): boolean
+    return nupp.math.i32.lessOrEqual(a, b)
+end
+@aot
+local function itou(a: int32): uint32
+    return nupp.math.i32.toU32(a)
+end
+@aot
+local function urol(a: uint32, b: uint32): uint32
+    return nupp.math.u32.rotateLeft(a, b)
+end
+@aot
+local function uror(a: uint32, b: uint32): uint32
+    return nupp.math.u32.rotateRight(a, b)
+end
+@aot
+local function uless(a: uint32, b: uint32): boolean
+    return nupp.math.u32.lessThan(a, b)
+end
+@aot
+local function ulesseq(a: uint32, b: uint32): boolean
+    return nupp.math.u32.lessOrEqual(a, b)
+end
+@aot
+local function fbits(a: uint32): uint32
+    return nupp.math.f32.toBits(nupp.math.f32.fromBits(a))
+end
+@aot
+local function ftobits(a: number): uint32
+    return nupp.math.f32.toBits(nupp.math.f32.narrow(a))
+end
+
+@aot
 local function iadd(a: int32, b: int32): int32
     return a + b
 end
@@ -220,6 +289,23 @@ m.umod = umod
 m.ushr = ushr
 m.mixlt = mixlt
 
+m.iandb = iandb
+m.iorb = iorb
+m.ixorb = ixorb
+m.inotb = inotb
+m.ishlb = ishlb
+m.isar = isar
+m.irol = irol
+m.iror = iror
+m.iless = iless
+m.ilesseq = ilesseq
+m.itou = itou
+m.urol = urol
+m.uror = uror
+m.uless = uless
+m.ulesseq = ulesseq
+m.fbits = fbits
+m.ftobits = ftobits
 
 return m
 ]=],
@@ -461,6 +547,18 @@ do
         for _, a in ipairs(N) do cases[#cases + 1] = {"fixed32", f, {a, n = 1}} end
     end
     for _, a in ipairs(I) do for _, b in ipairs(U) do cases[#cases + 1] = {"fixed32", "mixlt", {a, b, n = 2}} end end
+    for _, f in ipairs({"iandb", "iorb", "ixorb", "ishlb", "isar", "irol", "iror", "iless", "ilesseq"}) do
+        for _, a in ipairs(I) do for _, b in ipairs(I) do cases[#cases + 1] = {"fixed32", f, {a, b, n = 2}} end end
+    end
+    for _, f in ipairs({"inotb", "itou"}) do
+        for _, a in ipairs(I) do cases[#cases + 1] = {"fixed32", f, {a, n = 1}} end
+    end
+    for _, f in ipairs({"urol", "uror", "uless", "ulesseq"}) do
+        for _, a in ipairs(U) do for _, b in ipairs(U) do cases[#cases + 1] = {"fixed32", f, {a, b, n = 2}} end end
+    end
+    local B = {0, 1, 0x80000000, 0x7f800000, 0xff800000, 0x7fc00000, 0x7f800001, 0xffc00001, 0x7fffffff, 0x3f800000, 0x00000001, 0x80000001}
+    for _, a in ipairs(B) do cases[#cases + 1] = {"fixed32", "fbits", {a, n = 1}} end
+    for _, a in ipairs({0, -0.0, 1.5, -1e-40, 1e39, 0/0, math.huge, -math.huge, 0.1}) do cases[#cases + 1] = {"fixed32", "ftobits", {a, n = 1}} end
     groups.fixed32 = cases
 end
 
@@ -687,7 +785,7 @@ function M.binary64AgreesWithLua()
 end
 
 -- Wrapping arithmetic, `u32.div` and `u32.mod` by zero, the floored `%` of
--- two `int32`s, and `wrap`'s rounding.
+-- two `int32`s, `wrap`'s rounding, and every signed and unsigned bit intrinsic.
 function M.fixedWidth32AgreesWithLua()
     agrees("fixed32")
 end

@@ -532,6 +532,10 @@ const WIDE_BINARY: {
 }
 const BITWISE: {[string]: string} = {["band"] = "and", ["bor"] = "or", ["bxor"] = "xor",}
 
+--- The canonical quiet binary32 NaN, `0x7FC00000`, spelled as LLVM spells a
+--- float constant.
+const F32_CANONICAL_NAN = "0x7FF8000000000000"
+
 --- The 64-bit operations a prelude helper defines, because LuaJIT's answer is
 --- not one instruction's.
 const WIDE_HELPER: {
@@ -934,6 +938,36 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             ctx,
             ("%s i32 %s, %s"):format(operation == "u32_shl" and "shl" or "lshr", u32Bits(ctx, a, at), shift)
         ), "u32"
+    elseif operation == "i32_rotl" or operation == "i32_rotr" or operation == "u32_rotl" or operation == "u32_rotr" then
+        -- A funnel shift of a value with itself is a rotate, and it masks its
+        -- count to the width, as the Lua `rol` and `ror` do.
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local value = u32Bits(ctx, a, at)
+        local funnel = operation:sub(-1) == "l" and "llvm.fshl.i32" or "llvm.fshr.i32"
+        local callee = prelude.intrinsic(ctx.module, funnel, "i32 @NAME(i32, i32, i32)")
+
+        return context.value(
+            ctx,
+            ("call i32 %s(i32 %s, i32 %s, i32 %s)"):format(callee, value, value, u32Bits(ctx, b, bt))
+        ), operation:sub(1, 1) == "u"
+            and "u32"
+            or "i32"
+    elseif operation == "f32_to_bits" then
+        -- Every NaN reads as the one canonical pattern, as `nupp.math.f32` does.
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+        local operand = expressions.convert(ctx, value, t, "f32")
+        local bits = context.value(ctx, ("bitcast float %s to i32"):format(operand))
+        local nan = context.value(ctx, ("fcmp uno float %s, %s"):format(operand, operand))
+
+        return context.value(ctx, ("select i1 %s, i32 2143289344, i32 %s"):format(nan, bits)), "u32"
+    elseif operation == "f32_from_bits" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+        local bits = u32Bits(ctx, value, t)
+        local decoded = context.value(ctx, ("bitcast i32 %s to float"):format(bits))
+        local nan = context.value(ctx, ("fcmp uno float %s, %s"):format(decoded, decoded))
+
+        return context.value(ctx, ("select i1 %s, float %s, float %s"):format(nan, F32_CANONICAL_NAN, decoded)), "f32"
     elseif operation == "u64_shl" or operation == "u64_shr" then
         local binary = node as scalarIR.Fixed
         local a, at, b, bt = operands(ctx, binary.left, binary.right)

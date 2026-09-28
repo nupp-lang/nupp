@@ -2118,6 +2118,22 @@ local function fixedCall(
         end
     end
 
+    if fixed.form == "binary" then
+        return new scalarIR.Binary(
+            op = fixed.op as scalarIR.BinaryOp,
+            left = args[1],
+            right = args[2],
+            type = fixed.result as scalarIR.Type,
+            source = source
+        )
+    elseif fixed.form == "unary" then
+        return new scalarIR.Unary(
+            op = fixed.op as scalarIR.UnaryOp,
+            value = args[1],
+            type = fixed.result as scalarIR.Type,
+            source = source
+        )
+    end
     if fixed.arity == 1 then
         if FIXED_UNARY[tostring(fixed.op)] == true then
             return new scalarIR.FixedUnary(
@@ -4773,7 +4789,22 @@ local function expressionRaw(
         if simd ~= nil then
             return simd
         end
-        context.reject(lower.site(node), "method call is not an admitted SIMD operation")
+        -- Only a SIMD value has admitted methods. Say what the receiver was, so
+        -- `s:sub(i)` on a string is not reported as a SIMD question.
+        local call = node as cst.MethodCall
+        local method = call.name ~= nil and (call.name as lexer.Token).text or "?"
+        local receiverName = lower.nameOf(call.obj)
+        local binding = receiverName ~= nil and environment[receiverName as string] or nil
+        local receiverType = binding ~= nil and tostring(binding.type) or nil
+        local kind = binding ~= nil and tostring(binding.kind) or nil
+        local described = receiverType == "lua_string" and "a string"
+            or (kind == "write_span" or kind == "read_span") and "a span"
+            or receiverType ~= nil and "a " .. receiverType
+            or "this receiver"
+        context.reject(
+            lower.site(node),
+            "method :" .. method .. " on " .. described .. " is not admitted; only SIMD values have native methods"
+        )
     elseif kind == "bracketIndex" then
         local indexed = node as cst.BracketIndex
         local tableName = lower.nameOf(indexed.obj)
