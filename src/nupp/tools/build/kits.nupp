@@ -20,6 +20,7 @@ A kit is found, in order:
 Nothing is fetched until a build links for that platform.
 ]]
 
+local files = require("nupp.io.files")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")
 local packaging = require("nupp.tools.build.package")
@@ -170,18 +171,32 @@ local function unpack(record: kits.Record, archive: string, entry: string): stri
     local nonce = hash.sha256(entry .. tostring({}) .. tostring(os.clock())):sub(1, 16)
     local staging = entry .. ".tmp-" .. nonce
     fs.mkdir(staging)
+
+    -- Every path that does not rename the staging directory into place
+    -- removes it, or each failed attempt leaves one in the per-user cache.
+    local function abandon(why: string?): string?
+        if fs.exists(staging) then
+            files.remove(staging, true)
+        end
+
+        return why
+    end
+
     local err = codegen.unpackKit(archive, record.sha256, record.size, staging)
     if err ~= nil then
-        return "cannot unpack the link kit " .. record.artifact .. ": " .. err
+        return abandon("cannot unpack the link kit " .. record.artifact .. ": " .. err)
     end
     if kits.target(staging) ~= record.platform then
-        return "the link kit " .. record.artifact .. " does not link for " .. record.platform
+        return abandon("the link kit " .. record.artifact .. " does not link for " .. record.platform)
     end
     -- Another build may have installed the same entry meanwhile; its bytes
     -- passed the same digest, so either copy serves.
     local renamed = os.rename(staging, entry)
-    if not renamed and kits.target(entry) ~= record.platform then
-        return "cannot install the link kit at " .. entry
+    if not renamed then
+        abandon(nil)
+        if kits.target(entry) ~= record.platform then
+            return "cannot install the link kit at " .. entry
+        end
     end
 
     return nil

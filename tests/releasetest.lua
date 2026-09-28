@@ -150,6 +150,38 @@ function M.kitRecordsJoinTheCatalogANuppIsBuiltWith()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aKitThatFailsToUnpackLeavesNoStagingDirectory()
+    -- The archive passes its digest and size, then is not an archive at all.
+    -- Every failed attempt used to leave its staging directory in the cache.
+    local cache, stubs = temporaryDirectory(), temporaryDirectory()
+    local archive = ("not a kit archive\n"):rep(8)
+    write(stubs .. "/kit.tar.gz", archive)
+    local getenv = os.getenv
+    os.getenv = function(name)
+        if name == "NUPP_KIT_CACHE" then
+            return cache
+        elseif name == "NUPP_STUB_DIR" then
+            return stubs
+        end
+        return getenv(name)
+    end
+    local ok, directory, problem = pcall(require("nupp.tools.build.kits").install, {
+        platform = "linux-x86_64",
+        catalogRelease = "test",
+        artifact = "kit.tar.gz",
+        sha256 = require("nupp.compiler.hash").sha256(archive),
+        size = #archive,
+        hostFeatures = {},
+    })
+    os.getenv = getenv
+    assert(ok, directory)
+    assert(directory == nil and tostring(problem):find("cannot unpack", 1, true), tostring(problem))
+    local pipe = assert(io.popen(("find %q -name '*.tmp-*'"):format(cache)))
+    local left = pipe:read("*a")
+    pipe:close()
+    assert(left == "", "a failed unpack left its staging directory: " .. left)
+end
+
 function M.aRecordRejectsTheWrongExecutableFormat()
     local dir = temporaryDirectory()
     write(dir .. "/notices", "license text")
