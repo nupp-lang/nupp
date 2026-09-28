@@ -247,11 +247,12 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
         end
         local path = uriToPath(uri as string)
         s.useRoot(path)
-        local optLevel = math.floor(tonumber(params.optLevel) or 0)
-        if optLevel < 0 or optLevel > 2 then
+        local requested = params and params.optLevel
+        local optLevel: number? = requested == nil and 0 or type(requested) == "number" and requested or nil
+        if optLevel == nil or optLevel ~= math.floor(optLevel) or optLevel < 0 or optLevel > 2 then
             return unavailable(kind, "unknown-opt-level", "optimization levels are 0, 1 and 2")
         end
-        local built = assert(BUILDERS[kind])(doc, path, optLevel)
+        local built = assert(BUILDERS[kind])(doc, path, optLevel as integer)
         built.uri = uri
         built.version = doc.version
         -- What the client asked for, echoed so that two open artifacts of the same

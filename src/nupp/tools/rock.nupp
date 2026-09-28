@@ -45,6 +45,9 @@ end
 
 local function rootRockspec(root, asked): string?, string?
     if asked then
+        if normalize(asked) ~= basename(normalize(asked)) then
+            return nil, "the rockspec must be in the project root"
+        end
         local path = join(root, asked)
         if not fs.exists(path) then
             return nil, asked .. " is not there"

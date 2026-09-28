@@ -1738,8 +1738,8 @@ function lsp.readerMain(): integer
             return 1
         end
         local body = io.stdin:read(contentLength)
-        if body == nil then
-            return 0
+        if body == nil or #body ~= contentLength then
+            return 1
         end
         io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
     end

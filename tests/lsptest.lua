@@ -333,6 +333,30 @@ end
 
 local M = {}
 
+function M.readerRejectsATruncatedFrame()
+    local lsp = require("nupp.tools.lsp")
+    local originalInput, originalOutput = io.stdin, io.stdout
+    local reads = {"Content-Length: 4\r", "", "{}"}
+    local emitted = ""
+    io.stdin = {
+        read = function()
+            return table.remove(reads, 1)
+        end,
+    }
+    io.stdout = {
+        setvbuf = function()
+        end,
+        write = function(_, text)
+            emitted = emitted .. text
+        end,
+    }
+    local ok, status = pcall(lsp.readerMain)
+    io.stdin, io.stdout = originalInput, originalOutput
+    assert(ok, status)
+    test.equal(status, 1)
+    test.equal(emitted, "")
+end
+
 function M.syntaxTreeSpansAreHalfOpen()
     local parser = require("nupp.compiler.syntax.parser")
     local tree = require("nupp.tools.lsp.tree")
@@ -4916,6 +4940,20 @@ function M.anUnknownOptimizationLevelIsRefused()
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(result.available, false)
     test.equal(result.unavailable.reason, "unknown-opt-level")
+end
+
+function M.optimizationLevelsAreNotCoerced()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    for _, optLevel in ipairs({1.5, "1"}) do
+        local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {
+            kind = "lua",
+            optLevel = optLevel
+        })
+        test.equal(result.available, false)
+        test.equal(result.unavailable.reason, "unknown-opt-level")
+    end
+    os.execute("rm -rf '" .. projectDir .. "'")
 end
 
 -- One lens per function rather than one per artifact kind: most kinds do not
