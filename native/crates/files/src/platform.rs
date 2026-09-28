@@ -28,6 +28,12 @@ pub fn create_private_file(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
+/// Creates a new file with the mode an ordinary create would give it.
+#[cfg(feature = "lane")]
+pub fn create_default_file(path: &Path) -> io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
+}
+
 pub fn create_private_directory(path: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     configure_private_directory(&mut builder);

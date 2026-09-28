@@ -507,7 +507,14 @@ fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
             io::Error::other(format!("cannot create a temporary name: {error}"))
         })?;
         let temporary = directory.join(format!(".nupp-write-{:016x}", u64::from_le_bytes(stamp)));
-        let mut file = match platform::create_private_file(&temporary) {
+        // A new file gets the mode a plain write would give it. Replacing
+        // one keeps its mode, so the temporary stays private until it has it.
+        let created = if preserved.is_some() {
+            platform::create_private_file(&temporary)
+        } else {
+            platform::create_default_file(&temporary)
+        };
+        let mut file = match created {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 last_collision = Some(error);
@@ -778,6 +785,18 @@ mod tests {
                 .to_string_lossy()
                 .starts_with(".nupp-write-")
         }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_creates_a_file_with_the_mode_a_plain_write_gives() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = root("atomic-mode");
+        fs::write(root.join("plain.bin"), b"plain").unwrap();
+        write_atomic(&root.join("atomic.bin"), b"atomic").unwrap();
+        let mode = |name: &str| fs::metadata(root.join(name)).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode("atomic.bin"), mode("plain.bin"));
         fs::remove_dir_all(root).unwrap();
     }
 
