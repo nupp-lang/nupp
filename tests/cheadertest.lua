@@ -268,6 +268,25 @@ function M.theFirstHeaderThatExistsIsTheOneReported()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aStructHasOneIdentityWhicheverWayItIsReached()
+    -- A struct built from a type string is the header's own struct, so it passes
+    -- to the header's functions by value and by pointer.
+    local path, dir = scratchHeader("ident.h", table.concat({
+        "struct NuppIdentHfa { float a; float b; };",
+        "float nupp_ident_sum(struct NuppIdentHfa v);",
+        "float nupp_ident_first(struct NuppIdentHfa *v);",
+    }, "\n") .. "\n")
+    local diags = diagnosticsAt(dir .. "/probe.nupp", table.concat({
+        "local h = cheader('ident.h')",
+        "local v = ffi.new(\"struct NuppIdentHfa\")",
+        "local total: float = h.nupp_ident_sum(v)",
+        "local p = ffi.new(\"struct NuppIdentHfa *\")",
+        "@unsafe h.nupp_ident_first(p)",
+    }, "\n"))
+    os.execute("rm -rf '" .. dir .. "'")
+    assertEq(#diags, 0, diags[1] and diags[1].msg)
+end
+
 function M.generatedCodeDeclaresAndBinds()
     local result = parser.parse("local sink = cheader('fixtures/sink.h')\nreturn sink", HERE .. "/p.nupp")
     assertEq(#result.errors, 0, "parses")

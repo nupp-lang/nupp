@@ -81,6 +81,13 @@ local INT_BY_BITS = {
 local modelFunction -- defined below; a pointer may be to a function
 local adoptStruct -- defined below; aggregate references may be recursive
 
+-- Every struct type this process has built from LuaJIT's registry, by ctype id. A
+-- tag names one registry entry, so it names one type too, whether the struct was met
+-- through `cheader` or through a type string: two identities for one tag made the
+-- checker answer "Hfa is not a Hfa" to a program passing a struct it built with
+-- `ffi.new` to the header's own function.
+local adoptedById: {[integer]: T.Type} = {}
+
 -- A neutral C declaration type, as the Nupp type that stands for it.
 local function nuppType(model, structs, resolver)
     local kind = model and model.kind or "unknown"
@@ -118,6 +125,9 @@ local function nuppType(model, structs, resolver)
             if not named and resolver and pointee.name then
                 named = resolver(pointee.name)
             end
+            if not named and pointee.id then
+                named = adoptedById[pointee.id]
+            end
             if not named and pointee.name then
                 named = adoptStruct(pointee.name, pointee.kind)
             end
@@ -146,6 +156,9 @@ local function nuppType(model, structs, resolver)
         local named = structs and structs[model.id]
         if not named and resolver and model.name then
             named = resolver(model.name)
+        end
+        if not named and model.id then
+            named = adoptedById[model.id]
         end
         if not named and model.name then
             named = adoptStruct(model.name, kind)
@@ -597,6 +610,11 @@ adoptStruct = function(tag, aggregateKind)
     if not model or model.kind ~= aggregateKind then
         return nil
     end
+    local known = model.id and adoptedById[model.id] or nil
+    if known then
+        adopted[key] = known
+        return known
+    end
     local declaration = cdecl.structById(model.id)
     if not declaration then
         return nil
@@ -605,7 +623,9 @@ adoptStruct = function(tag, aggregateKind)
     nominal.cdefName = tag
     nominal.cdefKind = aggregateKind
     nominal.fieldOrder = {}
-    adopted[key] = nominal -- before decoding, so a self-reference terminates
+    -- before decoding, so a self-reference terminates
+    adopted[key] = nominal
+    adoptedById[declaration.id] = nominal
     for _, field in ipairs(declaration.fields) do
         local fieldType = nuppType(field.type, nil, adoptingResolver(nil)) or T.any
         nominal.byname[field.name] = fieldType
@@ -687,18 +707,28 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
         return nil, ("LuaJIT could not parse %s: %s"):format(where, message)
     end
 
-    -- Structs first, so a function mentioning one can refer to it.
+    -- Structs first, so a function mentioning one can refer to it. One this process
+    -- already built a type for keeps that type.
     local structs, exports = {}, {}
+    local fresh: {[integer]: boolean} = {}
     for _, declaration in ipairs(parsed.structs) do
-        local nominal = T.nominal(declaration.name, "struct")
-        nominal.cdefName = declaration.name
-        nominal.cdefKind = declaration.kind
-        nominal.fieldOrder = {}
+        local nominal = adoptedById[declaration.id]
+        if not nominal then
+            nominal = T.nominal(declaration.name, "struct")
+            nominal.cdefName = declaration.name
+            nominal.cdefKind = declaration.kind
+            nominal.fieldOrder = {}
+            adoptedById[declaration.id] = nominal
+            if not declaration.typedefName then
+                adopted[declaration.kind .. " " .. declaration.name] = nominal
+            end
+            fresh[declaration.id] = true
+        end
         structs[declaration.id] = nominal
     end
     for _, declaration in ipairs(parsed.structs) do
         local nominal = structs[declaration.id]
-        for _, field in ipairs(declaration.fields) do
+        for _, field in ipairs(fresh[declaration.id] and declaration.fields or {}) do
             local fieldType = nuppType(field.type, structs) or T.any
             nominal.byname[field.name] = fieldType
             nominal.writeByname[field.name] = fieldType
@@ -708,7 +738,6 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
     for _, fn in ipairs(parsed.functions) do
         exports[fn.name] = modelFunction(fn, structs)
     end
-
     local result = {
         exports = exports,
         cdef = text,
