@@ -711,6 +711,22 @@ function cdecl.layout(kind: string, body: string): cdecl.Layout?, string?
     return result
 end
 
+--- The size in bytes of a C type named by a type string, as this ABI has it.
+function cdecl.sizeof(spec: string): integer?
+    local ok, size = pcall(ffi.sizeof, spec)
+    if ok and type(size) == "number" then
+        return size
+    end
+
+    return nil
+end
+
+--- `value` rounded to the nearest single-precision float, which is what C gives a
+--- `float` constant.
+function cdecl.float32(value: number): number
+    return tonumber(ffi.new("float", value)) as number
+end
+
 function cdecl.structById(id: integer?): cdecl.Struct?
     local rid, entry = resolve(id)
     if not entry or kindOf(entry.info) ~= CT_STRUCT then

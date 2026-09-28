@@ -205,11 +205,13 @@ end
 function M.macroConstants()
    local text = imported()
    assertContains(text, "local MINI_MAX: number = 64")
-   assertContains(text, "local MINI_FLAG: number = (1 << 3)",
-      "shift expression stays valid nupp")
+   assertContains(text, "local MINI_FLAG: number = 8",
+      "a shift is evaluated as C evaluates it")
    assertContains(text, 'local MINI_NAME: string = "mini"')
-   assert(not text:find("MINI_SKIP", 1, true),
+   assert(not text:find("local MINI_SKIP", 1, true),
       "unevaluable macro must not be emitted")
+   assertContains(text, "-- import-c: skipped macro MINI_SKIP",
+      "and says so where it would have been")
 end
 
 local function scratchHeader(name, text)
@@ -237,6 +239,47 @@ function M.aMacroAfterAnEmptyMacroSurvives()
    assertContains(text, "local NUPP_GUARD_VERSION: number = 3")
    assertContains(text, "local NUPP_GUARD_LIMIT: number = 64")
    assert(not text:find("NUPP_GUARD_H", 1, true), "an empty macro is not a constant:\n" .. text)
+end
+
+function M.macroValuesFollowCSemantics()
+   local path, dir = scratchHeader("cvalues.h", table.concat({
+      "#define CV_OCTAL 0644",
+      "#define CV_HALF (7 / 2)",
+      "#define CV_NEG_MOD (-7 % 3)",
+      "#define CV_SCALE 1.5f",
+      "#define CV_TENTH 0.1f",
+      "#define CV_WRAP (0u - 1)",
+      "#define CV_MIXED (-1 < 0u)",
+      "#define CV_MASK (0xF0 ^ 0x0F)",
+      "#define CV_SUM 1 + 2",
+      "#define CV_TIMES (CV_SUM * 3)",
+      "#define CV_CAST ((uint8_t)300)",
+      "#define CV_CHAR 'A'",
+      "#define CV_TEXT \"a\\101\" \"b\"",
+      "#define CV_HEXLIKE (a + 1)",
+      "#define CV_BIG 0xFFFFFFFFFFFFFFFFULL",
+      "#define CV_ZERO_DIV (1 / 0)",
+   }, "\n") .. "\n")
+   local text = assert(importc.import(path))
+   os.execute("rm -rf '" .. dir .. "'")
+   assertContains(text, "local CV_OCTAL: number = 420")
+   assertContains(text, "local CV_HALF: number = 3")
+   assertContains(text, "local CV_NEG_MOD: number = -1")
+   assertContains(text, "local CV_SCALE: number = 1.5")
+   assertContains(text, "local CV_TENTH: number = 0.10000000149011612", "a float constant is a float")
+   assertContains(text, "local CV_WRAP: number = 4294967295")
+   assertContains(text, "local CV_MIXED: number = 0", "-1 converts to unsigned first")
+   assertContains(text, "local CV_MASK: number = 255")
+   assertContains(text, "local CV_TIMES: number = 7", "macros substitute as tokens")
+   assertContains(text, "local CV_CAST: number = 44")
+   assertContains(text, "local CV_CHAR: number = 65")
+   assertContains(text, 'local CV_TEXT: string = "aAb"', "C escapes are octal")
+   for _, name in ipairs({"CV_HEXLIKE", "CV_BIG", "CV_ZERO_DIV"}) do
+      assert(not text:find("local " .. name, 1, true), name .. " must not be emitted:\n" .. text)
+      assertContains(text, "-- import-c: skipped macro " .. name)
+   end
+   local result = parser.parse(text, "cvalues.d.nupp")
+   assert(#result.errors == 0, "generated constants parse: " .. (result.errors[1] and result.errors[1].msg or ""))
 end
 
 function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()

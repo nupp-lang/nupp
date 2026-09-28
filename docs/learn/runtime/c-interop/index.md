@@ -213,6 +213,24 @@ ever is, and C checks nothing about which integer, so a member passes to the
 function it belongs to without a cast, and any other integer passes too. A name
 declared twice keeps its first meaning.
 
+### Macro constants
+
+An object-like macro the header defines comes across as a constant when its
+value is a C constant expression, evaluated the way C evaluates it: `0644` is
+420, `7 / 2` is 3, `(-1 < 0u)` is 0 because `-1` converts to unsigned first,
+`0.1f` is the `float` nearest a tenth, and one macro's value is substituted
+into another's as tokens. The result is exact or refused, so a value outside
+±2^53 does not arrive rounded:
+
+```nupp
+local MODE_RW: number = 420
+local NAME: string = "mini"
+```
+
+A macro that defines nothing, as an include guard does, is not a constant. One
+whose value is not a constant expression is skipped with the reason, as an
+`untranslatable-macro` disposition.
+
 ### Skipped declarations
 
 An unsupported declaration is skipped with a reason rather than widened to
@@ -475,8 +493,8 @@ Disposition kinds are stable integration data:
 Common skip reasons are `bridge-required`, `parse-failure`,
 `unsupported-c-type`, `unsupported-field-type`, `unsupported-bridge-type`,
 `invalid-macro-signature`, `reserved-name`, `anonymous-member`,
-`unnamed-member`, `layout-mismatch`, `pragma-pack`, `incomplete`, and
-`unsupported-attribute`. A skipped declaration's disposition carries a `detail`
+`unnamed-member`, `layout-mismatch`, `pragma-pack`, `incomplete`,
+`unsupported-attribute`, and `untranslatable-macro`. A skipped declaration's disposition carries a `detail`
 saying why, and a `line` when the header line is known.
 
 To preview inline bridge eligibility without writing the named bridge, combine

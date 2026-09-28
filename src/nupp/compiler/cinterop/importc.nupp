@@ -644,21 +644,803 @@ local function macroValues(dmOutput: string): {[string]: string}
     return values
 end
 
--- A macro body usable as an nupp constant expression: numbers (with C suffixes
--- stripped), parens, arithmetic, shifts, bit ops.
-local function constantExpr(value)
-    value = value:gsub("([%dxXa-fA-F])[uUlL]+%f[%W]", "%1")
-    if value:match("^%s*$") then
+-- A macro's value is C, so it is evaluated the way C evaluates it: octal literals,
+-- truncating division, a remainder with the dividend's sign, typed integer literals
+-- and their conversions, `float` rounding. Handing the text to Lua instead gave `0644`
+-- the value 644 and `7 / 2` the value 3.5.
+--
+-- Values are held as Lua numbers and have to stay exact, so a result or an operand
+-- outside +/-2^53 is refused rather than rounded.
+
+local EXACT = 2 ^ 53
+
+--- One C constant: an integer of a C integer type, a double or float, or a string.
+type importc.CValue = {
+    kind: string,
+    value: number?,
+    text: string?,
+    bits: integer?,
+    unsigned: boolean?,
+    rank: integer?,
+    single: boolean?
+}
+
+local TWO_CHAR_OPERATORS: {
+    [string]: boolean
+} = {
+    ["<<"] = true,
+    [">>"] = true,
+    ["<="] = true,
+    [">="] = true,
+    ["=="] = true,
+    ["!="] = true,
+    ["&&"] = true,
+    ["||"] = true,
+}
+local ONE_CHAR_OPERATORS = "+-*/%&|^~!<>?:()"
+
+type importc.CToken = {
+    kind: string,
+    text: string
+}
+
+local function cTokens(text: string): ({importc.CToken}?, string?)
+    local tokens: {importc.CToken} = {}
+    local index = 1
+    local length = #text
+    while index <= length do
+        local ch = text:sub(index, index)
+        if ch:match("%s") then
+            index = index + 1
+        elseif ch:match("%d") or (ch == "." and text:sub(index + 1, index + 1):match("%d")) then
+            local stop = index
+            while stop <= length do
+                local d = text:sub(stop, stop)
+                if d:match("[eEpP]") and text:sub(stop + 1, stop + 1):match("[%+%-]") then
+                    stop = stop + 2
+                elseif d:match("[%w_%.]") then
+                    stop = stop + 1
+                else
+                    break
+                end
+            end
+            tokens[#tokens + 1] = {kind = "number", text = text:sub(index, stop - 1)}
+            index = stop
+        elseif ch:match("[%a_]") then
+            local word = text:match("^[%a_][%w_]*", index) as string
+            if text:sub(index + #word, index + #word):match("['\"]") then
+                return nil, "a wide or Unicode literal"
+            end
+            tokens[#tokens + 1] = {kind = "name", text = word}
+            index = index + #word
+        elseif ch == "'" or ch == '"' then
+            local stop = index + 1
+            while stop <= length and text:sub(stop, stop) ~= ch do
+                if text:sub(stop, stop) == "\\" then
+                    stop = stop + 1
+                end
+                stop = stop + 1
+            end
+            if stop > length then
+                return nil, "an unterminated literal"
+            end
+            tokens[#tokens + 1] = {kind = ch == "'" and "char" or "string", text = text:sub(index + 1, stop - 1)}
+            index = stop + 1
+        elseif TWO_CHAR_OPERATORS[text:sub(index, index + 1)] then
+            tokens[#tokens + 1] = {kind = "op", text = text:sub(index, index + 1)}
+            index = index + 2
+        elseif ONE_CHAR_OPERATORS:find(ch, 1, true) then
+            tokens[#tokens + 1] = {kind = "op", text = ch}
+            index = index + 1
+        else
+            return nil, ("%q is not part of a constant expression"):format(ch)
+        end
+    end
+
+    return tokens
+end
+
+local SIMPLE_ESCAPES: {
+    [string]: integer
+} = {n = 10, t = 9, r = 13, a = 7, b = 8, f = 12, v = 11, ["\\"] = 92, ["'"] = 39, ['"'] = 34, ["?"] = 63,}
+
+-- The bytes a C character or string literal body stands for. An octal escape is
+-- octal, which Lua's decimal `\ddd` is not.
+local function literalBytes(body: string): ({integer}?, string?)
+    local bytes: {integer} = {}
+    local index = 1
+    while index <= #body do
+        local ch = body:sub(index, index)
+        if ch ~= "\\" then
+            bytes[#bytes + 1] = ch:byte()
+            index = index + 1
+        else
+            local escape = body:sub(index + 1, index + 1)
+            local simple = SIMPLE_ESCAPES[escape]
+            if simple then
+                bytes[#bytes + 1] = simple
+                index = index + 2
+            elseif escape:match("[0-7]") then
+                local digits = body:match("^[0-7][0-7]?[0-7]?", index + 1) as string
+                local value = tonumber(digits, 8) as integer
+                if value > 255 then
+                    return nil, "an escape wider than a byte"
+                end
+                bytes[#bytes + 1] = value
+                index = index + 1 + #digits
+            elseif escape == "x" then
+                local digits = body:match("^%x+", index + 2)
+                local value = digits and tonumber(digits, 16) or nil
+                if not digits or not value or value > 255 then
+                    return nil, "an escape wider than a byte"
+                end
+                bytes[#bytes + 1] = value as integer
+                index = index + 2 + #digits
+            else
+                return nil, "an escape Nupp does not read"
+            end
+        end
+    end
+
+    return bytes
+end
+
+-- The C integer types by rank: int, long, long long. `long` is the ABI's.
+local longBits: integer? = nil
+
+local function integerType(rank: integer, unsigned: boolean): importc.CValue
+    if not longBits then
+        longBits = ((cdecl.sizeof("long") or 8) * 8) as integer
+    end
+    local bits = rank == 1 and 32 or rank == 2 and longBits or 64
+
+    return {kind = "int", bits = bits, unsigned = unsigned, rank = rank}
+end
+
+local function integerValue(value: number, t: importc.CValue): importc.CValue
+    return {kind = "int", value = value, bits = t.bits, unsigned = t.unsigned, rank = t.rank}
+end
+
+-- The C type an integer literal has: the first of its candidate types that holds it.
+local function integerLiteral(text: string): (importc.CValue?, string?)
+    local digits, suffix, base = text:match("^0[xX](%x+)([uUlL]*)$")
+    base = 16
+    if not digits then
+        digits, suffix = text:match("^0[bB]([01]+)([uUlL]*)$")
+        base = 2
+    end
+    if not digits then
+        digits, suffix = text:match("^(0[0-7]*)([uUlL]*)$")
+        base = 8
+    end
+    if not digits then
+        digits, suffix = text:match("^([1-9]%d*)([uUlL]*)$")
+        base = 10
+    end
+    if not digits or not suffix then
         return nil
     end
-    if value:match('^"[^"]*"$') then
-        return value, "string"
+    local value = tonumber(digits, base) as number
+    if value > EXACT then
+        return nil, text .. " is too large to hold exactly"
     end
-    if value:match("^[%d%sxXa-fA-F%.%+%-%*/%%%(%)<>|&~]+$") and value:match("%d") then
-        return value, "number"
+    local lower = suffix:lower()
+    local unsigned = lower:find("u", 1, true) ~= nil
+    local _, longs = lower:gsub("l", "")
+    if #lower > 3 or longs > 2 then
+        return nil
+    end
+    for rank = longs + 1, 3 do
+        local signed = integerType(rank, false)
+        if not unsigned and value <= 2 ^ ((signed.bits as integer) - 1) - 1 then
+            return integerValue(value, signed)
+        end
+        local unsignedType = integerType(rank, true)
+        if (unsigned or base ~= 10) and value <= 2 ^ (unsignedType.bits as integer) - 1 then
+            return integerValue(value, unsignedType)
+        end
+    end
+
+    return nil, text .. " has no C integer type"
+end
+
+local function numberLiteral(text: string): (importc.CValue?, string?)
+    local integer, why = integerLiteral(text)
+    if integer or why then
+        return integer, why
+    end
+    local hex = text:match("^0[xX]") ~= nil
+    local body, suffix = text:match("^(.-)([fFlL]?)$")
+    local isFloat = body ~= nil
+        and (body:find(".", 1, true) or (not hex and body:find("[eE]")) or (hex and body:find("[pP]")))
+    local value = isFloat and tonumber(body) or nil
+    if not value then
+        return nil, text .. " is not a C number"
+    end
+    local single = suffix == "f" or suffix == "F"
+
+    return {kind = "float", value = single and cdecl.float32(value) or value, single = single}
+end
+
+-- C's conversion of an integer to an integer type: modulo the width, as every target
+-- Nupp runs on does for a signed destination too.
+local function convertInteger(value: number, t: importc.CValue): (number?, string?)
+    local width = 2 ^ (t.bits as integer)
+    local converted = value % width
+    if not t.unsigned and converted >= width / 2 then
+        converted = converted - width
+    end
+    if math.abs(converted) > EXACT then
+        return nil, "the value is too large to hold exactly"
+    end
+
+    return converted
+end
+
+-- The type both operands of an arithmetic operator are converted to.
+local function commonType(a: importc.CValue, b: importc.CValue): importc.CValue
+    if a.unsigned == b.unsigned then
+        return (a.rank as integer) >= (b.rank as integer) and a or b
+    end
+    local u = a.unsigned and a or b
+    local s = a.unsigned and b or a
+    if (u.rank as integer) >= (s.rank as integer) then
+        return u
+    end
+    if (s.bits as integer) > (u.bits as integer) then
+        return s
+    end
+
+    return integerType(s.rank as integer, true)
+end
+
+-- A result that has to fit its type. Signed overflow is undefined in C, so it is
+-- refused; an unsigned result wraps.
+local function fitted(value: number, t: importc.CValue): (importc.CValue?, string?)
+    if math.abs(value) > EXACT * 2 then
+        return nil, "the value is too large to hold exactly"
+    end
+    if t.unsigned then
+        local converted, why = convertInteger(value, t)
+        if not converted then
+            return nil, why
+        end
+        return integerValue(converted, t)
+    end
+    local half = 2 ^ ((t.bits as integer) - 1)
+    if value < -half or value > half - 1 then
+        return nil, "the expression overflows its C type"
+    end
+    if math.abs(value) > EXACT then
+        return nil, "the value is too large to hold exactly"
+    end
+
+    return integerValue(value, t)
+end
+
+local bit = require("bit") as {
+    band: function(...: number): integer,
+    bor: function(...: number): integer,
+    bxor: function(...: number): integer,
+    bnot: function(x: number): integer
+}
+
+local WORD = 2 ^ 32
+
+local function halves(value: number): (number, number)
+    return math.floor(value / WORD) % WORD, value % WORD
+end
+
+local function joined(high: number, low: number, t: importc.CValue): (importc.CValue?, string?)
+    high, low = high % WORD, low % WORD
+    local value
+    if t.bits == 32 then
+        value = (not t.unsigned and low >= WORD / 2) and low - WORD or low
+    else
+        value = (not t.unsigned and high >= WORD / 2) and (high - WORD) * WORD + low or high * WORD + low
+    end
+    if math.abs(value) > EXACT then
+        return nil, "the value is too large to hold exactly"
+    end
+
+    return integerValue(value, t)
+end
+
+-- Integer promotion: every value here already has at least `int`'s rank except the
+-- narrow result of a cast, which promotes back to `int`.
+local INT: integer = 1
+
+local function truth(v: importc.CValue): boolean
+    return (v.value as number) ~= 0
+end
+
+local function boolValue(yes: boolean): importc.CValue
+    return integerValue(yes and 1 or 0, integerType(INT, false))
+end
+
+local function arithmetic(op: string, a: importc.CValue, b: importc.CValue): (importc.CValue?, string?)
+    if a.kind == "string" or b.kind == "string" then
+        return nil, "a string is not an arithmetic operand"
+    end
+    if op == "&&" then
+        return boolValue(truth(a) and truth(b))
+    elseif op == "||" then
+        return boolValue(truth(a) or truth(b))
+    end
+    if a.kind == "float" or b.kind == "float" then
+        local x, y = a.value as number, b.value as number
+        local single = (a.kind ~= "float" or a.single == true) and (b.kind ~= "float" or b.single == true)
+        local r
+        if op == "+" then
+            r = x + y
+        elseif op == "-" then
+            r = x - y
+        elseif op == "*" then
+            r = x * y
+        elseif op == "/" then
+            r = x / y
+        elseif op == "<" then
+            return boolValue(x < y)
+        elseif op == ">" then
+            return boolValue(x > y)
+        elseif op == "<=" then
+            return boolValue(x <= y)
+        elseif op == ">=" then
+            return boolValue(x >= y)
+        elseif op == "==" then
+            return boolValue(x == y)
+        elseif op == "!=" then
+            return boolValue(x ~= y)
+        else
+            return nil, "`" .. op .. "` needs integer operands"
+        end
+        return {kind = "float", value = single and cdecl.float32(r) or r, single = single}
+    end
+
+    -- A shift takes its left operand's type; everything else converts both.
+    if op == "<<" or op == ">>" then
+        local count = b.value as number
+        if count < 0 or count >= (a.bits as integer) then
+            return nil, "a shift by " .. tostring(count) .. " is undefined"
+        end
+        local x = a.value as number
+        if op == ">>" then
+            return integerValue(math.floor(x / 2 ^ count), a)
+        elseif not a.unsigned and x < 0 then
+            return nil, "shifting a negative value left is undefined"
+        elseif not a.unsigned then
+            return fitted(x * 2 ^ count, a)
+        else
+            return fitted((x * 2 ^ count) % 2 ^ (a.bits as integer), a)
+        end
+    end
+
+    local t = commonType(a, b)
+    local x, whyX = convertInteger(a.value as number, t)
+    local y, whyY = convertInteger(b.value as number, t)
+    if not x or not y then
+        return nil, whyX or whyY
+    end
+    if op == "+" then
+        return fitted(x + y, t)
+    elseif op == "-" then
+        return fitted(x - y, t)
+    elseif op == "*" then
+        return fitted(x * y, t)
+    elseif op == "/" or op == "%" then
+        if y == 0 then
+            return nil, "the expression divides by zero"
+        end
+        local ux, uy = math.abs(x), math.abs(y)
+        local q = math.floor(ux / uy)
+        local r = ux - q * uy
+        if r < 0 then
+            q, r = q - 1, r + uy
+        elseif r >= uy then
+            q, r = q + 1, r - uy
+        end
+        local result = op == "/" and (((x < 0) ~= (y < 0)) and -q or q) or (x < 0 and -r or r)
+        return fitted(result, t)
+    elseif op == "&" or op == "|" or op == "^" then
+        local xh, xl = halves(x)
+        local yh, yl = halves(y)
+        local f = op == "&" and bit.band or op == "|" and bit.bor or bit.bxor
+        return joined(f(xh, yh), f(xl, yl), t)
+    elseif op == "<" then
+        return boolValue(x < y)
+    elseif op == ">" then
+        return boolValue(x > y)
+    elseif op == "<=" then
+        return boolValue(x <= y)
+    elseif op == ">=" then
+        return boolValue(x >= y)
+    elseif op == "==" then
+        return boolValue(x == y)
+    elseif op == "!=" then
+        return boolValue(x ~= y)
+    end
+
+    return nil, "`" .. op .. "` is not a constant operator"
+end
+
+-- The type names a constant expression may cast to, by their spelling with single
+-- spaces. A `char` cast is left out: whether plain `char` is signed is the target's.
+local function castType(spelling: string): importc.CValue?
+    local pointerBits = ((cdecl.sizeof("void *") or 8) * 8) as integer
+    local pointerRank = pointerBits == 32 and 1 or (longBits == 64 and 2 or 3)
+    local narrow = {
+        ["signed char"] = {8, false},
+        ["unsigned char"] = {8, true},
+        ["short"] = {16, false},
+        ["short int"] = {16, false},
+        ["signed short"] = {16, false},
+        ["unsigned short"] = {16, true},
+        ["unsigned short int"] = {16, true},
+        int8_t = {8, false},
+        uint8_t = {8, true},
+        int16_t = {16, false},
+        uint16_t = {16, true},
+    }
+    local hit = narrow[spelling]
+    if hit then
+        return {kind = "int", bits = hit[1], unsigned = hit[2], rank = 0}
+    end
+    local ranked = {
+        ["int"] = {INT, false},
+        ["signed"] = {INT, false},
+        ["signed int"] = {INT, false},
+        ["unsigned"] = {INT, true},
+        ["unsigned int"] = {INT, true},
+        int32_t = {INT, false},
+        uint32_t = {INT, true},
+        ["long"] = {2, false},
+        ["long int"] = {2, false},
+        ["signed long"] = {2, false},
+        ["unsigned long"] = {2, true},
+        ["unsigned long int"] = {2, true},
+        ["long long"] = {3, false},
+        ["long long int"] = {3, false},
+        ["signed long long"] = {3, false},
+        ["unsigned long long"] = {3, true},
+        ["unsigned long long int"] = {3, true},
+        int64_t = {longBits == 64 and 2 or 3, false},
+        uint64_t = {longBits == 64 and 2 or 3, true},
+        size_t = {pointerRank, true},
+        uintptr_t = {pointerRank, true},
+        intptr_t = {pointerRank, false},
+        ptrdiff_t = {pointerRank, false},
+    }
+    local rank = ranked[spelling]
+    if rank then
+        return integerType(rank[1] as integer, rank[2] as boolean)
+    end
+    if spelling == "float" or spelling == "double" then
+        return {kind = "float", single = spelling == "float"}
     end
 
     return nil
+end
+
+local function cast(t: importc.CValue, v: importc.CValue): (importc.CValue?, string?)
+    if v.kind == "string" then
+        return nil, "a string cannot be cast to a number"
+    end
+    if t.kind == "float" then
+        local value = v.value as number
+        return {kind = "float", value = t.single and cdecl.float32(value) or value, single = t.single}
+    end
+    local value = v.value as number
+    if v.kind == "float" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            return nil, "the value is not finite"
+        end
+        value = value < 0 and math.ceil(value) or math.floor(value)
+    end
+    local converted, why = convertInteger(value, t)
+    if not converted then
+        return nil, why
+    end
+    if (t.rank as integer) < INT then
+        -- promoted back to int wherever it is used
+        return integerValue(converted, integerType(INT, false))
+    end
+
+    return integerValue(converted, t)
+end
+
+-- A precedence-climbing reader over expanded tokens that evaluates as it goes.
+local BINARY_PRECEDENCE: {
+    [string]: integer
+} = {
+    ["||"] = 1,
+    ["&&"] = 2,
+    ["|"] = 3,
+    ["^"] = 4,
+    ["&"] = 5,
+    ["=="] = 6,
+    ["!="] = 6,
+    ["<"] = 7,
+    [">"] = 7,
+    ["<="] = 7,
+    [">="] = 7,
+    ["<<"] = 8,
+    [">>"] = 8,
+    ["+"] = 9,
+    ["-"] = 9,
+    ["*"] = 10,
+    ["/"] = 10,
+    ["%"] = 10,
+}
+
+local function evaluateTokens(tokens: {importc.CToken}): (importc.CValue?, string?)
+    local position: integer = 1
+
+    local function peek(): importc.CToken?
+        return tokens[position]
+    end
+
+    local expression
+
+    local function castAhead(): (importc.CValue?, integer?)
+        local words: {string} = {}
+        local index: integer = position + 1
+        while tokens[index] and tokens[index].kind == "name" do
+            words[#words + 1] = tokens[index].text
+            index = index + 1
+        end
+        if #words > 0 and tokens[index] and tokens[index].text == ")" then
+            local t = castType(table.concat(words, " "))
+            if t then
+                return t, index + 1
+            end
+        end
+
+        return nil, nil
+    end
+
+    local function unary(): (importc.CValue?, string?)
+        local upcoming = peek()
+        if not upcoming then
+            return nil, "the expression ends early"
+        end
+        local token: importc.CToken = upcoming
+        if token.kind == "op"
+            and (token.text == "-" or token.text == "+" or token.text == "~" or token.text == "!")
+        then
+            position = position + 1
+            local operand, why = unary()
+            if not operand then
+                return nil, why
+            end
+            if operand.kind == "string" then
+                return nil, "a string is not an arithmetic operand"
+            end
+            if token.text == "!" then
+                return boolValue(not truth(operand))
+            elseif token.text == "+" then
+                return operand
+            elseif token.text == "-" and operand.kind == "float" then
+                return {kind = "float", value = -(operand.value as number), single = operand.single}
+            elseif token.text == "-" then
+                return fitted(-(operand.value as number), operand)
+            elseif operand.kind == "float" then
+                return nil, "`~` needs an integer operand"
+            else
+                local high, low = halves(operand.value as number)
+                return joined(bit.bnot(high), bit.bnot(low), operand)
+            end
+        end
+        if token.kind == "op" and token.text == "(" then
+            local t, after = castAhead()
+            if t and after then
+                position = after
+                local operand, why = unary()
+                if not operand then
+                    return nil, why
+                end
+                return cast(t, operand)
+            end
+            position = position + 1
+            local inner, why = expression(0)
+            if not inner then
+                return nil, why
+            end
+            local close = peek()
+            if not close or close.text ~= ")" then
+                return nil, "an unbalanced parenthesis"
+            end
+            position = position + 1
+            return inner
+        end
+        position = position + 1
+        if token.kind == "number" then
+            return numberLiteral(token.text)
+        elseif token.kind == "char" then
+            local bytes, why = literalBytes(token.text)
+            if not bytes or #bytes ~= 1 then
+                return nil, why or "a character constant holds one byte"
+            end
+            -- plain `char` is signed or not per target, so only ASCII is certain
+            if bytes[1] > 127 then
+                return nil, "a character constant outside ASCII"
+            end
+            return integerValue(bytes[1], integerType(INT, false))
+        elseif token.kind == "string" then
+            local parts: {string} = {}
+            local current: importc.CToken? = token
+            while current and current.kind == "string" do
+                local bytes, why = literalBytes(current.text)
+                if not bytes then
+                    return nil, why
+                end
+                for _, byte in ipairs(bytes) do
+                    parts[#parts + 1] = string.char(byte)
+                end
+                current = peek()
+                if current and current.kind == "string" then
+                    position = position + 1
+                end
+            end
+            return {kind = "string", text = table.concat(parts)}
+        elseif token.kind == "name" then
+            return nil, "names " .. token.text .. ", which is not a constant"
+        end
+
+        return nil, "`" .. token.text .. "` cannot start an expression"
+    end
+
+    expression = function(minimum: integer): (importc.CValue?, string?)
+        local first, why = unary()
+        if not first then
+            return nil, why
+        end
+        local left: importc.CValue = first
+        while true do
+            local token = peek()
+            if not token or token.kind ~= "op" then
+                break
+            end
+            if token.text == "?" and minimum == 0 then
+                position = position + 1
+                local yes, whyYes = expression(0)
+                if not yes then
+                    return nil, whyYes
+                end
+                local colon = peek()
+                if not colon or colon.text ~= ":" then
+                    return nil, "a conditional without `:`"
+                end
+                position = position + 1
+                local no, whyNo = expression(0)
+                if not no then
+                    return nil, whyNo
+                end
+                if left.kind == "string" then
+                    return nil, "a string is not a condition"
+                end
+                local chosen = truth(left) and yes or no
+                if yes.kind == "int" and no.kind == "int" then
+                    local t = commonType(yes, no)
+                    local converted, whyConvert = convertInteger(chosen.value as number, t)
+                    if not converted then
+                        return nil, whyConvert
+                    end
+                    return integerValue(converted, t)
+                end
+                return chosen
+            end
+            local precedence = BINARY_PRECEDENCE[token.text]
+            if not precedence or precedence <= minimum then
+                break
+            end
+            position = position + 1
+            local right, whyRight = expression(precedence)
+            if not right then
+                return nil, whyRight
+            end
+            local combined, whyCombined = arithmetic(token.text, left, right)
+            if not combined then
+                return nil, whyCombined
+            end
+            left = combined
+        end
+
+        return left
+    end
+
+    local value, why = expression(0)
+    if not value then
+        return nil, why
+    end
+    if position <= #tokens then
+        return nil, "`" .. tokens[position].text .. "` is not part of a constant expression"
+    end
+
+    return value
+end
+
+-- Object-like macros are substituted as tokens, the way the preprocessor does it, so
+-- `#define A 1 + 2` inside `A * 3` is 7 rather than 9. A macro is not expanded inside
+-- its own expansion.
+local function expandMacros(
+    tokens: {importc.CToken},
+    values: {[string]: string},
+    active: {[string]: boolean}
+): ({importc.CToken}?, string?)
+    local out: {importc.CToken} = {}
+    for _, token in ipairs(tokens) do
+        local body = token.kind == "name" and not active[token.text] and values[token.text] or nil
+        if body then
+            local inner, why = cTokens(body)
+            if not inner then
+                return nil, why
+            end
+            active[token.text] = true
+            local expanded, whyExpanded = expandMacros(inner, values, active)
+            active[token.text] = nil
+            if not expanded then
+                return nil, whyExpanded
+            end
+            for _, one in ipairs(expanded) do
+                out[#out + 1] = one
+            end
+        else
+            out[#out + 1] = token
+        end
+    end
+
+    return out
+end
+
+-- A Lua string literal holding exactly `bytes`, with every byte that is not plain
+-- printable ASCII written as a decimal escape.
+local function luaString(bytes: string): string
+    return '"' .. bytes:gsub('[%c"\\\128-\255]', function(ch)
+        return ("\\%03d"):format(ch:byte())
+    end) .. '"'
+end
+
+-- The shortest decimal spelling that reads back as the same double.
+local function numberText(value: number): string
+    if value == 0 then
+        return "0"
+    end
+    if value % 1 == 0 and math.abs(value) <= EXACT then
+        return ("%.0f"):format(value)
+    end
+    for digits = 15, 17 do
+        local text = ("%." .. tostring(digits) .. "g"):format(value)
+        if tonumber(text) == value then
+            return text
+        end
+    end
+
+    return ("%.17g"):format(value)
+end
+
+--- A macro value as a Nupp constant expression and its Nupp type, or nil and why not.
+local function macroConstant(value: string, values: {[string]: string}, name: string): (string?, string?)
+    local tokens, why = cTokens(value)
+    if not tokens then
+        return nil, why
+    end
+    local expanded, whyExpanded = expandMacros(tokens, values, {[name] = true})
+    if not expanded then
+        return nil, whyExpanded
+    end
+    local result, whyResult = evaluateTokens(expanded)
+    if not result then
+        return nil, whyResult
+    end
+    if result.kind == "string" then
+        return luaString(result.text as string), "string"
+    end
+    local number = result.value as number
+    if number ~= number or number == math.huge or number == -math.huge then
+        return nil, "the value is not finite"
+    end
+
+    return numberText(number), "number"
 end
 
 local function balancedEnd(text, startAt, open, close)
@@ -1325,13 +2107,20 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         end
     end
 
+    -- The header's own object-like macros, evaluated as C. One that defines nothing,
+    -- as an include guard does, is not a constant and is not reported; one whose
+    -- value is not a constant expression is skipped with the reason.
     local values = macroValues(dm)
+    local seenMacros: {[string]: boolean} = {}
     for _, name in ipairs(headerMacroNames(raw)) do
         local value = values[name]
-        if value then
-            local expr, vtype = constantExpr(value)
+        if value and value ~= "" and not seenMacros[name] and not taken[name] and identifier(name) then
+            seenMacros[name] = true
+            local expr, typeOrWhy = macroConstant(value, values, name)
             if expr then
-                constant(name, vtype == "string" and "string" or "number", expr)
+                constant(name, typeOrWhy as string, expr)
+            else
+                skip("macro", name, "untranslatable-macro", typeOrWhy)
             end
         end
     end
