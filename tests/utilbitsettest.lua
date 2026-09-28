@@ -278,6 +278,39 @@ function M.negativeWritesRaise()
     )
 end
 
+-- Positions are bounded so the word arithmetic, done with 32-bit bit
+-- operations, stays exact. Past the bound a write used to wrap the growth
+-- check and store hundreds of megabytes past the storage, and a read aliased
+-- position 2^32 + k onto k. A NaN position is refused the same way.
+function M.positionsPastTheBoundAreRefused()
+    local LIMIT = 2147483647
+    local TWO32 = 4294967296
+    local nan = 0 / 0
+    local set = bitset.Bitset.__nuppCtor1(128)
+    set:set(0)
+    set:set(100)
+    local before = set:wordCount()
+    for _, bad in ipairs({TWO32 - 1, TWO32, TWO32 + 5, LIMIT + 1, nan, 2.5}) do
+        check.raises(function() set:set(bad) end, "bitset index", "set " .. tostring(bad))
+        check.raises(function() set:setOnly(bad) end, "bitset index", "setOnly " .. tostring(bad))
+        set:set(0)
+        set:set(100)
+        check.equal(set:get(bad), false, "get " .. tostring(bad))
+        set:clear(bad)
+        check.assert(set:get(0), "clear " .. tostring(bad) .. " leaves bit 0")
+    end
+    check.raises(function() set:setRange(TWO32 - 40, TWO32 - 1) end, "bitset range", "range near 2^32")
+    check.raises(function() set:setRange(nan, 4) end, "bitset range", "NaN range start")
+    check.raises(function() set:setRange(4, nan) end, "bitset range", "NaN range end")
+    check.raises(function() set:reserve(TWO32) end, "bitset", "reserve 2^32")
+    check.raises(function() set:reserve(nan) end, "bitset", "reserve NaN")
+    check.equal(set:wordCount(), before, "storage bound unchanged")
+    check.equal(set:count(), 2, "population unchanged")
+    check.equal(set:nextSetBit(TWO32), -1, "a walk from past the bound finds nothing")
+    check.equal(set:nextSetBit(nan), -1, "a walk from NaN finds nothing")
+    check.equal(set:wordAt(nan), 0, "wordAt NaN reads zero")
+end
+
 function M.clearAllKeepsCapacity()
     local set = bitset.Bitset.__nuppCtor1(8)
     set:set(4000)

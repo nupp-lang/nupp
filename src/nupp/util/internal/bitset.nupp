@@ -19,6 +19,12 @@ const BIT_MASK = 31
 const ALL_ONES = 0xFFFFFFFF
 const DEFAULT_BITS = 64
 
+-- The highest position a set holds. Word and bit offsets come from 32-bit `bit`
+-- operations, which are exact only below 2^31: past it a position wraps onto a
+-- small one, and a growth check computed the same way wraps to "no growth
+-- needed" and lets a write land hundreds of megabytes past the storage.
+const MAX_INDEX = 0x7FFFFFFF
+
 const HALF_MASK = 0xFFFF
 const HALF_SHIFT = 16
 
@@ -92,15 +98,23 @@ local function lowestBit(word: integer): integer
     end
 end
 
---- The number of words needed to hold `bits` bits, at least one.
+--- The number of words needed to hold `bits` bits, at least one. Ordinary
+--- arithmetic rather than a shift, which would wrap for a count near 2^32.
 local function wordsFor(bits: integer): integer
-    local words = rshift(bits + BIT_MASK, WORD_SHIFT)
-    return words < 1 ? 1 : words
+    local words = math.floor((bits + BIT_MASK) / BITS_PER_WORD)
+    return words >= 1 ? words : 1
 end
 
---- A growable set of bit positions counting from 0.
+--- Whether `index` names a position a set can hold: an integer from 0 through
+--- `MAX_INDEX`. Written so NaN, which fails every comparison, answers false.
+local function isPosition(index: integer): boolean
+    return index % 1 == 0 and index >= 0 and index <= MAX_INDEX
+end
+
+--- A growable set of bit positions counting from 0 through 2^31 - 1.
 ---
---- Reading, clearing and testing a position past the end are defined and cheap.
+--- Reading, clearing and testing a position past the end are defined and cheap,
+--- and so are positions no set can hold: they read as absent.
 --- Setting one grows, which reallocates private storage; nothing observable
 --- survives that, because the storage is never handed out.
 --- @export
@@ -135,9 +149,14 @@ record data.Bitset
     --- @param self the set being initialized
     --- @param capacityBits how many bits to allocate initially; setting a later
     ---     position grows the set
+    --- @raises string when capacityBits is more than 2^31
     constructor(self, capacityBits: integer?)
+        local bits = capacityBits ?? DEFAULT_BITS
+        if bits > MAX_INDEX + 1 then
+            error("bitset cannot hold more than 2^31 bits", 2)
+        end
         buildTables()
-        local words = wordsFor(capacityBits ?? DEFAULT_BITS)
+        local words = wordsFor(bits)
         self.words = physical.allocateArray(physical.scalar("uint32"), words) as uint32[?]
         self.capacity = words
         self.used = 0
@@ -149,7 +168,11 @@ record data.Bitset
     --- storage. A growth at least doubles, so repeated small growths stay
     --- amortised.
     --- @param bits how many bits must fit
+    --- @raises string when bits is NaN or more than 2^31
     function reserve(self, bits: integer): nil
+        if not (bits <= MAX_INDEX + 1) then
+            error("bitset cannot hold more than 2^31 bits", 2)
+        end
         local needed = wordsFor(bits)
         if needed <= self.capacity then
             return
@@ -165,14 +188,14 @@ record data.Bitset
 
     --- Adds a bit, growing when it is past the end.
     --- @param index the bit position, counting from 0
-    --- @raises string when index is negative
+    --- @raises string when index is negative, past 2^31 - 1, or not an integer
     function set(self, index: integer): nil
-        -- `rshift` is unsigned, so a negative index names a word near 2^27 and
-        -- the store below would land far outside the array. `get` and `clear`
-        -- read such an index as past the end and answer with nothing; a write
-        -- has no such reading, so it is refused here.
-        if index < 0 then
-            error("bitset index cannot be negative", 2)
+        -- `rshift` is unsigned, so a negative index names a word near 2^27, and
+        -- one past `MAX_INDEX` wraps; either way the store below would land
+        -- outside the array. `get` and `clear` read such an index as absent and
+        -- answer with nothing; a write has no such reading, so it is refused.
+        if not isPosition(index) then
+            error("bitset index cannot be negative, fractional or past 2^31 - 1", 2)
         end
 
         local word = rshift(index, WORD_SHIFT)
@@ -201,6 +224,9 @@ record data.Bitset
     --- @param index the bit position, counting from 0. One past the end, a
     ---     negative one included, does nothing.
     function clear(self, index: integer): nil
+        if not isPosition(index) then
+            return
+        end
         local word = rshift(index, WORD_SHIFT)
         if word >= self.used then
             return
@@ -224,6 +250,9 @@ record data.Bitset
     --- @return false for any position past the end, so no bound check is needed
     ---     at the call site
     function get(self, index: integer): boolean
+        if not isPosition(index) then
+            return false
+        end
         local word = rshift(index, WORD_SHIFT)
         if word >= self.used then
             return false
@@ -240,13 +269,17 @@ record data.Bitset
     --- @param low the first position added, counting from 0
     --- @param high the last position added. Below `low` adds nothing, so an
     ---     empty range needs no guard at the call site.
-    --- @raises string when low is negative
+    --- @raises string when low is negative, when high is past 2^31 - 1, or
+    ---     when either is not an integer
     function setRange(self, low: integer, high: integer): nil
         if high < low then
             return
         end
-        if low < 0 then
-            error("bitset range cannot start below zero", 2)
+        if not isPosition(low) then
+            error("bitset range cannot start below zero or at a non-integer", 2)
+        end
+        if not isPosition(high) then
+            error("bitset range must end at an integer no greater than 2^31 - 1", 2)
         end
 
         self:reserve(high + 1)
@@ -375,8 +408,12 @@ record data.Bitset
 
     --- Removes every bit, then adds exactly one.
     --- @param index the one position left set, counting from 0
-    --- @raises string when index is negative
+    --- @raises string when index is negative, past 2^31 - 1, or not an
+    ---     integer; the set is left unchanged
     function setOnly(self, index: integer): nil
+        if not isPosition(index) then
+            error("bitset index cannot be negative, fractional or past 2^31 - 1", 2)
+        end
         self:clearAll()
         self:set(index)
     end
@@ -395,7 +432,7 @@ record data.Bitset
     --- @return the word as a signed value, so one with its top bit set reads
     ---     negative, and 0 for any index outside the bound
     function wordAt(self, index: integer): integer
-        if index < 0 or index >= self.used then
+        if not (index >= 0 and index < self.used) then
             return 0
         end
 
@@ -413,6 +450,9 @@ record data.Bitset
     --- @return that position, or -1 when there is none
     function nextSetBit(self, from: integer): integer
         local start = from < 0 ? 0 : from
+        if not (start <= MAX_INDEX) then
+            return -1
+        end
         local first = rshift(start, WORD_SHIFT)
         local used = self.used
         if first >= used then
@@ -470,6 +510,9 @@ record data.Bitset
         end
 
         local start = from < 0 ? 0 : from
+        if not (start <= MAX_INDEX) then
+            return 0, -1
+        end
         local first = rshift(start, WORD_SHIFT)
         local used = self.used
         if first >= used then
@@ -581,7 +624,7 @@ record data.Bitset
     function copyFrom(self, other: Bitset): nil
         local otherUsed = other.used
         if otherUsed > self.capacity then
-            self:reserve(lshift(otherUsed, WORD_SHIFT))
+            self:reserve(otherUsed * BITS_PER_WORD)
         end
 
         if otherUsed > 0 then
@@ -612,7 +655,7 @@ record data.Bitset
             return
         end
         if otherUsed > self.capacity then
-            self:reserve(lshift(otherUsed, WORD_SHIFT))
+            self:reserve(otherUsed * BITS_PER_WORD)
         end
 
         -- Hoisted after `reserve`, the only call above that can replace the array.
@@ -685,7 +728,7 @@ record data.Bitset
             return
         end
         if otherUsed > self.capacity then
-            self:reserve(lshift(otherUsed, WORD_SHIFT))
+            self:reserve(otherUsed * BITS_PER_WORD)
         end
 
         local words, theirWords = self.words, other.words
