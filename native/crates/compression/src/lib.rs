@@ -212,6 +212,9 @@ pub struct Decoder {
     stream: Decompress,
     concatenated_members: bool,
     member_finished: bool,
+    /// Whether a whole member has ended, so later bytes follow a complete
+    /// stream rather than being part of the first one.
+    completed_member: bool,
     finished: bool,
 }
 
@@ -222,6 +225,7 @@ impl Decoder {
             stream: Self::stream(format),
             concatenated_members: format == Format::Gzip && concatenated_members,
             member_finished: false,
+            completed_member: false,
             finished: false,
         }
     }
@@ -270,6 +274,7 @@ impl Decoder {
             written += made;
             if status == Status::StreamEnd {
                 self.member_finished = true;
+                self.completed_member = true;
                 if !self.concatenated_members {
                     self.finished = true;
                     break;
@@ -312,6 +317,12 @@ impl Decoder {
         let written = (self.stream.total_out() - before_out) as usize;
         if status == Status::StreamEnd {
             self.finished = true;
+        } else if self.completed_member && written == 0 {
+            // Bytes after a complete member began another that never
+            // finished. That is trailing data, not a truncated stream.
+            return Err(StreamError(
+                "compressed stream has trailing bytes that are not a complete member".to_owned(),
+            ));
         }
         Ok(Step {
             consumed: 0,
@@ -440,6 +451,19 @@ mod tests {
             }
         }
         assert_eq!(decode(Format::Zlib, &encoded, 5), b"helloabc");
+    }
+
+    #[test]
+    fn bytes_after_a_complete_member_are_trailing_not_truncation() {
+        let mut encoded = encode(Format::Gzip, b"hello", 64);
+        encoded.push(0x1f);
+        let mut decoder = Decoder::new(Format::Gzip, true);
+        let mut output = [0; 64];
+        let step = decoder.read(&encoded, &mut output).unwrap();
+        assert_eq!(&output[..step.written], b"hello");
+        assert_eq!(step.consumed, encoded.len());
+        let error = decoder.finish_input(&mut output).unwrap_err();
+        assert!(error.to_string().contains("trailing bytes"), "{error}");
     }
 
     #[test]

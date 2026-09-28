@@ -87,6 +87,16 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
     end
 end
 
+function M.bytesAfterACompleteGzipMemberAreReportedAsTrailing(): nil
+    local gzip = compression.format("gzip")
+    local compressed = gzip:compress("hello")
+    local ok, problem = pcall(function(): string
+        return gzip:decompress(compressed .. "\31")
+    end)
+    assert(not ok)
+    assert(tostring(problem):find("trailing bytes", 1, true) ~= nil, tostring(problem))
+end
+
 function M.spanAndDestinationOverloadsReuseStorage(): nil
     local gzip = compression.format("gzip")
     local text = "span input"
