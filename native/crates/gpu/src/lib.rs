@@ -75,6 +75,8 @@ pub enum GpuError {
         slot: u32,
     },
     DownloadPending(BufferHandle),
+    /// A synchronized download is waiting to be read.
+    DownloadUnread(BufferHandle),
     DownloadNotReady(BufferHandle),
     DownloadMismatch {
         expected_offset: u64,
@@ -133,6 +135,10 @@ impl fmt::Display for GpuError {
             Self::DownloadPending(handle) => {
                 write!(formatter, "buffer {handle} already has a queued download")
             }
+            Self::DownloadUnread(handle) => write!(
+                formatter,
+                "buffer {handle} has a synchronized download that has not been read yet"
+            ),
             Self::DownloadNotReady(handle) => {
                 write!(formatter, "buffer {handle} has no synchronized download")
             }
@@ -1202,8 +1208,10 @@ impl GpuContext {
         }
         let length = size;
         let size = copy_extent("download", offset, size, entry.size)?;
-        if entry.download.is_some() {
-            return Err(GpuError::DownloadPending(handle));
+        match entry.download {
+            Some(Download::Pending { .. }) => return Err(GpuError::DownloadPending(handle)),
+            Some(Download::Ready { .. }) => return Err(GpuError::DownloadUnread(handle)),
+            None => {}
         }
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Nupp GPU readback"),
@@ -1857,6 +1865,29 @@ mod tests {
         let mut truncated = words.clone();
         truncated.truncate(words.len() - 1);
         assert!(check_workgroup_size(&truncated, "main", [64, 1, 1]).is_err());
+    }
+
+    #[test]
+    fn an_unread_download_says_so_when_available() {
+        let Ok(mut gpu) = GpuContext::new() else {
+            assert!(std::env::var_os("NUPP_REQUIRE_GPU").is_none());
+            return;
+        };
+        let buffer = gpu.create_buffer(16).unwrap();
+        gpu.queue_download(buffer, 0, 16).unwrap();
+        assert_eq!(
+            gpu.queue_download(buffer, 0, 16),
+            Err(GpuError::DownloadPending(buffer))
+        );
+        gpu.synchronize().unwrap();
+        assert_eq!(
+            gpu.queue_download(buffer, 0, 16),
+            Err(GpuError::DownloadUnread(buffer))
+        );
+        gpu.read_download(buffer, 0, 16).unwrap();
+        gpu.queue_download(buffer, 0, 16).unwrap();
+        gpu.synchronize().unwrap();
+        gpu.release_buffer(buffer).unwrap();
     }
 
     #[test]

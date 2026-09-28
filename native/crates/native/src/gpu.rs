@@ -52,6 +52,7 @@ fn gpu_status(error: &GpuError) -> Status {
         | GpuError::WrongHandle { .. }
         | GpuError::MissingBinding { .. }
         | GpuError::DownloadPending(_)
+        | GpuError::DownloadUnread(_)
         | GpuError::DownloadNotReady(_)
         | GpuError::DownloadMismatch { .. }
         | GpuError::AdapterUnavailable(_) => Status::InvalidArgument,
