@@ -453,18 +453,31 @@ local function channelCodec(target: Channel): any
     end
     local count = native.channelDictCount(target.handle)
     local metatables = {}
+    local unresolved: {[any]: string}? = nil
     for index = 1, count do
         local address = native.channelDictAddress(target.handle, index)
-        metatables[index] = resolveRecordCached(address as string)
+        local resolved, metatable = pcall(resolveRecordCached, address as string)
+        if resolved then
+            metatables[index] = metatable
+        else
+            -- A record whose module cannot load in this state keeps its slot
+            -- with a stand-in, so values that do not carry it still decode and
+            -- a value that does fails alone, with this reason.
+            local standIn = {}
+            metatables[index] = standIn
+            if unresolved == nil then
+                unresolved = {}
+            end
+            (unresolved as {[any]: string})[standIn] = tostring(metatable)
+        end
     end
     codec = {
         count = count,
+        unresolved = unresolved,
         encoder = buffer.new({
             metatable = metatables
         }),
-        decoder = buffer.new({
-            metatable = metatables
-        }),
+        decoder = buffer.new({metatable = metatables}),
     }
     target.codec = codec
 
@@ -479,7 +492,7 @@ local function registerDictAddress(target: Channel, address: string): nil
     end
     if not registered[address] then
         if native.channelDictRegister(target.handle, address) == nil then
-            error("nupp: a worker channel dictionary is full", 3)
+            error("nupp: a worker channel dictionary is full: one lane carries at most 256 record types", 3)
         end
         registered[address] = true
         target.codec = nil
@@ -511,6 +524,20 @@ local function encodePacked(target: Channel, packed: Packed): (number, string)
     return packed.count, encoder:get()
 end
 
+--- The decoder for the channel's dictionary as it stands, rebuilt when the
+--- dictionary has grown since the last message. Rebuilding resolves every record
+--- it names, which loads the record's module: the one part of a decode that can
+--- fail for a reason in the program rather than in the frame.
+local function readyCodec(target: Channel): any
+    local codec = channelCodec(target) as any
+    if native.channelDictCount(target.handle) ~= codec.count then
+        target.codec = nil
+        codec = channelCodec(target) as any
+    end
+
+    return codec
+end
+
 -- The decode is not wrapped in a pcall: raising from the serializer's decode
 -- through one segfaults in libunwind on macOS arm64, so a dictionary the
 -- message may have outgrown is detected by count beforehand instead.
@@ -518,13 +545,7 @@ local function decodePacked(target: Channel, count: number, bytes: string): Pack
     if count == 0 then
         return {values = {}, count = 0}
     end
-    local codec = channelCodec(target) as any
-    local decoder = codec.decoder as BufferValue
-    if native.channelDictCount(target.handle) ~= codec.count then
-        target.codec = nil
-        codec = channelCodec(target) as any
-        decoder = codec.decoder as BufferValue
-    end
+    local decoder = readyCodec(target).decoder as BufferValue
     decoder:set(bytes)
     local value = decoder:decode()
     if count == 1 then
@@ -699,13 +720,75 @@ local function plantAttachments(value: any, flat: {any}, cache: {any}): any
     return value
 end
 
-local function decodePackedFrame(source: Channel, count: number, bytes: string, attachments: any): Packed
-    local packed = decodePacked(source, count, bytes)
-    if attachments ~= nil then
-        packed.values = plantAttachments(packed.values, attachments as {any}, {}) as {any}
+-- Frees the moved allocations of an attachment list no value was planted from.
+-- A moved block arrives as a bare pointer; a region arrives as a handle whose
+-- own finalizer releases it.
+local function releaseArrivedMoved(attachments: any): nil
+    if attachments == nil then
+        return
+    end
+    local flat = attachments as {any}
+    for index = 1, #flat, 3 do
+        local handle = flat[index]
+        if type(handle) == "userdata" and getmetatable(handle) == nil then
+            (heapArrayFree as function(any): nil)(handle)
+        end
+    end
+end
+
+--- Decodes a frame's packed values, answering why it could not rather than
+--- raising: a record whose module cannot load here, or an attachment this lane
+--- cannot hold, fails the one task or reply that carried it.
+-- Why a decoded value cannot be used: the reason a record it carries could not
+-- be resolved in this state, found by the stand-in metatable that record's
+-- dictionary slot holds.
+local function unresolvedRecord(value: any, unresolved: {[any]: string}, depth: integer): string?
+    if type(value) ~= "table" or depth > 33 then
+        return nil
+    end
+    local metatable = getmetatable(value)
+    if metatable ~= nil and unresolved[metatable] ~= nil then
+        return unresolved[metatable]
+    end
+    for _, item in next, value as {[any]: any} do
+        local problem = unresolvedRecord(item, unresolved, depth + 1)
+        if problem ~= nil then
+            return problem
+        end
     end
 
-    return packed
+    return nil
+end
+
+local function decodePackedFrame(source: Channel, count: number, bytes: string, attachments: any): (Packed?, string?)
+    local unresolved: {[any]: string}? = nil
+    if count ~= 0 then
+        local ready, codec = pcall(readyCodec, source)
+        if not ready then
+            releaseArrivedMoved(attachments)
+
+            return nil, tostring(codec)
+        end
+        unresolved = (codec as any).unresolved
+    end
+    local packed = decodePacked(source, count, bytes)
+    if unresolved ~= nil then
+        local problem = unresolvedRecord(packed.values, unresolved as {[any]: string}, 0)
+        if problem ~= nil then
+            releaseArrivedMoved(attachments)
+
+            return nil, problem
+        end
+    end
+    if attachments ~= nil then
+        local planted, values = pcall(plantAttachments, packed.values, attachments as {any}, {})
+        if not planted then
+            return nil, tostring(values)
+        end
+        packed.values = values as {any}
+    end
+
+    return packed, nil
 end
 
 -- Frees moved allocations planted into values nothing will consume: a
@@ -943,6 +1026,9 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
         and type(nativeValue) == "string"
         and nativeCount ~= nil
     then
+        -- A task whose values cannot be decoded is still a task with an id,
+        -- so the scheduler answers it as failed instead of ending the lane.
+        local value, problem = decodePackedFrame(source, nativeCount, nativeValue as string, nativeAttachments)
         return {
             kind = "task",
             id = nativeId,
@@ -951,9 +1037,14 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
             bytes = "",
             records = noRecords,
             encoding = "packed",
-            value = decodePackedFrame(source, nativeCount, nativeValue as string, nativeAttachments),
+            value = value,
+            error = problem,
         }
     elseif nativeKind == 8 and nativeId ~= nil and type(nativeValue) == "string" and nativeCount ~= nil then
+        local value, problem = decodePackedFrame(source, nativeCount, nativeValue as string, nativeAttachments)
+        if problem ~= nil then
+            return {kind = "reply", id = nativeId, ok = false, error = "results cannot be received: " .. problem}
+        end
         return {
             kind = "reply",
             id = nativeId,
@@ -961,7 +1052,7 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
             bytes = "",
             records = noRecords,
             encoding = "packed",
-            value = decodePackedFrame(source, nativeCount, nativeValue as string, nativeAttachments),
+            value = value,
         }
     end
     if nativeKind == 1 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and nativeValue ~= nil then
@@ -1352,16 +1443,22 @@ local function callableAddress(fn: any): (string?, string?)
     return moduleName, member
 end
 
+-- A lane whose scheduler has stopped closes its inbox, and nothing spawned to
+-- it would ever be answered, so it is passed over.
 local function leastBusy(value: Scheduler): Lane
-    local selected = value.lanes[1]
-    for index = 2, #value.lanes do
-        local candidate = value.lanes[index]
-        if candidate.inflight < selected.inflight then
+    local selected: Lane? = nil
+    for _, candidate in ipairs(value.lanes) do
+        if not native.channelClosed(candidate.inbox.handle)
+            and (selected == nil or candidate.inflight < (selected as Lane).inflight)
+        then
             selected = candidate
         end
     end
+    if selected == nil then
+        error("nupp: every worker lane has ended", 3)
+    end
 
-    return selected
+    return selected as Lane
 end
 
 local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
@@ -1831,6 +1928,12 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
     end
 end
 
+-- Sends a control reply. The outbox waits for room, so this is refused only once
+-- the parent has closed it, and then there is nobody left to tell.
+local function answerTask(outbox: Channel, frame: Frame): nil
+    pcall(push, outbox, frame)
+end
+
 --- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
 --- @raises string when called outside the compiler-owned worker bootstrap
 function workers.runScheduler(): nil
@@ -1861,10 +1964,13 @@ function workers.runScheduler(): nil
         if not shouldRun then
             releasePlantedMoved(frame.value, 0)
             native.workerTaskFinish(id)
-            push(outbox, {kind = "reply", id = id, cancelled = true, deadline = deadline,})
+            answerTask(outbox, {kind = "reply", id = id, cancelled = true, deadline = deadline,})
         else
             local preparedOutput: any = nil
             local ok, answer = pcall(function(): Packed
+                if frame.error ~= nil then
+                    error(frame.error, 0)
+                end
                 local moduleName = frame.module as string
                 local member = frame.member as string
                 local moduleValue = require(moduleName)
@@ -1882,12 +1988,26 @@ function workers.runScheduler(): nil
             local cancelled, finishedDeadline = native.workerTaskFinish(id)
             if ok and cancelled then
                 releasePlantedMoved((answer as Packed).values, 0)
-                push(outbox, {kind = "reply", id = id, cancelled = true, deadline = finishedDeadline,})
+                answerTask(outbox, {kind = "reply", id = id, cancelled = true, deadline = finishedDeadline,})
             else
                 if not ok then
                     releasePlantedMoved(frame.value, 0)
                 end
-                workerReply(outbox, id, ok, answer, preparedOutput)
+                -- A result that cannot be sent -- a record type past the
+                -- channel's dictionary, a value the codec refuses -- fails its
+                -- task rather than the lane every later task would run on.
+                local replied, problem = pcall(workerReply, outbox, id, ok, answer, preparedOutput)
+                if not replied then
+                    if ok then
+                        releasePlantedMoved((answer as Packed).values, 0)
+                    end
+                    answerTask(outbox, {
+                        kind = "reply",
+                        id = id,
+                        ok = false,
+                        error = "results cannot be sent: " .. tostring(problem),
+                    })
+                end
             end
         end
     end

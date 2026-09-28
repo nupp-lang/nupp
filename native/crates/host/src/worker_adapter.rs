@@ -21,6 +21,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr;
 use std::slice;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -72,6 +73,11 @@ struct QueueState {
 pub(crate) struct AdapterChannel {
     queue: Mutex<QueueState>,
     arrived: Condvar,
+    // Signalled when a pop or close makes room, for a producer that waits.
+    departed: Condvar,
+    // A worker's outbox: its one producer waits for room rather than being
+    // refused, because a refused reply is a task its parent never hears of.
+    waits_for_room: AtomicBool,
     dictionary: Mutex<Vec<Vec<u8>>>,
 }
 
@@ -84,21 +90,37 @@ impl AdapterChannel {
                 closed: false,
             }),
             arrived: Condvar::new(),
+            departed: Condvar::new(),
+            waits_for_room: AtomicBool::new(false),
             dictionary: Mutex::new(Vec::new()),
         }
     }
 
+    /// Queues a message, or refuses it when the channel is closed or full. A
+    /// channel that waits for room refuses only when closed, or when even an
+    /// empty queue could not hold the message.
     fn try_push(&self, message: Box<AdapterMessage>) -> bool {
         let measured = message.measured_bytes();
         let mut queue = lock(&self.queue);
-        if queue.closed
-            || queue.messages.len() >= MAX_MESSAGES
-            || queue
-                .bytes
-                .checked_add(measured)
-                .is_none_or(|bytes| bytes > MAX_BYTES)
-        {
-            return false;
+        loop {
+            if queue.closed {
+                return false;
+            }
+            let fits = queue.messages.len() < MAX_MESSAGES
+                && queue
+                    .bytes
+                    .checked_add(measured)
+                    .is_some_and(|bytes| bytes <= MAX_BYTES);
+            if fits {
+                break;
+            }
+            if !self.waits_for_room.load(Ordering::Relaxed) || queue.messages.is_empty() {
+                return false;
+            }
+            queue = self
+                .departed
+                .wait(queue)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         queue.bytes += measured;
         queue.messages.push_back(message);
@@ -127,12 +149,14 @@ impl AdapterChannel {
         }
         let message = queue.messages.pop_front()?;
         queue.bytes = queue.bytes.saturating_sub(message.measured_bytes());
+        self.departed.notify_all();
         Some(message)
     }
 
     fn close(&self) {
         lock(&self.queue).closed = true;
         self.arrived.notify_all();
+        self.departed.notify_all();
     }
 }
 
@@ -1015,6 +1039,7 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
         };
         let inbox = Arc::clone(&inbox);
         let outbox = Arc::clone(&outbox);
+        outbox.waits_for_room.store(true, Ordering::Relaxed);
         let tasks = Arc::new(AdapterTasks::new());
         let payload = host.payload.clone();
         let executable = host.executable.clone();
@@ -1089,6 +1114,10 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
         // SAFETY: workerJoin consumes the one Box owner returned by workerSpawn;
         // the Lua scheduler removes the handle after this call and never joins twice.
         let mut worker = unsafe { Box::from_raw(worker) };
+        // Closed first: a scheduler waiting for room in its outbox would
+        // otherwise wait for a parent that is now waiting for it.
+        worker.inbox.close();
+        worker.outbox.close();
         let event = worker.worker.poll(None);
         let (status, problem) = match event {
             Ok(Some(WorkerEvent::Completed { .. })) => (0, None),
@@ -1102,8 +1131,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
             ),
             Err(problem) => (1, Some(problem.to_string())),
         };
-        worker.inbox.close();
-        worker.outbox.close();
         let shutdown = worker.worker.shutdown();
         if let Some(problem) = problem.or_else(|| shutdown.err().map(|error| error.to_string())) {
             write_error(error, error_capacity, &problem);
@@ -1365,6 +1392,46 @@ mod tests {
             assert_eq!(channel.pop(0).unwrap().id, id as i64);
         }
         assert!(channel.pop(0).is_none());
+    }
+
+    fn empty_message(id: i64) -> Box<AdapterMessage> {
+        Box::new(AdapterMessage {
+            kind: 0,
+            id,
+            number: 0.0,
+            first: vec![],
+            second: vec![],
+            value: vec![],
+            attachments: vec![],
+        })
+    }
+
+    #[test]
+    fn an_outbox_producer_waits_for_room_instead_of_being_refused() {
+        let channel = Arc::new(AdapterChannel::new());
+        channel.waits_for_room.store(true, Ordering::Relaxed);
+        for id in 0..MAX_MESSAGES {
+            assert!(channel.try_push(empty_message(id as i64)));
+        }
+        let producer = {
+            let channel = Arc::clone(&channel);
+            std::thread::spawn(move || channel.try_push(empty_message(-1)))
+        };
+        // The producer is still waiting: nothing has left the queue.
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(!producer.is_finished());
+        assert_eq!(channel.pop(0).unwrap().id, 0);
+        assert!(producer.join().unwrap());
+        assert_eq!(lock(&channel.queue).messages.back().unwrap().id, -1);
+
+        // Closing refuses a waiting producer rather than stranding it.
+        let producer = {
+            let channel = Arc::clone(&channel);
+            std::thread::spawn(move || channel.try_push(empty_message(-2)))
+        };
+        std::thread::sleep(Duration::from_millis(20));
+        channel.close();
+        assert!(!producer.join().unwrap());
     }
 
     #[test]

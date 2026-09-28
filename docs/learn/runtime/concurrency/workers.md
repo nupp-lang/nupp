@@ -305,6 +305,10 @@ or compiler-registered outline. Top-level module initialization therefore runs
 once in each lane that first uses the module. Treat mutable module state as
 lane-local, not shared state.
 
+A module that raises while loading in a lane fails the task that needed it, and
+so does a record value whose declaring module cannot load there. Neither ends
+the lane: later tasks sent to it run normally.
+
 ## Values crossing the boundary
 
 Transferable values are nil, booleans, numbers, strings, and tables recursively
@@ -377,8 +381,14 @@ twice would silently turn one identity into two identities. Pass two explicit
 copies if that is the intended meaning.
 
 Each lane direction holds at most 1,024 messages and 256 MiB. Submission raises
-when a bounded queue is full rather than turning producer backpressure into an
-additional hidden wait.
+when a lane's task queue is full rather than turning producer backpressure into
+an additional hidden wait. A lane whose reply queue is full waits instead, until
+the parent awaits or polls and takes replies off it, because a refused reply
+would be a task its parent never hears of.
+
+Each lane direction also names at most 256 distinct record types. A task or a
+result that would carry a 257th fails with a message saying so; the lane keeps
+running, and so do tasks whose values use records it already carries.
 
 ## Moving owned buffers
 
