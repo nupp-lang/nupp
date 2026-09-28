@@ -1721,14 +1721,54 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["workspace/symbol"] = function(id, params)
         local query = params and params.query or ""
         local found = wire.array({})
-        -- The index holds declarations, which is what a workspace search is for: a
-        -- plain `function m.f` is a member of one module and is found through that
-        -- module, not by sweeping the project for its name.
+        -- The index holds exported declarations. Functions are usually not among them
+        -- -- a `local function` returned in a table, a `function m.f` member -- so a
+        -- search that names something also reads the top-level functions of every
+        -- project file that spells it, the way references reads the files that spell
+        -- a name. An empty query would read the whole project, and asks the index
+        -- alone.
+        local seen: {[string]: boolean} = {}
+        local wanted = query:lower()
+        if wanted ~= "" then
+            local open: {[string]: any} = {}
+            for uri, doc in pairs(s.documents) do
+                open[uriToPath(uri)] = doc
+            end
+            for _, path in ipairs(s.inc.projectFiles()) do
+                local doc = open[path]
+                local source = doc and doc.text or s.inc.fileText(path)
+                if source and source:lower():find(wanted, 1, true) then
+                    local result = doc and doc.result
+                    if not result then
+                        local checked = s.inc.checkFile(path)
+                        result = checked and checked.result
+                    end
+                    local uri = pathToUri(path)
+                    for _, symbol in ipairs(result and result.root and documentSymbols(result, source) or {}) do
+                        local isFunction = symbol.kind == SYMBOL_KINDS["function"] or symbol.kind == SYMBOL_KINDS.method
+                        if isFunction and symbol.name:lower():find(wanted, 1, true) then
+                            local start = symbol.selectionRange.start
+                            seen[uri .. ":" .. start.line .. ":" .. start.character] = true
+                            found[
+                                #found + 1
+                            ] = {
+                                name = symbol.name,
+                                kind = symbol.kind,
+                                containerName = result.moduleName,
+                                location = {uri = uri, range = symbol.selectionRange},
+                                data = {root = rootFor(path).root},
+                            }
+                        end
+                    end
+                end
+            end
+        end
         for name, entries in pairs(s.inc.projectIndex().byName or {}) do
             if query == "" or name:lower():find(query:lower(), 1, true) then
                 for _, entry in ipairs(entries) do
                     local location = definitionLocation(entry.definition)
-                    if location ~= json.NULL then
+                    local start = location ~= json.NULL and location.range.start or nil
+                    if start and not seen[location.uri .. ":" .. start.line .. ":" .. start.character] then
                         found[#found + 1] = {
                             name = name,
                             kind = SYMBOL_KINDS[entry.kind] or SYMBOL_KINDS.variable,

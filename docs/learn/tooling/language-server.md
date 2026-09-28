@@ -28,7 +28,7 @@ nupp lsp serve [root]
 | References | Honors `includeDeclaration` |
 | Rename | With prepare support |
 | Document symbols | Hierarchical, with children |
-| Workspace symbols | Case-insensitive substring over the index |
+| Workspace symbols | Case-insensitive substring over exported declarations and every project function |
 | Semantic tokens | Full, delta, and range |
 | Document highlight | Occurrences of the symbol under the cursor |
 | Folding ranges | Any multi-line node |

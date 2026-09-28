@@ -4260,6 +4260,38 @@ function M.workspaceSymbolsFindDeclarationsAcrossTheProject()
     assert(not found.Colour, "and a name it does not match is not returned")
 end
 
+-- Functions are what a workspace search is most often for, and a module's
+-- functions are rarely exported declarations: a `local function` returned in a
+-- table, or a `function m.f` member. A search that names one finds it in any
+-- project file that spells it, opened or not.
+function M.workspaceSymbolsFindFunctionsAcrossTheProject()
+    local projectDir = makeDir()
+    writeInto(projectDir, "greet.nupp", "--- Greets.\nlocal function greet(name: string): string\n"
+        .. "    return \"Hello, \" .. name\nend\n\nreturn {greet = greet}\n")
+    writeInto(projectDir, "tools.nupp", "local tools = {}\n\nfunction tools.greeting(): string\n"
+        .. "    return \"hi\"\nend\n\nreturn tools\n")
+    local out = runSession(
+        {
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+            {jsonrpc = "2.0", id = 10, method = "workspace/symbol", params = {query = "GREET"}},
+            {jsonrpc = "2.0", id = 2, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
+        },
+        projectDir
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+
+    local found = {}
+    for _, symbol in ipairs(responseWithId(out, 10).result) do
+        found[symbol.name] = symbol
+    end
+    local greet = assert(found.greet, "a local function is found: " .. out)
+    assert(greet.kind == 12 and greet.location.uri:match("greet%.nupp$"), "as a function, where it is declared")
+    assert(greet.location.range.start.line == 1 and greet.location.range.start.character == 15,
+        "at its name: " .. json.encode(greet.location.range))
+    assert(found["tools.greeting"], "and so is a module member, by its qualified name")
+end
+
 -- Highlighting a name marks every occurrence of that one binding in this file,
 -- and nothing that merely spells the same.
 function M.documentHighlightsMarkOneBinding()
