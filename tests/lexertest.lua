@@ -310,6 +310,60 @@ local function errorsOf(src)
     return table.concat(out, "; ")
 end
 
+-- A short string continues past a line break the way LuaJIT reads it: `\z` skips the
+-- whitespace after it, newlines included, and a backslash before CR LF or LF CR
+-- escapes that one line break. Both leave a raw newline after the escape.
+function M.stringContinuationsFollowLuaJIT()
+    for _, src in ipairs({
+        'local s = "a\\z\n   b"\nprint(s)',
+        'local s = "a\\z\r\n\r\n   b"\r\nprint(s)',
+        'local s = "a\\\r\nb"\r\nprint(s)',
+        'local s = "a\\\n\rb"\nprint(s)',
+        'local s = "a\\\rb"',
+    }) do
+        assertEq(kindsOf(src):match("^local name = (%a+)"), "string", "one string token for " .. ("%q"):format(src))
+        assertEq(errorsOf(src), "", "no error for " .. ("%q"):format(src))
+        assertRoundtrip(src)
+    end
+    local tokens = select(1, lexer.lex('local s = "a\\z\n   b"\nprint(s)'))
+    assertEq(tokens[5].line, 3, "lines after a continued string are counted")
+end
+
+-- An escape LuaJIT refuses is refused here, at the escape, rather than passing the
+-- check and failing when the generated chunk loads.
+function M.invalidEscapesAreErrorsAtTheEscape()
+    for src, want in pairs({
+        ['print("\\q")'] = "1:8 invalid escape sequence '\\q'",
+        ['x = "ab\\300"'] = "1:8 invalid escape sequence '\\300'",
+        ["x = '\\x4g'"] = "1:6 invalid escape sequence '\\x4g'",
+        ['x = "\\u{110000}"'] = "1:6 invalid escape sequence '\\u{110000}'",
+        ['x = "\\u{7FFFFFFF}"'] = "1:6 invalid escape sequence '\\u{7FFFFFFF}'",
+        ['x = "\\u{}"'] = "1:6 invalid escape sequence '\\u{}'",
+        ['x = "\\u41"'] = "1:6 invalid escape sequence '\\u4'",
+    }) do
+        assertEq(errorsOf(src), want, src)
+        assertRoundtrip(src)
+    end
+    for _, src in ipairs({
+        'x = "\\a\\b\\f\\n\\r\\t\\v\\\\\\"\\\'"',
+        'x = "\\255\\0\\9\\x41\\xfF"',
+        'x = "\\u{10FFFF}\\u{0000000041}"',
+    }) do
+        assertEq(errorsOf(src), "", src)
+    end
+end
+
+-- `LL`, `ULL` make an integer cdata literal; LuaJIT refuses them on a numeral with a
+-- fraction or an exponent.
+function M.integerSuffixesNeedAnIntegerNumeral()
+    for _, src in ipairs({"x = 1.5LL", "x = 1e5LL", "x = 2.ULL", "x = 0x1p4LL", "x = 0x1.8ll"}) do
+        assertEq(errorsOf(src), "1:5 malformed number", src)
+    end
+    for _, src in ipairs({"x = 15LL", "x = 0xFFULL", "x = 1.5i", "x = 1e5i", "x = 1_000LL"}) do
+        assertEq(errorsOf(src), "", src)
+    end
+end
+
 -- A byte that starts no token is named in the message as ASCII, so the message is
 -- valid UTF-8 whatever the source is.
 function M.unexpectedBytesAreNamedInASCII()

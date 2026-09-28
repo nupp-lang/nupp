@@ -478,16 +478,139 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         return first, taken
     end
 
+    -- The escape starting at the backslash at `p`, read as LuaJIT reads it. Returns
+    -- the offset after it, whether LuaJIT accepts it, and for a refused one the offset
+    -- of the last byte its message shows: what was read, and the byte that stopped it
+    -- unless that byte ends the string or the line. A backslash before a line break
+    -- escapes the break, CR LF and LF CR counting as one; `\z` skips the whitespace
+    -- after it, line breaks included; `\x` takes two hex digits, `\u{...}` a code
+    -- point up to U+10FFFF, and a decimal escape up to three digits up to 255.
+    local function scanEscape(p: integer, quote: integer): (integer, boolean, integer)
+        local function upTo(at: integer): integer
+            local stop = byte(source, at)
+            if stop == nil or stop == quote or stop == 10 or stop == 13 then
+                return at - 1
+            end
+
+            return at
+        end
+
+        local function hexValue(digit: integer?): integer?
+            if not digit then
+                return nil
+            elseif isDigit(digit) then
+                return digit - 48
+            elseif digit >= 97 and digit <= 102 then
+                return digit - 87
+            elseif digit >= 65 and digit <= 70 then
+                return digit - 55
+            end
+
+            return nil
+        end
+
+        local ch = byte(source, p + 1)
+        if ch == nil then
+            return p + 1, true, p -- the string is unterminated; that is the error
+        elseif ch == 10 or ch == 13 then
+            local after = byte(source, p + 2)
+            if after ~= ch and (after == 10 or after == 13) then
+                return p + 3, true, p
+            end
+            return p + 2, true, p
+        elseif ch == 122 then -- z
+            local at = p + 2
+            local next = byte(source, at)
+            while next == 32 or next == 9 or next == 10 or next == 13 or next == 11 or next == 12 do
+                at = at + 1
+                next = byte(source, at)
+            end
+            return at, true, p
+        elseif ch == 120 then -- x
+            local at = p + 2
+            for _ = 1, 2 do
+                if not hexValue(byte(source, at)) then
+                    return at, false, upTo(at)
+                end
+                at = at + 1
+            end
+            return at, true, p
+        elseif ch == 117 then -- u
+            if byte(source, p + 2) ~= 123 then
+                return p + 2, false, upTo(p + 2)
+            end
+            local at, value, digits = p + 3, 0, 0
+            local amount = hexValue(byte(source, at))
+            while amount do
+                value = value * 16 + amount
+                digits = digits + 1
+                at = at + 1
+                amount = hexValue(byte(source, at))
+            end
+            if byte(source, at) ~= 125 then
+                return at, false, upTo(at)
+            end
+            return at + 1, digits > 0 and value <= 0x10FFFF, at
+        elseif isDigit(ch) then
+            local at, value = p + 1, 0
+            for _ = 1, 3 do
+                local digit = byte(source, at)
+                if not (digit and isDigit(digit)) then
+                    break
+                end
+                value = value * 10 + digit - 48
+                at = at + 1
+            end
+            return at, value <= 255, at - 1
+        elseif ch == 97
+            or ch == 98
+            or ch == 102
+            or ch == 110
+            or ch == 114
+            or ch == 116
+            or ch == 118
+            or ch == 92
+            or ch == 34
+            or ch == 39
+        then
+            return p + 2, true, p
+        end
+
+        return p + 2, false, p + 1
+    end
+
     -- Scan one short-string token starting at the quote character. Returns endpos
-    -- (exclusive) and true if terminated.
+    -- (exclusive) and true if terminated. An escape LuaJIT would refuse is reported
+    -- here, where its position is known, and the string still ends where it ends.
     local function scanShortString(quote: integer): integer, boolean
         local p = pos + 1
         while p <= len do
             local ch = byte(source, p)
             if ch == quote then
                 return p + 1, true
-            elseif ch == 92 then -- backslash: consume escaped char (incl. newline)
-                p = p + 2
+            elseif ch == 92 then -- backslash
+                local after, valid, shown = scanEscape(p, quote)
+                if not valid then
+                    local lineAt, startAt = line, lineStart
+                    local newline = nextNewline
+                    while newline < p do
+                        lineAt = lineAt + 1
+                        startAt = newline + 1
+                        newline = find(source, "\n", newline + 1, true) or (len + 1)
+                    end
+                    errors[
+                        #errors + 1
+                    ] = {
+                        code = "NUPP1001",
+                        offset = p,
+                        length = shown - p + 1,
+                        line = lineAt,
+                        col = p - startAt + 1,
+                        msg = ("invalid escape sequence '%s'"):format(sub(source, p, shown)),
+                        filename = filename
+                    }
+                end
+                p = math.min(after, len + 1)
             elseif ch == 10 then
                 return p, false -- unescaped newline: unterminated
             else
@@ -546,6 +669,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     local function scanNumber(): integer, boolean
         local p = pos
         local wellformed = true
+        local fractional = false
 
         -- LuaJIT 3.0 ignores underscores anywhere after the initial digit, including
         -- around radix/exponent markers and inside suffixes.
@@ -573,6 +697,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             local digits, more
             p, digits = scanDigits(p, isHex)
             if byte(source, p) == 46 and byte(source, p + 1) ~= 46 then
+                fractional = true
                 p = skipUnderscores(p + 1)
                 p, more = scanDigits(p, isHex)
                 digits = digits + more
@@ -582,6 +707,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             end
             local e = byte(source, p)
             if e == 112 or e == 80 then -- p P
+                fractional = true
                 p = skipUnderscores(p + 1)
                 local s = byte(source, p)
                 if s == 43 or s == 45 then
@@ -595,15 +721,18 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         else
             -- decimal: digits [. digits] [eE [+-] digits] (also handles ".5")
             if byte(source, p) == 46 then
+                fractional = true
                 p = p + 1
             end
             p = scanDigits(p, isDigit)
             if byte(source, p) == 46 and byte(source, p + 1) ~= 46 then
+                fractional = true
                 p = skipUnderscores(p + 1)
                 p = scanDigits(p, isDigit)
             end
             local e = byte(source, p)
             if e == 101 or e == 69 then -- e E
+                fractional = true
                 p = skipUnderscores(p + 1)
                 local s = byte(source, p)
                 if s == 43 or s == 45 then
@@ -633,7 +762,13 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             return at
         end
 
-        p = suffix("ull") or suffix("ll") or suffix("i") or p
+        -- `LL` and `ULL` make an integer cdata, and LuaJIT refuses them on a numeral
+        -- with a fraction or an exponent.
+        local integerSuffix = suffix("ull") or suffix("ll")
+        if integerSuffix and fractional then
+            wellformed = false
+        end
+        p = integerSuffix or suffix("i") or p
         -- A number immediately followed by a name character is malformed (0x, 12abc).
         if isNameChar(byte(source, p)) then
             repeat

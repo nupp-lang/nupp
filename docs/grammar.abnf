@@ -247,7 +247,8 @@ HexExponent    = ("p" / "P") ["+" / "-"] 1*DIGIT
 NumSuffix      = IntSuffix / ImagSuffix
 IntSuffix      = [("u" / "U")] ("l" / "L") ("l" / "L")
 ImagSuffix     = "i" / "I"
-; A Numeral immediately followed by a NameChar is malformed. [CS-3]
+; A Numeral immediately followed by a NameChar is malformed. [CS-3] An IntSuffix
+; makes an integer, so it follows only a Numeral with no fraction or exponent.
 
 ; Interpolated string (Nupp extension, not in LuaJIT 3.0): backtick-
 ; delimited, may span lines, "${" exp "}" splices values (tostring
@@ -265,7 +266,11 @@ LiteralString  = ShortString / LongString
 ShortString    = DQUOTE *DQChar DQUOTE / "'" *SQChar "'"
 DQChar         = Escape / %x00-09 / %x0B-21 / %x23-5B / %x5D-10FFFF  ; not " \ NL
 SQChar         = Escape / %x00-09 / %x0B-26 / %x28-5B / %x5D-10FFFF  ; not ' \ NL
-Escape         = "\" %x00-10FFFF                 ; backslash + any char, incl. newline
+Escape         = "\" (%s"abfnrtv" / "\" / DQUOTE / "'" / LineBreak
+                 / "z" *(%x20 / %x09 / %x0A / %x0B / %x0C / %x0D)  ; skips it all
+                 / "x" 2HEXDIG / "u{" 1*HEXDIG "}"                 ; at most U+10FFFF
+                 / 1*3DIGIT)                                       ; at most 255
+LineBreak      = %x0D.0A / %x0A.0D / %x0A / %x0D                   ; one line
 LongString     = LongBracket                     ; [CS-4]
 LongBracket    = "[" *"=" "[" *ANYCHAR "]" *"=" "]"
 ANYCHAR        = %x00-10FFFF
