@@ -742,6 +742,10 @@ function expr.install(c: state.Checker): nil
         local dynamicOperand: any = operand
         local pack = dynamicOperand.valuePack or T.pack({first})
         local at: any = node.exitToken or node
+        -- The exit leaves from here, with whatever the operand left behind.
+        if exitKind == "break" or exitKind == "continue" then
+            c.recordLoopExit(exitKind, at)
+        end
         local dynamic: any = node
         dynamic.orExitPack = pack
 

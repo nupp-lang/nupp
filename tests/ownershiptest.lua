@@ -413,6 +413,105 @@ function M.backwardGotosAreOwnershipLoopEdges()
     )
 end
 
+-- A move on a path that leaves early is still a move where that path lands: after
+-- the loop for `break`, at the header for `continue`, at the label for a forward
+-- `goto`. Each of these used to drop the move with the `if` arm that made it, which
+-- accepted a double free.
+local function exitEdge(lines)
+    return codes(RESOURCE .. "\n" .. table.concat(lines, "\n"))
+end
+
+function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
+    local function run(body)
+        local lines = {"local function run(flag: boolean): nil", "   local value = resource_new()"}
+        for _, line in ipairs(body) do
+            lines[#lines + 1] = "   " .. line
+        end
+        lines[#lines + 1] = "end"
+        lines[#lines + 1] = "return run"
+        return exitEdge(lines)
+    end
+
+    -- break out of while, repeat, numeric for, and generic for
+    assertEq(
+        run({"while true do", "   if flag then nupp.drop(value) break end", "   break", "end", "nupp.drop(value)"}),
+        "NUPP2601"
+    )
+    assertEq(
+        run({"repeat", "   if flag then nupp.drop(value) break end", "until true", "nupp.drop(value)"}),
+        "NUPP2601"
+    )
+    assertEq(
+        run({"for i = 1, 2 do", "   if flag then nupp.drop(value) break end", "end", "nupp.drop(value)"}),
+        "NUPP2601"
+    )
+    assertEq(
+        run({"for _ in ipairs({1, 2}) do", "   if flag then nupp.drop(value) break end", "end", "nupp.drop(value)"}),
+        "NUPP2601"
+    )
+    -- the exit suffix is the same edge
+    assertEq(
+        run({
+            "for i = 1, 2 do",
+            "   if flag then nupp.drop(value) end",
+            "   local n = tonumber(flag and 'x' or '1') or break",
+            "   print(n)",
+            "   break",
+            "end",
+            "nupp.drop(value)",
+        }),
+        "NUPP2601"
+    )
+    -- continue runs the header again
+    assertEq(
+        run({"for i = 1, 2 do", "   if i == 1 then nupp.drop(value) continue end", "end", "nupp.drop(value)"}),
+        "NUPP2609"
+    )
+    -- a forward goto lands at its label
+    assertEq(
+        run({"do", "   if flag then nupp.drop(value) goto done end", "end", "::done::", "nupp.drop(value)"}),
+        "NUPP2601"
+    )
+    -- controls: every edge discharging it, or none of them, stays clean
+    assertEq(
+        run({"while true do", "   if flag then nupp.drop(value) break end", "   nupp.drop(value)", "   break", "end"}),
+        ""
+    )
+    assertEq(run({"for i = 1, 2 do", "   if flag then break end", "end", "nupp.drop(value)"}), "")
+    assertEq(
+        run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}),
+        ""
+    )
+    assertEq(run({"for i = 1, 2 do", "   if flag then continue end", "   print(i)", "end", "nupp.drop(value)"}), "")
+    -- a loop whose body always returns leaves by its own test with the owner intact
+    assertEq(run({"for i = 1, 2 do", "   nupp.drop(value)", "   return", "end", "nupp.drop(value)"}), "")
+end
+
+function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
+    assertEq(
+        exitEdge({
+            "local function run(takes value: affine(resource*, resource_free), n: integer): nil",
+            "   for i = 1, n do",
+            "      if i == 2 then nupp.drop(value) break end",
+            "   end",
+            "end",
+            "return run",
+        }),
+        "NUPP2603"
+    )
+    assertEq(
+        exitEdge({
+            "local function run(takes value: affine(resource*, resource_free), flag: boolean): nil",
+            "   while true do",
+            "      if flag then nupp.drop(value) break end",
+            "   end",
+            "end",
+            "return run",
+        }),
+        ""
+    )
+end
+
 function M.sharedAndExclusiveArgumentsCannotAlias()
     assertEq(
         codes(

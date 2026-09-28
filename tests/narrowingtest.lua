@@ -137,6 +137,139 @@ function M.aGotoGuardNarrowsLikeABreak()
     )
 end
 
+function M.aForwardGotoCarriesItsFactsToTheLabel()
+    -- What the jump knew reaches the label: x is still nil on the jump's path.
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local function run(flag: boolean): integer",
+                    "    local x: string? = nil",
+                    "    if flag then",
+                    "        goto skip",
+                    "    end",
+                    "    x = 'a'",
+                    "    ::skip::",
+                    "    return #x",
+                    "end",
+                    "return run",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2003:8"
+    )
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local function run(flag: boolean): integer",
+                    "    local x: string? = 'start'",
+                    "    do",
+                    "        if flag then",
+                    "            x = nil",
+                    "            goto skip",
+                    "        end",
+                    "    end",
+                    "    x = 'b'",
+                    "    ::skip::",
+                    "    return #x",
+                    "end",
+                    "return run",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2003:11"
+    )
+    -- Every path agreeing is still a fact.
+    assertClean(
+        table.concat(
+            {
+                "local function run(flag: boolean): integer",
+                "    local x: string? = nil",
+                "    if flag then",
+                "        x = 'a'",
+                "        goto skip",
+                "    end",
+                "    x = 'b'",
+                "    ::skip::",
+                "    return #x",
+                "end",
+                "return run",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.anEarlyExitCarriesWhatItLeftUnassigned()
+    local strict = {strict = true}
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local function run(flag: boolean): integer",
+                    "    local p: integer",
+                    "    if flag then",
+                    "        goto skip",
+                    "    end",
+                    "    p = 1",
+                    "    ::skip::",
+                    "    return p + 1",
+                    "end",
+                    "return run",
+                },
+                "\n"
+            ),
+            strict
+        ),
+        "NUPP2207:8"
+    )
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local function run(flag: boolean): integer",
+                    "    local p: integer",
+                    "    repeat",
+                    "        if flag then",
+                    "            break",
+                    "        end",
+                    "        p = 1",
+                    "    until true",
+                    "    return p + 1",
+                    "end",
+                    "return run",
+                },
+                "\n"
+            ),
+            strict
+        ),
+        "NUPP2207:9"
+    )
+    assertClean(
+        table.concat(
+            {
+                "local function run(flag: boolean): integer",
+                "    local p: integer",
+                "    repeat",
+                "        if flag then",
+                "            p = 2",
+                "            break",
+                "        end",
+                "        p = 1",
+                "    until true",
+                "    return p + 1",
+                "end",
+                "return run",
+            },
+            "\n"
+        ),
+        strict
+    )
+end
+
 function M.aTypedLocalHoldsNilUntilEveryPathAssignsIt()
     local strict = {strict = true}
     -- Declared without a value, a strict local is read as nil until it is assigned.

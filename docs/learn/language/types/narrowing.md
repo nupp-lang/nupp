@@ -249,6 +249,13 @@ end
 The declared type is what an assignment is checked against, so clearing a fact
 never lets a wider value in. It only takes back what the test had proved.
 
+A branch that leaves early takes what it knew to where it lands. A forward
+`goto` joins its facts with the ones at its label, so a fact holds there only
+if every path reaching the label proved it. Definite assignment and ownership
+follow the same rule at a label, after a loop that a `break` leaves, and where
+a `continue` resumes its loop: a binding one path left unassigned is
+unassigned, and an owner one path moved is moved.
+
 ## Predicate functions
 
 When narrowing cannot see what you know, write a predicate. The return type

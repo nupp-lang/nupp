@@ -388,18 +388,35 @@ function control.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    --- Puts every binding an edge left unassigned back to unassigned where the edge
+    --- lands, together with any narrowed copy of it the path that falls in made:
+    --- a read finds the copy first.
+    local function unassignedArrive(snapshot: {any}): nil
+        for _, entry in ipairs(snapshot) do
+            entry.unassigned = true
+            local definition = entry.definition
+            local scope = definition and c.scope or nil
+            while scope do
+                for _, other in pairs(scope.vars or {}) do
+                    if other ~= entry and other.definition == definition then
+                        other.unassigned = true
+                        other.unassignedAt = other.unassignedAt or entry.unassignedAt
+                    end
+                end
+                scope = scope.parent
+            end
+        end
+    end
+
     c.unassignedSnapshot = unassignedSnapshot
     c.unassignedRestore = unassignedRestore
 
-    --- Rejects a capability transition that a repeatable back edge would feed into a
-    --- header checked under a different state. Lexical values created by the body are
-    --- gone before this runs; the snapshot therefore contains exactly the loop-carried
-    --- places. A body that always returns, breaks, or continues has no ordinary back
-    --- edge for this purpose.
-    local function checkLoopBackEdge(snapshot: {any}, body: any, at: any): nil
-        if alwaysExits(body) then
-            return
-        end
+    --- Reports every loop-carried owner whose capability differs, at this back edge,
+    --- from the state the snapshot took at the loop header. A `continue` still holds
+    --- the loans of the iteration's own locals, which end with the iteration before
+    --- the header runs, so `ownershipOnly` compares what the edge moved and nothing
+    --- about loans.
+    local function compareBackEdge(snapshot: {any}, at: any, ownershipOnly: boolean?): nil
         for _, item in ipairs(snapshot) do
             local state = item.state
             -- A consume-and-refill iteration hands the owner away and binds a fresh
@@ -418,9 +435,12 @@ function control.install(c: state.Checker): state.StatHandlers
             local capabilityChanged = own.capabilityOf(state.t, state).id ~= item.capability and not loanIdle
                 or (state.activeBorrows or 0) ~= item.activeBorrows
                 or (state.activeExclusiveBorrows or 0) ~= item.activeExclusiveBorrows
-            capabilityChanged = capabilityChanged
-                or regionSignature(state.activeRegions) ~= item.activeRegions
-                or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
+            capabilityChanged = not ownershipOnly
+                and (
+                    capabilityChanged
+                    or regionSignature(state.activeRegions) ~= item.activeRegions
+                    or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
+                )
             local fieldsChanged = false
             for field in pairs(state.movedFields or {}) do
                 if not (item.movedFields and item.movedFields[field]) then
@@ -451,8 +471,237 @@ function control.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    --- Rejects a capability transition that a repeatable back edge would feed into a
+    --- header checked under a different state. Lexical values created by the body are
+    --- gone before this runs; the snapshot therefore contains exactly the loop-carried
+    --- places. A body that always returns, breaks, or continues has no ordinary back
+    --- edge for this purpose: each `continue` is checked as its own edge.
+    local function checkLoopBackEdge(snapshot: {any}, body: any, at: any): nil
+        if not alwaysExits(body) then
+            compareBackEdge(snapshot, at)
+        end
+    end
+
+    ---------------------------------------------------------------------
+    -- Edges that leave a block early
+    ---------------------------------------------------------------------
+
+    -- An `if` arm that always exits is left out of the join after the `if`, which is
+    -- right for the statement that follows it and wrong for the place the exit lands.
+    -- A `break` lands after its loop, a `continue` at the loop's header, and a forward
+    -- `goto` at its label, so each records what it knows on the way out, and the
+    -- landing place joins those records with whatever falls into it. Ownership,
+    -- narrowing and definite assignment are all joined by the same rule the `if`
+    -- statement uses: moved on any path is moved, known on every path is known, and
+    -- unassigned on any path is unassigned.
+
+    --- What the owners look like on one edge, with the consuming parameters and
+    --- audited fields the edge has narrowed to nothing, which it holds no obligation
+    --- for.
+    local function edgeOwnership(): any
+        local notes = ownershipJoin()
+        noteArmEnd(notes)
+        return {snapshot = ownershipSnapshot(), nilAtEnd = notes.nilAtEnd, fieldEmpty = notes.fieldEmpty}
+    end
+
+    --- Sets every owner the edges saw to the state they join to, and reports a
+    --- consuming parameter or an audited field that only some of them discharged.
+    local function joinOwnershipEdges(edges: {any}, at: any): nil
+        local records: {[any]: any} = {}
+        local order: {any} = {}
+        for arm, edge in ipairs(edges) do
+            for _, item in ipairs(edge.snapshot) do
+                local record = records[item.state]
+                if not record then
+                    record = {moved = {}, present = {}, fields = {}}
+                    records[item.state] = record
+                    order[#order + 1] = item.state
+                end
+                record.present[arm] = true
+                if item.moved then
+                    record.moved[arm] = true
+                    record.movedAt = record.movedAt or item.movedAt
+                end
+                for field in pairs(item.movedFields or {}) do
+                    record.fields[field] = record.fields[field] or {}
+                    record.fields[field][arm] = true
+                end
+            end
+        end
+        for _, state in ipairs(order) do
+            local record = records[state]
+            local movedSomewhere, kept = false, false
+            for arm, edge in ipairs(edges) do
+                local empty = edge.nilAtEnd[state] and edge.nilAtEnd[state][1] or false
+                if record.moved[arm] then
+                    movedSomewhere = true
+                elseif record.present[arm] and not empty then
+                    kept = true
+                end
+            end
+            if movedSomewhere and kept and state.auditedConsumer then
+                local name = state.definition and state.definition.token and state.definition.token.text or "?"
+                c.diag(
+                    "NUPP2603",
+                    at,
+                    ("consuming parameter %q is discharged on only some paths reaching here"):format(name),
+                    nil,
+                    {help = "drop it, move it, or return it on every path, or on none of them"}
+                )
+            end
+            state.moved = movedSomewhere
+            state.movedAt = movedSomewhere and (record.movedAt or state.movedAt) or nil
+            local movedFields = nil
+            for field, movedOn in pairs(record.fields) do
+                movedFields = movedFields or {}
+                movedFields[field] = true
+                local held = false
+                for arm, edge in ipairs(edges) do
+                    local fields = edge.fieldEmpty[state]
+                    local empty = fields and fields[field] and fields[field][1] or false
+                    if record.present[arm] and not movedOn[arm] and not empty then
+                        held = true
+                    end
+                end
+                if held then
+                    if state.automaticOwner then
+                        state.conditionalMovedFields = state.conditionalMovedFields or {}
+                        state.conditionalMovedFields[field] = true
+                    elseif state.auditedFields then
+                        local name = state.definition and state.definition.token and state.definition.token.text or "?"
+                        c.diag(
+                            "NUPP2603",
+                            at,
+                            ("owned field %q of %q is moved on only some paths reaching here"):format(field, name),
+                            nil,
+                            {help = "move the field on every path, or on none of them"}
+                        )
+                    end
+                end
+            end
+            state.movedFields = movedFields
+        end
+    end
+
+    --- Joins what the edges reaching one place know about narrowed paths: a fact
+    --- survives only when every edge carries one for the same path, and then holds
+    --- the union of them. The current facts are the first edge when control can fall
+    --- into the place, and are replaced either way.
+    local function joinNarrowingEdges(snapshots: {{[string]: T.Type}}): nil
+        local current = snapshotNarrowed()
+        local joined: {[string]: T.Type} = {}
+        local first = snapshots[1]
+        for key, t in pairs(first or {}) do
+            local members = {t}
+            local everywhere = true
+            for index = 2, #snapshots do
+                local other = snapshots[index][key]
+                if not other then
+                    everywhere = false
+                    break
+                end
+                members[#members + 1] = other
+            end
+            if everywhere then
+                joined[key] = T.union(members)
+            end
+        end
+        for key, t in pairs(current) do
+            if joined[key] ~= t then
+                c.facts.clearWrite(key)
+            end
+        end
+        applyFacts(joined)
+    end
+
+    --- Whether control can run into the statement at `index` of the current block
+    --- from the one before it.
+    local function reachedFromAbove(index: integer): boolean
+        local block = c.scope.block
+        local stats = block and block.kind == "block" and block.stats or {}
+        local before = {kind = "block", stats = {}}
+        for position = 1, index - 1 do
+            before.stats[position] = stats[position]
+        end
+
+        return c.fallsThrough(before as cst.Node)
+    end
+
+    -- The loops open around the statement being checked, innermost last. A `break`
+    -- or `continue` belongs to the innermost one in its own function.
+    local loopFrames: {any} = {}
+
+    --- Opens a loop whose exits are collected. The header edge is what leaving
+    --- without running the body looks like.
+    local function openLoop(stat: any, before: {any}): any
+        local frame = {
+            stat = stat,
+            functionDepth = c.functionDepth,
+            before = before,
+            header = edgeOwnership(),
+            breaks = {},
+            breakUnassigned = {},
+            continues = {},
+            continueUnassigned = {},
+        }
+        loopFrames[#loopFrames + 1] = frame
+
+        return frame
+    end
+
+    local function closeLoop(frame: any): nil
+        if loopFrames[#loopFrames] == frame then
+            loopFrames[#loopFrames] = nil
+        end
+    end
+
+    --- Records a `break` or `continue` leaving the innermost loop from here, written as
+    --- a statement or as an exit suffix.
+    local function recordLoopExit(kind: string, at: any): nil
+        local frame = loopFrames[#loopFrames]
+        if not frame or frame.functionDepth ~= c.functionDepth then
+            return
+        end
+        if kind == "break" then
+            frame.breaks[#frame.breaks + 1] = edgeOwnership()
+            frame.breakUnassigned[#frame.breakUnassigned + 1] = unassignedSnapshot()
+        elseif kind == "continue" then
+            -- The header runs again from here, so this is a back edge of its own.
+            compareBackEdge(frame.before, at, true)
+            frame.continues[#frame.continues + 1] = edgeOwnership()
+            frame.continueUnassigned[#frame.continueUnassigned + 1] = unassignedSnapshot()
+        end
+    end
+
+    c.recordLoopExit = recordLoopExit
+
+    --- Settles the owners after a loop. `normal` is the edge that leaves by the loop's
+    --- own test, or nil when the test cannot end it; each `break` is another edge.
+    local function settleLoop(frame: any, normal: any?, extra: {any}?): nil
+        local edges = {}
+        if normal then
+            edges[#edges + 1] = normal
+        end
+        for _, edge in ipairs(extra or {}) do
+            edges[#edges + 1] = edge
+        end
+        for _, edge in ipairs(frame.breaks) do
+            edges[#edges + 1] = edge
+        end
+        if #edges > 0 then
+            joinOwnershipEdges(edges, frame.stat)
+        end
+    end
+
     local handlers = {}
-    local labelOwnership = {}
+
+    handlers.breakStmt = function(stat: cst.Node)
+        recordLoopExit("break", stat)
+    end
+
+    handlers.continueStmt = function(stat: cst.Node)
+        recordLoopExit("continue", stat)
+    end
 
     --- The statements a backward `goto` to this label runs again: everything after
     --- the label in its block, when some `goto` in there names it.
@@ -504,10 +753,74 @@ function control.install(c: state.Checker): state.StatHandlers
         return nil
     end
 
+    -- Labels already checked, and forward jumps still looking for theirs. A label is
+    -- visible in its whole block, so a jump belongs to the label of its name whose
+    -- block contains it, in the same function.
+    local checkedLabels: {any} = {}
+    local pendingGotos: {any} = {}
+
+    local function offsetOf(node: any): integer
+        local token = node and cst.firstToken(node) or nil
+        return token and token.offset or 0
+    end
+
     handlers.labelStmt = function(stat: cst.LabelStmt)
         local name: any = stat.name
+        local block = c.scope.block
+        local stats = block and block.kind == "block" and block.stats or {}
+        local index = nil
+        for position, candidate in ipairs(stats) do
+            if candidate == stat then
+                index = position
+                break
+            end
+        end
+        local blockFirst = block and offsetOf(block) or 0
+        local lastToken = block and cst.lastToken(block) or nil
+        local blockLast = lastToken and lastToken.offset or math.huge
+        local at = offsetOf(stat)
         if name then
-            labelOwnership[name.definition or name.text] = ownershipSnapshot()
+            -- The forward jumps that land here, joined with what falls into it.
+            local incoming = {}
+            for position = #pendingGotos, 1, -1 do
+                local jump = pendingGotos[position]
+                if jump.name == name.text
+                    and jump.functionDepth == c.functionDepth
+                    and jump.offset >= blockFirst
+                    and jump.offset < at
+                then
+                    table.insert(incoming, 1, jump)
+                    table.remove(pendingGotos, position)
+                end
+            end
+            if #incoming > 0 then
+                local reached = index == nil or reachedFromAbove(index)
+                local ownershipEdges, narrowed = {}, {}
+                if reached then
+                    ownershipEdges[1] = edgeOwnership()
+                    narrowed[1] = snapshotNarrowed()
+                else
+                    for _, entry in ipairs(unassignedSnapshot()) do
+                        entry.unassigned = nil
+                    end
+                end
+                for _, jump in ipairs(incoming) do
+                    ownershipEdges[#ownershipEdges + 1] = jump.ownership
+                    narrowed[#narrowed + 1] = jump.narrowed
+                    unassignedArrive(jump.unassigned)
+                end
+                joinOwnershipEdges(ownershipEdges, stat)
+                joinNarrowingEdges(narrowed)
+            end
+            checkedLabels[
+                #checkedLabels + 1
+            ] = {
+                name = name.text,
+                functionDepth = c.functionDepth,
+                offset = at,
+                blockLast = blockLast,
+                snapshot = ownershipSnapshot(),
+            }
         end
         -- A jump back here repeats what follows, so what that writes is not known
         -- on the way in.
@@ -516,17 +829,38 @@ function control.install(c: state.Checker): state.StatHandlers
 
     handlers.gotoStmt = function(stat: cst.GotoStmt)
         local name: any = stat.name
-        local before = name and labelOwnership[name.definition or name.text] or nil
-        if before then
-            for _, item in ipairs(before) do
-                if item.state.moved and not item.moved then
-                    c.diag("NUPP2609", stat, "a backward goto repeats after consuming an outer capability", nil, {
-                        help = "use structured control flow that reacquires or preserves the owner on every iteration"
-                    })
-                    break
+        if not name then
+            return
+        end
+        local at = offsetOf(stat)
+        for position = #checkedLabels, 1, -1 do
+            local label = checkedLabels[position]
+            if label.name == name.text
+                and label.functionDepth == c.functionDepth
+                and label.offset < at
+                and at <= label.blockLast
+            then
+                for _, item in ipairs(label.snapshot) do
+                    if item.state.moved and not item.moved then
+                        c.diag("NUPP2609", stat, "a backward goto repeats after consuming an outer capability", nil, {
+                            help = "use structured control flow that reacquires or preserves the owner on every iteration"
+                        })
+                        break
+                    end
                 end
+                return
             end
         end
+        pendingGotos[
+            #pendingGotos + 1
+        ] = {
+            name = name.text,
+            functionDepth = c.functionDepth,
+            offset = at,
+            ownership = edgeOwnership(),
+            narrowed = snapshotNarrowed(),
+            unassigned = unassignedSnapshot(),
+        }
     end
 
     ---------------------------------------------------------------------
@@ -1356,14 +1690,24 @@ function control.install(c: state.Checker): state.StatHandlers
             -- What the body writes is written before it runs again, so nothing
             -- proved about it before the loop holds inside.
             c.facts.forgetWritten(stat.body)
+            local frame = openLoop(stat, ownershipBefore)
             c.pushScope()
             applyFacts(facts.t)
             c.loops.push(stat.body)
             c.checkBlock(stat.body, true)
             c.loops.pop()
             c.popScope()
+            closeLoop(frame)
             unassignedRestore(unassignedBefore)
             checkLoopBackEdge(ownershipBefore, stat.body, stat)
+            -- `while true` leaves only through a `break`; any other test ends the
+            -- loop at the header, which the body left as it found it or was
+            -- reported for.
+            local normal = nil
+            if cond.kind ~= "trueExpr" then
+                normal = alwaysExits(stat.body) and frame.header or edgeOwnership()
+            end
+            settleLoop(frame, normal)
         end
     end
 
@@ -1371,15 +1715,40 @@ function control.install(c: state.Checker): state.StatHandlers
         -- repeat scope extends over the until condition
         local ownershipBefore = ownershipSnapshot()
         c.facts.forgetWritten(stat.body)
+        local frame = openLoop(stat, ownershipBefore)
         c.pushScope()
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
         c.loops.pop()
+        closeLoop(frame)
+        local falls = not alwaysExits(stat.body)
+        -- The condition runs after the body and after every `continue`, so what any
+        -- of them left unassigned is unassigned there.
+        if not falls then
+            for _, entry in ipairs(unassignedSnapshot()) do
+                entry.unassigned = nil
+            end
+        end
+        for _, unassigned in ipairs(frame.continueUnassigned) do
+            unassignedArrive(unassigned)
+        end
         if stat.cond then
             c.infer(stat.cond)
         end
         c.popScope()
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
+        -- The body runs at least once, so the loop ends by its condition from the end
+        -- of the body or from a `continue`, or by a `break`.
+        for _, unassigned in ipairs(frame.breakUnassigned) do
+            unassignedRestore(unassigned)
+        end
+        local normal = nil
+        local continues = {}
+        if not (stat.cond and stat.cond.kind == "falseExpr") then
+            normal = falls and edgeOwnership() or nil
+            continues = frame.continues
+        end
+        settleLoop(frame, normal, continues)
     end
 
     handlers.doStmt = function(stat: cst.DoStmt)
@@ -1443,8 +1812,10 @@ function control.install(c: state.Checker): state.StatHandlers
                 witness = {views = {[receiverDefinition] = to.indexedLength.descriptor,},}
             end
         end
+        local frame = openLoop(stat, ownershipBefore)
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
+        closeLoop(frame)
         if witness and stat.body and var.definition then
             local function markRangeAccess(node)
                 if not node or cst.isToken(node) then
@@ -1480,6 +1851,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.popScope()
         unassignedRestore(unassignedBefore)
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
+        settleLoop(frame, alwaysExits(stat.body) and frame.header or edgeOwnership())
     end
 
     handlers.forinStmt = function(stat: cst.ForinStmt)
@@ -1803,12 +2175,15 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+        local frame = openLoop(stat, ownershipBefore)
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
         c.loops.pop()
+        closeLoop(frame)
         c.popScope()
         unassignedRestore(unassignedBefore)
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
+        settleLoop(frame, alwaysExits(stat.body) and frame.header or edgeOwnership())
         if headerBlock and headerLocal and hiddenNames then
             headerBlock.automaticOwners = c.scope.automaticOwners
             for _, owner in ipairs(headerBlock.automaticOwners or {}) do

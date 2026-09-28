@@ -312,6 +312,10 @@ record state.Checker
     --- about without a run-time record to settle it.
     auditOwnershipJoin: function(moved: {[any]: boolean}, join: any, at: any): nil
 
+    --- Records a `break` or `continue` leaving the innermost loop from here, so the
+    --- place it lands joins what it knew.
+    recordLoopExit: function(kind: string, at: any): nil
+
     --- Set while the hoisting pre-pass runs. It resolves annotations early to publish
     --- signatures, and anything wrong with them is reported when the declaration itself
     --- is checked, so saying it twice helps nobody.
