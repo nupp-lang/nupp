@@ -1148,4 +1148,21 @@ function M.unloadableOutputIsReportedAtItsLine()
     assertEq(diags[1].help:find("nupp bc", 1, true), nil, "no command that fails the same way")
 end
 
+-- More than 200 locals in one function is a limit of Lua's, reached by the program
+-- rather than by the compiler, so it is reported as that limit and not as a bug.
+function M.tooManyLocalsIsReportedAsTheLimit()
+    local lines = {}
+    for index = 1, 201 do
+        lines[index] = ("export record R%d\n    v: integer\nend"):format(index)
+    end
+    local src = "module wide\n" .. table.concat(lines, "\n")
+    local result = parser.parse(src, "wide.nupp")
+    check.check(result, "wide.nupp", env)
+    local _, diags = gen.generate(result, "wide.nupp")
+    assertEq(#diags, 1, "one diagnostic")
+    assertEq(diags[1].code, "NUPP3005")
+    assert(diags[1].msg:find("more than 200 local names", 1, true), diags[1].msg)
+    assertEq(diags[1].help:find("bug in the compiler", 1, true), nil, "not called a compiler bug")
+end
+
 return M

@@ -10061,6 +10061,7 @@ function gen.generate(
             -- past the cap is this file's own doing and has a way out; anything else is
             -- this compiler emitting Lua it should not have.
             local cap = text:match("more than (%d+) upvalues")
+            local localCap = text:match("more than (%d+) local variables")
             local message, help
             if cap then
                 message = (
@@ -10068,6 +10069,15 @@ function gen.generate(
                     .. "which is more than a Lua function can hold"
                 ):format(cap)
                 help = "pass some of them as arguments, or gather what it reads into one " .. "value and capture that"
+            elseif localCap then
+                -- The same kind of limit, reached by declaring rather than capturing:
+                -- a module's top level holds each local, function and record it
+                -- declares, exported or not.
+                message = (
+                    "this function declares more than %s local names, which is more than a Lua function can hold"
+                ):format(localCap)
+                help = "gather related values into a table, or split the module; at the top level every "
+                    .. "local, function and record counts, exported or not"
             else
                 message = "generated code does not load: " .. (text:gsub("^[^:]*:%d+:%s*", ""))
                 help = "this is a bug in the compiler rather than in this file; "
