@@ -277,7 +277,15 @@ function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbyte
     return wrap(handle, 1, length as integer)
 end
 
+-- A provider built before the native module could release a builder leaves its
+-- storage to the userdata's finalizer, as every provider once did.
+local releaseBuilder = rawget(native as table, "builderRelease") as(@nosuspend function(any): nil)?
+
 function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
+    local builder = @unsafe nupp.release(self)
+    if releaseBuilder ~= nil then
+        releaseBuilder(builder._handle)
+    end
 end
 
 --- Opens an empty builder.

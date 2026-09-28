@@ -694,6 +694,17 @@ static int builder_gc(lua_State *state) {
     return 0;
 }
 
+/* Gives a builder's storage back now, for a builder dropped unfrozen. The
+ * finalizer then finds nothing left to release. */
+static int builder_release(lua_State *state) {
+    BuilderHandle *handle = builder_handle(state, 1);
+    if (handle != NULL && handle->builder != NULL) {
+        nupp_rust_region_builder_destroy(handle->builder);
+        handle->builder = NULL;
+    }
+    return 0;
+}
+
 static int builder_new(lua_State *state) {
     BuilderHandle *handle = lua_newuserdata(state, sizeof *handle);
     handle->builder = nupp_rust_region_builder_new();
@@ -812,7 +823,7 @@ int nupp_luaopen_workers(lua_State *state) {
 }
 
 int nupp_luaopen_sharedbytes(lua_State *state) {
-    lua_createtable(state, 0, 11);
+    lua_createtable(state, 0, 12);
     field(state, "fromString", region_from_string);
     field(state, "readFile", region_read_file);
     field(state, "text", region_text);
@@ -823,6 +834,7 @@ int nupp_luaopen_sharedbytes(lua_State *state) {
     field(state, "builderReserve", builder_reserve);
     field(state, "builderCommit", builder_commit);
     field(state, "builderFreeze", builder_freeze);
+    field(state, "builderRelease", builder_release);
     field(state, "accounted", region_accounted);
     return 1;
 }

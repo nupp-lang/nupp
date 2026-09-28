@@ -4,6 +4,7 @@ local ffi = require("ffi")
 local moduleName = "nupp.mem.sharedbytes"
 local nativeName = "nupp.mem.sharedbytes.native"
 local priorModule, priorNative, sharedbytes
+local released = {}
 
 function M.beforeAll()
     local nextIdentity = 0
@@ -44,6 +45,9 @@ function M.beforeAll()
         builderFreeze = function()
             return {}, 0
         end,
+        builderRelease = function(handle)
+            released[#released + 1] = handle
+        end,
         accounted = function()
             return 0
         end,
@@ -76,6 +80,14 @@ function M.builderCountsRemainExactAtThePublicBoundary()
             commit:commit(1.5)
         end)
     )
+end
+
+function M.droppingAnUnfrozenBuilderReleasesItsStorageAtOnce()
+    local builder = sharedbytes.builder()
+    local handle = builder._handle
+    local before = #released
+    builder:drop()
+    assert(#released == before + 1 and released[#released] == handle)
 end
 
 function M.typedViewsUseTheAddressAlignmentRatherThanTheElementWidth()

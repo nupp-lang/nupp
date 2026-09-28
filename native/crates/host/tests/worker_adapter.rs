@@ -292,3 +292,31 @@ assert(bytes.text(region, 1, 3) == "abc")
     );
     runtime.shutdown().expect("shutdown");
 }
+
+// A dropped builder gives its storage back when it is dropped, not whenever the
+// collector next finalizes its userdata.
+#[test]
+fn releasing_a_builder_frees_it_before_any_collection() {
+    let mut runtime = runtime(b"return nil");
+    run(
+        &runtime,
+        br#"
+local bytes = require("nupp.mem.sharedbytes.native")
+collectgarbage("stop")
+local builder = assert(bytes.builderNew())
+assert(bytes.builderReserve(builder, 8 * 1048576))
+assert(bytes.builderCommit(builder, 8 * 1048576))
+bytes.builderRelease(builder)
+local accepted = bytes.builderAppend(builder, "gone")
+assert(not accepted, "a released builder still accepts bytes")
+assert(bytes.builderFreeze(builder) == nil)
+bytes.builderRelease(builder)
+-- A region is not a builder, and releasing one as a builder does nothing.
+local region = assert(bytes.fromString("abc"))
+bytes.builderRelease(region)
+assert(bytes.text(region, 1, 3) == "abc")
+collectgarbage("restart")
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}
