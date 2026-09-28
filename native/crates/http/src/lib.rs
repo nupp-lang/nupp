@@ -270,6 +270,22 @@ struct UploadPart {
 struct UploadStream {
     receiver: mpsc::Receiver<UploadPart>,
     transfer: Weak<Transfer>,
+    finished: Arc<AtomicBool>,
+}
+
+/// The sending side of a streamed request body and what it has promised.
+#[derive(Default)]
+struct UploadSlot {
+    sender: Option<mpsc::Sender<UploadPart>>,
+    /// The declared body length, which the offered bytes must reach exactly.
+    limit: Option<u64>,
+    offered: u64,
+    /// Set only when the caller finishes the upload. Every other way the
+    /// sender goes away ends the body with an error, so a truncated upload is
+    /// never framed as a complete one.
+    finished: Arc<AtomicBool>,
+    /// Response headers have arrived; the transfer takes no more offers.
+    closed: bool,
 }
 
 impl Stream for UploadStream {
@@ -285,7 +301,10 @@ impl Stream for UploadStream {
                 }
                 Poll::Ready(Some(Ok(bytes)))
             }
-            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(None) if self.finished.load(Ordering::Acquire) => Poll::Ready(None),
+            Poll::Ready(None) => Poll::Ready(Some(Err(std::io::Error::other(
+                "the upload stopped before it was finished",
+            )))),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -295,7 +314,7 @@ pub struct Transfer {
     id: u64,
     client: Weak<ClientState>,
     state: Mutex<TransferState>,
-    upload: Mutex<Option<mpsc::Sender<UploadPart>>>,
+    upload: Mutex<UploadSlot>,
     upload_credit: Arc<Semaphore>,
     body_credit: Arc<Semaphore>,
     abort: Mutex<Option<AbortHandle>>,
@@ -306,6 +325,28 @@ pub struct Transfer {
 }
 
 impl Transfer {
+    fn new(id: u64, client: Weak<ClientState>) -> Arc<Self> {
+        Arc::new(Self {
+            id,
+            client,
+            state: Mutex::new(TransferState {
+                head: Head::Pending,
+                body: VecDeque::new(),
+                coalescing: None,
+                body_terminal: BODY_PENDING,
+                body_error: message("no error"),
+            }),
+            upload: Mutex::new(UploadSlot::default()),
+            upload_credit: Arc::new(Semaphore::new(UPLOAD_WINDOW_BYTES)),
+            body_credit: Arc::new(Semaphore::new(RESPONSE_WINDOW_BYTES)),
+            abort: Mutex::new(None),
+            tokens: AtomicU32::new(0),
+            queued: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
+        })
+    }
+
     fn notify(self: &Arc<Self>, tokens: u32) {
         if let Some(client) = self.client.upgrade() {
             client.enqueue(self, tokens);
@@ -340,11 +381,41 @@ impl Transfer {
         self.finish_upload();
     }
 
+    /// Drops the upload's sender. Unless the caller finished the upload
+    /// first, the body then ends with an error rather than cleanly.
     fn finish_upload(&self) {
         self.upload
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+            .sender
             .take();
+    }
+
+    /// Stops taking offers once the response headers are in, without ending
+    /// the body: the sender stays until the response is done or abandoned, so
+    /// the peer never sees a clean end the caller did not make.
+    fn close_upload(&self) {
+        self.upload
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .closed = true;
+    }
+
+    /// Fails a transfer whose upload broke its declared length.
+    fn fail_upload(self: &Arc<Self>, reason: String) {
+        set_error(&reason);
+        let pending = matches!(
+            self.state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .head,
+            Head::Pending
+        );
+        if pending {
+            self.fail_before_headers(reason);
+        } else {
+            self.fail_body(reason);
+        }
     }
 
     fn cancel(self: &Arc<Self>) {
@@ -411,6 +482,8 @@ impl Drop for TaskGuard {
                     .fail_body("the HTTP worker stopped before completing the response body");
             }
         }
+        // An upload the response outlived ends here, with an error.
+        self.0.finish_upload();
     }
 }
 
@@ -646,10 +719,11 @@ unsafe fn own_request(
                 return Err("request body length must be -1 or non-negative".to_owned());
             }
             let (sender, receiver) = mpsc::channel(1024);
-            *transfer
+            transfer
                 .upload
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()) = Some(sender);
+                .unwrap_or_else(|error| error.into_inner())
+                .sender = Some(sender);
             RequestBody::Upload(receiver)
         }
         BODY_FILE => {
@@ -671,6 +745,24 @@ unsafe fn own_request(
                 .ok_or_else(|| "Content-Length must contain decimal digits".to_owned())
         })
         .transpose()?;
+    // Framing is the transport's: a caller's Transfer-Encoding beside the
+    // length the transport sets would let two parsers disagree on where the
+    // request ends.
+    if headers.contains_key(reqwest::header::TRANSFER_ENCODING) {
+        return Err("Transfer-Encoding is chosen by the transport".to_owned());
+    }
+    // No body is a body of length zero: a promised length with nothing to
+    // send leaves the peer waiting for bytes that never come.
+    if matches!(body, RequestBody::None) && declared_length.is_some_and(|length| length != 0) {
+        return Err("Content-Length does not match the request body".to_owned());
+    }
+    if matches!(body, RequestBody::Upload(_)) {
+        transfer
+            .upload
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .limit = body_length.or(declared_length);
+    }
     if let Some(length) = body_length {
         if declared_length.is_some() && declared_length != Some(length) {
             return Err("Content-Length does not match the request body".to_owned());
@@ -751,11 +843,32 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
     builder = match request.body {
         RequestBody::None => builder,
         RequestBody::Inline(bytes) => builder.body(Body::from(bytes)),
-        RequestBody::Upload(receiver) => builder.body(Body::wrap_stream(UploadStream {
-            receiver,
-            transfer: Arc::downgrade(&transfer),
-        })),
+        RequestBody::Upload(receiver) => {
+            let finished = Arc::clone(
+                &transfer
+                    .upload
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .finished,
+            );
+            builder.body(Body::wrap_stream(UploadStream {
+                receiver,
+                transfer: Arc::downgrade(&transfer),
+                finished,
+            }))
+        }
         RequestBody::File(path) => {
+            // Only a regular file has a length to send: a device or a FIFO
+            // reports zero and would go out as an empty body, and opening a
+            // FIFO blocks until somebody writes to it.
+            let not_regular = || format!("request body {} is not a regular file", path.display());
+            match tokio::fs::metadata(&path).await {
+                Ok(metadata) if !metadata.is_file() => {
+                    transfer.fail_before_headers(not_regular());
+                    return;
+                }
+                _ => {}
+            }
             let file = match tokio::fs::File::open(&path).await {
                 Ok(file) => file,
                 Err(error) => {
@@ -767,6 +880,10 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
                 }
             };
             let length = match file.metadata().await {
+                Ok(metadata) if !metadata.is_file() => {
+                    transfer.fail_before_headers(not_regular());
+                    return;
+                }
                 Ok(metadata) => metadata.len(),
                 Err(error) => {
                     transfer.fail_before_headers(format!(
@@ -836,7 +953,7 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
         };
     }
     transfer.notify(TOKEN_HEADERS);
-    transfer.finish_upload();
+    transfer.close_upload();
 
     let mut received = 0u64;
     loop {
@@ -1061,25 +1178,7 @@ pub unsafe fn nuppHttpClientSend(
         return ptr::null();
     }
     let id = client.inner.next_id.fetch_add(1, Ordering::Relaxed);
-    let transfer = Arc::new(Transfer {
-        id,
-        client: Arc::downgrade(&client.inner),
-        state: Mutex::new(TransferState {
-            head: Head::Pending,
-            body: VecDeque::new(),
-            coalescing: None,
-            body_terminal: BODY_PENDING,
-            body_error: message("no error"),
-        }),
-        upload: Mutex::new(None),
-        upload_credit: Arc::new(Semaphore::new(UPLOAD_WINDOW_BYTES)),
-        body_credit: Arc::new(Semaphore::new(RESPONSE_WINDOW_BYTES)),
-        abort: Mutex::new(None),
-        tokens: AtomicU32::new(0),
-        queued: AtomicBool::new(false),
-        cancelled: AtomicBool::new(false),
-        retired: AtomicBool::new(false),
-    });
+    let transfer = Transfer::new(id, Arc::downgrade(&client.inner));
     let owned = match unsafe { own_request(&*request, &transfer) } {
         Ok(request) => request,
         Err(error) => {
@@ -1134,28 +1233,51 @@ pub unsafe fn nuppHttpTransferOffer(
     finished: bool,
 ) -> i32 {
     with_transfer(transfer, UPLOAD_CLOSED, |transfer| {
-        if finished {
-            if length != 0 {
-                set_error("a finished HTTP upload must have an empty chunk");
-                return UPLOAD_CLOSED;
-            }
-            transfer.finish_upload();
-            transfer.notify(TOKEN_UPLOAD_SPACE);
-            return UPLOAD_ACCEPTED;
+        if finished && length != 0 {
+            set_error("a finished HTTP upload must have an empty chunk");
+            return UPLOAD_CLOSED;
         }
-        if length == 0 || length > MAX_UPLOAD_OFFER || data.is_null() {
+        if !finished && (length == 0 || length > MAX_UPLOAD_OFFER || data.is_null()) {
             set_error("an HTTP upload chunk must contain 1 through 524288 bytes");
             return UPLOAD_CLOSED;
         }
-        let Some(sender) = transfer
+        let mut slot = transfer
             .upload
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            .cloned()
-        else {
+            .unwrap_or_else(|error| error.into_inner());
+        if slot.closed {
+            return UPLOAD_CLOSED;
+        }
+        let Some(sender) = slot.sender.clone() else {
             return UPLOAD_CLOSED;
         };
+        if finished {
+            if let Some(limit) = slot.limit
+                && slot.offered != limit
+            {
+                let reason = format!(
+                    "the upload ended after {} of its declared {limit} bytes",
+                    slot.offered
+                );
+                drop(slot);
+                transfer.fail_upload(reason);
+                return UPLOAD_CLOSED;
+            }
+            slot.finished.store(true, Ordering::Release);
+            slot.sender = None;
+            drop(slot);
+            transfer.notify(TOKEN_UPLOAD_SPACE);
+            return UPLOAD_ACCEPTED;
+        }
+        if let Some(limit) = slot.limit
+            && slot.offered.saturating_add(length as u64) > limit
+        {
+            drop(slot);
+            transfer.fail_upload(format!(
+                "the upload is longer than its declared {limit} bytes"
+            ));
+            return UPLOAD_CLOSED;
+        }
         let credit = match transfer
             .upload_credit
             .clone()
@@ -1169,7 +1291,10 @@ pub unsafe fn nuppHttpTransferOffer(
             bytes,
             _credit: credit,
         }) {
-            Ok(()) => UPLOAD_ACCEPTED,
+            Ok(()) => {
+                slot.offered += length as u64;
+                UPLOAD_ACCEPTED
+            }
             Err(mpsc::error::TrySendError::Full(_)) => UPLOAD_BACKPRESSURE,
             Err(mpsc::error::TrySendError::Closed(_)) => UPLOAD_CLOSED,
         }
@@ -1771,7 +1896,7 @@ mod tests {
                 body_terminal: BODY_EOF,
                 body_error: message("no error"),
             }),
-            upload: Mutex::new(None),
+            upload: Mutex::new(UploadSlot::default()),
             upload_credit: Arc::new(Semaphore::new(UPLOAD_WINDOW_BYTES)),
             body_credit: Arc::new(Semaphore::new(RESPONSE_WINDOW_BYTES)),
             abort: Mutex::new(None),
@@ -1815,6 +1940,278 @@ mod tests {
             assert_eq!(length, 0);
             nuppHttpTransferDestroy(raw);
         }
+    }
+
+    fn bare_transfer() -> Arc<Transfer> {
+        Transfer::new(1, Weak::new())
+    }
+
+    fn header(name: &'static [u8], value: &'static [u8]) -> NuppHttpHeader {
+        NuppHttpHeader {
+            name: NuppHttpSlice {
+                data: name.as_ptr(),
+                length: name.len(),
+            },
+            value: NuppHttpSlice {
+                data: value.as_ptr(),
+                length: value.len(),
+            },
+        }
+    }
+
+    fn owned_error(descriptor: &NuppHttpRequest) -> Option<String> {
+        // SAFETY: the descriptor and everything it points at are live.
+        unsafe { own_request(descriptor, &bare_transfer()) }.err()
+    }
+
+    #[test]
+    fn a_declared_length_must_match_every_kind_of_body() {
+        let headers = [header(b"content-length", b"5")];
+        let mut descriptor = request(b"http://127.0.0.1:9/");
+        descriptor.headers = headers.as_ptr();
+        descriptor.header_count = headers.len();
+        // No body at all: five promised bytes would never come, and a server
+        // waits for them until the request times out.
+        assert_eq!(
+            owned_error(&descriptor).as_deref(),
+            Some("Content-Length does not match the request body")
+        );
+        descriptor.body_kind = BODY_INLINE;
+        descriptor.body = NuppHttpSlice {
+            data: b"four".as_ptr(),
+            length: 4,
+        };
+        assert_eq!(
+            owned_error(&descriptor).as_deref(),
+            Some("Content-Length does not match the request body")
+        );
+        descriptor.body.length = 0;
+        descriptor.body_kind = BODY_NONE;
+        let zero = [header(b"content-length", b"0")];
+        descriptor.headers = zero.as_ptr();
+        assert_eq!(owned_error(&descriptor), None);
+    }
+
+    #[test]
+    fn framing_headers_are_the_transport_s_own() {
+        let headers = [header(b"transfer-encoding", b"chunked")];
+        let mut descriptor = request(b"http://127.0.0.1:9/");
+        descriptor.headers = headers.as_ptr();
+        descriptor.header_count = headers.len();
+        descriptor.body_kind = BODY_INLINE;
+        descriptor.body = NuppHttpSlice {
+            data: b"four".as_ptr(),
+            length: 4,
+        };
+        assert!(owned_error(&descriptor).is_some());
+    }
+
+    /// An upload transfer with its receiving end held by the caller.
+    fn upload_transfer(length: i64) -> (Arc<Transfer>, RequestBody) {
+        let transfer = bare_transfer();
+        let mut descriptor = request(b"http://127.0.0.1:9/");
+        descriptor.body_kind = BODY_UPLOAD;
+        descriptor.body_length = length;
+        // SAFETY: the descriptor is live for the call.
+        let owned = unsafe { own_request(&descriptor, &transfer) }.unwrap();
+        (transfer, owned.body)
+    }
+
+    unsafe fn offer(transfer: &Arc<Transfer>, bytes: &[u8], finished: bool) -> i32 {
+        let raw = Arc::as_ptr(transfer);
+        // SAFETY: the caller's Arc keeps the transfer alive for the call.
+        unsafe { nuppHttpTransferOffer(raw, bytes.as_ptr(), bytes.len(), finished) }
+    }
+
+    fn head_error(transfer: &Arc<Transfer>) -> Option<String> {
+        match &transfer.state.lock().unwrap().head {
+            Head::Failed(reason) => Some(reason.to_string_lossy().into_owned()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn an_upload_cannot_send_more_than_it_declared() {
+        let (transfer, _receiver) = upload_transfer(5);
+        // SAFETY: the transfer is live.
+        unsafe {
+            assert_eq!(offer(&transfer, b"hello", false), UPLOAD_ACCEPTED);
+            assert_eq!(offer(&transfer, b"!", false), UPLOAD_CLOSED);
+        }
+        assert_eq!(
+            head_error(&transfer).as_deref(),
+            Some("the upload is longer than its declared 5 bytes")
+        );
+    }
+
+    #[test]
+    fn an_upload_cannot_finish_short_of_what_it_declared() {
+        let (transfer, _receiver) = upload_transfer(5);
+        // SAFETY: the transfer is live.
+        unsafe {
+            assert_eq!(offer(&transfer, b"hel", false), UPLOAD_ACCEPTED);
+            assert_eq!(offer(&transfer, b"", true), UPLOAD_CLOSED);
+        }
+        assert_eq!(
+            head_error(&transfer).as_deref(),
+            Some("the upload ended after 3 of its declared 5 bytes")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_body_must_be_a_regular_file() {
+        // A device reports a length of zero, so it used to go out as an empty
+        // body and the request reported success.
+        let options = options();
+        let path = b"/dev/null";
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = nuppHttpClientCreate(&options);
+            let mut descriptor = request(b"http://127.0.0.1:9/");
+            descriptor.method = NuppHttpSlice {
+                data: b"PUT".as_ptr(),
+                length: 3,
+            };
+            descriptor.body_kind = BODY_FILE;
+            descriptor.body = NuppHttpSlice {
+                data: path.as_ptr(),
+                length: path.len(),
+            };
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            assert!(!transfer.is_null());
+            let mut head = NuppHttpResponseHead {
+                status: 0,
+                version: 0,
+                url: ptr::null(),
+                url_length: 0,
+                headers: ptr::null(),
+                headers_length: 0,
+            };
+            while nuppHttpTransferPollHeaders(transfer, &mut head) == HEAD_PENDING {
+                wait(client);
+            }
+            let reason = {
+                let transfer = &*transfer;
+                match &transfer.state.lock().unwrap().head {
+                    Head::Failed(reason) => reason.to_string_lossy().into_owned(),
+                    _ => String::new(),
+                }
+            };
+            assert!(reason.contains("is not a regular file"), "{reason}");
+            nuppHttpTransferDestroy(transfer);
+            nuppHttpClientDestroy(client);
+        }
+    }
+
+    /// Reads what a client sends on one connection until it closes, answering
+    /// with `response` once `answer_after` bytes of request have arrived.
+    fn recording_server(
+        answer_after: usize,
+        response: &'static [u8],
+    ) -> (SocketAddr, thread::JoinHandle<Vec<u8>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let mut received = Vec::new();
+            let mut answered = false;
+            let mut chunk = [0; 4096];
+            loop {
+                match socket.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => received.extend_from_slice(&chunk[..count]),
+                }
+                if !answered && received.len() >= answer_after {
+                    answered = true;
+                    socket.write_all(response).unwrap();
+                }
+            }
+            received
+        });
+        (address, server)
+    }
+
+    #[test]
+    fn response_headers_never_end_a_streaming_upload_cleanly() {
+        // The server answers as soon as the first chunk arrives, while the
+        // upload is still open. Ending the upload then would write the final
+        // chunk, and the server would take a truncated body for a whole one.
+        let head = b"POST /upload HTTP/1.1\r\n";
+        let (address, server) = recording_server(
+            head.len(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+        );
+        let url = format!("http://{address}/upload");
+        let options = options();
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = nuppHttpClientCreate(&options);
+            let mut descriptor = request(url.as_bytes());
+            descriptor.method = NuppHttpSlice {
+                data: b"POST".as_ptr(),
+                length: 4,
+            };
+            descriptor.body_kind = BODY_UPLOAD;
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            assert!(!transfer.is_null());
+            assert_eq!(
+                nuppHttpTransferOffer(transfer, b"abc".as_ptr(), 3, false),
+                UPLOAD_ACCEPTED
+            );
+            let mut head = NuppHttpResponseHead {
+                status: 0,
+                version: 0,
+                url: ptr::null(),
+                url_length: 0,
+                headers: ptr::null(),
+                headers_length: 0,
+            };
+            while nuppHttpTransferPollHeaders(transfer, &mut head) == HEAD_PENDING {
+                wait(client);
+            }
+            assert_eq!(head.status, 200);
+            assert_eq!(
+                nuppHttpTransferOffer(transfer, b"def".as_ptr(), 3, false),
+                UPLOAD_CLOSED
+            );
+            let body = nuppHttpTransferTakeBody(transfer);
+            let mut received = Vec::new();
+            loop {
+                let mut data = [0; 8];
+                let mut length = 0;
+                let mut state = BODY_PENDING;
+                assert!(nuppHttpBodyRead(
+                    body,
+                    data.as_mut_ptr(),
+                    data.len(),
+                    &mut state,
+                    &mut length,
+                ));
+                match state {
+                    BODY_DATA => received.extend_from_slice(&data[..length]),
+                    BODY_PENDING => {
+                        assert!(nuppHttpBodyArm(body));
+                        wait(client);
+                    }
+                    _ => break,
+                }
+            }
+            assert_eq!(received, b"ok");
+            nuppHttpBodyDestroy(body);
+            nuppHttpTransferDestroy(transfer);
+            nuppHttpClientDestroy(client);
+        }
+        let sent = server.join().unwrap();
+        assert!(sent.windows(5).any(|part| part == b"\r\nabc"));
+        assert!(
+            !sent.ends_with(b"0\r\n\r\n"),
+            "the upload was ended as if it were complete: {:?}",
+            String::from_utf8_lossy(&sent)
+        );
     }
 
     #[test]

@@ -426,6 +426,55 @@ function M.shortReaderChunksUseTheWholeByteBoundedUploadWindow()
     client:close()
 end
 
+-- A reader that produces more than its body declared fails the request. The
+-- peer never answers, so nothing but the declaration can stop the excess.
+function M.aReaderBodyLongerThanItsDeclarationFails()
+    local client = ready()
+    local declared, calls = 4096, 0
+    local reader = {
+        read = function(_self, count)
+            calls = calls + 1
+            if calls == 1 then
+                return string.rep("a", declared)
+            elseif calls == 2 then
+                return "EXTRA"
+            end
+            return ""
+        end,
+        close = function()
+            return true
+        end,
+    }
+    local response, reason = client:send({
+        url = endpoint("/slow-upload"),
+        method = "POST",
+        body = http.reader(reader, declared),
+    })
+    test.equal(response, nil)
+    test.equal(reason, "the upload is longer than its declared 4096 bytes")
+    test.equal(client:pending(), 0)
+    client:close()
+end
+
+-- A declared length with no body at all would leave the peer waiting for bytes
+-- that never come, until the request timed out.
+function M.aContentLengthWithoutABodyIsRefused()
+    local client = ready()
+    local response, reason = client:send({url = endpoint("/small"), headers = {["Content-Length"] = "5"},})
+    test.equal(response, nil)
+    test.equal(reason, "Content-Length does not match the request body")
+    client:close()
+end
+
+-- A device has no length to send; it used to go out as an empty body.
+function M.aFileBodyThatIsNotARegularFileIsRefused()
+    local client = ready()
+    local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = http.file("/dev/null"),})
+    test.equal(response, nil)
+    assert(reason and reason:find("is not a regular file", 1, true), reason)
+    client:close()
+end
+
 function M.anEarlyResponseStopsReadingTheRequestBody()
     local client = ready()
     -- /early answers without ever reading the upload, so what the client can send

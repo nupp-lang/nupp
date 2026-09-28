@@ -102,6 +102,7 @@ record http.ReaderBody is nupp.Closeable
     reader: http.Reader
 
     --- How many bytes the reader will produce, when that is known ahead of time.
+    --- The native transport fails a request whose reader produces more or fewer.
     length: integer?
 
     --- The `content-type` to send, unless the request names one itself.
@@ -114,7 +115,8 @@ end
 
 --- A request body read from a file as it is sent.
 ---
---- Built by [](nupp.io.http.file).
+--- Built by [](nupp.io.http.file). The path must name a regular file: a device,
+--- FIFO or directory has no length to send, and the native transport refuses it.
 record http.FileBody
     --- The file to send.
     path: string | path.Path
@@ -149,7 +151,10 @@ record http.Request is nupp.Closeable
     --- The method to use, `GET` when omitted.
     method: string?
 
-    --- Headers for this request, which replace the client's by name.
+    --- Headers for this request, which replace the client's by name. A
+    --- `content-length` must match the body, where no body counts as zero, and
+    --- `transfer-encoding` is the transport's to choose; the native transport
+    --- refuses a request that breaks either rule.
     headers: {[string]: string}?
 
     --- What to send as the body, or nothing.

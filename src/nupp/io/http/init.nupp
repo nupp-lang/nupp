@@ -155,6 +155,11 @@ const http.capabilities = provider.capabilities
 --- be held in memory. A redirect that preserves the request body cannot replay
 --- one, so the request fails rather than following that redirect.
 ---
+--- A reader given a `length` must produce exactly that many bytes; the native
+--- transport fails the request when it produces more or fewer. When the response
+--- headers arrive before the reader is finished, the upload stops there and the
+--- peer never sees the shortened body as complete.
+---
 --- ```nupp
 --- local request = new http.Request(
 ---     url = endpoint,
@@ -189,6 +194,9 @@ function http.reader(takes reader: messages.Reader, length: integer?, contentTyp
 end
 
 --- Builds a request body read from a file as it is sent.
+---
+--- The path must name a regular file when the request is sent. A device, FIFO or
+--- directory has no length to send, and the native transport refuses it.
 ---
 --- @param path the file to send
 --- @param contentType the `content-type` to send, unless the request names one
