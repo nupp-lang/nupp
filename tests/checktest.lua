@@ -1901,6 +1901,39 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     assertEq(table.concat(identities, " "), "i32.andBits i32.andBits i32.andBits")
 end
 
+-- A union of functions is called member-wise: every member has to accept the
+-- arguments, and the result is what any of them may answer.
+function M.aUnionOfFunctionsIsCallableWhenEveryMemberAccepts()
+    local defs = table.concat({
+        "local function a(): nil print('a') end",
+        "local function b(x: string?): nil print('b', x) end",
+        "local function noop(...: any): nil end",
+        "local function one(): integer return 1 end",
+        "local function name(): string return 'n' end",
+        "local function needs(x: string): nil print(x) end",
+    }, "\n") .. "\n"
+    assertClean(defs .. table.concat({
+        "local function run(flag: boolean): nil",
+        "   local h = flag ? a : b",
+        "   h()",
+        "   local log = flag and print or noop",
+        "   log('x')",
+        "   local pick = flag ? one : name",
+        "   local r: integer | string = pick()",
+        "   print(r)",
+        "end",
+        "return run",
+    }, "\n"))
+    assertEq(
+        (diagsOf(defs .. "local function run(flag: boolean): nil\n   local f = flag ? a : needs\n   f()\nend\nreturn run")),
+        "NUPP2005:9"
+    )
+    assertEq(
+        (diagsOf(defs .. "local function run(flag: boolean): nil\n   local f = flag ? one : name\n   local n: integer = f()\nend\nreturn run")),
+        "NUPP2001:9"
+    )
+end
+
 -- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
 -- the type of `x`. Keeping it as a member made every field read fail.
 function M.neverAddsNothingToAUnion()

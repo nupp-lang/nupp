@@ -1841,6 +1841,71 @@ function calls.install(c: state.Checker): calls.Ops
             return ops.inferCall(node, dropSelf(callContract), argsNode)
         end
 
+        -- A union of functions is callable when every member accepts the call: the
+        -- value is one of them and the program cannot say which. The arguments are
+        -- inferred once and probed against each member without applying any, so an
+        -- owner is refused rather than handed to a contract nobody selected, and the
+        -- result is whatever any member may answer.
+        local unionMembers: {T.Func}? = nil
+        if calleeT.tag == "union" then
+            local members: {T.Func} = {}
+            local allFunctions = true
+            for _, member in ipairs(calleeT.members) do
+                local raw = rawType(member)
+                if raw.tag == "func" then
+                    members[#members + 1] = raw
+                else
+                    allFunctions = false
+                end
+            end
+            if allFunctions then
+                unionMembers = members
+            end
+        end
+        local plainArguments = true
+        for _, arg in ipairs(args) do
+            if cst.isToken(arg) or arg.kind == "namedArg" or arg.kind == "pluckArg" then
+                plainArguments = false
+            end
+        end
+        if unionMembers and #unionMembers > 1 and plainArguments then
+            local unionPack = c.inferListPack(args)
+            for _, arg in ipairs(args) do
+                local argumentType = arg.inferredType
+                if argumentType and c.ownershipKind(argumentType) then
+                    c.diag(
+                        "NUPP2611",
+                        arg,
+                        "a live capability cannot cross a call to one of several functions; "
+                        .. "select the function first"
+                    )
+                end
+            end
+            local packs: {T.Pack} = {}
+            for _, member in ipairs(unionMembers) do
+                local specialized, why = probeSignature(member, unionPack, node.cdefCall, c.reductionControl)
+                -- A suspension protocol reaches the caller through the one signature
+                -- a call selected, and a union selects none.
+                if specialized and (member.yieldPack or member.resumePack) then
+                    specialized, why = nil, "it suspends, and a suspending call needs its function selected"
+                end
+                if not specialized then
+                    c.diag(
+                        "NUPP2005",
+                        node,
+                        (
+                            "%s is not callable with these arguments: its member %s refuses them (%s)"
+                        ):format(T.tostring(calleeT), T.tostring(member), why or "arguments do not fit")
+                    )
+                    return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+                end
+                packs[#packs + 1] = specialized.retPack
+            end
+            node.argumentPack = unionPack
+            local resultPack = T.packUnion(packs)
+            return T.packAt(resultPack, 1) or T.nil_, resultPack.head, resultPack
+        end
+
         local overloads = callableMembers(calleeT)
         if calleeT == T.any or (calleeT.tag ~= "func" and not overloads) then
             -- A `new` whose operand was already refused is not also a bad call: the

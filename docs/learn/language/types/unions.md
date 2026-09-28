@@ -306,6 +306,26 @@ end
 See [Narrowing](narrowing.md#narrowing-tests) for every test that narrows and
 the ones that look like they should and do not.
 
+## Calling a union of functions
+
+A union whose members are all functions can be called without narrowing it
+first, when every member accepts the arguments. The result is what any member
+may answer:
+
+```nupp
+local function noop(...: any): nil end
+
+local function run(verbose: boolean): nil
+    local log = verbose and print or noop
+    log("starting") -- print and noop both accept a string
+end
+```
+
+A member that refuses the arguments is named in the `NUPP2005` the call
+reports. An owner cannot be passed, since no member was selected to say what
+happens to it, and a member that suspends needs its function selected before it
+is called.
+
 ## Choosing a union kind
 
 What the alternatives carry decides which of the two you want:
