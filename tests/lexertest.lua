@@ -383,4 +383,17 @@ function M.aHashbangMayFollowAByteOrderMark()
     assertRoundtrip(src)
 end
 
+-- Rows no other case pins: a long bracket closes only at its own level, a numeral
+-- running into name characters is malformed, and vertical tab and form feed are
+-- whitespace.
+function M.longBracketsNumeralsAndWhitespaceEdges()
+    local tokens = select(1, lexer.lex("x = [==[ a ]] b ]=] c ]==] y"))
+    assertEq(tokens[3].text, "[==[ a ]] b ]=] c ]==]", "the string runs to its own level's closer")
+    assertEq(tokens[4].text, "y")
+    assertEq(errorsOf("x = 12abc"), "1:5 malformed number")
+    assertEq(errorsOf("x = 0x"), "1:5 malformed number")
+    assertEq(kindsOf("a\vb\fc"), "name name name")
+    assertEq(errorsOf("a\vb\fc"), "")
+end
+
 return M

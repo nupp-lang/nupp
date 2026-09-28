@@ -302,6 +302,13 @@ function M.precedenceArithmetic()
     assertEq(exprDump("1 + 2 * 3"), "(binop (number 1) + (binop (number 2) * (number 3)))")
     assertEq(exprDump("-x^2"), "(unop - (binop (name x) ^ (number 2)))")
     assertEq(exprDump("not a == b"), "(binop (unop not (name a)) == (name b))")
+    -- A unary operator binds tighter than every binary one but `^`.
+    assertEq(exprDump("-a + b"), "(binop (unop - (name a)) + (name b))")
+    assertEq(exprDump("-a * b"), "(binop (unop - (name a)) * (name b))")
+    assertEq(exprDump("#t .. s"), "(binop (unop # (name t)) .. (name s))")
+    -- `??` binds loosest of all, below `or`.
+    assertEq(exprDump("a ?? b and c"), "(binop (name a) ?? (binop (name b) and (name c)))")
+    assertEq(exprDump("a or b ?? c"), "(binop (binop (name a) or (name b)) ?? (name c))")
 end
 
 function M.precedenceRightAssoc()
