@@ -973,6 +973,49 @@ mod tests {
     }
 
     #[test]
+    fn an_unverified_client_lends_no_verifier_to_a_verifying_one() {
+        // Both clients name the same host and port. Client configurations are
+        // cached, and one keyed without the verify flag would hand the
+        // verifying client the accept-anything verifier the first one built.
+        let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
+        let connect = |verify: bool| -> Result<(), String> {
+            let (client_stream, server_stream) = pair(&listener);
+            let server = Session::server(
+                server_stream,
+                ServerOptions {
+                    certificate: CERTIFICATE,
+                    private_key: PRIVATE_KEY,
+                    protocols: &[],
+                },
+            )
+            .unwrap();
+            // System roots do not hold the self-signed test certificate.
+            let client = Session::client(
+                client_stream,
+                ClientOptions {
+                    hostname: "localhost",
+                    authority: None,
+                    protocols: &[],
+                    verify,
+                },
+            );
+            let result = client.and_then(|client| {
+                let shaken = shake(&client, &server);
+                client.close();
+                shaken
+            });
+            server.close();
+            result
+        };
+        connect(false).unwrap();
+        assert!(
+            connect(true).is_err(),
+            "a verifying client accepted a certificate no root vouches for"
+        );
+        listener.close();
+    }
+
+    #[test]
     fn wrong_hostname_is_rejected_but_insecure_mode_is_explicit() {
         let listener = listen_tcp("127.0.0.1", 0, 16, false).unwrap();
         let (client, server) = sessions(&listener, &[], &[], "example.com", true);
