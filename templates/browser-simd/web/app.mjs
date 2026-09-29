@@ -15,7 +15,7 @@ try {
   const forceScalar = new URL(location.href).searchParams.has("scalar");
   const selected = !forceScalar && await supportsSimd() ? "simd" : "scalar";
   const application = await import("./" + selected + "/nupp-browser-app.mjs");
-  const result = await application.ready;
+  const result = await application.run();
   output.dataset.status = "passed";
   output.textContent = JSON.stringify({ok: true, selected, result}, null, 2);
 } catch (error) {

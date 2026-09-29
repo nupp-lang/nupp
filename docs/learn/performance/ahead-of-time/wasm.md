@@ -77,9 +77,20 @@ dist/browser/native/<digest>/<library>.so
 dist/browser/worker-lane.mjs
 ```
 
-Import `nupp-browser-app.mjs` or call
-`runPackagedNuppLuaJITApp()` from `app-runtime.mjs`. The application may return
-no value or one JSON-compatible value. Worker tasks use a bounded pool of guest
+A page starts the application by calling `run()` from
+`nupp-browser-app.mjs`; importing the module starts nothing, so the page passes
+its options in that one call:
+
+```js
+const application = await import("./nupp-browser-app.mjs");
+const result = await application.run({limits: {perRun: {deadlineMs: 60000}}});
+```
+
+`run` settles with the application's result and may be called once; `cancel()`
+asks a running application to stop, and `close()` terminates its Worker. A page
+that hosts the runtime itself calls `runPackagedNuppLuaJITApp()` from
+`app-runtime.mjs` instead. The application may return no value or one
+JSON-compatible value. Worker tasks use a bounded pool of guest
 lanes and the same verified manifest.
 
 Browser facades select implementations for HTTP, files, suspension, time,

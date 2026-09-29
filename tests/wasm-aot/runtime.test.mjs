@@ -479,6 +479,71 @@ test("a spinning guest trips the per-turn compute limit", async (t) => {
   assert.equal(SpinningGuestWorker.opened[0].terminated, true, "the spinning VM is terminated, not awaited");
 });
 
+// The page's Worker behind `nupp-browser-app.mjs`, recording what the entry module
+// asks of it.
+class FakePageWorker {
+  static opened = [];
+
+  constructor(url, options) {
+    this.url = url;
+    this.options = options;
+    this.listeners = new Map();
+    this.posted = [];
+    this.terminated = false;
+    FakePageWorker.opened.push(this);
+  }
+
+  addEventListener(name, handler) {
+    this.listeners.set(name, [...(this.listeners.get(name) || []), handler]);
+  }
+
+  emit(name, event) {
+    for (const handler of this.listeners.get(name) || []) handler(event);
+  }
+
+  postMessage(message) {
+    this.posted.push(message);
+  }
+
+  terminate() {
+    this.terminated = true;
+  }
+}
+
+let entryInstances = 0;
+
+// A fresh instance of the entry module, as a page that imports it gets.
+async function importEntry(t) {
+  const saved = globalThis.Worker;
+  globalThis.Worker = FakePageWorker;
+  t.after(() => { globalThis.Worker = saved; });
+  FakePageWorker.opened = [];
+  entryInstances += 1;
+  return import(`../../runtime/wasm/browser-entry.mjs?instance=${entryInstances}`);
+}
+
+test("importing the entry module launches nothing until the page calls run", async (t) => {
+  const entry = await importEntry(t);
+  await new Promise(setImmediate);
+  entry.cancel();
+  assert.equal(FakePageWorker.opened.length, 0, "importing, or cancelling before run, starts no Worker");
+  assert.equal(entry.ready, undefined);
+  assert.equal(entry.default, undefined);
+  const limits = {perRun: {deadlineMs: 60_000}};
+  const running = entry.run({limits});
+  assert.equal(FakePageWorker.opened.length, 1);
+  const [worker] = FakePageWorker.opened;
+  assert.equal(worker.options.type, "module");
+  const request = worker.posted.find((message) => message.type === "run");
+  assert.deepEqual(request.limits, limits, "the page's own options reach the application");
+  assert.match(request.manifest, /\/nupp-browser-app\.json$/);
+  await assert.rejects(entry.run(), /already started/);
+  worker.emit("message", {data: {id: request.id, ok: true, result: 3}});
+  assert.equal(await running, 3);
+  entry.close();
+  assert.equal(worker.terminated, true);
+});
+
 test("browser Web Crypto effects provide random, SHA-256, and HMAC", async () => {
   const result = await handleBrowserEffects({
     kind: "effects",

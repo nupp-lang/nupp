@@ -2,7 +2,7 @@ const output = document.querySelector("#result");
 
 try {
   const application = await import("./nupp-browser-app.mjs");
-  const result = await application.ready;
+  const result = await application.run();
   output.dataset.status = "passed";
   output.textContent = JSON.stringify({ok: true, result}, null, 2);
 } catch (error) {
