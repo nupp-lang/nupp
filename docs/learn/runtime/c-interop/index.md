@@ -386,10 +386,12 @@ The Nupp module binds deterministic private symbols such as
 `IMAGE_CLAMP`, so application code uses only the logical names:
 
 ```nupp [build/generated/image.nupp]
+module image
+
 cdef function __nupp_bridge_fingerprint(value: int32): int32 from "@lib/libimage.so"
 local image_triple = __nupp_bridge_fingerprint
 
-return { image_triple = image_triple }
+export = { image_triple = image_triple }
 ```
 
 The real suffix is a 24-character hexadecimal digest. The leading `@` names the

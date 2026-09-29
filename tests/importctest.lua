@@ -62,7 +62,7 @@ local generated -- shared across cases (import once)
 
 local function imported()
    if not generated then
-      local text, warnings = importc.import(HERE .. "/fixtures/mini.h")
+      local text, warnings = importc.import(HERE .. "/fixtures/mini.h", {module = "mini"})
       assert(text, "import failed: " .. table.concat(warnings or {}, "; "))
       generated = text
    end
@@ -101,6 +101,22 @@ function M.namedImportEmitsADeclaredModule()
    assert(#result.errors == 0, "declared import output must parse")
 end
 
+function M.inspectingAHeaderOutsideEveryRootNeedsNoModuleName()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/project'") == 0)
+   local header = assert(io.open(dir .. "/mini-2.h", "wb"))
+   header:write(readFile(HERE .. "/fixtures/mini.h"))
+   header:close()
+   local output, ok = runCli(dir .. "/project", "--inspect --json ../mini-2.h")
+   assert(ok, "an inspection derives its module from the header: " .. output)
+   assertContains(output, '"ok":true')
+   local refused, written = runCli(dir .. "/project", "-o ../mini-2.nupp ../mini-2.h")
+   assert(not written, "a written import still needs a module beneath a root")
+   assertContains(refused, "beneath the project root")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.functionPointerParamsComeFromLuaJITsModel()
    assertContains(imported(),
       "mini_each(fn: function(int32)?, n: int32)",
@@ -109,7 +125,7 @@ end
 
 function M.completeDirectDeclaratorsArePreserved()
    local text, warnings = importc.import(
-      HERE .. "/fixtures/complete_c_interop.h")
+      HERE .. "/fixtures/complete_c_interop.h", {module = "completecinterop"})
    assert(text, "complete declarator import failed: "
       .. table.concat(warnings or {}, "; "))
    assertContains(text, "cdef struct nupp_complete_context")
@@ -125,10 +141,10 @@ function M.completeDirectDeclaratorsArePreserved()
       "nupp_complete_get_row(): int32[4]*?",
       "pointer-to-array results retain their bound")
 
-   local result = parser.parse(text, "complete_c_interop.d.nupp")
+   local result = parser.parse(text, "complete_c_interop.nupp")
    assert(#result.errors == 0, "complete output must parse: "
       .. (result.errors[1] and result.errors[1].msg or ""))
-   local diags = check.check(result, "complete_c_interop.d.nupp")
+   local diags = check.check(result, "complete_c_interop.nupp")
    assert(#diags == 0, "complete output must check: "
       .. (diags[1] and diags[1].msg or ""))
 end
@@ -142,6 +158,7 @@ function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
       or "/libbridge.so")
    local text, warnings, details = importc.import(
       HERE .. "/fixtures/bridge.h", {
+         module = "bridge",
          lib = library,
          bridge = true,
          macros = {
@@ -188,7 +205,7 @@ end
 
 function M.headerOnlyFunctionsHaveAnExplicitSkippedDisposition()
    local text, warnings, details = importc.import(
-      HERE .. "/fixtures/bridge.h")
+      HERE .. "/fixtures/bridge.h", {module = "bridge"})
    assert(text, "direct inspection import succeeds")
    assertContains(text, "static inline needs --bridge-out")
    assert(#warnings == 2, "each inline explains the required bridge")
@@ -234,7 +251,7 @@ function M.aMacroAfterAnEmptyMacroSurvives()
       "#define NUPP_GUARD_LIMIT 64",
       "#endif",
    }, "\n") .. "\n")
-   local text = assert(importc.import(path))
+   local text = assert(importc.import(path, {module = "guard"}))
    os.execute("rm -rf '" .. dir .. "'")
    assertContains(text, "local NUPP_GUARD_VERSION: number = 3")
    assertContains(text, "local NUPP_GUARD_LIMIT: number = 64")
@@ -261,7 +278,7 @@ function M.macroValuesFollowCSemantics()
       "#define CV_WIDE 0x100000000",
       "#define CV_ZERO_DIV (1 / 0)",
    }, "\n") .. "\n")
-   local text = assert(importc.import(path))
+   local text = assert(importc.import(path, {module = "cvalues"}))
    os.execute("rm -rf '" .. dir .. "'")
    assertContains(text, "local CV_OCTAL: number = 420")
    assertContains(text, "local CV_HALF: number = 3")
@@ -280,7 +297,7 @@ function M.macroValuesFollowCSemantics()
       assert(not text:find("local " .. name, 1, true), name .. " must not be emitted:\n" .. text)
       assertContains(text, "-- import-c: skipped macro " .. name)
    end
-   local result = parser.parse(text, "cvalues.d.nupp")
+   local result = parser.parse(text, "cvalues.nupp")
    assert(#result.errors == 0, "generated constants parse: " .. (result.errors[1] and result.errors[1].msg or ""))
 end
 
@@ -302,7 +319,7 @@ function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
       "#endif",
       "#endif",
    }, "\n") .. "\n")
-   local text, warnings, details = importc.import(path, {bridge = true, bridgeInclude = "vec.h"})
+   local text, warnings, details = importc.import(path, {module = "vec", bridge = true, bridgeInclude = "vec.h"})
    assert(text, table.concat(warnings or {}, "; "))
    assertEq(details.bridged, 1, "only vec2 is compiled on this platform")
    assert(not details.bridgeSource:find("vec_disabled", 1, true), details.bridgeSource)
@@ -325,7 +342,7 @@ function M.typedefsResolveThroughTheTranslationUnit()
 end
 
 function M.anIncludedHeaderWithTheSameBasenameStaysOut()
-   local text, warnings = importc.import(HERE .. "/fixtures/target.h")
+   local text, warnings = importc.import(HERE .. "/fixtures/target.h", {module = "target"})
    assert(text, "same-name import failed: "
       .. table.concat(warnings or {}, "; "))
    assertContains(text, "cdef function requested_target()")
@@ -341,11 +358,11 @@ function M.constBytePointersBecomeCstring()
 end
 
 function M.libraryClauseIsEmitted()
-   local text = importc.import(HERE .. "/fixtures/mini.h", {lib = "mini"})
+   local text = importc.import(HERE .. "/fixtures/mini.h", {module = "mini", lib = "mini"})
    assert(text:find('from "mini"', 1, true),
       "every function carries the library clause:\n" .. text:sub(1, 400))
    local parser = require("nupp.compiler.syntax.parser")
-   local result = parser.parse(text, "mini.d.nupp")
+   local result = parser.parse(text, "mini.nupp")
    assert(#result.errors == 0, "output with library clauses parses")
 end
 
@@ -353,7 +370,7 @@ local enumsText -- shared across cases (import once)
 
 local function enumsImported()
    if not enumsText then
-      local text, warnings = importc.import(HERE .. "/fixtures/enums.h")
+      local text, warnings = importc.import(HERE .. "/fixtures/enums.h", {module = "enums"})
       assert(text, "import failed: " .. table.concat(warnings or {}, "; "))
       enumsText = text
    end
@@ -388,10 +405,10 @@ end
 
 function M.enumOutputParsesAndChecksCleanly()
    local text = enumsImported()
-   local result = parser.parse(text, "enums.d.nupp")
+   local result = parser.parse(text, "enums.nupp")
    assert(#result.errors == 0, "generated file must parse: "
       .. (result.errors[1] and result.errors[1].msg or ""))
-   local diags = check.check(result, "enums.d.nupp")
+   local diags = check.check(result, "enums.nupp")
    assert(#diags == 0, "generated file must check: "
       .. (diags[1] and diags[1].msg or ""))
 end
@@ -402,7 +419,7 @@ function M.anEnumMemberIsAcceptedWhereItsFunctionWantsIt()
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
-   local f = assert(io.open(dir .. "/enums.d.nupp", "wb"))
+   local f = assert(io.open(dir .. "/enums.nupp", "wb"))
    f:write(enumsImported())
    f:close()
    local env = envMod.new(dir)
@@ -420,7 +437,7 @@ function M.anEnumMemberIsAcceptedWhereItsFunctionWantsIt()
 end
 
 function M.aDeclarationTheParserRejectsCostsOnlyItself()
-   local text = importc.import(HERE .. "/fixtures/partial.h")
+   local text = importc.import(HERE .. "/fixtures/partial.h", {module = "partial"})
    assert(text, "a rejected declaration must not take the header with it")
    assertContains(text, "cdef function partial_add(a: int32, b: int32): int32")
    assertContains(text, "cdef function partial_scale(v: number): number")
@@ -431,7 +448,7 @@ end
 function M.skippedDeclarationsAreCountedOnTheWayOut()
    -- The count is the signal: one of four is a corner in the header, and
    -- four of four is a module not worth having.
-   local _, warnings = importc.import(HERE .. "/fixtures/partial.h")
+   local _, warnings = importc.import(HERE .. "/fixtures/partial.h", {module = "partial"})
    assert(#warnings == 1, "expected one warning, got " .. #warnings)
    assertContains(warnings[1], "1 of 4 declarations skipped")
 end
@@ -470,7 +487,7 @@ end
 function M.typedefsAreDeclaredInTheOrderCCanReadThem()
    -- chain_base.h reaches chain_size_t through names that sort before the
    -- ones they are built from, which is how Darwin spells its own.
-   local text, warnings = importc.import(HERE .. "/fixtures/chain.h")
+   local text, warnings = importc.import(HERE .. "/fixtures/chain.h", {module = "chain"})
    assert(text, "chain import failed: "
       .. table.concat(warnings or {}, "; "))
    assertContains(text, "chain_len(s: cstring?): uint64",
@@ -481,7 +498,7 @@ local layoutImport -- shared across cases (import once)
 
 local function layoutImported()
    if not layoutImport then
-      local text, warnings, details = importc.import(HERE .. "/fixtures/layout.h")
+      local text, warnings, details = importc.import(HERE .. "/fixtures/layout.h", {module = "layout"})
       assert(text, "layout import failed: " .. table.concat(warnings or {}, "; "))
       layoutImport = {text = text, warnings = warnings, details = details}
    end
@@ -631,10 +648,10 @@ end
 
 function M.outputParsesAndChecksCleanly()
    local text = imported()
-   local result = parser.parse(text, "mini.d.nupp")
+   local result = parser.parse(text, "mini.nupp")
    assert(#result.errors == 0, "generated file must parse: "
       .. (result.errors[1] and result.errors[1].msg or ""))
-   local diags = check.check(result, "mini.d.nupp")
+   local diags = check.check(result, "mini.nupp")
    assert(#diags == 0, "generated file must check: "
       .. (diags[1] and diags[1].msg or ""))
 end
@@ -644,7 +661,7 @@ function M.consumerTypechecksAgainstImport()
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
-   local f = assert(io.open(dir .. "/mini.d.nupp", "wb"))
+   local f = assert(io.open(dir .. "/mini.nupp", "wb"))
    f:write(imported())
    f:close()
    local env = envMod.new(dir)

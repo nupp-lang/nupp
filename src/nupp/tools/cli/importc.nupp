@@ -35,6 +35,18 @@ local REPORT_SCHEMA = {
     required = {"ok", "warnings"},
 }
 
+-- An inspection writes nothing, so a header outside every root still names a
+-- module: its basename in the lowercase luacase a module segment is held to.
+local function headerModuleName(header: string): string
+    local base = (header:match("([^/\\]+)$") or header):gsub("%.[^.]*$", "")
+    local name = base:lower():gsub("[^a-z0-9]", "")
+    if not name:match("^[a-z]") then
+        name = "c" .. name
+    end
+
+    return name
+end
+
 local function run(options: any): integer
     local positional: {string} = {options.header}
     local paths: {string} = positional
@@ -53,7 +65,7 @@ local function run(options: any): integer
         return usageError("output must be a .nupp file beneath the project root or an include root")
     end
     local text, warnings, details = importc.import(header, {
-        module = moduleName,
+        module = moduleName or headerModuleName(header),
         lib = options.lib,
         bridge = options.bridgeOut ~= nil,
     })
