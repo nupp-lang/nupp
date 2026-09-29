@@ -53,28 +53,30 @@ local http = nupp.io.http
 local tasks = nupp.tasks
 local uri = nupp.io.uri
 
-local client = http.newClient()
+local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
+    local status = client:with(function(borrows open: http.Client): integer
+        local response = assert(open:send(new http.Request(url = assert(uri.newURI(url)))))
+        local code = response.status
+        response:close()
 
-local function storeStatus(codes: {integer}, index: integer, url: string): nil
-    local response = assert(client:send(new http.Request(
-        url = assert(uri.newURI(url))
-    )))
-    codes[index] = response.status
-    response:close()
+        return code
+    end)
+    codes[index] = assert(status)
 end
 
+local client = nupp.manage(http.newClient())
 local codes: {integer} = {}
 with scope = tasks.open() do
-    scope:spawn(codes, 1, "https://example.com/", storeStatus)
-    scope:spawn(codes, 2, "https://example.org/", storeStatus)
+    scope:spawn(client:alias(), codes, 1, "https://example.com/", storeStatus)
+    scope:spawn(client:alias(), codes, 2, "https://example.org/", storeStatus)
 end
 
 print(codes[1], codes[2])
-client:close()
 ```
 
-A body calls a function holding the client rather than capturing the client
-itself, because a closure that captures an owner directly cannot be stored.
+A child cannot be handed an owner or a borrow, so the client goes into a managed
+cell and each child gets a copyable alias to it. `with` lends the client for one
+callback, and the cell closes the client when `client` leaves its scope.
 
 Two bounds decide how much of that happens at once. `maxConnectionsPerHost`
 bounds what one host is asked to carry, and a scope's `limit` bounds how many
