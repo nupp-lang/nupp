@@ -2843,6 +2843,45 @@ function M.aMisspelledMethodOnAnOwnedShapeIsReported()
     )
 end
 
+-- A borrowed nominal took the owned-nominal exemption, so any method name on a
+-- `borrows` parameter checked clean and answered `any`. A borrow owns nothing and
+-- has no terminal to reach, so it answers only the record's own methods.
+function M.aMisspelledMethodOnABorrowedRecordIsReported()
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local record R",
+                    "    x: integer",
+                    "    function bump(self: R): integer return self.x + 1 end",
+                    "end",
+                    "local function use(borrows r: R): nil print(r:missing(1)) end",
+                    "return use",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2004"
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local record R",
+                    "    x: integer",
+                    "    function bump(self: R): integer return self.x + 1 end",
+                    "end",
+                    "local function use(borrows r: R): nil print(r:bump()) end",
+                    "return use",
+                },
+                "\n"
+            )
+        ),
+        "",
+        "a declared method still resolves through a borrow"
+    )
+end
+
 function M.affineRejectsMissingAndInexactCleanupFunctions()
     assertEq(
         codes(
