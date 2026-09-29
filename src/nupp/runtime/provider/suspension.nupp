@@ -119,8 +119,8 @@ local function effectiveInstallation()
     -- The test is `restored`, not `released`: an extent whose drain failed is still
     -- retryable and its parks still outstanding, but its scope has ended and it is not
     -- in force for anything starting now.
-    while current ~= nil and current.restored do
-        current = current.previous
+    while current ~= nil and current._restored do
+        current = current._previous
     end
 
     return current
@@ -147,7 +147,7 @@ local function sourceBefore(left: any, right: any): boolean
         return left.name < right.name
     end
 
-    return left.sequence < right.sequence
+    return left._sequence < right._sequence
 end
 
 -- The first slot whose source follows this one. Sources have a unique registration
@@ -171,10 +171,10 @@ local SourceMT = {}
 SourceMT.__index = SourceMT
 
 function SourceMT.release(self: any): nil
-    if self.released then
+    if self._released then
         return
     end
-    self.released = true
+    self._released = true
     for index = 1, #sources do
         if sources[index] == self then
             table.remove(sources, index)
@@ -200,8 +200,8 @@ local function addSource(
             poll = poll,
             wait = wait,
             active = active,
-            released = false,
-            sequence = sourceSequence,
+            _released = false,
+            _sequence = sourceSequence,
         },
         contract.Source as any
     )
@@ -259,7 +259,7 @@ function suspension.poll(): integer
     local index: integer = 1
     while index <= #sources do
         local source = sources[index]
-        if source.sequence > boundary then
+        if source._sequence > boundary then
             index = (index + 1) as integer
         else
             settled = settled + (source.poll() or 0)
@@ -282,12 +282,12 @@ end
 -- registered and no synchronous resumption, nothing in this process can complete the
 -- wait, and saying so beats hanging.
 local function waitCandidates(waiting: any): {any}
-    local associated = waiting.context and waiting.context.associated
+    local associated = waiting.context and waiting.context._associated
     local preferred = {}
     if associated ~= nil then
         for index = 1, #sources do
             local source = sources[index]
-            if associated[source] and not source.released and source.wait ~= nil then
+            if associated[source] and not source._released and source.wait ~= nil then
                 preferred[#preferred + 1] = source.wait
             end
         end
@@ -299,7 +299,7 @@ local function waitCandidates(waiting: any): {any}
     local fallback = {}
     for index = 1, #sources do
         local source = sources[index]
-        if not source.released and source.wait ~= nil then
+        if not source._released and source.wait ~= nil then
             fallback[#fallback + 1] = source.wait
         end
     end
@@ -313,7 +313,7 @@ local function blockingPark(waiting: any): nil
         for index = 1, #sources do
             local source = sources[index]
             local isActive = source.active
-            if not source.released and (isActive == nil or isActive(source)) then
+            if not source._released and (isActive == nil or isActive(source)) then
                 active = true
 
                 break
@@ -374,22 +374,22 @@ function ContextMT.source(
         self.owned = owned
     end
     owned[#owned + 1] = source
-    self.associated = self.associated or {}
-    self.associated[source] = true
+    self._associated = self._associated or {}
+    self._associated[source] = true
 
     return source
 end
 
 function ContextMT.uses(self: any, source: any): nil
-    if source == nil or source.released then
+    if source == nil or source._released then
         error("nupp: cannot use a released readiness source", 2)
     end
-    self.associated = self.associated or {}
-    self.associated[source] = true
+    self._associated = self._associated or {}
+    self._associated[source] = true
 end
 
 function ContextMT.canPark(self: any): boolean
-    local handler = self.handler
+    local handler = self._handler
     if handler == nil then
         return true
     end
@@ -464,7 +464,7 @@ function suspension.suspend<T>(
         end
     end
 
-    local context = setmetatable({handler = handler, owned = nil, associated = nil}, ContextMT)
+    local context = setmetatable({_handler = handler, owned = nil, _associated = nil}, ContextMT)
     -- Protected, because a subscription that registers a pump and *then* raises would
     -- otherwise leave that pump polling for a wait nobody is doing.
     local subscribed, cancel = pcall(subscribe, resume, context as suspension.Context)
@@ -539,7 +539,7 @@ function suspension.suspend<T>(
             end
         end
 
-        current.parks[ticket] = true
+        current._parks[ticket] = true
     end
 
     local waiting = setmetatable(
@@ -571,7 +571,7 @@ function suspension.suspend<T>(
     -- resumed, was cancelled, or failed; until then the ticket stays registered so a
     -- releasing extent can see it is still outstanding.
     if ticket and current then
-        current.parks[ticket] = nil
+        current._parks[ticket] = nil
     end
     releaseOwned(context)
     if state.cancelled then
@@ -601,7 +601,7 @@ type suspension.Installed = contract.Installed
 suspension.Installed = contract.Installed
 
 local function closeInstallation(self: any): nil
-    if self.released then
+    if self._released then
         return
     end
     -- Restoring the slot happens once and is not undone by a failed drain: the
@@ -609,12 +609,12 @@ local function closeInstallation(self: any): nil
     -- "this extent is finished with" -- waits for the parks to be, so a release
     -- that could not finish can be called again rather than leaving its
     -- continuations owned by nobody.
-    if not self.restored then
-        self.restored = true
-        if self.co == nil then
-            mainInstalled = self.previous
+    if not self._restored then
+        self._restored = true
+        if self._co == nil then
+            mainInstalled = self._previous
         else
-            installed[self.co] = self.previous
+            installed[self._co] = self._previous
         end
     end
 
@@ -637,7 +637,7 @@ local function closeInstallation(self: any): nil
     -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
     -- suspended stack resumes, `suspend` raises, and every cleanup region between
     -- there and the park runs its cleanup.
-    for ticket in pairs(self.parks or {}) do
+    for ticket in pairs(self._parks or {}) do
         attempt(ticket.abandon, "the handled extent ended")
     end
     -- Shutdown is also how a handler *drives* what it only enqueued. A scheduler
@@ -647,12 +647,12 @@ local function closeInstallation(self: any): nil
         attempt(self.handler.shutdown, self.handler)
     end
     -- And the pumps, in case unwinding is waiting on one.
-    local remaining = next(self.parks or {})
+    local remaining = next(self._parks or {})
     local passes = 0
     while remaining ~= nil and passes < MAX_DRAIN_PASSES do
         passes = passes + 1
         attempt(suspension.poll, nil)
-        remaining = next(self.parks or {})
+        remaining = next(self._parks or {})
     end
 
     -- The first failure wins, whatever it was: an unfinished-park report raised
@@ -670,7 +670,7 @@ local function closeInstallation(self: any): nil
     -- continuations owned by nobody, with no way to try again.
     if remaining ~= nil then
         local names = {}
-        for ticket in pairs(self.parks or {}) do
+        for ticket in pairs(self._parks or {}) do
             names[#names + 1] = ticket.operation
         end
         table.sort(names)
@@ -679,7 +679,7 @@ local function closeInstallation(self: any): nil
             0
         )
     end
-    self.released = true
+    self._released = true
 end
 
 --- Installs `handler` for suspensions performed on this coroutine.
@@ -722,13 +722,13 @@ function suspension.install(handler: suspension.Handler, transparent: boolean?):
     -- prove non-suspending; the contract promises it, as it does for any provider.
     local owned = new contract.Installed(
         close = closeInstallation as any,
-        co = co,
-        previous = previous,
+        _co = co,
+        _previous = previous,
         handler = handler,
         transparent = transparent == true,
-        restored = false,
-        released = false,
-        parks = {}
+        _restored = false,
+        _released = false,
+        _parks = {}
     )
     -- The coroutine's slot keeps the record as well as the caller, who holds the one
     -- obligation to close it.
@@ -803,8 +803,8 @@ local function delegatedCanPark(): function(): boolean
 
     return function(): boolean
         local current = captured
-        while current ~= nil and current.restored do
-            current = current.previous
+        while current ~= nil and current._restored do
+            current = current._previous
         end
         const outer = current and current.handler or nil
         if outer == nil or outer.canPark == nil then
@@ -827,8 +827,8 @@ local function delegatedPark(): function(suspension.Waiting, function(): nil): n
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
         local current = captured
-        while current ~= nil and current.restored do
-            current = current.previous
+        while current ~= nil and current._restored do
+            current = current._previous
         end
         const outer = current and current.handler or nil
         if outer == nil then
@@ -884,7 +884,7 @@ end
 
 local function turnDeferralSource(): suspension.Source
     local existing = turnSource
-    if existing ~= nil and not (existing as any).released then
+    if existing ~= nil and not (existing as any)._released then
         return existing
     end
     local created = suspension.source("nupp.suspension.turn", TURN_PRIORITY, openNextTurn, nil, function(): boolean
@@ -901,8 +901,8 @@ local function turnAvailable(): boolean
         return true
     end
     local host = current
-    while host.previous ~= nil do
-        host = host.previous
+    while host._previous ~= nil do
+        host = host._previous
     end
     if host.transparent then
         -- A driver with no host beneath it: nothing to return a turn to.

@@ -3052,6 +3052,35 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
     assert(unnamed:find("NUPP2101", 1, true), "nupp.workers must not name a scope type: " .. unnamed)
 end
 
+-- What a suspension provider keeps on the shared records is its own, so it carries the
+-- `_` prefix private state does elsewhere and no application reads it by the old name.
+function M.suspensionRecordsPrefixProviderState()
+    for _, example in ipairs({
+        {"Source", "sequence"},
+        {"Source", "poller"},
+        {"Source", "waiter"},
+        {"Source", "released"},
+        {"Context", "handler"},
+        {"Context", "associated"},
+        {"Waiting", "state"},
+        {"Installed", "co"},
+        {"Installed", "previous"},
+        {"Installed", "restored"},
+        {"Installed", "released"},
+        {"Installed", "parks"},
+    }) do
+        local diagnostics = diagsOf(
+            (
+                'const suspension = require("nupp.suspension")\nlocal function peek(borrows value: suspension.%s): nil\nlocal hidden = value.%s\nend\n'
+            ):format(example[1], example[2])
+        )
+        assert(
+            diagnostics:find("NUPP2004", 1, true) or diagnostics:find("NUPP2006", 1, true),
+            "suspension." .. table.concat(example, ".") .. " must carry the private prefix: " .. diagnostics
+        )
+    end
+end
+
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()
     assertClean("local layout = require('nupp.gpu.layout')", {host = "browser"})
     assertEq(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
