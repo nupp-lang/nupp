@@ -36,8 +36,8 @@ candidate_cache=$scratch/candidate-cache
 (cd "$candidate" && ./bin/nupp build >/dev/null)
 
 for artifact in ir c; do
-    (cd "$corpus" && "$baseline/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit "$artifact" folds.nupp) > "$scratch/baseline.$artifact"
-    (cd "$corpus" && "$candidate/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit "$artifact" folds.nupp) > "$scratch/candidate.$artifact"
+    (cd "$corpus" && "$baseline/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit "$artifact" folds.nupp) > "$scratch/baseline.$artifact"
+    (cd "$corpus" && "$candidate/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit "$artifact" folds.nupp) > "$scratch/candidate.$artifact"
     if ! cmp -s "$scratch/baseline.$artifact" "$scratch/candidate.$artifact"; then
         diff -u "$scratch/baseline.$artifact" "$scratch/candidate.$artifact" >&2 || true
         echo "$artifact output differs; timing refused" >&2
@@ -46,19 +46,19 @@ for artifact in ir c; do
 done
 
 # Warm both content-addressed compiler caches before taking paired samples.
-(cd "$corpus" && NUPP_CACHE_DIR="$baseline_cache" "$baseline/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit ir folds.nupp) >/dev/null
-(cd "$corpus" && NUPP_CACHE_DIR="$candidate_cache" "$candidate/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit ir folds.nupp) >/dev/null
+(cd "$corpus" && NUPP_CACHE_DIR="$baseline_cache" "$baseline/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit ir folds.nupp) >/dev/null
+(cd "$corpus" && NUPP_CACHE_DIR="$candidate_cache" "$candidate/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit ir folds.nupp) >/dev/null
 
 : > "$scratch/baseline.samples"
 : > "$scratch/candidate.samples"
 sample=1
 while [ "$sample" -le "$samples" ]; do
     if [ $((sample % 2)) -eq 1 ]; then
-        baseline_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$baseline" "$baseline_cache"; } 2>&1 | awk '/^real / {print $2}')
-        candidate_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$candidate" "$candidate_cache"; } 2>&1 | awk '/^real / {print $2}')
+        baseline_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$baseline" "$baseline_cache"; } 2>&1 | awk '/^real / {print $2}')
+        candidate_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$candidate" "$candidate_cache"; } 2>&1 | awk '/^real / {print $2}')
     else
-        candidate_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$candidate" "$candidate_cache"; } 2>&1 | awk '/^real / {print $2}')
-        baseline_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --target x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$baseline" "$baseline_cache"; } 2>&1 | awk '/^real / {print $2}')
+        candidate_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$candidate" "$candidate_cache"; } 2>&1 | awk '/^real / {print $2}')
+        baseline_time=$({ /usr/bin/time -p sh -c 'cd "$1" && NUPP_CACHE_DIR="$3" "$2/bin/nupp" aot --triple x86_64-unknown-linux-gnu --emit ir folds.nupp >/dev/null' sh "$corpus" "$baseline" "$baseline_cache"; } 2>&1 | awk '/^real / {print $2}')
     fi
     echo "$baseline_time" >> "$scratch/baseline.samples"
     echo "$candidate_time" >> "$scratch/candidate.samples"

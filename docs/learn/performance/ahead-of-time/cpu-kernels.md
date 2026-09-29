@@ -22,7 +22,7 @@ Use `aot = "require"` in a build target to compile it and replace this declarati
 
 ## Inspecting a kernel
 
-Run `nupp aot --emit ir FILE` for the admitted operations, `--emit llvm` for the LLVM IR it is compiled from, and `--emit asm --function NAME FILE` for the instructions the code generator emitted. `--target` and `--features` select the triple and CPU tier being inspected, and any target can be inspected from any machine.
+Run `nupp aot --emit ir FILE` for the admitted operations, `--emit llvm` for the LLVM IR it is compiled from, and `--emit asm --function NAME FILE` for the instructions the code generator emitted. `--triple` and `--features` select the triple and CPU tier being inspected, and any target can be inspected from any machine.
 
 ```bash
 nupp aot --emit llvm bench/simd11/kernels.nupp

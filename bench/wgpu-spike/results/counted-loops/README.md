@@ -25,7 +25,7 @@ From the repository root, generate and check the WGSL route with:
 ```sh
 mkdir -p /private/tmp/nupp-counted-wgsl
 for kernel in literal boundaries snapshots control; do
-    ./bin/nupp aot --emit wgsl --target wasm32-unknown-emscripten \
+    ./bin/nupp aot --emit wgsl --triple wasm32-unknown-emscripten \
         --function "$kernel" bench/wgpu-spike/typed/counted.nupp \
         > "/private/tmp/nupp-counted-wgsl/$kernel.wgsl"
 done

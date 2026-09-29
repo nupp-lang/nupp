@@ -53,7 +53,7 @@ Inspect any of them without a timing run:
 ```sh
 ./bin/nupp aot --emit asm --function scale \
   bench/kernel-subset-spike/contiguous.nupp
-./bin/nupp aot --emit asm --target x86_64-apple-darwin \
+./bin/nupp aot --emit asm --triple x86_64-apple-darwin \
   --features avx2 bench/kernel-subset-spike/accumulator.nupp
 ```
 

@@ -323,7 +323,7 @@ local function run(options: any): integer
     -- A placeholder rather than a guess: where the object lands is a build
     -- decision this command does not make, and a binding printed for reading
     -- says so rather than naming a path nobody will produce.
-    local selected, targetErr = targets.select(options.target, options.features)
+    local selected, targetErr = targets.select(options.triple, options.features)
     if selected == nil then
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
 
@@ -544,7 +544,7 @@ local record Aot
 
     --- Target triple to compile for.
     @cli(value = "TRIPLE")
-    target: string?
+    triple: string?
 
     --- CPU feature tier to promise.
     @cli(value = "TIER")

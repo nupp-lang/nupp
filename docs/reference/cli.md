@@ -456,7 +456,7 @@ Arguments:
 Options:
   --emit ARTIFACT  Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
   --function NAME  Show only this function.
-  --target TRIPLE  Target triple to compile for.
+  --triple TRIPLE  Target triple to compile for.
   --features TIER  CPU feature tier to promise.
   --library PATH   Compiled object path used by a generated binding.
   --format FORMAT, --json, --text

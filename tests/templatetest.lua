@@ -863,7 +863,7 @@ function M.theBrowserSimdTemplateChecksBuildsAndTests()
             .. NUPP
             .. " "
             .. NUPP
-            .. " aot --target wasm32-unknown-emscripten --features "
+            .. " aot --triple wasm32-unknown-emscripten --features "
         local ok, out = shell(prefix .. "scalar '" .. into .. "/src/scalar.nupp'")
         assert(ok, "the scalar browser kernel is not admitted:\n" .. out)
         ok, out = shell(prefix .. "simd128 '" .. into .. "/src/simd.nupp'")

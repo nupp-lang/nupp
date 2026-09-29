@@ -112,7 +112,7 @@ end
 -- The NEON instructions of FILE. The code generator targets aarch64 from any
 -- host, so every machine reads them.
 local function neonAsm(dir, file)
-    local asm, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm " .. file)
+    local asm, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit asm " .. file)
     test.equal(code, 0, asm)
 
     return asm
@@ -400,7 +400,7 @@ return {doubled = doubled}
     assert(binding:find("setWrite(0, output, true)", 1, true), binding)
     assert(binding:find("dispatchPacked", 1, true), binding)
 
-    local wasmBinding, wasmBindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
+    local wasmBinding, wasmBindingCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
     test.equal(wasmBindingCode, 1, wasmBinding)
     assert(wasmBinding:find("webgpu-int32", 1, true), wasmBinding)
     assert(not wasmBinding:find('wgsl = "nil"', 1, true), wasmBinding)
@@ -511,7 +511,7 @@ return {shrink = shrink}
     test.equal(moduleCode, 0, module)
     assertSpirvStructure(module)
 
-    local shader, shaderCode = run(dir, "--emit wgsl --target wasm32-unknown-emscripten gpu.nupp")
+    local shader, shaderCode = run(dir, "--emit wgsl --triple wasm32-unknown-emscripten gpu.nupp")
     test.equal(shaderCode, 0, shader)
     assert(shader:find("continuing {", 1, true), "WGSL repeat has a continuing block\n" .. shader)
     assert(shader:find("break if ", 1, true), "WGSL repeat evaluates its trailing condition\n" .. shader)
@@ -528,7 +528,7 @@ function M.gpuCountedLoopsEmitNativeAndBrowserControlFlow()
         assert(spirvOpcodeCount(module, 246) > 0, "counted loops require structured loop control")
         local shader, shaderCode = run(
             dir,
-            "--emit wgsl --target wasm32-unknown-emscripten --function " .. name .. " counted.nupp"
+            "--emit wgsl --triple wasm32-unknown-emscripten --function " .. name .. " counted.nupp"
         )
         test.equal(shaderCode, 0, shader)
         assert(shader:find("continuing {", 1, true), shader)
@@ -577,7 +577,7 @@ return xorMask
     )
     assert(shader:find("^ nupp_tmp_uniforms.nupp_tmp_name_mask", 1, true), shader)
 
-    local binding, bindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
+    local binding, bindingCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
     test.equal(bindingCode, 0, binding)
     assert(binding:find("local artifacts = new gpuImplementation_ks_xor_mask.ArtifactSet", 1, true), binding)
     assert(binding:find("wgsl = \"struct nupp_tmp_Uniforms", 1, true), binding)
@@ -734,7 +734,7 @@ return bindingNames
     assert(native:find("uniforms_.uniform_2 = uniforms", 1, true), native)
     assert(native:find("uniforms_.uniform_3 = gpuParameter", 1, true), native)
 
-    local browser, browserCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
+    local browser, browserCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
     test.equal(browserCode, 0, browser)
     assert(browser:find("local scalars_: {uint32} = {}", 1, true), browser)
     assert(browser:find("nupp.math.u32.wrap(scalars as integer)", 1, true), browser)
@@ -1659,7 +1659,7 @@ return {saxpy = saxpy}
 --- Pinned because these assert how many lanes a body takes, and that depends on what
 --- the target can hold: the same source takes four lanes at avx2 and two at the
 --- x86-64 baseline. Left to the host, they would assert the runner's CPU.
-local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
+local PINNED = "--triple x86_64-unknown-linux-gnu --features avx2 "
 
 --- One function's definition out of a module of LLVM IR, and the attributes
 --- it carries.
@@ -2260,11 +2260,11 @@ return {folds = folds}
 ]]
     local dir = project{["folds.nupp"] = source}
     for _, tier in ipairs({
-        "--target x86_64-unknown-linux-gnu --features baseline ",
-        "--target x86_64-unknown-linux-gnu --features avx2 ",
-        "--target x86_64-unknown-linux-gnu --features avx512f ",
-        "--target aarch64-apple-darwin --features neon ",
-        "--target wasm32-unknown-emscripten --features simd128 ",
+        "--triple x86_64-unknown-linux-gnu --features baseline ",
+        "--triple x86_64-unknown-linux-gnu --features avx2 ",
+        "--triple x86_64-unknown-linux-gnu --features avx512f ",
+        "--triple aarch64-apple-darwin --features neon ",
+        "--triple wasm32-unknown-emscripten --features simd128 ",
     }) do
         local decoded, raw, code = lowered(dir, tier .. "--json folds.nupp")
         test.equal(code, 0, raw)
@@ -2331,7 +2331,7 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
     local width = ceiling or 64
     local lanes = width / 4
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
-    local decoded, raw, code, where = lowered(dir, "--target " .. triple .. " --features avx512f --json vectors.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple " .. triple .. " --features avx512f --json vectors.nupp")
     test.equal(code, 0, raw)
     assert(
         decoded.ir:find(("simd species(uint8,%d)"):format(width), 1, true),
@@ -2344,7 +2344,7 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
         assertOracle(decoded.llvm, "ks_saxpy", where):find(multiply, 1, true),
         (where .. ": the oracle walks %d lanes"):format(lanes)
     )
-    local asm, asmCode = run(dir, "--target " .. triple .. " --features avx512f --emit asm vectors.nupp")
+    local asm, asmCode = run(dir, "--triple " .. triple .. " --features avx512f --emit asm vectors.nupp")
     test.equal(asmCode, 0, asm)
     local register = width == 64 and "zmm" or width == 32 and "ymm" or "xmm"
     assert(asm:find(register, 1, true), ("the multiply lives in a %d-byte register: "):format(width) .. asm)
@@ -2369,7 +2369,7 @@ end
 return {quotes = quotes, twice = twice}
 ]]
     }
-    local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit llvm mixed.nupp")
+    local mixed, mixedCode = run(both, "--triple " .. triple .. " --features avx512f --emit llvm mixed.nupp")
     test.equal(mixedCode, 0, mixed)
     local scanner = llvmFunction(mixed, "ks_quotes__%w+")
     local load = ("= load <%d x i8>, ptr %%t"):format(width)
@@ -2414,7 +2414,7 @@ end
 return {increment = increment}
 ]]
     local dir = project{["narrow.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json narrow.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json narrow.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_vector_u8_preferred", 1, true), where .. ": physical byte identity reaches IR")
     local kernel = llvmFunction(decoded.llvm, "ks_increment__%w+")
@@ -2478,7 +2478,7 @@ return {nibbles = nibbles}
     local low = entries:swizzle((bytes & words:splat(15)) + 1)]]
     )
     local refused = project{["mismatched.nupp"] = mismatched}
-    local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon mismatched.nupp")
+    local out, refusedCode = run(refused, "--triple aarch64-apple-darwin --features neon mismatched.nupp")
     assert(refusedCode ~= 0, "a byte vector against a word vector is refused: " .. out)
     assert(out:find("NUPP2003", 1, true), "as an operand type error: " .. out)
 end
@@ -2503,7 +2503,7 @@ return {count = count}
 ]]
             ):format(lanes)
         }
-        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit ir fixed-count.nupp")
+        local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit ir fixed-count.nupp")
         test.equal(code, 1, out)
         assert(out:find("fixed-count.nupp:5:", 1, true), out)
         assert(out:find("integer lane count between 2 and 64", 1, true), out)
@@ -2541,7 +2541,7 @@ return {transform = transform}
     local dir = project{["structural.nupp"] = source}
     local decoded, raw, code, where = lowered(
         dir,
-        "--target aarch64-apple-darwin --features neon --json structural.nupp"
+        "--triple aarch64-apple-darwin --features neon --json structural.nupp"
     )
     test.equal(code, 0, raw)
     for _, intrinsic in ipairs({
@@ -2587,7 +2587,7 @@ return {convert = convert}
 
 function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
     local dir = project{["convert.nupp"] = CONVERT_SIMD}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json convert.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_convert.convert", 1, true), decoded.ir)
     local kernel = llvmFunction(decoded.llvm, "ks_convert__%w+")
@@ -2603,7 +2603,7 @@ function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
         assert(neon:match("fcvtzs[^\n]*%.2d"), "conversion itself uses packed double lanes: " .. neon)
     end
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
-        local target = "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features " .. tier
+        local target = "--triple " .. host:gsub("^[^-]+", "x86_64") .. " --features " .. tier
         local asm, asmCode = run(dir, target .. " --emit asm convert.nupp")
         test.equal(asmCode, 0, asm)
         assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
@@ -2616,7 +2616,7 @@ function M.numericSimdConversionsRejectLaneAndBitWidthMismatches()
         {source = CONVERT_SIMD:gsub("target:convert", "target:reinterpret"), reason = "equal element widths"},
     }) do
         local dir = project{["convert.nupp"] = case.source}
-        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm convert.nupp")
+        local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm convert.nupp")
         test.equal(code, 1, out)
         assert(out:find(case.reason, 1, true), out)
     end
@@ -2626,7 +2626,7 @@ function M.preferredSimdConversionsPreserveLanesAndReinterpretWithoutArithmetic(
     local source = CONVERT_SIMD:gsub("number", "float"):gsub(", 8%)", ")")
     for _, method in ipairs({"convert", "reinterpret"}) do
         local dir = project{["convert.nupp"] = source:gsub("target:convert", "target:" .. method)}
-        local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
+        local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json convert.nupp")
         test.equal(code, 0, raw)
         assert(decoded.ir:find("simd_" .. method .. "." .. method, 1, true), decoded.ir)
         local asm = neonAsm(dir, "convert.nupp")
@@ -2654,7 +2654,7 @@ return {move = move}
 
 function M.indexedSimdMemoryCarriesItsExplicitConflictContract()
     local dir = project{["indexed.nupp"] = INDEXED_SIMD}
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json indexed.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_load.gather", 1, true), decoded.ir)
     assert(decoded.ir:find("simd_store.scatterUnchecked", 1, true), decoded.ir)
@@ -2667,7 +2667,7 @@ end
 function M.scatterRefusesUnprovedUniquenessWithoutARuntimeFallback()
     local source = INDEXED_SIMD:gsub("scatterUnchecked", "scatter")
     local dir = project{["indexed.nupp"] = source}
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
+    local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
     test.equal(code, 1, out)
     assert(out:find("provably unique indices", 1, true), out)
     assert(out:find("scatterUnchecked", 1, true), out)
@@ -2679,7 +2679,7 @@ end
 function M.indexedSimdUsesNativeAvx512MemoryInstructions()
     -- Pinned rather than following the host: LLVM reaches this target from
     -- any of them, and a Windows target's frame ceiling would narrow the tier.
-    local target = "--target x86_64-unknown-linux-gnu --features avx512f "
+    local target = "--triple x86_64-unknown-linux-gnu --features avx512f "
     for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub(", 8%)", ", 4)"))}) do
         local dir = project{["indexed.nupp"] = source}
         local decoded, raw, code, where = lowered(dir, target .. "--json indexed.nupp")
@@ -2704,20 +2704,20 @@ end
 function M.scatterProvesAConstantNonWrappingProgression()
     local source = INDEXED_SIMD:gsub("scatterUnchecked%(output, indices", "scatter(output, positions:iota(1, 2)")
     local dir = project{["indexed.nupp"] = source}
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json indexed.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_store.scatter", 1, true), decoded.ir)
     local descending = source:gsub("uint32", "int32"):gsub("positions:iota%(1, 2%)", "positions:iota(8, -1)")
     local reversed = project{["indexed.nupp"] = descending}
     local reverseOut, reverseStatus = run(
         reversed,
-        "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp"
+        "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp"
     )
     test.equal(reverseStatus, 0, reverseOut)
     for _, progression in ipairs({"1, 0", "4294967295, 1", "1, 4294967295"}) do
         local rejected = source:gsub("positions:iota%(1, 2%)", "positions:iota(" .. progression .. ")")
         local failed = project{["indexed.nupp"] = rejected}
-        local out, status = run(failed, "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
+        local out, status = run(failed, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
         test.equal(status, 1, out)
         assert(out:find("provably unique indices", 1, true), out)
     end
@@ -2729,7 +2729,7 @@ function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
         (INDEXED_SIMD:gsub("Span<float>", "Span<number>"):gsub("array.float", "array.number"):gsub(", 8%)", ")")),
     }) do
         local dir = project{["indexed.nupp"] = source}
-        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
+        local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
         test.equal(code, 1, out)
         assert(out:find("integer indices with the same logical lane count", 1, true), out)
     end
@@ -2759,7 +2759,7 @@ return {horizontal = horizontal}
     local dir = project{["horizontal.nupp"] = source}
     local decoded, raw, code, where = lowered(
         dir,
-        "--target aarch64-apple-darwin --features neon --json horizontal.nupp"
+        "--triple aarch64-apple-darwin --features neon --json horizontal.nupp"
     )
     test.equal(code, 0, raw)
     for _, intrinsic in ipairs({
@@ -2816,7 +2816,7 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
     local function fusedIn(name)
         local asm, code = run(
             dir,
-            "--target aarch64-apple-darwin --features neon --emit asm --function " .. name .. " dots.nupp"
+            "--triple aarch64-apple-darwin --features neon --emit asm --function " .. name .. " dots.nupp"
         )
         test.equal(code, 0, asm)
         local fused = 0
@@ -2898,7 +2898,7 @@ return {sum = sum}
     local dir = project{["composite.nupp"] = source}
     local decoded, raw, code, where = lowered(
         dir,
-        "--target x86_64-unknown-linux-gnu --features baseline --json composite.nupp"
+        "--triple x86_64-unknown-linux-gnu --features baseline --json composite.nupp"
     )
     test.equal(code, 0, raw)
     -- Seventeen lanes are one `<17 x i32>` value, which LLVM legalizes into
@@ -2962,7 +2962,7 @@ end
 return {lookup = lookup}
 ]]
     local dir = project{["swizzle.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json swizzle.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json swizzle.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_permute.swizzle", 1, true), where .. ": the lookup is one permutation\n" .. decoded.ir)
     assert(
@@ -3002,7 +3002,7 @@ end
 return {joined = joined}
 ]]
     local dir = project{["pair.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json pair.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json pair.nupp")
     test.equal(code, 0, raw)
     assert(
         decoded.ir:find("simd_permute.swizzle_pair", 1, true),
@@ -3035,7 +3035,7 @@ end
 return {bad = bad}
 ]]
     local dir = project{["badswizzle.nupp"] = source}
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json badswizzle.nupp")
+    local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --json badswizzle.nupp")
     assert(code ~= 0, "a float vector has no lane numbering to offer: " .. out)
     assert(out:find("integer vector", 1, true), "the refusal names what it needed: " .. out)
 end
@@ -3076,7 +3076,7 @@ end
 return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
 ]]
     local dir = project{["extrema.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json extrema.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json extrema.nupp")
     test.equal(code, 0, raw)
     for _, intrinsic in ipairs({
         "simd_horizontal.propagating_min",
@@ -3137,7 +3137,7 @@ end
 return {total = total}
 ]]
     local dir = project{["total.nupp"] = source}
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json total.nupp")
+    local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --json total.nupp")
     assert(code ~= 0, "an integer horizontal sum has no named rounding contract: " .. out)
     assert(out:find("NUPP2006", 1, true), "the refusal names the element requirement: " .. out)
     assert(out:find("floating%-point vector"), "the refusal names the element requirement: " .. out)
@@ -3187,7 +3187,7 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
     -- is the point: nothing else at the call site says which one it built.
     local source = GENERIC_EXPLICIT_SIMD:gsub("array%.float%)", "array.float, 8)", 1)
     local dir = project{["vectors.nupp"] = source}
-    local llvm, llvmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm vectors.nupp")
+    local llvm, llvmCode = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm vectors.nupp")
     test.equal(llvmCode, 0, llvm)
     local kernel = assert(llvm:match("define void @ks_saxpy__neon%(.-\n}\n"), "the kernel is emitted: " .. llvm)
     assert(
@@ -3224,7 +3224,7 @@ end
 return {copy = copy}
 ]]
     local dir = project{["copy.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json copy.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json copy.nupp")
     test.equal(code, 0, raw)
     local kernel = llvmFunction(decoded.llvm, "ks_copy__%w+")
     assert(kernel, where .. ": the kernel is emitted\n" .. decoded.llvm)
@@ -3280,7 +3280,7 @@ end
 return {sumX = sumX}
 ]]
     local dir = project{["soa.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json soa.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json soa.nupp")
     test.equal(code, 0, raw)
     local kernel = llvmFunction(decoded.llvm, "ks_sum_x__%w+")
     assert(
@@ -3336,7 +3336,7 @@ end
 return {apply = apply}
 ]]
     local dir = project{["helper.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json helper.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json helper.nupp")
     test.equal(code, 0, raw)
     assert(
         decoded.ir:find("twice_simd_vector_f32_preferred", 1, true),
@@ -3375,7 +3375,7 @@ end
 return {inspect = inspect}
 ]]
     local dir = project{["inspect.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json inspect.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json inspect.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_insert.insert", 1, true), where .. ": insertion remains intrinsic")
     assert(decoded.ir:find("simd_extract.extract", 1, true), where .. ": extraction remains intrinsic")
@@ -3427,7 +3427,7 @@ end
 return {inspect = inspect}
 ]]
     local dir = project{["bits.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json bits.nupp")
+    local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json bits.nupp")
     test.equal(code, 0, raw)
     for _, op in ipairs({"u64_or", "u64_not", "u64_shl", "u64_prefix_xor", "u64_popcount", "u64_ctz"}) do
         assert(decoded.ir:find(op, 1, true), where .. ": missing uint64 operation " .. op .. "\n" .. decoded.ir)
@@ -3629,7 +3629,7 @@ end
 -- memory rather than as a question nothing answered.
 function M.asmRefusesAnArchitectureWithNoInstructionRules()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--emit asm --target wasm32-unknown-emscripten --features simd128 compute.nupp")
+    local out, code = run(dir, "--emit asm --triple wasm32-unknown-emscripten --features simd128 compute.nupp")
     test.equal(code, 1, out)
     assert(out:find("wasm32", 1, true) and out:find("aarch64", 1, true), out)
 end
@@ -3871,7 +3871,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
     local dir = project{["simd.nupp"] = SCOPED_SIMD}
     local baseline, baselineRaw, baselineCode, baselineWhere = lowered(
         dir,
-        "--target x86_64-unknown-linux-gnu --json simd.nupp"
+        "--triple x86_64-unknown-linux-gnu --json simd.nupp"
     )
     test.equal(baselineCode, 0, baselineRaw)
     assert(baseline.ir:find("simd species(uint8,16)", 1, true), baselineWhere .. "\n" .. baseline.ir)
@@ -3883,7 +3883,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
 
     local avx, avxRaw, avxCode, avxWhere = lowered(
         dir,
-        "--target x86_64-unknown-linux-gnu --features avx2 --json simd.nupp"
+        "--triple x86_64-unknown-linux-gnu --features avx2 --json simd.nupp"
     )
     test.equal(avxCode, 0, avxRaw)
     assert(avx.ir:find("simd species(uint8,32)", 1, true), avxWhere .. "\n" .. avx.ir)
@@ -3897,7 +3897,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
         avxWhere .. ": and takes all thirty-two lanes' bits at once\n" .. wide
     )
 
-    local neon, neonCode = run(dir, "--target aarch64-unknown-linux-gnu --emit ir simd.nupp")
+    local neon, neonCode = run(dir, "--triple aarch64-unknown-linux-gnu --emit ir simd.nupp")
     test.equal(neonCode, 0, neon)
     assert(neon:find("simd species(uint8,16)", 1, true), neon)
     assert(neon:find("simd_load", 1, true) and neon:find("simd_mask_count", 1, true), neon)
@@ -4252,7 +4252,7 @@ end
 
 function M.armHasOneTierAndNeedsNoSelection()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--json --target aarch64-apple-darwin compute.nupp")
+    local out, code = run(dir, "--json --triple aarch64-apple-darwin compute.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
@@ -4261,11 +4261,11 @@ end
 
 function M.anUnknownTargetOrTierIsRejected()
     local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--target sparc-sun-solaris compute.nupp")
+    local out, code = run(dir, "--triple sparc-sun-solaris compute.nupp")
     test.equal(code, 1, out)
     assert(out:find("unknown target", 1, true), out)
 
-    local tierOut, tierCode = run(dir, "--target aarch64-apple-darwin --features sse9 compute.nupp")
+    local tierOut, tierCode = run(dir, "--triple aarch64-apple-darwin --features sse9 compute.nupp")
     test.equal(tierCode, 1, tierOut)
     assert(tierOut:find("has no feature tier sse9", 1, true), "and names the tiers it does have: " .. tierOut)
 end
@@ -4764,7 +4764,7 @@ return {entry = entry}
         {"aarch64-apple-darwin", "neon", "luajit-dual"},
         {"wasm32-unknown-emscripten", "simd128", "luajit-single"},
     }) do
-        local out, code = run(dir, "--target " .. selection[1] .. " --features " .. selection[2] .. " --emit llvm entry.nupp")
+        local out, code = run(dir, "--triple " .. selection[1] .. " --features " .. selection[2] .. " --emit llvm entry.nupp")
         test.equal(code, 0, out)
         -- LuaJIT's dual-number VM starts a loop whose bound is an integer at
         -- an integer zero, so `-0.0` becomes `0.0` exactly there.
@@ -4812,7 +4812,7 @@ return {total = total}
     }
     local out, bindingCode = run(
         dir,
-        "--target x86_64-unknown-linux-gnu --features baseline --emit binding counted.nupp"
+        "--triple x86_64-unknown-linux-gnu --features baseline --emit binding counted.nupp"
     )
     test.equal(bindingCode, 0, out)
     assert(out:find("AOT numeric-for runtime mismatch", 1, true), "a counted loop depends on the numeric-for runtime")
@@ -5118,11 +5118,11 @@ return {rearrange = rearrange, preferred = preferred}
 ]]
     local dir = project{["rearrange.nupp"] = source}
     for _, tier in ipairs({
-        "--target aarch64-apple-darwin --features neon",
-        "--target x86_64-unknown-linux-gnu --features baseline",
-        "--target x86_64-unknown-linux-gnu --features avx2",
-        "--target x86_64-unknown-linux-gnu --features avx512f",
-        "--target wasm32-unknown-emscripten --features simd128",
+        "--triple aarch64-apple-darwin --features neon",
+        "--triple x86_64-unknown-linux-gnu --features baseline",
+        "--triple x86_64-unknown-linux-gnu --features avx2",
+        "--triple x86_64-unknown-linux-gnu --features avx512f",
+        "--triple wasm32-unknown-emscripten --features simd128",
     }) do
         local decoded, raw, code = lowered(dir, tier .. " --json rearrange.nupp")
         test.equal(code, 0, raw)
@@ -5242,10 +5242,10 @@ function M.aSpeciesBindingIsDecidedPerTier()
     local dir = project{["scan.nupp"] = CONDITIONAL_SCAN}
     local tail = "%%t%d+ = getelementptr inbounds nuw i32, ptr %%p_cps, i64 %%t%d+\n  %%t%d+ = load i32, ptr %%t%d+, align 4\n  %%t%d+ = icmp ugt i32 %%t%d+, 15\n"
     for _, tier in ipairs({
-        {args = "--target aarch64-apple-darwin --features neon", lanes = 4},
-        {args = "--target x86_64-unknown-linux-gnu --features baseline", lanes = 4},
-        {args = "--target x86_64-unknown-linux-gnu --features avx2", lanes = 8},
-        {args = "--target wasm32-unknown-emscripten --features simd128", lanes = 4},
+        {args = "--triple aarch64-apple-darwin --features neon", lanes = 4},
+        {args = "--triple x86_64-unknown-linux-gnu --features baseline", lanes = 4},
+        {args = "--triple x86_64-unknown-linux-gnu --features avx2", lanes = 8},
+        {args = "--triple wasm32-unknown-emscripten --features simd128", lanes = 4},
     }) do
         local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
         test.equal(code, 0, raw)
@@ -5273,7 +5273,7 @@ function M.aSpeciesBindingIsDecidedPerTier()
         assert(body:match(tail), tier.args .. ": the scalar tail follows\n" .. body)
     end
 
-    local decoded, raw, code = lowered(dir, "--target wasm32-unknown-emscripten --features scalar --json scan.nupp")
+    local decoded, raw, code = lowered(dir, "--triple wasm32-unknown-emscripten --features scalar --json scan.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_scan")
     assert(not body:find(" x i32>", 1, true), "the scalar tier drops the arm\n" .. body)
@@ -5316,7 +5316,7 @@ end
 return {add = add}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json map.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json map.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_add")
     assert(
@@ -5426,7 +5426,7 @@ end
 return {other = other, masked = masked, moved = moved}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unproven.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json unproven.nupp")
     test.equal(code, 0, raw)
     local other = kernelBody(decoded.llvm, "ks_other")
     assert(
@@ -5498,7 +5498,7 @@ end
 return {equal = equal, longer = longer, shorter = shorter}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json related.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json related.nupp")
     test.equal(code, 0, raw)
     local vectorStore = "(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n.-store <4 x double> %%t%d+, ptr %1, "
     local equal = kernelBody(decoded.llvm, "ks_equal")
@@ -5579,7 +5579,7 @@ end
 return {scale = scale, twice = twice}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json wide.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json wide.nupp")
     test.equal(code, 0, raw)
     local llvm = decoded.llvm
     local scale = kernelBody(llvm, "ks_scale")
@@ -5646,7 +5646,7 @@ end
 return {scan = scan}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json scan.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json scan.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_scan")
     local reduction = "call i32 @llvm%%.aarch64%%.neon%%.u[maxin]+v%%.i32%%.v16i8%%(<16 x i8> %s%%)"
@@ -5692,7 +5692,7 @@ end
 return {lookup = lookup}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json lookup.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json lookup.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_lookup")
     local _, triples = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl3%.v16i8%(", "")
@@ -5747,7 +5747,7 @@ end
 return {widen = widen}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json records.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json records.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_widen")
     assert(
@@ -5807,7 +5807,7 @@ end
 return {misplaced = misplaced}
 ]],
     }
-    local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon misplaced.nupp")
+    local out, refusedCode = run(refused, "--triple aarch64-apple-darwin --features neon misplaced.nupp")
     assert(refusedCode ~= 0 and out:find("initializes up to 2 locals", 1, true), out)
 end
 
@@ -5848,7 +5848,7 @@ end
 return {scale = scale, double = double}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unrolled.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json unrolled.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_scale")
     assert(body:find(", !llvm.loop !", 1, true), "the versioned loop is unrolled\n" .. body)
@@ -5862,7 +5862,7 @@ return {scale = scale, double = double}
     local function checkedOnce(symbol)
         local asm, asmCode = run(
             dir,
-            "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " unrolled.nupp"
+            "--triple aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " unrolled.nupp"
         )
         test.equal(asmCode, 0, asm)
         local first = asm:find("\n%s+stp%s+q")
@@ -5910,7 +5910,7 @@ end
 return {halve = halve}
 ]],
     }
-    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json halve.nupp")
+    local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json halve.nupp")
     test.equal(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_halve")
     local slot = body:match("(%%slot%d+) = alloca <4 x i64>\n")
@@ -5969,7 +5969,7 @@ return {refine = refine}
     }
     local asm, code = run(
         dir,
-        "--target x86_64-unknown-linux-gnu --features baseline --emit asm --function ks_refine refine.nupp"
+        "--triple x86_64-unknown-linux-gnu --features baseline --emit asm --function ks_refine refine.nupp"
     )
     test.equal(code, 0, asm)
     -- The inner loop: the block that branches back to itself.
@@ -6047,7 +6047,7 @@ end
 return {lanes = lanes}
 ]],
     }
-    local scalar = "--target wasm32-unknown-emscripten --features scalar "
+    local scalar = "--triple wasm32-unknown-emscripten --features scalar "
     local out, code = run(dir, scalar .. "outside.nupp")
     test.equal(code, 1, "a use after the nil test on a tier without vectors\n" .. out)
     assert(
@@ -6098,9 +6098,9 @@ return {total = total}
 ]],
     }
     for _, tier in ipairs({
-        {args = "--target aarch64-apple-darwin --features neon", lanes = 4},
-        {args = "--target x86_64-unknown-linux-gnu --features avx2", lanes = 8},
-        {args = "--target wasm32-unknown-emscripten --features simd128", lanes = 4},
+        {args = "--triple aarch64-apple-darwin --features neon", lanes = 4},
+        {args = "--triple x86_64-unknown-linux-gnu --features avx2", lanes = 8},
+        {args = "--triple wasm32-unknown-emscripten --features simd128", lanes = 4},
     }) do
         local decoded, raw, code = lowered(dir, tier.args .. " --json required.nupp")
         test.equal(code, 0, raw)
@@ -6121,7 +6121,7 @@ return {total = total}
         )
     end
 
-    local out, code = run(dir, "--target wasm32-unknown-emscripten --features scalar required.nupp")
+    local out, code = run(dir, "--triple wasm32-unknown-emscripten --features scalar required.nupp")
     test.equal(code, 1, "no vectors, so the assert would always fail\n" .. out)
     assert(
         out:find(
@@ -6166,7 +6166,7 @@ return {scan = scan}
         end)
     end
     local dir = project(files)
-    local scalar = "--target wasm32-unknown-emscripten --features scalar "
+    local scalar = "--triple wasm32-unknown-emscripten --features scalar "
     local out, code = run(dir, scalar .. "proved.nupp")
     test.equal(code, 0, out)
     for _, case in ipairs(rejected) do
@@ -6256,7 +6256,7 @@ return {lengths = lengths, sums = sums}
     for symbol, instruction in pairs({ks_lengths = "ld2.4s", ks_sums = "ld3.4s"}) do
         local asm, code = run(
             dir,
-            "--target aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " fields.nupp"
+            "--triple aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " fields.nupp"
         )
         test.equal(code, 0, asm)
         assert(
@@ -6264,7 +6264,7 @@ return {lengths = lengths, sums = sums}
             symbol .. " reads its elements whole\n" .. asm
         )
     end
-    local oracle = run(dir, "--target aarch64-apple-darwin --features neon --emit llvm fields.nupp")
+    local oracle = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm fields.nupp")
     local body = oracleBody(oracle, "ks_lengths")
     assert(body:find("llvm.masked.gather", 1, true), "the oracle still gathers each lane\n" .. body)
 end
