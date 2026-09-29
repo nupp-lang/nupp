@@ -1022,8 +1022,8 @@ type types.Type = types.Prim
     | types.ProtocolThread
     | types.GenericAlias
 
---- One field of a structural shape. `type` is accepted as the legacy spelling passed by
---- compiler internals and means an ordinary read-write property.
+--- One field of a structural shape. `type` is shorthand for `read = write = type`,
+--- an ordinary read-write property.
 type types.Field = {
     name: string,
     type: types.Type?,

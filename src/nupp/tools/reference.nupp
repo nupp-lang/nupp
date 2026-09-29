@@ -114,7 +114,7 @@ Generated code targets LuaJIT 2.1.1784535649 or newer.
         codes = {"NUPP2119"},
         body = [=[
 A typed declaration says where it lives. `local` keeps it to the file, a
-qualified name puts it on that table in a legacy return-table module,
+qualified name puts it on that table in a return-table module,
 `global` publishes it project-wide, and `export` publishes it from a declared
 module. Saying none of these is refused rather than defaulted, because plain Lua
 would have made the name a global and Nupp does not reuse that silence for a
@@ -2153,11 +2153,16 @@ Runtime evaluation remains eager: hoisted function exports can participate in
 a benign cycle, but top-level computation cannot read an export that the other
 module has not initialized.
 
-Legacy files that construct and return a table remain valid, but they do not
-gain declared-module cycle or qualified-namespace behavior.
+A file that constructs and returns a table is a return-table module. It is
+valid -- every test suite is one, because the runner reads the table a suite
+returns -- but it does not gain declared-module cycle or qualified-namespace
+behavior.
 
-A `.d.nupp` file returns no table; its bare declarations describe an external
-interface.
+A `.d.nupp` file describes a module implemented elsewhere and cannot declare
+`module`. It declares the module's members and returns a value of the module's
+type, such as `local greet: function(name: string): string` followed by
+`return {greet = greet}`; `require` answers that type. A declaration file that
+returns nothing declares only globals.
 ]=],
         context = {
             [

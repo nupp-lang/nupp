@@ -262,7 +262,10 @@ function surface.identity(node: any): string?
     return nil
 end
 
---- Keep the legacy cross-version contract while the new profile audits provenance.
+--- The runtime surface a node names, for the version checks. Under
+--- `compat = "lua51"` it is followed through casts, parentheses and global-table
+--- reads, so a member outside that profile is found however it was reached;
+--- otherwise only a root the checker recorded counts.
 function surface.tracked(checker: any, node: any): string?
     if checker.opts.compat == "lua51" then
         return surface.identity(node)
