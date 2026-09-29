@@ -386,7 +386,6 @@ for _, resource in ipairs({
     "src/nupp/io/uri/pathtext.nupp",
     "src/nupp/io/uri/provider.nupp",
     "src/nupp/runtime/browser/init.nupp",
-    "src/nupp/runtime/provider/init.nupp",
     "src/nupp/compiler/init.nupp",
     "src/nupp/compiler/runtime/extensions.nupp",
     "src/nupp/compiler/runtime/math.nupp",
