@@ -7,7 +7,8 @@ local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")
 local rows = tonumber(os.getenv("QUANT_ROWS") or 1024)
 local width = tonumber(os.getenv("QUANT_WIDTH") or 1024)
-assert(width % 2 == 0)
+-- The GPU kernels read the weights as whole uint32 words.
+assert(width % 8 == 0)
 local scale = 0.03125
 local zeroPoint = 0
 
@@ -34,13 +35,15 @@ generated.int4Cpu(span.writeCarray(expected4, rows), span.fromCarray(weights4, r
 
 local context = gpu.open()
 local inputBuffer = context:buffer(ffi.typeof("float"), width)
-local weights8Buffer = context:buffer(ffi.typeof("int8_t"), rows * width)
-local weights4Buffer = context:buffer(ffi.typeof("uint8_t"), rows * width / 2)
+local words8 = ffi.cast("uint32_t*", weights8)
+local words4 = ffi.cast("uint32_t*", weights4)
+local weights8Buffer = context:buffer(ffi.typeof("uint32_t"), rows * width / 4)
+local weights4Buffer = context:buffer(ffi.typeof("uint32_t"), rows * width / 8)
 local output8Buffer = context:buffer(ffi.typeof("float"), rows)
 local output4Buffer = context:buffer(ffi.typeof("float"), rows)
 context:upload(inputBuffer, span.fromCarray(input, width))
-context:upload(weights8Buffer, span.fromCarray(weights8, rows * width))
-context:upload(weights4Buffer, span.fromCarray(weights4, rows * width / 2))
+context:upload(weights8Buffer, span.fromCarray(words8, rows * width / 4))
+context:upload(weights4Buffer, span.fromCarray(words4, rows * width / 8))
 local int8 = generated.int8:compile(context):bind(output8Buffer, weights8Buffer, inputBuffer)
 local int4 = generated.int4:compile(context):bind(output4Buffer, weights4Buffer, inputBuffer)
 
