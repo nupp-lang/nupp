@@ -521,6 +521,9 @@ end
 
 --- The storage behind a writer over a buffer.
 local record BufferWriter is Writer
+    --- Spends the writer; defined after the record, so `close` can reach it.
+    drop: function(takes self: BufferWriter): nil
+
     @private
     @readonly
     anchor: any
@@ -629,6 +632,9 @@ local function copyString(
 end
 
 local record StringReader is Reader
+    --- Spends the reader; defined after the record, so `close` can reach it.
+    drop: function(takes self: StringReader): nil
+
     _bytes: string
     _at: integer
     _closed: boolean

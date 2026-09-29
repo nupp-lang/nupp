@@ -209,6 +209,25 @@ function M.subtypingRules()
     assert(not isA(takesInt, takesNum))
 end
 
+-- An owner answers the methods of the type it owns, so a method the type does not
+-- have is reported the way a field it does not have is, rather than checking clean
+-- and calling nil. The terminal is reached through the owner and still resolves.
+function M.anOwnerResolvesMethodsThroughItsUnderlyingType()
+    local owner = table.concat({
+        "local record Buffer",
+        "    n: integer",
+        "    function close(takes self): nil end",
+        "    function size(self): integer return self.n end",
+        "end",
+        "local function open(): affine(Buffer, Buffer.close)",
+        "    return new Buffer(n = 1)",
+        "end",
+        "local owner = open()",
+    }, "\n")
+    assertEq(diagsOf(owner .. "\nowner:frobnicate()\nowner:close()"), "NUPP2004:10")
+    assertClean(owner .. "\nprint(owner:size())\nowner:close()")
+end
+
 -- An exported function is in scope from the top of its module, so one declared after
 -- a binding of the same name would overwrite that binding rather than stand beside it:
 -- the local read by the code between them became the function at run time.

@@ -2648,13 +2648,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             return first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
-            -- An owned structural shape is still the thing whose methods these are,
+            -- An owned shape or nominal is still the thing whose methods these are,
             -- and field access already reads one through its qualifier. Without this
-            -- a misspelled method on such a handle reported nothing at all. An owned
-            -- nominal is left alone: its terminal is reached through the qualifier
-            -- rather than found on the record, so unwrapping would report `drop`.
+            -- a misspelled method on such a handle reported nothing at all. Its
+            -- terminal is reached through the qualifier rather than found on the
+            -- underlying type, so a call naming the terminal is left alone.
             local named = ot
-            if named.tag ~= "shape" and named.tag ~= "nominal" and rawType(ot).tag == "shape" then
+            local underlying = rawType(ot).tag
+            if named.tag ~= "shape"
+                and named.tag ~= "nominal"
+                and (underlying == "shape" or underlying == "nominal")
+            then
                 local terminal = false
                 for _, cleanup in ipairs((ot as any).cleanups or {}) do
                     if cleanup.name == member.text then

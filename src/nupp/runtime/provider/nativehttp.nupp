@@ -487,6 +487,14 @@ record http.Body is io.Reader
         end
     end
 
+    --- Cancels whatever is still being produced and marks the body closed.
+    ---
+    --- The half of `close` that does not consume the owner, which is what the
+    --- response's own teardown runs.
+    --- @param self this body
+    @private
+    release: function(self: http.Body): nil
+
     --- Closes the body as an ownership terminal.
     ---
     --- Repeated calls are safe.
@@ -497,13 +505,6 @@ record http.Body is io.Reader
         self:release()
     end
 
-    --- Cancels whatever is still being produced and marks the body closed.
-    ---
-    --- The half of `close` that does not consume the owner, which is what the
-    --- response's own teardown runs.
-    --- @param self this body
-    @private
-    release: function(self: http.Body): nil
 end
 
 function http.Body._next(self: http.Body, count: integer): (string?, string?)
