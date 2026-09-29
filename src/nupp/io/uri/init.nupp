@@ -18,6 +18,29 @@ assert(endpoint:port() == 8443)
 Two URIs are equal when their normalized text is, so a host or scheme written in
 another case does not make one URI unequal to an otherwise identical one. Nothing has to be closed.
 
+## One specification
+
+Every provider parses as the [WHATWG URL Standard](https://url.spec.whatwg.org/)
+does, which is what browsers and both HTTP transports do. What `path()` answers
+is therefore the path the request sends: `%2e%2e` is a dot segment and is
+resolved, a special scheme's host is lowercased and an IPv4 address written as
+`0x7f.1` is `127.0.0.1`, an empty password is dropped, and spaces, controls and
+non-ASCII text are percent-encoded as UTF-8:
+
+```nupp
+const uri = nupp.io.uri
+
+local route = assert(uri.newURI("https://example.com/public/%2e%2e/secret"))
+assert(route:path() == "/secret")
+assert(assert(uri.newURI("http://0x7f.1/")):host() == "127.0.0.1")
+```
+
+A special-scheme host that is not plain ASCII needs the standard's IDNA mapping.
+The native provider and a browser page's own `URL` carry it. A target with
+neither, such as a hostless portable one, parses without it and answers nil and
+"internationalized host needs a host URL parser" for such a host, including one
+already written with an `xn--` label, rather than guessing.
+
 `URI` has no public constructor. Creation goes through `uri.newURI`, which interns
 the 1024 most recently used normalized URIs. Repeated parsing and URI-producing
 operations therefore reuse the same immutable value while retention stays
@@ -104,11 +127,11 @@ through a configured service address.
 
 ## Resolving a reference
 
-`resolve` applies RFC reference resolution, the way a browser resolves a link
-against the page it is on. A reference that repeats the page's scheme without
-an authority, such as `https:other.html`, is relative, as browsers and RFC 3986's
-non-strict reading take it. It answers nil and a reason when the reference
-cannot be resolved:
+`resolve` parses a reference against the URI the way a browser resolves a link
+against the page it is on, by the same standard. A reference that repeats a
+special scheme without an authority, such as `https:other.html`, is relative,
+and `\` separates segments where `/` does in a special scheme. It answers nil
+and a reason when the reference cannot be resolved:
 
 ```nupp
 const uri = nupp.io.uri
@@ -149,10 +172,9 @@ through 65535. Every field is URI text rather than a filesystem name.
 :::
 ]]
 
--- RFC 3986 section 5.2.4, so a resolved reference answers the path a browser
--- would navigate to rather than one still carrying "." and ".." segments.
-const pathtext = require("nupp.io.uri.pathtext")
+local contracts = require("nupp.io.uri.spi")
 const provider = require("nupp.io.uri.provider")
+const whatwg = require("nupp.io.uri.whatwg")
 
 --- The parts a URI is built from when it is not written out as text.
 --- @export
@@ -471,46 +493,27 @@ export record URI
     --- @return the resolved URI, or nil when the reference cannot be resolved
     --- @return a failure reason, when unsuccessful
     function resolve(self, reference: string): (URI?, string?)
-        local scheme, rest = reference:match("^([A-Za-z][A-Za-z0-9+.-]*):(.*)$")
-        if scheme ~= nil then
-            -- RFC 3986 section 5.2.2, read non-strictly as browsers do: a
-            -- reference repeating this scheme without an authority is relative.
-            -- Parsed on its own, `http:g` would make `g` the host.
-            if scheme:lower() ~= self._scheme:lower() or rest:sub(1, 2) == "//" then
-                return newURI(reference)
-            end
-            reference = rest
-        end
-        local prefix = self._scheme .. ":"
-        if reference:sub(1, 2) == "//" then
-            -- A network-path reference supplies its own authority.
-            return newURI(prefix .. reference)
-        end
-        local suffix = ""
-        local beforeFragment, fragment = reference:match("^(.-)(#.*)$")
-        if beforeFragment ~= nil then
-            reference, suffix = beforeFragment, fragment
-        end
-        local beforeQuery, query = reference:match("^(.-)(%?.*)$")
-        if beforeQuery ~= nil then
-            reference, suffix = beforeQuery, query .. suffix
-        elseif reference == "" then
-            -- A same-document reference keeps the base's query.
-            suffix = (self._query ~= nil and "?" .. self._query or "") .. suffix
-        end
-        local authority = self._authority ~= nil and "//" .. self._authority or ""
-        local path: string
-        if reference == "" then
-            path = self._path
-        elseif reference:sub(1, 1) == "/" then
-            path = pathtext.removeDotSegments(reference)
-        elseif self._authority ~= nil and self._path == "" then
-            path = pathtext.removeDotSegments("/" .. reference)
-        else
-            path = pathtext.removeDotSegments((self._path:match("^(.*/)") or "") .. reference)
+        local base = new contracts.UriParts(
+            text = self._text,
+            scheme = self._scheme,
+            authority = self._authority,
+            username = self._username,
+            password = self._password,
+            host = self._host,
+            port = self._port,
+            path = self._path,
+            query = self._query,
+            fragment = self._fragment
+        )
+        -- The standard's parser finds the text the reference names; the
+        -- provider then reads that text, which is where a host needing IDNA is
+        -- mapped or refused.
+        local parts, reason = whatwg.parse(reference, base, true)
+        if parts == nil then
+            return nil, reason
         end
 
-        return newURI(prefix .. authority .. path .. suffix)
+        return newURI(parts.text)
     end
 
     --- The URI with another's scheme and authority.

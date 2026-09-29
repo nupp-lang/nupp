@@ -450,9 +450,9 @@ local FEATURES: {[string]: native.Feature} = {
         module = "nupp.io.uri",
         runtimeModule = "nupp.io.uri",
         portableRuntime = true,
-        requires = {"runtime.uri_pathtext"}
+        requires = {"runtime.uri_whatwg"}
     },
-    ["runtime.uri_pathtext"] = {name = "uri_pathtext", runtimeModule = "nupp.io.uri.pathtext", portableRuntime = true},
+    ["runtime.uri_whatwg"] = {name = "uri_whatwg", runtimeModule = "nupp.io.uri.whatwg", portableRuntime = true},
     [
         "native.uuid"
     ] = {

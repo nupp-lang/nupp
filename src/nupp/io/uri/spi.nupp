@@ -6,10 +6,15 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 
 --- Normalized absolute-URI components shared by every parser.
 ---
+--- Every parser reads text as the WHATWG URL Standard's basic URL parser does
+--- (https://url.spec.whatwg.org/), so text is the standard's serialization and
+--- each component is the standard's. A parser without IDNA refuses a
+--- special-scheme host that needs it rather than answering another host.
+---
 --- Use nil for an absent optional component and an empty string for a present empty
---- one. text is the normalized serialization; scheme is normalized consistently
---- with it. The public URI wrapper uses this record without introducing a
---- provider-specific nominal identity.
+--- one; an empty password is absent, as the standard drops it. The public URI
+--- wrapper uses this record without introducing a provider-specific nominal
+--- identity.
 export record UriParts
     --- Normalized complete URI text.
     text: string
@@ -23,7 +28,7 @@ export record UriParts
     --- Username component, empty when absent.
     username: string
 
-    --- Password component, retaining absent versus empty.
+    --- Password component, or nil when absent or empty.
     password: string?
 
     --- Normalized host, or nil for a URI without one.
@@ -42,7 +47,7 @@ export record UriParts
     fragment: string?
 end
 
---- Absolute-URI parsing into canonical components.
+--- Absolute-URI parsing into canonical components, by the WHATWG URL Standard.
 ---
 --- Return nil and a diagnostic for unsupported or invalid input. Successful parses
 --- must make text, authority, host, port, and path mutually consistent and preserve

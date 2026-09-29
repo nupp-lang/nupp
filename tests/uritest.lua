@@ -4,7 +4,9 @@
 -- recorded from the implementation this replaced. A URI library's whole job is
 -- to agree with everybody else about what a piece of text names, so the useful
 -- test is not that each function does something reasonable but that the answers
--- have not moved.
+-- have not moved. Everybody else is the WHATWG URL Standard: the native `url`
+-- crate, the portable parser, and, where node is installed, a host `URL` read
+-- the same seeded corpus and must agree.
 --
 -- The launcher's provider is reused when available, and otherwise one is built
 -- for the suite, reached the way a generated program reaches it.
@@ -418,31 +420,33 @@ function M.rerootingKeepsThePathQueryAndFragment()
     )
 end
 
-function M.browserParserAgreesOnPortableUriComponents()
+function M.portableParserAgreesOnPortableUriComponents()
+    local portable = require("nupp.io.uri.whatwg")
     local browser = require("nupp.runtime.browser.uri")
-    for _, row in ipairs(PARSED) do
-        local parts, reason = browser.parse(row[1])
-        assert(parts, tostring(reason))
-        test.equal(parts.text, row[2], row[1] .. " browser normalization")
-        for _, name in ipairs(COMPONENTS) do
-            if row[name] ~= nil then
-                local expected = row[name]
-                if expected == false then
-                    expected = nil
+    for _, parser in ipairs({portable, browser}) do
+        for _, row in ipairs(PARSED) do
+            local parts, reason = parser.parse(row[1])
+            assert(parts, tostring(reason))
+            test.equal(parts.text, row[2], row[1] .. " portable normalization")
+            for _, name in ipairs(COMPONENTS) do
+                if row[name] ~= nil then
+                    local expected = row[name]
+                    if expected == false then
+                        expected = nil
+                    end
+                    test.equal(parts[name], expected, row[1] .. " portable " .. name)
                 end
-                test.equal(parts[name], expected, row[1] .. " browser " .. name)
             end
         end
     end
 end
 
--- A percent-encoded dot is a dot: RFC 3986 decodes %2E as unreserved before
--- removing dot segments, and WHATWG lists %2e among the dot segments. The
+-- A percent-encoded dot is a dot: WHATWG lists %2e among the dot segments. The
 -- native parser removed `%2e%2e` and the portable one kept it, so a prefix
 -- check on the path held on one target and not the other.
 function M.encodedDotSegmentsAreRemovedByEveryParser()
     local module = ready()
-    local browser = require("nupp.runtime.browser.uri")
+    local portable = require("nupp.io.uri.whatwg")
     local rows = {
         {"https://ex.com/a/%2e%2e/secret", "/secret"},
         {"https://ex.com/a/%2E%2E/secret", "/secret"},
@@ -452,32 +456,346 @@ function M.encodedDotSegmentsAreRemovedByEveryParser()
         {"https://ex.com/a/b/%2e%2e", "/a/"},
         {"https://ex.com/a/%2e%2e%2e/b", "/a/%2e%2e%2e/b"},
         {"https://ex.com/a/x%2e%2e/b", "/a/x%2e%2e/b"},
+        {"https://ex.com/a\\%2e%2e\\secret", "/secret"},
     }
     for _, row in ipairs(rows) do
         local native = assert(module.newURI(row[1]))
         test.equal(native:path(), row[2], row[1] .. " native path")
-        local parts, reason = browser.parse(row[1])
+        local parts, reason = portable.parse(row[1])
         assert(parts, tostring(reason))
         test.equal(parts.path, row[2], row[1] .. " portable path")
     end
     local page = assert(module.newURI("https://ex.com/public/index.html"))
     test.equal(assert(page:resolve("%2e%2e/secret")):path(), "/secret")
+    test.equal(assert(page:resolve("..\\..\\secret")):path(), "/secret")
 end
 
-function M.browserParserRefusesMalformedOrUnsupportedHosts()
-    local browser = require("nupp.runtime.browser.uri")
-    for _, text in ipairs({
-        "http://[::::]/",
-        "http://[1:2:3:4:5:6:7:8:9]/",
-        "http://[1:2:3:4:5:6:7]/",
-        "http://exa%mple.com/x",
-        "http://127.0.0.999/x",
-        "http://127.00.0.1/x",
-        "http://example.com/\0suffix",
+function M.portableParserRefusesMalformedHosts()
+    local portable = require("nupp.io.uri.whatwg")
+    for text, reason in pairs({
+        ["http://[::::]/"] = "invalid IPv6 address",
+        ["http://[1:2:3:4:5:6:7:8:9]/"] = "invalid IPv6 address",
+        ["http://[1:2:3:4:5:6:7]/"] = "invalid IPv6 address",
+        ["http://[::1.2.3.04]/"] = "invalid IPv6 address",
+        ["http://exa%mple.com/x"] = "invalid domain character",
+        ["http://exa mple.com/x"] = "invalid domain character",
+        ["http://127.0.0.999/x"] = "invalid IPv4 address",
+        ["http://1.2.3.4.5/x"] = "invalid IPv4 address",
+        ["http://09/x"] = "invalid IPv4 address",
+        ["http://0x100000000/x"] = "invalid IPv4 address",
+        ["file://h:8080/x"] = "invalid domain character",
+        ["http://example.com:65536/"] = "invalid port number",
+        ["http://example.com/\0suffix"] = "URI contains a NUL byte",
+        ["http://example.com/\255"] = "URI is not valid UTF-8",
     }) do
-        local value, reason = browser.parse(text)
+        local value, why = portable.parse(text)
         test.equal(value, nil, text .. " is refused")
-        assert(reason, text .. " explains its refusal")
+        test.equal(why, reason, text .. " explains its refusal")
+    end
+end
+
+-- The six STDLIB-06 rows. Each provider used to answer them differently; every
+-- provider now answers what the URL Standard does.
+local STANDARD_ROWS = {
+    {"https://ex.com/a/%2e%2e/secret", "https://ex.com/secret", path = "/secret"},
+    {"https://ex.com/caf\195\169?q=\195\169", "https://ex.com/caf%C3%A9?q=%C3%A9", path = "/caf%C3%A9", query = "q=%C3%A9"},
+    {"http://user:@h/", "http://user@h/", username = "user", password = false},
+    {"http://0x7f.1/", "http://127.0.0.1/", host = "127.0.0.1"},
+    {"file://h:8080/x", false},
+    {"https://ex.com/a ", "https://ex.com/a", path = "/a"},
+}
+
+local function checkStandardRow(label, parts, reason, row)
+    if row[2] == false then
+        test.equal(parts, nil, label .. " " .. row[1] .. " is refused")
+        assert(reason, label .. " " .. row[1] .. " says why")
+        return
+    end
+    assert(parts, label .. " " .. row[1] .. ": " .. tostring(reason))
+    test.equal(parts.text, row[2], label .. " " .. row[1])
+    for _, name in ipairs(COMPONENTS) do
+        if row[name] ~= nil then
+            local expected = row[name]
+            if expected == false then
+                expected = nil
+            end
+            test.equal(parts[name], expected, label .. " " .. row[1] .. " " .. name)
+        end
+    end
+end
+
+function M.standardRowsAgreeOnEveryProvider()
+    ready()
+    local native = require("nupp.runtime.provider.nativeuri")
+    local portable = require("nupp.io.uri.whatwg")
+    for _, row in ipairs(STANDARD_ROWS) do
+        local parts, reason = native.parse(row[1])
+        checkStandardRow("native", parts, reason, row)
+        parts, reason = portable.parse(row[1])
+        checkStandardRow("portable", parts, reason, row)
+    end
+end
+
+-- A special scheme's host that ends in a number is an IPv4 address, in any of
+-- the forms the standard reads: fewer than four parts, hexadecimal, octal.
+function M.ipv4NumberFormsAreAddresses()
+    ready()
+    local native = require("nupp.runtime.provider.nativeuri")
+    local portable = require("nupp.io.uri.whatwg")
+    for text, host in pairs({
+        ["http://0x7f.1/"] = "127.0.0.1",
+        ["http://127.1/"] = "127.0.0.1",
+        ["http://2130706433/"] = "127.0.0.1",
+        ["http://0177.0.0.1/"] = "127.0.0.1",
+        ["http://127.00.0.1/"] = "127.0.0.1",
+        ["http://0x/"] = "0.0.0.0",
+        ["http://4294967295/"] = "255.255.255.255",
+        ["http://1.2.3./"] = "1.2.0.3",
+    }) do
+        for label, parser in pairs({native = native, portable = portable}) do
+            local parts, reason = parser.parse(text)
+            assert(parts, label .. " " .. text .. ": " .. tostring(reason))
+            test.equal(parts.host, host, label .. " " .. text)
+        end
+    end
+    -- Only a special scheme's host is a domain, so another scheme keeps it.
+    test.equal(assert(portable.parse("foo://0x7f.1/")).host, "0x7f.1")
+end
+
+-- The portable parser carries no IDNA tables, so a special-scheme host that
+-- needs them is refused with a reason rather than guessed at. A host that is
+-- not a domain is only percent-encoded, as the standard says.
+function M.portableParserRefusesInternationalHosts()
+    ready()
+    local native = require("nupp.runtime.provider.nativeuri")
+    local portable = require("nupp.io.uri.whatwg")
+    for _, text in ipairs({
+        "https://caf\195\169.example/",
+        "https://%C3%A9.example/",
+        "https://xn--caf-dma.example/",
+        "https://XN--CAF-DMA.example/",
+        "https://www.xn--caf-dma.example/",
+    }) do
+        local parts, reason = portable.parse(text)
+        test.equal(parts, nil, text .. " is refused by the portable parser")
+        test.equal(reason, "internationalized host needs a host URL parser", text)
+        assert(native.parse(text), text .. " is mapped by the native parser")
+    end
+    test.equal(assert(portable.parse("foo://\195\177.test/")).host, "%C3%B1.test")
+    test.equal(assert(native.parse("foo://\195\177.test/")).host, "%C3%B1.test")
+end
+
+-- A page host with its own `URL` is asked, and its canonical text is read back,
+-- so the host's IDNA mapping reaches the components.
+function M.browserHostUrlIsReadBack()
+    local previousHost = rawget(_G, "__nuppBrowser")
+    local previousModule = package.loaded["nupp.runtime.browser.uri"]
+    local asked = {}
+    rawset(_G, "__nuppBrowser", {
+        url = function(text)
+            asked[#asked + 1] = text
+            if text == "https://caf\195\169.example/a b" then
+                return {href = "https://xn--caf-dma.example/a%20b"}
+            end
+            return {error = "Invalid URL"}
+        end,
+    })
+    package.loaded["nupp.runtime.browser.uri"] = nil
+    local ok, problem = pcall(function()
+        local browser = require("nupp.runtime.browser.uri")
+        local parts = assert(browser.parse("https://caf\195\169.example/a b"))
+        test.equal(parts.text, "https://xn--caf-dma.example/a%20b")
+        test.equal(parts.host, "xn--caf-dma.example")
+        test.equal(parts.path, "/a%20b")
+        local value, reason = browser.parse("http://[")
+        test.equal(value, nil)
+        test.equal(reason, "Invalid URL")
+        -- What every provider refuses never reaches the host.
+        value, reason = browser.parse("http://example.com/\0")
+        test.equal(value, nil)
+        test.equal(reason, "URI contains a NUL byte")
+        test.equal(#asked, 2)
+    end)
+    rawset(_G, "__nuppBrowser", previousHost)
+    package.loaded["nupp.runtime.browser.uri"] = previousModule
+    assert(ok, problem)
+end
+
+----------------------------------------------------------------------------
+-- A seeded corpus, read by every provider
+----------------------------------------------------------------------------
+
+local CORPUS_SCHEMES = {"http", "https", "ws", "wss", "ftp", "file", "foo", "mailto", "HTTP", "sc"}
+local CORPUS_HOSTS = {
+    "example.com",
+    "EXAMPLE.com",
+    "127.0.0.1",
+    "0x7f.1",
+    "1.2.3",
+    "017.1",
+    "[::1]",
+    "[1:0:0:2:0:0:0:3]",
+    "[::ffff:1.2.3.4]",
+    "a_b.test",
+    "h%41.test",
+    "",
+    "u@h",
+    "u:p@h",
+    "u:@h",
+    "h:8080",
+    "h:80",
+    "h:",
+    "a%2eb",
+    "h.",
+    "1.2.3.4.5",
+}
+local CORPUS_PIECES = {
+    "a", "b", "/", "/", "\\", ".", "..", "%2e", "%2E%2e", "%", "%41", "?", "#", "@", ":", "[", "]", "'", '"',
+    "<", ">", "`", "{", "}", "~", "&", "=", ";", ",", "!", "$", "\t", "C:", "//", "x y",
+}
+
+local function corpus(seed, count)
+    local state = seed
+    local function pick(n)
+        state = (state * 1103515245 + 12345) % 2147483648
+        return state % n + 1
+    end
+    local texts = {}
+    for index = 1, count do
+        local parts = {CORPUS_SCHEMES[pick(#CORPUS_SCHEMES)], ":"}
+        local shape = pick(4)
+        if shape <= 2 then
+            parts[#parts + 1] = "//" .. CORPUS_HOSTS[pick(#CORPUS_HOSTS)]
+        elseif shape == 3 then
+            parts[#parts + 1] = "/"
+        end
+        for _ = 1, pick(8) - 1 do
+            parts[#parts + 1] = CORPUS_PIECES[pick(#CORPUS_PIECES)]
+        end
+        texts[index] = table.concat(parts)
+    end
+
+    return texts
+end
+
+-- What a browser's own `URL` answers for each text, or nil where node, whose
+-- URL follows the same standard, is not installed.
+local function hostHrefs(texts, bases)
+    local probe = io.popen("node --version 2>/dev/null")
+    local version = probe and probe:read("*a") or ""
+    if probe then
+        probe:close()
+    end
+    if not version:match("^v%d") then
+        return nil
+    end
+    local json = require("nupp.codec.json")
+    local path = root .. "/corpus.json"
+    local file = assert(io.open(path, "wb"))
+    file:write(json.encode({texts = texts, bases = bases or json.EMPTY_ARRAY}))
+    file:close()
+    local script = [[
+const {texts, bases} = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(JSON.stringify(texts.map((text, index) => {
+  try { return new URL(text, bases[index]).href; } catch (error) { return null; }
+})));
+]]
+    local scriptPath = root .. "/corpus.cjs"
+    file = assert(io.open(scriptPath, "wb"))
+    file:write(script)
+    file:close()
+    local node = assert(io.popen("node '" .. scriptPath .. "' '" .. path .. "'"))
+    local answer = node:read("*a")
+    node:close()
+    local hrefs = json.decode(answer, json.NULL)
+    for index = 1, #texts do
+        if hrefs[index] == json.NULL then
+            hrefs[index] = false
+        end
+    end
+
+    return hrefs
+end
+
+-- The standard moved on in two places the native `url` crate has not yet: it
+-- percent-encodes `^` in a path, and a space ending an opaque path before its
+-- query. A browser follows the newer text, so those rows are left out of the
+-- comparison with it; the native and portable parsers still agree on them.
+local function newerThanTheCrate(text)
+    return text:find("[ ^|]") ~= nil
+end
+
+function M.seededCorpusAgreesAcrossProviders()
+    ready()
+    local native = require("nupp.runtime.provider.nativeuri")
+    local portable = require("nupp.io.uri.whatwg")
+    local texts = corpus(20260929, 3000)
+    local hrefs = hostHrefs(texts)
+    local refusedInternational = 0
+    for index, text in ipairs(texts) do
+        local expected, expectedReason = native.parse(text)
+        local found, reason = portable.parse(text)
+        if found == nil and reason == "internationalized host needs a host URL parser" then
+            refusedInternational = refusedInternational + 1
+        else
+            test.equal(found and found.text, expected and expected.text, ("%q portable text"):format(text))
+            if expected and found then
+                for _, name in ipairs(COMPONENTS) do
+                    test.equal(found[name], expected[name], ("%q portable %s"):format(text, name))
+                end
+            end
+            test.equal(found == nil, expected == nil, ("%q acceptance: %s"):format(text, tostring(expectedReason)))
+        end
+        if hrefs ~= nil and not newerThanTheCrate(text) then
+            test.equal(expected and expected.text or false, hrefs[index], ("%q host URL"):format(text))
+        end
+    end
+    assert(refusedInternational < 30, "the corpus is mostly ASCII hosts")
+    if hrefs == nil then
+        error("skip: node is not installed, so the host URL leg did not run", 0)
+    end
+end
+
+-- Resolution is the standard's parser with a base on every provider, so the
+-- portable reading of a reference agrees with a browser's.
+function M.seededReferencesResolveAsTheHostDoes()
+    local module = ready()
+    local portable = require("nupp.io.uri.whatwg")
+    local bases = {
+        "http://a/b/c/d;p?q",
+        "https://example.com/docs/guide/",
+        "file:///C:/dir/file",
+        "foo://host/a/b",
+        "foo:/a/b",
+        "mailto:x@y",
+    }
+    local references = corpus(424242, 1500)
+    local extra = {"g", "../g", "//g", "\\\\g\\h", "?y", "#s", "", "..", "/./g", "http:g", "foo:g", "C|/x", "..\\x"}
+    for _, value in ipairs(extra) do
+        references[#references + 1] = value
+    end
+    local texts, baseTexts = {}, {}
+    for index, reference in ipairs(references) do
+        -- Relative references are what resolution is for, so the scheme is
+        -- dropped from most of the corpus.
+        texts[index] = index % 3 == 0 and reference or (reference:gsub("^[%a]+:", "", 1))
+        baseTexts[index] = bases[(index % #bases) + 1]
+    end
+    local hrefs = hostHrefs(texts, baseTexts)
+    for index, text in ipairs(texts) do
+        local base = assert(module.newURI(baseTexts[index]))
+        local resolved = base:resolve(text)
+        local parts = portable.parse(text, assert(portable.parse(baseTexts[index])))
+        local label = ("%q against %s"):format(text, baseTexts[index])
+        if not (parts == nil and resolved ~= nil and text:find("[\128-\255]")) then
+            test.equal(parts and parts.text, resolved and resolved:toString(), label .. " portable")
+        end
+        if hrefs ~= nil and not newerThanTheCrate(text) and not newerThanTheCrate(baseTexts[index]) then
+            test.equal(resolved and resolved:toString() or false, hrefs[index], label .. " host URL")
+        end
+    end
+    if hrefs == nil then
+        error("skip: node is not installed, so the host URL leg did not run", 0)
     end
 end
 

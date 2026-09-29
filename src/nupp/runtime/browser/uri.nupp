@@ -3,229 +3,49 @@ module nupp.runtime.browser.uri
 
 --[[
 The browser implementation parses absolute URIs for the `host.uri` API 1
-contract.
+contract, as the WHATWG URL Standard does.
 
-The parser splits scheme, authority, credentials, host, port, path, query, and
-fragment and constructs the canonical UriParts record. It normalizes supported
-special schemes and default ports and returns `nil, message` for invalid input
-or a relative URI without a base.
+A page host that answers `__nuppBrowser.url` hands the text to its own `URL`,
+which brings the host's IDNA mapping with it; the canonical text it answers is
+then read back into components. Without one, for instance on a hostless
+portable target, [](nupp.io.uri.whatwg) parses the text itself and refuses a
+special-scheme host that needs IDNA.
 
-Parsing is ordinary local logic and performs no network or browser effect
-request. [](nupp.io.uri) retains the parser during module initialization and
-constructs its shared public URI values from the returned components. Providers
-must preserve absent components separately from present empty strings.
+Either way text that is not valid UTF-8 or holds a NUL byte is refused first,
+with the reasons the native provider gives. Parsing performs no network or
+effect request. [](nupp.io.uri) retains the parser during module initialization
+and constructs its shared public URI values from the returned components.
 ]]
 
 local contracts = require("nupp.io.uri.spi")
-const pathtext = require("nupp.io.uri.pathtext")
+const whatwg = require("nupp.io.uri.whatwg")
+local browserHost: any = rawget(_G, "__nuppBrowser")
 local provider = {}
-
-local function encodedComponent(text: string, encodeAt: boolean?): string
-    text = text:gsub(" ", "%%20")
-    if encodeAt then
-        text = text:gsub("@", "%%40")
-    end
-
-    return text
-end
-
-local function validIpv4(text: string): boolean
-    local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-    if d == nil then
-        return false
-    end
-    for _, part in ipairs({a, b, c, d}) do
-        local value = tonumber(part)
-        if value == nil or value > 255 or tostring(value) ~= part then
-            return false
-        end
-    end
-
-    return true
-end
-
-local function ipv6PartCount(text: string, ipv4Allowed: boolean): integer?
-    if text == "" then
-        return 0
-    end
-    if text:sub(1, 1) == ":" or text:sub(-1) == ":" then
-        return nil
-    end
-    local count: integer = 0
-    local offset: integer = 1
-    while true do
-        local nextColon = text:find(":", offset, true)
-        local part = nextColon and text:sub(offset, nextColon - 1) or text:sub(offset)
-        if part:find(".", 1, true) then
-            if not ipv4Allowed or nextColon ~= nil or not validIpv4(part) then
-                return nil
-            end
-            count = count + 2
-        elseif #part < 1 or #part > 4 or not part:match("^[%x]+$") then
-            return nil
-        else
-            count = count + 1
-        end
-        if nextColon == nil then
-            break
-        end
-        offset = nextColon + 1
-    end
-
-    return count
-end
-
-local function validIpv6(text: string): boolean
-    local compression = text:find("::", 1, true)
-    if compression == nil then
-        return ipv6PartCount(text, true) == 8
-    end
-    if text:find("::", compression + 2, true) ~= nil then
-        return false
-    end
-    local left = text:sub(1, compression - 1)
-    local right = text:sub(compression + 2)
-    local leftCount = ipv6PartCount(left, false)
-    local rightCount = ipv6PartCount(right, true)
-
-    return leftCount ~= nil and rightCount ~= nil and leftCount + rightCount < 8
-end
-
-local function validHost(text: string, special: boolean): boolean
-    if text:find("[%s%[%]\\<>^|%%]") then
-        return false
-    end
-    for index = 1, #text do
-        local byte = text:byte(index)
-        if byte < 33 or byte > 126 then
-            return false
-        end
-    end
-    if special and text:match("^[%d.]+$") and not validIpv4(text) then
-        return false
-    end
-
-    return true
-end
 
 -- Browser URI parsing supplies components; the public URI value and its
 -- operations are owned by nupp.io.uri on every host.
 function provider.parse(text: string): (contracts.UriParts?, string?)
-    if text:find("\0", 1, true) then
-        return nil, "URI contains a NUL byte"
+    local hostParse: any = browserHost ~= nil and browserHost.url or nil
+    if hostParse == nil then
+        return whatwg.parse(text)
     end
-    local scheme, remainder = text:match("^([A-Za-z][A-Za-z0-9+.-]*):(.*)$")
-    if scheme == nil then
-        return nil, "relative URL without a base"
+    -- The host would percent-encode what the native provider refuses, so the
+    -- refusals are made here, where every provider makes them.
+    local refused = whatwg.refusal(text)
+    if refused ~= nil then
+        return nil, refused
     end
-    scheme = scheme:lower()
-    local defaults: {[string]: integer} = {http = 80, https = 443, ws = 80, wss = 443, ftp = 21}
-    local special = defaults[scheme] ~= nil or scheme == "file"
-    local fragment: string? = nil
-    local beforeFragment, foundFragment = remainder:match("^(.-)#(.*)$")
-    if beforeFragment ~= nil then
-        remainder, fragment = beforeFragment, foundFragment
+    local answer = hostParse(text)
+    if type(answer) ~= "table" or type(answer.href) ~= "string" then
+        local problem = type(answer) == "table" and answer.error or nil
+        return nil, type(problem) == "string" and problem or "invalid URL"
     end
-    local query: string? = nil
-    local beforeQuery, foundQuery = remainder:match("^(.-)%?(.*)$")
-    if beforeQuery ~= nil then
-        remainder, query = beforeQuery, foundQuery
-    end
-    local authority: string? = nil
-    local path = remainder
-    if remainder:sub(1, 2) == "//" then
-        authority, path = remainder:sub(3):match("^([^/]*)(.*)$")
-    end
-    if special and scheme ~= "file" and (authority == nil or authority == "") then
-        return nil, "empty host"
-    end
-    local username: string = ""
-    local password: string? = nil
-    local host: string? = nil
-    local port: integer? = nil
-    if authority ~= nil then
-        local userInfo, hostPort = authority:match("^(.*)@(.*)$")
-        hostPort = hostPort or authority
-        if userInfo ~= nil then
-            local foundUsername, foundPassword = userInfo:match("^([^:]*):?(.*)$")
-            username, password = encodedComponent(foundUsername or "", true), foundPassword
-            if password == "" and not userInfo:find(":", 1, true) then
-                password = nil
-            elseif password ~= nil then
-                password = encodedComponent(password, true)
-            end
-        end
-        local namedHost: string
-        local namedPort: string? = nil
-        if hostPort:sub(1, 1) == "[" then
-            local address, suffix = hostPort:match("^(%[[%x:.]+%])(.*)$")
-            if address == nil or not validIpv6(address:sub(2, -2)) then
-                return nil, "invalid IPv6 address"
-            end
-            namedHost = address:lower()
-            if suffix ~= "" then
-                namedPort = suffix:match("^:(%d*)$")
-                if namedPort == nil then
-                    return nil, "invalid port number"
-                end
-            end
-        else
-            local before, after = hostPort:match("^(.-):(.*)$")
-            namedHost = before or hostPort
-            namedPort = after
-            if not validHost(namedHost, special) then
-                return nil, "invalid host"
-            end
-        end
-        host = special and namedHost:lower() or namedHost
-        if host == "" then
-            if special and scheme ~= "file" then
-                return nil, "empty host"
-            end
-            host = nil
-        end
-        if namedPort ~= nil and namedPort ~= "" then
-            if not namedPort:match("^%d+$") then
-                return nil, "invalid port number"
-            end
-            port = tonumber(namedPort) as integer?
-            if port == nil or port > 65535 then
-                return nil, "URI port is outside 0 through 65535"
-            end
-            if port == defaults[scheme] then
-                port = nil
-            end
-        end
-        authority = (
-            userInfo ~= nil and username .. (password ~= nil and ":" .. password or "") .. "@" or ""
-        ) .. (host or "") .. (port ~= nil and ":" .. port or "")
-    end
-    if authority ~= nil or path:sub(1, 1) == "/" then
-        path = pathtext.removeDotSegments(path)
-        path = encodedComponent(path)
-    end
-    if special and path == "" then
-        path = "/"
-    end
-    query = query ~= nil and encodedComponent(query) or nil
-    fragment = fragment ~= nil and encodedComponent(fragment) or nil
 
-    local normalized = scheme .. ":" .. (
-        authority ~= nil and "//" .. authority or ""
-    ) .. path .. (query ~= nil and "?" .. query or "") .. (fragment ~= nil and "#" .. fragment or "")
+    -- The host's text is canonical, so reading it back only splits it: its
+    -- host has already been through IDNA and is kept as the host wrote it.
+    local parts, reason = whatwg.parse(answer.href, nil, true)
 
-    return new contracts.UriParts(
-        text = normalized,
-        scheme = scheme,
-        authority = authority,
-        username = username,
-        password = password,
-        host = host,
-        port = port,
-        path = path,
-        query = query,
-        fragment = fragment
-    )
+    return parts, reason
 end
 
 local checked: contracts.UriTextProvider = {parse = provider.parse}

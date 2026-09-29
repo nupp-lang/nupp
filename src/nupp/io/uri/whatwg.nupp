@@ -1,0 +1,1056 @@
+@!internal
+module nupp.io.uri.whatwg
+
+--[[
+The WHATWG URL Standard's basic URL parser, for hosts without a URL parser of
+their own.
+
+Every provider behind [](nupp.io.uri) answers what the URL Standard answers,
+because that is what both transports send: the native HTTP client is built on
+the `url` crate and the browser on Fetch. This module is the reading used where
+neither a native library nor a host `URL` is available, and the one the public
+`resolve` uses on every host to find the text a reference names before the
+provider normalizes it.
+
+It follows the standard's state machine byte by byte. Bytes above 127 are only
+ever percent-encoded, which is UTF-8 percent-encoding for the valid UTF-8 the
+entry insists on. The one thing it does not carry is UTS #46: a special-scheme
+host that is not plain ASCII, or that holds an `xn--` label, is refused with a
+reason rather than mapped, because mapping it needs the IDNA tables a host URL
+parser has. `trustHosts` lifts that refusal for text whose host a real parser
+will read afterwards: the host is then kept as written.
+
+The percent-encode sets are the ones the `url` crate the native provider uses
+implements, so that the two agree byte for byte.
+]]
+
+local contracts = require("nupp.io.uri.spi")
+
+local whatwg = {}
+
+const DEFAULT_PORTS: {[string]: integer} = {http = 80, https = 443, ws = 80, wss = 443, ftp = 21,}
+
+const HEX = "0123456789ABCDEF"
+
+-- The percent-encode sets, as byte predicates. Every set contains the C0
+-- controls and everything above `~`.
+const C0_SET = 0
+const FRAGMENT_SET = 1
+const QUERY_SET = 2
+const SPECIAL_QUERY_SET = 3
+const PATH_SET = 4
+const USERINFO_SET = 5
+
+local function inSet(byte: integer, set: integer): boolean
+    if byte < 32 or byte > 126 then
+        return true
+    end
+    if set == C0_SET then
+        return false
+    end
+    if byte == 32 or byte == 34 or byte == 60 or byte == 62 then
+        return true
+    end
+    if set == FRAGMENT_SET then
+        return byte == 96
+    end
+    if byte == 35 then
+        return true
+    end
+    if set == QUERY_SET then
+        return false
+    end
+    if set == SPECIAL_QUERY_SET then
+        return byte == 39
+    end
+    if byte == 63 or byte == 96 or byte == 123 or byte == 125 then
+        return true
+    end
+    if set == PATH_SET then
+        return false
+    end
+
+    return byte == 47
+        or byte == 58
+        or byte == 59
+        or byte == 61
+        or byte == 64
+        or (byte >= 91 and byte <= 94)
+        or byte == 124
+end
+
+local function encodeByte(byte: integer, set: integer): string
+    if inSet(byte, set) then
+        local high = math.floor(byte / 16)
+        local low = byte % 16
+        return "%" .. HEX:sub(high + 1, high + 1) .. HEX:sub(low + 1, low + 1)
+    end
+
+    return string.char(byte)
+end
+
+local function encodeText(text: string, set: integer): string
+    local out: {string} = {}
+    for index = 1, #text do
+        out[index] = encodeByte(text:byte(index) as integer, set)
+    end
+
+    return table.concat(out)
+end
+
+local function hexValue(byte: integer?): integer?
+    if byte == nil then
+        return nil
+    elseif byte >= 48 and byte <= 57 then
+        return byte - 48
+    elseif byte >= 65 and byte <= 70 then
+        return byte - 55
+    elseif byte >= 97 and byte <= 102 then
+        return byte - 87
+    end
+
+    return nil
+end
+
+local function percentDecode(text: string): string
+    if text:find("%", 1, true) == nil then
+        return text
+    end
+    local out: {string} = {}
+    local index: integer = 1
+    while index <= #text do
+        local byte = text:byte(index) as integer
+        local high = hexValue(text:byte(index + 1))
+        local low = hexValue(text:byte(index + 2))
+        if byte == 37 and high ~= nil and low ~= nil then
+            out[#out + 1] = string.char(high * 16 + low)
+            index = index + 3
+        else
+            out[#out + 1] = string.char(byte)
+            index = index + 1
+        end
+    end
+
+    return table.concat(out)
+end
+
+local function validUtf8(text: string): boolean
+    local at, length = 1, #text
+    while at <= length do
+        local first = text:byte(at) as integer
+        if first < 128 then
+            at = at + 1
+        else
+            local count = first >= 194 and first <= 223 and 1
+                or first >= 224 and first <= 239 and 2
+                or first >= 240 and first <= 244 and 3
+                or 0
+            if count == 0 or at + count > length then
+                return false
+            end
+            local second = text:byte(at + 1) as integer
+            if second < 128
+                or second > 191
+                or first == 224 and second < 160
+                or first == 237 and second > 159
+                or first == 240 and second < 144
+                or first == 244 and second > 143
+            then
+                return false
+            end
+            for offset = 2, count do
+                local continuation = text:byte(at + offset) as integer
+                if continuation < 128 or continuation > 191 then
+                    return false
+                end
+            end
+            at = at + count + 1
+        end
+    end
+
+    return true
+end
+
+----------------------------------------------------------------------------
+-- Hosts
+----------------------------------------------------------------------------
+
+local function ipv4Number(text: string): integer?
+    if text == "" then
+        return nil
+    end
+    local radix: integer = 10
+    local digits = text
+    if text:sub(1, 2) == "0x" or text:sub(1, 2) == "0X" then
+        radix = 16
+        digits = text:sub(3)
+    elseif #text >= 2 and text:sub(1, 1) == "0" then
+        radix = 8
+        digits = text:sub(2)
+    end
+    if digits == "" then
+        return 0
+    end
+    local pattern = radix == 16 and "^%x+$" or radix == 8 and "^[0-7]+$" or "^%d+$"
+    if digits:match(pattern) == nil then
+        return nil
+    end
+
+    return tonumber(digits, radix) as integer?
+end
+
+local function endsInANumber(text: string): boolean
+    local parts: {string} = {}
+    for part in (text .. "."):gmatch("([^.]*)%.") do
+        parts[#parts + 1] = part
+    end
+    if parts[#parts] == "" then
+        if #parts == 1 then
+            return false
+        end
+        parts[#parts] = nil
+    end
+    local last = parts[#parts]
+    if last ~= "" and last:match("^%d+$") ~= nil then
+        return true
+    end
+
+    return ipv4Number(last) ~= nil
+end
+
+local function ipv4(text: string): (string?, string?)
+    local parts: {string} = {}
+    for part in (text .. "."):gmatch("([^.]*)%.") do
+        parts[#parts + 1] = part
+    end
+    if parts[#parts] == "" and #parts > 1 then
+        parts[#parts] = nil
+    end
+    if #parts > 4 then
+        return nil, "invalid IPv4 address"
+    end
+    local numbers: {integer} = {}
+    for index, part in ipairs(parts) do
+        local value = ipv4Number(part)
+        if value == nil then
+            return nil, "invalid IPv4 address"
+        end
+        if value > 255 and index < #parts then
+            return nil, "invalid IPv4 address"
+        end
+        numbers[index] = value
+    end
+    local last = numbers[#numbers]
+    if last >= 256 ^ (5 - #numbers) then
+        return nil, "invalid IPv4 address"
+    end
+    local address = last
+    for index = 1, #numbers - 1 do
+        address = address + numbers[index] * 256 ^ (4 - index)
+    end
+    local octets: {string} = {}
+    for index = 4, 1, -1 do
+        octets[index] = tostring(math.floor(address % 256))
+        address = math.floor(address / 256)
+    end
+
+    return table.concat(octets, "."), nil
+end
+
+local function ipv6(text: string): (string?, string?)
+    local failed = "invalid IPv6 address"
+    local pieces: {integer} = {0, 0, 0, 0, 0, 0, 0, 0}
+    local pieceIndex: integer = 1
+    local compress: integer? = nil
+    local at: integer = 1
+    local length = #text
+    if text:byte(1) == 58 then
+        if text:byte(2) ~= 58 then
+            return nil, failed
+        end
+        at = 3
+        pieceIndex = pieceIndex + 1
+        compress = pieceIndex
+    end
+    while at <= length do
+        if pieceIndex == 9 then
+            return nil, failed
+        end
+        if text:byte(at) == 58 then
+            if compress ~= nil then
+                return nil, failed
+            end
+            at = at + 1
+            pieceIndex = pieceIndex + 1
+            compress = pieceIndex
+        else
+            local value: integer = 0
+            local count: integer = 0
+            while count < 4 and hexValue(text:byte(at)) ~= nil do
+                value = value * 16 + (hexValue(text:byte(at)) as integer)
+                at = at + 1
+                count = count + 1
+            end
+            if text:byte(at) == 46 then
+                if count == 0 then
+                    return nil, failed
+                end
+                at = at - count
+                if pieceIndex > 7 then
+                    return nil, failed
+                end
+                local numbersSeen: integer = 0
+                while at <= length do
+                    local ipv4Piece: integer? = nil
+                    if numbersSeen > 0 then
+                        if text:byte(at) == 46 and numbersSeen < 4 then
+                            at = at + 1
+                        else
+                            return nil, failed
+                        end
+                    end
+                    local byte = text:byte(at)
+                    if byte == nil or byte < 48 or byte > 57 then
+                        return nil, failed
+                    end
+                    while true do
+                        local digit = text:byte(at)
+                        if digit == nil or digit < 48 or digit > 57 then
+                            break
+                        end
+                        local number = digit - 48
+                        if ipv4Piece == nil then
+                            ipv4Piece = number
+                        elseif ipv4Piece == 0 then
+                            return nil, failed
+                        else
+                            ipv4Piece = ipv4Piece * 10 + number
+                        end
+                        if (ipv4Piece as integer) > 255 then
+                            return nil, failed
+                        end
+                        at = at + 1
+                    end
+                    pieces[pieceIndex] = pieces[pieceIndex] * 256 + (ipv4Piece as integer)
+                    numbersSeen = numbersSeen + 1
+                    if numbersSeen == 2 or numbersSeen == 4 then
+                        pieceIndex = pieceIndex + 1
+                    end
+                end
+                if numbersSeen ~= 4 then
+                    return nil, failed
+                end
+                break
+            elseif text:byte(at) == 58 then
+                at = at + 1
+                if at > length then
+                    return nil, failed
+                end
+            elseif at <= length then
+                return nil, failed
+            end
+            pieces[pieceIndex] = value
+            pieceIndex = pieceIndex + 1
+        end
+    end
+    if compress ~= nil then
+        local swaps = pieceIndex - compress
+        pieceIndex = 8
+        while pieceIndex ~= 1 and swaps > 0 do
+            local from = compress + swaps - 1
+            pieces[pieceIndex], pieces[from] = pieces[from], pieces[pieceIndex]
+            pieceIndex = pieceIndex - 1
+            swaps = swaps - 1
+        end
+    elseif pieceIndex ~= 9 then
+        return nil, failed
+    end
+
+    -- The first longest run of two or more zero pieces is written as `::`.
+    local runStart: integer? = nil
+    local runLength: integer = 1
+    local index: integer = 1
+    while index <= 8 do
+        if pieces[index] == 0 then
+            local finish = index
+            while finish <= 8 and pieces[finish] == 0 do
+                finish = finish + 1
+            end
+            if finish - index > runLength then
+                runStart = index
+                runLength = finish - index
+            end
+            index = finish
+        else
+            index = index + 1
+        end
+    end
+    local out: {string} = {}
+    local ignoring = false
+    for position = 1, 8 do
+        if not (ignoring and pieces[position] == 0) then
+            ignoring = false
+            if runStart == position then
+                out[#out + 1] = position == 1 and "::" or ":"
+                ignoring = true
+            else
+                out[#out + 1] = ("%x"):format(pieces[position])
+                if position ~= 8 then
+                    out[#out + 1] = ":"
+                end
+            end
+        end
+    end
+
+    return "[" .. table.concat(out) .. "]", nil
+end
+
+-- A forbidden host code point: NUL, tab, LF, CR, space, #, /, :, <, >, ?, @,
+-- [, \, ], ^ and |.
+local function forbiddenHost(byte: integer): boolean
+    return byte == 0
+        or byte == 9
+        or byte == 10
+        or byte == 13
+        or byte == 32
+        or byte == 35
+        or byte == 47
+        or byte == 58
+        or byte == 60
+        or byte == 62
+        or byte == 63
+        or byte == 64
+        or (byte >= 91 and byte <= 94)
+        or byte == 124
+end
+
+local function parseHost(input: string, opaque: boolean, trustHosts: boolean): (string?, string?)
+    if input:sub(1, 1) == "[" then
+        if input:sub(-1) ~= "]" then
+            return nil, "invalid IPv6 address"
+        end
+        return ipv6(input:sub(2, -2))
+    end
+    if opaque then
+        for index = 1, #input do
+            if forbiddenHost(input:byte(index) as integer) then
+                return nil, "invalid domain character"
+            end
+        end
+        return encodeText(input, C0_SET), nil
+    end
+    local domain = percentDecode(input)
+    local international = domain:find("[\128-\255]") ~= nil
+    if not international then
+        domain = domain:lower()
+        international = ("." .. domain):find(".xn--", 1, true) ~= nil
+    end
+    if international then
+        if trustHosts then
+            return input, nil
+        end
+        return nil, "internationalized host needs a host URL parser"
+    end
+    if domain == "" then
+        return nil, "empty host"
+    end
+    for index = 1, #domain do
+        local byte = domain:byte(index) as integer
+        if forbiddenHost(byte) or byte < 32 or byte == 37 or byte == 127 then
+            return nil, "invalid domain character"
+        end
+    end
+    if endsInANumber(domain) then
+        return ipv4(domain)
+    end
+
+    return domain, nil
+end
+
+----------------------------------------------------------------------------
+-- The URL record
+----------------------------------------------------------------------------
+
+local function windowsDriveLetter(text: string, normalized: boolean): boolean
+    if #text ~= 2 or text:match("^%a") == nil then
+        return false
+    end
+    local second = text:sub(2, 2)
+
+    return second == ":" or (not normalized and second == "|")
+end
+
+local function startsWithDriveLetter(text: string, from: integer): boolean
+    if not windowsDriveLetter(text:sub(from, from + 1), false) then
+        return false
+    end
+    local third = text:sub(from + 2, from + 2)
+
+    return third == "" or third == "/" or third == "\\" or third == "?" or third == "#"
+end
+
+local function singleDot(segment: string): boolean
+    return segment == "." or segment:lower() == "%2e"
+end
+
+local function doubleDot(segment: string): boolean
+    local lowered = segment:lower()
+    return lowered == ".." or lowered == ".%2e" or lowered == "%2e." or lowered == "%2e%2e"
+end
+
+local function shorten(url: any): nil
+    local path = url.path
+    if url.scheme == "file" and #path == 1 and windowsDriveLetter(path[1], true) then
+        return
+    end
+    path[#path] = nil
+end
+
+local function copyPath(path: any): any
+    if type(path) ~= "table" then
+        return path
+    end
+    local copy: {string} = {}
+    for index, segment in ipairs(path) do
+        copy[index] = segment
+    end
+
+    return copy
+end
+
+-- The URL record a UriParts value describes. An absent authority with a path
+-- that does not begin with `/` is an opaque path.
+local function fromParts(parts: contracts.UriParts): any
+    local path: any
+    if parts.authority == nil and parts.path:sub(1, 1) ~= "/" then
+        path = parts.path
+    else
+        local segments: {string} = {}
+        if parts.path ~= "" then
+            for segment in (parts.path:sub(2) .. "/"):gmatch("([^/]*)/") do
+                segments[#segments + 1] = segment
+            end
+        end
+        path = segments
+    end
+    local host: string? = nil
+    if parts.authority ~= nil then
+        host = parts.host or ""
+    end
+
+    return {
+        scheme = parts.scheme,
+        username = parts.username,
+        password = parts.password or "",
+        host = host,
+        port = parts.port,
+        path = path,
+        query = parts.query,
+        fragment = parts.fragment,
+    }
+end
+
+local function serialize(url: any): contracts.UriParts
+    local authority: string? = nil
+    local out = url.scheme .. ":"
+    if url.host ~= nil then
+        local userInfo = ""
+        if url.username ~= "" or url.password ~= "" then
+            userInfo = url.username .. (url.password ~= "" and ":" .. url.password or "") .. "@"
+        end
+        authority = userInfo .. url.host .. (url.port ~= nil and ":" .. tostring(url.port) or "")
+        out = out .. "//" .. authority
+    end
+    local path: string
+    if type(url.path) == "string" then
+        path = url.path
+    else
+        local segments: {string} = {}
+        for index, segment in ipairs(url.path) do
+            segments[index] = "/" .. segment
+        end
+        path = table.concat(segments)
+        if url.host == nil and #url.path > 1 and url.path[1] == "" then
+            out = out .. "/."
+        end
+    end
+    out = out .. path
+    if url.query ~= nil then
+        out = out .. "?" .. url.query
+    end
+    if url.fragment ~= nil then
+        out = out .. "#" .. url.fragment
+    end
+
+    return new contracts.UriParts(
+        text = out,
+        scheme = url.scheme,
+        authority = authority,
+        username = url.username,
+        password = url.password ~= "" and url.password or nil,
+        host = url.host ~= "" and url.host or nil,
+        port = url.port,
+        path = path,
+        query = url.query,
+        fragment = url.fragment
+    )
+end
+
+----------------------------------------------------------------------------
+-- The basic URL parser
+----------------------------------------------------------------------------
+
+const SCHEME_START = 1
+const SCHEME = 2
+const NO_SCHEME = 3
+const SPECIAL_RELATIVE_OR_AUTHORITY = 4
+const PATH_OR_AUTHORITY = 5
+const RELATIVE = 6
+const RELATIVE_SLASH = 7
+const SPECIAL_AUTHORITY_SLASHES = 8
+const SPECIAL_AUTHORITY_IGNORE_SLASHES = 9
+const AUTHORITY = 10
+const HOST = 11
+const PORT = 12
+const FILE = 13
+const FILE_SLASH = 14
+const FILE_HOST = 15
+const PATH_START = 16
+const PATH = 17
+const OPAQUE_PATH = 18
+const QUERY = 19
+const FRAGMENT = 20
+
+local function isSpecial(scheme: string): boolean
+    return DEFAULT_PORTS[scheme] ~= nil or scheme == "file"
+end
+
+--- Why text cannot be a URI before it is parsed at all.
+---
+--- The standard reads scalar values, so text that is not UTF-8 is not a URL,
+--- and a NUL byte is refused rather than percent-encoded, as the native
+--- provider refuses it.
+--- @param text the input
+--- @return the reason, or nil when the text may be parsed
+function whatwg.refusal(text: string): string?
+    if text:find("\0", 1, true) ~= nil then
+        return "URI contains a NUL byte"
+    end
+    if not validUtf8(text) then
+        return "URI is not valid UTF-8"
+    end
+
+    return nil
+end
+
+--- Parses text as the URL Standard's basic URL parser does.
+---
+--- @param text the input
+--- @param base the URL a relative input is resolved against, when there is one
+--- @param trustHosts whether a host that needs IDNA is kept as written rather
+---     than refused, for text a host URL parser reads afterwards
+--- @return the URL's components, or nil when the text is not a URL
+--- @return the reason, when it is not
+function whatwg.parse(text: string, base: contracts.UriParts?, trustHosts: boolean?): (contracts.UriParts?, string?)
+    local refused = whatwg.refusal(text)
+    if refused ~= nil then
+        return nil, refused
+    end
+    local trusted = trustHosts == true
+    local input = text:gsub("^[%z\1- ]+", ""):gsub("[%z\1- ]+$", ""):gsub("[\t\n\r]", "")
+    local baseUrl: any = base ~= nil and fromParts(base) or nil
+    local url: any = {
+        scheme = "",
+        username = "",
+        password = "",
+        host = nil,
+        port = nil,
+        path = {},
+        query = nil,
+        fragment = nil,
+    }
+    local state = SCHEME_START
+    local buffer: {string} = {}
+    local atSignSeen = false
+    local insideBrackets = false
+    local passwordTokenSeen = false
+    local length = #input
+    local pointer: integer = 1
+
+    local function remainingStartsWith(value: string): boolean
+        return input:sub(pointer + 1, pointer + #value) == value
+    end
+
+    while true do
+        local c = input:sub(pointer, pointer)
+        local eof = pointer > length
+        local special = isSpecial(url.scheme)
+        if state == SCHEME_START then
+            if c:match("^%a$") ~= nil then
+                buffer[#buffer + 1] = c:lower()
+                state = SCHEME
+            else
+                state = NO_SCHEME
+                pointer = pointer - 1
+            end
+        elseif state == SCHEME then
+            if c:match("^[%w+.-]$") ~= nil then
+                buffer[#buffer + 1] = c:lower()
+            elseif c == ":" then
+                url.scheme = table.concat(buffer)
+                buffer = {}
+                special = isSpecial(url.scheme)
+                if url.scheme == "file" then
+                    state = FILE
+                elseif special and baseUrl ~= nil and baseUrl.scheme == url.scheme then
+                    state = SPECIAL_RELATIVE_OR_AUTHORITY
+                elseif special then
+                    state = SPECIAL_AUTHORITY_SLASHES
+                elseif remainingStartsWith("/") then
+                    state = PATH_OR_AUTHORITY
+                    pointer = pointer + 1
+                else
+                    url.path = ""
+                    state = OPAQUE_PATH
+                end
+            else
+                buffer = {}
+                url.scheme = ""
+                state = NO_SCHEME
+                pointer = 0
+            end
+        elseif state == NO_SCHEME then
+            if baseUrl == nil then
+                return nil, "relative URL without a base"
+            elseif type(baseUrl.path) == "string" then
+                if c ~= "#" then
+                    return nil, "relative URL with a cannot-be-a-base base"
+                end
+                url.scheme = baseUrl.scheme
+                url.path = baseUrl.path
+                url.query = baseUrl.query
+                url.fragment = ""
+                state = FRAGMENT
+            elseif baseUrl.scheme ~= "file" then
+                state = RELATIVE
+                pointer = pointer - 1
+            else
+                state = FILE
+                pointer = pointer - 1
+            end
+        elseif state == SPECIAL_RELATIVE_OR_AUTHORITY then
+            if c == "/" and remainingStartsWith("/") then
+                state = SPECIAL_AUTHORITY_IGNORE_SLASHES
+                pointer = pointer + 1
+            else
+                state = RELATIVE
+                pointer = pointer - 1
+            end
+        elseif state == PATH_OR_AUTHORITY then
+            if c == "/" then
+                state = AUTHORITY
+            else
+                state = PATH
+                pointer = pointer - 1
+            end
+        elseif state == RELATIVE then
+            url.scheme = baseUrl.scheme
+            special = isSpecial(url.scheme)
+            if c == "/" or (special and c == "\\") then
+                state = RELATIVE_SLASH
+            else
+                url.username = baseUrl.username
+                url.password = baseUrl.password
+                url.host = baseUrl.host
+                url.port = baseUrl.port
+                url.path = copyPath(baseUrl.path)
+                url.query = baseUrl.query
+                if c == "?" then
+                    url.query = ""
+                    state = QUERY
+                elseif c == "#" then
+                    url.fragment = ""
+                    state = FRAGMENT
+                elseif not eof then
+                    url.query = nil
+                    shorten(url)
+                    state = PATH
+                    pointer = pointer - 1
+                end
+            end
+        elseif state == RELATIVE_SLASH then
+            if special and (c == "/" or c == "\\") then
+                state = SPECIAL_AUTHORITY_IGNORE_SLASHES
+            elseif c == "/" then
+                state = AUTHORITY
+            else
+                url.username = baseUrl.username
+                url.password = baseUrl.password
+                url.host = baseUrl.host
+                url.port = baseUrl.port
+                state = PATH
+                pointer = pointer - 1
+            end
+        elseif state == SPECIAL_AUTHORITY_SLASHES then
+            if c == "/" and remainingStartsWith("/") then
+                state = SPECIAL_AUTHORITY_IGNORE_SLASHES
+                pointer = pointer + 1
+            else
+                state = SPECIAL_AUTHORITY_IGNORE_SLASHES
+                pointer = pointer - 1
+            end
+        elseif state == SPECIAL_AUTHORITY_IGNORE_SLASHES then
+            if c ~= "/" and c ~= "\\" then
+                state = AUTHORITY
+                pointer = pointer - 1
+            end
+        elseif state == AUTHORITY then
+            if c == "@" then
+                if atSignSeen then
+                    table.insert(buffer, 1, "%40")
+                end
+                atSignSeen = true
+                local collected = table.concat(buffer)
+                for index = 1, #collected do
+                    local byte = collected:byte(index) as integer
+                    if byte == 58 and not passwordTokenSeen then
+                        passwordTokenSeen = true
+                    elseif passwordTokenSeen then
+                        url.password = url.password .. encodeByte(byte, USERINFO_SET)
+                    else
+                        url.username = url.username .. encodeByte(byte, USERINFO_SET)
+                    end
+                end
+                buffer = {}
+            elseif eof or c == "/" or c == "?" or c == "#" or (special and c == "\\") then
+                local collected = table.concat(buffer)
+                if atSignSeen and collected == "" then
+                    return nil, "empty host"
+                end
+                pointer = pointer - #collected - 1
+                buffer = {}
+                state = HOST
+            else
+                buffer[#buffer + 1] = c
+            end
+        elseif state == HOST then
+            if c == ":" and not insideBrackets then
+                local collected = table.concat(buffer)
+                if collected == "" then
+                    return nil, "empty host"
+                end
+                local host, reason = parseHost(collected, not special, trusted)
+                if host == nil then
+                    return nil, reason
+                end
+                url.host = host
+                buffer = {}
+                state = PORT
+            elseif eof or c == "/" or c == "?" or c == "#" or (special and c == "\\") then
+                pointer = pointer - 1
+                local collected = table.concat(buffer)
+                if special and collected == "" then
+                    return nil, "empty host"
+                end
+                local host, reason = parseHost(collected, not special, trusted)
+                if host == nil then
+                    return nil, reason
+                end
+                url.host = host
+                buffer = {}
+                state = PATH_START
+            else
+                if c == "[" then
+                    insideBrackets = true
+                elseif c == "]" then
+                    insideBrackets = false
+                end
+                buffer[#buffer + 1] = c
+            end
+        elseif state == PORT then
+            if c:match("^%d$") ~= nil then
+                buffer[#buffer + 1] = c
+            elseif eof or c == "/" or c == "?" or c == "#" or (special and c == "\\") then
+                local collected = table.concat(buffer)
+                if collected ~= "" then
+                    local port = tonumber(collected) as integer
+                    if port > 65535 then
+                        return nil, "invalid port number"
+                    end
+                    if DEFAULT_PORTS[url.scheme] == port then
+                        url.port = nil
+                    else
+                        url.port = port
+                    end
+                    buffer = {}
+                end
+                state = PATH_START
+                pointer = pointer - 1
+            else
+                return nil, "invalid port number"
+            end
+        elseif state == FILE then
+            url.scheme = "file"
+            special = true
+            url.host = ""
+            if c == "/" or c == "\\" then
+                state = FILE_SLASH
+            elseif baseUrl ~= nil and baseUrl.scheme == "file" then
+                url.host = baseUrl.host
+                url.path = copyPath(baseUrl.path)
+                url.query = baseUrl.query
+                if c == "?" then
+                    url.query = ""
+                    state = QUERY
+                elseif c == "#" then
+                    url.fragment = ""
+                    state = FRAGMENT
+                elseif not eof then
+                    url.query = nil
+                    if not startsWithDriveLetter(input, pointer) then
+                        shorten(url)
+                    else
+                        url.path = {}
+                    end
+                    state = PATH
+                    pointer = pointer - 1
+                end
+            else
+                state = PATH
+                pointer = pointer - 1
+            end
+        elseif state == FILE_SLASH then
+            if c == "/" or c == "\\" then
+                state = FILE_HOST
+            else
+                if baseUrl ~= nil and baseUrl.scheme == "file" then
+                    url.host = baseUrl.host
+                    local first = type(baseUrl.path) == "table" and baseUrl.path[1] or nil
+                    if not startsWithDriveLetter(input, pointer)
+                        and first ~= nil
+                        and windowsDriveLetter(first, true)
+                    then
+                        url.path[#url.path + 1] = first
+                    end
+                end
+                state = PATH
+                pointer = pointer - 1
+            end
+        elseif state == FILE_HOST then
+            if eof or c == "/" or c == "\\" or c == "?" or c == "#" then
+                pointer = pointer - 1
+                local collected = table.concat(buffer)
+                if windowsDriveLetter(collected, false) then
+                    -- The drive letter quirk: the buffer is not reset, and the
+                    -- path state reads it as the first segment.
+                    state = PATH
+                elseif collected == "" then
+                    url.host = ""
+                    state = PATH_START
+                else
+                    local host, reason = parseHost(collected, not special, trusted)
+                    if host == nil then
+                        return nil, reason
+                    elseif host == "localhost" then
+                        host = ""
+                    end
+                    url.host = host
+                    buffer = {}
+                    state = PATH_START
+                end
+            else
+                buffer[#buffer + 1] = c
+            end
+        elseif state == PATH_START then
+            if special then
+                state = PATH
+                if c ~= "/" and c ~= "\\" then
+                    pointer = pointer - 1
+                end
+            elseif c == "?" then
+                url.query = ""
+                state = QUERY
+            elseif c == "#" then
+                url.fragment = ""
+                state = FRAGMENT
+            elseif not eof then
+                state = PATH
+                if c ~= "/" then
+                    pointer = pointer - 1
+                end
+            end
+        elseif state == PATH then
+            local slash = c == "/" or (special and c == "\\")
+            if eof or slash or c == "?" or c == "#" then
+                local segment = table.concat(buffer)
+                if doubleDot(segment) then
+                    shorten(url)
+                    if not slash then
+                        url.path[#url.path + 1] = ""
+                    end
+                elseif singleDot(segment) then
+                    if not slash then
+                        url.path[#url.path + 1] = ""
+                    end
+                else
+                    if url.scheme == "file" and #url.path == 0 and windowsDriveLetter(segment, false) then
+                        segment = segment:sub(1, 1) .. ":"
+                    end
+                    url.path[#url.path + 1] = segment
+                end
+                buffer = {}
+                if c == "?" then
+                    url.query = ""
+                    state = QUERY
+                elseif c == "#" then
+                    url.fragment = ""
+                    state = FRAGMENT
+                end
+            else
+                buffer[#buffer + 1] = encodeByte(c:byte() as integer, PATH_SET)
+            end
+        elseif state == OPAQUE_PATH then
+            if eof or c == "?" or c == "#" then
+                url.path = table.concat(buffer)
+                buffer = {}
+                if c == "?" then
+                    url.query = ""
+                    state = QUERY
+                elseif c == "#" then
+                    url.fragment = ""
+                    state = FRAGMENT
+                end
+            else
+                buffer[#buffer + 1] = encodeByte(c:byte() as integer, C0_SET)
+            end
+        elseif state == QUERY then
+            if eof or c == "#" then
+                local collected = table.concat(buffer)
+                url.query = url.query .. encodeText(collected, special and SPECIAL_QUERY_SET or QUERY_SET)
+                buffer = {}
+                if c == "#" then
+                    url.fragment = ""
+                    state = FRAGMENT
+                end
+            else
+                buffer[#buffer + 1] = c
+            end
+        elseif state == FRAGMENT then
+            if not eof then
+                buffer[#buffer + 1] = encodeByte(c:byte() as integer, FRAGMENT_SET)
+            end
+        end
+        -- A state that stepped back at the end runs again on the end.
+        if pointer > length then
+            break
+        end
+        pointer = pointer + 1
+    end
+    if state == FRAGMENT then
+        url.fragment = url.fragment .. table.concat(buffer)
+    end
+
+    return serialize(url), nil
+end
+
+export = whatwg

@@ -315,6 +315,11 @@ _G.__nuppBrowser = {
     kernel = kernel,
     now = function()
         return clock.nupp_browser_clock(memory + 168)
+    end,
+    -- The page's own WHATWG `URL`, which carries the IDNA mapping the portable
+    -- parser does not. It answers `{href = text}` or `{error = reason}`.
+    url = function(text)
+        return exchange("URL", {text = text})
     end
 }
 signal("MAILBOX")

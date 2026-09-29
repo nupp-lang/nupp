@@ -267,6 +267,30 @@ mod tests {
         assert_eq!(nuppNativeUriRelease(file), 0);
     }
 
+    /// The rows every `nupp.io.uri` provider answers alike, because each reads
+    /// the WHATWG URL Standard; the portable parser is held to the same rows.
+    #[test]
+    fn standard_rows_normalize_as_the_url_standard_does() {
+        for (source, text, path) in [
+            ("https://ex.com/a/%2e%2e/secret", "https://ex.com/secret", "/secret"),
+            ("https://ex.com/café?q=é", "https://ex.com/caf%C3%A9?q=%C3%A9", "/caf%C3%A9"),
+            ("http://user:@h/", "http://user@h/", "/"),
+            ("http://0x7f.1/", "http://127.0.0.1/", "/"),
+            ("https://ex.com/a ", "https://ex.com/a", "/a"),
+        ] {
+            let handle = parse(source);
+            assert_eq!(component(handle, 0).as_deref(), Some(text), "{source}");
+            assert_eq!(component(handle, 6).as_deref(), Some(path), "{source}");
+            assert_eq!(nuppNativeUriRelease(handle), 0);
+        }
+        let mut handle = 0;
+        let source = "file://h:8080/x";
+        assert_eq!(
+            unsafe { nuppNativeUriParse(source.as_ptr(), source.len(), &mut handle) },
+            Status::InvalidArgument.code()
+        );
+    }
+
     #[test]
     fn malformed_text_keeps_the_public_reasons() {
         for (source, reason) in [

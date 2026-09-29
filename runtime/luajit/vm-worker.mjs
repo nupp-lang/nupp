@@ -118,6 +118,15 @@ async function boot(message) {
         timer = setInterval(clock, 1);
         send('mailbox\n');
         self.postMessage({type: 'ready', wasmMemoryBytes: emulator.v86.cpu.wasm_memory.buffer.byteLength});
+      } else if (current.startsWith('@@NUPP_URL@@ ')) {
+        // A URL parse is answered here, synchronously, by this Worker's own
+        // WHATWG URL: nothing about it needs the page.
+        if (Number(current.slice(13)) !== sequence || active) throw new Error('Unexpected guest frame sequence');
+        let answer;
+        try { answer = {href: new URL(String(read().text)).href}; } catch { answer = {error: 'invalid URL'}; }
+        write(4 * MIB, 2, MIB, encoder.encode(JSON.stringify(answer)));
+        write(5 * MIB, 3, 2 * MIB, new Uint8Array(0));
+        send(String(sequence++) + '\n');
       } else {
         const match = current.match(/^@@NUPP_(COMPILER|EFFECT|DONE)@@ (\d+)$/);
         if (!match) return;
