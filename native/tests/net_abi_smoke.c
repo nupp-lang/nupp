@@ -254,6 +254,7 @@ static int test_datagrams(uint64_t wrong_kind) {
     return 0;
 }
 
+#ifndef _WIN32
 static int receive_endpoint(uint64_t socket, uint8_t *bytes, size_t capacity,
         const char *expected, NuppNativeNetEndpoint *peer) {
     size_t attempts;
@@ -285,7 +286,6 @@ static int receive_endpoint(uint64_t socket, uint8_t *bytes, size_t capacity,
     return 1;
 }
 
-#ifndef _WIN32
 /* A link-local IPv6 address this machine holds, written as `address%zone`
  * with its interface's name. Zero when it has none. */
 static int link_local_address(char *text, size_t capacity) {
@@ -358,7 +358,13 @@ static int test_link_local_reply(void) {
         return 1;
     }
 #ifdef _WIN32
+    (void)options;
+    (void)peer;
+    (void)reply;
     (void)zoned;
+    (void)text;
+    (void)bytes;
+    (void)length;
     return 0;
 #else
     if (!link_local_address(zoned, sizeof zoned)) {
