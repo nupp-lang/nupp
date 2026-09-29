@@ -324,6 +324,29 @@ function M.parallelismAnswersInsideATask()
     check.equal(answer, 4)
 end
 
+-- A full queue is backpressure, worded as such: awaiting what was submitted makes
+-- room, which is not true of a lane that has closed.
+function M.aFullWorkerQueueSaysItIsFull()
+    local app = application({owned = {"nupp.runtime.browser.workers"}, workers = true})
+    local workers = app.load("nupp.runtime.browser.workers")
+    local echo = workers.describeSendable(function(value)
+        return value
+    end, "fixture.browserjobs", "echo")
+    local ok, answer = app.run(function()
+        local scope = workers.openScope(nil, nil)
+        for index = 1, 1025 do
+            local accepted, problem = pcall(scope.spawn, scope, echo, index)
+            if not accepted then
+                return problem
+            end
+        end
+
+        return "every submission was accepted"
+    end, 50)
+    check.equal(ok, true, tostring(answer))
+    check.assert(tostring(answer):find("nupp: a worker queue is full", 1, true) ~= nil, tostring(answer))
+end
+
 ----------------------------------------------------------------------------
 -- Liveness
 ----------------------------------------------------------------------------

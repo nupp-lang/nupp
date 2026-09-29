@@ -406,8 +406,10 @@ twice would silently turn one identity into two identities. Pass two explicit
 copies if that is the intended meaning.
 
 Each lane direction holds at most 1,024 messages and 256 MiB. Submission raises
-when a lane's task queue is full rather than turning producer backpressure into
-an additional hidden wait. A lane whose reply queue is full waits instead, until
+`nupp: a worker queue is full` when a lane's task queue is full rather than
+turning producer backpressure into an additional hidden wait; awaiting what is
+already submitted makes room. A lane that has closed for good refuses with
+`nupp: a worker lane is closed` instead, which no retry reaches. A lane whose reply queue is full waits instead, until
 the parent awaits or polls and takes replies off it, because a refused reply
 would be a task its parent never hears of.
 

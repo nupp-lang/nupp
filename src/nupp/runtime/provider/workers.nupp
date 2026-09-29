@@ -934,12 +934,23 @@ local function decode(bytes: string): Frame
     return {kind = "invalid"}
 end
 
+-- Why a channel refused a message. A queue at its bound is backpressure the caller
+-- can wait out by awaiting what it already submitted; a closed lane is gone for the
+-- rest of the process, and no retry reaches it.
+local function refusal(target: Channel): string
+    if target.destroyed or native.channelClosed(target.handle) then
+        return "nupp: a worker lane is closed"
+    end
+
+    return "nupp: a worker queue is full"
+end
+
 -- Only the cold control frames remain on the byte-encoded envelope: failures
 -- and cancellations. Every value-carrying frame is predefined and native.
 local function push(target: Channel, frame: Frame): nil
     local accepted = not target.destroyed and native.channelPush(target.handle, encodeFrame(frame), frame.bytes or "")
     if not accepted then
-        error("nupp: a worker queue is closed or full", 3)
+        error(refusal(target), 3)
     end
 end
 
@@ -1459,7 +1470,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
                 member,
                 arguments.values[1] as number
             ) then
-                error("nupp: a worker queue is closed or full", 3)
+                error(refusal(lane.inbox), 3)
             end
         elseif preparedInput == "string" and prepared then
             if not native.channelPushStringTask(
@@ -1469,7 +1480,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
                 member,
                 arguments.values[1] as string
             ) then
-                error("nupp: a worker queue is closed or full", 3)
+                error(refusal(lane.inbox), 3)
             end
         else
             registerTransferRecords(lane.inbox, transfer as TransferState)
@@ -1489,7 +1500,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
                 bytes,
                 attachments
             ) then
-                error("nupp: a worker queue is closed or full", 3)
+                error(refusal(lane.inbox), 3)
             end
         end
     end)
@@ -1734,11 +1745,11 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
         push(outbox, {kind = "reply", id = id, ok = false, error = "results cannot be copied: " .. rejected})
     elseif preparedOutput == "number" and prepared then
         if not native.channelPushNumberReply(outbox.handle, id, packed.values[1] as number) then
-            error("nupp: a worker queue is closed or full", 3)
+            error(refusal(outbox), 3)
         end
     elseif preparedOutput == "string" and prepared then
         if not native.channelPushStringReply(outbox.handle, id, packed.values[1] as string) then
-            error("nupp: a worker queue is closed or full", 3)
+            error(refusal(outbox), 3)
         end
     else
         registerTransferRecords(outbox, transfer as TransferState)
@@ -1754,7 +1765,7 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
             error(count, 0)
         end
         if not native.channelPushBufferReply(outbox.handle, id, count as number, bytes as string, attachments) then
-            error("nupp: a worker queue is closed or full", 3)
+            error(refusal(outbox), 3)
         end
     end
 end

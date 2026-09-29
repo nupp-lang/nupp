@@ -427,7 +427,9 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     end
     local payload = base64.encode(codec.encode(submitted))
     if unsettledCount >= MAX_UNSETTLED or unsettledBytes + #payload > MAX_UNSETTLED_BYTES then
-        error("nupp: a worker queue is closed or full", 2)
+        -- Backpressure, which awaiting what is already submitted relieves. A pool that
+        -- has closed fails the tasks it held instead of refusing new ones here.
+        error("nupp: a worker queue is full", 2)
     end
     local id = nextTaskId
     nextTaskId = id + 1

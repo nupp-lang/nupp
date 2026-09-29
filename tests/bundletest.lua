@@ -977,7 +977,7 @@ print(made, tostring(madeProblem):find("at most 256 record types", 1, true) ~= n
 -- scheduler starts at most; the flood stops at the first refused spawn.
 const total: integer = 64 * 2 * 1024 + 1
 local spawned = 0
-pcall(function(): nil
+local _, flooded = pcall(function(): nil
     with scope = tasks.open() do
         for index = 1, total do
             local spin = 0
@@ -987,12 +987,12 @@ pcall(function(): nil
         end
     end
 end)
-print(spawned > 1024, wide())
+print(spawned > 1024, tostring(flooded):find("worker queue is full", 1, true) ~= nil, wide())
 ]],
     })
     local built, builtOk = run(dir, "'" .. NUPP .. "' build")
     assert(builtOk, "the lane-survival binary builds: " .. built)
-    local expected = "false\ttrue\ttrue\n256\ttrue\ttrue\ntrue\ttrue\n"
+    local expected = "false\ttrue\ttrue\n256\ttrue\ttrue\ntrue\ttrue\ttrue\n"
     local rustOutput, rustRanOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
     assert(rustRanOk and rustOutput == expected, "a task's failure leaves its lane running: " .. rustOutput)
     os.execute("rm -rf '" .. dir .. "'")

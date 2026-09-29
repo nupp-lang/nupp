@@ -212,7 +212,7 @@ with scope = tasks.open() do
         submitted = submitted + 1
     end
     number("queueBound", submitted)
-    boolean("queueRefusedAtBound", refused ~= nil and refused:find("closed or full", 1, true) ~= nil)
+    boolean("queueRefusedAtBound", refused ~= nil and refused:find("worker queue is full", 1, true) ~= nil)
 end
 
 ----------------------------------------------------------------------------
