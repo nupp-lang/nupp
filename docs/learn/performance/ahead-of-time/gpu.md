@@ -121,7 +121,7 @@ local function reduce(
                 shared[localIndex] = input[cursor + 1]
             end
         end)
-        phases:reduceSumF32(shared)
+        phases:reduceSum(shared)
         phases:run(function(localIndex: uint32)
             if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = shared[0]
@@ -132,7 +132,7 @@ end
 ```
 
 Generated workgroups admit at most 256 lanes and 16 KiB of scratch. Scratch
-writes are structurally disjoint. `reduceSumF32` and `inclusiveScanU32` expand
+writes are structurally disjoint. `reduceSum` and `inclusiveScan` expand
 to fixed trees whose stage order is the same in the CPU definition and the GPU
 artifact; unordered and atomic reductions are not part of this contract.
 

@@ -18,7 +18,7 @@ function M.workgroupPhasesHaveDeterministicCpuMeaning(): nil
             local value = nupp.math.u32.add(nupp.math.u32.add(base, localIndex), nupp.math.u32.wrap(1))
             values[localIndex as integer] = nupp.math.f32.narrow(value as number)
         end)
-        phases:reduceSumF32(values)
+        phases:reduceSum(values)
         phases:run(function(localIndex: uint32)
             if localIndex == nupp.math.u32.wrap(0) then
                 results[(groupIndex as integer) + 1] = nupp.math.f32.narrow(values[0])
@@ -39,7 +39,7 @@ function M.inclusiveScanHasDeterministicCpuMeaning(): nil
         phases:run(function(localIndex: uint32)
             values[localIndex as integer] = nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))
         end)
-        phases:inclusiveScanU32(values, temporary)
+        phases:inclusiveScan(values, temporary)
         phases:run(function(localIndex: uint32)
             results[(localIndex as integer) + 1] = nupp.math.u32.wrap(values[localIndex as integer] as integer)
         end)

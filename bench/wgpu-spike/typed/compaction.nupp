@@ -30,7 +30,7 @@ local function compactBlocks(
                 prefix[localIndex] = nupp.math.u32.wrap(0)
             end
         end)
-        phases:inclusiveScanU32(prefix, temporary)
+        phases:inclusiveScan(prefix, temporary)
         phases:run(function(localIndex: uint32)
             local countCursor = groupIndex
             if localIndex == nupp.math.u32.wrap(255) and countCursor < #counts then
@@ -74,7 +74,7 @@ local function exclusiveOffsets(exclusive offsets: span.WriteSpan<uint32>, borro
                 values[localIndex] = nupp.math.u32.wrap(0)
             end
         end)
-        phases:inclusiveScanU32(values, temporary)
+        phases:inclusiveScan(values, temporary)
         phases:run(function(localIndex: uint32)
             local offsetCursor = localIndex
             local countCursor = localIndex

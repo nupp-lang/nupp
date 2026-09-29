@@ -1207,8 +1207,8 @@ end
 export record Phases
     scratch: function<T>(borrows self: Phases, initial: T, count: integer): Shared<T>
     run: function(borrows self: Phases, scoped stage: function(uint32): nil): nil
-    reduceSumF32: function(borrows self: Phases, exclusive values: Shared<float>): nil
-    inclusiveScanU32: function(
+    reduceSum: function(borrows self: Phases, exclusive values: Shared<float>): nil
+    inclusiveScan: function(
         borrows self: Phases,
         exclusive values: Shared<uint32>,
         exclusive temporary: Shared<uint32>
@@ -1251,7 +1251,7 @@ local function reduce(
                 values[localIndex] = nupp.math.f32.narrow(0.0)
             end
         end)
-        phases:reduceSumF32(values)
+        phases:reduceSum(values)
         phases:run(function(localIndex: uint32)
             if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = values[0]
@@ -1376,7 +1376,7 @@ local function scan(exclusive output: span.WriteSpan<uint32>): nil
         phases:run(function(localIndex: uint32)
             values[localIndex] = nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))
         end)
-        phases:inclusiveScanU32(values, temporary)
+        phases:inclusiveScan(values, temporary)
         phases:run(function(localIndex: uint32)
             local cursor = nupp.math.u32.add(
                 nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),

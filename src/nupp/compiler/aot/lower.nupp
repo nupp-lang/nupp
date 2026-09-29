@@ -6806,7 +6806,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 and (method as cst.MethodCall).name ~= nil
                 and ((method as cst.MethodCall).name as lexer.Token).text
                 or nil
-            if method ~= nil and phaseMethod == "reduceSumF32" then
+            if method ~= nil and phaseMethod == "reduceSum" then
                 local args = (method as cst.MethodCall).args ~= nil
                     and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
                     or {}
@@ -6814,7 +6814,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 local shared = sharedName ~= nil and environment[sharedName as string] or nil
                 local size = kernel.workgroupSize
                 if shared == nil or shared.kind ~= "workgroup_shared" or shared.element ~= "f32" then
-                    context.reject(lower.site(method), "phases:reduceSumF32 takes one f32 scratch array")
+                    context.reject(lower.site(method), "phases:reduceSum takes one f32 scratch array")
                 end
                 if size == nil or size < 1 or size & (size - 1) ~= 0 then
                     context.reject(lower.site(method), "fixed-tree reduction needs a power-of-two workgroup size")
@@ -6893,7 +6893,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     )
                     stride = stride // 2
                 end
-            elseif method ~= nil and phaseMethod == "inclusiveScanU32" then
+            elseif method ~= nil and phaseMethod == "inclusiveScan" then
                 local args = (method as cst.MethodCall).args ~= nil
                     and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
                     or {}
@@ -6910,7 +6910,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     or temporary.element ~= "u32"
                     or valuesName == temporaryName
                 then
-                    context.reject(lower.site(method), "phases:inclusiveScanU32 takes two distinct u32 scratch arrays")
+                    context.reject(lower.site(method), "phases:inclusiveScan takes two distinct u32 scratch arrays")
                 end
                 if size == nil
                     or size < 1

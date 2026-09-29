@@ -559,11 +559,11 @@ Generated workgroups admit at most 256 lanes and 16 KiB of fixed-width scratch.
 Every scratch write is exactly `shared[localIndex]`, so writes are structurally
 disjoint. A later phase may read an index whose full uint32 range is statically
 proved inside the allocation; a phase may only read the scratch it also writes
-at its own local index. `phases:reduceSumF32(shared)` is the compiler-owned
+at its own local index. `phases:reduceSum(shared)` is the compiler-owned
 exception: it expands into a fixed, left-before-right power-of-two tree whose
 stage order is identical on CPU and GPU. There is no unordered or atomic
 reduction.
-`phases:inclusiveScanU32(values, temporary)` similarly expands into a
+`phases:inclusiveScan(values, temporary)` similarly expands into a
 deterministic power-of-two inclusive prefix tree. Both arrays contain one
 `uint32` per lane; the second is compiler-checked ping-pong scratch and the
 result is left in `values`. Stable block compaction can use the resulting
