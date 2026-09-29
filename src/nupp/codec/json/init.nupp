@@ -302,7 +302,9 @@ export interface Writer is nupp.Closeable
     --- writer:startArray():write(1)
     --- writer:flush()
     --- assert(out:tostring() == "[1")
-    --- writer:endArray():close()
+    --- writer:endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[1]")
     --- ```
     --- @param self the writer
     flush: @nosuspend function(exclusive self: Writer): nil

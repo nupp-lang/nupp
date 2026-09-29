@@ -144,19 +144,20 @@ assert(image:path() == "/docs/images/avatar.png")
 
 ## Building from components
 
-`uri.newURI` also accepts a `nupp.io.uri.Components` record. The components are
-assembled into text and then parsed, so one grammar decides what is valid:
+`uri.newURI` also accepts a `nupp.io.uri.Components` record, built with `new`
+like any record. The components are assembled into text and then parsed, so one
+grammar decides what is valid:
 
 ```nupp
 const uri = nupp.io.uri
 
-local status = assert(uri.newURI({
+local status = assert(uri.newURI(new uri.Components(
     scheme = "https",
     userInfo = "reader:secret",
     host = "example.com",
     path = "/status",
-    query = "full=1",
-}))
+    query = "full=1"
+)))
 assert(status:userInfo() == "reader:secret")
 ```
 
@@ -670,12 +671,12 @@ end
 --- Assemble one from components rather than writing the text out:
 ---
 --- ```nupp
---- local endpoint = assert(uri.newURI({
+--- local endpoint = assert(uri.newURI(new uri.Components(
 ---     scheme = "https",
 ---     host = "example.com",
 ---     path = "/a",
----     query = "b=1",
---- }))
+---     query = "b=1"
+--- )))
 --- ```
 --- @param value the URI text, or the components to assemble
 --- @return the URI, or nil when it could not be parsed
