@@ -229,6 +229,9 @@ and no checkout:
   love               A small LÖVE game using Nupp's LuaJIT compatibility target
 ```
 
+`--list --json` gives the same listing as `templates`, each with its `name`,
+`description` and `kind`.
+
 `nupp init` with no arguments writes the `app` template into a directory named
 for it. Naming the directory names the project:
 

@@ -18,8 +18,9 @@ local ansi = require("nupp.cli")
 local usageError = require("nupp.tools.cli.error").forCommand("init")
 local cliModule = require("nupp.cli")
 
-local REPORT_SCHEMA = {
+local SCAFFOLD_SCHEMA = {
     type = "object",
+    description = "A scaffold: what was written, or would be under --dry-run.",
     properties = {
         ok = {type = "boolean"},
         directory = {type = "string"},
@@ -64,6 +65,29 @@ local REPORT_SCHEMA = {
     },
     required = {"ok", "directory", "template", "variables", "written", "dryRun", "steps", "dropped"},
 }
+
+local LISTING_SCHEMA = {
+    type = "object",
+    description = "The templates --list names.",
+    properties = {
+        ok = {type = "boolean"},
+        templates = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    name = {type = "string"},
+                    description = {type = "string"},
+                    kind = {type = "string", enum = {"builtin"}},
+                },
+                required = {"name", "description", "kind"},
+            },
+        },
+    },
+    required = {"ok", "templates"},
+}
+
+local REPORT_SCHEMA = {oneOf = {SCAFFOLD_SCHEMA, LISTING_SCHEMA}}
 
 local function fail(message: string): integer
     io.stderr:write(ansi.severity(ansi.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
@@ -129,8 +153,17 @@ local function confirm(description: string, count: integer, destination: string)
     return true
 end
 
-local function listBuiltins(): integer
+local function listBuiltins(asJson: boolean): integer
     local template = require("nupp.tools.template")
+    if asJson then
+        local templates: {any} = {}
+        for _, name in ipairs(template.builtins()) do
+            templates[#templates + 1] = {name = name, description = template.builtinDescription(name), kind = "builtin"}
+        end
+        require("nupp.tools.cli.report").write({ok = true, templates = templates})
+
+        return 0
+    end
     local style = ansi.style(io.stdout)
     local names = template.builtins()
     local rows: {{ansi.Cell}} = {}
@@ -271,13 +304,7 @@ local function run(options: any): integer
         if #positional > 0 or values.templateFrom then
             return usageError("--list takes no other arguments")
         end
-        -- The command's JSON schema describes a scaffold, which a listing is not,
-        -- so refusing is honest where quietly printing text would not be.
-        if values.format == "json" then
-            return usageError("--list has no JSON output")
-        end
-
-        return listBuiltins()
+        return listBuiltins(values.format == "json")
     end
     -- `--from` names the template, so the one positional left is the directory.
     -- Without it the first positional is the template and the second the

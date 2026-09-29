@@ -17,7 +17,7 @@ local NUPP = HERE .. "/../bin/nupp"
 local M = {}
 
 --- A JSON Schema validator covering exactly the keywords the schemas use:
---- type, properties, required, items, enum, and $ref into #/definitions.
+--- type, properties, required, items, enum, oneOf, and $ref into #/definitions.
 --- Returns nil and the path of the first thing wrong.
 local function validate(value, schema, root, path)
     root, path = root or schema, path or "$"
@@ -28,6 +28,20 @@ local function validate(value, schema, root, path)
         local target = (root.definitions or {})[name]
         assert(target, "no definition named " .. name)
         return validate(value, target, root, path)
+    end
+    if schema.oneOf then
+        local matched, reasons = 0, {}
+        for _, branch in ipairs(schema.oneOf) do
+            local ok, err = validate(value, branch, root, path)
+            if ok then
+                matched = matched + 1
+            else
+                reasons[#reasons + 1] = err
+            end
+        end
+        if matched ~= 1 then
+            return nil, ("%s: matches %d of the oneOf branches (%s)"):format(path, matched, table.concat(reasons, "; "))
+        end
     end
     local wanted = schema.type
     if wanted then
@@ -218,6 +232,20 @@ function M.docOutputMatchesItsSchema()
     local decoded = agrees(dir, "doc markdown -o out/api.md")
     assert(decoded.format == "markdown", "the resolved format is reported")
     assert(#decoded.files > 0, "and every path it wrote")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.initListsAndScaffoldsAgainstOneSchema()
+    local dir = tempProject({})
+    local listed = agrees(dir, "init --list")
+    local names = {}
+    for _, entry in ipairs(listed.templates) do
+        names[entry.name] = entry.kind
+        assert(entry.description ~= "", entry.name .. " describes itself")
+    end
+    assert(names.app == "builtin" and names.lib == "builtin", "the listing names the built-ins")
+    local planned = agrees(dir, "init --dry-run app greeter")
+    assert(planned.dryRun and #planned.written > 0, "a dry run is the scaffold shape")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -962,11 +962,12 @@ function M.checkRefusesAManifestItCannotLoad()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.initListRefusesAJsonSpellingItCannotProduce()
-    local output, code = captureStatusAt(HERE, "init --list --json")
-    assert(code ~= 0, "--list cannot satisfy the scaffold JSON schema")
-    assert(output:find("--list has no JSON output", 1, true), "the unsupported combination is explicit: " .. output)
-    assert(output:sub(1, 1) ~= "{", "template text is not mislabeled JSON")
+function M.initListsItsTemplatesAsJson()
+    local output, ok = captureJsonAt(HERE, "init --list --json")
+    assert(ok, "--list --json succeeds: " .. output)
+    local report = json.decode(output)
+    assert(report.ok and #report.templates >= 5, "every built-in is listed: " .. output)
+    assert(report.templates[1].name and report.templates[1].kind == "builtin", "with its name and kind")
 end
 
 function M.docJsonReportsEarlyConfigurationFailures()
