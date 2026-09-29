@@ -24,14 +24,14 @@ assert(greeting == "hello world")
 ```
 
 `open` takes a `limit`, which parks `spawn` and `fork` while that many children
-are live, and a relative `deadline` in milliseconds. A running child cooperates
-by calling `checkpoint`, which is where it learns the scope was cancelled or the
-deadline passed.
+are live, and a `timeoutMs`, how long the scope may take. A running child
+cooperates by calling `checkpoint`, which is where it learns the scope was
+cancelled or its deadline passed.
 
 ```nupp
 local total = 0
 
-with scope = nupp.tasks.open(deadline = 1000) do
+with scope = nupp.tasks.open(timeoutMs = 1000) do
     const sum = scope:spawn("sum values", function(): integer
         local answer = 0
         for value = 1, 1000 do
@@ -1486,14 +1486,15 @@ end
 ---
 --- With a `limit`, `spawn` and `fork` park while that many children are live, so a
 --- loop that fans out over a source is bounded by the loop itself: nothing is pulled
---- from the source until there is room to run it. With a `deadline`, in milliseconds
---- of the monotonic clock, expiry requests ordinary cancellation. A scope opened
---- inside another takes the earlier of the two deadlines: a child may bound itself
---- more tightly than its parent did, and may not extend what its parent already
---- promised.
+--- from the source until there is room to run it. With a `timeoutMs`, the scope's
+--- deadline is that many milliseconds from now on the monotonic clock, and expiry
+--- requests ordinary cancellation. A scope opened inside another takes the earlier
+--- of the two deadlines: a child may bound itself more tightly than its parent did,
+--- and may not extend what its parent already promised. [](nupp.tasks.deadline)
+--- answers the absolute deadline that results.
 ---
---- Both are named arguments: `open()`, `open(limit = 8)`, `open(deadline = 500)`, or
---- `open(limit = 8, deadline = 500)`.
+--- Both are named arguments: `open()`, `open(limit = 8)`, `open(timeoutMs = 500)`,
+--- or `open(limit = 8, timeoutMs = 500)`.
 ---
 --- ```nupp
 --- const sizes: {integer} = {}
@@ -1505,21 +1506,20 @@ end
 --- ```
 ---
 --- @param limit how many children may be live at once, or nil for no bound
---- @param deadline how long the whole scope may take, in milliseconds, or nil
+--- @param timeoutMs how long the whole scope may take, in milliseconds, or nil
 --- @return the scope, settled when its `with` ends
---- @raises string where the limit is not a positive integer or the deadline is not a
----     finite
----     non-negative number
-function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope)
+--- @raises string where the limit is not a positive integer or the timeout is not a
+---     finite non-negative number
+function tasks.open(limit: integer?, timeoutMs: number?): affine(tasks.Scope)
     if limit ~= nil and (limit < 1 or limit ~= math.floor(limit)) then
         error("nupp: a task scope limit must be a positive integer", 2)
     end
     local absolute: number? = nil
-    if deadline ~= nil then
-        if deadline ~= deadline or deadline < 0 or deadline == math.huge then
-            error("nupp: a task deadline must be a finite non-negative number", 2)
+    if timeoutMs ~= nil then
+        if timeoutMs ~= timeoutMs or timeoutMs < 0 or timeoutMs == math.huge then
+            error("nupp: a task scope timeout must be a finite non-negative number", 2)
         end
-        absolute = timeModule.now() + deadline
+        absolute = timeModule.now() + timeoutMs
     end
     const inherited = tasks.deadline()
     if inherited ~= nil and (absolute == nil or inherited < absolute) then

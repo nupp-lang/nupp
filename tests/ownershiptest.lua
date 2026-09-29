@@ -5504,6 +5504,14 @@ function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
     assertEq(order, "child,after block,early child,after drop", "each scope settled where it was closed")
 end
 
+-- A scope's bound is a duration, named with its unit like every other one in the
+-- runtime; `tasks.deadline()` is the absolute instant it becomes.
+function M.aTaskScopeTakesItsTimeoutInMilliseconds()
+    assertClean("local tasks = require('nupp.tasks')\nwith scope = tasks.open(limit = 2, timeoutMs = 5) do\n   print(scope)\nend")
+    local refused = codes("local tasks = require('nupp.tasks')\nlocal scope = tasks.open(deadline = 5)\nnupp.drop(scope)")
+    assert(refused:find("NUPP2125", 1, true) == 1, "the old name is not an argument: " .. refused)
+end
+
 -- `gather` takes the same two contracts `race` does: a borrowed family runs and is
 -- left with its owner, and an owned family is called or dropped exactly once.
 function M.gatherCallsEveryTakingBranchOnce()

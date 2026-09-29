@@ -214,14 +214,14 @@ raises its cancellation rather than its branch outcomes where it passes.
 
 ## Deadlines
 
-`open(deadline = milliseconds)` bounds the scope on the monotonic clock. A
+`open(timeoutMs = milliseconds)` bounds the scope on the monotonic clock. A
 scope opened inside another takes the earlier of its own deadline and the
 enclosing scope's, so a child may bound itself more tightly than its parent did
 and may not extend what its parent already promised. `nupp.tasks.deadline()`
 answers the current absolute deadline, or nil outside a bounded scope.
 
 ```nupp
-with scope = nupp.tasks.open(deadline = 5000) do
+with scope = nupp.tasks.open(timeoutMs = 5000) do
     index(scope:spawn(url, fetch):await())
 end
 ```
@@ -234,8 +234,8 @@ every parked child far enough to unwind through its cleanup, exactly as
 scope's promise broken, so unlike `scope:cancel()` it is raised where the block
 is left, once the children have settled.
 
-Both arguments are named: `open()`, `open(limit = 8)`, `open(deadline = 500)`,
-or `open(limit = 8, deadline = 500)`.
+Both arguments are named: `open()`, `open(limit = 8)`, `open(timeoutMs = 500)`,
+or `open(limit = 8, timeoutMs = 500)`.
 
 ## Settlement
 

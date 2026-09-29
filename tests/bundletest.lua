@@ -1133,7 +1133,7 @@ end
 end)
 
 const deadlineOk, deadlineProblem = pcall(function(): nil
-    with scope = tasks.open(deadline = 1) do
+    with scope = tasks.open(timeoutMs = 1) do
         scope:fork(1000000000, jobs.cancellable):await()
     end
 end)

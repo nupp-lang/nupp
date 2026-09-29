@@ -262,7 +262,7 @@ boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 local deadlineStarted = time.now()
 
 local function bounded(): nil
-    with inner = tasks.open(deadline = 250) do
+    with inner = tasks.open(timeoutMs = 250) do
         inner:fork(400, 25, jobs.cooperative):await()
     end
 end
