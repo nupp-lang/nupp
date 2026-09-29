@@ -182,7 +182,8 @@ rust_sources_digest() {
         # `scripts/toolchain.pins` is not in this list because it is folded in
         # below through `pins_digest`, which leaves out the stage-zero pin.
         for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
-            scripts/toolchain scripts/patches/luajit-irt-size.patch; do
+            scripts/toolchain scripts/patches/luajit-irt-size.patch \
+            host/include/nupp.exports; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates -type f \
@@ -843,12 +844,9 @@ host_export_arguments() {
     excluded=$(codegen_archive_exclusions)
     case "$PLATFORM" in
         darwin)
-            # ld64 has no --exclude-libs, but C++ and Rust symbols are the
-            # mangled ones, and the C API is LLVM's by prefix.
-            printf '%s\n' '-C' 'link-arg=-Wl,-export_dynamic'
-            printf '%s\n' '-C' 'link-arg=-Wl,-unexported_symbol,__Z*'
-            printf '%s\n' '-C' 'link-arg=-Wl,-unexported_symbol,__R*'
-            printf '%s\n' '-C' 'link-arg=-Wl,-unexported_symbol,_LLVM*'
+            # The host crate's build script hands ld64 the committed list,
+            # host/include/nupp.exports, which names every export and so
+            # leaves LLVM, lld, C++ and Rust symbols out without naming them.
             printf '%s\n' '-C' 'link-arg=-Wl,-x'
             ;;
         windows)
@@ -1014,17 +1012,50 @@ EOF
     case "$PLATFORM" in
         darwin) set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' ;;
     esac
-    NUPP_CC="$CC" \
+    export_list="$out/nupp.exports"
+    NUPP_CC="$CC" NUPP_EXPORT_LIST="$export_list" \
         NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_EMBED_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_OUT"
     [ -f "$RUST_EMBED_DYNAMIC_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_DYNAMIC_OUT"
+    case "$PLATFORM" in
+        darwin|windows) ;;
+        *) link_embedding_library "$export_list" "$embedding_features" ;;
+    esac
     [ "$PLATFORM" != windows ] || [ -f "$RUST_EMBED_IMPORT_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_IMPORT_OUT"
     printf 'done\n' > "$out/.complete"
     release_lock
+}
+
+# rustc writes its own version script for a cdylib, naming only Rust exports and
+# hiding the rest, and a linker takes one such script. So on Linux libnupp.so is
+# linked here instead, from the static archive, with a version script made from
+# the build's resolved copy of host/include/nupp.exports. Each export is also an
+# undefined reference, which is what pulls its member out of the archive.
+link_embedding_library() {
+    export_list=$1
+    [ -s "$export_list" ] || die "the embedding build wrote no export list at $export_list"
+    version_script="$out/nupp.map"
+    {
+        printf '{\n  global:\n'
+        sed 's/.*/    &;/' "$export_list"
+        printf '  local: *;\n};\n'
+    } > "$version_script"
+    system_flags=$(host_system_flags "$2")
+    set -- "$CC" -shared -o "$RUST_EMBED_DYNAMIC_OUT.linked" \
+        -Wl,-soname,libnupp.so -Wl,--version-script="$version_script"
+    while IFS= read -r symbol; do
+        set -- "$@" "-Wl,--undefined=$symbol"
+    done < "$export_list"
+    set -- "$@" "$RUST_EMBED_OUT"
+    for flag in $system_flags; do
+        set -- "$@" "$flag"
+    done
+    "$@" >&2 || die "cannot link libnupp.so from the embedding archive"
+    mv "$RUST_EMBED_DYNAMIC_OUT.linked" "$RUST_EMBED_DYNAMIC_OUT"
 }
 
 shared_flags() {
