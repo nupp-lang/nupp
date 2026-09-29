@@ -1153,4 +1153,23 @@ function M.theNativeHostRaisesTheSameLimits()
     assert(got == want, ("the host and the entry raise the same limits\n  want: %q\n  got:  %q"):format(want, got))
 end
 
+-- The cli module's header example, checked from a directory outside the repository.
+-- There nupp.cli comes from the declarations the compiler carries rather than from
+-- src/, and one module it imports was not carried, so loading it failed, every export
+-- was dropped, and `@derive(cli.Arguments)` named no provider (ER-010).
+function M.theCliHeaderExampleChecksOutsideTheRepository()
+    local header = assert(io.open(HERE .. "/../src/nupp/cli/init.g.nupp", "rb")):read("*a")
+    local example = assert(header:match("```nupp\n(.-)```"), "the module header carries an example")
+    assert(example:find("@derive(cli.Arguments)", 1, true), "the example derives through its local require")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local file = assert(io.open(dir .. "/main.nupp", "wb"))
+    file:write(example)
+    file:close()
+    local output, code = captureStatusAt(dir, "check main.nupp")
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(code == 0, "the example checks outside the repository:\n" .. output)
+end
+
 return M
