@@ -1,8 +1,8 @@
-local random = require("nupp.random")
-local digests = require("nupp.digest")
-local uuid = require("nupp.util")
-local time = require("nupp.time")
-local json = require("nupp.codec.json")
+const random = require("nupp.random")
+const digests = require("nupp.digest")
+const util = require("nupp.util")
+const time = require("nupp.time")
+const json = require("nupp.codec.json")
 
 local started = time.now()
 time.sleep(10)
@@ -13,5 +13,5 @@ return json.encode({
     project = "${name}",
     elapsedMilliseconds = time.now() - started,
     digest = digest,
-    identifier = uuid.uuid4(),
+    identifier = util.uuid4(),
 })
