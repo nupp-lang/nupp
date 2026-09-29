@@ -10,7 +10,7 @@ Version, and Capabilities come from [](nupp.io.http.messages), URI from
 
 A Client owns its transport and outstanding work. A successful send returns an
 affine Response owning the response resources and body reader. Preserve borrowing
-of the Request during send and exclusive access during flush. Closing clients
+of the Request during send and exclusive access during pump. Closing clients
 and responses must release resources on success, error, and cancellation paths.
 Implementers must not replace these affine contracts with unowned table aliases.
 
@@ -52,19 +52,20 @@ export interface Response is nupp.Closeable
 
     --- Returns all values for a case-insensitive header name.
     @readonly
-    getAll: function(self: Response, name: string): {string}
+    headerValues: function(self: Response, name: string): {string}
 
     --- Returns a fresh response header mapping keyed by lowercase name.
     --- Repeated values are joined with `, ` except `set-cookie`, whose first value
-    --- is returned; use `getAll` to preserve every value.
+    --- is returned; use `headerValues` to preserve every value.
     @readonly
     headers: function(self: Response): {[string]: string}
 end
 
 export interface Client is nupp.Closeable
-    --- Services outstanding client work while holding exclusive client access.
+    --- Services outstanding client work, waiting up to the given milliseconds
+    --- for some of it to move, while holding exclusive client access.
     @readonly
-    flush: function(exclusive self: Client): nil
+    pump: function(exclusive self: Client, timeoutMs: integer?): nil
 
     --- Returns the number of outstanding requests or transfers.
     @readonly
@@ -81,7 +82,7 @@ export interface Provider
 
     --- Constructs an owned client with the requested transport policy.
     @readonly
-    client: function(options: Options?): Client
+    newClient: function(options: Options?): Client
 
     --- Reports the guarantees this implementation actually provides.
     @readonly

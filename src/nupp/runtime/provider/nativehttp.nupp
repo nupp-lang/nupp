@@ -660,7 +660,7 @@ record http.Response is contracts.Response
     ---
     --- Repeats are joined with `, `, which is what HTTP says they mean. The one
     --- exception is `set-cookie`, where joining would corrupt the values, so the
-    --- first is answered and `getAll` reads the rest.
+    --- first is answered and `headerValues` reads the rest.
     --- @param self this response
     --- @param name the header to read
     --- @return the header's value, or nil when the response carries none
@@ -683,7 +683,7 @@ record http.Response is contracts.Response
     --- @param name the header to read
     --- @return the values, empty when the response carries none
     --- @raises string when name is not a string
-    function getAll(self, name: string): {string}
+    function headerValues(self, name: string): {string}
         if type(name) ~= "string" then
             error("nupp: HTTP header name must be a string", 2)
         end
@@ -822,7 +822,7 @@ record http.Client is BodyClient, contracts.Client
     ---
     --- ```nupp
     --- do
-    ---     local client = http.client(new http.Options(
+    ---     local client = http.newClient(new http.Options(
     ---         userAgent = "nupp/1",
     ---         timeoutMs = 5000
     ---     ))
@@ -845,9 +845,23 @@ record http.Client is BodyClient, contracts.Client
         self._closed = false
     end
 
-    --- Publishes pending client work. Requests are submitted immediately, so this
-    --- client has nothing to publish independently of closing it.
-    function flush(exclusive self): nil
+    --- Drives the transfers in flight once, waiting up to `timeoutMs` for one of
+    --- them to move.
+    ---
+    --- A wait inside `send` or a body read already does this, so a program that
+    --- only ever waits there never calls it. A host that runs its own loop, and
+    --- wants responses to make progress between its frames, calls it once a frame.
+    --- @param self this client
+    --- @param timeoutMs how long to wait for progress, 0 by default
+    --- @raises string when timeoutMs is negative or not an integer
+    function pump(exclusive self, timeoutMs: integer?): nil
+        local waitMs = timeoutMs or 0
+        if waitMs < 0 or math.floor(waitMs) ~= waitMs then
+            error("nupp: HTTP pump timeoutMs must be a non-negative integer", 2)
+        end
+        if not self._closed then
+            self._native:poll(waitMs)
+        end
     end
 
     @private
@@ -1261,8 +1275,8 @@ end
 -- Request bodies
 ----------------------------------------------------------------------------
 
-local function client(options: messages.Options?): contracts.Client
+local function openClient(options: messages.Options?): contracts.Client
     return new http.Client(options)
 end
 
-export = {client = client, capabilities = http.capabilities}
+export = {newClient = openClient, capabilities = http.capabilities}

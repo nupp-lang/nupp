@@ -9,7 +9,7 @@ that works the same in a CLI, a scheduler and a game host.
 local http = nupp.io.http
 local uri = nupp.io.uri
 
-local client = http.client()
+local client = http.newClient()
 local response = assert(client:send(new http.Request(
     url = assert(uri.newURI("https://example.com/"))
 )))
@@ -53,7 +53,7 @@ local http = nupp.io.http
 local tasks = nupp.tasks
 local uri = nupp.io.uri
 
-local client = http.client()
+local client = http.newClient()
 
 local function storeStatus(codes: {integer}, index: integer, url: string): nil
     local response = assert(client:send(new http.Request(
@@ -142,8 +142,11 @@ http.FileBody = messages.FileBody
 type http.RequestBody = messages.RequestBody
 
 --- Opens a connection pool owned by the caller.
+---
+--- Every option is optional, so `http.newClient()` is a client with the defaults
+--- [](nupp.io.http.Options) describes.
 --- @return the open client
-const http.client = provider.client
+const http.newClient = provider.newClient
 
 --- Reports the selected provider's observable HTTP guarantees.
 --- @return the provider capabilities

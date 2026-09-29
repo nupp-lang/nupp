@@ -137,7 +137,7 @@ local function netPort(): integer
 end
 
 local function httpLatency(port: integer): number
-    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local client = http.newClient(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
     const target = assert(uri.newURI(("http://127.0.0.1:%d/small"):format(port)))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
@@ -171,7 +171,7 @@ local function httpLatency(port: integer): number
 end
 
 local function httpThroughput(port: integer): number
-    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local client = http.newClient(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
     const target = assert(uri.newURI(("http://127.0.0.1:%d/large"):format(port)))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
@@ -242,7 +242,7 @@ end
 
 local function httpSlowReader(port: integer): nil
     io.stdout:setvbuf("no")
-    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local client = http.newClient(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
     local request = new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-reader"):format(port))))
     local response = assert(client:send(request))
     print("READY http-slow-reader")
@@ -253,7 +253,7 @@ end
 
 local function httpSlowWriter(port: integer): nil
     io.stdout:setvbuf("no")
-    local client = http.client(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
+    local client = http.newClient(new http.Options(proxy = "", maxConnections = 1, maxConnectionsPerHost = 1))
     local request = new http.Request(url = assert(uri.newURI(("http://127.0.0.1:%d/slow-writer"):format(port))))
     local response = assert(client:send(request))
     print("READY http-slow-writer")

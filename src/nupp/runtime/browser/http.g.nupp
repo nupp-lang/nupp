@@ -161,7 +161,7 @@ record http.Response is contracts.Response
         return self.status >= 200 and self.status < 300
     end
 
-    function getAll(self, name: string): {string}
+    function headerValues(self, name: string): {string}
         local values = self._headers[name:lower()] or {}
         local copy: {string} = {}
         for index = 1, #values do
@@ -192,10 +192,6 @@ record http.Response is contracts.Response
     function close(takes self): nil
         self._closed = true
         self.body:close()
-    end
-
-    function drop(takes self): nil
-        self:close()
     end
 end
 
@@ -255,7 +251,8 @@ record http.Client is contracts.Client
         self._pending = 0
     end
 
-    function flush(self): nil
+    --- Fetch is driven by the page, so there is nothing for a pump to move.
+    function pump(exclusive self, timeoutMs: integer?): nil
     end
 
     function pending(self): integer
@@ -452,8 +449,8 @@ record http.Client is contracts.Client
     end
 end
 
-local function client(options: messages.Options?): contracts.Client
+local function newClient(options: messages.Options?): contracts.Client
     return new http.Client(options)
 end
 
-export = {client = client, capabilities = http.capabilities}
+export = {newClient = newClient, capabilities = http.capabilities}

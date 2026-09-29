@@ -19,7 +19,7 @@ local function startProcess(options)
 end
 
 local function newHttpClient(options)
-    return http.client(options)
+    return http.newClient(options)
 end
 
 local function temporaryRoot()
@@ -356,7 +356,7 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     response, reason = client:send({url = endpoint("/large")})
     assert(response, reason)
     test.equal(response:header("x-repeated"), "one, two")
-    local repeated = response:getAll("X-Repeated")
+    local repeated = response:headerValues("X-Repeated")
     test.equal(#repeated, 2)
     test.equal(repeated[1], "one")
     test.equal(repeated[2], "two")

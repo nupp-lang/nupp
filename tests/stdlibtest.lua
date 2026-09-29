@@ -584,7 +584,7 @@ end
 function M.browserHttpRejectsUnsupportedClientPolicy()
     local browser = require("providerstate").browserHttp()
     for _, options in ipairs({{userAgent = "nupp-test"}, {connectTimeoutMs = 10}}) do
-        local ok, problem = pcall(browser.client, options)
+        local ok, problem = pcall(browser.newClient, options)
         assert(
             not ok and tostring(problem):find("does not support option", 1, true),
             "unsupported shared options must fail explicitly: " .. tostring(problem)
@@ -599,7 +599,7 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
 
     local function rejected(fields, expected)
         local request = setmetatable(fields, messages.Request)
-        local client = browser.client()
+        local client = browser.newClient()
         local ok, problem = pcall(client.send, client, request)
         client:close()
         assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
@@ -761,11 +761,11 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
         {options = {headers = "bad"}, expected = "headers"},
         {options = {insecureHosts = {[2] = "example.com"}}, expected = "dense list"},
     }) do
-        local ok, problem = pcall(provider.client, case.options)
+        local ok, problem = pcall(provider.newClient, case.options)
         assert(not ok and tostring(problem):find(case.expected, 1, true), tostring(problem))
     end
 
-    local client = provider.client()
+    local client = provider.newClient()
     local request = setmetatable(
         {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
         require("nupp.io.http.messages").Request
@@ -837,6 +837,41 @@ function M.gpuAvailabilityAnswersWithoutRaising()
     }
     assertEq(require("providerstate").browserGpu(host).available(), true)
     assertEq(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
+end
+
+function M.anHttpClientPumpsItsTransfersOnRequest()
+    local polls = {}
+    local backend = {
+        poll = function(_self, waitMs)
+            polls[#polls + 1] = waitMs
+            return 0
+        end,
+        pending = function()
+            return 0
+        end,
+        close = function()
+        end,
+    }
+    local provider = require("providerstate").nativeHttpProvider({
+        BODY_INLINE = 0,
+        BODY_UPLOAD = 1,
+        BODY_FILE = 2,
+        newClient = function()
+            return backend
+        end,
+    })
+    local client = provider.newClient()
+    assertEq(client.flush, nil, "the old flush spelling is gone")
+    client:pump()
+    client:pump(25)
+    assertEq(#polls, 2, "each pump drove the transport once")
+    assertEq(polls[1], 0, "without waiting by default")
+    assertEq(polls[2], 25, "and for as long as it was told to")
+    local ok, problem = pcall(client.pump, client, -1)
+    assert(not ok and tostring(problem):find("timeoutMs", 1, true), tostring(problem))
+    client:close()
+    client:pump()
+    assertEq(#polls, 2, "a closed client drives nothing")
 end
 
 function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
@@ -1038,7 +1073,7 @@ function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
             {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
             require("nupp.io.http.messages").Request
         )
-        local client = browser.client({maxBytes = 4})
+        local client = browser.newClient({maxBytes = 4})
         for _, case in ipairs({
             {value = false, expected = "invalid response value"},
             {value = {status = 200, body = 0, bodyBytes = 0, headers = {}}, expected = "body handle"},
@@ -1121,7 +1156,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     end
     local ok, problem = pcall(function()
         local options = {headers = {["X-Test"] = "client", ["Content-Type"] = "client/type", ["X-Default"] = "client"},}
-        local client = browser.client(options)
+        local client = browser.newClient(options)
         options.headers["X-Default"] = "changed after client construction"
         local closedUpload = false
         local input = "upload"
@@ -1150,10 +1185,10 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         assertEq(response.version, nil)
         assertEq(response:header("X-TEST"), "one, two")
         assertEq(response:header("set-cookie"), "first")
-        local repeated = response:getAll("x-test")
+        local repeated = response:headerValues("x-test")
         assertEq(#repeated, 2)
         repeated[1] = "changed"
-        assertEq(response:getAll("x-test")[1], "one", "getAll returns a fresh list")
+        assertEq(response:headerValues("x-test")[1], "one", "headerValues returns a fresh list")
         local headers = response:headers()
         headers["x-test"] = "changed"
         assertEq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
@@ -2187,7 +2222,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
                 "const io = require('nupp.io')",
                 "const uri = require('nupp.io.uri')",
                 "const process = require('nupp.io.process')",
-                "do local client = http.client() end",
+                "do local client = http.newClient() end",
                 "do",
                 "    local request = new http.Request(",
                 "        url = assert(uri.newURI('https://example.com')),",
@@ -2199,7 +2234,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             "\n"
         )
     )
-    assertEq((diagsOf(table.concat({"const http = require('nupp.io.http')", "http.newClient()",}, "\n"))), "NUPP2004:2")
+    assertEq((diagsOf(table.concat({"const http = require('nupp.io.http')", "http.client()",}, "\n"))), "NUPP2004:2")
     assertEq(
         (
             diagsOf(

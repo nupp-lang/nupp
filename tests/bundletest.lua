@@ -347,7 +347,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 const http = require("nupp.io.http")
 
-with client = http.client() do
+with client = http.newClient() do
     print("mixed native provider")
 end
 ]],

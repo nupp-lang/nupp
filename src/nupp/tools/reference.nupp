@@ -2337,7 +2337,7 @@ local uri = require("nupp.io.uri")
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil
-        local client = http.client()
+        local client = http.newClient()
         local response = assert(client:send(new http.Request(url = assert(uri.newURI(url)))))
         codes[index] = response.status
         response:close()

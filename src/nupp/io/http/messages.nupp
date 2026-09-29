@@ -37,7 +37,7 @@ type http.Version = "1.0" | "1.1" | "2"
 
 --- What a client applies to every request it sends.
 ---
---- Every field is optional, so `http.client()` with nothing is a client with
+--- Every field is optional, so `http.newClient()` with nothing is a client with
 --- the defaults below. A request may override the three limits it also names.
 record http.Options
     --- The `user-agent` header sent with every request.

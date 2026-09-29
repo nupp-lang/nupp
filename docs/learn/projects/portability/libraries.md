@@ -96,7 +96,7 @@ serialization facilities remain on the native `string.buffer` surface.
 
 GPU providers use the shared interfaces in `nupp.gpu.spi`. Each context retains its
 device methods. CPU workgroups and tensor layout operations are ordinary code.
-HTTP clients are created with `nupp.io.http.client(options)` and retain their
+HTTP clients are created with `nupp.io.http.newClient(options)` and retain their
 response and body cleanup responsibilities.
 
 Host code pumps network events with `nupp.io.net.pump(milliseconds)`. Process
