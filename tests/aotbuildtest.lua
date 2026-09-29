@@ -4038,7 +4038,9 @@ end
 function M.theGuestRuntimeIrIsCompiledFromTheCurrentSources()
     local hash = require("nupp.compiler.hash")
     local c = HERE .. "/../native/crates/native/c/"
-    local digest = hash.sha256(assert(read(c .. "ks_rt.c")) .. assert(read(c .. "ks_lua.h")))
+    -- A Windows checkout may carry CRLF line endings; the digest is of the text.
+    local function text(path) return (assert(read(path)):gsub("\r\n", "\n")) end
+    local digest = hash.sha256(text(c .. "ks_rt.c") .. text(c .. "ks_lua.h"))
     local ir = assert(read(HERE .. "/../src/nupp/compiler/aot/llvm/lua/runtime-i686.ll"))
     local recorded = ir:match("\n; Inputs: ks_rt%.c ks_lua%.h, sha256 (%x+)%.\n")
     assert(recorded, "runtime-i686.ll records the digest of its inputs")
