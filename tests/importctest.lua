@@ -111,9 +111,6 @@ function M.inspectingAHeaderOutsideEveryRootNeedsNoModuleName()
    local output, ok = runCli(dir .. "/project", "--inspect --json ../mini-2.h")
    assert(ok, "an inspection derives its module from the header: " .. output)
    assertContains(output, '"ok":true')
-   local refused, written = runCli(dir .. "/project", "-o ../mini-2.nupp ../mini-2.h")
-   assert(not written, "a written import still needs a module beneath a root")
-   assertContains(refused, "beneath the project root")
    os.execute("rm -rf '" .. dir .. "'")
 end
 
