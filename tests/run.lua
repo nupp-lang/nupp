@@ -2201,7 +2201,7 @@ then
                 local workers = require("nupp.workers")
                 local job = require("job")
                 local running = {}
-                local scope = workers.scope()
+                local scope = workers.__scope()
                 -- A worker state cannot redirect process-owned descriptors safely.
                 -- Keep inherited output quiet for the threaded phase; ordinary Lua
                 -- output is captured in its state, process-writing suites are in the
