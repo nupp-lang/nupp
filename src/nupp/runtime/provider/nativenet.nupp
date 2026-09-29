@@ -88,7 +88,7 @@ int32_t nuppNativeNetStreamShutdownWrite(uint64_t);
 int32_t nuppNativeNetStreamLocalEndpoint(uint64_t, NuppNativeNetEndpoint *);
 int32_t nuppNativeNetStreamPeerEndpoint(uint64_t, NuppNativeNetEndpoint *);
 int32_t nuppNativeNetStreamSetNoDelay(uint64_t, int32_t);
-int32_t nuppNativeNetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
+int32_t nuppNativeNetStreamSetKeepAliveMs(uint64_t, int32_t, uint64_t);
 int32_t nuppNativeNetStreamRelease(uint64_t);
 int32_t nuppNativeNetEndpointParse(NuppNativeNetSlice, uint16_t, NuppNativeNetEndpoint *);
 int32_t nuppNativeNetEndpointText(const NuppNativeNetEndpoint *, uint8_t *, size_t, size_t *);
@@ -371,7 +371,7 @@ local function create(): contract.Provider
             enable: boolean,
             delaySeconds: integer
         ): (boolean, string?)
-            if C.nuppNativeNetStreamSetKeepAlive(stream, enable and 1 or 0, delaySeconds) ~= 0 then
+            if C.nuppNativeNetStreamSetKeepAliveMs(stream, enable and 1 or 0, delaySeconds * 1000) ~= 0 then
                 return false, reason("nupp: could not set the keepalive option")
             end
 

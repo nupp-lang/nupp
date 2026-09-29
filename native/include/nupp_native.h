@@ -327,8 +327,15 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamPeerAddress(
     uint64_t stream, NuppNativeNetAddress *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetNoDelay(
     uint64_t stream, int32_t enabled);
+/* Superseded by nuppNativeNetStreamSetKeepAliveMs, whose delay is in
+ * milliseconds like every other duration here; kept while the pinned
+ * stage-zero bundle names it. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetKeepAlive(
     uint64_t stream, int32_t enabled, uint32_t delay_seconds);
+/* The platform may round the delay to its own granularity, which is whole
+ * seconds on most. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetKeepAliveMs(
+    uint64_t stream, int32_t enabled, uint64_t delay_ms);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamRelease(uint64_t stream);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetAddressParse(
     NuppNativeNetSlice host, uint16_t port,
@@ -538,7 +545,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeHttpClientPoll(
     uint64_t client, NuppNativeHttpReady *output, size_t capacity,
     size_t *count, int32_t *more);
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpClientWait(
-    uint64_t client, uint64_t wait_ms,
+    uint64_t client, uint64_t timeout_ms,
     NuppNativeHttpReady *output, size_t capacity,
     size_t *count, int32_t *more);
 

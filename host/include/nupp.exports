@@ -279,6 +279,7 @@ nuppNativeNetStreamLocalAddress
 nuppNativeNetStreamPeerAddress
 nuppNativeNetStreamSetNoDelay
 nuppNativeNetStreamSetKeepAlive
+nuppNativeNetStreamSetKeepAliveMs
 nuppNativeNetStreamRelease
 nuppNativeNetAddressParse
 nuppNativeNetAddressText

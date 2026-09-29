@@ -931,24 +931,32 @@ pub extern "C" fn nuppNativeNetStreamSetKeepAlive(
     enabled: i32,
     delay_seconds: u32,
 ) -> i32 {
-    boundary(|| {
-        if enabled != 0 && delay_seconds == 0 {
-            return super::failed(
-                Status::InvalidArgument,
-                "network keepalive delay must be positive",
-            );
-        }
-        let (_, stream) = match stream(raw) {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
-        stream
-            .set_keep_alive(enabled != 0, Duration::from_secs(u64::from(delay_seconds)))
-            .map_or_else(
-                |error| stream_failed(&stream, &error),
-                |()| Status::Ok.code(),
-            )
-    })
+    boundary(|| keep_alive(raw, enabled, Duration::from_secs(u64::from(delay_seconds))))
+}
+
+#[unsafe(no_mangle)]
+/// Enables or disables keepalive probes after `delay_ms` of idleness. The
+/// platform may round the delay to its own granularity, which is whole
+/// seconds on most.
+pub extern "C" fn nuppNativeNetStreamSetKeepAliveMs(raw: u64, enabled: i32, delay_ms: u64) -> i32 {
+    boundary(|| keep_alive(raw, enabled, Duration::from_millis(delay_ms)))
+}
+
+fn keep_alive(raw: u64, enabled: i32, delay: Duration) -> i32 {
+    if enabled != 0 && delay.is_zero() {
+        return super::failed(
+            Status::InvalidArgument,
+            "network keepalive delay must be positive",
+        );
+    }
+    let (_, stream) = match stream(raw) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    stream.set_keep_alive(enabled != 0, delay).map_or_else(
+        |error| stream_failed(&stream, &error),
+        |()| Status::Ok.code(),
+    )
 }
 
 #[unsafe(no_mangle)]

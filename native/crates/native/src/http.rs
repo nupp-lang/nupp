@@ -736,7 +736,7 @@ pub unsafe extern "C" fn nuppNativeHttpClientPoll(
 /// Output pointers must be writable for their declared capacities.
 pub unsafe extern "C" fn nuppNativeHttpClientWait(
     raw: u64,
-    wait_ms: u64,
+    timeout_ms: u64,
     output: *mut HttpReady,
     capacity: usize,
     count: *mut usize,
@@ -748,7 +748,7 @@ pub unsafe extern "C" fn nuppNativeHttpClientWait(
             Err(status) => return status,
         };
         // SAFETY: forwarded caller output contract.
-        unsafe { poll_ready(&owner, Some(wait_ms), output, capacity, count, more) }
+        unsafe { poll_ready(&owner, Some(timeout_ms), output, capacity, count, more) }
     })
 }
 

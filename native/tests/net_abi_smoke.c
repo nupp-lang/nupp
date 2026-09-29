@@ -580,6 +580,13 @@ int main(void) {
     if (status != NUPP_NATIVE_OK) return failed("set no-delay", status);
     status = nuppNativeNetStreamSetKeepAlive(client, 1, 30);
     if (status != NUPP_NATIVE_OK) return failed("set keep-alive", status);
+    status = nuppNativeNetStreamSetKeepAliveMs(client, 1, 30000);
+    if (status != NUPP_NATIVE_OK) return failed("set keep-alive ms", status);
+    if (nuppNativeNetStreamSetKeepAliveMs(client, 1, 0)
+            != NUPP_NATIVE_INVALID_ARGUMENT) {
+        fprintf(stderr, "a zero keep-alive delay was accepted\n");
+        return 1;
+    }
 
     {
         size_t attempts;
