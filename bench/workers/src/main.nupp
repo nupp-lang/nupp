@@ -203,14 +203,14 @@ local lined = ("abcdefg\n"):rep(131072)
 local corpus = sharedbytes.copy(lined)
 local expectedLines = 131072
 
-if corpus:slice(9, 16):text() ~= "abcdefg\n" then
+if corpus:slice(8, 8):toString() ~= "abcdefg\n" then
     error("a region slice read the wrong bytes")
 end
-if corpus:slice(1, corpus:size()) ~= corpus then
+if corpus:slice(0, corpus:length()) ~= corpus then
     error("region extent equality failed")
 end
 with scope = workers.scope() do
-    const counted = scope:spawn(corpus, 1, corpus:size(), jobs.countRange):await()
+    const counted = scope:spawn(corpus, 0, corpus:length(), jobs.countRange):await()
     if counted ~= expectedLines then
         error("a region crossing miscounted: " .. tostring(counted))
     end
@@ -266,7 +266,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = workers.scope() do
         for _ = 1, SCAN_TASKS do
-            sink = sink + scope:spawn(corpus, 1, corpus:size(), jobs.countRange):await()
+            sink = sink + scope:spawn(corpus, 0, corpus:length(), jobs.countRange):await()
         end
     end
     if sample > 2 then

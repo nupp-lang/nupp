@@ -12,9 +12,13 @@ is one explicit call.
 const sharedbytes = nupp.mem.sharedbytes
 
 const region = sharedbytes.copy("hello, region")
-const hello = region:slice(1, 5)
-assert(hello:size() == 5 and hello:text() == "hello")
+const hello = region:slice(0, 5)
+assert(hello:length() == 5 and hello:toString() == "hello")
 ```
+
+A region is storage, so its positions are zero-based offsets and counts, as a
+[](nupp.io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
+name `count` bytes starting `offset` bytes in.
 
 A producer that has bytes only behind a pointer writes into builder storage
 directly through a reserve-and-commit pair, with no intermediate chunk string:
@@ -30,7 +34,7 @@ with writer = builder:reserve(5) do
 end
 builder:commit(5)
 builder:append("!")
-assert(builder:freeze():text() == "ABCDE!")
+assert(builder:freeze():toString() == "ABCDE!")
 ```
 ]]
 
@@ -74,7 +78,7 @@ local sharedbytes = {}
 
 --- An immutable extent of one engine-owned block. Crossing a worker boundary
 --- moves a reference, never the bytes; reading happens in place through a
---- borrowed byte view, and `text` is the one explicit copy into a Lua state.
+--- borrowed byte view, and `toString` is the one explicit copy into a Lua state.
 record sharedbytes.Region
     @private
     _handle: any
@@ -84,19 +88,20 @@ record sharedbytes.Region
     _length: integer
 
     --- How many bytes the region holds.
-    size: @nosuspend function(sharedbytes.Region): integer
+    length: @nosuspend function(sharedbytes.Region): integer
 
-    --- A zero-copy region over bytes `first` through `last` of this one.
+    --- A zero-copy region over `count` bytes starting `offset` bytes into this one.
     slice: function(sharedbytes.Region, integer, integer): sharedbytes.Region
 
-    --- A read-only borrowed view over the selected bytes, whole by default.
+    --- A read-only borrowed view over `count` bytes starting `offset` bytes in,
+    --- the whole region by default.
     view: function(borrows self: sharedbytes.Region, integer?, integer?): span.ByteSpan borrows (self)
 
     --- A checked zero-copy view of the complete region as physical elements.
     viewAs: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
 
     --- The region's bytes copied and interned as an ordinary string.
-    text: @nosuspend function(sharedbytes.Region): string
+    toString: @nosuspend function(sharedbytes.Region): string
 end
 
 local RegionMT: metatable<sharedbytes.Region> = {__index = sharedbytes.Region}
@@ -113,28 +118,35 @@ local function wrap(handle: any, first: integer, length: integer): sharedbytes.R
     return setmetatable({_handle = handle, _first = first, _length = length}, RegionMT) as sharedbytes.Region
 end
 
-function sharedbytes.Region:size(): integer
+function sharedbytes.Region:length(): integer
     return self._length
 end
 
---- @raises string when the bounds fall outside the region
-function sharedbytes.Region:slice(first: integer, last: integer): sharedbytes.Region
-    if first % 1 ~= 0 or last % 1 ~= 0 or first < 1 or last > self._length or first > last + 1 then
+-- Whether `count` bytes from `offset` lie inside `length`. A NaN fails every
+-- comparison, so each bound is asked for what it must be rather than what it must
+-- not be.
+local function inside(length: integer, offset: integer, count: integer): boolean
+    return offset % 1 == 0 and count % 1 == 0 and offset >= 0 and count >= 0 and offset + count <= length
+end
+
+--- @raises string when the extent falls outside the region
+function sharedbytes.Region:slice(offset: integer, count: integer): sharedbytes.Region
+    if not inside(self._length, offset, count) then
         error("nupp: a region slice is out of bounds", 2)
     end
 
-    return wrap(self._handle, self._first + first - 1, last - first + 1)
+    return wrap(self._handle, self._first + offset, count)
 end
 
---- @raises string when the bounds fall outside the region
-function sharedbytes.Region:view(first: integer?, last: integer?): span.ByteSpan
-    local from = first == nil and 1 or first as integer
-    local to = last == nil and self._length or last as integer
-    if from % 1 ~= 0 or to % 1 ~= 0 or from < 1 or to > self._length or from > to + 1 then
+--- @raises string when the extent falls outside the region
+function sharedbytes.Region:view(offset: integer?, count: integer?): span.ByteSpan
+    local from = offset == nil and 0 or offset as integer
+    local taking = count == nil and self._length - from or count as integer
+    if not inside(self._length, from, taking) then
         error("nupp: a region view is out of bounds", 2)
     end
 
-    return foreignByteSpan(self, native.pointer(self._handle), self._first + from - 2, to - from + 1)
+    return foreignByteSpan(self, native.pointer(self._handle), self._first - 1 + from, taking)
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
@@ -160,7 +172,7 @@ function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
 end
 
 --- @raises string when the region's engine storage has been released
-function sharedbytes.Region:text(): string
+function sharedbytes.Region:toString(): string
     local text = native.text(self._handle, self._first, self._first + self._length - 1)
     if text == nil then
         error("nupp: a region's storage has been released", 2)
@@ -182,14 +194,16 @@ end
 
 --- Reads a whole file directly into an engine-owned region, with no
 --- intermediate Lua string for the payload.
---- @raises string when the file cannot be opened, sized, or read
-function sharedbytes.readFile(path: string): sharedbytes.Region
+--- @param path the native path of the file to read
+--- @return the region, or nil when the file cannot be opened, sized, or read
+--- @return why it could not be read, when unsuccessful
+function sharedbytes.readFile(path: string): (sharedbytes.Region?, string?)
     local handle, problem = native.readFile(path)
     if handle == nil then
-        error("nupp: " .. tostring(problem), 2)
+        return nil, tostring(problem)
     end
 
-    return wrap(handle, 1, native.length(handle) as integer)
+    return wrap(handle, 1, native.length(handle) as integer), nil
 end
 
 --- An affine accumulator of engine storage. Appending grows one private

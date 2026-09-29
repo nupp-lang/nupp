@@ -604,7 +604,7 @@ export function echoDynamic(value: any): any
 end
 
 export function attachmentMarkers(value: any): string
-    return value.region:text()
+    return value.region:toString()
         .. ":" .. tostring(value.markers.region.__nuppRegion)
         .. ":" .. tostring(value.markers.moved.__nuppMoved)
         .. ":" .. tostring(value.markers.escaped.__nuppAttachmentTable.nested)
@@ -623,7 +623,7 @@ end
 const sharedbytes = require("nupp.mem.sharedbytes")
 
 export function firstByte(region: sharedbytes.Region): integer
-    return region:view(1, 1)[1]
+    return region:view(0, 1)[1]
 end
 
 const heap = require("nupp.mem.heap")
@@ -693,9 +693,9 @@ with scope = workers.scope() do
     dynamicSpare.extra = "spare"
     const extraPayload = scope:spawn(spare, jobs.echoPayload)
     const region = sharedbytes.copy("region payload")
-    const regionByte = scope:spawn(region:slice(8, 14), jobs.firstByte)
+    const regionByte = scope:spawn(region:slice(7, 7), jobs.firstByte)
     const markerResult = scope:spawn({
-        region = region:slice(1, 6),
+        region = region:slice(0, 6),
         markers = {
             region = {__nuppRegion = 17},
             moved = {__nuppMoved = 99},
@@ -742,7 +742,7 @@ with scope = workers.scope() do
         restoredNoted.note,
         regionByte:await(),
         markerResult:await(),
-        region:slice(1, 6):text()
+        region:slice(0, 6):toString()
     )
 end
 print(capture.run(40))
@@ -802,7 +802,7 @@ with writer = builder:reserve(3) do
 end
 builder:commit(2)
 builder:append("!")
-print(builder:freeze():text())
+print(builder:freeze():toString())
 
 local type Accounted = {accounted: @nosuspend function(): integer}
 local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
@@ -1200,7 +1200,7 @@ const sharedbytes = require("nupp.mem.sharedbytes")
 export function inspect(takes frame: heap.Array<uint8>, region: sharedbytes.Region): integer
     local count = frame.count
     frame:close()
-    return count + region:size()
+    return count + region:length()
 end
 ]],
         ["src/main.nupp"] = [[

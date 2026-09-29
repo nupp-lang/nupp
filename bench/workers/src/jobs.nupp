@@ -36,11 +36,11 @@ end
 const sharedbytes = require("nupp.mem.sharedbytes")
 
 export function regionSize(corpus: sharedbytes.Region): integer
-    return corpus:size()
+    return corpus:length()
 end
 
-export function countRange(corpus: sharedbytes.Region, first: integer, last: integer): integer
-    const bytes = corpus:view(first, last)
+export function countRange(corpus: sharedbytes.Region, offset: integer, count: integer): integer
+    const bytes = corpus:view(offset, count)
     local count: integer = 0
     for index = 1, #bytes do
         if bytes[index] == 0x0A then

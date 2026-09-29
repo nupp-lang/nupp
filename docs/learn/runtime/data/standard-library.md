@@ -150,10 +150,14 @@ automatic detection unless the packaging requires otherwise.
 
 ## Byte positions
 
-String functions inherited from Lua use 1-based positions. The byte container
-APIs use zero-based offsets, because an offset names a distance from the
-beginning and maps directly onto a native byte range. Each API page states its
-convention; do not pass a `string.find` position to a buffer method.
+Storage offsets count from zero; element indexes count from one. Storage is a
+[](nupp.io.Buffer), a [](nupp.io.ByteView), a
+[`sharedbytes.Region`](nupp.mem.sharedbytes) or an open file: a range in one is
+a zero-based offset and a count, because an offset names a distance from the
+beginning and maps directly onto a native byte range. An element view, a
+[span](nupp.mem.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
+string or [](nupp.text.utf8), use 1-based positions, as a Lua array and
+`string.sub` do. Do not pass a `string.find` position to a buffer method.
 
 ## Errors and ownership
 
