@@ -199,12 +199,12 @@ local function crossLane(exclusive output: span.WriteSpan<int32>, borrows input:
     local s = assert(simd.species(array.int32))
     local cursor: uint32 = 0
     while cursor + s.lanes <= #input do
-        local value = s:load(input, cursor + 1):reverse():prefixSumOrdered()
+        local value = s:load(input, cursor + 1):reverse():orderedPrefixSum()
         s:store(output, cursor + 1, value:compress(value > 0))
         cursor = cursor + s.lanes
     end
     local rest = s:tail(#input - cursor)
-    local value = s:load(input, cursor + 1, rest):reverse():prefixSumOrdered()
+    local value = s:load(input, cursor + 1, rest):reverse():orderedPrefixSum()
     s:store(output, cursor + 1, value:compress(value > 0), rest)
 end
 

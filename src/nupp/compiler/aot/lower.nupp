@@ -4024,7 +4024,7 @@ local function simdMethod(
                 type = vectorType,
                 source = source
             )
-        elseif genericFamily == "vector" and (method == "prefixSumOrdered" or method == "prefixXor") and #raw == 0 then
+        elseif genericFamily == "vector" and (method == "orderedPrefixSum" or method == "prefixXor") and #raw == 0 then
             if method == "prefixXor" and tostring(genericElement):sub(1, 1) == "f" then
                 kernel.context.reject(source, "SIMD prefixXor requires an integer vector element")
             end

@@ -2288,6 +2288,18 @@ return simd.reducer.xorBits(array.float, 0)
     )
 end
 
+-- The ordering policy leads the name, as it does in `orderedSum`.
+function M.theOrderedPrefixSumNamesItsPolicyFirst()
+    local source = [[
+local simd = require("nupp.simd")
+local value: simd.Vector<float, simd.Fixed<4>> = nil as any
+local prefix: simd.Vector<float, simd.Fixed<4>> = value:NAME()
+return prefix
+]]
+    clean((source:gsub("NAME", "orderedPrefixSum")))
+    assertEq(codes((source:gsub("NAME", "prefixSumOrdered"))), "NUPP2004")
+end
+
 function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     clean(
         table.concat(

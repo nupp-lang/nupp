@@ -44,7 +44,7 @@ local operations = {
     {"deinterleaveSecond", "deinterleaved2", "2 * i <= n and a[2 * i] or 2"},
     {"compress", "a:compress(selected)", "packed[i] or 0"},
     {"expand", "a:expand(selected)", "selectedLanes[i] and a[ranks[i]] or 0"},
-    {"prefixSum", "a:prefixSumOrdered()", "prefix[i]"},
+    {"prefixSum", "a:orderedPrefixSum()", "prefix[i]"},
     {"maskAnd", "selected:select(a, b)", "selectedLanes[i] and a[i] or 2"},
     {"maskOr", "((a > 7) | tail):select(4, 2)", "(a[i] > 7 or i <= active) and 4 or 2"},
     {"maskXor", "((a > 7) ~ tail):select(4, 2)", "((a[i] > 7) ~= (i <= active)) and 4 or 2"},

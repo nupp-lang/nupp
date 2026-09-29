@@ -6454,7 +6454,7 @@ local function crossLane(exclusive out: span.WriteSpan<int32>, borrows input: sp
     local positive = v > s:splat(0)
     s:store(out, 1, v:compress(positive))
     s:store(out, 9, v:compress(positive):expand(positive))
-    s:store(out, 17, v:prefixSumOrdered())
+    s:store(out, 17, v:orderedPrefixSum())
     s:store(out, 25, v:prefixXor())
     s:store(out, 33, s:splat(nupp.math.i32.wrap(positive:count() as integer)))
     s:store(out, 41, s:splat(nupp.math.i32.wrap(positive:first() as integer)))

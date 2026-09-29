@@ -1413,8 +1413,9 @@ sealed interface simd.Vector<T, S>
     --- Distributes packed lanes into selected positions and zeroes the rest.
     expand: function(borrows self: simd.Vector<T, S>, selected: simd.Mask<T, S>): simd.Vector<T, S>
 
-    --- Inclusive, logical-lane-order prefix operations.
-    prefixSumOrdered: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
+    --- Inclusive, logical-lane-order prefix operations. The ordered sum adds lanes
+    --- from the first, the way `orderedSum` does.
+    orderedPrefixSum: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 
     prefixXor: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 end

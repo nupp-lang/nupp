@@ -1500,7 +1500,7 @@ local function crossLane(borrows input: span.Span<number>): number
     local v = s:load(input, 1, active)
     local packed = v:compress(active)
     local spread = packed:expand(active)
-    local scanned = spread:prefixSumOrdered()
+    local scanned = spread:orderedPrefixSum()
     local bits = si:iota(1, 1):prefixXor()
     local total: number = simd.horizontal.orderedSum(scanned)
     return total + (bits:extract(1) as number) + (active:count() as number)

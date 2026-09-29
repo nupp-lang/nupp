@@ -2529,7 +2529,7 @@ local function transform(
     local packed = values:compress(selected)
     local expanded = packed:expand(selected)
     local aligned = values:align(values:reverse(), 2):rotateLeft(1):rotateRight(1)
-    local prefix = expanded:prefixSumOrdered()
+    local prefix = expanded:orderedPrefixSum()
     local parity = values:prefixXor()
     species:store(output, 1, prefix + aligned + parity, active)
     local bits = selected:bits()
