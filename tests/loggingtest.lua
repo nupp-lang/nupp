@@ -545,4 +545,48 @@ function M.theLoggingViewLandsOnlyInModulesThatLog()
     assertTrue(with:find('require("nupp.log")', 1, true) ~= nil, "and a module that logs requires it once")
 end
 
+-- Every call written through the `nupp.log` path runs from a generated module rather
+-- than only checking. The path reaches the module table; the lowered severity sites
+-- reach a per-module view carrying only `on` and `emit`, and a module that did both
+-- used to hand the path the view, so `nupp.log.level()` called nil (ER-009).
+function M.everyPathCallRunsFromAModule()
+    local log = runtime()
+    local saved = log.sink()
+    log.level("warn")
+    local code = compile(
+        table.concat(
+            {
+                "return function(sink: nupp.log.Sink): {any}",
+                "    local answers: {any} = {}",
+                "    answers[#answers + 1] = nupp.log.level('debug')",
+                "    answers[#answers + 1] = nupp.log.level()",
+                "    answers[#answers + 1] = nupp.log.setLevel('amb.other', 'error')",
+                "    answers[#answers + 1] = nupp.log.setLevel('amb.other', 'inherit')",
+                "    answers[#answers + 1] = nupp.log.enabled('info')",
+                "    nupp.log.sink(sink)",
+                "    answers[#answers + 1] = nupp.log.levelName(3)",
+                "    nupp.log.named('amb.named'):info('named %d', 1)",
+                "    nupp.log.info('lowered %d', 2)",
+                "    return answers",
+                "end",
+            },
+            "\n"
+        ),
+        "amb"
+    )
+    local lines, sink = recorder()
+    local chunk, why = loadstring(code, "@path-calls")
+    assertTrue(chunk ~= nil, why)
+    local answers = chunk()(sink)
+    log.sink(saved)
+    log.level("warn")
+    local want = {"warn", "debug", "debug", "error", true, "info",}
+    for index, value in ipairs(want) do
+        assertEq(answers[index], value, "path call " .. index)
+    end
+    assertEq(#lines, 2, "the named logger and the lowered site both reached the sink")
+    assertEq(lines[1].module, "amb.named", "the named logger carries its name")
+    assertEq(lines[2].module, "amb", "the lowered site carries the module")
+end
+
 return M

@@ -6723,9 +6723,10 @@ function gen.generate(
             -- Reached through the compiler-module registry rather than a binding of its
             -- own, because `emit` sits at Lua's 60-upvalue ceiling and an instrumented
             -- build spends one more. The name it answers is bound to a view that
-            -- already
-            -- knows the module, so a site carries only its severity and its line.
-            local logName = compilerModuleName("nupp.log")
+            -- already knows the module, so a site carries only its severity and its
+            -- line. The view has its own key: a path such as `nupp.log.level` reaches
+            -- the module table under "nupp.log", and the view has only `on` and `emit`.
+            local logName = compilerModuleName("nupp.log#view")
             e(("if %s.on[%d] then %s.emit(%d,%d,"):format(logName, severity, logName, severity, line), line)
             local formatPlan = call.logFormatIntrinsic
             if formatPlan then
@@ -9681,10 +9682,10 @@ function gen.generate(
     -- Bound here rather than with the required modules below, because those are
     -- independent of the bootstrap and this one is not: it reads the table the
     -- installer publishes, so it has to land after it rather than before.
-    if compilerModules["nupp.log"] then
+    if compilerModules["nupp.log#view"] then
         code = (
             "const %s = require(\"nupp.log\").forModule(%q); "
-        ):format(compilerModules["nupp.log"], result.moduleName or filename or "?") .. code
+        ):format(compilerModules["nupp.log#view"], result.moduleName or filename or "?") .. code
     end
     local runtimeBootstrap = stdlib.bootstrap(runtimeEffects, hotState ~= nil, installingManaged)
     if pluck.storage.enabled and runtimeEffects["runtime.cstorage"] then
@@ -9928,7 +9929,7 @@ function gen.generate(
     for _, moduleName in ipairs(compilerModuleOrder) do
         -- The logging view is not the module table: a site indexes a per-module view
         -- that `forModule` answers, so it is bound above rather than required here.
-        if moduleName ~= "nupp.log" then
+        if moduleName ~= "nupp.log#view" then
             code = ("const %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
         end
     end
