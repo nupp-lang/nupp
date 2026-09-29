@@ -189,7 +189,7 @@ local embedded = (package.preload["nupp.embedded"] as any)()
 print(embedded["/asset.txt"])
 ]],
     })
-    local out = capture(("cd %q && %q build --out-dir alternate"):format(dir, NUPP))
+    local out = capture(("cd %q && %q build --output alternate"):format(dir, NUPP))
     assertEq(out, "", "project output override builds a resource bundle")
     local ran = capture(("cd %q && luajit alternate/application.lua"):format(dir))
     assertEq(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")

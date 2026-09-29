@@ -271,17 +271,13 @@ local function run(options: any): integer
         return usageError(compatError)
     end
     local paths: {string} = positional
-    -- `-o` and `--out-dir` both name a directory but answer different questions, so
-    -- they are separate keys rather than aliases of one.
-    local outDir, projectOutDir = values.outDir, values.projectOutDir
+    -- `--output` names the directory the build writes into in either shape: the
+    -- manifest target's output directory, or where explicit source files land.
+    local outDir: string? = #paths > 0 and values.output or nil
+    local projectOutDir: string? = #paths == 0 and values.output or nil
     local target = values.target
-    if #paths > 0 and (projectOutDir or target or values.platform or values.standalone or values.host) then
-        return usageError(
-            "--target, --platform, --host, --standalone and --out-dir cannot be used with explicit source files"
-        )
-    end
-    if #paths == 0 and outDir then
-        return usageError("-o requires at least one explicit source file")
+    if #paths > 0 and (target or values.platform or values.standalone or values.host) then
+        return usageError("--target, --platform, --host and --standalone cannot be used with explicit source files")
     end
     -- A positional is a source file, and a target is named with `--target`. `nupp build
     -- docs` reads as the first and means the second, so the two are told apart here
@@ -548,13 +544,9 @@ local record Build
     --- Link native FFI and AOT code into the binary host.
     standalone: boolean = false
 
-    --- Override the manifest target's output directory.
-    @cli(name = "out-dir", value = "DIR")
-    projectOutDir: string?
-
-    --- Output directory for explicit source-file builds.
-    @cli(name = "o", short = "o", long = false, value = "DIR")
-    outDir: string?
+    --- Output directory, overriding the target's.
+    @cli(short = "o", value = "DIR")
+    output: string?
 
     --- Treat strict checker rules as errors.
     strict: boolean = false

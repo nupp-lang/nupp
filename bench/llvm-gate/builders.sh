@@ -15,12 +15,12 @@ ROUNDS=${1:-3}
 
 build() {
     backend=$1
-    (cd bench/sha256 && ../../bin/nupp build --target sha256 --out-dir "build/aot-$backend" >/dev/null)
-    (cd bench/fused-json && ./prepare.sh >/dev/null && ../../bin/nupp build --target fused-json --out-dir "build/$backend" >/dev/null)
+    (cd bench/sha256 && ../../bin/nupp build --target sha256 --output "build/aot-$backend" >/dev/null)
+    (cd bench/fused-json && ./prepare.sh >/dev/null && ../../bin/nupp build --target fused-json --output "build/$backend" >/dev/null)
 }
 
 build llvm
-(cd bench/sha256 && ../../bin/nupp build --target sha256-scalar --out-dir build/scalar >/dev/null)
+(cd bench/sha256 && ../../bin/nupp build --target sha256-scalar --output build/scalar >/dev/null)
 
 # The benchmark reads `build/aot`, so that names the build measured.
 sha256() {

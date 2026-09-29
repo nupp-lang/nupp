@@ -128,7 +128,7 @@ local function bundleText(
     component: boolean?,
     builtOutDir: string?
 ): string?, string?, {string}?
-    -- A caller may build a target beneath `--out-dir` without changing the
+    -- A caller may build a target beneath `--output` without changing the
     -- manifest target. Bundle the files that build just wrote, not the target's
     -- usual directory.
     local outDir = builtOutDir or target.outDir or "build"

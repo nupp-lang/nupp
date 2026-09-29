@@ -889,39 +889,38 @@ Arguments:
   FILE  Source files to build.
 
 Options:
-  --target NAME        Build a named manifest target.
-  --platform NAME      Build one configured binary platform, or all.
-  --standalone         Link native FFI and AOT code into the binary host.
-  --out-dir DIR        Override the manifest target's output directory.
-  -o DIR               Output directory for explicit source-file builds.
-  --strict             Treat strict checker rules as errors.
-  --host HOST          Runtime host services.
-  --compat PROFILE     Enforce the stock Lua 5.1 source subset without
-                       compatibility lowering.
-  -O0, -O1, -O2        Optimization level.
-  --remarks            Report what the optimizer did and what it declined to
-                       do.
-  --remarks-file PATH  Only report optimizer decisions for this source file.
-  --remarks-out        Write the optimizer's account to build/remarks.json.
-  -Zno-opt=CODE        Turn off one optimizer pass by stable code.
+  --target NAME         Build a named manifest target.
+  --platform NAME       Build one configured binary platform, or all.
+  --standalone          Link native FFI and AOT code into the binary host.
+  --output DIR, -o DIR  Output directory, overriding the target's.
+  --strict              Treat strict checker rules as errors.
+  --host HOST           Runtime host services.
+  --compat PROFILE      Enforce the stock Lua 5.1 source subset without
+                        compatibility lowering.
+  -O0, -O1, -O2         Optimization level.
+  --remarks             Report what the optimizer did and what it declined to
+                        do.
+  --remarks-file PATH   Only report optimizer decisions for this source file.
+  --remarks-out         Write the optimizer's account to build/remarks.json.
+  -Zno-opt=CODE         Turn off one optimizer pass by stable code.
   --progress[=WHEN], -q, --quiet
-                       When to report progress and timing.
+                        When to report progress and timing.
   --format FORMAT, --json, --text
-                       Select the report representation.
-  --schema             Print the JSON Schema of JSON output and exit.
-  -h, --help           Show this help
-  --color[=WHEN]       When to color output: always, never, or auto
-  --no-color           Never color output
+                        Select the report representation.
+  --schema              Print the JSON Schema of JSON output and exit.
+  -h, --help            Show this help
+  --color[=WHEN]        When to color output: always, never, or auto
+  --no-color            Never color output
 ```
 
 #### Output directories
 
-`-o` is for explicit source-file builds and `--out-dir` overrides a manifest
-target's output directory. They are different options, and using one in the
-other's mode is an error:
+`--output` (`-o`) names the directory the build writes into. In a project
+build it overrides the manifest target's output directory; with explicit
+source files it is where their Lua lands, `build` when it is not given:
 
 ```bash
-nupp build --target app --out-dir dist
+nupp build --target app --output dist
 nupp build -o dist src/greet.nupp
 ```
 
@@ -1885,7 +1884,8 @@ Arguments:
   HEADER  C header to import.
 
 Options:
-  --out FILE, -o FILE  Write the generated module to this file.
+  --output FILE, -o FILE
+                       Write the generated module to this file.
   --lib NAME, -l NAME  Name the native library loaded by the bindings.
   --bridge-out FILE    Emit C wrappers for eligible static inline functions.
   --inspect            Report declaration dispositions without writing output.

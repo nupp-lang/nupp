@@ -57,7 +57,7 @@ local function run(options: any): integer
     local asJson = options.format == "json"
     local reportMod = require("nupp.tools.cli.report")
     local importc = require("nupp.compiler.cinterop.importc")
-    local out = options.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local out = options.output or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
     local config = require("nupp.tools.build.manifest").load(".")
     local envMod = require("nupp.compiler.project.env")
     local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
@@ -176,7 +176,7 @@ end
 local record ImportC
     --- Write the generated module to this file.
     @cli(short = "o", value = "FILE")
-    out: string?
+    output: string?
 
     --- Name the native library loaded by the bindings.
     @cli(short = "l", value = "NAME")

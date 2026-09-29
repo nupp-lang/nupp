@@ -453,6 +453,19 @@ function M.skippedDeclarationsAreCountedOnTheWayOut()
    assertContains(warnings[1], "1 of 4 declarations skipped")
 end
 
+function M.theOutputFlagIsSpelledLikeEveryOtherCommands()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write('return {include = {"src"}}\n')
+   manifest:close()
+   local output, ok = runCli(dir, ("--output src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
+   assert(ok, "import-c --output writes the module: " .. output)
+   assertContains(readFile(dir .. "/src/mini.nupp"), "module mini")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.bridgeWriteFailureDoesNotRestyleEarlierWarningsAsErrors()
    if package.config:sub(1, 1) == "\\" then
       require("assert").skip("POSIX directory permissions provide this failure seam")

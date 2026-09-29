@@ -2694,7 +2694,7 @@ if arg[0]:match("stage0%.lua$") then
 end
 local output
 for index = 1, #arg do
-   if arg[index] == "--out-dir" then output = arg[index + 1] end
+   if arg[index] == "--out-dir" or arg[index] == "--output" then output = arg[index + 1] end
 end
 assert(output)
 os.execute('mkdir "' .. output .. '"')

@@ -2,7 +2,7 @@
 set -eu
 
 cd "$(dirname "$0")"
-../../bin/nupp build --out-dir build
+../../bin/nupp build --output build
 
 LUA_PATH='build/?.lua;build/?/init.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
 LUA_CPATH='../../.rocks/lib/lua/5.1/?.so;;' \

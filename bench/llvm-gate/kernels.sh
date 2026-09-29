@@ -20,8 +20,8 @@ case "$(uname -s)" in
 esac
 
 for tier in $TIERS; do
-    "$ROOT/bin/nupp" build --target "$tier" --out-dir "build/llvm-$tier" >/dev/null
-    NUPP_AOT_FACTS=$BASE "$ROOT/bin/nupp" build --target "$tier" --out-dir "build/base-$tier" >/dev/null
+    "$ROOT/bin/nupp" build --target "$tier" --output "build/llvm-$tier" >/dev/null
+    NUPP_AOT_FACTS=$BASE "$ROOT/bin/nupp" build --target "$tier" --output "build/base-$tier" >/dev/null
     printf '\n## %s: every fact against facts=%s\n\n' "$tier" "$BASE"
     luajit ../compare.lua "build/base-$tier/lib/lib${tier}_aot.$EXT" "build/llvm-$tier/lib/lib${tier}_aot.$EXT" \
         "build/llvm-$tier/aot/src/kernels.$tier.ll" "$ROUNDS"

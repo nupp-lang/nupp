@@ -1789,7 +1789,10 @@ local function buildWithCompiler(
     end
     argv[#argv + 1] = compiler
     argv[#argv + 1] = "build"
-    argv[#argv + 1] = "--out-dir"
+    -- The pinned stage zero predates `--output` and knows the directory only as
+    -- `--out-dir`; every later stage is built from this tree and knows only
+    -- `--output`. The stage-zero spelling goes when the pin moves past it.
+    argv[#argv + 1] = packageRoot and "--output" or "--out-dir"
     argv[#argv + 1] = outDir
     if targetName then
         argv[#argv + 1] = "--target"
