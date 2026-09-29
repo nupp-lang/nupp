@@ -1582,6 +1582,7 @@ With `--json` the progress marks go to stderr and one document stays on stdout:
 
 ```json [nupp test elseiftest --json]
 {
+  "schemaVersion": 1,
   "ok": true,
   "total": 8,
   "passed": 8,
@@ -1609,7 +1610,8 @@ With `--json` the progress marks go to stderr and one document stays on stdout:
 
 `notExecuted` counts cases the current runtime could not support. These records
 do not fail the run. `--list-cases` prints stable IDs, `--case` selects one, and
-`--rerun` reads the failed records from an earlier JSON report.
+`--rerun` reads the failed records from an earlier JSON report, and refuses one
+whose `schemaVersion` is not its own.
 
 A failing record carries the message and the file and line the error came from.
 `suites` says what a suite cost beyond its cases -- compiling or loading it, and

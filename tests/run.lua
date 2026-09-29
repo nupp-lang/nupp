@@ -66,6 +66,10 @@ end
 
 local testJson = require("testjson")
 
+-- The version of the --json report, which `--rerun` reads back. A report of any
+-- other version is refused rather than migrated.
+local REPORT_SCHEMA_VERSION = 1
+
 -- A failure message may quote whatever bytes a case produced, and a JSON report
 -- cannot carry bytes that are not UTF-8: one such message used to lose the whole
 -- report. Each byte outside a well-formed sequence is written as `\xNN` instead.
@@ -496,6 +500,14 @@ if rerunReport ~= nil then
     local decoded, report = pcall(testJson.decode, text)
     if not decoded or type(report) ~= "table" or type(report.tests) ~= "table" then
         io.stderr:write(("nupp: %s is not a test JSON report\n"):format(rerunReport))
+        os.exit(2)
+    end
+    if report.schemaVersion ~= REPORT_SCHEMA_VERSION then
+        local found = report.schemaVersion == nil and "has no schema version"
+            or ("is a test report of schema version %s"):format(tostring(report.schemaVersion))
+        io.stderr:write(
+            ("nupp: %s %s; this runner reads schema version %d\n"):format(rerunReport, found, REPORT_SCHEMA_VERSION)
+        )
         os.exit(2)
     end
     local rerunFailureCount = 0
@@ -3377,6 +3389,7 @@ elseif asJson then
     utf8Strings(results)
     io.write(
         json.encode({
+            schemaVersion = REPORT_SCHEMA_VERSION,
             ok = report.ok,
             total = total,
             passed = passed,

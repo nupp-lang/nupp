@@ -326,7 +326,7 @@ end}
     write(
         dir .. "/infrastructure-failures.json",
         [[
-{"tests":[
+{"schemaVersion":1,"tests":[
   {"id":"Nupp worker 1/<shard>","suite":"Nupp worker 1","name":"<shard>","status":"failed"},
   {"id":"featuretest/<unrun>","suite":"featuretest","name":"<unrun>","status":"failed"}
 ]}
@@ -343,7 +343,7 @@ end}
     write(
         dir .. "/worker-only-failure.json",
         [[
-{"tests":[
+{"schemaVersion":1,"tests":[
   {"id":"Nupp worker 1/<shard>","suite":"Nupp worker 1","name":"<shard>","status":"failed"}
 ]}
 ]]
@@ -865,6 +865,27 @@ function M.aNameMatchingNoSuiteIsAFailure()
     local out, missing = runWorkerHost("nosuchsuitetest --timings=0")
     test.matches(out, "no tests were discovered")
     test.equal(missing.status, 1, "discovering nothing exits unsuccessfully" .. evidence(missing))
+end
+
+-- A report fed to --rerun is read by a later runner than the one that wrote it.
+-- One of another schema version is refused, naming both, rather than read as
+-- though its records meant what this runner's do.
+function M.aRerunRefusesAReportOfAnotherSchemaVersion()
+    local path = os.tmpname()
+    for _, case in ipairs({
+        {'"schemaVersion":0,', "is a test report of schema version 0"},
+        {"", "has no schema version"},
+    }) do
+        write(
+            path,
+            "{" .. case[1] .. '"tests":[{"id":"reruntest/fails","suite":"reruntest","name":"fails","status":"failed"}]}'
+        )
+        local output, invocation = runWorkerHost(("--rerun=%s --timings=0"):format(path))
+        test.equal(invocation.status, 2, "a report of another schema version was rerun" .. evidence(invocation))
+        test.matches(output, case[2])
+        test.matches(output, "this runner reads schema version 1")
+    end
+    os.remove(path)
 end
 
 function M.unknownRunnerOptionIsRejectedBeforeDiscovery()

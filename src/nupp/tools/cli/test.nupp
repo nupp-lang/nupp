@@ -40,6 +40,11 @@ local REPORT_SCHEMA = {
     .. "`--coverage --report-json` answers with `#/definitions/coverageReport` "
     .. "instead, which is a report rather than a run.",
     properties = {
+        schemaVersion = {
+            type = "integer",
+            enum = {1},
+            description = "The report's version. `--rerun` reads only a report of its own version."
+        },
         ok = {type = "boolean"},
         total = {type = "integer"},
         passed = {type = "integer"},
@@ -187,6 +192,7 @@ local REPORT_SCHEMA = {
         },
     },
     required = {
+        "schemaVersion",
         "ok",
         "total",
         "passed",

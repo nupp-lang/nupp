@@ -187,8 +187,9 @@ nupp test --json > build/test-report.json
 nupp test --rerun=build/test-report.json
 ```
 
-Exact selection and report reruns select known failures. They do not infer
-which other tests a source edit can affect. A failed lifecycle hook or an
+A report carries a `schemaVersion`, and `--rerun` refuses one of another
+version. Exact selection and report reruns select known failures. They do not
+infer which other tests a source edit can affect. A failed lifecycle hook or an
 unreported worker piece reruns its whole suite because neither is an ordinary
 case.
 
