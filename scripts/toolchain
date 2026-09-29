@@ -862,6 +862,14 @@ host_export_arguments() {
     esac
 }
 
+# A host that links libnupp.a is an executable, and LuaJIT's ffi.C finds the
+# provider's nuppNative* symbols only among what that executable exports. macOS
+# executables export them already; a Linux one needs -rdynamic.
+static_host_export_flags() {
+    [ "$UNAME" = Linux ] && printf '%s\n' -rdynamic
+    return 0
+}
+
 embedding_library_filename() {
     case "$PLATFORM" in
         darwin) printf '%s\n' libnupp.dylib ;;
@@ -1409,10 +1417,12 @@ build_host() {
             printf '  "staticLinkFlags": ['
             separator=''
             while IFS= read -r flag; do
+                [ -n "$flag" ] || continue
                 printf '%s"%s"' "$separator" "$flag"
                 separator=', '
             done <<EOF
 $(host_system_flags "$selected_cargo_features")
+$(static_host_export_flags)
 EOF
             printf '],\n'
             if [ "$PLATFORM" = windows ]; then

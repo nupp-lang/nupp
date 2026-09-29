@@ -115,8 +115,9 @@ Use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH` on Linux. Static linking
 uses `libnupp.a`, which contains the pinned LuaJIT VM, the Rust host, and the
 exact-feature Rust native provider. Pass the `staticLinkFlags` array from
 `link.json` to the C linker after the archive; it includes the system libraries
-and frameworks selected by the SDK features. The SDK does not require separate
-LuaJIT, LPeg, or provider archives.
+and frameworks selected by the SDK features and, on Linux, `-rdynamic`, without
+which LuaJIT cannot find the provider's symbols in the host executable. The SDK
+does not require separate LuaJIT, LPeg, or provider archives.
 
 The dynamic library exports what `host/include/nupp.exports` lists and nothing
 else: the `nupp_*` functions in the header, the native provider the runtime
