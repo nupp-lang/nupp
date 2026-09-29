@@ -111,59 +111,60 @@ Both return a value that `write` appends without another walk or validation.
 string-only form accepted by both `key` and `write`; these handles are interned,
 so repeated schema keys share their encoded representation.
 
-## Derived records
+## Typed documents
 
-For a record deriving `nupp.derive.JSON`, `writeRecord(value, writer)` discovers
-the record's type witness from the value. `writeAs(Record, value, writer)` and
-`decodeAs(Record, text)` accept the visible record name directly. `encodeRecord`
-and `encodeAs` allocate and return a complete string for callers that
-specifically need one.
+A record or struct that derives `nupp.derive.Serde` is encoded and decoded
+through a codec from `newCodec`, which prepares the type's binding once and
+then reads and writes it in one traversal:
 
-The generated `writeJSON(writer)` member writes through the same checked API, so
-a derived record can occupy the root or any value position in a larger document.
-Derived schemas lazily cache their encoded field names and literal values.
+```nupp
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+end
 
-These five members are installed onto the module by the derive runtime rather
-than answered by the codec, so each raises when nothing derived JSON for the
-type it was handed.
+local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
+local user, problem = prepared:decode([[{"id":41}]])
+assert(problem == nil and user and user.id == 41)
+assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
+```
+
+`newCodec{unknownMembers = "ignore"}` accepts members the schema does not name,
+and `fieldNames` renames members on the wire.
 
 ::: seealso
+- [](nupp.serde) for schemas, bindings and the prepared traversal
 - [reflection.md](docs/learn/language/reflection.md#json-through-a-type-witness) for
-  the derived schema and the generated `writeJSON` and `fromJSON` members
-- [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
-  to a declaration
-- [](nupp.serde) for schema-driven serialization
+  the `nupp.derive.JSON` members a record can carry for itself
 :::
 ]==]
 const {type Buffer} = require("nupp.text")
+const {type JsonCodec, type JsonProfile} = require("nupp.serde")
 
 const native = require("nupp.codec.json.provider")
+
+const contracts = require("nupp.codec.json.spi")
 
 --- A complete JSON value whose immutable bytes have already been encoded or
 --- validated.
 ---
 --- Values come from `encoded` or `verified`; the private token prevents checked
 --- callers from manufacturing an unverified fast-path value.
-export record EncodedValue
-    @private
-    _token: any
-end
+--- @export
+export type EncodedValue = contracts.EncodedValue
 
 --- A JSON string whose immutable encoded bytes have already been produced or
 --- validated.
 ---
 --- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
 --- Values produced by `encodedString` and `verifiedString` are interned.
-export record EncodedString
-    @private
-    _token: any
-end
+--- @export
+export type EncodedString = contracts.EncodedString
 
 --- Values that can write one complete JSON value through a checked writer.
 ---
---- Declared here rather than aliased out of the host boundary, because this is the
---- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
---- below names the incremental encoder returned by `newWriter()`.
+--- `derive.JSON` answers a contract in terms of it, and a hand-written record
+--- satisfies it with a `writeJSON` member:
 ---
 --- ```nupp
 --- local record Money is nupp.codec.json.JSONEncodable
@@ -174,14 +175,10 @@ end
 ---     end
 --- end
 --- ```
-export interface JSONEncodable
-    --- Writes this value at the writer's current value position.
-    --- @param self the value being encoded
-    --- @param out the checked destination
-    writeJSON: function(self, exclusive out: Writer): nil
-end
+--- @export
+export type JSONEncodable = contracts.JSONEncodable
 
---- A checked incremental JSON writer.
+--- A checked incremental JSON writer, which `newWriter` answers.
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
@@ -191,135 +188,7 @@ end
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export interface Writer is nupp.Closeable
-    --- Starts an array value.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startArray():write("first"):endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[\"first\"]")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    startArray: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Starts an object value.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startObject():endObject()
-    --- writer:close()
-    --- assert(out:tostring() == "{}")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    startObject: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Selects the next object member.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startObject():key("answer"):write(42):endObject()
-    --- writer:close()
-    --- assert(out:tostring() == [[{"answer":42}]])
-    --- ```
-    --- @param self the writer
-    --- @param name the next member name
-    --- @return this writer
-    key: function(exclusive self: Writer, name: string): Writer borrows (self)
-        & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
-
-    --- Appends one complete Lua value.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startArray():write({id = 41}):endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[{\"id\":41}]")
-    --- ```
-    --- @param self the writer
-    --- @param value the next JSON value
-    --- @return this writer
-    write: function(
-        exclusive self: Writer,
-        value: string | number | boolean | {any} | {[string]: any}
-    ): Writer borrows (self)
-        & function(
-            exclusive self: Writer,
-            value: EncodedValue | EncodedString
-        ): Writer borrows (self)
-
-    --- Appends JSON null.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startArray():null():endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[null]")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    null: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Ends the current array.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startArray():startObject():endObject():endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[{}]")
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    endArray: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Ends the current object.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startObject():key("items"):startArray():endArray():endObject()
-    --- writer:close()
-    --- assert(out:tostring() == [[{"items":[]}]])
-    --- ```
-    --- @param self the writer
-    --- @return this writer
-    endObject: function(exclusive self: Writer): Writer borrows (self)
-
-    --- Publishes staged bytes without ending the document.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:startArray():write(1)
-    --- writer:flush()
-    --- assert(out:tostring() == "[1")
-    --- writer:endArray()
-    --- writer:close()
-    --- assert(out:tostring() == "[1]")
-    --- ```
-    --- @param self the writer
-    flush: @nosuspend function(exclusive self: Writer): nil
-
-    --- Verifies and publishes one complete root, then releases backing state.
-    ---
-    --- ```nupp
-    --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
-    --- writer:write({ok = true})
-    --- writer:close()
-    --- assert(out:tostring() == [[{"ok":true}]])
-    --- ```
-    --- @param self the writer
-    close: @nosuspend function(takes self: Writer): nil
-end
+export type Writer = contracts.Writer
 
 local record WriterImpl is Writer
     @private
@@ -609,116 +478,12 @@ export function newWriter(exclusive out: Buffer, nullValue: any?): Writer
     return new WriterImpl(raw = native.writer(out, nullValue))
 end
 
---- Decodes JSON into the nominal record named by a type witness.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local user, problem = nupp.codec.json.decodeAs(User, [[{"id":41}]])
---- assert(problem == nil and user and user.id == 41)
---- ```
---- @param type the record type to decode
---- @param text the JSON document
---- @return the decoded record, or nil when it does not fit
---- @return the failure reason, when unsuccessful
---- @raises string when JSON was not derived for the type
---- @export
-export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Writes a nominal record after explicitly supplying its type witness.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.newWriter(out)
---- nupp.codec.json.writeAs(User, new User(id = 41), writer)
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param type the record type being encoded
---- @param value the record value
---- @param out the checked destination
---- @raises string when JSON was not derived for the type
---- @export
-export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: Writer): nil
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Writes a nominal record using its own metatable as the type witness.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.newWriter(out)
---- nupp.codec.json.writeRecord(new User(id = 41), writer)
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param value the record value
---- @param out the checked destination
---- @raises string when JSON was not derived for the type
---- @export
-export function writeRecord<T>(borrows value: T, exclusive out: Writer): nil
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Encodes a nominal record named by a type witness into a new string.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local text = nupp.codec.json.encodeAs(User, new User(id = 41))
---- assert(text == [[{"id":41}]])
---- ```
---- @param type the record type being encoded
---- @param value the record value
---- @return the JSON document
---- @raises string when JSON was not derived for the type
---- @export
-export function encodeAs<T>(type: Type<T>, borrows value: T): string
-    error("nupp: JSON was not derived for this type", 2)
-end
-
---- Encodes a nominal record using its own metatable into a new string.
----
---- ```nupp
---- @derive(nupp.derive.JSON)
---- local record User
----     id: integer
---- end
----
---- local text = nupp.codec.json.encodeRecord(new User(id = 41))
---- assert(text == [[{"id":41}]])
---- ```
---- @param value the record value
---- @return the JSON document
---- @raises string when JSON was not derived for the type
---- @export
-export function encodeRecord<T>(borrows value: T): string
-    error("nupp: JSON was not derived for this type", 2)
-end
-
 --- Creates a schema-driven JSON codec with one immutable wire profile.
 ---
 --- The codec prepares a `nupp.serde.Binding<T>` once and then performs each
---- complete scalar structure traversal in one native call. Format-owning JSON derives
---- remain available as compatibility APIs.
+--- complete scalar structure traversal in one native call. It is the one typed
+--- JSON entry point: derive `nupp.derive.Serde` for the type and prepare its
+--- binding here.
 ---
 --- ```nupp
 --- @derive(nupp.derive.Serde)
@@ -730,12 +495,14 @@ end
 --- local prepared = codec:prepare(nupp.serde.of(User))
 --- assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
 --- ```
---- @param options fieldNames and unknownMembers profile policy
+--- @param options the wire policy: unknownMembers and fieldNames
 --- @return the schema-driven codec
---- @raises string when the profile is invalid
+--- @raises string when unknownMembers is not reject or ignore
 --- @export
-export function newCodec(options: any?): any
-    return _G.require("nupp.serde").json(options)
+export function newCodec(options: JsonProfile?): JsonCodec
+    -- Loaded on first use: a program that never prepares a binding does not
+    -- load the schema layer.
+    return require("nupp.serde").newJsonCodec(options)
 end
 
 --- Sentinel that decodes from and encodes as JSON null.

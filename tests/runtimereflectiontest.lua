@@ -143,47 +143,41 @@ return User
     )
 end
 
+-- A type witness reaches JSON through its Serde binding and the JSON codec,
+-- and the record's own derived member writes the same document.
 function M.jsonUsesOneTypeWitness()
     local result = run(
         [[
-@derive(nupp.derive.JSON)
+@derive(nupp.derive.JSON, nupp.derive.Serde)
 local record User
     id: integer
 end
 local user = new User(id = 7)
 local out = require("nupp.text").newBuffer()
 out:put("prefix:")
+local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
 local writer = nupp.codec.json.newWriter(out)
-nupp.codec.json.writeRecord(user, writer)
-writer:close()
-local inferredWrite = out:get()
-writer = nupp.codec.json.newWriter(out)
-nupp.codec.json.writeAs(User, user, writer)
+prepared:write(user, writer)
 writer:close()
 local explicitWrite = out:get()
 writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
 local memberWrite = out:get()
-local text = nupp.codec.json.encodeRecord(user)
-local explicit = nupp.codec.json.encodeAs(User, user)
-local restored, problem = nupp.codec.json.decodeAs(User, text)
+local text = prepared:encode(user)
+local restored, problem = prepared:decode(text)
 return {
-    inferredWrite = inferredWrite,
     explicitWrite = explicitWrite,
     memberWrite = memberWrite,
     text = text,
-    explicit = explicit,
     id = restored and restored.id,
     problem = problem,
 }
 ]]
     )
-    assertEq(result.inferredWrite, 'prefix:{"id":7}', "inferred JSON write")
-    assertEq(result.explicitWrite, '{"id":7}', "explicit JSON write")
+    assertEq(result.explicitWrite, 'prefix:{"id":7}', "explicit JSON write")
     assertEq(result.memberWrite, '{"id":7}', "member JSON write")
-    assertEq(result.text, '{"id":7}', "inferred JSON encode")
-    assertEq(result.explicit, result.text, "explicit JSON encode")
+    assertEq(result.text, '{"id":7}', "explicit JSON encode")
     assertEq(result.id, 7, "type witness decode")
     assertEq(result.problem, nil, "type witness decode error")
 end

@@ -12,7 +12,7 @@ local record User
     tags: {string}?
 end
 
-local users = serde.json():prepare(serde.of(User))
+local users = json.newCodec():prepare(serde.of(User))
 
 -- The schema already says what each member is, so encoding walks the record
 -- rather than discovering its shape at run time.

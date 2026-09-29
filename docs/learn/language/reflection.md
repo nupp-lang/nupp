@@ -129,12 +129,14 @@ signature between here and there.
 
 ## JSON through a type witness
 
-`@derive(nupp.derive.JSON)` makes JSON available both as generated record
-members and through `nupp.codec.json`. The namespace form accepts the record name
-directly, so callers never construct or pass a separate schema object.
+`@derive(nupp.derive.JSON)` makes JSON available as generated record members.
+When the caller names the type rather than holding a value, the witness is a
+Serde binding: derive `nupp.derive.Serde` as well and prepare the binding with
+the JSON codec, which accepts the record name directly, so callers never
+construct a separate schema object.
 
 ```nupp
-@derive(nupp.derive.JSON)
+@derive(nupp.derive.JSON, nupp.derive.Serde)
 local record User
     id: integer
     name: string
@@ -146,19 +148,17 @@ local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
 local text = out:get()
-writer = nupp.codec.json.newWriter(out)
-nupp.codec.json.writeAs(User, user, writer)
-writer:close()
-local sameText = out:get()
-local restored, problem = nupp.codec.json.decodeAs(User, text)
 
-assert(text == sameText)
+local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
+local restored, problem = prepared:decode(text)
+
+assert(prepared:encode(user) == text)
 assert(problem == nil)
 assert(restored and restored.id == 7)
 ```
 
 `writeJSON` and the static `fromJSON` discover the declaration from the value's
-own metatable. `writeAs` and `decodeAs` take the `Type<T>` witness explicitly,
+own metatable. `nupp.serde.of(User)` takes the `Type<T>` witness explicitly,
 which is what an API boundary wants, or code that runs before a value exists.
 See [Declaration derives](../../reference/derives.md#json) for the options, wire
 format, and validation rules, and [JSON](nupp.codec.json) for the generic encoder

@@ -22,11 +22,10 @@ See [derives.md](docs/reference/derives.md) for what each standard derive writes
 and [reflection.md](docs/learn/language/reflection.md) for the descriptors the
 JSON codec is memoized against.
 ]]
-const {type JSONEncodable} = require("nupp.codec.json")
-const {type Buffer} = require("nupp.text")
-const {type Writer} = require("nupp.codec.json")
-const {type EncodedString} = require("nupp.codec.json")
-const {type EncodedValue} = require("nupp.codec.json")
+const {type JSONEncodable} = require("nupp.codec.json.spi")
+const {type Writer} = require("nupp.codec.json.spi")
+const {type EncodedString} = require("nupp.codec.json.spi")
+const {type EncodedValue} = require("nupp.codec.json.spi")
 const {type Serializable} = require("nupp.serde")
 
 local derive = {}
@@ -72,16 +71,11 @@ local derivedByType: any = setmetatable({}, {__mode = "k"})
 -- kept here rather than assumed.
 local reflect: any = nil
 
-local textModule = require("nupp.text")
 local serdeRuntime: any = nil
 
 ----------------------------------------------------------------------------
 -- Writing JSON
 ----------------------------------------------------------------------------
-
-local function newBuffer(): Buffer
-    return textModule.newBuffer() as Buffer
-end
 
 --- Copies a field default so two instances never share one table.
 --- @raises string when the default refers to itself
@@ -783,8 +777,8 @@ end
 ----------------------------------------------------------------------------
 
 -- Reached through reflection rather than called directly, so that one memoized codec
--- answers every route to it: the derived members here, `nupp.codec.json`'s
--- type-directed entry points, and a program asking the reflection extension itself.
+-- answers every route to it: the derived members here and a program asking the
+-- reflection extension itself.
 local function derivedJSON(entry: any): any
     return entry.mt:reflect():extension(reflect.json)
 end
@@ -816,20 +810,6 @@ end
 function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: Writer): nil
     derivedJSON(entry)
     writeObject(value, entry.schema.fields, entry.schema.unknown, out, entry.decoder, {active = {}, depth = 0}, "$")
-end
-
---- Encodes a derived record into a newly allocated string.
----
---- Kept behind the type-directed convenience functions. The derived value contract
---- writes into caller-owned storage and does not expose this allocating route.
-local function encodeJSON<T is table>(value: T, entry: derive.Entry): string
-    local out = newBuffer()
-    local json = require("nupp.codec.json")
-    local writer = json.newWriter(out)
-    derive.writeJSON(value, entry, writer)
-    writer:close()
-
-    return out:tostring()
 end
 
 --- Decodes a JSON document into a derived record.
@@ -878,17 +858,6 @@ function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
     return derivedJSON(entry)
 end
 
---- Reads a derived type's registry entry from its type object.
---- @raises string when the type has no derived JSON
-local function jsonEntry(typeObject: any): any
-    local entry = typeObject and derived[rawget(typeObject, "__nuppDeriveKey")]
-    if not entry then
-        error("nupp: JSON was not derived for this type", 3)
-    end
-
-    return entry
-end
-
 --- Fills a program's derive namespace in and wires JSON to reflection.
 ---
 --- The second half is conditional because reflection is its own feature. A program
@@ -924,30 +893,6 @@ function derive.install(namespace: any): nil
         end
 
         return jsonCodecFor(entry)
-    end
-    -- `nupp.codec.json`'s type-directed entry points are the derived codec seen from
-    -- the other side: the caller names a type rather than holding a derived value.
-    local api = require("nupp.codec.json")
-    local mutable = api as {[string]: any}
-    mutable.decodeAs = function(typeObject: any, text: string): (any, string?)
-        local decodeTable = derive.fromJSON as function(string, derive.Entry): (table?, string?)
-        local decoded: table?
-        local err: string?
-        decoded, err = decodeTable(text, jsonEntry(typeObject))
-
-        return decoded, err
-    end
-    mutable.writeAs = function(typeObject: any, value: any, out: any): nil
-        derive.writeJSON(value, jsonEntry(typeObject), out)
-    end
-    mutable.writeRecord = function(value: any, out: any): nil
-        derive.writeJSON(value, jsonEntry(getmetatable(value)), out)
-    end
-    mutable.encodeAs = function(typeObject: any, value: any): string
-        return encodeJSON(value, jsonEntry(typeObject))
-    end
-    mutable.encodeRecord = function(value: any): string
-        return encodeJSON(value, jsonEntry(getmetatable(value)))
     end
 end
 

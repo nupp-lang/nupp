@@ -17,7 +17,7 @@ local record User
 end
 
 local binding = nupp.serde.of(User)
-local prepared = nupp.serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(new User(id = 41, name = "Ada"))
 local restored, problem = prepared:decode(text)
 
@@ -79,7 +79,7 @@ builder:optional("name", serde.string)
 local schema = builder:freeze()
 local binding = serde.dynamic(schema)
 local value = binding:bind{id = 41, name = "Ada"}
-local text = serde.json():prepare(binding):encode(value)
+local text = nupp.codec.json.newCodec():prepare(binding):encode(value)
 ```
 
 `bind` rejects unknown members, missing required members, wrong scalar kinds,
@@ -144,11 +144,12 @@ it does not resolve schema extensions for each field or each call.
 
 ## JSON preparation
 
-`json()` creates an immutable profile. `prepare(binding)` memoizes the combined
-schema and physical plan on that codec:
+`nupp.codec.json.newCodec(profile)` creates a codec with an immutable wire
+profile, a `nupp.serde.JsonProfile` table. `prepare(binding)` memoizes the
+combined schema and physical plan on that codec:
 
 ```nupp
-local codec = nupp.serde.json{
+local codec = nupp.codec.json.newCodec{
     unknownMembers = "ignore",
     fieldNames = function(member: nupp.serde.Member): string
         return member.name == "id" and "userId" or member.name
@@ -175,8 +176,9 @@ JSON arrays materialize as dense Lua lists. A null list element cannot become
 and null element schemas. Use a `document` element schema when the list must
 retain explicit JSON null through the codec's `NULL` sentinel.
 
-`nupp.codec.json.newCodec` is a compatibility entry point for the same codec.
-`nupp.serde.json` is the typed primary API.
+`nupp.codec.json.newCodec` is the one typed JSON entry point. The format module
+owns its codec; the schema, the binding and the prepared traversal it drives are
+this module's.
 
 ## Typed extensions
 

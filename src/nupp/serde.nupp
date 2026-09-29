@@ -15,7 +15,7 @@ local record User
 end
 
 local binding = nupp.serde.of(User)
-local prepared = nupp.serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(new User(id = 41))
 local restored = assert(prepared:decode(text))
 assert(restored.id == 41)
@@ -34,9 +34,18 @@ local value = binding:bind{id = 41, name = "Ada"}
 ```
 ]==]
 const {type Buffer} = require("nupp.text")
-const {type Writer} = require("nupp.codec.json")
+const {type Writer} = require("nupp.codec.json.spi")
+const {type EncodedValue} = require("nupp.codec.json.spi")
 
 local extensions = require("nupp.compiler.runtime.extensions")
+
+-- nupp.codec.json, read untyped and on first use. The facade answers this
+-- module's JsonCodec from newCodec, so naming the facade's type here would make
+-- each module's surface depend on the other's.
+local function jsonFacade(): any
+    return _G.require("nupp.codec.json")
+end
+
 local store = require("nupp.util.internal.store")
 
 ----------------------------------------------------------------------------
@@ -594,7 +603,7 @@ local jsonNull: any
 local function documentValue(value: any): any
     if value ~= nil then
         if jsonNull == nil then
-            jsonNull = require("nupp.codec.json").NULL
+            jsonNull = jsonFacade().NULL
         end
         if value == jsonNull then
             return nil
@@ -668,6 +677,14 @@ end
 ----------------------------------------------------------------------------
 -- Deriving a binding from a type
 ----------------------------------------------------------------------------
+
+-- The derive runtime a program installed, read without naming the `nupp`
+-- namespace's type: that type reaches nupp.derive, which reads nupp.codec.json,
+-- which reads this module.
+local function derivedRuntime(): any
+    local namespace: any = rawget(_G, "nupp")
+    return namespace and namespace.__derive
+end
 
 local function schemaForSpec(spec: any): Schema
     local kind = spec.kind
@@ -746,7 +763,7 @@ local function schemaForSpec(spec: any): Schema
         end
         return schema
     elseif kind == "record" then
-        local runtime = _G.nupp and _G.nupp.__derive
+        local runtime = derivedRuntime()
         local entry = runtime and runtime.types[spec.typeKey]
         if entry ~= nil then
             return bindingForEntry(entry):schema()
@@ -806,7 +823,7 @@ end
 --- @export
 --- @raises string when the type did not derive Serde
 local function bindingOf(type: any): any
-    local runtime = _G.nupp and _G.nupp.__derive
+    local runtime = derivedRuntime()
     local entry = runtime and runtime.entry(type)
     if entry == nil then
         error("nupp: Serde was not derived for this type", 2)
@@ -896,7 +913,7 @@ writeDebugAny = function(value: any, exclusive out: Buffer, state: any): nil
         return
     end
     local mt = getmetatable(value)
-    local runtime = _G.nupp and _G.nupp.__derive
+    local runtime = derivedRuntime()
     local entry = mt ~= nil and runtime and runtime.types[rawget(mt as any, "__nuppDeriveKey")] or nil
     if entry ~= nil and entry.schema.data.debug ~= nil then
         if entry.debugPlan == nil then
@@ -1158,12 +1175,24 @@ end
 -- JSON
 ----------------------------------------------------------------------------
 
---- Immutable JSON wire-policy identity.
+--- The wire policy a JSON codec is created with, as `nupp.codec.json.newCodec`
+--- takes it.
+---
+--- `unknownMembers` says whether a member the schema does not name is refused,
+--- the default, or ignored. `fieldNames`, when supplied, names each member on the
+--- wire; it runs only while a binding is prepared, and the prepared traversal
+--- sees the immutable names it answered.
 --- @export
-export record JsonProfile
+export type JsonProfile = {
+    unknownMembers: ("reject" | "ignore")?,
+    fieldNames: (function(member: Member): string)?
+}
+
+-- A profile's immutable identity: prepared traversals are memoized per wire
+-- policy, so two codecs with the same policy share them.
+local record WireProfile
     @readonly
     unknownMembers: "reject" | "ignore"
-    @private
     @readonly
     fieldNames: any
 end
@@ -1189,7 +1218,7 @@ end
 
 local preparedStates: any = setmetatable({}, {__mode = "k"})
 
-local function wireName(profile: JsonProfile, member: Member): string
+local function wireName(profile: WireProfile, member: Member): string
     if profile.fieldNames == nil then
         return member.name
     end
@@ -1213,7 +1242,7 @@ local preparedHoldersKey = extensions.key(function(): any
     return setmetatable({}, {__mode = "k"})
 end)
 
-local function layoutFor(schema: Schema, profile: JsonProfile): any
+local function layoutFor(schema: Schema, profile: WireProfile): any
     local holders = schema:extension(layoutHoldersKey)
     local prior = holders[profile]
     if prior ~= nil then
@@ -1476,7 +1505,7 @@ local writeDocument: function(
     exclusive out: Writer,
     value: any,
     schema: Schema,
-    profile: JsonProfile,
+    profile: WireProfile,
     access: any?,
     state: any,
     depth: integer
@@ -1554,10 +1583,10 @@ local record PreparedImpl<T> is Prepared<T>
     end
 end
 
-local toDocument: function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
-local fromDocument: function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+local toDocument: function(value: any, schema: Schema, profile: WireProfile, access: any?): any
+local fromDocument: function(value: any, schema: Schema, profile: WireProfile, access: any?): any
 
-toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+toDocument = function(value: any, schema: Schema, profile: WireProfile, access: any?): any
     if value == nil or schema.kind == "document" then
         return value
     elseif schema.kind == "optional" then
@@ -1610,7 +1639,7 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
     return out
 end
 
-fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+fromDocument = function(value: any, schema: Schema, profile: WireProfile, access: any?): any
     if schema.kind ~= "document" then
         value = documentValue(value)
     end
@@ -1700,16 +1729,16 @@ writeDocument = function(
     exclusive out: Writer,
     value: any,
     schema: Schema,
-    profile: JsonProfile,
+    profile: WireProfile,
     access: any?,
     state: any,
     depth: integer
 ): nil
-    local json = require("nupp.codec.json")
+    local json = jsonFacade()
     if value == nil then
         out:null()
     elseif schema.kind == "document" then
-        out:write(json.verified(json.encode(value)))
+        out:write(json.verified(json.encode(value)) as EncodedValue)
     elseif schema.kind == "optional" then
         writeDocument(out, value, schema:element() as Schema, profile, access, state, depth)
     elseif schema.kind == "list" then
@@ -1746,7 +1775,7 @@ writeDocument = function(
     elseif schema.kind ~= "structure" then
         validateValue(value, schema, "value")
         if schema.kind == "number" and value % 1 == 0 then
-            out:write(json.verified(("%.1f"):format(value)))
+            out:write(json.verified(("%.1f"):format(value)) as EncodedValue)
         elseif schema.kind == "string" then
             out:write(value as string)
         elseif schema.kind == "boolean" then
@@ -1794,8 +1823,9 @@ end
 --- A JSON codec that lazily prepares bindings.
 --- @export
 export record JsonCodec
+    @private
     @readonly
-    profile: JsonProfile
+    profile: WireProfile
 
     --- Prepares and memoizes a fused traversal.
     function prepare<T>(self, binding: Binding<T>): Prepared<T>
@@ -1807,7 +1837,7 @@ export record JsonCodec
         local schema = binding:schema()
         local access = binding:extension(accessKey)
         local layout = layoutFor(schema, self.profile)
-        local json = require("nupp.codec.json")
+        local json = jsonFacade()
         local decodePlan = decodePlanFor(layout, access, {})
         local decodeProvider: any = decodePlan ~= nil and require("nupp.codec.json.provider") or nil
         local nativeDecode = decodeProvider ~= nil
@@ -1904,26 +1934,28 @@ local canonicalJsonProfiles: any = {}
 
 --- Creates an immutable-profile JSON codec.
 ---
---- `fieldNames`, when supplied, runs only during preparation. The fused traversal
---- sees the resulting immutable wire names.
+--- `nupp.codec.json.newCodec` is the public entry: the format module owns its
+--- codec, and this is the construction it delegates to.
+--- @param options the wire policy, or nil for the defaults
+--- @return the codec
 --- @raises string when unknownMembers is not reject or ignore
---- @export
-export function json(options: any?): JsonCodec
-    local value = options or {}
+--- @internal
+export function newJsonCodec(options: JsonProfile?): JsonCodec
+    local value: any = options or {}
     local unknown = value.unknownMembers or "reject"
     if unknown ~= "reject" and unknown ~= "ignore" then
-        error("nupp: unknownMembers must be reject or ignore", 2)
+        error("nupp: unknownMembers must be reject or ignore", 3)
     end
-    local profile: JsonProfile
+    local profile: WireProfile
     if value.fieldNames == nil then
         profile = canonicalJsonProfiles[unknown]
         if profile == nil then
-            profile = new JsonProfile(unknownMembers = unknown, fieldNames = nil)
+            profile = new WireProfile(unknownMembers = unknown, fieldNames = nil)
             extensions.host(profile)
             canonicalJsonProfiles[unknown] = profile
         end
     else
-        profile = new JsonProfile(unknownMembers = unknown, fieldNames = value.fieldNames)
+        profile = new WireProfile(unknownMembers = unknown, fieldNames = value.fieldNames)
         extensions.host(profile)
     end
 
@@ -1963,7 +1995,7 @@ end
 --- @raises string when an occupied key is anonymous or was declared without a binding
 --- @export
 export function saveStore(borrows value: store.Store): {[string]: any}
-    local profile = json().profile
+    local profile = newJsonCodec().profile
     local out: {[string]: any} = {}
     for id, name in value:entries() do
         local entry = persistedKeys[id]
@@ -1992,7 +2024,7 @@ end
 ---     fit
 --- @export
 export function loadStore(exclusive value: store.Store, saved: {[string]: any}): nil
-    local profile = json().profile
+    local profile = newJsonCodec().profile
     for name, plain in pairs(saved) do
         local found = store.Key.find(name)
         if found == nil then

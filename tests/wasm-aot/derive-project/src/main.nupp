@@ -13,8 +13,17 @@ local record Reading
     samples: {integer} = {}
 end
 
+local function encodedText(value: Reading): string
+    local out = require("nupp.text").newBuffer()
+    local writer = json.newWriter(out)
+    value:writeJSON(writer)
+    writer:close()
+
+    return out:tostring()
+end
+
 local reading = new Reading(id = 7, label = "intake", samples = {3, 1, 4})
-local encoded = json.encodeRecord(reading)
+local encoded = encodedText(reading)
 local decoded, problem = Reading.fromJSON(encoded)
 assert(decoded ~= nil, tostring(problem))
 -- A field the document does not carry is the recipe's default rather than absent,
@@ -29,5 +38,5 @@ return json.encode({
     defaultedLabel = defaulted ~= nil and (defaulted as Reading).label or "<absent>",
     missingRefused = missing == nil and why ~= nil,
     -- The buffer has to survive being reused rather than only being allocated once.
-    repeated = json.encodeRecord(reading) == encoded,
+    repeated = encodedText(reading) == encoded,
 })

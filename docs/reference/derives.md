@@ -165,7 +165,7 @@ local record User
 end
 
 local binding = nupp.serde.of(User)
-local prepared = nupp.serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(new User(id = 7, name = "ada"))
 local restored, problem = prepared:decode(text)
 
@@ -354,11 +354,11 @@ Strings must be valid UTF-8, and a cycle or excessive nesting fails with the
 JSON path that reached it. Decoding uses Nupp's strict SIMD-accelerated codec and
 preserves null with `nupp.codec.json.NULL` while it validates the raw value.
 
-The JSON field codec is allocated lazily as a runtime reflection extension. Use
-`nupp.codec.json.writeRecord`, `writeAs(User, value, writer)`, and
-`decodeAs(User, text)` when a type-witness API fits better than generated
-members. The allocating `encodeRecord` and `encodeAs` wrappers remain available
-when a complete string is specifically required. See
+The JSON field codec is allocated lazily as a runtime reflection extension.
+When a type-witness API fits better than generated members, derive
+`nupp.derive.Serde` as well and use
+`nupp.codec.json.newCodec():prepare(nupp.serde.of(User))`, which encodes to a
+string, writes to a buffer or a writer, and decodes. See
 [reflection.md](../learn/language/reflection.md#runtime-reflection) for the witness
 and allocation model, and [](nupp.codec.json) for the rest of the codec.
 

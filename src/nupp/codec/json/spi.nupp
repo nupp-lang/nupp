@@ -6,6 +6,188 @@ local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 Discover with nupp.spi.load; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
 
+--- A complete JSON value whose immutable bytes have already been encoded or
+--- validated.
+---
+--- Values come from `encoded` or `verified`; the private token prevents checked
+--- callers from manufacturing an unverified fast-path value.
+export record EncodedValue
+    @private
+    _token: any
+end
+
+--- A JSON string whose immutable encoded bytes have already been produced or
+--- validated.
+---
+--- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
+--- Values produced by `encodedString` and `verifiedString` are interned.
+export record EncodedString
+    @private
+    _token: any
+end
+
+--- Values that can write one complete JSON value through a checked writer.
+---
+--- `nupp.codec.json` names it for callers; it is declared here so the modules
+--- the facade reads, nupp.serde and nupp.derive among them, can name it without
+--- reading the facade. `Writer` below names the encoder `newWriter()` returns.
+---
+--- ```nupp
+--- local record Money is nupp.codec.json.JSONEncodable
+---     cents: integer
+---
+---     function writeJSON(self, exclusive out: nupp.codec.json.Writer): nil
+---         out:startObject():key("cents"):write(self.cents):endObject()
+---     end
+--- end
+--- ```
+export interface JSONEncodable
+    --- Writes this value at the writer's current value position.
+    --- @param self the value being encoded
+    --- @param out the checked destination
+    writeJSON: function(self, exclusive out: Writer): nil
+end
+
+--- A checked incremental JSON writer.
+---
+--- ```nupp
+--- local out = nupp.text.newBuffer()
+--- local writer = nupp.codec.json.newWriter(out)
+--- writer:startObject():key("ok"):write(true):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"ok":true}]])
+--- ```
+--- @export
+export interface Writer is nupp.Closeable
+    --- Starts an array value.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startArray():write("first"):endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[\"first\"]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    startArray: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Starts an object value.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startObject():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == "{}")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    startObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Selects the next object member.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startObject():key("answer"):write(42):endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"answer":42}]])
+    --- ```
+    --- @param self the writer
+    --- @param name the next member name
+    --- @return this writer
+    key: function(exclusive self: Writer, name: string): Writer borrows (self)
+        & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
+
+    --- Appends one complete Lua value.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startArray():write({id = 41}):endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[{\"id\":41}]")
+    --- ```
+    --- @param self the writer
+    --- @param value the next JSON value
+    --- @return this writer
+    write: function(
+        exclusive self: Writer,
+        value: string | number | boolean | {any} | {[string]: any}
+    ): Writer borrows (self)
+        & function(
+            exclusive self: Writer,
+            value: EncodedValue | EncodedString
+        ): Writer borrows (self)
+
+    --- Appends JSON null.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startArray():null():endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[null]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    null: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Ends the current array.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startArray():startObject():endObject():endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[{}]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endArray: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Ends the current object.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startObject():key("items"):startArray():endArray():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"items":[]}]])
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Publishes staged bytes without ending the document.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:startArray():write(1)
+    --- writer:flush()
+    --- assert(out:tostring() == "[1")
+    --- writer:endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[1]")
+    --- ```
+    --- @param self the writer
+    flush: @nosuspend function(exclusive self: Writer): nil
+
+    --- Verifies and publishes one complete root, then releases backing state.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = nupp.codec.json.newWriter(out)
+    --- writer:write({ok = true})
+    --- writer:close()
+    --- assert(out:tostring() == [[{"ok":true}]])
+    --- ```
+    --- @param self the writer
+    close: @nosuspend function(takes self: Writer): nil
+end
+
 --- Marks a table while returning the same generic table and ownership.
 ---
 --- The takes/preserves relation is intentional: an implementation must not copy the

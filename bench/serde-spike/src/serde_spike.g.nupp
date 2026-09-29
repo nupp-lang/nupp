@@ -1,3 +1,5 @@
+const {type JSONEncodable} = require("nupp.codec.json")
+
 const {type EncodedString} = require("nupp.codec.json")
 const {type Buffer} = require("string.buffer")
 
@@ -305,7 +307,7 @@ local constantMediumValue = new ConstantMedium(
     cached = true
 )
 
-local productionCodec = serde.json{unknownMembers = "ignore"}
+local productionCodec = json.newCodec{unknownMembers = "ignore"}
 local preparedSmall = productionCodec:prepare(serde.of(Small))
 local preparedMedium = productionCodec:prepare(serde.of(Medium))
 local preparedConstantMedium = productionCodec:prepare(serde.of(ConstantMedium))
@@ -450,8 +452,19 @@ function m.bufferedDebugNested(): integer
     return #preparedOutput
 end
 
+-- What the JSON derive's own member writes, into a fresh string: the route the
+-- derive's allocating wrappers took before Serde became the typed entry.
+local function encodeDerived(value: JSONEncodable): string
+    local out = require("nupp.text").newBuffer()
+    local writer = json.newWriter(out)
+    value:writeJSON(writer)
+    writer:close()
+
+    return out:tostring()
+end
+
 function m.currentEncodeSmall(): string
-    return json.encodeAs(Small, smallValue)
+    return encodeDerived(smallValue)
 end
 
 function m.documentEncodeSmall(): string
@@ -512,7 +525,7 @@ function m.preparedWriterSmall(): integer
 end
 
 function m.coldPreparedEncodeSmall(): string
-    return serde.json{unknownMembers = "ignore"}:prepare(serde.of(Small)):encode(smallValue)
+    return json.newCodec{unknownMembers = "ignore"}:prepare(serde.of(Small)):encode(smallValue)
 end
 
 function m.preparedCopiedWriteSmall(): integer
@@ -522,7 +535,7 @@ function m.preparedCopiedWriteSmall(): integer
 end
 
 function m.currentEncodeMedium(): string
-    return json.encodeAs(Medium, mediumValue)
+    return encodeDerived(mediumValue)
 end
 
 function m.documentEncodeMedium(): string
@@ -572,7 +585,7 @@ function m.preparedCopiedWriteMedium(): integer
 end
 
 function m.currentEncodePayload4KiB(): string
-    return json.encodeAs(Payload, payload4KiB)
+    return encodeDerived(payload4KiB)
 end
 
 function m.preparedEncodePayload4KiB(): string
@@ -592,7 +605,7 @@ function m.preparedWritePayload4KiB(): integer
 end
 
 function m.currentEncodePayload64KiB(): string
-    return json.encodeAs(Payload, payload64KiB)
+    return encodeDerived(payload64KiB)
 end
 
 function m.preparedEncodePayload64KiB(): string
@@ -621,7 +634,7 @@ function m.preparedWriterPayload64KiB(): integer
 end
 
 function m.currentEncodeNested(): string
-    return json.encodeAs(NestedEnvelope, nestedValue)
+    return encodeDerived(nestedValue)
 end
 
 function m.preparedEncodeNested(): string

@@ -43,7 +43,7 @@ end
 
 local first = nupp.serde.of(User)
 local second = nupp.serde.of(User)
-local codec = nupp.serde.json()
+local codec = nupp.codec.json.newCodec()
 local prepared = codec:prepare(first)
 local again = codec:prepare(first)
 local text = prepared:encode(new User(id = 41, active = true, name = "Ada"))
@@ -172,7 +172,7 @@ local record User
     name: string?
 end
 
-local prepared = nupp.serde.json():prepare(nupp.serde.of(User))
+local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
 local problems = {}
 for _, text in ipairs({[[{"id":1,"extra":2}]], [[{"name":"x"}]], [[{"id":01}]], [[{"id":1} x]]}) do
     local value, problem = prepared:decode(text)
@@ -198,7 +198,7 @@ local record Reading
     value: number
 end
 
-local prepared = nupp.serde.json():prepare(nupp.serde.of(Reading))
+local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(Reading))
 local refused, problem = prepared:decode([[{"value":1e400}]])
 local tiny = prepared:decode([[{"value":1e-400}]])
 return {refused = refused == nil, problem = tostring(problem), tiny = tiny and tiny.value}
@@ -220,7 +220,7 @@ local record User
     name: string?
 end
 
-local prepared = nupp.serde.json():prepare(nupp.serde.of(User))
+local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
 local problems = {}
 for _, text in ipairs({[[{"id":"x","id":1}]], [[{"id":1,"id":2}]], [[{"id":1,"name":null,"name":"b"}]]}) do
     local value, problem = prepared:decode(text)
@@ -273,7 +273,7 @@ local id = schema:expectMember("id")
 local value = binding:newValue()
 value:set(id, 11)
 local rebound = binding:bind{id = 12}
-local prepared = serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local restored, problem = prepared:decode(prepared:encode(rebound))
 local missingOk, missing = pcall(binding.bind, binding, {name = "absent"})
 return {
@@ -308,7 +308,7 @@ builder:required("small", serde.uint8)
 local binding = serde.dynamic(builder:freeze())
 local wrongTypeOk, wrongType = pcall(binding.bind, binding, {small = "one"})
 local rangeOk, range = pcall(binding.bind, binding, {small = 256})
-local decoded, decodeProblem = serde.json():prepare(binding):decode([[{"small":256}]])
+local decoded, decodeProblem = nupp.codec.json.newCodec():prepare(binding):decode([[{"small":256}]])
 return {
     wrongTypeOk = wrongTypeOk,
     wrongType = tostring(wrongType),
@@ -354,7 +354,7 @@ local builder = new serde.SchemaBuilder()
 builder:structure("example.Values")
 builder:required("items", serde.list(serde.integer))
 local binding = serde.dynamic(builder:freeze())
-local prepared = serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 
 local sparseOk, sparseProblem = pcall(binding.bind, binding, {items = {[1] = 1, [3] = 3}})
 local mixedOk, mixedProblem = pcall(binding.bind, binding, {items = {[1] = 1, name = 2}})
@@ -362,7 +362,7 @@ local incompleteOk, incompleteProblem = pcall(prepared.encode, prepared, binding
 
 local optionalOk, optionalProblem = pcall(serde.list, serde.optional(serde.integer))
 
-local codec = serde.json()
+local codec = nupp.codec.json.newCodec()
 local nodePrepared = codec:prepare(serde.of(Node))
 local node = new Node(name = "root", children = {})
 node.children[1] = node
@@ -427,7 +427,7 @@ builder:structure("example.Envelope")
 builder:required("id", serde.uint32)
 builder:optional("payload", serde.document)
 local binding = serde.dynamic(builder:freeze())
-local prepared = serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(binding:bind{
     id = 9,
     payload = {items = {1, 2}, enabled = true},
@@ -460,7 +460,7 @@ local struct Vec3
 end
 local witness: Type<Vec3> = Vec3
 local binding: nupp.serde.Binding<Vec3> = nupp.serde.of(witness)
-local prepared = nupp.serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(new Vec3(1.25, 2.5, 5.0))
 local value, problem = prepared:decode(text)
 return {text = text, y = value and value.y, problem = problem}
@@ -637,7 +637,7 @@ local record Parent
 end
 local binding = nupp.serde.of(Parent)
 local childSchema = binding:schema():expectMember("child").target as nupp.serde.Schema
-local prepared = nupp.serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(
     new Parent(
         child = new Child(label = "nested"),
@@ -676,7 +676,7 @@ local record Node
 end
 
 local binding = nupp.serde.of(Node)
-local prepared = nupp.serde.json():prepare(binding)
+local prepared = nupp.codec.json.newCodec():prepare(binding)
 local text = prepared:encode(new Node(
     name = "root",
     children = {new Node(name = "leaf", children = {})}
@@ -715,7 +715,7 @@ local nominal = serde.of(Parent)
 local childSchema = nominal:schema():expectMember("child").target as nupp.serde.Schema
 local dynamicChild = serde.dynamic(childSchema)
 local dynamicParent = serde.dynamic(nominal:schema())
-local codec = serde.json()
+local codec = nupp.codec.json.newCodec()
 local nominalPrepared = codec:prepare(nominal)
 local dynamicPrepared = codec:prepare(dynamicParent)
 local nominalText = nominalPrepared:encode(

@@ -961,11 +961,6 @@ function M.standardJsonApiHasCompleteDocumentation()
         verified = true,
         verifiedString = true,
         newWriter = true,
-        decodeAs = true,
-        encodeAs = true,
-        encodeRecord = true,
-        writeAs = true,
-        writeRecord = true,
         newCodec = true,
         NULL = true,
         EMPTY_ARRAY = true,
@@ -984,11 +979,6 @@ function M.standardJsonApiHasCompleteDocumentation()
         verified = true,
         verifiedString = true,
         newWriter = true,
-        decodeAs = true,
-        encodeAs = true,
-        encodeRecord = true,
-        writeAs = true,
-        writeRecord = true,
         newCodec = true,
     }
     local writer

@@ -1027,7 +1027,7 @@ record nupp.derive
     ---     name: string?
     --- end
     ---
-    --- local prepared = nupp.serde.json():prepare(nupp.serde.of(User))
+    --- local prepared = nupp.codec.json.newCodec():prepare(nupp.serde.of(User))
     --- local text = prepared:encode(new User(id = 7, name = "ada"))
     --- ```
     Serde: Provider
