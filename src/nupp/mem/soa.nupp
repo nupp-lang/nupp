@@ -167,6 +167,7 @@ local layoutCache: {[table]: soa.Layout} = setmetatable({}, {__mode = "k"}) as a
 --- Converts compiler-emitted C layout facts into the public count-independent SoA
 --- descriptor. The raw layout also carries private ctype witnesses used only to build
 --- typed column pointers.
+--- @internal
 function soa._layout(raw: table): soa.Layout
     local prior = layoutCache[raw]
     if prior then
@@ -614,6 +615,7 @@ end
 --- Compiler lowering target for `soa.allocate`.
 --- @raises string when count is invalid, layout arithmetic overflows, or allocation
 ---     fails
+--- @internal
 function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyArray)
     local layout = soa._layout(rawLayout)
     local instance = layout:forCount(count)
