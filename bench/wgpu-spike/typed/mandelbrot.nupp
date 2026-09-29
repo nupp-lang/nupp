@@ -88,4 +88,7 @@ end
 
 export type Point = PointValue
 export type Escape = EscapeValue
+-- The struct declarations themselves, which `gpu.Context:buffer` takes as its element.
+export const PointLayout = PointValue
+export const EscapeLayout = EscapeValue
 export const mandelbrot = generatedMandelbrot

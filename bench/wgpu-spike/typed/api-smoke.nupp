@@ -2,7 +2,7 @@ local gpu = require("nupp.gpu")
 local generated = require("mandelbrot")
 
 local function prepare(borrows context: gpu.Context): nil
-    with points = context:buffer(generated.Point, 16), escapes = context:buffer(generated.Escape, 16) do
+    with points = context:buffer(generated.PointLayout, 16), escapes = context:buffer(generated.EscapeLayout, 16) do
         with kernel = generated.mandelbrot:compile(context) do
             with invocation = kernel:bind(escapes, points) do
                 invocation:dispatch(256)
