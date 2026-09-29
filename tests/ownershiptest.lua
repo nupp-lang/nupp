@@ -6251,6 +6251,72 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
     )
 end
 
+-- A scope joins every child before it settles, so a child body may borrow the scope it
+-- is started on: the borrow cannot outlive what it borrows (D-16). It may borrow nothing
+-- else, and a scope another scope settles first is something else.
+function M.aChildBodyMayBorrowTheScopeThatStartsIt()
+    assertClean(
+        table.concat(
+            {
+                "local seen = 0",
+                "with scope = nupp.tasks.open(limit = 4) do",
+                "   for index = 1, 3 do",
+                "      scope:spawn(function(): nil",
+                "         scope:spawn(function(): nil seen = seen + index end)",
+                "      end)",
+                "   end",
+                "   local function body(): nil",
+                "      scope:cancel('done')",
+                "   end",
+                "   scope:spawn(body)",
+                "   scope:spawn('canceller', function(): nil scope:cancel('named') end)",
+                "end",
+                "return seen",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "with outer = nupp.tasks.open() do",
+                    "   with inner = nupp.tasks.open() do",
+                    "      outer:spawn(function(): nil",
+                    "         inner:spawn(function(): nil end)",
+                    "      end)",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602",
+        "a child of the outer scope may not borrow the inner one, which settles first"
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local record Resource is nupp.Closeable",
+                    "   function close(takes self): nil end",
+                    "end",
+                    "with resource = new Resource() do",
+                    "   with scope = nupp.tasks.open() do",
+                    "      scope:spawn(function(): nil",
+                    "         scope:cancel(tostring(resource ~= nil))",
+                    "      end)",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2602",
+        "borrowing the scope does not admit borrowing anything beside it"
+    )
+end
+
 function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     local source = table.concat(
         {

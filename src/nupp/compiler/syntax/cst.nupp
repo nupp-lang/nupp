@@ -1623,6 +1623,9 @@ record cst.Funcbody is cst.Hints
 
     borrowCaptures: any
 
+    --- The checker run the two capture lists above were worked out by.
+    capturesRun: any
+
     captureBindingStat: any
 end
 

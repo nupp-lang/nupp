@@ -148,7 +148,10 @@ A `takes` capture moves into the child. Cancelling before the child starts
 drops the uncalled closure and its captures, and so does a `spawn` the scope
 refuses -- one parked for a slot under a `limit` when a sibling fails, or one
 made after the scope already owns a failure. A borrowed affine capture is
-refused because `spawn` returns before the child must settle.
+refused because `spawn` returns before the child must settle. The one exception
+is the scope itself: a child may borrow the scope it was started on, to fork or
+spawn beside itself or to cancel its siblings, because the scope settles every
+child before it closes.
 
 ## Failure ownership
 

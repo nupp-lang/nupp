@@ -1129,7 +1129,8 @@ end
 --- single-shot closure's captures move into the child, and a child cancelled before
 --- it starts drops them uncalled. A closure holding a borrowed affine capture is
 --- refused, because the borrow's proof ends when this call returns and the child
---- outlives that.
+--- outlives that. The scope itself is the exception: the body may borrow the scope
+--- it is started on, which settles every child before it closes.
 ---
 --- Where the scope was opened with a `limit`, this parks while that many children
 --- are live, so the loop that spawns is what the bound throttles.

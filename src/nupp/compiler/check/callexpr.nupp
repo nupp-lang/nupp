@@ -95,7 +95,11 @@ local type CompilerSurface = {
     --- declaration writes them. Two overloads of one name are the same shape at run
     --- time here -- a callable and one more value -- so routing the selected one is
     --- what keeps a type test out of the emitted call.
-    overloadMembers: {[integer]: string}?
+    overloadMembers: {[integer]: string}?,
+
+    --- The child body may borrow the scope it is started on. A scope joins every
+    --- child before it settles, so such a borrow cannot outlive what it borrows.
+    bodyMayBorrowScope: boolean?
 }
 
 --- The call surfaces the compiler owns on the standard library's behalf, by public
@@ -110,7 +114,7 @@ local COMPILER_SURFACES: {
         "nupp.tasks"
     ] = {
         Scope = {
-            spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"},},
+            spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"}, bodyMayBorrowScope = true,},
             fork = {effect = "runtime.workers", rotate = true, sendableLast = true,},
         },
     },
@@ -2344,6 +2348,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local rotatedNode: any = node
                 rotatedNode.trailingCallableCall = true
                 rotatedNode.trailingCallableMember = member.text
+                if surface.bodyMayBorrowScope then
+                    local scopeEntry = c.ownershipEntry(receiver)
+                    rotatedNode.bodyScopeRoot = scopeEntry and c.borrowRoot(scopeEntry) or nil
+                end
             end
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, callArgs)
             forwardProtocol(node)

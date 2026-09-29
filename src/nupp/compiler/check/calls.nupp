@@ -2718,11 +2718,25 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                     end
                 elseif takenKind == "borrowed" then
-                    c.diag(
-                        "NUPP2602",
-                        argNodes[j] or node,
-                        "a taking parameter cannot retain a borrowed value; use scoped for a callback"
-                    )
+                    -- A child body may borrow the scope it is started on and nothing
+                    -- else: the scope joins every child before it settles, so that
+                    -- borrow cannot outlive the scope.
+                    local scopeRoot = (node as any).bodyScopeRoot
+                    local roots = scopeRoot
+                        and not cst.isToken(argNodes[j])
+                        and c.own.capabilityFacts(argNodes[j], nil, false).roots
+                        or nil
+                    local ownScope = roots ~= nil and #roots > 0
+                    for _, root in ipairs(roots or {}) do
+                        ownScope = ownScope and root == scopeRoot
+                    end
+                    if not ownScope then
+                        c.diag(
+                            "NUPP2602",
+                            argNodes[j] or node,
+                            "a taking parameter cannot retain a borrowed value; use scoped for a callback"
+                        )
+                    end
                 end
             elseif preservationResult then
                 local kind = c.ownershipKind(ats[j])

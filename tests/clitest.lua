@@ -1172,4 +1172,88 @@ function M.theCliHeaderExampleChecksOutsideTheRepository()
     assert(code == 0, "the example checks outside the repository:\n" .. output)
 end
 
+-- The task-scopes guide's "fork inside a spawned child" and "first result wins"
+-- patterns, checked cold in a project whose entry requires the module holding them.
+-- A child body may borrow the scope that starts it (D-16), and the module is read
+-- twice -- once as the entry's dependency, once as itself -- which must not carry
+-- the first reading's captures into the second.
+function M.aChildForkingOnItsOwnScopeChecksInAProject()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local function write(name, text)
+        local file = assert(io.open(dir .. "/" .. name, "wb"))
+        file:write(text)
+        file:close()
+    end
+    write("nupp.lua", 'return {include = {"src"}}\n')
+    write(
+        "src/jobs.nupp",
+        table.concat({
+            "module jobs",
+            "",
+            "export function compress(name: string, path: string): integer",
+            "    return #name + #path",
+            "end",
+            "",
+            "export function probe(mirror: string): string?",
+            "    return mirror ~= '' and mirror or nil",
+            "end",
+            "",
+        }, "\n")
+    )
+    write(
+        "src/scopes.nupp",
+        table.concat({
+            "module scopes",
+            "",
+            "local jobs = require(\"jobs\")",
+            "",
+            "export function total(paths: {[string]: string}): integer",
+            "    local sum: integer = 0",
+            "    with scope = nupp.tasks.open(limit = 4) do",
+            "        for name, path in pairs(paths) do",
+            "            scope:spawn(function(): nil",
+            "                sum = sum + scope:fork(name, path, jobs.compress):await()",
+            "            end)",
+            "        end",
+            "    end",
+            "    return sum",
+            "end",
+            "",
+            "export function first(mirrors: {string}): string?",
+            "    local winner: string? = nil",
+            "    with scope = nupp.tasks.open(limit = 4) do",
+            "        for _, mirror in ipairs(mirrors) do",
+            "            if winner ~= nil then break end",
+            "            scope:spawn(function(): nil",
+            "                const answer = scope:fork(mirror, jobs.probe):await()",
+            "                if answer ~= nil and winner == nil then",
+            "                    winner = answer",
+            "                    scope:cancel(\"a mirror answered\")",
+            "                end",
+            "            end)",
+            "        end",
+            "    end",
+            "    return winner",
+            "end",
+            "",
+        }, "\n")
+    )
+    write(
+        "src/main.nupp",
+        table.concat({
+            "local scopes = require(\"scopes\")",
+            "print(scopes.total({a = \"b\"}), scopes.first({\"m\"}))",
+            "with scope = nupp.tasks.open() do",
+            "    scope:spawn(function(): nil scope:cancel(\"done\") end)",
+            "end",
+            "",
+        }, "\n")
+    )
+    local output, code = captureStatusAt(dir, "check")
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(code == 0, "both patterns check in a project:\n" .. output)
+end
+
 return M

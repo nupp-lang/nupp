@@ -575,8 +575,27 @@ function functions.install(c: state.Checker): state.StatHandlers
     -- Captures
     ---------------------------------------------------------------------
 
+    -- A body's captures are worked out once per run and kept on the tree, which a
+    -- project check can hand to a second run: one that reads a module a dependency
+    -- check already read. They name that run's entries, so a later run starts over
+    -- rather than borrowing roots and moves from a scope that is gone. The mark is an
+    -- empty table rather than the checker, because the tree can be written into a
+    -- stored prelude image and the checker cannot be.
+    local run = {}
+
+    local function capturesCurrent(body): boolean
+        if body.capturesRun ~= run then
+            body.capturesRun = run
+            body.takenCaptures = nil
+            body.borrowCaptures = nil
+            return false
+        end
+
+        return true
+    end
+
     local function takenCaptures(body)
-        if body.takenCaptures then
+        if capturesCurrent(body) and body.takenCaptures then
             return body.takenCaptures
         end
         local captures, seen = {}, {}
@@ -633,7 +652,7 @@ function functions.install(c: state.Checker): state.StatHandlers
     end
 
     local function borrowedCaptures(body)
-        if body.borrowCaptures then
+        if capturesCurrent(body) and body.borrowCaptures then
             return body.borrowCaptures
         end
         local captures, seen = {}, {}

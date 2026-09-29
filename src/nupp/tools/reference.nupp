@@ -2319,7 +2319,10 @@ are concurrency and not CPU parallelism. Cores are `fork`, which runs a child on
 a `nupp.workers` lane.
 
 A closure that captures an owner directly cannot be stored, so a body that
-shares one client calls a function holding it rather than closing over it.
+shares one client calls a function holding it rather than closing over it. The
+scope is the exception: a child body may borrow the scope it was started on, to
+fork beside itself or cancel its siblings, because the scope settles every child
+before it closes.
 
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler contract,
 cancellation, and the protocol a waiting library subscribes through, and
