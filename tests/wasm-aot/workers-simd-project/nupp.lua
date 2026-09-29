@@ -19,7 +19,7 @@ return {
         outDir = "build",
         default = "scalar",
         targets = {
-            scalar = target("dist/scalar.lua", "build/scalar", "scalar"),
+            scalar = target("dist/scalar.lua", "build/scalar", {maximum = "scalar"}),
             simd = target("dist/simd.lua", "build/simd", {minimum = "simd128"}),
         },
     },

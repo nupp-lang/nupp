@@ -33,7 +33,7 @@ kernels have their own linear memory, capped at 64 MiB; each transfer batch is
 limited to 2 MiB. Measure the copy and bridge cost before using small kernels.
 
 Lua-C-API builders use guest-native `aot = "require"`,
-`aotTarget = "i686-unknown-linux-gnu"`, and `aotFeatures = "baseline"`.
+`aotTarget = "i686-unknown-linux-gnu"`, and `aotFeatures = {maximum = "baseline"}`.
 `nupp` compiles and links them itself for the i386/musl guest. Libraries travel as verified hashed
 assets and are installed before application or worker startup. Existing LuaJIT
 FFI and C-API bindings preserve tables, strings and rooted object identity.

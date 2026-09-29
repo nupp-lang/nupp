@@ -1945,7 +1945,7 @@ function M.anUnknownFeatureTierIsRejected()
     local text = manifest:read("*a")
     manifest:close()
     manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write((text:gsub('aot = "require",', 'aot = "require", aotFeatures = "avx9",')))
+    manifest:write((text:gsub('aot = "require",', 'aot = "require", aotFeatures = {maximum = "avx9"},')))
     manifest:close()
 
     local out, code = build(dir)
@@ -2007,7 +2007,7 @@ function M.theFeatureTierReachesTheBackend()
     local text = manifest:read("*a")
     manifest:close()
     manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write((text:gsub('aot = "require",', 'aot = "require", aotFeatures = "' .. tier .. '",')))
+    manifest:write((text:gsub('aot = "require",', 'aot = "require", aotFeatures = {maximum = "' .. tier .. '"},')))
     manifest:close()
 
     local out, code = build(dir)
@@ -2073,7 +2073,7 @@ end
 
 function M.aFeatureCeilingKeepsItsBaselineFallback()
     local dir = project("require")
-    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx2",')
+    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     assert(read(tieredUnit(dir, "baseline")), "the fallback travels")
@@ -2128,7 +2128,7 @@ function M.theStringFeatureFormIsTheMaximum()
     -- Every manifest written before the range says a bare tier name, and it has
     -- to keep meaning the ceiling it has always meant.
     local dir = project("require")
-    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx2",')
+    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     local ranged = project("require")
@@ -2228,7 +2228,7 @@ return {
 end
 
 function M.aLinuxBaselineChunksFixedFloatingSpecies()
-    local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
+    local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx512f"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     -- LLVM carries a species whole in every tier and its code generator splits
@@ -2291,7 +2291,7 @@ end
 -- it, and a Windows build for an architecture without those flags does not
 -- carry an x86 one.
 function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
-    local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
+    local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx512f"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     -- LLVM reads the ceiling from each function's attributes, and a Linux build
@@ -2313,7 +2313,7 @@ end
 
 function M.aTierWithoutVectorsAcceptsScalarLoops()
     local dir = project("emit-wasm")
-    withKeys(dir, 'aotFeatures = "scalar",')
+    withKeys(dir, 'aotFeatures = {maximum = "scalar"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     local unit = assert(read(tieredUnit(dir, "scalar")))
@@ -2364,7 +2364,7 @@ function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
         return
     end
     local dir = project(nil)
-    withKeys(dir, 'dialect = "luajit", host = "browser", aot = "require-wasm", aotFeatures = "simd128",')
+    withKeys(dir, 'dialect = "luajit", host = "browser", aot = "require-wasm", aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     local script = dir .. "/run.mjs"
@@ -2653,7 +2653,7 @@ function M.aTierIsCheckedAgainstTheTargetItAppliesTo()
     local dir = project("require")
     -- `avx2` is a real tier and not one aarch64 has. Checking it against the set
     -- of all tiers would accept it; it has to be checked against the target.
-    withKeys(dir, 'aotTarget = "aarch64-apple-darwin", aotFeatures = "avx2",')
+    withKeys(dir, 'aotTarget = "aarch64-apple-darwin", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find("aarch64 has no feature tier avx2", 1, true), out)
@@ -2702,7 +2702,7 @@ function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
     assert(out:find("fixes aotTarget to wasm32-unknown-emscripten", 1, true), out)
 
     dir = project("emit-wasm")
-    withKeys(dir, 'dialect = "luajit", host = "browser", aotFeatures = "avx2",')
+    withKeys(dir, 'dialect = "luajit", host = "browser", aotFeatures = {maximum = "avx2"},')
     out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find("wasm32 has no feature tier avx2; it has scalar, simd128", 1, true), out)
@@ -5646,7 +5646,7 @@ function M.requireCrossCompilesToAnotherMachine()
     end
 
     local dir = project("require")
-    withKeys(dir, ('aotTarget = "%s", aotFeatures = "%s",'):format(triple, tier))
+    withKeys(dir, ('aotTarget = "%s", aotFeatures = {maximum = "%s"},'):format(triple, tier))
     local out, code = build(dir)
     test.equal(code, 0, "a cross build completes rather than only being attempted\n" .. out)
 
@@ -6044,7 +6044,7 @@ return {
       dialect = "luajit",
       host = "browser",
       aot = "require-wasm",
-      aotFeatures = "scalar",
+      aotFeatures = {maximum = "scalar"},
    }}},
 }
 ]]

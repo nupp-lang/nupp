@@ -1128,6 +1128,13 @@ function M.retiredManifestKeysFailAsUnknownKeys()
         'return {include = {"src"}, build = {targets = {app = {kind = "modules", aotCflags = {"-O2"}}}}}\n',
         'has no key "aotCflags"'
     )
+    -- One spelling for a tier range: the string form read as an exact tier and meant
+    -- a maximum.
+    reject(
+        'return {include = {"src"}, build = {targets = {app = {kind = "modules", aot = "require", '
+            .. 'aotFeatures = "avx2"}}}}\n',
+        "aotFeatures must be a table"
+    )
 end
 
 function M.deliverableTargetsStillRequireAnEntry()

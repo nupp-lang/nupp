@@ -11,7 +11,7 @@ return {
                 host = "browser",
                 aot = "require",
                 aotTarget = "i686-unknown-linux-gnu",
-                aotFeatures = "baseline",
+                aotFeatures = {maximum = "baseline"},
             }
         }
     },

@@ -157,12 +157,12 @@ end
 --- bounds is emitted. A bound left out is the
 --- architecture's own -- `{minimum = "simd128"}` on wasm32 is simd128 alone,
 --- `{minimum = "avx2"}` on x86-64 is avx2 through avx512f -- so the minimum a
---- minimum tier can be written on its own.
----
---- The string form names a maximum and keeps the x86-64 ceiling semantics it
---- has always had, every tier below it included; other architectures read it as
---- one exact tier.
-function target.buildTiers(triple: string?, features: any, dialect: string?): ({target.Target}?, string?)
+--- minimum tier can be written on its own. Without a range, x86-64 carries every
+--- tier and other architectures their default one.
+function target.buildTiers(triple: string?, features: {
+    minimum: string?,
+    maximum: string?
+}?, dialect: string?): ({target.Target}?, string?)
     local base, baseErr = target.select(triple, nil, dialect)
     if base == nil then
         return nil, baseErr
@@ -170,8 +170,8 @@ function target.buildTiers(triple: string?, features: any, dialect: string?): ({
 
     local actual = base as target.Target
     local architecture = actual.architecture
-    if type(features) ~= "table" and architecture ~= "x86_64" then
-        local selected, selectedErr = target.select(actual.triple, features as string?, dialect)
+    if features == nil and architecture ~= "x86_64" then
+        local selected, selectedErr = target.select(actual.triple, nil, dialect)
         if selected == nil then
             return nil, selectedErr
         end
@@ -182,11 +182,9 @@ function target.buildTiers(triple: string?, features: any, dialect: string?): ({
     local known = target.tiers(architecture)
     local first = known[1]
     local last = known[#known]
-    if type(features) == "string" then
-        last = features
-    elseif type(features) == "table" then
-        first = (features.minimum or first) as string
-        last = (features.maximum or last) as string
+    if features ~= nil then
+        first = features.minimum or first
+        last = features.maximum or last
     end
     local _, firstErr = target.select(actual.triple, first, dialect)
     if firstErr ~= nil then
