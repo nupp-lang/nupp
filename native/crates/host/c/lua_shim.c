@@ -845,6 +845,20 @@ static int protect(lua_State *state, lua_CFunction function,
     return outer_status != 0 ? outer_status : call->status;
 }
 
+/* One non-blocking pass over the suspension sources, when this state has
+ * loaded nupp.suspension. A state that never loaded it has registered no
+ * source, so there is nothing to drive. */
+static int poll_suspension(lua_State *state) {
+    lua_getfield(state, LUA_REGISTRYINDEX, "_LOADED");
+    if (!lua_istable(state, -1)) return 0;
+    lua_getfield(state, -1, "nupp.suspension");
+    if (!lua_istable(state, -1)) return 0;
+    lua_getfield(state, -1, "poll");
+    if (!lua_isfunction(state, -1)) return 0;
+    lua_call(state, 0, 0);
+    return 0;
+}
+
 int nupp_lua_openlibs(lua_State *state, NuppLuaError *error) {
     ProtectedCall call = {error, 0};
     return protect(state, open_libraries, &call);
@@ -871,6 +885,11 @@ int nupp_lua_set_arguments(lua_State *state, const NuppLuaBytes *arguments,
         return LUA_ERRRUN;
     }
     return protect(state, set_arguments, &context.call);
+}
+
+int nupp_lua_poll_suspension(lua_State *state, NuppLuaError *error) {
+    ProtectedCall call = {error, 0};
+    return protect(state, poll_suspension, &call);
 }
 
 int nupp_lua_run(lua_State *state, const char *chunk, size_t chunk_length,

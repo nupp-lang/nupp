@@ -223,6 +223,7 @@ unsafe extern "C" {
         error: *mut LuaError,
     ) -> c_int;
     fn nupp_lua_clear_worker_context(state: *mut LuaState, error: *mut LuaError) -> c_int;
+    fn nupp_lua_poll_suspension(state: *mut LuaState, error: *mut LuaError) -> c_int;
 }
 
 #[cfg(feature = "lpeg")]
@@ -387,6 +388,13 @@ impl Lua {
                 error,
             )
         })
+    }
+
+    /// Drives every registered suspension source once, without blocking.
+    pub(crate) fn poll_suspension(&self) -> Result<(), String> {
+        // SAFETY: this state is live and owner-thread-affine; the shim reads
+        // `package.loaded` and makes the one call below a protected frame.
+        self.protected(|error| unsafe { nupp_lua_poll_suspension(self.state.as_ptr(), error) })
     }
 
     pub(crate) fn add_feature(&self, name: &CStr) -> Result<(), String> {

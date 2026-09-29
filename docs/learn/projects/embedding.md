@@ -466,10 +466,22 @@ attached the runtime. A call from another thread returns a runtime error.
 Cross-thread work uses a queue whose consumer enters Nupp on the runtime
 thread, or independent LuaJIT states with no shared handles.
 
-`nupp_runtime_poll` is an explicit host boundary. The current core validates
-the runtime lifecycle and thread there; it does not install a scheduler or
-resume application coroutines by itself. A host-provided suspension handler
-keeps readiness and event-loop policy outside the runtime.
+`nupp_runtime_poll` is the pump for a host that owns the event loop. Each call
+makes one non-blocking pass over the readiness sources the state's modules have
+registered with `nupp.suspension` -- the network, HTTP, process and timer
+sources -- and returns. It never waits, so call it from the loop, once per
+frame or whenever the host's own readiness fires. A failure a source raises
+returns `NUPP_STATUS_RUNTIME`. Polling drives readiness; it does not install a
+scheduler or resume a coroutine nobody is waiting on, and a host-provided
+suspension handler still decides what runs while a call is parked.
+
+```c
+while (running) {
+    host_process_events();
+    error = NULL;
+    if (report(nupp_runtime_poll(runtime, &error), error)) break;
+}
+```
 
 ## Shutdown
 
@@ -652,7 +664,7 @@ The current embedding release has these deliberate limits:
 
 - components remain installed until the runtime is destroyed;
 - the managed number kind is binary64 rather than an exact integer family;
-- `nupp_runtime_poll` does not provide a scheduler;
+- `nupp_runtime_poll` drives readiness sources and does not provide a scheduler;
 - the in-process compiler is reachable only through a reload session, and not as
   a general compile-this-source API;
 - a reload session is development-only, and needs the project's source tree and a

@@ -201,6 +201,10 @@ NUPP_API nupp_status nupp_runtime_shutdown(
     nupp_error **error
 );
 
+/* One non-blocking pass over the readiness sources the state's modules have
+ * registered with nupp.suspension -- network, HTTP, process and timer pumps --
+ * for a host that owns the event loop. It never waits: call it again from the
+ * loop. A state that never loaded nupp.suspension has nothing to drive. */
 NUPP_API nupp_status nupp_runtime_poll(
     nupp_runtime *runtime,
     nupp_error **error

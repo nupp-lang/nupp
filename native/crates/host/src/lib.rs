@@ -384,8 +384,10 @@ impl HostRuntime {
             .map_err(HostError::Lua)
     }
 
+    /// One non-blocking pass over the state's suspension sources: the net,
+    /// HTTP, process and timer pumps a host that owns the event loop drives.
     pub fn poll(&self) -> Result<(), HostError> {
-        self.lua().map(drop)
+        self.lua()?.poll_suspension().map_err(HostError::Lua)
     }
 
     /// Installs the Rust-owned native worker and shared-byte adapters for one

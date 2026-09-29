@@ -1038,4 +1038,143 @@ function M.anAotComponentLoadsThroughTheDynamicSdk()
     assert(output:find("game.label(true) = compiled", 1, true), output)
 end
 
+local POLL_COMPONENT_MANIFEST = [[
+return {
+    include = {"src"},
+    build = {
+        kind = "component",
+        description = "A component with a readiness source only a poll advances",
+        entries = {"clock"},
+        exports = {"clock.fired", "clock.arm"},
+    },
+}
+]]
+
+-- A timer as a readiness source: armed for a number of ticks, it counts one
+-- down on each pass and fires when none are left. Nothing but a poll runs it.
+local POLL_COMPONENT_SOURCE = [[
+module clock
+
+local suspension = require("nupp.suspension")
+
+local remaining: integer = 0
+local count: integer = 0
+
+suspension.source("clock.timer", 10, function(): integer
+    if remaining == 0 then
+        return 0
+    end
+    remaining = remaining - 1
+    if remaining == 0 then
+        count = count + 1
+        return 1
+    end
+    return 0
+end)
+
+export function arm(ticks: integer): nil
+    remaining = ticks
+end
+
+export function fired(): integer
+    return count
+end
+]]
+
+local POLL_DRIVER = [[
+#include "nupp.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static unsigned char *read_all(const char *path, size_t *length) {
+    FILE *file = fopen(path, "rb");
+    long end;
+    unsigned char *bytes;
+    if (!file || fseek(file, 0, SEEK_END) != 0 || (end = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) != 0) return NULL;
+    bytes = (unsigned char *)malloc((size_t)end + 1);
+    if (!bytes || fread(bytes, 1, (size_t)end, file) != (size_t)end) return NULL;
+    fclose(file);
+    *length = (size_t)end;
+    return bytes;
+}
+
+static double fired(nupp_runtime *runtime, nupp_handle *handle) {
+    nupp_value result = {0};
+    size_t count = 0;
+    if (nupp_call(runtime, handle, NULL, 0, &result, 1, &count, NULL) != NUPP_STATUS_OK) return -1;
+    return result.number;
+}
+
+int main(int argc, char **argv) {
+    nupp_runtime *runtime = NULL;
+    nupp_component *component = NULL;
+    nupp_handle *arm = NULL, *fire = NULL;
+    nupp_error *error = NULL;
+    nupp_value ticks = {0}, result = {0};
+    size_t count = 0, length = 0;
+    unsigned char *bytes;
+    int pass;
+
+    if (argc != 2 || !(bytes = read_all(argv[1], &length))) return 2;
+    if (nupp_runtime_new(NULL, &runtime, &error) != NUPP_STATUS_OK) return 1;
+    /* Nothing has loaded nupp.suspension yet, so there is nothing to drive. */
+    if (nupp_runtime_poll(runtime, &error) != NUPP_STATUS_OK) return 1;
+    if (nupp_component_load(runtime, bytes, length, argv[1], &component, &error) != NUPP_STATUS_OK) return 1;
+    if (nupp_export_find(runtime, component, "clock.arm", &arm, &error) != NUPP_STATUS_OK) return 1;
+    if (nupp_export_find(runtime, component, "clock.fired", &fire, &error) != NUPP_STATUS_OK) return 1;
+    ticks.kind = NUPP_VALUE_NUMBER;
+    ticks.number = 3;
+    if (nupp_call(runtime, arm, &ticks, 1, &result, 1, &count, &error) != NUPP_STATUS_OK) return 1;
+    printf("armed fired = %.0f\n", fired(runtime, fire));
+    for (pass = 1; pass <= 3; ++pass) {
+        if (nupp_runtime_poll(runtime, &error) != NUPP_STATUS_OK) {
+            fprintf(stderr, "poll: %s\n", error ? nupp_error_message(error) : "");
+            return 1;
+        }
+        printf("pass %d fired = %.0f\n", pass, fired(runtime, fire));
+    }
+    nupp_handle_release(runtime, arm, NULL);
+    nupp_handle_release(runtime, fire, NULL);
+    nupp_component_release(component);
+    nupp_runtime_shutdown(runtime, NULL);
+    nupp_runtime_free(runtime);
+    free(bytes);
+    return 0;
+}
+]]
+
+-- D-28: a host that owns its event loop advances the state's readiness sources
+-- by calling nupp_runtime_poll, one non-blocking pass each time.
+function M.aRuntimePollAdvancesATimerSource()
+    local directory, library = temporary(), sdk()
+    local project = directory .. "/project"
+    assert(os.execute("mkdir -p " .. quote(project .. "/src")) == 0)
+    write(project .. "/nupp.lua", POLL_COMPONENT_MANIFEST)
+    write(project .. "/src/clock.nupp", POLL_COMPONENT_SOURCE)
+    local status, output = run(("cd %s && %s build"):format(quote(project), quote(ROOT .. "/bin/nupp")))
+    assert(status == 0, output)
+    local source = directory .. "/poll.c"
+    write(source, POLL_DRIVER)
+    local executable = directory .. "/poll"
+    if jit.os == "Windows" then
+        executable = executable .. ".exe"
+    end
+    status, output = run(
+        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+            quote(compiler()),
+            quote(library),
+            quote(source),
+            quote(library .. "/libnupp.a"),
+            platformLibraries(library),
+            quote(executable)
+        )
+    )
+    assert(status == 0, output)
+    status, output = run(quote(executable) .. " " .. quote(project .. "/build/component.nuppc"))
+    assert(status == 0, output)
+    assert(output:find("armed fired = 0", 1, true), output)
+    assert(output:find("pass 2 fired = 0", 1, true), output)
+    assert(output:find("pass 3 fired = 1", 1, true), output)
+end
+
 return M
