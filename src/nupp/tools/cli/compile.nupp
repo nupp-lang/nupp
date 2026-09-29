@@ -258,14 +258,16 @@ function compile.check(path: string, env: table, opts: {[string]: any}?): (any?,
 end
 
 --- Compiles one file to Lua source. Returns the generated code, or nil and a short
---- reason after having reported the diagnostics that stopped it.
+--- reason after having reported the diagnostics that stopped it. When generation
+--- itself is what failed, the text it wrote comes third: it is what a reader needs
+--- to see why it does not load.
 function compile.module(
     path: string,
     env: table,
     settings: compile.Settings,
     moduleName: string?,
     sourceOverride: string?
-): string?, string?
+): (string?, string?, string?)
     local collected = settings.diagnostics
 
     -- Says each diagnostic, or puts it by for the caller to say later, and either way
@@ -380,7 +382,7 @@ function compile.module(
     )
     if #genDiags > 0 then
         say(genDiags)
-        return nil, "code generation errors"
+        return nil, "code generation errors", code
     end
 
     return code

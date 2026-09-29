@@ -99,23 +99,26 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     --- is what the editor shows. A fresh environment per resolution costs a prelude
     --- the cache has already built, and is the only thing that stays correct when a
     --- dependency changed under a session that has been open for a day.
-    local function lower(doc: any, path: string, optLevel: integer, boundary: string?): (string?, {any})
+    local function lower(doc: any, path: string, optLevel: integer, boundary: string?): (string?, {any}, string?)
         local collected: {any} = {}
         local compile = require("nupp.tools.cli.compile")
         local env = require("nupp.compiler.project.env").new(s.currentRoot or ".")
         local settings = compile.settings({optLevel = tostring(optLevel)}, collected)
         settings.bytecodeBoundary = boundary
-        local code = compile.module(path, env, settings, nil, doc.text)
+        local code, _, generated = compile.module(path, env, settings, nil, doc.text)
 
-        return code, collected
+        return code, collected, generated
     end
 
     --- The first diagnostic that stopped a lowering, as a sentence.
     local function firstProblem(collected: {any}): string?
         for _, diagnostic in ipairs(collected) do
-            if diagnostic.message then
+            -- The compiler's own records say `msg`; one built for the protocol says
+            -- `message`.
+            local message = diagnostic.message or diagnostic.msg
+            if message then
                 local where = diagnostic.line and (":" .. tostring(diagnostic.line)) or ""
-                return (diagnostic.code or "error") .. where .. ": " .. diagnostic.message
+                return (diagnostic.code or "error") .. where .. ": " .. tostring(message)
             end
         end
 
@@ -123,12 +126,21 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     end
 
     local function luaArtifact(doc: any, path: string, optLevel: integer): any
-        local code, collected = lower(doc, path, optLevel)
+        local code, collected, generated = lower(doc, path, optLevel)
+        -- Lua that was written but does not load is still the thing to read: it is the
+        -- only place the reason it does not load can be seen. It is handed over with
+        -- the problem beside it rather than withheld.
+        local problem = nil
+        if not code and generated then
+            code = generated
+            problem = {reason = "not-loaded", detail = firstProblem(collected) or "the generated Lua does not load"}
+        end
         if not code then
             return unavailable("lua", "not-lowered", firstProblem(collected) or "the file does not compile")
         end
 
         return {
+            problem = problem,
             kind = "lua",
             available = true,
             label = LABELS.lua,

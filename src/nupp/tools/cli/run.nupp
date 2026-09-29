@@ -171,7 +171,9 @@ local function run(options: any): integer
         compileLoaded, loaded = watch.compileLoaded, watch.loaded
     else
         compileLoaded = function(modulePath: string, env: any): string?, string?
-            return compile.module(modulePath, env, settings)
+            local code, problem = compile.module(modulePath, env, settings)
+
+            return code, problem
         end
     end
     local checkPlain = function(modulePath: string, env: any): boolean

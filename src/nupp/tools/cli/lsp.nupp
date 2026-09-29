@@ -466,6 +466,13 @@ local OPERATION_SCHEMAS: {
                     properties = {reason = {type = "string"}, detail = {type = "string"}},
                     required = {"reason"},
                 },
+                problem = {
+                    type = "object",
+                    description = "Set when the artifact is available but is not a working program: "
+                    .. "generated Lua that does not load, handed over so the reason can be read in it.",
+                    properties = {reason = {type = "string"}, detail = {type = "string"}},
+                    required = {"reason"},
+                },
             },
             required = {"kind", "available"},
         }
@@ -1234,6 +1241,9 @@ local function runArtifact(client, opts)
         return nil, (reason.detail or reason.reason or "the artifact is not available")
     else
         io.write(result.text)
+        if result.problem then
+            io.stderr:write("nupp: warning: " .. tostring(result.problem.detail or result.problem.reason) .. "\n")
+        end
     end
 
     return true

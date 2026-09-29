@@ -542,6 +542,33 @@ function M.artifactSaysWhyItCouldNotResolveOne()
    assert(decoded.unavailable.reason == "not-lowered", "with the reason it refused")
 end
 
+-- Lua the generator wrote but a VM will not load is the one place the reason can
+-- be read, so it is printed rather than withheld, with the problem beside it.
+function M.artifactPrintsGeneratedLuaThatDoesNotLoad()
+   local lines = {}
+   local names = {}
+   for index = 1, 61 do
+      lines[#lines + 1] = ("local v%d = %d"):format(index, index)
+      names[#names + 1] = "v" .. index
+   end
+   lines[#lines + 1] = "local function f(): number"
+   lines[#lines + 1] = "    return " .. table.concat(names, " + ")
+   lines[#lines + 1] = "end"
+   lines[#lines + 1] = "return f()"
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["many.g.nupp"] = table.concat(lines, "\n") .. "\n",
+   })
+   local text = capture(dir, "lsp artifact --kind lua many.g.nupp 2>&1; echo \"__exit__:$?\"")
+   local decoded = json.decode(captureJson(dir, "lsp artifact --kind lua --json many.g.nupp"))
+   os.execute("rm -rf '" .. dir .. "'")
+   contains(text, "local function f", "the generated Lua is printed")
+   contains(text, "NUPP3005", "with the reason it does not load")
+   contains(text, "__exit__:0", "and the text is what was asked for")
+   assert(decoded.available and decoded.problem.reason == "not-loaded", "JSON carries the problem beside it")
+   assert(decoded.text:find("local function f", 1, true), "and the text")
+end
+
 function M.artifactOperationsPublishTheirSchemas()
    local root = HERE .. "/.."
    local discovery = json.decode(captureJson(root, "lsp artifacts --schema"))

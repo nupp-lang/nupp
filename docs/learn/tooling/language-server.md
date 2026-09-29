@@ -257,6 +257,11 @@ An artifact that could not be produced answers `available: false` with an
 `unavailable` reason and detail, rather than with an empty document. A file that
 checks can still fail to lower, and which of those happened is the whole answer.
 
+Generated Lua that a VM will not load is the exception: it is still handed over,
+with `available: true` and a `problem` saying why it does not load, because the
+text is the only place the reason can be read. `nupp lsp artifact --kind lua`
+prints it and writes the problem to stderr.
+
 ## Command-line operations
 
 Every navigation and refactoring operation has a command-line form. Each runs
