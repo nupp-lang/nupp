@@ -100,7 +100,7 @@ it notices cancellation when it suspends, returns, or calls
 
 ```nupp
 const child = scope:spawn(function(): integer
-    local total = 0
+    local total: integer = 0
     for index = 1, 1000000 do
         nupp.tasks.checkpoint()
         total = total + index

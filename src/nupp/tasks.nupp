@@ -33,7 +33,7 @@ local total = 0
 
 with scope = nupp.tasks.open(timeoutMs = 1000) do
     const sum = scope:spawn("sum values", function(): integer
-        local answer = 0
+        local answer: integer = 0
         for value = 1, 1000 do
             nupp.tasks.checkpoint()
             answer = answer + value
