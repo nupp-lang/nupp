@@ -1855,7 +1855,7 @@ function M.processViewsSatisfyTheSharedContracts()
         table.concat(
             {
                 "local process = require('nupp.io.process')",
-                "local child = new process.Process({args = {'true'}} as process.Options)",
+                "local child = assert(process.spawn({args = {'true'}}))",
                 "local running = child",
                 "print(running.pid)",
             },
@@ -1871,8 +1871,8 @@ function M.processViewsSatisfyTheSharedContracts()
                 "local output = child.stdout as process.Reader",
                 "local function useReader(borrows value: nupp.io.Reader) value:read(1) end",
                 "local function useWriter(borrows value: nupp.io.Writer) value:write('x') end",
-                "local reader = process.asReader(output)",
-                "local writer = process.asWriter(input)",
+                "local reader = output:asReader()",
+                "local writer = input:asWriter()",
                 "useReader(reader)",
                 "useWriter(writer)",
             },
@@ -1888,7 +1888,7 @@ function M.processViewsSatisfyTheSharedContracts()
                         "local child = nil as process.Process",
                         "local output = child.stdout as process.Reader",
                         "local leaked: nupp.io.Reader? = nil",
-                        "leaked = process.asReader(output)",
+                        "leaked = output:asReader()",
                     },
                     "\n"
                 )
@@ -1919,7 +1919,7 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
     local source = table.concat(
         {
             "local process = require('nupp.io.process')",
-            "local child = new process.Process({args = {'true'}} as process.Options)",
+            "local child = assert(process.spawn({args = {'true'}}))",
             "assert(child:isRunning() or not child:isRunning())",
         },
         "\n"
@@ -2194,7 +2194,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
                 "        body = http.reader(io.newStringReader('body'), 4, nil)",
                 "    )",
                 "end",
-                "do local child = new process.Process({args = {'true'}} as process.Options) end",
+                "do local child = assert(process.spawn({args = {'true'}})) end",
             },
             "\n"
         )
@@ -3018,7 +3018,7 @@ end
     diagnostics = diagsOf(
         [[const process = require("nupp.io.process")
 local function expose(borrows child: process.Process): nil
-    local handle = child.handle
+    local state = child.state
 end
 ]]
     )
@@ -3028,7 +3028,10 @@ end
 function M.applicationResourcesHideLifecycleAndTransportMachinery()
     for _, example in ipairs({
         {"nupp.io.process", "Reader", "release"},
+        {"nupp.io.process", "Reader", "takeNow"},
         {"nupp.io.process", "Writer", "release"},
+        {"nupp.io.process", "Process", "teardown"},
+        {"nupp.io.process", "Process", "destroy"},
         {"nupp.io.http", "Body", "release"},
         {"nupp.io.http", "Body", "_transfer"},
         {"nupp.io.http", "Response", "_packed"},

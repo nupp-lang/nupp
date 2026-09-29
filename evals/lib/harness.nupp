@@ -189,7 +189,10 @@ function harness.run(
         stderr = "pipe",
         timeoutMs = timeoutSeconds ~= nil and math.floor(timeoutSeconds * 1000) or nil,
     }
-    local child = new process.Process(options)
+    local child, spawnProblem = process.spawn(options)
+    if child == nil then
+        error("cannot start " .. tostring(argv[1]) .. ": " .. tostring(spawnProblem), 2)
+    end
     local result, reason = child:communicate()
     child:close()
     if result == nil then

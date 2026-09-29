@@ -9,7 +9,7 @@ local suspension = require("nupp.suspension")
 
 local function spawnOn(provider, options)
     local instance = require("providerstate").load("process", provider)
-    return instance.Process.__nuppCtor1(options)
+    return assert(instance.spawn(options))
 end
 
 local function assertEq(got, want, label)
@@ -376,8 +376,88 @@ function M.readsAnswerNilAtEndOfStream()
     local child = spawnOn(backend, {args = {"echo"}})
     assertEq(child.stdout:read(65536), "only", "the one chunk")
     assertEq(child.stdout:read(65536), "", "then end of stream")
-    assertTrue(child.stdout:isEOF(), "and it says so")
+    assertTrue(child.stdout:isEnded(), "and it says so")
     child:close()
+end
+
+function M.pollTellsNothingYetFromTheEnd()
+    -- R-1: `""` used to mean "nothing ready" from `poll` and "the end" from `read`, two
+    -- opposite answers in one value on one object. Now a quiet stream answers nil and
+    -- false, and a finished one nil and true.
+    local backend = fakeBackend({out = {"late"}, err = {}, outDelay = 1, exitAfter = 1})
+    local child = spawnOn(backend, {args = {"slow"}})
+    local chunk, ended = child.stdout:poll()
+    assertEq(chunk, nil, "nothing was ready yet")
+    assertEq(ended, false, "and that is not the end")
+    chunk, ended = child.stdout:poll()
+    assertEq(chunk, "late", "the bytes when they came")
+    assertEq(ended, false, "with the stream still open")
+    repeat
+        chunk, ended = child.stdout:poll()
+    until chunk ~= nil or ended
+    assertEq(chunk, nil, "then no bytes")
+    assertEq(ended, true, "because the stream ended")
+    assertTrue(child.stdout:isEnded(), "which the stream reports as well")
+    child:close()
+end
+
+function M.pollWaitsOnlyAsLongAsItWasToldTo()
+    local backend = fakeBackend({out = {}, err = {}, eofWhenExited = true})
+    local child = spawnOn(backend, {args = {"quiet"}})
+    local chunk, ended = child.stdout:poll(nil, 30)
+    assertEq(chunk, nil, "a quiet stream gave nothing")
+    assertEq(ended, false, "and has not ended")
+    assertTrue(backend.state.waits > 0, "so the wait slept in the platform rather than spinning")
+    child:close()
+end
+
+function M.sendStopsAtAStallOrAtItsDeadline()
+    -- D-15: `send` names its bounds. A stall bound gives up on a pipe that takes
+    -- nothing for that long; a deadline stops however well the child keeps up.
+    local stalled = fakeBackend({out = {}, err = {}, blockWritesWhileUnread = true})
+    stalled.state.pendingOut = 1000
+    local child = spawnOn(stalled, {args = {"full"}})
+    local started = stalled:now()
+    assertEq(child.stdin:send("abcdef", nil, 50), 0, "a pipe that takes nothing sends nothing")
+    assertTrue(stalled:now() - started >= 50, "after waiting out the stall bound")
+    assertTrue(child:isRunning(), "and the child is left alone")
+    child:close()
+
+    local steady = fakeBackend({out = {}, err = {}, inputChunk = 1})
+    local second = spawnOn(steady, {args = {"cat"}})
+    assertEq(second.stdin:send("abcdef", steady:now() - 1), 0, "a deadline already past sends nothing")
+    assertEq(second.stdin:send("abcdef", nil, 10), 6, "a pipe that keeps taking bytes outlasts a stall bound")
+    assertEq(second.stdin.setTimeout, nil, "the stream timeout setter is gone")
+    second:close()
+end
+
+function M.streamsReportEndedAndReleasedLikeEveryOtherStream()
+    local backend = fakeBackend({out = {}, err = {}, exitAfter = 1})
+    local child = spawnOn(backend, {args = {"quiet"}})
+    local stdin, stdout = child.stdin, child.stdout
+    assertTrue(not stdin:isReleased() and not stdin:isEnded(), "an open writer is neither")
+    assertTrue(not stdout:isReleased(), "an open reader is not released")
+    stdin:close()
+    assertTrue(stdin:isReleased(), "a closed writer is released")
+    assertTrue(stdin:isEnded(), "and can take nothing more")
+    stdout:close()
+    assertTrue(stdout:isReleased() and stdout:isEnded(), "a closed reader is both")
+    assertEq(stdin.isClosed, nil, "the old closed-ness spelling is gone")
+    assertEq(stdout.isEOF, nil, "and so is the old end-of-stream one")
+    child:close()
+end
+
+function M.aChildThatCannotStartIsAnAnswerNotARaise()
+    local backend = fakeBackend({out = {}, err = {}})
+    function backend:spawn(_options)
+        return nil, nil, nil, nil, 0, "no such program"
+    end
+    local instance = require("providerstate").load("process", backend)
+    local ok, child, reason = pcall(instance.spawn, {args = {"missing"}})
+    assertTrue(ok, "spawn did not raise: " .. tostring(child))
+    assertEq(child, nil, "there is no child")
+    assertTrue(tostring(reason):find("no such program", 1, true) ~= nil, "and the reason says why: " .. tostring(reason))
+    assertEq(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
 end
 
 function M.waitingWorksUnderAHandler()
@@ -635,8 +715,8 @@ function M.aComplainingStreamCloseStillReapsTheChild()
     assertTrue(not ok, "the complaint was still reported")
     assertTrue(tostring(reported):find("complained", 1, true) ~= nil, "got: " .. tostring(reported))
     assertTrue(backend.state.reaped, "and the child was reaped anyway")
-    assertTrue(child.childReleased, "which the child records as its handle being gone")
-    assertTrue(child.reaped, "and with every piece released, the teardown is complete")
+    assertTrue(child.state.childReleased, "which the child records as its handle being gone")
+    assertTrue(child.state.reaped, "and with every piece released, the teardown is complete")
 end
 
 function M.aRunningChildIsNotReapedByAFailedTeardown()
@@ -656,12 +736,12 @@ function M.aRunningChildIsNotReapedByAFailedTeardown()
     end)
     assertTrue(not ok, "the refusal was reported")
     assertTrue(not backend.state.reaped, "and nothing reaped a child that never exited")
-    assertTrue(not child.reaped, "so the teardown is not complete")
+    assertTrue(not child.state.reaped, "so the teardown is not complete")
     -- Retrying with a platform that cooperates finishes the job.
     backend.kill = realKill
     backend.state.killLag = 0
     child:close()
-    assertTrue(backend.state.reaped and child.reaped, "the retry finished it")
+    assertTrue(backend.state.reaped and child.state.reaped, "the retry finished it")
 end
 
 function M.aReapThatReleasedAndComplainedIsStillAReap()
@@ -680,7 +760,7 @@ function M.aReapThatReleasedAndComplainedIsStillAReap()
         tostring(reported):find("complained", 1, true) ~= nil,
         "carrying the platform's words, got: " .. tostring(reported)
     )
-    assertTrue(child.reaped, "and the child counts as released, because it was")
+    assertTrue(child.state.reaped, "and the child counts as released, because it was")
     local calls = 0
     local realReap = backend.reap
     function backend:reap(handle)
@@ -700,7 +780,7 @@ function M.aRefusalWithNoReasonIsStillARefusal()
     backend.state.silentRefuseClose = "in"
     local child = spawnOn(backend, {args = {"quiet"}})
     local ok, reported = pcall(function()
-        child.stdin:release()
+        child.stdin:close()
     end)
     assertTrue(not ok, "the silent refusal was still an error")
     assertTrue(tostring(reported):find("did not say why", 1, true) ~= nil, "and said so, got: " .. tostring(reported))
@@ -714,7 +794,7 @@ function M.aRefusalWithNoReasonIsStillARefusal()
     end)
     assertTrue(not reapOk, "and the same for a reap")
     assertTrue(tostring(reapReported):find("did not say why", 1, true) ~= nil, "got: " .. tostring(reapReported))
-    assertTrue(not second.reaped, "the child is not released")
+    assertTrue(not second.state.reaped, "the child is not released")
     second:close()
 end
 
@@ -732,7 +812,7 @@ function M.aStreamReleasedWithAComplaintStaysClosed()
         local child = spawnOn(backend, {args = {"quiet"}})
         local stream = which == "in" and child.stdin or child.stdout
         local ok, reported = pcall(function()
-            stream:release()
+            stream:close()
         end)
         assertTrue(not ok, which .. ": the complaint was reported")
         assertTrue(
@@ -764,7 +844,7 @@ function M.aRefusedStreamCloseBecomesAnErrorAtTheStreamEdge()
     backend.state.refuseClose = "in"
     local child = spawnOn(backend, {args = {"quiet"}})
     local ok, reported = pcall(function()
-        child.stdin:release()
+        child.stdin:close()
     end)
     assertTrue(not ok, "the refusal was raised")
     assertTrue(
@@ -795,7 +875,7 @@ function M.closeCanBeRetriedAfterItFails()
     end)
     assertTrue(not ok, "the failure was reported rather than swallowed")
     assertTrue(not backend.state.reaped, "and nothing was reaped")
-    assertTrue(not child.childReleased, "the child is still ours, which is why a retry is safe")
+    assertTrue(not child.state.childReleased, "the child is still ours, which is why a retry is safe")
     child:close()
     assertTrue(backend.state.reaped, "the retry went through and finished the job")
 end
@@ -812,7 +892,7 @@ function M.aBackendThatRaisesIsReadAsHavingReleased()
 
     local child = spawnOn(backend, {args = {"quiet"}})
     local ok, reported = pcall(function()
-        child.stdin:release()
+        child.stdin:close()
     end)
     assertTrue(not ok, "the broken contract was still reported")
     assertTrue(tostring(reported):find("raised", 1, true) ~= nil, "and named as a raise, got: " .. tostring(reported))
@@ -828,7 +908,7 @@ function M.aBackendThatRaisesIsReadAsHavingReleased()
         second:close()
     end)
     assertTrue(not reapOk, "the same for a reap")
-    assertTrue(second.childReleased, "the child is treated as gone too")
+    assertTrue(second.state.childReleased, "the child is treated as gone too")
 end
 
 function M.aRaiseWithNothingToSayIsStillAFailure()
@@ -842,7 +922,7 @@ function M.aRaiseWithNothingToSayIsStillAFailure()
 
     local child = spawnOn(backend, {args = {"quiet"}})
     local ok, reported = pcall(function()
-        child.stdin:release()
+        child.stdin:close()
     end)
     assertTrue(not ok, "the silent raise was still an error")
     assertTrue(
@@ -868,8 +948,8 @@ function M.aRaiseWithNothingToSayIsStillAFailure()
     -- failure is reported once and a retry has no work, which is the difference between
     -- an aggregate derived from the pieces and one that just tracks whether anything
     -- ever went wrong.
-    assertTrue(second.childReleased, "the child is treated as gone")
-    assertTrue(second.reaped, "so nothing is still held and the teardown is complete")
+    assertTrue(second.state.childReleased, "the child is treated as gone")
+    assertTrue(second.state.reaped, "so nothing is still held and the teardown is complete")
 
     -- And through the generic step judge, which is a separate path: a stream close
     -- synthesizes at its own edge, so only a step like the kill reaches `attempt` with
@@ -907,7 +987,7 @@ end
 
 function M.genericWriterCodeCanTellNoRoomYetFromNoRoomEver()
     -- The loop every non-blocking writer is: offer, and on zero decide whether to come
-    -- back. Without `isGone` the two zeroes -- no room yet, no reader ever -- are
+    -- back. Without `isEnded` the two zeroes -- no room yet, no reader ever -- are
     -- indistinguishable, and the only safe reading of them is "retry", forever.
     --
     -- This asserts the behaviour, not a contract, and cannot assert more from here:
@@ -922,7 +1002,7 @@ function M.genericWriterCodeCanTellNoRoomYetFromNoRoomEver()
             if spins > 200 then
                 return sent, "spun"
             end
-            if writer:isGone() or writer:isClosed() then
+            if writer:isEnded() then
                 return sent, "gone"
             end
             sent = sent + writer:offer(data:sub(sent + 1))
@@ -962,7 +1042,7 @@ function M.aRefusedStreamCloseCanBeRetried()
     backend.state.refuseClose = "in"
     local child = spawnOn(backend, {args = {"quiet"}})
     local ok = pcall(function()
-        child.stdin:release()
+        child.stdin:close()
     end)
     assertTrue(not ok, "the refusal was reported")
     backend.state.refuseClose = nil
@@ -982,7 +1062,7 @@ function M.closeReenteredFromItsOwnTeardownJustReturns()
     local reentries = 0
     local realPoll = backend.poll
     function backend:poll(handle)
-        if child.closing and reentries < 3 then
+        if child.state.closing and reentries < 3 then
             reentries = reentries + 1
             -- Straight back in, on this very coroutine.
             child:close()
@@ -1024,7 +1104,7 @@ function M.aSecondCloserWithNothingToScheduleItIsToldSoRatherThanHanging()
     local realPoll = backend.poll
     function backend:poll(handle)
         -- Reached from inside the first close's wait, which is exactly the situation.
-        if child.closing and coroutine.status(second) == "suspended" then
+        if child.state.closing and coroutine.status(second) == "suspended" then
             assert(coroutine.resume(second))
         end
         return realPoll(self, handle)
@@ -1061,7 +1141,7 @@ function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
         return coroutine.create(function()
             local installation = suspension.install(handler)
             order[#order + 1] = name .. " entered"
-            order[name .. " sawTeardown"] = child.closing
+            order[name .. " sawTeardown"] = child.state.closing
             child:close()
             order[#order + 1] = name .. " returned"
             installation:close()
@@ -1286,8 +1366,8 @@ end
 function M.sharedViewsCompleteAndCloseTheBorrowedStreams()
     local backend = fakeBackend({out = {"abc"}, err = {}, exitAfter = 1})
     local child = spawnOn(backend, {args = {"filter"}})
-    local reader = process.asReader(child.stdout)
-    local writer = process.asWriter(child.stdin)
+    local reader = child.stdout:asReader()
+    local writer = child.stdin:asWriter()
 
     assertEq(assert(reader:read(2)), "ab", "the reader honours its count")
     assertEq(assert(reader:read(2)), "c", "and keeps no adapter-side surplus")

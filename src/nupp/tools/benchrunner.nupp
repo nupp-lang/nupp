@@ -221,15 +221,16 @@ local function nuppRun(
         args[#args + 1] = entry
     end
     local childArgs = buildProcess.isolatedArguments(args)
-    local child = new process.Process(
-        {
-            args = childArgs,
-            stdin = "inherit",
-            stdout = "pipe",
-            stderr = "pipe",
-            timeoutMs = timeoutMs,
-        } as process.Options
-    )
+    local child, spawnProblem = process.spawn({
+        args = childArgs,
+        stdin = "inherit",
+        stdout = "pipe",
+        stderr = "pipe",
+        timeoutMs = timeoutMs,
+    })
+    if child == nil then
+        return false, spawnProblem or "could not start the child"
+    end
     local result, communicateProblem = child:communicate()
     child:close()
     if not result then

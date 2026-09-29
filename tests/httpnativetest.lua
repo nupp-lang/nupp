@@ -15,7 +15,7 @@ local root, http, buffers, process, files, port, server
 local priorPreload, priorLoaded, unavailable
 
 local function startProcess(options)
-    return process.Process.__nuppCtor1(options)
+    return assert(process.spawn(options))
 end
 
 local function newHttpClient(options)

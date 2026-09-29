@@ -6,11 +6,15 @@ Starts a child process and drains its streams without deadlocking.
 ```nupp
 local process = nupp.io.process
 
-local child = new process.Process({args = {"cc", "--version"}})
+local child = assert(process.spawn({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
 ```
+
+`spawn` answers nil and a reason when the child cannot be started, the way every
+other acquisition of an operating-system resource does, and raises only for
+options that could never describe a child.
 
 A child and its streams are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
@@ -83,6 +87,10 @@ process.Result = shared.Result
 -- two, small enough that a quiet one costs a small buffer rather than a large one.
 local READ_LIMIT: integer = 65536
 
+-- The longest single wait a stream read asks for, which is the longest a timeout
+-- can be.
+local FOREVER_MS: integer = 2147483647
+
 ----------------------------------------------------------------------------
 -- Streams
 ----------------------------------------------------------------------------
@@ -106,16 +114,18 @@ local progressed, releasePump, await, pumpOnce
 -- borrows the child's streams, and a borrow may not cross an untyped call.
 local awaitTick: function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
 local validateOptions: function(options: process.Options): nil
+local releaseStream: function(borrows stream: process.Reader | process.Writer | nil): nil
 
 --- One of a child's readable streams.
 ---
---- Its blocking `read` and its nonblocking `poll` are both here on purpose. A caller
---- draining several streams at once cannot use the blocking form on any of them,
---- because waiting on one is exactly what starves the others, which is the whole
---- reason `communicate` can drain three pipes without deadlocking.
+--- Its waiting `read` and its nonblocking `poll` are both here on purpose. A caller
+--- draining several streams at once cannot wait on any one of them, because waiting
+--- on one is exactly what starves the others, which is the whole reason
+--- `communicate` can drain three pipes without deadlocking.
 ---
---- The completion-oriented `nupp.io.Reader` methods are the public tecs-compatible
---- surface. `poll` remains alongside them as the concrete nonblocking operation the
+--- `read` is the `nupp.io.Reader` operation and waits as long as the stream stays
+--- open: the child's deadline in `Options.timeoutMs`, and the enclosing task scope's
+--- deadline, are what bound it. `poll` is the concrete nonblocking operation the
 --- combined drain needs; generic readers are not widened with readiness operations.
 ---
 --- The tolerance that does exist is narrow and worth naming exactly: closing the same
@@ -136,170 +146,108 @@ record process.Reader is Reader2
     @private
     eof: boolean
 
-    --- Maximum time one completion-oriented read may wait.
-    timeoutMs: integer
+    --- Takes what one stream has without waiting, as `poll` answers it: the bytes, or
+    --- nil and whether the stream has ended. Shared by every read, so end of stream has
+    --- one place that decides it.
+    --- @raises string when the provider returns an invalid result
+    @private
+    takeNow: function(self: process.Reader, wanted: integer): (string?, boolean)
 
-    --- Whether the far end has finished.
-    function isEOF(self): boolean
-        return self.eof
+    --- Whether the far end has finished and every byte it sent has been taken, or
+    --- this end has been closed. A read answers empty exactly when this is true.
+    function isEnded(self): boolean
+        return self.closed or self.eof
     end
 
     --- Whether this end has been closed.
-    function isClosed(self): boolean
+    function isReleased(self): boolean
         return self.closed
     end
 
-    --- Closes this end.
+    --- Takes whatever is available: the bytes, or nil when there are none, with
+    --- whether the stream has ended as the second result.
     ---
-    --- Idempotent. `closed` follows ownership rather than success. A backend that gave
-    --- the stream up and then complained has still given it up, so this end is shut and
-    --- the complaint is only reported; one that kept the stream leaves this end open.
+    --- Nil with `false` is "nothing yet" and nil with `true` is the end, so the two
+    --- are never the same answer. Without `timeoutMs` this does not wait, which is the
+    --- half of reading `communicate` needs so that one quiet stream does not stop it
+    --- serving another. With it, this waits up to that many milliseconds for bytes
+    --- or the end, for a caller that has other work to come back to.
     ---
-    --- @raises string when the platform reported a problem, released or not
-    @private
-    release: function(self: process.Reader): nil
-
-    --- Takes whatever is available without waiting: the bytes, `""` when nothing is
-    --- ready yet, or nil at end of stream.
-    ---
-    --- The non-blocking half of reading, which `communicate` needs so that one quiet
-    --- stream does not stop it serving another.
-    --- `limit` caps how many bytes to take, defaulting to a whole pipe's worth. It is
-    --- here because the shared `nupp.io.Reader` promises "at most `count`". Without the
-    --- limit its completion-oriented method would have to keep surplus bytes beside
-    --- this record, giving end of stream and closedness two homes. One place decides
-    --- both, and the caller says how much it wants.
-    ---
-    --- Zero and negative polling limits read one byte. This concrete nonblocking
-    --- operation keeps that defensive behavior even though the shared `Reader` contract
-    --- requires a positive count. Settled here rather than at the platform because the
-    --- platform is where it stops being a number and becomes a buffer size: a signed
-    --- zero or minus one arriving at a native size conversion is either an empty read
-    --- that looks like end of stream or an enormous one, and neither is worth being
-    --- able to ask for. `read` passes its caller's count straight through.
-    --- @raises string when the provider returns an invalid result
-    function poll(self, limit: integer?): string?
-        if self.closed or self.eof then
-            return nil
-        end
+    --- `limit` caps how many bytes to take, defaulting to a whole pipe's worth. Zero
+    --- and negative limits read one byte: the platform is where a count stops being a
+    --- number and becomes a buffer size, and a signed zero or minus one arriving at a
+    --- native size conversion is either an empty read that looks like end of stream or
+    --- an enormous one. `read` passes its caller's count straight through.
+    --- @param self this stream
+    --- @param limit the most bytes to take
+    --- @param timeoutMs how long to wait for bytes or the end, or nothing to not wait
+    --- @return the bytes, or nil when none are available
+    --- @return whether the stream has ended
+    --- @raises string when the provider returns an invalid result, or timeoutMs is
+    ---     outside 0 through 2147483647
+    function poll(self, limit: integer?, timeoutMs: integer?): (string?, boolean)
         local wanted = math.floor(limit or READ_LIMIT)
         if wanted < 1 then
             wanted = 1
         end
-        local got = self.owner.backend:read(self.handle, wanted)
-        if got == nil then
-            self.eof = true
-
-            return nil
+        if timeoutMs == nil or timeoutMs == 0 then
+            return self:takeNow(wanted)
         end
-        if type(got) ~= "string" then
-            error("nupp: process provider returned a non-string read result", 2)
-        end
-        if #got > wanted then
-            error("nupp: process provider returned more bytes than requested", 2)
+        if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
+            error("nupp: process poll timeout must be 0 through 2147483647 milliseconds", 2)
         end
 
-        return got
-    end
-
-    --- Reads the next available bytes, suspending until there are some. Answers nil at
-    --- end of stream.
-    function next(self): string?
-        if self.closed or self.eof then
-            return nil
-        end
-        local chunk = nil
+        local chunk: string? = nil
+        local ended = false
         await(
             self.owner,
             "process stream read",
             function(): boolean
-                if self.closed or self.eof then
-                    return true
-                end
-                local got = self:poll()
-                if got == nil then
-                    return true
-                end
-                if #got > 0 then
-                    chunk = got
+                local got, over = self:takeNow(wanted)
+                chunk = got
+                ended = over
 
-                    return true
-                end
-
-                return false
+                return got ~= nil or over
             end,
             function(): shared.Interest
                 -- This stream, and the child: end of stream is something the child's
                 -- ending produces, so a reader that only asked about the pipe could
                 -- sleep through the very event that answers it.
                 return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
-            end
+            end,
+            self.owner.backend:now() + timeoutMs
         )
 
-        return chunk
+        return chunk, ended
     end
 
-    --- The shared Reader operation uses the concrete bounded poll but still waits
-    --- through the same state machine as every other completion-oriented call.
-    --- Keeping the limit here avoids a surplus buffer and its second notion of EOF.
-    function readCompletion(self, limit: integer): (string?, string?)
-        if self.closed or self.eof then
-            return nil
-        end
-        local chunk: string? = nil
-        local stopAt = self.owner.backend:now() + self.timeoutMs
-        local completed = await(
-            self.owner,
-            "process stream read",
-            function(): boolean
-                if self.closed or self.eof then
-                    return true
-                end
-                local got = self:poll(limit)
-                if got == nil then
-                    return true
-                end
-                if #got > 0 then
-                    chunk = got
-
-                    return true
-                end
-
-                return false
-            end,
-            function(): shared.Interest
-                return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
-            end,
-            stopAt
-        )
-        if not completed then
-            return nil, "the process read timed out"
-        end
-
-        return chunk
-    end
-
-    --- Bounds the next completion-oriented read.
-    --- @raises string when timeoutMs is outside 0 through 2147483647
-    function setTimeout(self, timeoutMs: integer): nil
-        if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
-            error("nupp: process reader timeout must be 0 through 2147483647 milliseconds", 2)
-        end
-        self.timeoutMs = timeoutMs
-    end
-
+    --- Reads up to `count` bytes, suspending until some arrive. Answers empty at the
+    --- end of the stream and nil with a reason once this end is closed.
+    --- @raises string when count is not a positive integer
     function read(exclusive self, count: integer): (string?, string?)
         if self.closed then
             return nil, "the process reader is closed"
         end
-        local chunk, reason = self:readCompletion(positive(count, "process reader count", 2))
-        if reason ~= nil then
-            return nil, reason
-        end
+        local wanted = positive(count, "process reader count", 2)
+        -- The longest wait `poll` takes, repeated: a read waits for as long as the
+        -- stream stays open, and what bounds it is the child's deadline and the task
+        -- scope's, not a timer of its own.
+        while true do
+            local chunk, ended = self:poll(wanted, FOREVER_MS)
+            if chunk ~= nil then
+                return chunk
+            end
+            if ended then
+                if self.closed then
+                    return nil, "the process reader is closed"
+                end
 
-        return chunk or ""
+                return ""
+            end
+        end
     end
 
+    --- @raises string when the destination is empty
     function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = positive(#destination, "process reader destination length", 2)
         local chunk, reason = self:read(wanted)
@@ -314,6 +262,7 @@ record process.Reader is Reader2
         return #chunk
     end
 
+    --- @raises string when offset is negative or count is not a positive integer
     function readInto(
         exclusive self,
         exclusive destination: Buffer,
@@ -364,17 +313,29 @@ record process.Reader is Reader2
         end
     end
 
+    --- Borrows this stream through the shared completion-oriented contract.
+    function asReader(borrows self): Reader2 borrows (self)
+        return self
+    end
+
+    --- Closes this end.
+    ---
+    --- Idempotent. Closed-ness follows ownership rather than success. A backend that
+    --- gave the stream up and then complained has still given it up, so this end is
+    --- shut and the complaint is only reported; one that kept the stream leaves this
+    --- end open.
+    --- @raises string when the platform reported a problem, released or not
     function close(takes self): nil
-        self:release()
+        releaseStream(self)
     end
 end
 
 --- A child's writable stream.
 ---
---- `offer` and `isGone` are the nonblocking half, for the same reason the reader has
---- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain
---- loop serving three pipes cannot afford to wait for. The completion-oriented `write`
---- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
+--- `offer` is the nonblocking half, for the same reason the reader has `poll`: the
+--- prelude's `nupp.io.Writer.write` writes the whole value, which a drain loop serving
+--- three pipes cannot afford to wait for. The completion-oriented `write` remains the
+--- ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
 record process.Writer is Writer2
     @private
     owner: any
@@ -390,28 +351,16 @@ record process.Writer is Writer2
     @private
     gone: boolean
 
-    --- Maximum time one completion-oriented write may wait.
-    timeoutMs: integer
-
-    --- Whether the far end has gone: the child is no longer reading this, and no
-    --- amount of waiting will change that.
-    function isGone(self): boolean
-        return self.gone
+    --- Whether the far end has gone, so that no amount of waiting will deliver another
+    --- byte, or this end has been closed.
+    function isEnded(self): boolean
+        return self.closed or self.gone
     end
 
     --- Whether this end has been closed.
-    function isClosed(self): boolean
+    function isReleased(self): boolean
         return self.closed
     end
-
-    --- Closes this end. Idempotent, on the same terms as the reader's: `closed` follows
-    --- what the platform released, not whether it complained, so a stream already
-    --- given up is never offered to a retry. Closing a child's stdin is how it is told
-    --- there is no more input.
-    ---
-    --- @raises string when the platform reported a problem, released or not
-    @private
-    release: function(self: process.Writer): nil
 
     --- Writes what the pipe will take without waiting. Answers how many bytes went,
     --- which may be none and may be fewer than offered.
@@ -438,8 +387,20 @@ record process.Writer is Writer2
     end
 
     --- Writes every byte, suspending as often as the pipe makes it. Answers how many
-    --- went, which is all of them unless the far end went away first.
-    function send(self, data: string, stopAt: number?, stallFor: integer?): integer
+    --- went, which is all of them unless the far end went away or a bound ran out
+    --- first.
+    ---
+    --- `deadline` is a time in the [](nupp.time.now) domain after which no more is
+    --- sent, however the child is keeping up. `stallTimeoutMs` bounds a period with no
+    --- progress instead, so a child that keeps taking bytes keeps the write going
+    --- until the deadline. Without either, only the child's own deadline and the
+    --- enclosing task scope's bound the wait.
+    --- @param self this stream
+    --- @param data the bytes to send
+    --- @param deadline when to stop, in the monotonic clock's milliseconds
+    --- @param stallTimeoutMs how long the pipe may take nothing before giving up
+    --- @return how many bytes went
+    function send(self, data: string, deadline: number?, stallTimeoutMs: integer?): integer
         if self.closed or self.gone then
             return 0
         end
@@ -462,36 +423,41 @@ record process.Writer is Writer2
             end
             sent = sent + self:offer(data:sub(sent + 1))
 
-            -- Return after each piece, not only after the whole value. A timeout
-            -- bounds one period with no progress; a child that keeps taking bytes
-            -- may keep the write alive beyond that interval.
+            -- Return after each piece, not only after the whole value, so a stall
+            -- bound measures one period with no progress rather than the whole write.
 
             return sent > before
         end
 
         while sent < #data and not self.closed and not self.gone do
+            local now = self.owner.backend:now()
+            -- Checked here as well as by the wait, because a pipe that always takes
+            -- something never makes the wait look at the clock.
+            if deadline ~= nil and now >= deadline then
+                break
+            end
             before = sent
+            local stopAt = deadline
+            if stallTimeoutMs ~= nil then
+                local stalled = now + stallTimeoutMs
+                if stopAt == nil or stalled < stopAt then
+                    stopAt = stalled
+                end
+            end
             local completed = await(self.owner, "process stream write", offered, interest, stopAt)
             if not completed then
                 break
-            end
-            if sent > before and stallFor ~= nil then
-                stopAt = self.owner.backend:now() + stallFor
             end
         end
 
         return sent as integer
     end
 
-    --- Bounds the next completion-oriented write.
-    --- @raises string when timeoutMs is outside 0 through 2147483647
-    function setTimeout(self, timeoutMs: integer): nil
-        if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
-            error("nupp: process writer timeout must be 0 through 2147483647 milliseconds", 2)
-        end
-        self.timeoutMs = timeoutMs
-    end
-
+    --- Writes every byte, suspending until the pipe has taken them all.
+    ---
+    --- Bounded the way `read` is: by the child's deadline and the enclosing task
+    --- scope's. `send` takes an explicit deadline or stall bound for a caller that
+    --- needs one of its own.
     function write(exclusive self, bytes: string): (boolean, string?)
         if self.closed then
             return false, "the process writer is closed"
@@ -499,9 +465,8 @@ record process.Writer is Writer2
         if self.gone then
             return false, "the child is no longer reading this stream"
         end
-        local stopAt = self.owner.backend:now() + self.timeoutMs
         local ok, sent = pcall(function(): integer
-            return self:send(bytes, stopAt, self.timeoutMs)
+            return self:send(bytes)
         end)
         if not ok then
             return false, tostring(sent)
@@ -510,7 +475,7 @@ record process.Writer is Writer2
             if self.gone then
                 return false, "the child stopped reading before every byte was written"
             end
-            return false, "the process write timed out"
+            return false, "the process writer was closed before every byte was written"
         end
 
         return true
@@ -537,13 +502,47 @@ record process.Writer is Writer2
         return true
     end
 
+    --- Borrows this stream through the shared completion-oriented contract.
+    function asWriter(borrows self): Writer2 borrows (self)
+        return self
+    end
+
+    --- Closes this end. Idempotent, on the same terms as the reader's: closed-ness
+    --- follows what the platform released, not whether it complained, so a stream
+    --- already given up is never offered to a retry. Closing a child's stdin is how it
+    --- is told there is no more input.
+    --- @raises string when the platform reported a problem, released or not
     function close(takes self): nil
-        self:release()
+        releaseStream(self)
     end
 end
 
-function process.Reader.release(self: process.Reader): nil
-    if self.closed then
+function process.Reader.takeNow(self: process.Reader, wanted: integer): (string?, boolean)
+    if self.closed or self.eof then
+        return nil, true
+    end
+    local got = self.owner.backend:read(self.handle, wanted)
+    if got == nil then
+        self.eof = true
+
+        return nil, true
+    end
+    if type(got) ~= "string" then
+        error("nupp: process provider returned a non-string read result", 3)
+    end
+    if #got > wanted then
+        error("nupp: process provider returned more bytes than requested", 3)
+    end
+    if #got == 0 then
+        return nil, false
+    end
+
+    return got, false
+end
+
+-- Releases one stream, reader or writer: the two share every field this touches.
+releaseStream = function(borrows stream: process.Reader | process.Writer | nil): nil
+    if stream == nil or stream.closed then
         return
     end
     -- `closeStream` is return-only, so a raise is a backend breaking its contract
@@ -551,10 +550,10 @@ function process.Reader.release(self: process.Reader): nil
     -- stream is still ours, the safe reading is that it is gone: retaining one
     -- native handle is a bounded cost, and retrying a returned handle is not.
     local ok, released, why = pcall(function(): (boolean?, string?)
-        return self.owner.backend:closeStream(self.handle)
+        return stream.owner.backend:closeStream(stream.handle)
     end)
     if not ok then
-        self.closed = true
+        stream.closed = true
         error(
             (
                 "nupp: closing a process stream raised: %s"
@@ -564,7 +563,7 @@ function process.Reader.release(self: process.Reader): nil
     end
     -- Set before the raise below, and deliberately: the error is what happened,
     -- `closed` is what is now true, and the second outlives the first.
-    self.closed = released == true
+    stream.closed = released == true
     if why == nil and released ~= true then
         -- A refusal that named no reason. The contract asks for one, but a caller
         -- returning here believing the stream shut is the worst of the outcomes
@@ -572,110 +571,64 @@ function process.Reader.release(self: process.Reader): nil
         why = "the platform did not release the process stream and did not say why"
     end
     if why ~= nil then
-        -- `release` is the internal ownership operation and answers nothing. Its
-        -- public `close` terminal lets the raise propagate; teardown is already
-        -- prepared to catch it here.
+        -- Raised rather than answered, because `close` answers nothing. The status
+        -- stops here and becomes an error, which is what a teardown is already
+        -- prepared to catch.
         error(("nupp: could not close a process stream: %s"):format(why), 0)
     end
 end
 
-function process.Writer.release(self: process.Writer): nil
-    if self.closed then
-        return
-    end
-    -- `closeStream` is return-only, so a raise is a backend breaking its contract
-    -- rather than an outcome. Since an error says nothing about whether the
-    -- stream is still ours, the safe reading is that it is gone: retaining one
-    -- native handle is a bounded cost, and retrying a returned handle is not.
-    local ok, released, why = pcall(function(): (boolean?, string?)
-        return self.owner.backend:closeStream(self.handle)
-    end)
-    if not ok then
-        self.closed = true
-        error(
-            (
-                "nupp: closing a process stream raised: %s"
-            ):format(released == nil and "without saying why" or tostring(released)),
-            0
-        )
-    end
-    -- Set before the raise below, and deliberately: the error is what happened,
-    -- `closed` is what is now true, and the second outlives the first.
-    self.closed = released == true
-    if why == nil and released ~= true then
-        -- A refusal that named no reason. The contract asks for one, but a caller
-        -- returning here believing the stream shut is the worst of the outcomes
-        -- available, so the boundary supplies what the backend did not.
-        why = "the platform did not release the process stream and did not say why"
-    end
-    if why ~= nil then
-        -- Raised rather than answered, because this signature is tecs's and answers
-        -- nothing. The status stops here and becomes an error, which is what the
-        -- teardown above is already prepared to catch.
-        error(("nupp: could not close a process stream: %s"):format(why), 0)
-    end
-end
-
---- Borrows a process reader through the shared completion-oriented contract.
-function process.asReader(borrows source: process.Reader): Reader2 borrows (source)
-    return source
-end
-
---- Borrows a process writer through the shared completion-oriented contract.
-function process.asWriter(borrows source: process.Writer): Writer2 borrows (source)
-    return source
-end
-
-local newReader: function(owner: any, handle: any): process.Reader
-local newWriter: function(owner: any, handle: any): process.Writer
+local newReader: function(owner: any, handle: any): process.Reader?
+local newWriter: function(owner: any, handle: any): process.Writer?
 
 ----------------------------------------------------------------------------
 -- A running process
 ----------------------------------------------------------------------------
 
---- A running child.
-record process.Process
-    drop: @nosuspend function(takes self: process.Process): nil
-    @private
+-- What a child's streams and its waits share with it: the platform, the child
+-- handle and where its teardown has got to. Kept apart from the owner so a stream
+-- can reach it without holding a second reference to the owner.
+local record Child
     backend: contract.Provider
-    @private
     handle: any
-    @private
     deadline: number?
-    @private
     exit: process.Exit?
 
     --- Whether the whole teardown finished: every stream released, the pump released,
     --- and the child handle released. The aggregate, and what makes a repeat call a
     --- no-op.
-    @private
     reaped: boolean
 
     --- Whether the child *handle* has been given back, which is a smaller fact than
     --- `reaped` and has to be tracked apart from it. A teardown where a stream close
     --- complained still has a child to release, and a retry that had already released
     --- it must not ask again, because the native process handle was already returned.
-    @private
     childReleased: boolean
 
     --- Whether a teardown is in progress. Separate from `reaped`, which means it
     --- finished: a close that failed part way must be retryable rather than silently
     --- successful.
-    @private
     closing: boolean
 
     --- Which coroutine is running that teardown, so a second call can tell whether it
     --- is the same frame coming back around or a different one arriving. Nil on the
     --- main coroutine, which is why `closing` is the flag and this is only the owner.
-    @private
     closingBy: any
 
-    @private
     pump: any
 
     --- Whether the deadline is what ended it, remembered so the exit can say so.
-    @private
     timedOut: boolean
+end
+
+--- A running child, and the obligation to end it.
+---
+--- The child is an owner: closing it ends the process, waits for the exit, and
+--- releases every stream, and the same runs when its scope ends. Reading a stream
+--- or waiting for the exit suspends, so a caller under a scheduler keeps its frame.
+record process.Process is nupp.Closeable
+    @private
+    state: Child
 
     --- Operating-system process identifier.
     pid: integer
@@ -689,67 +642,14 @@ record process.Process
     --- Its standard error, when it was piped.
     stderr: process.Reader?
 
-    --- Starts a child process.
-    ---
-    --- The child is an owner: closing it ends the process, waits for the exit, and
-    --- releases every stream, and the same runs when its scope ends. Reading a stream
-    --- or waiting for the exit suspends, so a caller under a scheduler keeps its
-    --- frame.
-    ---
-    --- ```nupp
-    --- local child = new process.Process({
-    ---     args = {"grep", "-c", "nupp"},
-    ---     stderr = "stdout",
-    --- })
-    --- local result = assert(child:communicate({input = text}))
-    --- child:close()
-    --- ```
-    ---
-    --- @param self the process being initialized
-    --- @param options what to run and how to connect it
-    --- @raises string when the options are invalid or the child cannot be started
-    constructor(self, options: process.Options): affine(process.Process, process.Process.destroy)
-        local backend = provider
-        validateOptions(options)
-        local handle, inHandle, outHandle, errHandle, pid, problem = (backend as contract.Provider):spawn(options)
-        if handle == nil then
-            error(problem or "the process could not be started", 2)
-        end
-        self.backend = backend as contract.Provider
-        self.handle = handle
-        self.exit = nil
-        self.reaped = false
-        self.childReleased = false
-        self.closing = false
-        self.closingBy = nil
-        self.pump = nil
-        self.timedOut = false
-        self.pid = pid
-        self.deadline = options.timeoutMs ~= nil and ((backend as contract.Provider):now() + options.timeoutMs) or nil
-        if inHandle ~= nil then
-            self.stdin = newWriter(self, inHandle)
-        end
-        if outHandle ~= nil then
-            self.stdout = newReader(self, outHandle)
-        end
-        if errHandle ~= nil then
-            self.stderr = newReader(self, errHandle)
-        end
-    end
-
-    --- Releases the process when its owner leaves scope.
-    function destroy(takes self): nil
-        self:drop()
-    end
-
     --- Whether it is still running, enforcing an elapsed process deadline first.
     function isRunning(self): boolean
-        if self.exit ~= nil then
+        if self.state.exit ~= nil then
             return false
         end
-        pumpOnce(self)
+        pumpOnce(self.state)
 
-        return self.exit == nil
+        return self.state.exit == nil
     end
 
     --- Waits for it to end and answers how.
@@ -757,34 +657,34 @@ record process.Process
     --- Suspends while it runs.
     function wait(self): process.Exit
         await(
-            self,
+            self.state,
             "process wait",
             function(): boolean
-                return self.exit ~= nil
+                return self.state.exit ~= nil
             end,
             function(): shared.Interest
                 -- The child alone. Its streams are deliberately left out: output nobody
                 -- is reading stays ready forever, so asking about it here would turn
                 -- this sleep into a spin. The cost is that waiting without draining can
                 -- fill a pipe and stall, which is exactly what `communicate` is for.
-                return new shared.Interest(child = self.handle, read = {}, write = {})
+                return new shared.Interest(child = self.state.handle, read = {}, write = {})
             end
         )
-        if self.timedOut and self.exit ~= nil then
-            self.exit.timedOut = true
+        if self.state.timedOut and self.state.exit ~= nil then
+            self.state.exit.timedOut = true
         end
 
-        return self.exit as process.Exit
+        return self.state.exit as process.Exit
     end
 
     --- Asks the direct child to end; `force` insists. Descendants keep their
     --- ordinary operating-system lifetime. Answers whether the request was made.
     function kill(self, force: boolean?): (boolean, string?)
-        if self.exit ~= nil then
+        if self.state.exit ~= nil then
             return true
         end
         local ok, problem = pcall(function(): nil
-            self.backend:kill(self.handle, force == true)
+            self.state.backend:kill(self.state.handle, force == true)
         end)
         if not ok then
             return false, problem == nil and "the process could not be terminated" or tostring(problem)
@@ -836,7 +736,7 @@ record process.Process
             end
 
             local function idle(): boolean
-                return (inputDone() and outputDone()) or self.exit ~= nil and outputDone()
+                return (inputDone() and outputDone()) or self.state.exit ~= nil and outputDone()
             end
 
             -- A child that has ended will never read again, so whatever is left of the
@@ -845,7 +745,7 @@ record process.Process
             -- returns, including when the child finished early.
             local function abandonInput(): nil
                 if stdin ~= nil and not stdin.closed then
-                    stdin:release()
+                    releaseStream(stdin)
                 end
             end
 
@@ -875,7 +775,7 @@ record process.Process
                     write[#write + 1] = stdin.handle
                 end
 
-                return new shared.Interest(child = self.handle, read = read, write = write)
+                return new shared.Interest(child = self.state.handle, read = read, write = write)
             end
 
             while not (inputDone() and outputDone()) do
@@ -892,13 +792,13 @@ record process.Process
                         -- Every byte delivered: tell the child there is no more, or it
                         -- reads to end of file forever and nobody's output ever
                         -- arrives.
-                        stdin:release()
+                        releaseStream(stdin)
                         moved = true
                     end
                 end
                 if stdout ~= nil and not stdout.eof and not stdout.closed then
-                    local chunk = stdout:poll()
-                    if chunk == nil or #chunk > 0 then
+                    local chunk, ended = stdout:poll()
+                    if chunk ~= nil or ended then
                         if chunk ~= nil then
                             outputBytes = outputBytes + #chunk
                             if outputBytes > maximum then
@@ -911,8 +811,8 @@ record process.Process
                     end
                 end
                 if stderr ~= nil and not stderr.eof and not stderr.closed then
-                    local chunk = stderr:poll()
-                    if chunk == nil or #chunk > 0 then
+                    local chunk, ended = stderr:poll()
+                    if chunk ~= nil or ended then
                         if chunk ~= nil then
                             outputBytes = outputBytes + #chunk
                             if outputBytes > maximum then
@@ -932,7 +832,7 @@ record process.Process
                     if idle() then
                         break
                     end
-                    awaitTick(self, "process communicate", interest)
+                    awaitTick(self.state, "process communicate", interest)
                 end
             end
 
@@ -948,194 +848,203 @@ record process.Process
     end
 
     --- Closes every stream, ends the child if it is still running, waits for it to
-    --- actually finish, and releases it. Idempotent, and what `drop` runs when the
-    --- owner goes out of lexical scope.
-    --- @raises string when closing one of the child streams fails
-    function close(self): (boolean, string?)
-        if self.reaped then
-            return true
-        end
-        if self.closing then
-            local runner = coroutine.running()
-            if runner == self.closingBy then
-                -- The same frame come back around: the waits below drive the pump, and
-                -- something it drives has called in here. One teardown is enough, and
-                -- this one is it. Returning is the only option, since waiting would
-                -- be waiting on itself.
-                return true
-            end
+    --- actually finish, and releases it. Idempotent, and retryable: a teardown that
+    --- could not finish leaves each piece's own flag, and the next call skips whatever
+    --- is already given back.
+    --- @raises string when closing a stream or releasing the child fails
+    @private
+    teardown: function(self: process.Process): nil
 
-            if not suspension.handled() then
-                -- Another coroutine, and nothing to schedule it back. The teardown
-                -- holding this child belongs to a frame that is somewhere below this
-                -- one on the stack, since it can only have got here by being resumed
-                -- from inside that teardown, so waiting would be waiting for a frame
-                -- that cannot run until this one returns. Saying so beats hanging.
-                error(
-                    "nupp: process close arrived from another coroutine while a teardown was "
-                    .. "running, with no handler to schedule it",
-                    0
-                )
-            end
-
-            -- A different caller under a scheduler, and it must not be told the child
-            -- is released while the teardown is still running. Answering "done" is what
-            -- lets the owner's scope end, and the scope ending is what runs `drop`, so
-            -- a premature yes has the next toucher on a handle already given back. It
-            -- waits for whoever holds the teardown, then answers on the same terms as
-            -- any other close, either finished or free to try again.
-            await(
-                self,
-                "process close",
-                function(): boolean
-                    return not self.closing
-                end,
-                function(): shared.Interest
-                    return new shared.Interest(child = self.handle, read = {}, write = {})
-                end
-            )
-            if self.reaped then
-                return true
-            end
-
-            -- The holder's attempt failed and left it open. This caller inherits it.
-        end
-        self.closing = true
-        self.closingBy = coroutine.running()
-        -- Every step is attempted and the first failure raised at the end. Stopping at
-        -- the first would leave the rest of the child's resources held by a process
-        -- that has decided it is finished with them; swallowing them all would report
-        -- a clean close that never happened.
-        --
-        -- Only raises are caught here, and that is now the whole story: a stream close
-        -- turns its status into one at its own edge, and the reap is judged below
-        -- rather than through this, because it alone has release state worth reading.
-        local firstError: any = nil
-
-        local function attempt(step: function(): nil): nil
-            local ok, raised = pcall(step)
-            if not ok and firstError == nil then
-                -- `error(nil)` is a real thing a broken backend can do, and it arrives
-                -- here as a failure with nothing to say. Left as nil it would read as
-                -- no failure at all, and the teardown would report a clean close.
-                firstError = raised == nil and "a teardown step failed without saying why" or raised
-            end
-        end
-
-        -- Closed one at a time rather than through a list: a reader and a writer are
-        -- different types, and a union of their `close` methods is not one callable.
+    --- Closes every stream, ends the child if it is still running, waits for it to
+    --- actually finish, and releases it. What runs when the owner leaves its scope.
+    ---
+    --- Every step is attempted, and the first failure is raised once all of them
+    --- have been: a close that stopped at the first would leave the rest held.
+    --- @raises string when closing a stream or releasing the child fails
+    function close(takes self): nil
+        self:teardown()
         if self.stdin ~= nil then
-            attempt(function(): nil
-                self.stdin:release()
-            end)
+            self.stdin:close()
         end
         if self.stdout ~= nil then
-            attempt(function(): nil
-                self.stdout:release()
-            end)
+            self.stdout:close()
         end
         if self.stderr ~= nil then
-            attempt(function(): nil
-                self.stderr:release()
-            end)
+            self.stderr:close()
         end
-        if self.exit == nil then
-            attempt(function(): nil
-                -- Ending rather than orphaning: a child outliving the scope that
-                -- started it is a leak nobody sees until the machine runs out of them.
-                self.backend:kill(self.handle, true)
-                -- Terminating takes as long as it takes, so this waits for the exit
-                -- rather than asking the platform to reap something still dying. Every
-                -- stream close has been attempted by now. Attempted, not necessarily
-                -- done, since one may have refused and stayed ours, so the child is
-                -- what this waits on and the only thing that can advance it.
-                await(
-                    self,
-                    "process close",
-                    function(): boolean
-                        return self.exit ~= nil
-                    end,
-                    function(): shared.Interest
-                        return new shared.Interest(child = self.handle, read = {}, write = {})
-                    end
-                )
-            end)
-        end
-        attempt(function(): nil
-            releasePump(self)
-        end)
+    end
+end
 
-        -- Attempted whatever went before it, and this is the whole point of attempting
-        -- every step. Skipping the reap because a stream complained leaves a child
-        -- handle held by a process that has finished with it, and under an automatic
-        -- drop there is no binding left to retry through, so "unreaped" would mean
-        -- "unreaped forever". A child that has not exited is a different matter: it is
-        -- not reapable yet, and asking would be the error.
-        if not self.childReleased and self.exit ~= nil then
-            -- Not through `attempt`, because reap answers the same two facts a stream
-            -- close does and the generic judge only reads one of them. A reap that
-            -- released the child and complained anyway is still a reap: the pid is
-            -- gone, and asking again would wait on whatever has since been given that
-            -- number. So ownership decides the flag and the complaint is only carried.
-            local ok, released, reason = pcall(function(): (boolean?, string?)
-                return self.backend:reap(self.handle)
-            end)
-            if not ok then
-                -- The same reading as a stream close that raised: no release state came
-                -- back, so the child is treated as gone rather than asked about again.
-                self.childReleased = true
+function process.Process.teardown(self: process.Process): nil
+    local state = self.state
+    if state.reaped then
+        return
+    end
+    if state.closing then
+        local runner = coroutine.running()
+        if runner == state.closingBy then
+            -- The same frame come back around: the waits below drive the pump, and
+            -- something it drives has called in here. One teardown is enough, and
+            -- this one is it. Returning is the only option, since waiting would
+            -- be waiting on itself.
+            return
+        end
+
+        if not suspension.handled() then
+            -- Another coroutine, and nothing to schedule it back. The teardown
+            -- holding this child belongs to a frame that is somewhere below this
+            -- one on the stack, since it can only have got here by being resumed
+            -- from inside that teardown, so waiting would be waiting for a frame
+            -- that cannot run until this one returns. Saying so beats hanging.
+            error(
+                "nupp: process close arrived from another coroutine while a teardown was "
+                .. "running, with no handler to schedule it",
+                0
+            )
+        end
+
+        -- A different caller under a scheduler, and it must not be told the child
+        -- is released while the teardown is still running. Answering "done" is what
+        -- lets the owner's scope end, and the scope ending is what runs `close`, so
+        -- a premature yes has the next toucher on a handle already given back. It
+        -- waits for whoever holds the teardown, then answers on the same terms as
+        -- any other close, either finished or free to try again.
+        await(
+            state,
+            "process close",
+            function(): boolean
+                return not state.closing
+            end,
+            function(): shared.Interest
+                return new shared.Interest(child = state.handle, read = {}, write = {})
+            end
+        )
+        if state.reaped then
+            return
+        end
+
+        -- The holder's attempt failed and left it open. This caller inherits it.
+    end
+    state.closing = true
+    state.closingBy = coroutine.running()
+    -- Every step is attempted and the first failure raised at the end. Stopping at
+    -- the first would leave the rest of the child's resources held by a process
+    -- that has decided it is finished with them; swallowing them all would report
+    -- a clean close that never happened.
+    --
+    -- Only raises are caught here, and that is now the whole story: a stream close
+    -- turns its status into one at its own edge, and the reap is judged below
+    -- rather than through this, because it alone has release state worth reading.
+    local firstError: any = nil
+
+    local function attempt(step: function(): nil): nil
+        local ok, raised = pcall(step)
+        if not ok and firstError == nil then
+            -- `error(nil)` is a real thing a broken backend can do, and it arrives
+            -- here as a failure with nothing to say. Left as nil it would read as
+            -- no failure at all, and the teardown would report a clean close.
+            firstError = raised == nil and "a teardown step failed without saying why" or raised
+        end
+    end
+
+    -- Closed one at a time rather than through a list: a reader and a writer are
+    -- different types, and a union of their `close` methods is not one callable.
+    if self.stdin ~= nil then
+        attempt(function(): nil
+            releaseStream(self.stdin)
+        end)
+    end
+    if self.stdout ~= nil then
+        attempt(function(): nil
+            releaseStream(self.stdout)
+        end)
+    end
+    if self.stderr ~= nil then
+        attempt(function(): nil
+            releaseStream(self.stderr)
+        end)
+    end
+    if state.exit == nil then
+        attempt(function(): nil
+            -- Ending rather than orphaning: a child outliving the scope that
+            -- started it is a leak nobody sees until the machine runs out of them.
+            state.backend:kill(state.handle, true)
+            -- Terminating takes as long as it takes, so this waits for the exit
+            -- rather than asking the platform to reap something still dying. Every
+            -- stream close has been attempted by now. Attempted, not necessarily
+            -- done, since one may have refused and stayed ours, so the child is
+            -- what this waits on and the only thing that can advance it.
+            await(
+                state,
+                "process close",
+                function(): boolean
+                    return state.exit ~= nil
+                end,
+                function(): shared.Interest
+                    return new shared.Interest(child = state.handle, read = {}, write = {})
+                end
+            )
+        end)
+    end
+    attempt(function(): nil
+        releasePump(state)
+    end)
+
+    -- Attempted whatever went before it, and this is the whole point of attempting
+    -- every step. Skipping the reap because a stream complained leaves a child
+    -- handle held by a process that has finished with it, and under an automatic
+    -- close there is no binding left to retry through, so "unreaped" would mean
+    -- "unreaped forever". A child that has not exited is a different matter: it is
+    -- not reapable yet, and asking would be the error.
+    if not state.childReleased and state.exit ~= nil then
+        -- Not through `attempt`, because reap answers the same two facts a stream
+        -- close does and the generic judge only reads one of them. A reap that
+        -- released the child and complained anyway is still a reap: the pid is
+        -- gone, and asking again would wait on whatever has since been given that
+        -- number. So ownership decides the flag and the complaint is only carried.
+        local ok, released, reason = pcall(function(): (boolean?, string?)
+            return state.backend:reap(state.handle)
+        end)
+        if not ok then
+            -- The same reading as a stream close that raised: no release state came
+            -- back, so the child is treated as gone rather than asked about again.
+            state.childReleased = true
+            if firstError == nil then
+                firstError = released == nil and "reaping the child failed without saying why" or released
+            end
+        else
+            state.childReleased = released == true
+            if reason ~= nil then
                 if firstError == nil then
-                    firstError = released == nil and "reaping the child failed without saying why" or released
+                    firstError = reason
                 end
-            else
-                self.childReleased = released == true
-                if reason ~= nil then
-                    if firstError == nil then
-                        firstError = reason
-                    end
-                elseif released ~= true and firstError == nil then
-                    firstError = "the platform did not release the child and did not say why"
-                end
+            elseif released ~= true and firstError == nil then
+                firstError = "the platform did not release the child and did not say why"
             end
         end
+    end
 
-        -- Cleared either way, so a close that could not finish can be called again
-        -- rather than reporting itself done. A retry finds each piece's own flag and
-        -- skips whatever is already given back.
-        self.closing = false
-        self.closingBy = nil
-        -- The aggregate, and only now: every stream given back, the pump gone, and the
-        -- child handle released. `reaped` answering anything less would let a repeat
-        -- call return early with something still held.
-        self.reaped = (self.stdin == nil or self.stdin.closed)
-            and (self.stdout == nil or self.stdout.closed)
-            and (self.stderr == nil or self.stderr.closed)
-            and self.pump == nil
-            and self.childReleased
-        if firstError ~= nil then
-            error(firstError, 0)
-        end
-
-        return true
+    -- Cleared either way, so a close that could not finish can be called again
+    -- rather than reporting itself done. A retry finds each piece's own flag and
+    -- skips whatever is already given back.
+    state.closing = false
+    state.closingBy = nil
+    -- The aggregate, and only now: every stream given back, the pump gone, and the
+    -- child handle released. `reaped` answering anything less would let a repeat
+    -- call return early with something still held.
+    state.reaped = (self.stdin == nil or self.stdin.closed)
+        and (self.stdout == nil or self.stdout.closed)
+        and (self.stderr == nil or self.stderr.closed)
+        and state.pump == nil
+        and state.childReleased
+    if firstError ~= nil then
+        error(firstError, 0)
     end
 end
 
 ----------------------------------------------------------------------------
 -- Pumping and waiting
 ----------------------------------------------------------------------------
-
-function process.Process.drop(takes self: process.Process): nil
-    self:close()
-    if self.stdin ~= nil then
-        self.stdin:close()
-    end
-    if self.stdout ~= nil then
-        self.stdout:close()
-    end
-    if self.stderr ~= nil then
-        self.stderr:close()
-    end
-end
 
 -- Whether the child has ended since last asked.
 progressed = function(self: any): integer
@@ -1327,12 +1236,21 @@ await = function(
     return true
 end
 
-newReader = function(owner: any, handle: any): process.Reader
-    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, timeoutMs = 30000)
+-- A stream for a handle the platform gave, or nothing for a stream that was not piped.
+newReader = function(owner: any, handle: any): process.Reader?
+    if handle == nil then
+        return nil
+    end
+
+    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false)
 end
 
-newWriter = function(owner: any, handle: any): process.Writer
-    return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
+newWriter = function(owner: any, handle: any): process.Writer?
+    if handle == nil then
+        return nil
+    end
+
+    return new process.Writer(owner = owner, handle = handle, closed = false, gone = false)
 end
 
 ----------------------------------------------------------------------------
@@ -1341,7 +1259,7 @@ end
 
 -- Public callers include plain Lua, so the type declaration is not the runtime
 -- boundary. Reject programmer mistakes before allocating a native spawn request;
--- platform failures remain the nil-and-reason result of `new`.
+-- platform failures remain the nil-and-reason result of `spawn`.
 validateOptions = function(options: process.Options): nil
     local given: any = options
     if type(given) ~= "table" then
@@ -1403,6 +1321,55 @@ validateOptions = function(options: process.Options): nil
     then
         error("nupp: process timeout must be 0 through 2147483647 milliseconds", 3)
     end
+end
+
+--- Starts a child process.
+---
+--- The child is an owner: closing it ends the process, waits for the exit, and
+--- releases every stream, and the same runs when its scope ends. A child that cannot
+--- be started, such as a program that is not there, answers nil and why rather than
+--- raising, as `files.open` and `net.connect` do.
+---
+--- ```nupp
+--- local child = assert(process.spawn({
+---     args = {"grep", "-c", "nupp"},
+---     stderr = "stdout",
+--- }))
+--- local result = assert(child:communicate({input = text}))
+--- child:close()
+--- ```
+---
+--- @param options what to run and how to connect it
+--- @return the child, which the caller owns and must close
+--- @return why it could not be started, when unsuccessful
+--- @raises string when the options could never describe a child
+function process.spawn(options: process.Options): (affine(process.Process)?, string?)
+    validateOptions(options)
+    local backend = provider
+    local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
+    if handle == nil then
+        return nil, problem or "the process could not be started"
+    end
+    local state = new Child(
+        backend = backend,
+        handle = handle,
+        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil,
+        exit = nil,
+        reaped = false,
+        childReleased = false,
+        closing = false,
+        closingBy = nil,
+        pump = nil,
+        timedOut = false
+    )
+
+    return new process.Process(
+        state = state,
+        pid = pid,
+        stdin = newWriter(state, inHandle),
+        stdout = newReader(state, outHandle),
+        stderr = newReader(state, errHandle)
+    )
 end
 
 export = process

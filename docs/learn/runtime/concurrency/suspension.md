@@ -11,7 +11,7 @@ where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 ```nupp:playground
 local process = nupp.io.process
 
-local child = new process.Process({args = {"cc", "--version"}} as process.Options)
+local child = assert(process.spawn({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -55,7 +55,7 @@ local frame = require("scheduler")
 local process = nupp.io.process
 
 local function printCompilerVersion(): nil
-    local child = new process.Process({args = {"cc", "--version"}} as process.Options)
+    local child = assert(process.spawn({args = {"cc", "--version"}}))
     print(assert(child:communicate()).output)
     child:close()
 end
@@ -111,7 +111,7 @@ An ordinary wrapper returns the value produced after the wait:
 local process = nupp.io.process
 
 local function compilerVersion(): string
-    local child = new process.Process({args = {"cc", "--version"}} as process.Options)
+    local child = assert(process.spawn({args = {"cc", "--version"}}))
     local result = assert(child:communicate())
     child:close()
     return result.output

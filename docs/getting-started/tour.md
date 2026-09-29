@@ -323,7 +323,7 @@ ordinary result:
 ```nupp
 local process = nupp.io.process
 
-local child = new process.Process({args = {"cc", "--version"}} as process.Options)
+local child = assert(process.spawn({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()

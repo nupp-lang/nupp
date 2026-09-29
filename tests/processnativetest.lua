@@ -15,7 +15,7 @@ local root, process, buffers, priorPreload, priorLoaded
 local unavailable
 
 local function startProcess(options)
-    return process.Process.__nuppCtor1(options)
+    return process.spawn(options)
 end
 
 local function temporaryRoot()
@@ -130,10 +130,10 @@ function M.deadlineEndsAQuietRealChild()
 end
 
 function M.sharedViewsUseTheRealStreamsAndDeliverEof()
-    local api = ready()
+    ready()
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
-    local writer = api.asWriter(assert(child.stdin))
-    local reader = api.asReader(assert(child.stdout))
+    local writer = assert(child.stdin):asWriter()
+    local reader = assert(child.stdout):asReader()
     assert(writer:write("adapter"))
     writer:close()
 
@@ -151,10 +151,8 @@ end
 
 function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
     ready()
-    local child = startProcess({args = shell("cat"), stderr = "null"})
+    local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
     assert(type(child.pid) == "number" and child.pid > 0)
-    child.stdin:setTimeout(1000)
-    child.stdout:setTimeout(1000)
     local written, writeReason = child.stdin:write("tecs call site\n")
     assert(written, writeReason)
     child.stdin:close()
@@ -164,13 +162,15 @@ function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
     test.equal(assert(child.stdout:read(64)), "")
     local exit = child:wait()
     assert(exit:succeeded())
-    assert(child:close())
+    child:close()
 end
 
-function M.creationFailureIsRaisedByTheConstructor()
+function M.aMissingProgramAnswersAReasonRatherThanRaising()
     ready()
-    local ok, reason = pcall(startProcess, {args = {"/no/such/nupp-program"}})
-    assert(not ok and type(reason) == "string" and #reason > 0)
+    local ok, child, reason = pcall(startProcess, {args = {"/no/such/nupp-program"}})
+    assert(ok, "spawn did not raise: " .. tostring(child))
+    test.equal(child, nil)
+    assert(reason ~= nil and #tostring(reason) > 0, "and said why")
 
     -- uv_spawn initializes its process handle before it can report that exec
     -- failed. The failed handle must be closed rather than freed in place, or
@@ -179,7 +179,7 @@ function M.creationFailureIsRaisedByTheConstructor()
     local child = assert(startProcess({args = shell("printf recovered"), stderr = "null"}))
     local result = assert(child:communicate())
     test.equal(result.output, "recovered")
-    assert(child:close())
+    child:close()
 end
 
 -- A pipe accepts the same checked span contract as every other writer, copying into
@@ -193,7 +193,7 @@ function M.aProcessWriterTakesCheckedSpans()
     test.equal(wrote, 13)
     child.stdin:close()
     assert(child:wait():succeeded())
-    assert(child:close())
+    child:close()
 end
 
 function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
@@ -203,7 +203,7 @@ function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     local result, reason = child:communicate({input = input})
     assert(result, reason)
     test.equal(result.output, "buffer input")
-    assert(child:close())
+    child:close()
     input:close()
 
     local noisy = assert(startProcess({args = shell("printf 12345; printf 67890 >&2"),}))
@@ -230,7 +230,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     else
         test.equal(result.output, "/|present")
     end
-    assert(child:close())
+    child:close()
 end
 
 function M.plainLuaReceivesTheSameArgumentAndTimeoutChecks()
@@ -246,13 +246,11 @@ function M.plainLuaReceivesTheSameArgumentAndTimeoutChecks()
     assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
 
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
-    ok, reason = pcall(child.stdin.setTimeout, child.stdin, 1.5)
-    assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
-    ok, reason = pcall(child.stdout.setTimeout, child.stdout, 1.5)
+    ok, reason = pcall(child.stdout.poll, child.stdout, nil, 1.5)
     assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
     child.stdin:close()
     assert(child:wait():succeeded())
-    assert(child:close())
+    child:close()
 end
 
 function M.thePublicModuleSelectsOnlyItsPrivateProvider()

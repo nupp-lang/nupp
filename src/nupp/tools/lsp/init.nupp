@@ -2067,7 +2067,12 @@ function lsp.run(rootDir: string?): integer
     -- `host` and calls from inside long work. A closure over a borrow of an owner
     -- held here could not be stored there; an alias is copyable and checks the cell
     -- at each use instead.
-    local relayOwner = nupp.manage(new process.Process(relayOptions))
+    local spawned, spawnProblem = process.spawn(relayOptions)
+    if spawned == nil then
+        io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
+        return 1
+    end
+    local relayOwner = nupp.manage(spawned)
     local relay = relayOwner:alias()
     -- Frames, cancellations, and the newest version of each document the client has
     -- told this process about, recorded as each message is read rather than as it is
@@ -2079,8 +2084,10 @@ function lsp.run(rootDir: string?): integer
     local broken: string? = nil
     local host: lsp.Host
 
-    --- Reads from the relay through the cell. This frame owns the cell and closes it
-    --- after the loop below, so the cell being gone cannot happen here.
+    --- Reads from the relay through the cell: waiting, the next bytes or nil at the
+    --- end; not waiting, whatever is there, or empty when nothing is. This frame owns
+    --- the cell and closes it after the loop below, so the cell being gone cannot
+    --- happen here.
     --- @raises string when the cell is gone after all, which is a fault in this file
     local function read(waiting: boolean): string?
         local chunk, problem = relay:with(function(borrows child: process.Process): string?
@@ -2089,10 +2096,15 @@ function lsp.run(rootDir: string?): integer
                 return nil
             end
             if waiting then
-                return reader:next()
+                local got = reader:read(65536)
+                if got == nil or got == "" then
+                    return nil
+                end
+
+                return got
             end
 
-            return reader:poll()
+            return reader:poll() or ""
         end)
         if problem ~= nil then
             error("nupp-lsp: " .. problem.message, 0)

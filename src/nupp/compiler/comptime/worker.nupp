@@ -11,6 +11,7 @@ the boundary materialization will later use.
 
 local json = require("nupp.codec.json")
 local process = require("nupp.compiler.process")
+local clock = require("nupp.time")
 
 type worker.Failure = {
     @readonly code: string,
@@ -527,11 +528,6 @@ local function startService(executable: string): any, worker.Failure?
         end
         return nil, {code = "NUPP2412", message = "cannot start comptime worker service: " .. tostring(problem)}
     end
-    child.stdin:setTimeout(WORKER_TIMEOUT_MS)
-    child.stdout:setTimeout(5)
-    if child.stderr ~= nil then
-        child.stderr:setTimeout(5)
-    end
     service = @unsafe nupp.release(child)
     serviceExecutable = executable
 
@@ -548,7 +544,7 @@ local function drainSaid(child: any): nil
     end
     while #serviceSaid < MAX_SAID_BYTES do
         local chunk = reader:poll()
-        if chunk == nil or #chunk == 0 then
+        if chunk == nil then
             break
         end
         serviceSaid = serviceSaid .. chunk
@@ -578,15 +574,12 @@ local function requestService(request: any, executable: string, host: any?): any
     if not child then
         return nil, startFailure
     end
-    local wrote, writeFailure = child.stdin:write(encoded .. "\n")
-    if not wrote then
+    local frame = encoded .. "\n"
+    local deadline = clock.now() + WORKER_TIMEOUT_MS
+    if child.stdin:send(frame, deadline) ~= #frame then
         stopService(true)
-        return nil, {
-            code = "NUPP2412",
-            message = "comptime worker service stopped accepting requests: " .. tostring(writeFailure)
-        }
+        return nil, {code = "NUPP2412", message = "comptime worker service stopped accepting requests"}
     end
-    local deadline = child.backend:now() + WORKER_TIMEOUT_MS
     while true do
         local newline = serviceBuffer:find("\n", 1, true)
         if newline then
@@ -615,7 +608,7 @@ local function requestService(request: any, executable: string, host: any?): any
             stopService(true)
             return nil, {code = "NUPP2412", message = "comptime evaluation was canceled"}
         end
-        if child.backend:now() >= deadline then
+        if clock.now() >= deadline then
             stopService(true)
             return nil, {
                 code = "NUPP2412",
@@ -623,22 +616,22 @@ local function requestService(request: any, executable: string, host: any?): any
                 help = "make the computation smaller or move the unbounded work to run time",
             }
         end
-        local chunk, readFailure = child.stdout:read(65536)
-        if chunk and #chunk > 0 then
+        local chunk = child.stdout:poll(65536, 5)
+        if chunk ~= nil then
             serviceBuffer = serviceBuffer .. chunk
             if #serviceBuffer > MAX_PROTOCOL_BYTES then
                 stopService(true)
                 return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
             end
-        elseif not child:isRunning() or child.stdout:isEOF() then
+        elseif not child:isRunning() or child.stdout:isEnded() then
             drainSaid(child)
             local said = serviceSaid
             stopService(true)
             return nil, {
                 code = "NUPP2412",
-                message = "the persistent comptime worker crashed: " .. tostring(
-                    readFailure or "unexpected EOF"
-                ) .. (said ~= "" and (" (it also said: " .. said .. ")") or ""),
+                message = "the persistent comptime worker crashed: unexpected EOF" .. (
+                    said ~= "" and (" (it also said: " .. said .. ")") or ""
+                ),
             }
         end
     end

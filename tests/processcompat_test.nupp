@@ -11,14 +11,13 @@ local process = require("nupp.io.process")
 local M = {}
 
 local function tecsCallSites(options: process.Options, exclusive buffer: Buffer): nil
-    local child = new process.Process(options)
+    local child = assert(process.spawn(options))
 
     local pid: integer = child.pid
     assert(pid >= 0)
     assert(child:isRunning())
 
     if child.stdin ~= nil then
-        child.stdin:setTimeout(1000)
         local written, writeReason = child.stdin:write("request\n")
         assert(written, writeReason)
         local bytes = buffer:readSpan()
@@ -31,14 +30,13 @@ local function tecsCallSites(options: process.Options, exclusive buffer: Buffer)
     end
 
     if child.stdout ~= nil then
-        child.stdout:setTimeout(1000)
         local reply, readReason = child.stdout:read(64)
         if reply == nil then
             error(readReason)
         end
         local count, intoReason = child.stdout:readInto(buffer)
         assert(count, intoReason)
-        assert(child.stdout:isClosed() or child.stdout:isEOF() or #reply >= 0)
+        assert(child.stdout:isReleased() or child.stdout:isEnded() or #reply >= 0)
     end
 
     local result, communicateReason = child:communicate({input = "complete input", maxOutputBytes = 1024 * 1024})
@@ -52,8 +50,7 @@ local function tecsCallSites(options: process.Options, exclusive buffer: Buffer)
     assert(killed, killReason)
     local exit = child:wait()
     assert(type(exit.exitCode) == "number")
-    local closed, closeReason = child:close()
-    assert(closed, closeReason)
+    child:close()
 end
 
 function M.theTecsSurfaceCompilesWithOnlyTheImportChanged(): nil

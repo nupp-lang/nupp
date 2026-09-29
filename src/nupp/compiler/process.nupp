@@ -9,6 +9,8 @@ that will read it. Windows and POSIX disagree about how, so quoting is the whole
 of this module, and callers pass an argv and never build a command line.
 ]]
 
+const {type Process as NativeProcess} = require("nupp.io.process")
+
 local process = {}
 
 --- Where a command runs and what it runs with.
@@ -41,11 +43,9 @@ type process.IsolatedProcess = {
     stdin: any,
     stdout: any,
     stderr: any,
-    backend: any,
-    handle: any,
     isRunning: function(any): boolean,
     kill: function(any, boolean?): (boolean, string?),
-    close: function(any): (boolean, string?)
+    close: function(any): nil
 }
 
 local windows = package.config:sub(1, 1) == "\\"
@@ -276,6 +276,7 @@ end
 --- Runs one command in its own process and bounds how long the caller waits. Output is
 --- drained through the portable process provider, leaving the caller free to service
 --- protocol input and cancel the child on every quiet wait.
+--- @raises string when the command cannot be started
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
     local args = boundedArgs(argv, opts)
@@ -289,12 +290,14 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         stderr = "stdout",
         timeoutMs = opts.timeoutMs,
     }
-    local child = new native.Process(nativeOptions)
+    local child, problem = native.spawn(nativeOptions)
+    if child == nil then
+        error(tostring(problem), 0)
+    end
     -- Borrowed in place: taking the field out through `assert` would leave the
     -- reader with nothing to close it.
     local reader = nupp.borrow(child.stdout)
     assert(reader ~= nil)
-    reader:setTimeout(5)
     local chunks = {}
     local cancelled = false
     while true do
@@ -302,9 +305,6 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         while true do
             local chunk = reader:poll()
             if chunk == nil then
-                break
-            end
-            if #chunk == 0 then
                 break
             end
             chunks[#chunks + 1] = chunk
@@ -318,16 +318,15 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
             child:kill(true)
         end
         local running = child:isRunning()
-        if not running and reader:isEOF() then
+        if not running and reader:isEnded() then
             break
         end
-        if not moved and not reader:isEOF() then
-            local chunk, reason = reader:read(65536)
-            if chunk and #chunk > 0 then
+        if not moved and not reader:isEnded() then
+            -- A short wait rather than none, so a quiet child costs a sleep in the
+            -- platform instead of a spin, and the host is served again soon.
+            local chunk = reader:poll(65536, 5)
+            if chunk ~= nil then
                 chunks[#chunks + 1] = chunk
-            elseif reason and not reason:find("timed out", 1, true) then
-                child:kill(true)
-                chunks[#chunks + 1] = reason
             end
         end
     end
@@ -353,7 +352,7 @@ end
 --- read as one. Whether anything says such a thing depends on the machine, so
 --- merging them makes the protocol answer differently on different hosts. The
 --- caller must drain the second pipe; nothing else empties it.
-function process.startIsolated(argv: {string}, opts: process.Options?): (affine(process.IsolatedProcess?), string?)
+function process.startIsolated(argv: {string}, opts: process.Options?): (affine(NativeProcess)?, string?)
     opts = (opts or {}) as process.Options
     assert(
         opts.timeoutMs == nil and opts.pump == nil and opts.cancelled == nil,
@@ -370,7 +369,7 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         stderr = "pipe",
     }
 
-    return new native.Process(nativeOptions), nil
+    return native.spawn(nativeOptions)
 end
 
 export = process
