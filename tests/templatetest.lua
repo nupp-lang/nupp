@@ -801,8 +801,19 @@ local function scaffoldAndVerify(name, project, expectedOutput, prepare)
     local quoted = "cd '" .. into .. "' && NUPP_CACHE_DIR='" .. SCAFFOLD_STORE .. "' NUPP=" .. NUPP .. " "
     local ok, out = shell(quoted .. NUPP .. " check")
     assert(ok, scaffolded .. " does not check:\n" .. out)
+    -- A template is what somebody's first project looks like, so it is held to the
+    -- strict floor and to the one formatted spelling, and warns about nothing.
+    assert(not out:find("warning", 1, true), scaffolded .. " checks with warnings:\n" .. out)
+    ok, out = shell(quoted .. NUPP .. " check --strict")
+    assert(ok, scaffolded .. " does not check under --strict:\n" .. out)
+    ok, out = shell(quoted .. NUPP .. " fmt --check")
+    assert(ok, scaffolded .. " is not formatted:\n" .. out)
     ok, out = shell(quoted .. NUPP .. " build")
     assert(ok, scaffolded .. " does not build:\n" .. out)
+    -- A build stages the compiler's runtime sources for a portable target, and the
+    -- project's strict floor is not theirs to meet.
+    ok, out = shell(quoted .. NUPP .. " check --strict")
+    assert(ok, scaffolded .. " does not check under --strict once built:\n" .. out)
     ok, out = shell(quoted .. NUPP .. " test")
     assert(ok, scaffolded .. " does not pass its own tests:\n" .. out)
     if expectedOutput then
@@ -810,10 +821,6 @@ local function scaffoldAndVerify(name, project, expectedOutput, prepare)
         assert(ok, scaffolded .. " does not run:\n" .. out)
         assert(
             out:find(expectedOutput, 1, true),
-    -- A build stages the compiler's runtime sources for a portable target, and the
-    -- project's strict floor is not theirs to meet.
-    ok, out = shell(quoted .. NUPP .. " check --strict")
-    assert(ok, scaffolded .. " does not check under --strict once built:\n" .. out)
             scaffolded .. " ran but printed " .. out .. " rather than " .. expectedOutput
         )
     end
@@ -880,45 +887,10 @@ end
 
 function M.theLoveTemplateChecksBuildsAndTests()
     -- LÖVE owns the event loop, so its host integration is not part of this
-    -- headless suite. The template's game logic and generated module tree are.
-    local definitions, url = repository({
-        [
-            "library/love.lua"
-        ] = [[
----@class love
----@field graphics love.graphics
----@field load fun()
----@field update fun(elapsed: number)
----@field draw fun()
----@type love
----@class love.graphics
----@field setBackgroundColor fun(red: number, green: number, blue: number)
----@field setColor fun(red: number, green: number, blue: number)
----@field rectangle fun(mode: string, x: number, y: number, width: number, height: number)
-love = {graphics = {}}
-]]
-    })
-    local ok, revision = shell("cd '" .. definitions .. "' && git rev-parse HEAD")
-    assert(ok, revision)
-    revision = assert(revision:match("[0-9a-f]+"))
-    scaffoldAndVerify("love", "sample-love", nil, function(into)
-        local path = into .. "/nupp.lua"
-        local file = assert(io.open(path, "rb"))
-        local text = file:read("*a")
-        file:close()
-
-        local function replace(before, after)
-            local at = assert(text:find(before, 1, true), before .. " is present")
-            text = text:sub(1, at - 1) .. after .. text:sub(at + #before)
-        end
-
-        replace("https://github.com/LuaCATS/love2d.git", url)
-        replace("c630dd883cda128a19d850bd5e3911110b271609", revision)
-        file = assert(io.open(path, "wb"))
-        file:write(text)
-        file:close()
-    end)
-    remove(definitions)
+    -- headless suite. The template's game logic and generated module tree are, and
+    -- they are checked against the LuaCATS revision the template pins, fetched as
+    -- `nupp init love` fetches it, so a pin this compiler cannot read fails here.
+    scaffoldAndVerify("love", "sample-love", nil)
 end
 
 -- A game template's manifest ------------------------------------------------
