@@ -23,14 +23,14 @@ local function assertEq(got, want, label)
     end
 end
 
--- An environment standing in for a project that turned strict on.
+-- An environment the strict checks below run in.
 --
 -- Built once and answered again: every case wants the same one, and building it
 -- means checking the prelude from source.
 local strict = nil
 
 local function strictEnv()
-    strict = strict or envMod.new(ROOT, {config = {strict = true, include = {"src"}}})
+    strict = strict or envMod.new(ROOT, {config = {include = {"src"}}})
 
     return strict
 end

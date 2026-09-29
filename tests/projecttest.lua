@@ -1113,6 +1113,23 @@ function M.aMisspelledDocsKeyIsRejectedWithTheNameItMeant()
     reject('{kind = "docs", sources = {"src"}, wibble = 1}', 'has no key "wibble"')
 end
 
+-- Retired keys are not refused by name: each fails as any key nothing reads does.
+function M.retiredManifestKeysFailAsUnknownKeys()
+    local function reject(manifestSource, wanted)
+        local dir = tempProject({["nupp.lua"] = manifestSource})
+        local config, err = project.loadManifest(dir)
+        assertEq(config, nil, manifestSource)
+        assert(err and err:find(wanted, 1, true), wanted .. " not in: " .. tostring(err))
+        remove(dir)
+    end
+
+    reject('return {include = {"src"}, strict = true}\n', 'nupp.lua has no key "strict"')
+    reject(
+        'return {include = {"src"}, build = {targets = {app = {kind = "modules", aotCflags = {"-O2"}}}}}\n',
+        'has no key "aotCflags"'
+    )
+end
+
 function M.deliverableTargetsStillRequireAnEntry()
     local cases = {
         bundle = '{kind = "bundle"}',
@@ -1491,24 +1508,6 @@ return {include = {"src"}, build = {entries = {"main"}}}
     assertEq(strict, 1, ".nupp holds the floor with nothing asked for")
     remove(gradualDir)
     remove(strictDir)
-end
-
-function M.theRetiredStrictManifestKeyIsRefusedByName()
-    -- A key nothing reads takes effect silently, which is the one way a
-    -- configuration file can lie to the person who wrote it. `strict` set the
-    -- floor for a whole project before the extension answered that per file, so a
-    -- manifest still carrying it is describing a build that no longer happens.
-    local dir = tempProject({
-        ["nupp.lua"] = [[
-return {include = {"src"}, strict = true, build = {entries = {"main"}}}
-]],
-        ["src/main.nupp"] = "return true\n",
-    })
-    local config, err = project.loadManifest(dir)
-    assertEq(config, nil, "a retired key is refused rather than ignored")
-    assert(err:find("no longer a manifest key", 1, true), err)
-    assert(err:find(".g.nupp", 1, true), "and says what replaced it: " .. err)
-    remove(dir)
 end
 
 function M.manifestBuildDiscoversModulesAndPreservesPaths()

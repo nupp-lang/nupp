@@ -2627,16 +2627,6 @@ function M.aFeatureRangeRejectsAMinimumWiderThanItsMaximum()
     assert(out:find("minimum avx512f is wider than maximum avx2", 1, true), out)
 end
 
--- No C compiler runs, so there are no flags to hand one: a manifest still
--- naming them is told so rather than having them silently ignored.
-function M.aotCflagsAreRefused()
-    local dir = project("require")
-    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotCflags = {"-march=native"},')
-    local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find("aotCflags is gone", 1, true) and out:find("no C compiler runs", 1, true), out)
-end
-
 -- A Wasm unit is an independent module the Wasm policies build, so a native
 -- library for wasm32 is refused by name rather than attempted.
 function M.requireRefusesAWasmTarget()
@@ -2696,16 +2686,6 @@ function M.anUnknownPolicyIsRejected()
     local out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find('must be "off", "require", "emit-wasm" or "require-wasm"', 1, true), out)
-end
-
--- The policy that wrote C for another compiler is gone, and a manifest naming
--- it is told what builds for another platform now.
-function M.theEmitCPolicyIsRefusedWithWhatToUseInstead()
-    local dir = project("emit-c")
-    local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find('.aot = "emit-c" is gone', 1, true), out)
-    assert(out:find('Use "require", with aotTarget or --platform', 1, true), out)
 end
 
 function M.wasmPoliciesAreIndependentOfTheSourceDialect()

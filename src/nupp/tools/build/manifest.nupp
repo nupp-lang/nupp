@@ -423,7 +423,6 @@ local TARGET_KEYS = {
     "aotLinkage",
     "aotFeatures",
     "aotTarget",
-    "aotCflags",
     "description",
     "outDir",
     "output",
@@ -844,11 +843,6 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
-        if target.aot == "emit-c" then
-            return nil, label
-                .. ".aot = \"emit-c\" is gone: nupp compiles AOT code itself, for any "
-                .. "platform. Use \"require\", with aotTarget or --platform to build for another one"
-        end
         if target.aot ~= "off"
             and target.aot ~= "require"
             and target.aot ~= "emit-wasm"
@@ -901,9 +895,6 @@ local function validateTarget(target, label, dependencies)
                 target.aotTarget
             ) .. " has none: use \"emit-wasm\" or \"require-wasm\""
         end
-    end
-    if target.aotCflags ~= nil then
-        return nil, label .. ".aotCflags is gone: AOT code is compiled by LLVM in nupp, and no C compiler runs"
     end
     if target.aotFeatures ~= nil then
         -- The inclusive feature range every emitted tier must satisfy. A bound
@@ -1144,17 +1135,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         return nil, err
     end
     -- A key nothing reads takes effect silently, which is the one way a configuration
-    -- file can lie to the person who wrote it. `strict` used to set the floor for a
-    -- whole project; a file's extension answers that now, so a manifest still carrying
-    -- it is describing a build that no longer happens.
-    if config.strict ~= nil then
-        return nil, "strict is no longer a manifest key: a file's extension "
-            .. "decides its floor, so `.nupp` is strict and `.g.nupp` is not. "
-            .. "Rename the files that are not ready, or pass --strict to hold "
-            .. "every file to it regardless"
-    end
-    -- After `strict`, so the key that was retired by name keeps saying what replaced it
-    -- rather than being answered with a guess at the nearest name.
+    -- file can lie to the person who wrote it.
     valid, err = validateKeys(config, CONFIG_KEYS, "nupp.lua")
     if not valid then
         return nil, err

@@ -78,9 +78,8 @@ whole project and nobody schedules that. A marker inside the file is invisible
 where files are listed, reviewed, and searched, and is silently copied or
 dropped when a file is duplicated or rewritten.
 
-A manifest `strict` key is refused for the same reason, with an error naming
-the extensions that replaced it. A manifest key and a file name can disagree,
-and then the file lies to the person reading it.
+There is no manifest `strict` key for the same reason. A manifest key and a file
+name can disagree, and then the file lies to the person reading it.
 
 :::
 
