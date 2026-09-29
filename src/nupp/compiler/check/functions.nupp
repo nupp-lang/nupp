@@ -1147,8 +1147,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         restoreCapturedNarrowing()
         -- Running off the end returns nothing, which a declared result has to admit
         -- the way it would admit `return` with no values. A constructor's result is
-        -- what `new` yields, not what its body returns.
-        if annotated and #annotated > 0 and not body.constructorOwner and c.fallsThrough(body.body) then
+        -- what `new` yields, not what its body returns. In a declaration tree an empty
+        -- body is a stub, the way a LuaCATS library spells a signature, not a body that
+        -- forgot to return.
+        local stub = c.declarationFile and body.body ~= nil and #(body.body.stats or {}) == 0
+        if annotated and #annotated > 0 and not body.constructorOwner and not stub and c.fallsThrough(body.body) then
             local missing = nil
             for j, resultT in ipairs(annotated) do
                 if not isA(T.nil_, resultT) then

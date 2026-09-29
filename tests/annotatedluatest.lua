@@ -13,6 +13,32 @@ end
 
 local M = {}
 
+-- A LuaCATS library is written in stubs: `function love.window.fromPixels(v) end`
+-- beside a `---@return number`. In a declaration tree the empty body is the
+-- declaration, not a function that forgot to return, so it is taken rather than
+-- refused.
+function M.anEmptyStubInADeclarationTreeDeclaresItsResult()
+    local source = [[
+---@class stubs
+stubs = {}
+
+---@param pixels number
+---@return number
+function stubs.fromPixels(pixels) end
+]]
+    local parsed = parser.parse(source, "library/stubs.lua")
+    local diagnostics = check.check(parsed, "library/stubs.lua", nil, {declareGlobals = true, declarationFile = true, strict = false})
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.code ~= "NUPP2002", "a stub is refused for not returning: " .. diagnostic.msg)
+    end
+    local ordinary = check.check(parser.parse(source, "stubs.lua"), "stubs.lua")
+    local refused = false
+    for _, diagnostic in ipairs(ordinary) do
+        refused = refused or diagnostic.code == "NUPP2002"
+    end
+    assert(refused, "outside a declaration tree the same body still has to return")
+end
+
 function M.functionAndClassCommentsBecomeModuleFacts()
     local source = [[
 ---@alias UserId integer
