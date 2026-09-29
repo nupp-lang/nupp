@@ -95,14 +95,14 @@ end
 --- @param buffer the buffer or view to inspect
 --- @return true when its elements are dense
 export function bufferIsDense<T>(borrows buffer: api.Buffer<T>): boolean
-    return tensorlayout.isDense(buffer:layout())
+    return buffer:layout():isDense()
 end
 
 --- Reports whether every logical element maps to a distinct storage element.
 --- @param buffer the buffer or view to inspect
 --- @return true when its element mapping is injective
 export function bufferIsInjective<T>(borrows buffer: api.Buffer<T>): boolean
-    return tensorlayout.isInjective(buffer:layout())
+    return buffer:layout():isInjective()
 end
 
 --- Creates a checked view over a buffer's root allocation without copying.

@@ -11,10 +11,10 @@ storage.
 ```nupp
 const layout = require("nupp.gpu.layout")
 
-const rows = layout.new(0, {4, 4}, {4, 1})
+const rows = layout.new({4, 4}, {4, 1})
 const column = layout.subview(rows, {0, 2}, {4, 1})
 
-print(layout.offset(column), layout.isDense(column))
+print(column:offset(), column:isDense())
 ```
 
 Every operation is checked, so a layout that would read outside its extent is
@@ -24,6 +24,15 @@ injectivity result can also mean the bounded stride proof was inconclusive.
 ]]
 
 local layout = {}
+
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
 
 record layout.Layout
     @private
@@ -45,20 +54,49 @@ record layout.Layout
 
     @readonly
     count: integer
-end
 
-local function copied(values: {integer}): {integer}
-    local out: {integer} = {}
-    for index, value in ipairs(values) do
-        out[index] = value
+    --- The element offset of the layout's first element.
+    function offset(borrows self): integer
+        return self._offset
     end
 
-    return out
+    --- One more than the largest element offset the layout reaches, measured
+    --- from its first element.
+    function extent(borrows self): integer
+        return self._extent
+    end
+
+    --- The logical shape. The returned table is a copy.
+    function dimensions(borrows self): {integer}
+        return copied(self._shape)
+    end
+
+    --- The element stride of each dimension. The returned table is a copy.
+    function strides(borrows self): {integer}
+        return copied(self._strides)
+    end
+
+    --- Reports whether the elements occupy one dense row-major range.
+    function isDense(borrows self): boolean
+        return self._dense
+    end
+
+    --- Reports whether the layout's strides prove that element offsets are distinct.
+    ---
+    --- A false result also covers layouts for which the bounded stride proof is
+    --- inconclusive.
+    function isInjective(borrows self): boolean
+        return self._injective
+    end
 end
 
 local facts = require("nupp.gpu.layoutfacts").layoutFacts
 
-function layout.new(offset: integer, shape: {integer}, strides: {integer}): layout.Layout
+--- Checks a shape and its strides, with the element offset of the first
+--- element, 0 unless given.
+--- @raises string when the shape, strides or offset do not fit uint32
+function layout.new(shape: {integer}, strides: {integer}, offset: integer?): layout.Layout
+    offset = offset ?? 0
     if type(offset) ~= "number" or offset % 1 ~= 0 or offset < 0 or offset > 4294967295 then
         error("nupp: GPU tensor layout offset exceeds uint32", 2)
     end
@@ -73,34 +111,6 @@ function layout.new(offset: integer, shape: {integer}, strides: {integer}): layo
         _injective = injective,
         count = count
     )
-end
-
-function layout.offset(borrows value: layout.Layout): integer
-    return value._offset
-end
-
-function layout.extent(borrows value: layout.Layout): integer
-    return value._extent
-end
-
-function layout.dimensions(borrows value: layout.Layout): {integer}
-    return copied(value._shape)
-end
-
-function layout.strides(borrows value: layout.Layout): {integer}
-    return copied(value._strides)
-end
-
-function layout.isDense(borrows value: layout.Layout): boolean
-    return value._dense
-end
-
---- Reports whether the layout's strides prove that element offsets are distinct.
----
---- A false result also covers layouts for which the bounded stride proof is
---- inconclusive.
-function layout.isInjective(borrows value: layout.Layout): boolean
-    return value._injective
 end
 
 function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: {integer}): layout.Layout
@@ -122,7 +132,7 @@ function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: 
         offset = offset + first * value._strides[index]
     end
 
-    return layout.new(offset, shape, value._strides)
+    return layout.new(shape, value._strides, offset)
 end
 
 function layout.transpose(borrows value: layout.Layout, order: {integer}): layout.Layout
@@ -141,7 +151,7 @@ function layout.transpose(borrows value: layout.Layout, order: {integer}): layou
         strides[index] = value._strides[axis]
     end
 
-    return layout.new(value._offset, shape, strides)
+    return layout.new(shape, strides, value._offset)
 end
 
 function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layout.Layout
@@ -161,7 +171,7 @@ function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layou
             strides[index] = source == 1 and dimension > 1 and 0 or value._strides[index - shift]
         end
     end
-    local result = layout.new(value._offset, shape, strides)
+    local result = layout.new(shape, strides, value._offset)
     if result._extent > value._extent then
         error("nupp: GPU tensor broadcast exceeds its source", 2)
     end
@@ -182,7 +192,7 @@ function layout.asStrided(
     then
         error("nupp: GPU strided layout offset exceeds uint32", 2)
     end
-    local result = layout.new(value._offset + relativeOffset, shape, strides)
+    local result = layout.new(shape, strides, value._offset + relativeOffset)
     if result._extent > value._extent or relativeOffset > value._extent - result._extent then
         error("nupp: GPU strided layout exceeds its source", 2)
     end

@@ -139,9 +139,12 @@ artifact; unordered and atomic reductions are not part of this contract.
 ## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
-The `nupp.gpu.layout` module (imported as `layout`) provides
-`layout.subview`, `layout.transpose`, `layout.broadcast`, and
-`layout.asStrided` to transform checked layout values without allocating.
+The `nupp.gpu.layout` module (imported as `layout`) builds one with
+`layout.new(shape, strides, offset?)` and provides `layout.subview`,
+`layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
+checked layout values without allocating. A layout answers `dimensions()`,
+`strides()`, `offset()`, `extent()`, `isDense()` and `isInjective()` as
+methods, the way a buffer does.
 
 `gpu.view` applies a layout while preserving the buffer element type.
 

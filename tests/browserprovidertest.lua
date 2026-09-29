@@ -394,15 +394,15 @@ function M.aWritableViewThatRepeatsAnElementIsRefused()
     local binding = context:bindKernel(kernel, 4)
     -- Every element of the view is the allocation's first: four threads would race to
     -- write it, which no dispatch result can make sense of.
-    local repeated = output:view(layout.new(0, {4}, {0}))
+    local repeated = output:view(layout.new({4}, {0}))
     local ok, problem = pcall(binding.setWrite, binding, 0, repeated, false)
     check.equal(ok, false, "a repeating writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
-    local overlapping = output:view(layout.new(0, {2, 2}, {1, 1}))
+    local overlapping = output:view(layout.new({2, 2}, {1, 1}))
     ok, problem = pcall(binding.setWrite, binding, 0, overlapping, false)
     check.equal(ok, false, "an overlapping writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
-    binding:setWrite(0, output:view(layout.new(0, {2, 2}, {2, 1})), false)
+    binding:setWrite(0, output:view(layout.new({2, 2}, {2, 1})), false)
 end
 
 function M.oneAllocationCannotBeBoundForReadingAndWriting()
@@ -420,8 +420,8 @@ function M.oneAllocationCannotBeBoundForReadingAndWriting()
     -- Usage is tracked per allocation, so disjoint views of one root conflict too,
     -- whichever side is bound first.
     local reversed = context:bindKernel(kernel, 4)
-    reversed:setWrite(0, shared:view(layout.new(4, {4}, {1})), false)
-    ok, problem = pcall(reversed.setRead, reversed, 0, shared:view(layout.new(0, {4}, {1})), false)
+    reversed:setWrite(0, shared:view(layout.new({4}, {1}, 4)), false)
+    ok, problem = pcall(reversed.setRead, reversed, 0, shared:view(layout.new({4}, {1})), false)
     check.equal(ok, false, "a view of a buffer bound for writing was bound for reading")
     check.matches(tostring(problem), "both reading and writing")
 
