@@ -273,6 +273,10 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/codec/json/internal/decoder/fused.nupp",
     },
     {
+        source = "src/nupp/codec/json/internal/builder.nupp",
+        output = "nupp/compiler/nupp/codec/json/internal/builder.nupp",
+    },
+    {
         source = "src/nupp/codec/json/internal/decoder/eager.nupp",
         output = "nupp/compiler/nupp/codec/json/internal/decoder/eager.nupp",
     },
