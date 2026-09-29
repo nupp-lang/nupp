@@ -78,7 +78,7 @@ local suspensionRuntime = suspension as any
 local loadedTime = require("nupp.runtime.timeprovider").provider
 
 local function missingTime(): never
-    error("nupp.tasks: deadlines require a clock provider", 2)
+    error("nupp: a task scope timeout requires a clock provider", 2)
 end
 
 local timeModule: any = loadedTime or {now = missingTime, wakeAt = missingTime}
@@ -998,7 +998,7 @@ end
 local function workersImpl(owner: ScopeState): any
     if owner.workerScope == nil then
         if workerModule == nil then
-            error("nupp.tasks: worker provider unavailable: " .. tostring(workerModule), 2)
+            error("nupp: a task scope cannot fork: no worker provider is available", 2)
         end
         local observer = {
             created = function(_: any, _: any): nil

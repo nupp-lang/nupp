@@ -365,6 +365,7 @@ function M.onlyOneSampleSessionRunsAtATime()
     local ok, err = pcall(profile.sample)
     assert(not ok, "a second session must be refused")
     assertMatch(err, "already running", "and say why")
+    assertMatch(err, "nupp: ", "in the runtime's own voice")
     session:stop()
 end
 
@@ -377,6 +378,7 @@ function M.aStoppedSampleSessionRefusesEverything()
     end)
     assert(not ok, "stopping twice is an error")
     assertMatch(err, "already stopped", "and says so")
+    assertMatch(err, "nupp: ", "in the runtime's own voice")
     assert(
         not pcall(function()
             session:pause()
@@ -513,6 +515,7 @@ function M.aStoppedTraceSessionRefusesEverything()
     end)
     assert(not ok, "stopping twice is an error")
     assertMatch(err, "already stopped", "and says so")
+    assertMatch(err, "nupp: ", "in the runtime's own voice")
     assert(
         not pcall(function()
             session:pause()

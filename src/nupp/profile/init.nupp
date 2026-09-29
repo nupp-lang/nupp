@@ -367,16 +367,16 @@ end
 local function writeFile(path: string, text: string)
     local file, openReason = io.open(path, "wb")
     if not file then
-        error("profile: cannot write '" .. path .. "': " .. (openReason or "unknown"), 3)
+        error("nupp: cannot write the profile report '" .. path .. "': " .. (openReason or "unknown"), 3)
     end
     local written, writeReason = file:write(text)
     if not written then
         file:close()
-        error("profile: cannot write '" .. path .. "': " .. (writeReason or "unknown"), 3)
+        error("nupp: cannot write the profile report '" .. path .. "': " .. (writeReason or "unknown"), 3)
     end
     local closed, closeReason = file:close()
     if not closed then
-        error("profile: cannot close '" .. path .. "': " .. (closeReason or "unknown"), 3)
+        error("nupp: cannot close the profile report '" .. path .. "': " .. (closeReason or "unknown"), 3)
     end
 end
 
@@ -580,17 +580,17 @@ end
 --- @raises string when a sample session is already running or an option is out of range
 function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     if sampling then
-        error("profile.sample: a sample session is already running; stop it first", 2)
+        error("nupp: a sample session is already running; stop it first", 2)
     end
 
     local opts: profile.SampleOptions = options or {}
     local intervalMs = opts.intervalMs or 10
     if intervalMs < 1 or intervalMs > 2147483647 then
-        error("profile.sample: intervalMs must be between 1 and 2147483647", 2)
+        error("nupp: a sample session's intervalMs must be between 1 and 2147483647", 2)
     end
     local stackDepth = opts.stackDepth or 16
     if stackDepth < 1 or stackDepth > 2147483647 then
-        error("profile.sample: stackDepth must be between 1 and 2147483647", 2)
+        error("nupp: a sample session's stackDepth must be between 1 and 2147483647", 2)
     end
 
     local owned = new profile.SampleSession(
@@ -699,7 +699,7 @@ end
 --- @raises string once the session has stopped
 function profile.SampleSession:pause()
     if self.stopped then
-        error("SampleSession:pause: the session has already stopped", 2)
+        error("nupp: the sample session has already stopped", 2)
     end
     self.paused = true
 end
@@ -709,7 +709,7 @@ end
 --- @raises string once the session has stopped
 function profile.SampleSession:resume()
     if self.stopped then
-        error("SampleSession:resume: the session has already stopped", 2)
+        error("nupp: the sample session has already stopped", 2)
     end
     self.paused = false
 end
@@ -722,7 +722,7 @@ end
 --- @raises string once the session has stopped, so it cannot be called twice
 function profile.SampleSession:stop(filename: string?): profile.SampleReport
     if self.stopped then
-        error("SampleSession:stop: the session has already stopped", 2)
+        error("nupp: the sample session has already stopped", 2)
     end
     haltSampling(self)
 
@@ -942,7 +942,7 @@ end
 --- @raises string when a trace session is already running
 function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     if tracing then
-        error("profile.trace: a trace session is already running; stop it first", 2)
+        error("nupp: a trace session is already running; stop it first", 2)
     end
 
     local opts: profile.TraceOptions = options or {}
@@ -1047,7 +1047,7 @@ end
 --- @raises string once the session has stopped
 function profile.TraceSession:pause()
     if self.stopped then
-        error("TraceSession:pause: the session has already stopped", 2)
+        error("nupp: the trace session has already stopped", 2)
     end
     self.paused = true
 end
@@ -1057,7 +1057,7 @@ end
 --- @raises string once the session has stopped
 function profile.TraceSession:resume()
     if self.stopped then
-        error("TraceSession:resume: the session has already stopped", 2)
+        error("nupp: the trace session has already stopped", 2)
     end
     self.paused = false
 end
@@ -1069,7 +1069,7 @@ end
 --- @raises string once the session has stopped, so it cannot be called twice
 function profile.TraceSession:stop(filename: string?): profile.TraceReport
     if self.stopped then
-        error("TraceSession:stop: the session has already stopped", 2)
+        error("nupp: the trace session has already stopped", 2)
     end
     haltTracing(self)
 
