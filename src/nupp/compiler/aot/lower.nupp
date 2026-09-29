@@ -3521,9 +3521,8 @@ local function simdMethod(
         if reducerState == nil then
             kernel.context.reject(source, "a reducer cannot be copied or passed through another value")
         end
-        local contributionMethod = reducers.method(reducerOperation as string)
         local argumentCount = reducerOperation == "dot" and 2 or 1
-        if method == contributionMethod and #raw == argumentCount + 1 then
+        if method == "add" and #raw == argumentCount + 1 then
             return maskedContribution(
                 node,
                 receiver as scalarIR.Expr,
@@ -3536,7 +3535,7 @@ local function simdMethod(
                 activeIndex,
                 kernel
             )
-        elseif method == contributionMethod and #raw == argumentCount then
+        elseif method == "add" and #raw == argumentCount then
             if (reducerState as lower.ReducerState).finalized then
                 kernel.context.reject(source, "a finalized reducer cannot receive another contribution")
             end

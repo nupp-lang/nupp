@@ -169,7 +169,7 @@ function aot.install(c: state.Checker): aot.Ops
                 if identity ~= nil then
                     local contract = reducerContracts.CONSTRUCTORS[identity]
                     if contract ~= nil then
-                        return contract.order, contract.method, contract.operation == "dot" and 2 or 1
+                        return contract.order, "add", contract.operation == "dot" and 2 or 1
                     end
                     order, operation = identity:match("^nupp%.simd%.reducer%.(%a+)(%u%l+)$")
                 end
@@ -180,7 +180,7 @@ function aot.install(c: state.Checker): aot.Ops
                     return nil, nil, nil
                 end
 
-                return order, operation == "Product" and "multiply" or "add", operation == "Dot" and 2 or 1
+                return order, "add", operation == "Dot" and 2 or 1
             end
 
             local function diagnose(current: any, message: string): nil

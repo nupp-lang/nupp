@@ -58,6 +58,24 @@ const {type Scalar as StorageWitness} = require("nupp.mem.array")
 
 local simd = {}
 
+--- What every reducer shares: contributions go in through `add`, and `value`
+--- answers the finished reduction as a `T`.
+---
+--- What `add` takes depends on the family -- one value, two for a dot
+--- product, and an optional mask beside a vector -- so this names the member
+--- without fixing its parameters. Contribute through the concrete reducer;
+--- code that only finishes a reduction can take any `Reducer<T>`.
+--- @export
+interface simd.Reducer<T>
+    --- Contributes to the reduction; the concrete reducer states its parameters.
+    @readonly
+    add: function(self: simd.Reducer<T>, value: never, ...: never): nil
+
+    --- Answers the finished reduction.
+    @readonly
+    value: function(self: simd.Reducer<T>): T
+end
+
 --- Closed reduction values for scalar or explicit masked vector contributions.
 --- @export
 local reducer: {
@@ -118,7 +136,7 @@ local reducer: {
 
 --- A floating-point sum committed in logical iteration order.
 --- @export
-record simd.OrderedSum
+record simd.OrderedSum is simd.Reducer<number>
     @private
     total: number
 
@@ -141,7 +159,7 @@ end
 
 --- A floating-point sum using the width-independent adjacent-pair tree.
 --- @export
-record simd.PairwiseSum
+record simd.PairwiseSum is simd.Reducer<number>
     @private
     partials: {number?}
     @private
@@ -198,7 +216,7 @@ end
 --- Ordinary Lua has no lane width to exploit, so its executable reference uses
 --- a left fold. Native lowering may use several accumulators.
 --- @export
-record simd.AlgebraicSum
+record simd.AlgebraicSum is simd.Reducer<number>
     @private
     total: number
 
@@ -236,7 +254,7 @@ end
 --- well as the smaller, so a large value added to a small running total does
 --- not lose its correction, which is the case plain Kahan gets wrong.
 --- @export
-record simd.CompensatedSum
+record simd.CompensatedSum is simd.Reducer<number>
     @private
     total: number
     @private
@@ -267,7 +285,7 @@ end
 
 --- A floating-point product committed in logical iteration order.
 --- @export
-record simd.OrderedProduct
+record simd.OrderedProduct is simd.Reducer<number>
     @private
     total: number
 
@@ -275,7 +293,7 @@ record simd.OrderedProduct
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function multiply<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -290,7 +308,7 @@ end
 
 --- A floating-point product using the width-independent adjacent-pair tree.
 --- @export
-record simd.PairwiseProduct
+record simd.PairwiseProduct is simd.Reducer<number>
     @private
     partials: {number?}
     @private
@@ -300,7 +318,7 @@ record simd.PairwiseProduct
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function multiply<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -344,7 +362,7 @@ end
 
 --- A floating-point product whose named contract permits reassociation.
 --- @export
-record simd.AlgebraicProduct
+record simd.AlgebraicProduct is simd.Reducer<number>
     @private
     total: number
 
@@ -352,7 +370,7 @@ record simd.AlgebraicProduct
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function multiply<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
+    function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -367,7 +385,7 @@ end
 
 --- A dot product committed in logical iteration order without contraction.
 --- @export
-record simd.OrderedDot
+record simd.OrderedDot is simd.Reducer<number>
     @private
     total: number
 
@@ -395,7 +413,7 @@ end
 
 --- A non-contracting dot product using the adjacent-pair sum tree.
 --- @export
-record simd.PairwiseDot
+record simd.PairwiseDot is simd.Reducer<number>
     @private
     sum: simd.PairwiseSum
 
@@ -423,7 +441,7 @@ end
 
 --- A dot product permitting reassociation and multiply-add contraction.
 --- @export
-record simd.AlgebraicDot
+record simd.AlgebraicDot is simd.Reducer<number>
     @private
     total: number
 
@@ -486,7 +504,7 @@ end
 --- @export
 function reducer.pairwiseProduct(initial: number): simd.PairwiseProduct
     local out = new simd.PairwiseProduct(partials = {}, count = 0)
-    out:multiply(initial)
+    out:add(initial)
 
     return out
 end
@@ -519,7 +537,7 @@ end
 --- Their initial value participates in the fold. Narrow storage loads contribute
 --- to i32 or u32; i64 and u64 never pass through a Lua double.
 --- @export
-record simd.WrappingSum<T is int32 | uint32 | int64 | uint64>
+record simd.WrappingSum<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     total: T
     @private
@@ -543,7 +561,7 @@ record simd.WrappingSum<T is int32 | uint32 | int64 | uint64>
 end
 
 --- @export
-record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64>
+record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     total: T
     @private
@@ -553,7 +571,7 @@ record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64>
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function multiply<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -567,7 +585,7 @@ record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64>
 end
 
 --- @export
-record simd.AndBits<T is int32 | uint32 | int64 | uint64>
+record simd.AndBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     total: T
     @private
@@ -577,7 +595,7 @@ record simd.AndBits<T is int32 | uint32 | int64 | uint64>
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function combine<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -591,7 +609,7 @@ record simd.AndBits<T is int32 | uint32 | int64 | uint64>
 end
 
 --- @export
-record simd.OrBits<T is int32 | uint32 | int64 | uint64>
+record simd.OrBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     total: T
     @private
@@ -601,7 +619,7 @@ record simd.OrBits<T is int32 | uint32 | int64 | uint64>
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function combine<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -615,7 +633,7 @@ record simd.OrBits<T is int32 | uint32 | int64 | uint64>
 end
 
 --- @export
-record simd.XorBits<T is int32 | uint32 | int64 | uint64>
+record simd.XorBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     total: T
     @private
@@ -625,7 +643,7 @@ record simd.XorBits<T is int32 | uint32 | int64 | uint64>
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
     --- @raises string when given a mask, as ordinary Lua
-    function combine<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
+    function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
         end
@@ -824,7 +842,7 @@ reducer.u64 = u64
 
 --- Whether any contribution is true; false for an empty loop.
 --- @export
-record simd.Any
+record simd.Any is simd.Reducer<boolean>
     @private
     total: boolean
 
@@ -845,7 +863,7 @@ end
 
 --- Whether every contribution is true; true for an empty loop.
 --- @export
-record simd.All
+record simd.All is simd.Reducer<boolean>
     @private
     total: boolean
 
@@ -866,7 +884,7 @@ end
 
 --- Counts true contributions exactly, modulo 2^64.
 --- @export
-record simd.Count
+record simd.Count is simd.Reducer<uint64>
     @private
     total: uint64
 
@@ -891,7 +909,7 @@ end
 
 --- An integer extremum including its initial value.
 --- @export
-record simd.IntegerMin<T is int32 | uint32 | int64 | uint64>
+record simd.IntegerMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     best: T
 
@@ -922,7 +940,7 @@ end
 
 --- First one-based logical position of the integer extremum; zero when empty.
 --- @export
-record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64>
+record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<integer>
     @private
     best: T?
     @private
@@ -951,7 +969,7 @@ end
 
 --- An integer extremum including its initial value.
 --- @export
-record simd.IntegerMax<T is int32 | uint32 | int64 | uint64>
+record simd.IntegerMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     @private
     best: T
 
@@ -982,7 +1000,7 @@ end
 
 --- First one-based logical position of the integer extremum; zero when empty.
 --- @export
-record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64>
+record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<integer>
     @private
     best: T?
     @private
@@ -1028,7 +1046,7 @@ end
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
-record simd.PropagatingMin
+record simd.PropagatingMin is simd.Reducer<number>
     @private
     best: number
 
@@ -1060,7 +1078,7 @@ end
 --- First logical position, or zero when empty.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
-record simd.PropagatingArgMin
+record simd.PropagatingArgMin is simd.Reducer<integer>
     @private
     best: number
     @private
@@ -1090,7 +1108,7 @@ end
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
-record simd.PropagatingMax
+record simd.PropagatingMax is simd.Reducer<number>
     @private
     best: number
 
@@ -1122,7 +1140,7 @@ end
 --- First logical position, or zero when empty.
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
-record simd.PropagatingArgMax
+record simd.PropagatingArgMax is simd.Reducer<integer>
     @private
     best: number
     @private
@@ -1152,7 +1170,7 @@ end
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
-record simd.NumberMin
+record simd.NumberMin is simd.Reducer<number>
     @private
     best: number
 
@@ -1184,7 +1202,7 @@ end
 --- First logical position, or zero when empty.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
-record simd.NumberArgMin
+record simd.NumberArgMin is simd.Reducer<integer>
     @private
     best: number
     @private
@@ -1214,7 +1232,7 @@ end
 --- Floating extremum including the initial value; NaNs are canonicalized.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
-record simd.NumberMax
+record simd.NumberMax is simd.Reducer<number>
     @private
     best: number
 
@@ -1246,7 +1264,7 @@ end
 --- First logical position, or zero when empty.
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
-record simd.NumberArgMax
+record simd.NumberArgMax is simd.Reducer<integer>
     @private
     best: number
     @private

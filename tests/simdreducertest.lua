@@ -35,7 +35,7 @@ function M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel()
             or simd.reducer.pairwiseSum(values[1])
         for i = 2, #values do
             if kind == "product" then
-                fold:multiply(values[i])
+                fold:add(values[i])
             elseif kind == "dot" then
                 fold:add(values[i], 1)
             else

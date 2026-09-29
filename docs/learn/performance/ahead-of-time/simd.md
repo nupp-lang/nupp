@@ -132,7 +132,7 @@ for i = 1, #values do total:add(values[i]) end
 return total:value()
 ```
 
-Ordered, pairwise, algebraic, compensated, exact integer, predicate, and extrema reducers have distinct contracts. Choose the contract before choosing a vector loop. Ordered and exact contracts preserve their specified operation order, ties, NaNs, signed zeros, and logical positions; algebraic reductions permit the documented reassociation. See [numeric semantics](numeric-semantics.md).
+Every reducer contributes through `add`, a dot product taking two values, and answers once through `value`; `simd.Reducer<T>` names that shared shape for code that only finishes a reduction. Ordered, pairwise, algebraic, compensated, exact integer, predicate, and extrema reducers have distinct contracts. Choose the contract before choosing a vector loop. Ordered and exact contracts preserve their specified operation order, ties, NaNs, signed zeros, and logical positions; algebraic reductions permit the documented reassociation. See [numeric semantics](numeric-semantics.md).
 
 ## Fields and column storage
 

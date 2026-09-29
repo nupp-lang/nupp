@@ -2223,6 +2223,40 @@ function M.everyFloatingReducerNamesItsType()
     clean(table.concat(lines, "\n"))
 end
 
+-- One verb contributes to every reducer, and each one is a `simd.Reducer` of
+-- what it answers.
+function M.everyReducerContributesThroughAddAndIsAReducer()
+    clean([[
+local simd = require("nupp.simd")
+local function finish<T>(reducer: simd.Reducer<T>): T
+    return reducer:value()
+end
+local product: simd.Reducer<number> = simd.reducer.orderedProduct(1.0)
+local pairwise = simd.reducer.pairwiseProduct(1.0)
+local algebraic = simd.reducer.algebraicProduct(1.0)
+local dot: simd.Reducer<number> = simd.reducer.pairwiseDot(0.0)
+local count: simd.Reducer<uint64> = simd.reducer.count()
+local any: simd.Reducer<boolean> = simd.reducer.any()
+local position: simd.Reducer<integer> = simd.reducer.numberArgMin()
+local least: simd.Reducer<number> = simd.reducer.propagatingMin(0.0)
+pairwise:add(2.0)
+algebraic:add(2.0)
+local ordered = simd.reducer.orderedProduct(1.0)
+ordered:add(3.0)
+return finish(product), finish(pairwise), finish(algebraic), finish(ordered), finish(dot), finish(count),
+    finish(any), finish(position), finish(least)
+]])
+    assertEq(
+        codes([[
+local simd = require("nupp.simd")
+local product = simd.reducer.orderedProduct(1.0)
+product:multiply(2.0)
+return product:value()
+]]),
+        "NUPP2004"
+    )
+end
+
 function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     clean(
         table.concat(

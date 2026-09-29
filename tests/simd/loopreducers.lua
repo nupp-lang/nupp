@@ -29,10 +29,10 @@ local function loopCases(types)
             local seed = ty == 'int64' and '1LL' or ty == 'uint64' and '1ULL' or '1'
             for _, op in ipairs({
                 {'wrappingSum', 'add'},
-                {'wrappingProduct', 'multiply'},
-                {'andBits', 'combine'},
-                {'orBits', 'combine'},
-                {'xorBits', 'combine'}
+                {'wrappingProduct', 'add'},
+                {'andBits', 'add'},
+                {'orBits', 'add'},
+                {'xorBits', 'add'}
             }) do
                 add(ty, code .. '_' .. op[1], 'simd.reducer.' .. code .. '.' .. op[1] .. '(seed)', op[2], ty, nil, seed)
             end
@@ -79,7 +79,7 @@ local function loopCases(types)
                     'number',
                     order .. operation,
                     'simd.reducer.' .. order .. operation .. '(seed)',
-                    operation == 'Product' and 'multiply' or 'add',
+                    'add',
                     'number',
                     operation == 'Dot' and 'input[i], input[i]' or nil
                 )

@@ -4587,10 +4587,10 @@ end
     }) do
         for _, op in ipairs({
             {"wrappingSum", "add"},
-            {"wrappingProduct", "multiply"},
-            {"andBits", "combine"},
-            {"orBits", "combine"},
-            {"xorBits", "combine"}
+            {"wrappingProduct", "add"},
+            {"andBits", "add"},
+            {"orBits", "add"},
+            {"xorBits", "add"}
         }) do
             add(
                 ty[1] .. "_" .. op[1]:lower(),
@@ -4670,8 +4670,8 @@ end
         {"ordered_sum", "orderedSum", "add"},
         {"pairwise_sum", "pairwiseSum", "add"},
         {"compensated_sum", "compensatedSum", "add"},
-        {"ordered_product", "orderedProduct", "multiply"},
-        {"pairwise_product", "pairwiseProduct", "multiply"},
+        {"ordered_product", "orderedProduct", "add"},
+        {"pairwise_product", "pairwiseProduct", "add"},
         {"ordered_dot", "orderedDot", "add", "input[i], input[i]"},
         {"pairwise_dot", "pairwiseDot", "add", "input[i], input[i]"},
     }) do
@@ -4695,7 +4695,7 @@ end
             "number",
             "double",
             "local fold = simd.reducer.algebraic" .. operation .. "(seed)",
-            operation == "Product" and "multiply" or "add",
+            "add",
             "number",
             "double",
             operation == "Dot" and "input[i], input[i]" or nil,
@@ -6206,14 +6206,14 @@ local function exact(borrows input: span.Span<int32>, seed: int32): (int32, int3
             local v = s:load(input, cursor + 1)
             local all = s:mask(true)
             sum:add(v, all)
-            bits:combine(v, all)
+            bits:add(v, all)
             least:add(v, all)
             cursor = cursor + s.lanes
         end
         local rest = s:tail(#input - cursor)
         local v = s:load(input, cursor + 1, rest)
         sum:add(v, rest)
-        bits:combine(v, rest)
+        bits:add(v, rest)
         least:add(v, rest)
     end
     return sum:value(), bits:value(), least:value()
@@ -6413,7 +6413,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
             local least = simd.reducer.integerMin(seed)
             for i = 0, count - 1 do
                 sum:add(integers[i])
-                bits:combine(integers[i])
+                bits:add(integers[i])
                 least:add(integers[i])
             end
             for _, symbol in ipairs(symbols.exact) do
