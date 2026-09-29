@@ -413,4 +413,26 @@ function M.flushReportsAFailedDestinationBeforeClose(): nil
     assert(state.closes == 1)
 end
 
+-- A reader drained whole answers one string; a limit is checked as bytes arrive,
+-- and the reader it took is closed either way.
+function M.readAllDrainsAReaderWithinItsLimit(): nil
+    assert(io2.readAll(io2.newStringReader("")) == "")
+    local big = string.rep("0123456789", 20000)
+    assert(io2.readAll(io2.newStringReader(big)) == big)
+    assert(io2.readAll(io2.newStringReader(big), #big) == big, "exactly the limit is within it")
+    local refused, reason = io2.readAll(io2.newStringReader(big), #big - 1)
+    assert(refused == nil and reason ~= nil, "one byte past the limit is refused")
+
+    local state = {closes = 0, bytes = "abc", maxRead = 0}
+    local answered = io2.readAll(new ProbeReader(state = state), 2)
+    assert(answered == nil)
+    assert(state.maxRead <= 3, "it never asks for more than one byte past the limit")
+    assert(state.closes == 1, "the reader is closed when the limit refuses it")
+
+    local failing = {closes = 0, bytes = "ab", failure = "broken pipe"}
+    local text, why = io2.readAll(new ProbeReader(state = failing))
+    assert(text == nil and why == "broken pipe")
+    assert(failing.closes == 1, "the reader is closed when it fails")
+end
+
 return M

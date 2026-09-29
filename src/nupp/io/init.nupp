@@ -125,6 +125,16 @@ given no count; an explicit count must be positive. A failed or EOF read does
 not extend the destination. `transferTo(writer)` copies the entire remaining
 source and returns the byte count.
 
+`readAll(reader, maxBytes)` takes a reader and answers everything left in it as
+one string, closing the reader on the way out. A limit is checked as the bytes
+arrive, so a source larger than it answers a reason rather than a string:
+
+```nupp
+assert(nupp.io.readAll(nupp.io.newStringReader("whole")) == "whole")
+local text, reason = nupp.io.readAll(nupp.io.newStringReader("too long"), 3)
+assert(text == nil and reason ~= nil)
+```
+
 A read moves the reader's cursor as a write moves a writer's, so all four take
 the reader exclusively. Two readers over one cursor, such as a stream and a
 borrowed view of it, cannot both be reading at once; the checker refuses the
@@ -448,6 +458,19 @@ export const newScalarReader = scalars.newScalarReader
 --- @raises string when destination is neither a buffer nor a writer
 --- @export
 export const newScalarWriter = scalars.newScalarWriter
+
+--- Reads a reader to its end and answers everything it held as one string.
+---
+--- The reader is taken, and closed on every way out. A limit is checked as the
+--- bytes arrive, so a source larger than it answers a reason rather than being
+--- held whole.
+--- @param reader the reader to drain
+--- @param maxBytes the most bytes to accept, or no limit
+--- @return the bytes, or nil when the reader failed or held more than the limit
+--- @return why it could not, when unsuccessful
+--- @raises string when maxBytes is not a positive integer
+--- @export
+export const readAll = bytes.readAll
 
 --- Takes a reader apart into lines.
 ---

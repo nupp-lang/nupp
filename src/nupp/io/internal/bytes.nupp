@@ -1024,6 +1024,53 @@ export function newQueueReader(source: ByteQueue): Reader
     return new QueueReader(_source = source, _closed = false)
 end
 
+--- Reads a reader to its end and answers everything it held as one string.
+---
+--- The reader is taken, and closed on every way out. A limit is checked as the
+--- bytes arrive, so a source larger than it answers a reason having read at most
+--- one window past the limit rather than holding the whole of it.
+--- @param reader the reader to drain
+--- @param maxBytes the most bytes to accept, or no limit
+--- @return the bytes, or nil when the reader failed or held more than the limit
+--- @return why it could not, when unsuccessful
+--- @raises string when maxBytes is not a positive integer
+--- @export
+export function readAll(takes reader: Reader, maxBytes: integer?): (string?, string?)
+    local limit: integer? = nil
+    if maxBytes ~= nil then
+        limit = positive(maxBytes, "io.readAll maxBytes", 2)
+    end
+    local parts: {string} = {}
+    local total: integer = 0
+    local failure: string? = nil
+    while true do
+        local wanted: integer = 65536
+        if limit ~= nil and limit - total + 1 < wanted then
+            -- One byte past the limit is enough to know the source is larger.
+            wanted = limit - total + 1
+        end
+        local chunk, reason = reader:read(wanted)
+        if chunk == nil then
+            failure = reason ?? "the reader is closed"
+            break
+        elseif chunk == "" then
+            break
+        end
+        total = total + #chunk
+        if limit ~= nil and total > limit then
+            failure = "the reader holds more than " .. tostring(limit) .. " bytes"
+            break
+        end
+        parts[#parts + 1] = chunk
+    end
+    nupp.drop(reader)
+    if failure ~= nil then
+        return nil, failure
+    end
+
+    return table.concat(parts), nil
+end
+
 export const validatePositive = positive
 export const validateInteger = integer_
 
