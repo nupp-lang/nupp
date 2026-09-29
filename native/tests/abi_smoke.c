@@ -1,3 +1,6 @@
+/* setenv and unsetenv are POSIX, which -std=c11 hides from glibc's headers. */
+#define _POSIX_C_SOURCE 200112L
+
 #include "nupp_native.h"
 
 #include <stdio.h>
