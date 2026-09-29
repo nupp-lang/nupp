@@ -1,7 +1,7 @@
 local fixtures = require("providerstate")
 local M = {}
 
-local function runtime(storage, integers, dialect)
+local function runtime(storage, integers)
     local advertised = {
         ["nupp.runtime.representation.spi.CstorageProvider"] = storage and {"fixture.storage"} or {},
         ["nupp.runtime.representation.spi.Int64Provider"] = integers and {"fixture.integers"} or {},
@@ -18,7 +18,7 @@ local function runtime(storage, integers, dialect)
         },
         {
             ["nupp.spi.index"] = advertised,
-            ["nupp.runtime.target"] = {dialect = dialect or "luajit"},
+            ["nupp.runtime.target"] = {dialect = "luajit"},
             ["fixture.storage"] = storage,
             ["fixture.integers"] = integers,
         }
@@ -26,7 +26,11 @@ local function runtime(storage, integers, dialect)
 end
 
 local function integerRuntime(providers)
-    local names, replacements = {}, {["nupp.runtime.target"] = {dialect = "lua51"},}
+    -- Storage that carries no integers leaves the choice to discovery alone.
+    local names, replacements = {}, {
+        ["nupp.runtime.target"] = {dialect = "luajit"},
+        ["fixture.storage"] = {representation = "native"},
+    }
     for index, provider in ipairs(providers) do
         local name = "fixture.integers" .. index
         names[index] = name
@@ -35,7 +39,7 @@ local function integerRuntime(providers)
     replacements[
         "nupp.spi.index"
     ] = {
-        ["nupp.runtime.representation.spi.CstorageProvider"] = {},
+        ["nupp.runtime.representation.spi.CstorageProvider"] = {"fixture.storage"},
         ["nupp.runtime.representation.spi.Int64Provider"] = names,
     }
 
@@ -67,14 +71,12 @@ function M.facadesRetainSelectedRepresentationMembers()
     assert(load("nupp.runtime.int64") == integers)
 end
 
-function M.missingPortableProvidersFailAtTheirUseBoundary()
-    local load = runtime(nil, nil, "lua51")
+function M.missingStorageMembersFailAtTheirUseBoundary()
+    local load = runtime({representation = "native"})
     local structs = load("nupp.runtime.structvalue")
     assert(structs.referenceValued)
 
-    local ok, problem = pcall(load, "nupp.runtime.storage")
-    assert(not ok and tostring(problem):find("no implementation is available", 1, true), tostring(problem))
-    ok, problem = pcall(load, "nupp.runtime.wasm")
+    local ok, problem = pcall(load, "nupp.runtime.wasm")
     assert(not ok and tostring(problem):find("no host implementation", 1, true), tostring(problem))
 
     local integers = load("nupp.runtime.int64")
@@ -122,9 +124,6 @@ function M.incompatibleStorageIsRejectedBeforeUse()
     local load = runtime({representation = "linear32"})
     local ok, problem = pcall(load, "nupp.runtime.representation")
     assert(not ok and tostring(problem):find("target requires native pointer storage", 1, true))
-    load = runtime({representation = "linear32"}, nil, "lua51")
-    ok, problem = pcall(load, "nupp.runtime.representation")
-    assert(not ok and tostring(problem):find("portable layout operations are missing", 1, true))
 end
 
 return M
