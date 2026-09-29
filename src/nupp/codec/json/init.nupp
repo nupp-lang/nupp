@@ -8,7 +8,7 @@ serializes, and streams.
 
 ```nupp:playground
 local encoded = nupp.codec.json.encode({name = "Nupp", ready = true})
-local decoded = nupp.codec.json.decode(encoded)
+local decoded = assert(nupp.codec.json.decode(encoded))
 assert(decoded.name == "Nupp")
 ```
 
@@ -34,9 +34,9 @@ assert(json.encode(json.asArray({})) == "[]")
 assert(json.encode(json.EMPTY_ARRAY) == "[]")
 assert(json.encode(json.EMPTY_OBJECT) == "{}")
 
-local emptyArray = json.decode("[]")
+local emptyArray = assert(json.decode("[]"))
 assert(json.isArray(emptyArray))
-assert(not json.isArray(json.decode("{}")))
+assert(not json.isArray(assert(json.decode("{}"))))
 ```
 
 `asObject` is the corresponding mark for a table that must encode as an object.
@@ -52,7 +52,7 @@ it encodes back as null:
 ```nupp
 const json = nupp.codec.json
 
-local value = json.decode([[{"items":[1,null,2]}]], json.NULL)
+local value = assert(json.decode([[{"items":[1,null,2]}]], json.NULL))
 assert(value.items[2] == json.NULL)
 assert(json.encode(value) == [[{"items":[1,null,2]}]])
 ```
@@ -76,7 +76,7 @@ unselected fields are omitted:
 ```nupp
 const json = nupp.codec.json
 
-local users = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
+local users, reason = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
 ```
 
 This is the lower-level path for pull deserializers: it validates the complete
@@ -395,53 +395,68 @@ rawset(WriterImpl, "write", writerWrite)
 
 --- Decodes one complete JSON document.
 ---
---- Null members are dropped unless a replacement value is supplied.
+--- Null members are dropped unless a replacement value is supplied. Text that is
+--- not one JSON document is an ordinary answer: the result is nil and the second
+--- one says why. The reason, not the value, is what tells failure apart, since
+--- the document `null` decodes to nil when nulls are dropped.
 ---
 --- ```nupp
---- local value = nupp.codec.json.decode([[{"id":41}]])
---- assert(value.id == 41)
+--- local value, reason = nupp.codec.json.decode([[{"id":41}]])
+--- assert(reason == nil and value.id == 41)
+--- local broken, why = nupp.codec.json.decode([[{"id":]])
+--- assert(broken == nil and why ~= nil)
 --- ```
 --- @param text the complete JSON document
 --- @param nullValue the value used for JSON null, or nil to drop nulls
---- @return the decoded Lua value
+--- @return the decoded Lua value, or nil when the text is not one document
+--- @return why the text is not one JSON document, when it is not
 --- @export
-export function decode(text: string, nullValue: any?): any
-    if nullValue == nil then
-        return native.decode(text)
+export function decode(text: string, nullValue: any?): (any, string?)
+    local ok, value = pcall(native.decode, text, nullValue)
+    if not ok then
+        return nil, tostring(value)
     end
-    return native.decode(text, nullValue)
+
+    return value, nil
 end
 
 --- Materializes only the fields selected by an On-Demand pull shape.
 ---
+--- The whole document is still validated. Text that is not one JSON document,
+--- or a value the shape cannot select from, answers nil and a reason, as
+--- `decode` does.
+---
 --- ```nupp
---- local value = nupp.codec.json.pull(
+--- local value = assert(nupp.codec.json.pull(
 ---     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
 ---     {id = true, profile = {name = true}}
---- )
+--- ))
 --- assert(value.id == 41 and value.profile.name == "Ada")
 --- assert(value.profile.admin == nil)
 --- ```
 --- @param text the complete JSON document
 --- @param shape the fields and array members to materialize
 --- @param nullValue the value used for JSON null, or nil to drop nulls
---- @return the selected Lua value
+--- @return the selected Lua value, or nil when the text cannot be pulled
+--- @return why the text cannot be pulled, when it cannot
 --- @export
-export function pull(text: string, shape: any, nullValue: any?): any
-    if nullValue == nil then
-        return native.pull(text, shape)
+export function pull(text: string, shape: any, nullValue: any?): (any, string?)
+    local ok, value = pcall(native.pull, text, shape, nullValue)
+    if not ok then
+        return nil, tostring(value)
     end
-    return native.pull(text, shape, nullValue)
+
+    return value, nil
 end
 
 --- Applies one pull shape to every member of an array.
 ---
 --- ```nupp
 --- const json = nupp.codec.json
---- local users = json.pull(
+--- local users = assert(json.pull(
 ---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
 ---     {users = json.arrayOf({id = true})}
---- )
+--- ))
 --- assert(users.users[1].id == 1 and users.users[1].name == nil)
 --- assert(users.users[2].id == 2)
 --- ```
@@ -489,8 +504,8 @@ end
 ---
 --- ```nupp
 --- const json = nupp.codec.json
---- assert(json.isArray(json.decode("[]")))
---- assert(not json.isArray(json.decode("{}")))
+--- assert(json.isArray(assert(json.decode("[]"))))
+--- assert(not json.isArray(assert(json.decode("{}"))))
 --- assert(json.isArray({1, 2}))
 --- ```
 --- @param value the value whose JSON container shape to inspect

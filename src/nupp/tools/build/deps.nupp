@@ -777,9 +777,8 @@ local function buildCargo(root, outDir, name, dep, previous)
         end
         if not dep.artifactPath then
             for line in cargoOutput:gmatch("[^\r\n]+") do
-                local parsed, message = pcall(json.decode, line, json.NULL)
-                if parsed
-                    and type(message) == "table"
+                local message = json.decode(line, json.NULL)
+                if type(message) == "table"
                     and message.reason == "compiler-artifact"
                     and message.target
                     and message.target.name:gsub("%-", "_") == crateName

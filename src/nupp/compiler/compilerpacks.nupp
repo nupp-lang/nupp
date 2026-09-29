@@ -152,9 +152,9 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     end
     local selectedRoot = root as string
     local selectedManifest = manifestPath as string
-    local ok, value = pcall(json.decode, text, json.NULL)
-    if not ok or type(value) ~= "table" then
-        return nil, "cannot decode compiler pack " .. selectedManifest .. ": " .. tostring(value)
+    local value, invalid = json.decode(text, json.NULL)
+    if type(value) ~= "table" then
+        return nil, "cannot decode compiler pack " .. selectedManifest .. ": " .. tostring(invalid or value)
     end
     if value.schemaVersion ~= 1 or value.host ~= host or value.target ~= target then
         return nil, "compiler pack " .. selectedManifest .. " does not describe " .. host .. " -> " .. target

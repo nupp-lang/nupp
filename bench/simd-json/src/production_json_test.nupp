@@ -4,6 +4,11 @@ local json = require("nupp.codec.json")
 local serde = require("nupp.serde")
 local newBuffer = require("nupp.text").newBuffer
 
+-- Malformed text and an unmatched shape are answered, not raised.
+local function refused(value: any, reason: string?): boolean
+    return value == nil and reason ~= nil
+end
+
 @derive(nupp.derive.JSON, nupp.derive.Serde)
 local record FastChild
     label: string
@@ -142,13 +147,13 @@ function test.run(): nil
     assert(selected[1].ignored == nil)
     assert(json.pull([[{"nullable":null}]], {nullable = true}, nullValue).nullable == nullValue)
     assert(json.encode(json.pull("[1,2,3]", json.arrayOf(false))) == "[]")
-    assert(not pcall(json.pull, [[{"id":1,"ignored":1e}]], {id = true}))
-    assert(not pcall(json.pull, [[{"id":1,"ignored":"\uD800"}]], {id = true}))
-    assert(not pcall(json.pull, [[{"ignored":{"\uD800":1}}]], {id = true}))
-    assert(not pcall(json.pull, [[{"id":1}]], json.arrayOf(true)))
-    assert(not pcall(json.pull, "1", {id = true}))
-    assert(not pcall(json.pull, "1", 3))
-    assert(not pcall(json.pull, "1", nil))
+    assert(refused(json.pull([[{"id":1,"ignored":1e}]], {id = true})))
+    assert(refused(json.pull([[{"id":1,"ignored":"\uD800"}]], {id = true})))
+    assert(refused(json.pull([[{"ignored":{"\uD800":1}}]], {id = true})))
+    assert(refused(json.pull([[{"id":1}]], json.arrayOf(true))))
+    assert(refused(json.pull("1", {id = true})))
+    assert(refused(json.pull("1", 3)))
+    assert(refused(json.pull("1", nil)))
 
     local deepSource = "1"
     local deepShape: any = true
@@ -179,7 +184,7 @@ function test.run(): nil
     local dropped = json.decode([[{"items":[1,null,2],"gone":null,"kept":3}]])
     assert(#dropped.items == 2 and dropped.items[1] == 1 and dropped.items[2] == 2)
     assert(dropped.gone == nil and dropped.kept == 3)
-    assert(not pcall(json.decode, [["\uD800"]]))
+    assert(refused(json.decode([["\uD800"]])))
     assert(not pcall(json.encode, 0 / 0))
 end
 

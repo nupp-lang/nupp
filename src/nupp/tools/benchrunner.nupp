@@ -285,8 +285,8 @@ local function parseListing(text: string): ({Benchmark}, string?)
     local names: {Benchmark} = {}
     local seen: {[string]: boolean} = {}
     for line in text:gmatch("[^\r\n]+") do
-        local ok, decoded = pcall(json.decode, line)
-        if not ok then
+        local decoded, invalid = json.decode(line)
+        if invalid ~= nil then
             return {}, "wrote an invalid case listing"
         end
         local benchmark: Benchmark
@@ -378,8 +378,8 @@ local function rememberedListings(key: string?): {[string]: any}
     if not text then
         return {}
     end
-    local ok, decoded = pcall(json.decode, text)
-    if not ok or type(decoded) ~= "table" or decoded.key ~= key or type(decoded.files) ~= "table" then
+    local decoded = json.decode(text)
+    if type(decoded) ~= "table" or decoded.key ~= key or type(decoded.files) ~= "table" then
         return {}
     end
     local answer: {[string]: any} = {}
@@ -629,8 +629,8 @@ local function runCase(
     if not text then
         return nil, path .. " / " .. name .. ": " .. (runProblem or "wrote no record")
     end
-    local parsed, decoded = pcall(json.decode, text)
-    if not parsed then
+    local decoded, invalid = json.decode(text)
+    if invalid ~= nil then
         return nil, path .. " / " .. name .. ": wrote a record that does not parse"
     end
     decoded.gpuCosts = gpuCostsOut
@@ -639,8 +639,8 @@ local function runCase(
     -- what the child embedded mid-run is only the entry.
     local remarksText = readFile(REMARKS_OUT)
     if remarksText then
-        local readOk, remarks = pcall(json.decode, remarksText)
-        if readOk then
+        local remarks, unreadable = json.decode(remarksText)
+        if unreadable == nil then
             decoded.executionProfile = remarks.executionProfile
             decoded.remarks = remarks.remarks
             decoded.allocationSites = remarks.allocationSites
@@ -1441,8 +1441,7 @@ function runner.run(options: runner.Options): integer
     if baselinePath then
         local text = readFile(baselinePath)
         if text then
-            local ok, decoded = pcall(json.decode, text)
-            previous = ok and decoded or nil
+            previous = json.decode(text)
         end
         -- A named baseline that is not there is not a pass. Exiting zero here is how a
         -- lost baseline comes to look exactly like a clean run.

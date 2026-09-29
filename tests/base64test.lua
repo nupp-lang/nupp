@@ -63,26 +63,35 @@ function M.paddingIsExactlyWhatTheRemainderAsksFor()
     check.equal(base64.encode("abc"):sub(-1) == "=", false)
 end
 
+-- Text that is not base64 is an ordinary answer, nil and the reason, as
+-- hex.decode gives, rather than a raise.
+local function refused(text)
+    local value, reason = base64.decode(text)
+    check.equal(value, nil, text)
+    check.equal(type(reason), "string", text)
+    return reason
+end
+
 --- The decoder reports rather than returning whatever the inverse table holds
 --- for a byte outside the alphabet.
 function M.aCharacterOutsideTheAlphabetIsRefused()
-    check.equal(pcall(base64.decode, "ab!="), false)
-    check.equal(pcall(base64.decode, "...."), false)
-    check.equal(pcall(base64.decode, "Zm9v\128\129\130\131"), false)
+    check.equal(refused("ab!="), "base64 input is not canonical padded base64")
+    refused("....")
+    refused("Zm9v\128\129\130\131")
 end
 
 --- A length that is not a whole quantum, which the padding rules make
 --- unrepresentable rather than merely wrong.
 function M.decodeRefusesALengthThatIsNotAQuantum()
-    check.equal(pcall(base64.decode, "abc"), false)
-    check.equal(pcall(base64.decode, "Zm9vY"), false)
+    check.equal(refused("abc"), "base64 input length is not a multiple of four")
+    refused("Zm9vY")
 end
 
 --- Padding only closes the final quantum, and unused bits must be zero so one
 --- byte string has one base64 representation.
 function M.decodeRefusesMalformedOrNoncanonicalPadding()
     for _, value in ipairs({"====", "A===", "AA=A", "A=AA", "=AAA", "AA==AAAA", "AAAA====", "Zh==", "Zm9="}) do
-        check.equal(pcall(base64.decode, value), false, value)
+        refused(value)
     end
 end
 

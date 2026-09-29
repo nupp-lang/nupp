@@ -499,8 +499,7 @@ local function baseline(): any
     if not text then
         return nil
     end
-    local ok, decoded = pcall(json.decode, text)
-    baselineDocument = ok and decoded or nil
+    baselineDocument = json.decode(text)
 
     return baselineDocument
 end
@@ -1326,10 +1325,7 @@ local function readRemarks(): any
     if not content then
         return nil
     end
-    local ok, decoded = pcall(json.decode, content)
-    if not ok then
-        return nil
-    end
+    local decoded = json.decode(content)
 
     return decoded
 end
@@ -2014,7 +2010,7 @@ function bench.report(): nil
 
         return
     end
-    local failures, uncompared = bench.compare(record, json.decode(baselineText))
+    local failures, uncompared = bench.compare(record, (assert(json.decode(baselineText))))
     for _, note in ipairs(uncompared) do
         io.stderr:write("bench: uncompared: " .. note .. "\n")
     end

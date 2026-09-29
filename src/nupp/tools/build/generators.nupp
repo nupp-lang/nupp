@@ -120,11 +120,11 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
                 {cwd = root, timeoutMs = budgetMs, memoryMb = 512}
             )
             local responseText = fs.readFile(resultPath)
-            local responseOk, response = false, nil
+            local response: any = nil
             if responseText then
-                responseOk, response = pcall(json.decode, responseText, json.NULL)
+                response = json.decode(responseText, json.NULL)
             end
-            if not responseOk or type(response) ~= "table" then
+            if type(response) ~= "table" then
                 response = nil
             end
             os.remove(requestPath)

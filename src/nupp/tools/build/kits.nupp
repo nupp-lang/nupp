@@ -47,8 +47,8 @@ local function manifest(directory: string): any?
         return nil
     end
     local json = require("nupp.codec.json")
-    local ok, value = pcall(json.decode, text as string, json.NULL)
-    if not ok or type(value) ~= "table" then
+    local value = json.decode(text as string, json.NULL)
+    if type(value) ~= "table" then
         return nil
     end
 

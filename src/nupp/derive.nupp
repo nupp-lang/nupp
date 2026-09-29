@@ -855,9 +855,9 @@ function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, st
         local matched, result, err = decodeProjectedObject(value, entry, "$")
         return matched and result as T or nil, err
     end
-    local ok, value = pcall(entry.decoder.decode, text, entry.decoder.NULL)
-    if not ok then
-        return nil, tostring(value)
+    local value, invalid = entry.decoder.decode(text, entry.decoder.NULL)
+    if invalid ~= nil then
+        return nil, invalid
     end
     local result, err = codec:decode(value)
     if not result then

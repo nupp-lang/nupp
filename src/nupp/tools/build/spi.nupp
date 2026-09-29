@@ -32,8 +32,8 @@ function spi.read(root, config, target, records): ({any}?, string?)
         if not source then
             return why
         end
-        local ok, document = pcall(json.decode, source, json.NULL)
-        if not ok or type(document) ~= "table" or json.isArray(document) or document == json.NULL then
+        local document = json.decode(source, json.NULL)
+        if type(document) ~= "table" or json.isArray(document) or document == json.NULL then
             return path .. " must contain an interface-to-module object"
         end
         local names: {string} = {}

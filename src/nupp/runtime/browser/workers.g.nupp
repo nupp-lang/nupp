@@ -210,7 +210,7 @@ local function settle(task: any, value: any): nil
     end
     local status = value ~= nil and value.status or nil
     if status == "done" then
-        local packed = codec.decode(base64.decode(value.payload as string))
+        local packed = codec.decode(assert(base64.decode(value.payload as string)))
         task._values = packed.values
         task._count = packed.count
         task._state = "done"
@@ -606,7 +606,7 @@ local function runFrame(frame: any): any
         if type(callable) ~= "function" then
             error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
         end
-        local arguments = codec.decode(base64.decode(frame.payload as string))
+        local arguments = codec.decode(assert(base64.decode(frame.payload as string)))
 
         return pack(callable(unpack(arguments.values, 1, arguments.count)))
     end)

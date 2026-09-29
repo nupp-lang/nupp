@@ -32,9 +32,31 @@ function M.nullDropsOrUsesTheSuppliedValue()
     )
 end
 
+local function refused(value, reason)
+    return value == nil and type(reason) == "string" and reason ~= ""
+end
+
+-- Malformed text is an ordinary answer: nil and a reason, as hex.decode and
+-- uri.newURI give. The reason is what tells failure apart, because the
+-- document `null` is nil too when nulls are dropped.
+function M.decodeAndPullAnswerAReason()
+    assert(refused(json.decode("[1,")), "a truncated array")
+    assert(refused(json.decode("")), "an empty document")
+    assert(refused(json.decode("{} {}")), "two documents")
+    local value, reason = json.decode("null")
+    assert(value == nil and reason == nil, "a dropped null document is not a failure")
+    value, reason = json.decode("null", json.NULL)
+    assert(value == json.NULL and reason == nil, "a kept null document")
+    value, reason = json.decode("[1,")
+    assert(tostring(reason):find("^invalid JSON at byte %d+: "), tostring(reason))
+    assert(refused(json.pull("[1,", true)), "a truncated pull")
+    value, reason = json.pull([[{"a":1,"b":2}]], {a = true})
+    assert(reason == nil and value.a == 1 and value.b == nil, "a pull")
+end
+
 function M.invalidNumbersAreAlwaysRejected()
-    assert(not pcall(json.decode, "[NaN]"), "the decoder accepted NaN")
-    assert(not pcall(json.decode, "[Infinity]"), "the decoder accepted Infinity")
+    assert(refused(json.decode("[NaN]")), "the decoder accepted NaN")
+    assert(refused(json.decode("[Infinity]")), "the decoder accepted Infinity")
     assert(not pcall(json.encode, 0 / 0), "the encoder accepted NaN")
 end
 
@@ -91,10 +113,10 @@ function M.arrayMarkersRequireEveryConsecutiveIndex()
 end
 
 function M.pullShapesRequireTheMatchingContainerKind()
-    assert(not pcall(json.pull, [[{"answer":42}]], json.arrayOf(true)), "an array shape accepted an object")
-    assert(not pcall(json.pull, [[1,2]], {answer = true}), "an object shape accepted an array")
-    assert(not pcall(json.pull, "null", json.arrayOf(true), json.NULL), "an array shape accepted null")
-    assert(not pcall(json.pull, "null", {answer = true}, json.NULL), "an object shape accepted null")
+    assert(refused(json.pull([[{"answer":42}]], json.arrayOf(true))), "an array shape accepted an object")
+    assert(refused(json.pull([[1,2]], {answer = true})), "an object shape accepted an array")
+    assert(refused(json.pull("null", json.arrayOf(true), json.NULL)), "an array shape accepted null")
+    assert(refused(json.pull("null", {answer = true}, json.NULL)), "an object shape accepted null")
 end
 
 function M.portableEncodingBoundsNesting()

@@ -1203,7 +1203,8 @@ function M.jsonRoundtrip()
     assert(json.encode(json.EMPTY_ARRAY) == "[]", "empty-array sentinel")
     assert(json.encode({}) == "{}", "empty object")
     assert(json.decode('"\\u00e9"') == "\195\169", "utf-8 escape")
-    assert(not pcall(json.decode, "NaN"), "invalid decoded number rejected")
+    local raised, value, reason = pcall(json.decode, "NaN")
+    assert(not raised or value == nil and reason ~= nil, "invalid decoded number rejected")
     assert(not pcall(json.encode, 0 / 0), "invalid encoded number rejected")
 end
 

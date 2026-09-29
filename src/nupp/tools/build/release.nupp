@@ -67,9 +67,9 @@ local function decode(path: string): any?, string?
     if not text then
         return nil, "cannot read " .. path .. ": " .. tostring(readErr)
     end
-    local ok, value = pcall(json.decode, text, json.NULL)
-    if not ok then
-        return nil, "cannot decode " .. path .. ": " .. tostring(value)
+    local value, invalid = json.decode(text, json.NULL)
+    if invalid ~= nil then
+        return nil, "cannot decode " .. path .. ": " .. invalid
     end
 
     return value

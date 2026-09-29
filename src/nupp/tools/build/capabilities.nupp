@@ -31,8 +31,8 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
     if not text then
         return nil, "dependency " .. dependencyName .. " has no nupp/capabilities.json"
     end
-    local ok, document = pcall(json.decode, text, json.NULL)
-    if not ok or type(document) ~= "table" then
+    local document = json.decode(text, json.NULL)
+    if type(document) ~= "table" then
         return nil, path .. " is not valid JSON"
     end
     for key in pairs(document) do

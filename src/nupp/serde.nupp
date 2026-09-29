@@ -1845,7 +1845,10 @@ export record JsonCodec
                 -- The null sentinel keeps explicit nulls in place, so tuple
                 -- slots the encoder wrote as null decode positionally instead
                 -- of compacting leftward.
-                local decoded = json.decode(text, json.NULL)
+                local decoded, problem = json.decode(text, json.NULL)
+                if problem ~= nil then
+                    error(problem, 0)
+                end
 
                 return fromDocument(decoded, schema, self.profile, access)
             end,
@@ -1860,7 +1863,10 @@ export record JsonCodec
                     end
                     return finishDecoded(decoded, decodePlan, "value")
                 end
-                local decoded = json.decode(input:tostring(), json.NULL)
+                local decoded, problem = json.decode(input:tostring(), json.NULL)
+                if problem ~= nil then
+                    error(problem, 0)
+                end
 
                 return fromDocument(decoded, schema, self.profile, access)
             end,

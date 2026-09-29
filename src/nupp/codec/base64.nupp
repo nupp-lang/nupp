@@ -8,8 +8,8 @@ const base64 = require("nupp.codec.base64")
 
 const text = base64.encode("Nupp")
 
-print(text)                  -- TnVwcA==
-print(base64.decode(text))   -- Nupp
+print(text)                          -- TnVwcA==
+print(assert(base64.decode(text)))   -- Nupp
 ```
 
 Both entries are `@aot`, and both work a word at a time rather than a byte at a
@@ -300,23 +300,28 @@ end
 
 --- Decodes canonical standard base64 with required padding.
 ---
+--- Text that is not canonical padded base64 is an ordinary answer, as it is for
+--- `nupp.codec.hex.decode`: nil and the reason.
+---
 --- ```nupp
 --- assert(nupp.codec.base64.decode("TnVwcA==") == "Nupp")
+--- local bytes, reason = nupp.codec.base64.decode("TnVwcA")
+--- assert(bytes == nil and reason ~= nil)
 --- ```
 --- @param text the text to decode
---- @return the decoded bytes
---- @raises string when the text is not canonical padded base64
+--- @return the decoded bytes, or nil when the text is not base64
+--- @return why the text is not base64, when it is not
 --- @export
-function base64.decode(text: string): string
+function base64.decode(text: string): (string?, string?)
     if #text % 4 ~= 0 then
-        error("nupp: base64 input length is not a multiple of four", 2)
+        return nil, "base64 input length is not a multiple of four"
     end
     local decoded = decodeAot(text, INVALID)
     if decoded == INVALID then
-        error("nupp: base64 input is not canonical padded base64", 2)
+        return nil, "base64 input is not canonical padded base64"
     end
 
-    return decoded as string
+    return decoded as string, nil
 end
 
 export = base64

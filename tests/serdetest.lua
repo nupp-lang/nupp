@@ -897,9 +897,9 @@ sourceStore:set(settings, new Settings(volume = 0.5, fullscreen = false))
 local saved = serde.saveStore(sourceStore)
 local text = nupp.codec.json.encode(saved)
 local restored = nupp.util.newStore()
-serde.loadStore(restored, nupp.codec.json.decode(text) as {[string]: any})
+serde.loadStore(restored, assert(nupp.codec.json.decode(text)) as {[string]: any})
 local back = restored:get(settings)
-local decoded = nupp.codec.json.decode(text) as {[string]: any}
+local decoded = assert(nupp.codec.json.decode(text)) as {[string]: any}
 return {
     plainVolume = saved["test.persisted.settings"].volume,
     textVolume = decoded["test.persisted.settings"].volume,

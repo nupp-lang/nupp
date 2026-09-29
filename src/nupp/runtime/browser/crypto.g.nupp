@@ -32,8 +32,8 @@ local function decoded(value: any, field: string, count: integer): string
     if type(value) ~= "table" or type(value[field]) ~= "string" then
         invalid(field)
     end
-    local ok, bytes = pcall(base64.decode, value[field])
-    if not ok or #bytes ~= count then
+    local bytes = base64.decode(value[field])
+    if bytes == nil or #bytes ~= count then
         invalid(field)
     end
 

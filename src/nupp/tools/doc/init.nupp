@@ -1569,8 +1569,8 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     local previous: {any} = {}
     local encoded = readFile(statePath)
     if encoded then
-        local ok, decoded = pcall(json.decode, encoded, json.NULL)
-        if ok and type(decoded) == "table" then
+        local decoded = json.decode(encoded, json.NULL)
+        if type(decoded) == "table" then
             previous = decoded
         end
     end

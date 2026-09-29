@@ -92,8 +92,8 @@ function transport.new(): transport.Transport
         end
         local body = buffered:sub(bodyAt, bodyAt + length - 1)
         buffered = buffered:sub(bodyAt + length)
-        local ok, message = pcall(json.decode, body, json.NULL)
-        if not ok then
+        local message, invalid = json.decode(body, json.NULL)
+        if invalid ~= nil then
             return malformed(-32700, "frame body is not JSON")
         end
         if type(message) ~= "table" or (message.method == nil and message.id == nil) then

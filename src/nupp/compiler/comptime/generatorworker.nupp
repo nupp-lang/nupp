@@ -19,11 +19,11 @@ end
 function worker.main(argv: {string}): integer
     local requestPath, resultPath = argv[1], argv[2]
     local text = requestPath and fs.readFile(requestPath)
-    local ok, wire = false, nil
+    local wire: any = nil
     if text then
-        ok, wire = pcall(json.decode, text, json.NULL)
+        wire = json.decode(text, json.NULL)
     end
-    if not ok or type(wire) ~= "table" or not resultPath then
+    if type(wire) ~= "table" or not resultPath then
         return 2
     end
     package.path = tostring(wire.path or "") .. ";" .. package.path

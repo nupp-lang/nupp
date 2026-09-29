@@ -231,7 +231,7 @@ assert(saved["game.settings"].volume == 0.5)
 local text = nupp.codec.json.encode(saved)
 
 local restored = nupp.util.newStore()
-serde.loadStore(restored, nupp.codec.json.decode(text) as {[string]: any})
+serde.loadStore(restored, assert(nupp.codec.json.decode(text)) as {[string]: any})
 local back = restored:get(settings)
 assert(back ~= nil and back.volume == 0.5)
 ```

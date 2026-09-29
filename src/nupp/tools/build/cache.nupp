@@ -352,8 +352,8 @@ local function loadState(path: string): cache.State
     if not text then
         return emptyState()
     end
-    local ok, state = pcall(json.decode, text, json.NULL)
-    if not ok then
+    local state, invalid = json.decode(text, json.NULL)
+    if invalid ~= nil then
         return emptyState()
     end
 

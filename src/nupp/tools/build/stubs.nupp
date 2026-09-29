@@ -67,9 +67,9 @@ end
 
 local function decodeCatalogText(text: string, where: string): any?, string?
     local json = require("nupp.codec.json")
-    local ok, value = pcall(json.decode, text, json.NULL)
-    if not ok then
-        return nil, "cannot decode stub catalog " .. where .. ": " .. tostring(value)
+    local value, invalid = json.decode(text, json.NULL)
+    if invalid ~= nil then
+        return nil, "cannot decode stub catalog " .. where .. ": " .. invalid
     end
 
     return value

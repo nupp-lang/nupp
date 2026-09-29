@@ -148,9 +148,9 @@ local function protocolDecoded(value: any, seen: {[any]: boolean}?): any
 end
 
 local function decodeProtocol(text: string): boolean, any
-    local decoded, value = pcall(json.decode, text, json.NULL)
-    if not decoded or type(value) ~= "table" then
-        return false, value
+    local value, invalid = json.decode(text, json.NULL)
+    if type(value) ~= "table" then
+        return false, invalid or value
     end
 
     return true, protocolDecoded(value)
