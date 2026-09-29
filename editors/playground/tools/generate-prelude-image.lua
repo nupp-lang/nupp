@@ -1,8 +1,6 @@
 -- Generates the browser compiler's checked prelude graph as inert data.
 
-local bundle, output, mode, dialect = ...
-dialect = dialect or "luajit"
-assert(dialect == "luajit", "invalid prelude dialect")
+local bundle, output, mode = ...
 assert(
     bundle and output and (mode == "source" or mode == "image"),
     "usage: lua generate-prelude-image.lua BUNDLE OUTPUT source|image"
@@ -17,9 +15,8 @@ else
     local env = envMod.new(".", {
         cache = false,
         memoryOnly = true,
-        dialect = dialect,
         nativeCompilerServices = false,
-        config = {_target = {dialect = dialect}},
+        config = {_target = {}},
         typeRoots = {},
     })
     roots = {

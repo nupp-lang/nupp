@@ -4,18 +4,18 @@ local gen = require("nupp.compiler.lua.gen")
 local fmt = require("nupp.tools.fmt")
 local optimize = require("nupp.compiler.lua.optimize")
 
-local function checked(source, dialect)
+local function checked(source)
     local tree = parser.parse(source, "do-expression.g.nupp")
     assert(#tree.errors == 0, tree.errors[1] and tree.errors[1].msg)
-    local diagnostics = check.check(tree, "do-expression.g.nupp", nil, {dialect = dialect})
+    local diagnostics = check.check(tree, "do-expression.g.nupp")
     return tree, diagnostics
 end
 
-local function run(source, dialect, level)
-    local tree, diagnostics = checked(source, dialect)
+local function run(source, level)
+    local tree, diagnostics = checked(source)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
     if level then
-        optimize.run(tree, {level = level, filename = "do-expression.g.nupp", dialect = dialect or "luajit"})
+        optimize.run(tree, {level = level, filename = "do-expression.g.nupp"})
     end
     local code, errors = gen.generate(tree, "do-expression.g.nupp")
     assert(#errors == 0, (errors[1] and errors[1].msg or "") .. "\n" .. code)
@@ -28,7 +28,7 @@ end
 local M = {}
 
 function M.earlyYieldAndNestedExpressions()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         local value, code = run(
             [[
 local function result(cached: integer?): number
@@ -45,8 +45,7 @@ local function result(cached: integer?): number
     return value * 2
 end
 return result(5) * 100 + result(nil)
-]],
-            dialect
+]]
         )
         assert(value == 1006, tostring(value))
         assert(not code:find("(function", 1, true), "do lowering must not introduce a closure")
@@ -54,7 +53,7 @@ return result(5) * 100 + result(nil)
 end
 
 function M.lazyOperandsAndFalsyResults()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -68,8 +67,7 @@ local function probe(flag: boolean, optional: integer?): boolean
 end
 local okay = probe(true, 3) and probe(false, nil)
 return okay and count == 1111
-]],
-                dialect
+]]
             )
         )
     end
@@ -96,7 +94,7 @@ return selectValue(true) == 7 and selectValue(false) == 3
 end
 
 function M.eagerOrderAndMultipleValues()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -111,15 +109,14 @@ local function tail(): (integer, integer)
 end
 local a, b, c, d = mark('a'), do yield mark('b') end, tail()
 return events == 'abc' and a == 'a' and b == 'b' and c == 3 and d == 4
-]],
-                dialect
+]]
             )
         )
     end
 end
 
 function M.yieldCrossesNestedLoopsAndContinueWrappers()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -136,8 +133,7 @@ local value = do
     yield 0
 end
 return value == 22 and visits == 2
-]],
-                dialect
+]]
             )
         )
     end
@@ -161,7 +157,7 @@ return answer(true) == 17 and answer(false) == 2
 end
 
 function M.loopControlCrossesExpressionBlocks()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -175,8 +171,7 @@ for i = 1, 5 do
     sum = sum + value
 end
 return sum == 4
-]],
-                dialect
+]]
             )
         )
     end
@@ -234,7 +229,7 @@ return value == 5
 end
 
 function M.conditionsAndLoopHeaders()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -258,15 +253,14 @@ for i = do yield 1 end, do yield 2 end do visits = visits + i end
 for _, value in ipairs(do local items = {2, 3}; yield items end) do visits = visits + value end
 local f = |x: number| -> (do yield x + 1 end)
 return visits == 18 and f(4) == 5
-]],
-                dialect
+]]
             )
         )
     end
 end
 
 function M.repeatContinueEvaluatesBlockConditionInScope()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -277,8 +271,7 @@ repeat
     if visits == 2 then continue end
 until do checks = checks + 1; yield stop end
 return visits == 3 and checks == 3
-]],
-                dialect
+]]
             )
         )
     end
@@ -300,7 +293,7 @@ return original[1] == 11 and target[1] == 30 and index == 2 and values.key == 11
 end
 
 function M.safeNavigationAndMethodLookupOrder()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         local okay, code = run(
             [[
 local count = 0
@@ -318,8 +311,7 @@ local e = obj?.:read(do count = count + 1; yield 3 end)
 absent?.:read(do count = count + 1; yield 3 end)
 obj?.:read(do yield 3 end)
 return value == 7 and a == nil and b == nil and c == nil and d == nil and e == 8 and count == 1
-]],
-            dialect
+]]
         )
         assert(okay)
         assert(not code:find("(function", 1, true), "guarded block expressions must not introduce closures")
@@ -335,7 +327,7 @@ function M.formatRoundTrip()
 end
 
 function M.compoundAndGuardedAssignments()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -350,8 +342,7 @@ local obj: any = {value = 4}
 obj.value ??= do count = count + 1; yield 3 end
 obj?.value += do yield 2 end
 return n == 5 and count == 0 and obj.value == 6
-]],
-                dialect
+]]
             )
         )
     end
@@ -359,7 +350,7 @@ end
 
 function M.optimizerPreservesBlockSideEffects()
     for _, level in ipairs({1, 2}) do
-        for _, dialect in ipairs({"luajit"}) do
+        do
             assert(
                 run(
                     [[
@@ -374,7 +365,6 @@ for i = 1, 4 do
 end
 return n == 58
 ]],
-                    dialect,
                     level
                 )
             )
@@ -400,7 +390,7 @@ return outer() == 72
 end
 
 function M.safeCallsPreserveMultipleResults()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -413,15 +403,14 @@ local c, d = obj?.:pair(do yield 6 end)
 local function count(...) return select('#', ...) end
 local missing: any = nil
 return a == 4 and b == 5 and c == 6 and d == 8 and count(missing?.(do yield 4 end)) == 1
-]],
-                dialect
+]]
             )
         )
     end
 end
 
 function M.loopHeaderControlKeepsItsAuthoredTarget()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -452,15 +441,14 @@ for i = 1, 3 do
     total = total + 10
 end
 return total == 2
-]],
-                dialect
+]]
             )
         )
     end
 end
 
 function M.loopHeaderExitsRunAutomaticCleanup()
-    for _, dialect in ipairs({"luajit"}) do
+    do
         assert(
             run(
                 [[
@@ -487,8 +475,7 @@ for i = 1, 3 do
     visits = visits + 100
 end
 return closed == 2 and visits == 2
-]],
-                dialect
+]]
             )
         )
     end

@@ -1057,19 +1057,17 @@ return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
     local codes_, result = checked(source)
     assertEq(codes_, "")
     local expected = "4|5|4|5|2|4|5|4,5,4,5,1,2,6,7,8,9,4,5,4,5"
-    for _, dialect in ipairs({"luajit"}) do
-        for _, level in ipairs({0, 1, 2}) do
-            local fresh = parser.parse(source, "test.g.nupp")
-            local diagnostics = check.check(fresh, "test.g.nupp", env, {dialect = dialect})
-            assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-            require("nupp.compiler.lua.optimize").run(fresh, {level = level, dialect = dialect, filename = "test.g.nupp"})
-            local output, errors = gen.generate(fresh, "test.g.nupp")
-            assertEq(#errors, 0, errors[1] and errors[1].msg)
-            assert(not output:find("@unsafe", 1, true), output)
-            local chunk = assert(loadstring(output))
-            local values = {chunk()}
-            assertEq(table.concat(values, "|"), expected, dialect .. " O" .. level)
-        end
+    for _, level in ipairs({0, 1, 2}) do
+        local fresh = parser.parse(source, "test.g.nupp")
+        local diagnostics = check.check(fresh, "test.g.nupp", env)
+        assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        require("nupp.compiler.lua.optimize").run(fresh, {level = level, filename = "test.g.nupp"})
+        local output, errors = gen.generate(fresh, "test.g.nupp")
+        assertEq(#errors, 0, errors[1] and errors[1].msg)
+        assert(not output:find("@unsafe", 1, true), output)
+        local chunk = assert(loadstring(output))
+        local values = {chunk()}
+        assertEq(table.concat(values, "|"), expected, "O" .. level)
     end
     local formatted, diagnostics = fmt.format(source, "test.g.nupp")
     assertEq(#(diagnostics or {}), 0)

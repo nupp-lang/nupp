@@ -19,10 +19,10 @@ export async function packageBrowserApp({project, target, output, guest, prebuil
   project = path.resolve(project || '.');
   output = path.resolve(output || path.join(project, 'build/browser'));
   const result = prebuilt
-    ? {ok:true, dialect:'luajit', artifact:'dist/app.lua', written:[], aotManifest:'dist/aot/units.json'}
+    ? {ok:true, artifact:'dist/app.lua', written:[], aotManifest:'dist/aot/units.json'}
     : JSON.parse(execFileSync(path.join(repo, 'bin/nupp'), ['build', '--target', target || 'browser', '--host', 'browser', '--json'],
       {cwd: project, encoding: 'utf8', stdio: ['ignore','pipe','inherit']}).trim().split('\n').at(-1));
-  if (!result.ok || result.dialect !== 'luajit' || !result.artifact?.endsWith('.lua')) throw new Error('A browser application must be a LuaJIT bundle target');
+  if (!result.ok || !result.artifact?.endsWith('.lua')) throw new Error('A browser application must be a LuaJIT bundle target');
   guest = await prepareGuest(repo,guest);
   const guestManifest = JSON.parse(readFileSync(path.join(guest, 'guest-manifest.json'), 'utf8'));
   const guestName = `guest/${guestManifest.buildKey}/guest-manifest.json`;
@@ -75,7 +75,7 @@ export async function packageBrowserApp({project, target, output, guest, prebuil
   // The emitted worker facade determines whether this application needs a pool.
   const workers = (result.written || []).some(file => /(?:^|[\\/])nupp[\\/]workers\.lua$/.test(file));
   const manifest = {schema:1, runtime:'luajit-v86', app, guest:guestName, guestBuildKey:guestManifest.buildKey, assets, kernels, nativeLibraries,
-    build:{target, dialect:result.dialect, host:'browser'},
+    build:{target, host:'browser'},
     ...(workers ? {workers:{lane:'worker-lane.mjs', maxLanes:2}} : {}),
     limits:{maxEffects:workers ? 262144 : 256, maxEffectBytes:workers ? 268435456 : 4194304,
       maxResponseBytes:workers ? 268435456 : 8388608, maxStorageValueBytes:1048576, deadlineMs:30000}};

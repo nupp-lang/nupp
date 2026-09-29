@@ -230,8 +230,7 @@ local function run(value: integer): integer
     return first.id
 end
 return run, closed
-]],
-        {dialect = "luajit"}
+]]
     )
     local globals = setmetatable(
         {

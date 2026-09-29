@@ -4,12 +4,12 @@ The browser runtime is LuaJIT. The legacy Lua 5.1 lowering and stock-Lua browser
 host have been removed. Rollback now means selecting a prior release; no failure
 silently selects another VM.
 
-A browser bundle selects its host independently of the source dialect:
+A browser bundle selects its host:
 
 ```lua
 app = {
     kind = "bundle", entries = {"main"}, sources = {"src"},
-    output = "dist/app.lua", dialect = "luajit", host = "browser",
+    output = "dist/app.lua", host = "browser",
 }
 ```
 
@@ -61,5 +61,5 @@ emulator code, and are not a total process-memory claim.
 Project-wide `compat = "lua51"` (or `--compat lua51`) is a checked source subset,
 not a lowering target. The normal generator is unchanged. Constructs requiring
 portable bit/int64/struct emulation, LuaJIT libraries, or yieldable cleanup are
-rejected. The profile is intentionally narrower than the old dialect's provider
-surface. See the compatibility corpus and feature inventory for accepted code.
+rejected. The profile is intentionally narrower than the removed Lua 5.1
+lowering's provider surface. See the compatibility corpus and feature inventory for accepted code.

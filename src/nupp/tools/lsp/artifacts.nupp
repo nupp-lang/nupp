@@ -150,7 +150,7 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
             -- code never changes the line count, so line N here is line N there
             -- for every N, and saying so is both exact and constant-sized.
             mapping = {kind = "line-identity"},
-            metadata = {optLevel = optLevel, dialect = doc.result and doc.result.dialect or nil,},
+            metadata = {optLevel = optLevel,},
             summary = {lines = select(2, code:gsub("\n", "\n")),},
         }
     end

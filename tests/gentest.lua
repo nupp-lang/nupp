@@ -145,7 +145,7 @@ return isBounded
     assertEq(isBounded({n = 16}), false, "exclusive upper bound")
 end
 
-function M.targetFactsResolveTheHostAfterSelectingTheCheckDialect()
+function M.targetFactsResolveTheHostFromTheEnvironment()
     local environments = {{value = env}}
     for _, host in ipairs({"native", "browser"}) do
         environments[#environments + 1] = {
@@ -157,35 +157,31 @@ function M.targetFactsResolveTheHostAfterSelectingTheCheckDialect()
         }
     end
     for _, environment in ipairs(environments) do
-        for _, dialect in ipairs({"luajit"}) do
-            local expectedHost = environment.host or "native"
-            local parsed = parser.parse("return true", "target-facts.g.nupp")
-            local diagnostics = check.check(parsed, "target-facts.g.nupp", environment.value, {
-                dialect = dialect,
-                moduleName = "nupp.runtime.target",
-            })
-            assertEq(#diagnostics, 0, "target fact checking")
-            local code, generated = gen.generate(parsed, "target-facts.g.nupp")
-            assertEq(#generated, 0, "target fact generation")
-            local facts = assert(loadstring(code))()
-            assertEq(facts.dialect, dialect, "the current check chooses the dialect")
-            assertEq(facts.host, expectedHost, "only an explicit host overrides the dialect's default")
+        local expectedHost = environment.host or "native"
+        local parsed = parser.parse("return true", "target-facts.g.nupp")
+        local diagnostics = check.check(parsed, "target-facts.g.nupp", environment.value, {
+            moduleName = "nupp.runtime.target",
+        })
+        assertEq(#diagnostics, 0, "target fact checking")
+        local code, generated = gen.generate(parsed, "target-facts.g.nupp")
+        assertEq(#generated, 0, "target fact generation")
+        local facts = assert(loadstring(code))()
+        assertEq(facts.dialect, "luajit", "every artifact runs on LuaJIT")
+        assertEq(facts.host, expectedHost, "only an explicit host overrides the native default")
 
-            local imported = parser.parse('return require("nupp.runtime.browser.time")', "host-import.g.nupp")
-            local admission = check.check(imported, "host-import.g.nupp", environment.value, {
-                dialect = dialect,
-                moduleName = "nupp.fixture.host",
-            })
-            local rejected = false
-            for _, diagnostic in ipairs(admission) do
-                if diagnostic.code == "NUPP3006" then
-                    rejected = true
-                else
-                    assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
-                end
+        local imported = parser.parse('return require("nupp.runtime.browser.time")', "host-import.g.nupp")
+        local admission = check.check(imported, "host-import.g.nupp", environment.value, {
+            moduleName = "nupp.fixture.host",
+        })
+        local rejected = false
+        for _, diagnostic in ipairs(admission) do
+            if diagnostic.code == "NUPP3006" then
+                rejected = true
+            else
+                assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
             end
-            assertEq(rejected, expectedHost ~= "browser", "browser module admission follows the resolved host")
         end
+        assertEq(rejected, expectedHost ~= "browser", "browser module admission follows the resolved host")
     end
 end
 
@@ -1004,7 +1000,7 @@ function M.sharedLanguageSemanticsSurviveLegacyRetirement()
     for name, fixture in pairs(fixtures) do
         local result = parser.parse(fixture.source, name .. ".g.nupp")
         assertEq(#result.errors, 0, name .. " parses")
-        local diagnostics = check.check(result, name .. ".g.nupp", env, {dialect = "luajit"})
+        local diagnostics = check.check(result, name .. ".g.nupp", env)
         for _, diagnostic in ipairs(diagnostics) do
             assert(diagnostic.severity ~= "error", diagnostic.msg)
         end
@@ -1024,7 +1020,7 @@ function M.sharedLanguageSemanticsSurviveLegacyRetirement()
 end
 
 -- Checks, generates and runs `src`, returning what it printed. `filename` picks the
--- dialect: a `.g.nupp` name is gradual, a `.nupp` name strict.
+-- floor: a `.g.nupp` name is gradual, a `.nupp` name strict.
 local function printed(src, filename)
     filename = filename or "printed.g.nupp"
     local result = parser.parse(src, filename)

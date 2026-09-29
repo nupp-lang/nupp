@@ -22,7 +22,6 @@ local preludeImage = require("nupp.compiler.project.preludeimage")
 local type BrowserOptions = {
     strict: boolean?,
     optimize: boolean?,
-    dialect: 'luajit'?,
     compat: 'lua51'?
 }
 
@@ -39,10 +38,6 @@ local type HoverResponse = {
     offset: integer?,
     length: integer?
 }
-
-local function selectedDialect(options: BrowserOptions?, defaultDialect: any?): 'luajit'
-    return options and options.dialect or defaultDialect or "luajit"
-end
 
 local function diagnosticsOf(diags: {any}): {any}
     local out = json.asArray({})
@@ -76,9 +71,9 @@ local function hasErrors(diags: {any}): boolean
     return false
 end
 
-local function capabilityResolution(dialect: string, services: any?): any
-    local resolved = capabilities.resolve(dialect)
-    if dialect == "luajit" and not (services and services.cheader) then
+local function capabilityResolution(services: any?): any
+    local resolved = capabilities.resolve()
+    if not (services and services.cheader) then
         local reason = "the in-memory compiler has no native layout or storage provider"
         resolved.byName.cinterop = {kind = "missing", name = "cinterop", reason = reason,}
         resolved.byName.cstorage = {kind = "missing", name = "cstorage", reason = reason,}
@@ -90,8 +85,8 @@ end
 local Session = {}
 Session.__index = Session
 
-function Session:environment(dialect: string, compatibility: string?): any
-    local key = dialect .. ":" .. (compatibility or "") .. ":" .. require("nupp.compiler.compat").VERSION
+function Session:environment(compatibility: string?): any
+    local key = (compatibility or "") .. ":" .. require("nupp.compiler.compat").VERSION
     local current = self.environments[key]
     if current then
         return current
@@ -100,16 +95,11 @@ function Session:environment(dialect: string, compatibility: string?): any
         cache = false,
         memoryOnly = true,
         compat = compatibility,
-        dialect = dialect,
-        capabilityResolution = capabilityResolution(dialect, self.settings.compilerServices),
+        capabilityResolution = capabilityResolution(self.settings.compilerServices),
         nativeCompilerServices = false,
         compilerServices = self.settings.compilerServices,
         config = {
-            _target = {
-                dialect = dialect,
-                host = "browser",
-                layoutTarget = self.settings.layoutTarget or "x86_64-unknown-linux-gnu",
-            },
+            _target = {host = "browser", layoutTarget = self.settings.layoutTarget or "x86_64-unknown-linux-gnu",},
         },
         typeRoots = {},
         preludeImage = preludeImage,
@@ -120,22 +110,20 @@ function Session:environment(dialect: string, compatibility: string?): any
 end
 
 function Session:checked(source: string, filename: string, options: BrowserOptions?): (any, {any})
-    local dialect = selectedDialect(options, self.settings.dialect)
-    local compatibility, compatError = require("nupp.compiler.compat").resolve(options and options.compat, nil, dialect)
+    local compatibility, compatError = require("nupp.compiler.compat").resolve(options and options.compat, nil)
     if compatError then
         error(compatError, 2)
     end
-    local key = dialect .. ":" .. (compatibility or "")
-    self.lastDialect = key
+    local key = compatibility or ""
+    self.lastProfile = key
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return result, result.errors
     end
-    local diags = check.check(result, filename, self:environment(dialect, compatibility), {
+    local diags = check.check(result, filename, self:environment(compatibility), {
         strict = options and options.strict == true,
         compat = compatibility,
-        dialect = dialect,
-        _capabilityResolution = capabilityResolution(dialect, self.settings.compilerServices),
+        _capabilityResolution = capabilityResolution(self.settings.compilerServices),
     })
     if not hasErrors(diags) then
         self.lastResults[key] = result
@@ -157,12 +145,7 @@ function Session:compile(source: string, filename: string, options: BrowserOptio
     if hasErrors(diags) then
         return {reason = "type errors", diagnostics = diagnosticsOf(diags),}
     end
-    optimize.run(result, {
-        level = options and options.optimize == true and 1 or 0,
-        filename = filename,
-        disabled = {},
-        dialect = result.dialect,
-    })
+    optimize.run(result, {level = options and options.optimize == true and 1 or 0, filename = filename, disabled = {},})
     result.effects = optimize.liveEffects(result)
     local code, generated = gen.generate(result, filename)
     if #generated > 0 then
@@ -173,7 +156,7 @@ function Session:compile(source: string, filename: string, options: BrowserOptio
 end
 
 function Session:hover(offset: integer): HoverResponse
-    local result = self.lastResults[self.lastDialect or "luajit"]
+    local result = self.lastResults[self.lastProfile or ""]
     if not result then
         return {found = false,}
     end
@@ -210,7 +193,7 @@ function Session:request(requestText: string): string
     elseif request.kind == "compile" then
         return json.encode(self:compile(request.source or "", filename, options), json.NULL)
     elseif request.kind == "hover" then
-        self.lastDialect = selectedDialect(options, self.settings.dialect) .. ":" .. (options.compat or "")
+        self.lastProfile = options.compat or ""
         return json.encode(self:hover(request.offset or 1), json.NULL)
     end
     error("unknown browser compiler request kind " .. tostring(request.kind), 2)
@@ -219,10 +202,7 @@ end
 local Browser = {}
 
 function Browser.new(settings: any?): any
-    return setmetatable(
-        {environments = {}, lastResults = {}, lastDialect = "luajit", settings = settings or {},},
-        Session
-    )
+    return setmetatable({environments = {}, lastResults = {}, lastProfile = "", settings = settings or {},}, Session)
 end
 
 export = Browser

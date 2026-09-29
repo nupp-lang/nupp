@@ -33,7 +33,7 @@ for(const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit'
        for(let trial=-3;trial<30;trial++) {
         const source=kind==='large-edit'?'local values={'+Array.from({length:2048},(_,i)=>i+trial+5).join(',')+'};return values[1]':`local answer: integer = ${trial+5}\nreturn answer`;
         const started=performance.now();
-        const response=await request({kind:kind==='edit'||kind==='large-edit'?'check':kind,source,filename:'performance.nupp',offset:7,options:{dialect:backend,strict:true,optimize:true}});
+        const response=await request({kind:kind==='edit'||kind==='large-edit'?'check':kind,source,filename:'performance.nupp',offset:7,options:{strict:true,optimize:true}});
         if(response.diagnostics?.some(x=>x.severity==='error'))throw new Error(JSON.stringify(response));
         const elapsed=performance.now()-started;
         if(trial===-3)firstRequestMs=elapsed;

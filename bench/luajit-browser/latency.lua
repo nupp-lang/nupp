@@ -70,7 +70,7 @@ while true do
                 if kind == "hover" then
                     answers[i] = session:hover(7)
                 else
-                    answers[i] = session[kind](session, source, "latency.g.nupp", {dialect = "luajit"})
+                    answers[i] = session[kind](session, source, "latency.g.nupp", {})
                 end
             else
                 answers[i] = decode(
@@ -80,7 +80,7 @@ while true do
                             source = source,
                             filename = "latency.g.nupp",
                             offset = 7,
-                            options = {dialect = "luajit"}
+                            options = {}
                         })
                     )
                 )

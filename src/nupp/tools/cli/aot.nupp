@@ -103,11 +103,7 @@ local REPORT_SCHEMA = {
                     type = "object",
                     description = "The code generator that produced them, which is part of the answer: "
                     .. "two runs are comparable only when this is the same.",
-                    properties = {
-                        command = {type = "string"},
-                        version = {type = "string"},
-                        dialect = {type = "string"},
-                    },
+                    properties = {command = {type = "string"}, version = {type = "string"},},
                 },
                 flags = {
                     type = "array",
@@ -275,7 +271,7 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     end
 
     return {
-        toolchain = {command = "<llvm>", version = aotllvm.version(), dialect = "llvm",},
+        toolchain = {command = "<llvm>", version = aotllvm.version(),},
         flags = aotllvm.flags(selected.triple, selected.tier),
         functions = shown,
     }, nil
@@ -327,7 +323,7 @@ local function run(options: any): integer
     -- A placeholder rather than a guess: where the object lands is a build
     -- decision this command does not make, and a binding printed for reading
     -- says so rather than naming a path nobody will produce.
-    local selected, targetErr = targets.select(options.target, options.features, options.dialect)
+    local selected, targetErr = targets.select(options.target, options.features)
     if selected == nil then
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
 
@@ -348,7 +344,7 @@ local function run(options: any): integer
         end
         root = parent
     end
-    local environment = envMod.new(root, {dialect = options.dialect})
+    local environment = envMod.new(root)
     -- The command is an inspection of AOT output even when the manifest's
     -- build policy is off. Keep every other project setting and make only that
     -- question explicit while checking target-specific operations.
@@ -356,9 +352,7 @@ local function run(options: any): integer
     -- `inspect` is this command's own: AOT checking without a build, so a
     -- GPU declaration is not bound to runtime types nothing staged.
     environment.config._target.aot = "inspect"
-    local tree, source = require("nupp.tools.cli.compile").check(path, environment as {[string]: any}, {
-        dialect = options.dialect
-    })
+    local tree, source = require("nupp.tools.cli.compile").check(path, environment as {[string]: any}, {})
     if tree == nil then
         return 1
     end
@@ -555,10 +549,6 @@ local record Aot
     --- CPU feature tier to promise.
     @cli(value = "TIER")
     features: string?
-
-    --- Calling Lua VM and source-checking dialect.
-    @cli(value = "DIALECT", choices = {"luajit"})
-    dialect: string?
 
     --- Compiled object path used by a generated binding.
     @cli(value = "PATH")

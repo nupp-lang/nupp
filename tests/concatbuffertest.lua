@@ -305,7 +305,6 @@ return out
         level = 1,
         filename = "test.g.nupp",
         disabled = {["OPT-5"] = true},
-        dialect = "luajit",
     })
     for _, entry in ipairs(remarks) do
         assertEq(entry.code ~= "OPT-5", true, "-Zno-opt=OPT-5 turns it off")

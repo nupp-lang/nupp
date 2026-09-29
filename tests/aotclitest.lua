@@ -4756,13 +4756,8 @@ return {entry = entry}
         {"x86_64-unknown-linux-gnu", "baseline", "luajit-single"},
         {"aarch64-apple-darwin", "neon", "luajit-dual"},
         {"wasm32-unknown-emscripten", "simd128", "luajit-single"},
-        {"wasm32-unknown-emscripten", "simd128", "luajit-single", "luajit"},
     }) do
-        local dialect = selection[4] and " --dialect " .. selection[4] or ""
-        local out, code = run(
-            dir,
-            "--target " .. selection[1] .. " --features " .. selection[2] .. dialect .. " --emit llvm entry.nupp"
-        )
+        local out, code = run(dir, "--target " .. selection[1] .. " --features " .. selection[2] .. " --emit llvm entry.nupp")
         test.equal(code, 0, out)
         -- LuaJIT's dual-number VM starts a loop whose bound is an integer at
         -- an integer zero, so `-0.0` becomes `0.0` exactly there.
@@ -4775,28 +4770,8 @@ return {entry = entry}
     end
 end
 
-function M.aotRejectsTheRemovedCallerDialect()
-    local dir = project{
-        [
-            "caller.nupp"
-        ] = [[
-local enabled = jit.status()
-@aot
-local function entry(value: number): number
-    return value + 1
-end
-return {entry = entry, enabled = enabled}
-]]
-    }
-    local target = "--target wasm32-unknown-emscripten --emit llvm "
-    local accepted, acceptedCode = run(dir, target .. "--dialect luajit caller.nupp")
-    test.equal(acceptedCode, 0, accepted)
-    local refused, refusedCode = run(dir, target .. "--dialect lua51 caller.nupp")
-    assert(refusedCode ~= 0, refused)
-    assert(refused:find("option --dialect does not take lua51; expected luajit", 1, true), refused)
-end
-
-function M.aotRejectsAnUnknownCallerDialect()
+-- Every caller is LuaJIT, so there is no calling-VM axis left to select.
+function M.aotHasNoCallerDialectOption()
     local dir = project{
         [
             "entry.nupp"
@@ -4808,9 +4783,9 @@ end
 return {entry = entry}
 ]]
     }
-    local out, code = run(dir, "--dialect lua54 entry.nupp")
-    assert(code ~= 0, "an unsupported caller dialect must fail")
-    assert(out:find("option --dialect does not take lua54; expected luajit", 1, true), out)
+    local out, code = run(dir, "--dialect luajit entry.nupp")
+    assert(code ~= 0, out)
+    assert(out:find("unknown option --dialect", 1, true), out)
     assert(not out:find("stack traceback", 1, true), out)
 end
 

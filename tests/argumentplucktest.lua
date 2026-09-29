@@ -29,9 +29,9 @@ local function clean(source)
     assertEq(diagnostics(source), "", "expected clean check for:\n" .. source)
 end
 
-local function run(source, dialect)
+local function run(source)
     local result = parsed(source)
-    local checked = check.check(result, "test.g.nupp", nil, {dialect = dialect})
+    local checked = check.check(result, "test.g.nupp")
     assertEq(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
     local code, problems = gen.generate(result, "test.g.nupp")
     assertEq(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
@@ -296,11 +296,9 @@ local function draw(x: number, y: number): number return x + y end
 ]]
 
 local function nestedBoth(source, expected)
-    for _, dialect in ipairs({"luajit"}) do
-        local answer, code = run(nestedFixture .. source, dialect)
-        assertEq(answer, expected, dialect .. " nested pluck")
-        assert(not code:find("(function()", 1, true), code)
-    end
+    local answer, code = run(nestedFixture .. source)
+    assertEq(answer, expected, "nested pluck")
+    assert(not code:find("(function()", 1, true), code)
 end
 
 function M.lazyPlucksPreserveFalseNilAndSelectedBranches()

@@ -124,7 +124,7 @@ local BROWSER_IMPLEMENTATIONS = {
 }
 
 --- Whether this implementation module belongs to the artifact's runtime.
-function surface.supports(moduleName: string, dialect: string, host: string?): boolean
+function surface.supports(moduleName: string, host: string?): boolean
     local selectedHost = host or "native"
     if BROWSER_IMPLEMENTATIONS[moduleName] then
         return selectedHost == "browser"
@@ -169,8 +169,6 @@ function surface.all(): {[string]: any}
 end
 
 --- Whether a runtime module can participate in stock-Lua compatibility output.
---- The source profile asks this directly now that portability is no longer a
---- lowering dialect.
 function surface.compatible(moduleName: string): boolean
     local classification = MODULES[moduleName]
     if classification and classification.kind == "unavailable" then
@@ -188,14 +186,14 @@ function surface.compatible(moduleName: string): boolean
 end
 
 local function reach(checker: any, moduleName: string, at: any?): boolean
-    if not surface.supports(moduleName, checker.opts.dialect or "luajit", checker.env and checker.env.artifactHost) then
+    if not surface.supports(moduleName, checker.env and checker.env.artifactHost) then
         if at ~= nil then
             checker.diag(
                 "NUPP3006",
                 at,
                 (
-                    "module %q does not support dialect %q on host %q"
-                ):format(moduleName, checker.opts.dialect, checker.env and checker.env.artifactHost or "native")
+                    "module %q is not available on host %q"
+                ):format(moduleName, checker.env and checker.env.artifactHost or "native")
             )
         end
         return false

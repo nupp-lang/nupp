@@ -1284,7 +1284,7 @@ function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
             if browser then
                 manifest = manifest:gsub(
                     'aot = "require"',
-                    'dialect = "luajit", host = "browser", aot = "require-wasm"'
+                    'host = "browser", aot = "require-wasm"'
                 )
             end
             local file = assert(io.open(dir .. "/nupp.lua", "wb"))
@@ -1357,7 +1357,7 @@ function M.browserGpuChecksShareTheGeneratedInterface()
     local dir = gpuProject()
     local path = dir .. "/nupp.lua"
     local source = assert(read(path))
-        :gsub('aot = "require"', 'dialect = "luajit", host = "browser", aot = "require-wasm"')
+        :gsub('aot = "require"', 'host = "browser", aot = "require-wasm"')
     local file = assert(io.open(path, "wb"))
     assert(file:write(source))
     file:close()
@@ -2364,7 +2364,7 @@ function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
         return
     end
     local dir = project(nil)
-    withKeys(dir, 'dialect = "luajit", host = "browser", aot = "require-wasm", aotFeatures = {minimum = "simd128"},')
+    withKeys(dir, 'host = "browser", aot = "require-wasm", aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     local script = dir .. "/run.mjs"
@@ -2425,7 +2425,7 @@ function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
     local dir = project(nil)
     withKeys(
         dir,
-        'dialect = "luajit", host = "browser", aot = "require-wasm", '
+        'host = "browser", aot = "require-wasm", '
         .. 'aotFeatures = {minimum = "scalar", maximum = "simd128"},'
     )
     local out, code = build(dir)
@@ -2688,21 +2688,15 @@ function M.anUnknownPolicyIsRejected()
     assert(out:find('must be "off", "require", "emit-wasm" or "require-wasm"', 1, true), out)
 end
 
-function M.wasmPoliciesAreIndependentOfTheSourceDialect()
-    local dir = project("emit-wasm")
-    local config, problem = require("nupp.tools.build.manifest").load(dir)
-    test.assert(config ~= nil, tostring(problem))
-end
-
 function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
     local dir = project("emit-wasm")
-    withKeys(dir, 'dialect = "luajit", host = "browser", aotTarget = "x86_64-unknown-linux-gnu",')
+    withKeys(dir, 'host = "browser", aotTarget = "x86_64-unknown-linux-gnu",')
     local out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find("fixes aotTarget to wasm32-unknown-emscripten", 1, true), out)
 
     dir = project("emit-wasm")
-    withKeys(dir, 'dialect = "luajit", host = "browser", aotFeatures = {maximum = "avx2"},')
+    withKeys(dir, 'host = "browser", aotFeatures = {maximum = "avx2"},')
     out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find("wasm32 has no feature tier avx2; it has scalar, simd128", 1, true), out)
@@ -6041,7 +6035,6 @@ return {
       sources = {"src/entry.nupp"},
       output = "dist/entry.lua",
       outDir = "build/native",
-      dialect = "luajit",
       host = "browser",
       aot = "require-wasm",
       aotFeatures = {maximum = "scalar"},

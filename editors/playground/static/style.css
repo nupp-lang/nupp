@@ -116,8 +116,7 @@ body {
   gap: .9rem;
 }
 
-.example-picker,
-.dialect-picker {
+.example-picker {
   display: flex;
   align-items: center;
   gap: .45rem;

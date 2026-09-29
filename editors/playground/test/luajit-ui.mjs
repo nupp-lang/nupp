@@ -67,10 +67,6 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
     const shared=await page.evaluate(()=>window.sharedLink);
     if(!shared)throw new Error('Share did not produce a link');
     await reopen(shared,conflicting,defaults); await run('3');
-    const legacy=new URL(url);
-    legacy.hash='source='+encodeURIComponent('print("legacy link works")')+'&dialect=lua51';
-    await reopen(legacy.href,conflicting,{strict:false,optimize:false});
-    await run('legacy link works');
     await page.evaluate(()=>localStorage.removeItem('nupp-playground-options-v1'));
     // The iframe remains usable at a narrow viewport, with a separately owned VM.
     await page.setViewportSize({width:390,height:844});

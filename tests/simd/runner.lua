@@ -413,7 +413,7 @@ function M.wasm(generated, options)
             [[
 return {include={"src"},build={targets={app={
 kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",
-dialect="luajit",host="browser",aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"},
+host="browser",aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"},
 }}}}
 ]]
         ):format(runner)

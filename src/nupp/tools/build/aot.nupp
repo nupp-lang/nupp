@@ -114,8 +114,6 @@ record aot.Toolchain
 
     --- The code generator's identity, which pins an artifact to it.
     version: string
-
-    dialect: string
 end
 
 --- Which backend produced an artifact, part of every key.
@@ -248,7 +246,6 @@ record aot.Remembered
     signature: string
 
     version: string
-    dialect: string
 end
 
 --- What a completed AOT result depends on beyond its sources: the policy,
@@ -847,7 +844,7 @@ function aot.emit(
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
     local authoredUnused: {[string]: {any}} = {}
-    local selected, targetErr = targets.buildTiers(triple, features, session.inc.env.dialect)
+    local selected, targetErr = targets.buildTiers(triple, features)
     if selected == nil then
         return nil, tostring(targetErr), produced, authoredUnused, nil, gpuSources
     end
@@ -1728,7 +1725,7 @@ function aot.apply(
             end
         end
     end
-    local selectedForManifest, selectedErr = targets.buildTiers(triple, features, session.inc.env.dialect)
+    local selectedForManifest, selectedErr = targets.buildTiers(triple, features)
     if selectedForManifest == nil then
         return nil, tostring(selectedErr)
     end
@@ -1883,12 +1880,7 @@ function aot.apply(
             specializedBodies = specializedBodies,
             constSelection = constSelection,
             modules = sideModules.modules,
-            remembered = new aot.Remembered(
-                command = "<llvm>",
-                signature = "",
-                version = aotllvm.version(),
-                dialect = "llvm"
-            ),
+            remembered = new aot.Remembered(command = "<llvm>", signature = "", version = aotllvm.version()),
             facts = new aot.Facts(
                 units = #(emitted as {aot.Emitted}),
                 checkedSources = work.checkedSources,
@@ -1978,7 +1970,7 @@ function aot.apply(
     local selected = (selectedForManifest as {targets.Target})[1]
     report:at("aot:reuse")
     -- The code generator compiles and lld links, in process.
-    local chain = new aot.Toolchain(command = "<llvm>", version = aotllvm.version(), dialect = "llvm")
+    local chain = new aot.Toolchain(command = "<llvm>", version = aotllvm.version())
     local keys: {string} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
         keys[#keys + 1] = one.key
@@ -2103,12 +2095,7 @@ function aot.apply(
         specializedBodies = specializedBodies,
         constSelection = constSelection,
         objects = objects,
-        remembered = new aot.Remembered(
-            command = chain.command,
-            signature = chain.version,
-            version = chain.version,
-            dialect = chain.dialect
-        ),
+        remembered = new aot.Remembered(command = chain.command, signature = chain.version, version = chain.version),
         facts = new aot.Facts(
             units = #(emitted as {aot.Emitted}),
             checkedSources = work.checkedSources,

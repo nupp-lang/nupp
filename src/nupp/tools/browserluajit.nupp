@@ -9,7 +9,6 @@ end
 
 export function new(): any
     return Browser.new({
-        dialect = "luajit",
         layoutTarget = "i686-unknown-linux-gnu",
         compilerServices = {
             cheader = {

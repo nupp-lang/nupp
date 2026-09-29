@@ -1,6 +1,7 @@
 module nupp.compiler.capabilities
 
--- Source representations and calling conventions are fixed by the target dialect.
+-- Source representations and calling conventions are fixed by the compiler: every
+-- artifact runs on LuaJIT, so each capability is native unless a caller narrows it.
 local capabilities = {}
 
 local CONTRACTS: {[string]: {
@@ -17,14 +18,10 @@ local CONTRACTS: {[string]: {
 }
 
 --- Resolves compiler-owned capabilities without loading or selecting providers.
-function capabilities.resolve(dialect: string): any
-    local resolved = {dialect = dialect, byName = {}}
+function capabilities.resolve(): any
+    local resolved = {byName = {}}
     for name, contract in pairs(CONTRACTS) do
-        local kind = "missing"
-        if dialect == "luajit" then
-            kind = "native"
-        end
-        resolved.byName[name] = {kind = kind, name = name, effect = contract.effect}
+        resolved.byName[name] = {kind = "native", name = name, effect = contract.effect}
     end
 
     return resolved
@@ -42,7 +39,7 @@ end
 local function resolution(checker: any): any
     local resolved = checker.opts._capabilityResolution
     if resolved == nil then
-        resolved = capabilities.resolve(checker.opts.dialect)
+        resolved = capabilities.resolve()
         checker.opts._capabilityResolution = resolved
     end
 
@@ -67,7 +64,8 @@ function capabilities.require(checker: any, name: string, at: any): boolean
     if capability.kind ~= "missing" then
         return true
     end
-    checker.diag("NUPP3006", at, ("the `%s` dialect has no `%s` capability"):format(checker.opts.dialect, name))
+    local because = capability.reason and ": " .. capability.reason or ""
+    checker.diag("NUPP3006", at, ("this compiler has no `%s` capability%s"):format(name, because))
 
     return false
 end

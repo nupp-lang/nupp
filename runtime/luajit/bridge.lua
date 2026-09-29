@@ -364,7 +364,6 @@ local function main()
                 assert(type(request.source) == "string", "compiler source must be a string")
 
                 local options = request.options or {}
-                options.dialect = options.dialect or "luajit"
 
                 return session[request.kind](session, request.source, request.filename or "playground.nupp", options)
             end)

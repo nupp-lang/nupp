@@ -132,7 +132,6 @@ local GOOD = "local z: integer = 1\nreturn z\n"
 function M.checkOutputMatchesItsSchema()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["bad.nupp"] = BAD})
     local decoded = agrees(dir, "check bad.nupp")
-    assert(decoded.dialect == "luajit", "check reports its resolved dialect")
     assert(#decoded.diagnostics == 1, "the diagnostic is reported")
     assert(decoded.diagnostics[1].docs, "and carries the reference anchor explain uses")
     os.execute("rm -rf '" .. dir .. "'")
@@ -146,7 +145,6 @@ function M.buildOutputMatchesItsSchemaWhenItFailsAndWhenItDoesNot()
 
     local built = agrees(dir, "build good.nupp")
     assert(built.ok == true, "a build that worked says so")
-    assert(built.dialect == "luajit", "build reports its resolved dialect")
     assert(
         #built.written == 2,
         "and names the entry and ownership runtime it wrote: " .. table.concat(built.written, ", ")

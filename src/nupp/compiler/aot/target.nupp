@@ -73,9 +73,6 @@ record target.Target
 
     --- The CPU feature tier this build promises.
     tier: string
-
-    --- The calling Lua VM, independent of the generated machine code target.
-    dialect: string?
 end
 
 --- The architecture one triple names.
@@ -162,8 +159,8 @@ end
 function target.buildTiers(triple: string?, features: {
     minimum: string?,
     maximum: string?
-}?, dialect: string?): ({target.Target}?, string?)
-    local base, baseErr = target.select(triple, nil, dialect)
+}?): ({target.Target}?, string?)
+    local base, baseErr = target.select(triple, nil)
     if base == nil then
         return nil, baseErr
     end
@@ -171,7 +168,7 @@ function target.buildTiers(triple: string?, features: {
     local actual = base as target.Target
     local architecture = actual.architecture
     if features == nil and architecture ~= "x86_64" then
-        local selected, selectedErr = target.select(actual.triple, nil, dialect)
+        local selected, selectedErr = target.select(actual.triple, nil)
         if selected == nil then
             return nil, selectedErr
         end
@@ -186,11 +183,11 @@ function target.buildTiers(triple: string?, features: {
         first = features.minimum or first
         last = features.maximum or last
     end
-    local _, firstErr = target.select(actual.triple, first, dialect)
+    local _, firstErr = target.select(actual.triple, first)
     if firstErr ~= nil then
         return nil, firstErr
     end
-    local _, lastErr = target.select(actual.triple, last, dialect)
+    local _, lastErr = target.select(actual.triple, last)
     if lastErr ~= nil then
         return nil, lastErr
     end
@@ -210,7 +207,7 @@ function target.buildTiers(triple: string?, features: {
 
     local selected: {target.Target} = {}
     for index = firstIndex as integer, lastIndex as integer do
-        local one = target.select(actual.triple, known[index], dialect)
+        local one = target.select(actual.triple, known[index])
         if one ~= nil then
             selected[#selected + 1] = one as target.Target
         end
@@ -240,7 +237,7 @@ end
 --- @param triple the target triple, or nothing for the host's
 --- @param tier the CPU feature tier, or nothing for the architecture's default
 --- @return the target, or nothing and what was wrong with the request
-function target.select(triple: string?, tier: string?, dialect: string?): (target.Target?, string?)
+function target.select(triple: string?, tier: string?): (target.Target?, string?)
     local named = triple or targetLayout.hostKey()
     if named == nil then
         return nil, "this host is not a modeled target; name one with --target"
@@ -268,12 +265,7 @@ function target.select(triple: string?, tier: string?, dialect: string?): (targe
         ):format(architecture, tostring(selected), table.concat(available, ", "))
     end
 
-    return new target.Target(
-        triple = named as string,
-        architecture = architecture,
-        tier = selected as string,
-        dialect = dialect
-    ), nil
+    return new target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
 end
 
 --- The widest vector a target's frame can carry, keyed by operating system.

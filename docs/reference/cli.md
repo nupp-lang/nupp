@@ -454,18 +454,17 @@ Arguments:
   FILE  Source file to inspect.
 
 Options:
-  --emit ARTIFACT    Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
-  --function NAME    Show only this function.
-  --target TRIPLE    Target triple to compile for.
-  --features TIER    CPU feature tier to promise.
-  --dialect DIALECT  Calling Lua VM and source-checking dialect.
-  --library PATH     Compiled object path used by a generated binding.
+  --emit ARTIFACT  Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
+  --function NAME  Show only this function.
+  --target TRIPLE  Target triple to compile for.
+  --features TIER  CPU feature tier to promise.
+  --library PATH   Compiled object path used by a generated binding.
   --format FORMAT, --json, --text
-                     Select the report representation.
-  --schema           Print the JSON Schema of JSON output and exit.
-  -h, --help         Show this help
-  --color[=WHEN]     When to color output: always, never, or auto
-  --no-color         Never color output
+                   Select the report representation.
+  --schema         Print the JSON Schema of JSON output and exit.
+  -h, --help       Show this help
+  --color[=WHEN]   When to color output: always, never, or auto
+  --no-color       Never color output
 ```
 
 The bare command says what every `@aot` function in the file lowered to: its
@@ -481,11 +480,9 @@ lowers to, `spirv` is the native GPU module, `wgsl` is the browser WebGPU
 integer artifact, `asm` is the instructions that LLVM IR became, and `binding`
 is the Nupp module that stands in front of it.
 
-`--dialect luajit` selects the calling VM's numeric-loop semantics and the
-dialect used to check the source. Independent Wasm kernels called by the LuaJIT
-browser guest use `--target wasm32-unknown-emscripten --dialect luajit`.
-Omitting `--dialect` preserves the target's numeric-loop defaults. Other project
-settings remain in effect.
+The calling VM is always LuaJIT, and its numeric-loop semantics follow the
+target: dual-number on ARM64, single-number on x86 and for the browser guest's
+Wasm kernels. Other project settings remain in effect.
 
 `--emit asm` compiles the LLVM IR with the options a build compiles this
 tier's unit with, and stops one step before the assembler encodes it. It is the
@@ -654,28 +651,26 @@ Arguments:
   FILE  Source files to check.
 
 Options:
-  --strict           Treat strict checker rules as errors.
-  --dialect DIALECT  Source-lowering dialect.
-  --compat PROFILE   Enforce the stock Lua 5.1 source subset without
-                     compatibility lowering.
-  --target NAME      Check a named manifest target.
-  --platform NAME    Check one configured binary platform, or all.
+  --strict          Treat strict checker rules as errors.
+  --compat PROFILE  Enforce the stock Lua 5.1 source subset without
+                    compatibility lowering.
+  --target NAME     Check a named manifest target.
+  --platform NAME   Check one configured binary platform, or all.
   --progress[=WHEN], -q, --quiet
-                     When to report progress and timing.
+                    When to report progress and timing.
   --format FORMAT, --json, --text
-                     Select the report representation.
-  --schema           Print the JSON Schema of JSON output and exit.
-  -h, --help         Show this help
-  --color[=WHEN]     When to color output: always, never, or auto
-  --no-color         Never color output
+                    Select the report representation.
+  --schema          Print the JSON Schema of JSON output and exit.
+  -h, --help        Show this help
+  --color[=WHEN]    When to color output: always, never, or auto
+  --no-color        Never color output
 ```
 
 A file's extension decides the floor it is held to, with `.nupp` strict and
 `.g.nupp`, `.d.nupp` and `.lua` gradual. `--strict` overrides that, holding
 every file to the strict floor whatever it is called: unknown variables are
 errors, and module exports need annotations. `--target` names a manifest target
-and cannot be combined with explicit files. `--dialect` overrides the target's
-source-lowering dialect, or selects one for explicitly named files.
+and cannot be combined with explicit files.
 
 A clean project writes nothing and exits 0. With
 `local shout: number = greet("world")` added to `src/greet.nupp`:
@@ -699,7 +694,6 @@ anchor that [`explain`](#explain) and the reference share:
 ```json [nupp check --json]
 {
   "ok": false,
-  "dialect": "luajit",
   "diagnostics": [
     {
       "code": "NUPP2001",
@@ -767,7 +761,6 @@ that feels slow can be read rather than waited out. It is the shape
 ```json [nupp check --json]
 {
   "ok": true,
-  "dialect": "luajit",
   "diagnostics": [],
   "timing": {
     "totalMs": 8.4,
@@ -902,9 +895,7 @@ Options:
   --out-dir DIR        Override the manifest target's output directory.
   -o DIR               Output directory for explicit source-file builds.
   --strict             Treat strict checker rules as errors.
-  --dialect DIALECT    Source-lowering dialect.
-  --host HOST          Runtime host services, independent of the Lua output
-                       dialect.
+  --host HOST          Runtime host services.
   --compat PROFILE     Enforce the stock Lua 5.1 source subset without
                        compatibility lowering.
   -O0, -O1, -O2        Optimization level.
@@ -998,7 +989,6 @@ data rather than as a report:
 {
   "ok": true,
   "target": "app",
-  "dialect": "luajit",
   "written": ["build/greet.lua", "build/main.lua"],
   "diagnostics": [],
   "materializations": [],
@@ -1501,7 +1491,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 # Completion for nupp; generated from nupp.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=( $(compgen -W '--accept --against --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --compat --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --forks --format --from --function --geo --gpu-costs --help --history --host --include-declaration --include-private --inspect --jit-aborts --json --json-pretty --kind --label --lib --library --list --margin --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --pilot --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-file --remarks-out --report-json --rev --root --schema --section --seed --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both browser build bytecode check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints llvm lsp lua lua51 luacats luadoc luajit markdown md migrate native ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--accept --against --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --compat --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --forks --format --from --function --geo --gpu-costs --help --history --host --include-declaration --include-private --inspect --jit-aborts --json --json-pretty --kind --label --lib --library --list --margin --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --pilot --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-file --remarks-out --report-json --rev --root --schema --section --seed --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both browser build bytecode check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints llvm lsp lua lua51 luacats luadoc markdown md migrate native ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
 }
 complete -F _nupp nupp
 ```
@@ -1680,7 +1670,6 @@ Kind: modules
 Category: build
 Command: nupp build --target app
 Output directory: build
-Dialect: luajit
 Entries:
   - main
 Resources:

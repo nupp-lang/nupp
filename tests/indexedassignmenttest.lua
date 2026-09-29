@@ -3,10 +3,10 @@ local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
 local env = require("nupp.compiler.project.env").new(".")
 
-local function compile(source, dialect, optimized)
+local function compile(source, optimized)
     local parsed = parser.parse(source, "indexedassignment.g.nupp")
     assert(#parsed.errors == 0, "fixture parse failure")
-    local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env, {dialect = dialect})
+    local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
     end
@@ -50,8 +50,8 @@ local function apply(exclusive values: span.WriteSpan<number>, trace: {number}):
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit"}) do
-        local apply = compile(source, dialect)
+    do
+        local apply = compile(source)
         local trace, data = {}, {0, 0}
         local view = {
             get = function(_, i)
@@ -90,8 +90,8 @@ local function apply(exclusive values: span.WriteSpan<number>, trace: {number}):
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit"}) do
-        local apply = compile(source, dialect)
+    do
+        local apply = compile(source)
         local trace, data = {}, {0}
         local view = {
             get = function(_, i)
@@ -121,7 +121,7 @@ return apply
 ]]
     local ffi = require("ffi")
     for _, optimized in ipairs({false, true}) do
-        local apply, code = compile(source, "luajit", optimized)
+        local apply, code = compile(source, optimized)
         if optimized then
             assert(not code:find(".writeCarray(", 1, true), "exercise the virtual view path")
         end
@@ -147,10 +147,10 @@ local function apply(factory: function(): span.WriteSpan<Cell>, trace: {number})
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit"}) do
+    do
         local parsed = parser.parse(source, "indexedassignment.g.nupp")
         assert(#parsed.errors == 0)
-        local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env, {dialect = dialect})
+        local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env)
         local refused = false
         for _, diagnostic in ipairs(diagnostics) do
             if diagnostic.code == "NUPP2619" then
@@ -180,8 +180,8 @@ local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): n
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit"}) do
-        local apply = compile(source, dialect)
+    do
+        local apply = compile(source)
         local trace, row, reads = {}, {value = 0}, 0
         local view = {
             getMut = function()

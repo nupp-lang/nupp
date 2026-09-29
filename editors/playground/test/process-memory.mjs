@@ -35,7 +35,7 @@ try {
    browser=await chromium.connect(server.wsEndpoint());
    const page=await browser.newPage();
    await page.goto(new URL('performance-empty.html',url).href);
-   await page.evaluate(backend=>localStorage.setItem('nupp-playground-options-v1',JSON.stringify({dialect:backend})),backend);
+   await page.evaluate(()=>localStorage.setItem('nupp-playground-options-v1','{}'));
    const baseline=sample();
    phase='compiler-startup';
    await page.goto(url);

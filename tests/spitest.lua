@@ -21,7 +21,7 @@ local function files(main, descriptor)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", dialect = "luajit", outDir = "out",
+            kind = "bundle", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
         ["nupp/spi.json"] = descriptor or [[{"example.api.Codec":["example.first","example.second"]}]],
@@ -518,8 +518,8 @@ error("provider initialization failed")]]
 end
 
 local TARGET_PROFILES = {
-    {dialect = "luajit", host = "native"},
-    {dialect = "luajit", host = "browser", marker = "__nuppBrowser"},
+    {host = "native"},
+    {host = "browser", marker = "__nuppBrowser"},
 }
 
 function M.hostAndVmFallbacksRetainSpiOverrides()
@@ -692,7 +692,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                 local selectedName = override and "fixture.chosen" or usesNative and case.native or case.browser
                 local expected = providers[selectedName]
                 local facade = load(case.module)
-                local label = profile.host .. "/" .. profile.dialect .. ": " .. case.module
+                local label = profile.host .. ": " .. case.module
                 if case.storage then
                     assert(facade.storage == expected, label)
                 elseif case.member then
@@ -811,8 +811,8 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
     for _, case in ipairs(expectations) do
         for index, profile in ipairs(TARGET_PROFILES) do
             assert(
-                surface.supports(case[1], profile.dialect, profile.host) == case[index + 1],
-                profile.host .. "/" .. profile.dialect .. ": " .. case[1]
+                surface.supports(case[1], profile.host) == case[index + 1],
+                profile.host .. ": " .. case[1]
             )
         end
     end

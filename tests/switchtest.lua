@@ -724,16 +724,16 @@ local value = switch selector do case "\x61", "a" -> 1 else -> 0 end]]
 end
 
 local function leanSwitch(source, expected, inspect)
-    for _, dialect in ipairs({"luajit"}) do
+    do
         local result = parser.parse(source, "lean-switch.g.nupp")
         assertEq(#result.errors, 0, "lean switch parses")
-        local diagnostics = check.check(result, "lean-switch.g.nupp", nil, {dialect = dialect})
+        local diagnostics = check.check(result, "lean-switch.g.nupp")
         assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local code, problems = gen.generate(result, "lean-switch.g.nupp")
         assertEq(#problems, 0, problems[1] and problems[1].msg)
         local chunk, problem = loadstring(code)
         assert(chunk, tostring(problem) .. "\n" .. code)
-        assertEq(chunk(), expected, dialect)
+        assertEq(chunk(), expected)
         if inspect then
             inspect(code)
         end

@@ -1392,14 +1392,14 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP3006",
-        summary = "The selected dialect cannot represent a required language capability",
-        rule = "A dialect fixes the language representations and operations an artifact may use. Choose a target that supports the operation, or express it with a portable contract. Runtime provider selection cannot add a compiler representation.",
+        summary = "The compiler or host cannot provide a required language capability",
+        rule = "The compiler building an artifact and the host it targets fix the language representations and runtime modules it may use: the in-memory browser compiler has no native layout provider, and a browser host has no native runtime modules. Choose a target that supports the operation, or express it with a portable contract. Runtime provider selection cannot add a compiler representation.",
         related = {"NUPP3005"},
         docs = "docs/learn/projects/portability/libraries.md",
     },
     {
         code = "NUPP3009",
-        summary = "The portable dialect cannot lower an authored jump",
+        summary = "The Lua 5.1 compatibility profile cannot lower an authored jump",
         rule = "An authored label or `goto` can jump across arbitrary lexical regions. Lowering a function containing one to Lua 5.1 would require a state machine, changing stack frames and error sites. Use structured control flow instead. Compiler-generated cleanup and `continue` transfers are structured and are lowered separately.",
         related = {"NUPP3006"},
         docs = "docs/learn/projects/portability/libraries.md",
@@ -1407,7 +1407,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP3010",
         summary = "A resolved prelude identity is outside the portable runtime surface",
-        rule = "The `lua51` dialect runs on Lua 5.1 through 5.4 and LuaJIT, so an ambient prelude identity is available only when it has the same contract throughout that matrix or the compiler lowers it explicitly. A same-spelled local or ordinary table field is a different definition and remains application code.",
+        rule = "The `lua51` compatibility profile runs on Lua 5.1 through 5.4 and LuaJIT, so an ambient prelude identity is available only when it has the same contract throughout that matrix or the compiler lowers it explicitly. A same-spelled local or ordinary table field is a different definition and remains application code.",
         related = {"NUPP3006", "NUPP3009"},
         docs = "docs/learn/projects/portability/libraries.md",
     },

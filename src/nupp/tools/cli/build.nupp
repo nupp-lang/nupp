@@ -25,11 +25,6 @@ local REPORT_SCHEMA = {
         },
         platform = {type = "string", description = "The selected binary platform for a one-platform build."},
         compat = {type = "string", enum = {"lua51"}, description = "The enforced source compatibility profile."},
-        dialect = {
-            type = "string",
-            enum = require("nupp.compiler.dialects").names(),
-            description = "The resolved source-lowering dialect."
-        },
         distributionReady = {
             type = "boolean",
             description = "Whether the selected platform output is ready for public distribution."
@@ -255,7 +250,7 @@ local REPORT_SCHEMA = {
         },
         ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
     },
-    required = {"ok", "diagnostics", "written", "materializations", "derives", "dialect"},
+    required = {"ok", "diagnostics", "written", "materializations", "derives"},
 }
 
 -- Whether the manifest declares a target by this name. Asked only about a positional
@@ -271,7 +266,7 @@ end
 local function run(options: any): integer
     local positional: {string} = options.paths
     local values = options
-    local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil, values.dialect)
+    local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil)
     if compatError then
         return usageError(compatError)
     end
@@ -306,7 +301,6 @@ local function run(options: any): integer
     local diagnostics: {any} = {}
     local compile = require("nupp.tools.cli.compile")
     local settings = compile.settings(values, asJson and diagnostics or nil)
-    local selectedDialect = settings.dialect
     -- The same timing either way, and no narration when the reader is a program: it
     -- gets the numbers in the document it asked for. Naming --progress explicitly
     -- overrules that, which is how somebody watching a --json build sees it move.
@@ -326,7 +320,6 @@ local function run(options: any): integer
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 target = produced.target,
-                dialect = selectedDialect,
                 compat = produced.compat or settings.compat,
                 platform = produced.platform,
                 platforms = produced.platforms,
@@ -353,7 +346,6 @@ local function run(options: any): integer
             target = target,
             platform = values.platform,
             standalone = values.standalone,
-            dialect = values.dialect,
             compat = values.compat,
             host = values.host,
             strict = settings.strict,
@@ -371,7 +363,6 @@ local function run(options: any): integer
             settings.collectedAllocationSites = produced.allocationSites or {}
             settings.accountedModules = produced.accountedModules or 0
         end
-        selectedDialect = produced.dialect or selectedDialect
         return finish(code, produced)
     end
     local fs = require("nupp.compiler.fs")
@@ -568,11 +559,7 @@ local record Build
     --- Treat strict checker rules as errors.
     strict: boolean = false
 
-    --- Source-lowering dialect.
-    @cli(value = "DIALECT", choices = {"luajit"})
-    dialect: string?
-
-    --- Runtime host services, independent of the Lua output dialect.
+    --- Runtime host services.
     @cli(value = "HOST", choices = {"native", "browser"})
     host: string?
 

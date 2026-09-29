@@ -96,7 +96,7 @@ try {
               const digest = async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, '0')).join('');
               const request = async body => {
                 const {source, ...header} = body;
-                guest.respond({...header, filename: 'imported-scoreboard.nupp', options: {dialect: 'luajit', strict: true, optimize: true},
+                guest.respond({...header, filename: 'imported-scoreboard.nupp', options: {strict: true, optimize: true},
                   ...(source === undefined ? {} : {payloadField: 'source'})}, new TextEncoder().encode(source || ''));
                 const answer = await guest.receive();
                 if (answer.type !== 'compiler' || !answer.result.ok) throw new Error(JSON.stringify(answer));

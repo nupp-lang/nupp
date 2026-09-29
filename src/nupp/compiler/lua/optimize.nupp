@@ -3530,10 +3530,6 @@ type optimize.Options = {
     @readonly filename: string?,
     @readonly disabled: {[string]: boolean}?,
 
-    --- The dialect the result is generated for. `OPT-5` lowers to a `nupp.text` buffer,
-    --- which is LuaJIT's, so a Lua 5.1 target does not get that pass.
-    @readonly dialect: string?,
-
     --- Whole-deliverable const body selection, when a project build supplied it.
     @readonly constSelection: any?
 }

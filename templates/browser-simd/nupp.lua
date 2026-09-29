@@ -8,7 +8,6 @@ local function target(entry, output, outDir, features)
         sources = {"src/" .. entry .. ".nupp"},
         output = output,
         outDir = outDir,
-        dialect = "luajit",
         host = "browser",
         dependencies = {"lunajson"},
         aot = features and "require-wasm" or "off",

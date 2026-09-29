@@ -6,7 +6,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 
 compat.VERSION = "lua51-source-1"
 
-function compat.resolve(value: any, inherited: any?, dialect: string?): string?, string?
+function compat.resolve(value: any, inherited: any?): string?, string?
     for _, candidate in ipairs({value == nil and false or value, inherited == nil and false or inherited}) do
         if candidate ~= false and candidate ~= "lua51" then
             return nil, 'compat must be "lua51" when present'
@@ -15,12 +15,8 @@ function compat.resolve(value: any, inherited: any?, dialect: string?): string?,
     if value == false or inherited == false then
         return nil, 'compat must be "lua51" when present'
     end
-    local selected = value or inherited
-    if selected and dialect and dialect ~= "luajit" then
-        return nil, 'compat = "lua51" requires ordinary luajit emission; remove the legacy dialect selection'
-    end
 
-    return selected
+    return value or inherited
 end
 
 local FORBIDDEN = {
@@ -466,7 +462,6 @@ function compat.dependencies(checker: any)
                                 else
                                     audited[key] = require("nupp.compiler.check").check(parsed, key, env, {
                                         compat = "lua51",
-                                        dialect = "luajit",
                                         moduleName = name,
                                         _compatModules = audited,
                                     })
@@ -513,7 +508,6 @@ function compat.dependencies(checker: any)
                     if #diagnostics == 0 then
                         diagnostics = require("nupp.compiler.check").check(parsed, name, env, {
                             compat = "lua51",
-                            dialect = "luajit",
                             strict = false,
                             _compatLoadDepth = depth + 1,
                         })

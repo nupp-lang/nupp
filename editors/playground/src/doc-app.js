@@ -9,7 +9,7 @@ import { renderLuaOutput } from "./lua-output.js";
 import { sourceFragment } from "./options.js";
 
 const FILENAME = "playground.nupp";
-const OPTIONS = { strict: true, optimize: true, dialect: "luajit" };
+const OPTIONS = { strict: true, optimize: true };
 // Documentation frequently introduces a declaration before showing its use.
 // Keep that teaching shape without turning every first step into yellow chrome.
 const IGNORED_DOC_DIAGNOSTICS = new Set(["NUPP2507"]);

@@ -370,36 +370,30 @@ function M.cliProvidesCommandHelpAndValidatesOptions()
     assert(unknown:find("unknown option --wat", 1, true), "unknown options are rejected: " .. unknown)
 end
 
-function M.buildAndCheckResolveTheSameDialectOption()
+-- There is one lowering, so there is no axis to select it: the flag, the manifest
+-- key and the report field are all gone rather than kept with one legal value.
+function M.theLoweringDialectIsNotAnOptionAKeyOrAField()
     local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}, ' .. 'dialect = "luajit"}}\n',
+        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}}}\n',
         ["main.nupp"] = "return 42\n",
     })
-    local native = require("testjson").decode(captureJson(("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)))
-    assertEq(native.dialect, "luajit", "an explicit build defaults to LuaJIT")
-    local nativeCode = read(dir .. "/build/main.lua")
-
-    local explicitNative = require(
-        "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build --dialect luajit main.nupp --json"):format(dir, NUPP)))
-    assertEq(explicitNative.dialect, "luajit", "LuaJIT may be selected explicitly")
-    assertEq(
-        read(dir .. "/build/main.lua"),
-        nativeCode,
-        "omitted and explicit LuaJIT dialects generate byte-identically"
-    )
-
-    local configuredBuild = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
-    assertEq(configuredBuild.dialect, "luajit", "build inherits the manifest dialect")
-    local configuredCheck = require("testjson").decode(captureJson(("cd '%s' && '%s' check --json"):format(dir, NUPP)))
-    assertEq(configuredCheck.dialect, "luajit", "check inherits the manifest dialect")
-
-    local rejected = capture(("cd '%s' && '%s' check --dialect lua51 main.nupp"):format(dir, NUPP))
-    assert(
-        rejected:find("option --dialect does not take lua51; expected luajit", 1, true),
-        "the command grammar rejects the removed dialect: " .. rejected
-    )
-    os.execute("rm -rf '" .. dir .. "'")
+    local built = require("testjson").decode(captureJson(("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)))
+    assertEq(built.ok, true)
+    assertEq(built.dialect, nil, "the build report has no dialect")
+    local checked = require("testjson").decode(captureJson(("cd '%s' && '%s' check --json"):format(dir, NUPP)))
+    assertEq(checked.ok, true)
+    assertEq(checked.dialect, nil, "the check report has no dialect")
+    for _, command in ipairs({"check", "build"}) do
+        local refused = capture(("cd '%s' && '%s' %s --dialect luajit main.nupp"):format(dir, NUPP, command))
+        assert(refused:find("unknown option --dialect", 1, true), command .. ": " .. refused)
+    end
+    local keyed = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}, dialect = "luajit"}}\n',
+        ["main.nupp"] = "return 42\n",
+    })
+    local refused = capture(("cd '%s' && '%s' check"):format(keyed, NUPP))
+    assert(refused:find('has no key "dialect"', 1, true), refused)
+    os.execute("rm -rf '" .. dir .. "' '" .. keyed .. "'")
 end
 
 function M.cliProvidesHelpForMainAndEverySubcommand()

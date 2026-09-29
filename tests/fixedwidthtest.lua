@@ -992,7 +992,7 @@ return bits
     local gen = require("nupp.compiler.lua.gen")
     local result = parser.parse(source, "unsigned-bits.nupp")
     assertEq(#result.errors, 0)
-    assertEq(#check.check(result, "unsigned-bits.nupp", sharedEnv, {dialect = "luajit"}), 0)
+    assertEq(#check.check(result, "unsigned-bits.nupp", sharedEnv), 0)
     local code, diags = gen.generate(result, "unsigned-bits.nupp")
     assertEq(#diags, 0)
     local bits = assert(loadstring(code))()

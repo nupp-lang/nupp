@@ -5791,8 +5791,7 @@ local function run(): integer
     return value.id
 end
 return run()
-]],
-        {dialect = "luajit"}
+]]
     )
     assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, generation = gen.generate(result, "portablecleanup")
@@ -7515,23 +7514,20 @@ local returned = returning()
 @unsafe do local held = open('d') end
 return answer, returned, log
 ]]
-    for _, dialect in ipairs({"luajit"}) do
-        for _, level in ipairs({0, 1, 2}) do
-            local result, diags = checked(source, {dialect = dialect})
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
-            require("nupp.compiler.lua.optimize").run(result, {
-                level = level,
-                dialect = dialect,
-                filename = 'test.g.nupp'
-            })
-            local code, errors = gen.generate(result, "test.g.nupp")
-            assertEq(#errors, 0, errors[1] and errors[1].msg)
-            local chunk = assert(loadstring(code))
-            local answer, returned, log = chunk()
-            assertEq(answer, 7)
-            assertEq(returned, 8)
-            assertEq(log, "aybrd", dialect .. " O" .. level)
-        end
+    for _, level in ipairs({0, 1, 2}) do
+        local result, diags = checked(source)
+        assertEq(#diags, 0, diags[1] and diags[1].msg)
+        require("nupp.compiler.lua.optimize").run(result, {
+            level = level,
+            filename = 'test.g.nupp'
+        })
+        local code, errors = gen.generate(result, "test.g.nupp")
+        assertEq(#errors, 0, errors[1] and errors[1].msg)
+        local chunk = assert(loadstring(code))
+        local answer, returned, log = chunk()
+        assertEq(answer, 7)
+        assertEq(returned, 8)
+        assertEq(log, "aybrd", "O" .. level)
     end
 end
 

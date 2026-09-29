@@ -66,11 +66,10 @@ return text, total
     for level = 0, 2 do
         local result, diags = checked(source)
         assert(errors(diags) == "", errors(diags))
-        assert(result.dialect == "luajit")
         optimize.run(result, {level = level})
         local code, generated = gen.generate(result, "compat.g.nupp")
         assert(errors(generated) == "", errors(generated))
-        local native = checked(source, {dialect = "luajit"})
+        local native = checked(source, {})
         optimize.run(native, {level = level})
         local ordinary = gen.generate(native, "compat.g.nupp")
         assert(code == ordinary, "compatibility must not select alternate emission")
@@ -143,7 +142,7 @@ return @unsafe bit.bor(a, b), @unsafe jit.status()
         optimize.run(result, {level = level})
         local code, generated = gen.generate(result, "compat.g.nupp")
         assert(errors(generated) == "", errors(generated))
-        local ordinary, ordinaryDiags = checked(source, {dialect = "luajit"})
+        local ordinary, ordinaryDiags = checked(source, {})
         assert(errors(ordinaryDiags) == "", errors(ordinaryDiags))
         optimize.run(ordinary, {level = level})
         assert(code == gen.generate(ordinary, "compat.g.nupp"), "unsafe permission must not select alternate emission")
@@ -207,11 +206,7 @@ function M.compatibilityCannotSelectALowererOrBeDisabled()
         local _, problem = compat.resolve(value)
         assert(problem, tostring(value))
     end
-    for _, dialect in ipairs({"lua51", "luajit-compat"}) do
-        local _, problem = compat.resolve("lua51", nil, dialect)
-        assert(problem, dialect)
-    end
-    assert(compat.resolve(nil, "lua51", "luajit") == "lua51")
+    assert(compat.resolve(nil, "lua51") == "lua51")
 end
 
 function M.generatedOutputGuardDoesNotNeedAStockVm()

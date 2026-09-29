@@ -17,7 +17,7 @@ onmessage = ({data: request}) => {
         let source = request.source || 'local value: number = 1; return value';
         if (request.kind === 'edit') source = source.replace('= 1', '= ' + i);
         answers.push(host.request({kind:request.kind === 'edit' ? 'check' : request.kind,
-          source,filename:'latency.g.nupp',offset:7,options:{dialect:'lua51'}}));
+          source,filename:'latency.g.nupp',offset:7,options:{compat:'lua51'}}));
       }
     }
     postMessage({result:{count:request.count,answers,sampledWallMs:performance.now()-started}});

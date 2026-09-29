@@ -433,8 +433,8 @@ function M.replayRequiresTheCurrentCodeGenerator()
     test.equal(policy.desiredCommand, "<llvm>", "the in-process code generator is the only command")
     test.equal(policy.codegen, aotllvm.selection(), "the policy names the code generator selection")
 
-    local remembered = {command = "<llvm>", signature = "", version = aotllvm.version(), dialect = "llvm"}
-    local byC = {command = "clang", signature = "", version = "clang 18", dialect = "clang"}
+    local remembered = {command = "<llvm>", signature = "", version = aotllvm.version()}
+    local byC = {command = "clang", signature = "", version = "clang 18"}
     for _, name in ipairs({"require", "require-wasm", "emit-wasm"}) do
         assert(aot.replayCommandMatches(name, remembered, "<llvm>"), name .. ": the remembered code generator matches")
         assert(not aot.replayCommandMatches(name, byC, "<llvm>"), name .. ": a build a C compiler produced is not replayed")
@@ -554,7 +554,7 @@ function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
         manifest = manifest,
         dispatch = {},
         specializedBodies = 0,
-        remembered = {command = "<llvm>", signature = "", version = aotllvm.version(), dialect = "llvm"},
+        remembered = {command = "<llvm>", signature = "", version = aotllvm.version()},
     })
     assert(
         snapshot.payload.files.nupp_wasm_register_u1234 == nil,
@@ -631,13 +631,10 @@ function M.wasmNumericLoopsUseTheLuaJitArtifactKey()
     local triple = "wasm32-unknown-emscripten"
     local source = "same verified Wasm source"
     for _, tier in ipairs({"scalar", "simd128"}) do
-        local guest = assert(targets.select(triple, tier, "luajit"))
-        local unspecified = assert(targets.select(triple, tier))
-        test.equal(targets.numericForRuntime(guest), "luajit-single")
-        test.equal(targets.numericForRuntime(unspecified), "luajit-single", "direct Wasm AOT uses the LuaJIT runtime")
-        test.equal(aot.key(source, guest), aot.key(source, unspecified))
+        local selected = assert(targets.select(triple, tier))
+        test.equal(targets.numericForRuntime(selected), "luajit-single", "direct Wasm AOT uses the LuaJIT runtime")
     end
-    local tiers = assert(targets.buildTiers(triple, {minimum = "scalar", maximum = "simd128"}, "luajit"))
+    local tiers = assert(targets.buildTiers(triple, {minimum = "scalar", maximum = "simd128"}))
     test.equal(#tiers, 2)
     for _, selected in ipairs(tiers) do
         test.equal(
@@ -645,16 +642,16 @@ function M.wasmNumericLoopsUseTheLuaJitArtifactKey()
             "luajit-single",
             "every project tier retains the guest's numeric-loop contract"
         )
-        local explicit = assert(targets.select(triple, selected.tier, "luajit"))
-        test.equal(aot.key(source, selected), aot.key(source, explicit))
+        local alone = assert(targets.select(triple, selected.tier))
+        test.equal(aot.key(source, selected), aot.key(source, alone))
     end
 end
 
 function M.objectKeysCoverWhatChangesTheirBytes()
     local aot = require("nupp.tools.build.aot")
     local aotllvm = require("nupp.tools.build.aotllvm")
-    local llvm = {command = "<llvm>", version = "llvm 20", dialect = "llvm"}
-    local newer = {command = "<llvm>", version = "llvm 21", dialect = "llvm"}
+    local llvm = {command = "<llvm>", version = "llvm 20"}
+    local newer = {command = "<llvm>", version = "llvm 21"}
     local triple = "x86_64-unknown-linux-gnu"
     local baseline = aotllvm.flags(triple, "baseline")
     local avx2 = aotllvm.flags(triple, "avx2")

@@ -198,7 +198,7 @@ test('packaged worker pools follow emitted modules across build summary formats'
       {name:'no-modules', workers:false},
     ];
     for (const {name, workers, ...summary} of cases) {
-      result = {ok:true, dialect:'luajit', artifact:'dist/app.lua', ...summary};
+      result = {ok:true, artifact:'dist/app.lua', ...summary};
       const output = path.join(f.root, name);
       const manifest = await packageBrowserApp({project, target:'app', output, guest:f.guest});
       assert.deepEqual(manifest.workers, workers ? {lane:'worker-lane.mjs', maxLanes:2} : undefined, name);

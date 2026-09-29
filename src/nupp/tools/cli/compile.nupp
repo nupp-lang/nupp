@@ -21,9 +21,6 @@ record compile.Settings
     --- not the same as false.
     strict: boolean?
 
-    --- The resolved source-lowering dialect.
-    dialect: string
-
     compat: string?
 
     --- 0 is the promise that -O0 rewrites nothing. Optimization is opt-in until a
@@ -102,7 +99,6 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
     return new compile.Settings(
         strict = values.strict,
         compat = values.compat,
-        dialect = assert(require("nupp.compiler.dialects").resolve(values.dialect)),
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,
         remarksFile = values.remarksFile,
@@ -307,7 +303,6 @@ function compile.module(
     local check = require("nupp.compiler.check")
     local diags = check.check(result, path, env, {
         strict = settings.strict,
-        dialect = settings.dialect,
         compat = settings.compat,
         moduleName = moduleName,
     })

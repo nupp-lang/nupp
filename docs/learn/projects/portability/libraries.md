@@ -17,8 +17,7 @@ return {
 
 For a one-off check or build, use `nupp check --compat lua51` or
 `nupp build --compat lua51`. Targets and individual files cannot disable an
-inherited requirement. Combining compatibility with a legacy `dialect` is an
-error. JSON check/build reports include the resolved `compat` value.
+inherited requirement. JSON check/build reports include the resolved `compat` value.
 
 Types, generics and other erased declarations remain available. Ordinary
 functions, tables, module exports, varargs, coroutines and non-suspending cleanup

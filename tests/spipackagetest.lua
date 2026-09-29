@@ -80,8 +80,8 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
         ] = [[return {include = {"src"}, build = {
             kind = "modules", entries = {"main"}, default = "browser",
             targets = {
-                browser = {dialect = "luajit", host = "browser", outDir = "out/browser"},
-                native = {dialect = "luajit", host = "native", outDir = "out/native"},
+                browser = {host = "browser", outDir = "out/browser"},
+                native = {host = "native", outDir = "out/native"},
             }
         }}]],
         ["src/main.g.nupp"] = source,
@@ -97,24 +97,19 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
         assertEq(parsed.host, "browser", "the editor honors the named default target")
-        assertEq(parsed.dialect, "luajit")
         assertEq(project.check(dir), 0, "the default browser target checks")
         for _, target in ipairs({
-            {name = "browser", host = "browser", dialect = "luajit"},
-            {name = "native", host = "native", dialect = "luajit"},
+            {name = "browser", host = "browser"},
+            {name = "native", host = "native"},
         }) do
             local options = target.name == "browser" and {} or {target = target.name}
             assertEq(project.build(dir, options), 0, target.name .. " target builds")
             local output = dir .. "/out/" .. target.name
             local facts = assert(loadfile(output .. "/nupp/runtime/target.lua"))()
             assertEq(facts.host, target.host, "generated host")
-            assertEq(facts.dialect, target.dialect, "generated dialect")
+            assertEq(facts.dialect, "luajit", "every target runs on LuaJIT")
             for _, name in ipairs({"nativebuffer", "nativestorage"}) do
-                assertEq(
-                    exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"),
-                    target.dialect == "luajit",
-                    target.name .. " carries " .. name
-                )
+                assert(exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"), target.name .. " carries " .. name)
             end
             assertEq(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
@@ -137,7 +132,7 @@ function M.fixedHostLibrariesRemainOrdinaryBundleImports()
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", dialect = "luajit", outDir = "out",
+            kind = "bundle", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
         ["src/main.g.nupp"] = [[local re = require("re")
@@ -281,7 +276,7 @@ end
 
 function M.nativeBitopsNeedNoSpiResolution()
     local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}, dialect = "luajit"}}',
+        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}}}',
         ["src/setup.nupp"] = [[
 module setup
 export = require("consumer")
@@ -318,7 +313,7 @@ end
 
 function M.nativeStructsBindFfiDirectly()
     local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}, dialect = "luajit"}}',
+        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}}}',
         ["src/setup.nupp"] = [[
 module setup
 export = require("consumer")
@@ -496,7 +491,7 @@ local function checkDocumentedSpi(page)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", dialect = "luajit", outDir = "out",
+            kind = "bundle", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
         [

@@ -106,9 +106,8 @@ preserves module paths beneath `outDir`, so `app.main` becomes
 
 ### Browser host and source compatibility
 
-A target's `host = "browser"` selects browser services independently of its
-source dialect. LuaJIT is the default; `nupp build --host browser` overrides the
-manifest for one invocation. Browser LuaJIT uses i686 Linux layouts and native
+A target's `host = "browser"` selects browser services; `nupp build --host
+browser` overrides the manifest for one invocation. Browser LuaJIT uses i686 Linux layouts and native
 guest storage. Browser Wasm kernels have their own memory and transfer ABI.
 See [Wasm applications](../performance/ahead-of-time/wasm.md).
 
@@ -116,8 +115,7 @@ Project-root `compat = "lua51"` or `--compat lua51` checks that ordinary output
 and its reachable dependencies can run on stock Lua 5.1. It rejects unsupported
 syntax and LuaJIT-only facilities rather than translating them. It applies to
 every project target and cannot be relaxed by a file or dependency. The flag
-is independent of strict checking and optimization and cannot be combined with
-a legacy lowering dialect.
+is independent of strict checking and optimization.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
@@ -176,8 +174,7 @@ resources = {
 The manifest is validated before builds, checks, tests, and task queries.
 Validation covers dense string arrays, required target inputs, supported
 dependency kinds, named target and dependency references, and dependency
-cycles. A target's `dialect`, when present, must be `"luajit"`.
-Configuration errors name the invalid field before any build work starts.
+cycles. Configuration errors name the invalid field before any build work starts.
 
 Every table in the manifest takes a closed set of keys, and one that is not in
 it is refused by name, with the nearest valid name when there is one:

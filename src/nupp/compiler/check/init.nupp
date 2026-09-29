@@ -881,14 +881,7 @@ function checkMod.check(
     opts: state.Options?
 ): {checkMod.Diagnostic}, Type?, state.ModuleExports
     opts = opts or {} as state.Options
-    local selectedDialect, dialectErr = require("nupp.compiler.dialects").resolve(opts.dialect)
-    if not selectedDialect then
-        error(tostring(dialectErr), 2)
-    end
-    opts.dialect = selectedDialect
-    local selectedCompat, compatError = require(
-        "nupp.compiler.compat"
-    ).resolve(opts.compat, env and env.compat, selectedDialect)
+    local selectedCompat, compatError = require("nupp.compiler.compat").resolve(opts.compat, env and env.compat)
     if compatError then
         error(compatError, 2)
     end
@@ -907,9 +900,6 @@ function checkMod.check(
     -- Effects are compiler-recognized runtime requirements. They are not manifest
     -- switches: the build derives its native feature set from them.
     result.effects = {}
-    -- The checker and every later lowering read the same resolved build axis. No
-    -- dialect-specific rule is implied merely by recording it here.
-    result.dialect = selectedDialect
     result.host = env and env.artifactHost or "native"
     result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName
@@ -1892,7 +1882,7 @@ function checkMod.check(
     --- reaching a symbol it never declared is NUPP2004 instead of silence.
     c.cNamespaceType = function(): Type
         local decls: {[string]: Type} = {}
-        local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect)
+        local resolved = c.opts._capabilityResolution or capabilities.resolve()
         local cinterop = capabilities.get(resolved, "cinterop")
         if cinterop.kind ~= "missing"
             and (c.env and c.env.compilerServices and c.env.compilerServices.cheader ~= nil)

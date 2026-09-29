@@ -55,7 +55,7 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
             const timer = setTimeout(() => reject(new Error('Compiler request timeout')), 120000);
             action(value => {clearTimeout(timer); resolve(value);}, error => {clearTimeout(timer); reject(error);});
           });
-          const options = {dialect: backend, strict: true, optimize: true};
+          const options = {strict: true, optimize: true};
           try {
             await bounded((resolve, reject) => {
               worker.onmessage = ({data}) => {

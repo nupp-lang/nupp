@@ -35,7 +35,7 @@ The UI retains one stateful compiler session for checks, compilation and hover:
 ```js
 worker.postMessage({
   id: 1, kind: "compile", source, filename: "playground.nupp",
-  options: {strict: true, optimize: true, dialect: "luajit"},
+  options: {strict: true, optimize: true},
 });
 ```
 

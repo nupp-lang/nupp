@@ -20,7 +20,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local sharedEnv = envMod.new(HERE .. "/..")
 local gpuEnv = envMod.new(HERE .. "/..", {config = {include = {"src"}, _target = {aot = "require"}},})
 local browserGpuEnv = envMod.new(HERE .. "/..", {
-    config = {include = {"src"}, _target = {aot = "require-wasm", host = "browser", dialect = "luajit"}},
+    config = {include = {"src"}, _target = {aot = "require-wasm", host = "browser"}},
 })
 
 local M = {}

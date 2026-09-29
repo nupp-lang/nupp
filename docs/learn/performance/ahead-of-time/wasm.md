@@ -5,12 +5,12 @@ order: 636
 # Wasm AOT applications
 
 The browser package runs LuaJIT inside a retained v86 guest. Select browser
-services independently of the emitted dialect:
+services with the target's host:
 
 ```lua
 app = {
    kind = "bundle", entries = {"main"}, sources = {"src"},
-   output = "dist/app.lua", dialect = "luajit", host = "browser",
+   output = "dist/app.lua", host = "browser",
    aot = "require-wasm",
 }
 ```

@@ -185,7 +185,7 @@ function M.theNextCommandReadsWhatThisOneWrote()
     local second = json.decode(run())
     test.equal(second.ok, first.ok, "and the second answers the same")
     test.equal(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
-    test.equal(second.dialect, first.dialect, "for the same dialect")
+    test.equal(second.compat, first.compat, "under the same profile")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -270,7 +270,7 @@ local function writeImageFixture(roots, identity)
     local ok, why = pcall(function()
         assert(
             loadfile(ROOT .. "/editors/playground/tools/generate-prelude-image.lua")
-        )(bundle, output, "image", "luajit")
+        )(bundle, output, "image")
         local written = assert(io.open(output, "rb"))
         data = written:read("*a");
         written:close()

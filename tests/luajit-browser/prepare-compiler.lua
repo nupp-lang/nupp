@@ -27,7 +27,6 @@ for index, request in ipairs(requests) do
         response = session:hover(request.offset)
     else
         local options = request.options or {}
-        options.dialect = options.dialect or "luajit"
         response = session[request.kind](session, request.source, request.filename, options)
     end
     if request.expect then

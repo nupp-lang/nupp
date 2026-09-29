@@ -25,7 +25,6 @@ local function runOptimizer(result, options)
         level = options and options.level or 0,
         filename = options and options.filename or "test.g.nupp",
         disabled = options and options.disabled or {},
-        dialect = options and options.dialect or "luajit",
         constSelection = options and options.constSelection or nil,
     }
 
@@ -126,7 +125,7 @@ local function executeAt(src, level, filename, normalize)
 end
 
 -- Requires `-O0` and `-O2` to print the same thing, and returns the transcript.
--- `filename` picks the dialect: a `.g.nupp` name is gradual, a `.nupp` name strict.
+-- `filename` picks the floor: a `.g.nupp` name is gradual, a `.nupp` name strict.
 local function assertAgrees(src, filename, normalize)
     filename = filename or "differential.g.nupp"
     local plain = executeAt(src, 0, filename, normalize)
@@ -875,7 +874,7 @@ if different(2, 2) then return 901 else return 42 end
     assertEq(run(source), 42)
 end
 
-function M.foldingKeepsTheSameResultsInBothLuaDialects()
+function M.foldingKeepsTheSameResults()
     local source = [[
 local function add(a: number, b: number): number return a + b end
 local value = add(2, 3)
@@ -884,19 +883,16 @@ local function choose(flag: boolean): number
 end
 return choose(true), 1 == 2, select('#', true and choose(false))
 ]]
-    for _, dialect in ipairs({"luajit"}) do
-        local result = parser.parse(source, "test.g.nupp")
-        check.check(result, "test.g.nupp", env)
-        result.dialect = dialect
-        runOptimizer(result, {level = 1, dialect = dialect})
-        local code, diagnostics = gen.generate(result, "test")
-        assertEq(#diagnostics, 0, dialect .. " generates")
-        local value, equality, count = assert(loadstring(code))()
-        assertEq(value, 20, dialect)
-        assertEq(equality, false, dialect)
-        assertEq(count, 1, dialect)
-        assertEq(code:find("901", 1, true), nil, dialect .. " removes the dead arm")
-    end
+    local result = parser.parse(source, "test.g.nupp")
+    check.check(result, "test.g.nupp", env)
+    runOptimizer(result, {level = 1})
+    local code, diagnostics = gen.generate(result, "test")
+    assertEq(#diagnostics, 0, "generates")
+    local value, equality, count = assert(loadstring(code))()
+    assertEq(value, 20)
+    assertEq(equality, false)
+    assertEq(count, 1)
+    assertEq(code:find("901", 1, true), nil, "removes the dead arm")
 end
 
 function M.constantControlFlowPreservesBlockExpressionEvaluation()

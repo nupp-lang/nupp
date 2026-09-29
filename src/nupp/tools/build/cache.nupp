@@ -225,8 +225,7 @@ type cache.State = {
     aotToolchain: {
         command: string,
         signature: string,
-        version: string,
-        dialect: string
+        version: string
     }?,
 
     --- The complete semantic input to the AOT pipeline, before checking or

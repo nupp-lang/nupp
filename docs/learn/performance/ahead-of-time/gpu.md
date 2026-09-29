@@ -166,8 +166,7 @@ the buffer.
 
 ## Browser GPU kernels
 
-A browser target combines `host = "browser"`, the default LuaJIT dialect, and
-`aot = "require-wasm"`. GPU kernels use `nupp.mem.span.Span` and
+A browser target combines `host = "browser"` and `aot = "require-wasm"`. GPU kernels use `nupp.mem.span.Span` and
 `nupp.mem.span.WriteSpan`; the Worker transfers bounded copies between guest
 storage and WebGPU buffers:
 

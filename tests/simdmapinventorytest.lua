@@ -63,29 +63,14 @@ function M.mathMapCorpusCoversEveryAdmittedIdentityAndVariadicForms()
     )
 end
 
-function M.portableMathTargetRefusalsRemainPositionedAndNativeAccepted()
+function M.nativeMathIdentitiesCheckClean()
     local parser = require("nupp.compiler.syntax.parser")
     local check = require("fragment")
     local env = require("nupp.compiler.project.env").new("tests")
     local source = "local functions = {\n    math.sinh,\n    math.cosh,\n    math.tanh,\n    math.atan2,\n}\nreturn functions"
-    for _, dialect in ipairs({"luajit"}) do
-        local parsed = parser.parse(source, "maps-target.g.nupp")
-        assert(#parsed.errors == 0)
-        local diagnostics = check.check(parsed, "maps-target.g.nupp", env, {dialect = dialect})
-        if dialect == "luajit" then
-            assert(#diagnostics == 0)
-        else
-            assert(#diagnostics == 4, "exactly four runtime-specific math identities")
-            local expected = {"math.sinh", "math.cosh", "math.tanh", "math.atan2"}
-            for i, diagnostic in ipairs(diagnostics) do
-                assert(diagnostic.code == "NUPP3010" and diagnostic.msg:find(expected[i], 1, true))
-                assert(
-                    diagnostic.line == i + 1 and diagnostic.col == 10,
-                    "refusal must point at the authored math member"
-                )
-            end
-        end
-    end
+    local parsed = parser.parse(source, "maps-target.g.nupp")
+    assert(#parsed.errors == 0)
+    assert(#check.check(parsed, "maps-target.g.nupp", env) == 0)
 end
 
 return M

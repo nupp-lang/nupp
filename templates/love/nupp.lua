@@ -13,7 +13,7 @@ return {
     build = {
         outDir = "build",
         default = "game",
-        targets = {game = {kind = "modules", description = "Build ${name} for LÖVE", dialect = "luajit",},},
+        targets = {game = {kind = "modules", description = "Build ${name} for LÖVE",},},
     },
 
     tasks = {play = {build = "game", description = "Build ${name} and start it with LÖVE", argv = {"love", "build"},},},

@@ -22,18 +22,18 @@ local function parsed(source)
     return parser.parse(source, FILE)
 end
 
-local function checked(source, dialect)
+local function checked(source)
     local tree = parsed(source)
     assert(#tree.errors == 0, tree.errors[1] and tree.errors[1].msg)
-    local diagnostics = check.check(tree, FILE, sharedEnv, {dialect = dialect})
+    local diagnostics = check.check(tree, FILE, sharedEnv)
     return tree, diagnostics
 end
 
-local function run(source, dialect, level)
-    local tree, diagnostics = checked(source, dialect)
+local function run(source, level)
+    local tree, diagnostics = checked(source)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
     if level then
-        optimize.run(tree, {level = level, filename = FILE, dialect = dialect or "luajit"})
+        optimize.run(tree, {level = level, filename = FILE})
     end
     local code, errors = gen.generate(tree, FILE)
     assert(#errors == 0, (errors[1] and errors[1].msg or "") .. "\n" .. code)
@@ -46,7 +46,7 @@ end
 -- Asserts the generated program answers true and returns its source for cases
 -- that also inspect the lowering.
 local function runsGenerated(source)
-    local answer, code = run(source, "luajit")
+    local answer, code = run(source)
     assert(answer, "luajit:\n" .. code)
 
     return code
@@ -988,7 +988,7 @@ end
 --- Every optimization level keeps the exit and the pack.
 function M.optimizerPreservesTheExit()
     for _, level in ipairs({0, 1, 2}) do
-        for _, dialect in ipairs({"luajit"}) do
+        do
             local answer = run(
                 [[
 local function source(n: integer): (integer?, string?)
@@ -1010,10 +1010,9 @@ local bad, badReason = wrapped(-1)
 
 return good == 4 and goodReason == nil and bad == nil and badReason == "low"
 ]],
-                dialect,
                 level
             )
-            assert(answer, ("level %d, %s"):format(level, dialect))
+            assert(answer, ("level %d"):format(level))
         end
     end
 end

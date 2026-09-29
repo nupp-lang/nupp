@@ -713,7 +713,6 @@ local function openSession(
     local inc = incremental.new(root, {
         config = envConfig,
         strict = strict,
-        dialect = target.dialect,
         nativeCompilerServices = true,
         typeRoots = rocks and rocks.typeRoots or {},
         ambientTypeRoots = ambientTypeRoots,
@@ -957,7 +956,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local enqueueLinked: function(string): nil
 
     local function compatibleModule(name: string): boolean
-        return moduleTargets.supports(name, target.dialect or "luajit", target.host)
+        return moduleTargets.supports(name, target.host)
     end
 
     local function runtimeImports(name: string, code: string): any
@@ -1278,7 +1277,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- joining it.
     local said = {}
 
-    -- A native one-payload target runs on the same LuaJIT dialect as the compiler's
+    -- A native one-payload target runs on the same LuaJIT VM as the compiler's
     -- own modules. Reuse those byte-for-byte artifacts instead of rechecking their
     -- source against the application's declaration graph. Besides being needless,
     -- that would mix two copies of nominal standard-library types in one checker
@@ -1496,7 +1495,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 level = config._optLevel or 0,
                 filename = path,
                 disabled = config._disabledPasses,
-                dialect = (config._target or {}).dialect,
                 constSelection = constSelection,
             })
             optimizationAccounted = true

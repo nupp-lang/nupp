@@ -177,7 +177,7 @@ local function run(options: any): integer
         end
     end
     local checkPlain = function(modulePath: string, env: any): boolean
-        return compile.check(modulePath, env, {strict = settings.strict, dialect = settings.dialect}) ~= nil
+        return compile.check(modulePath, env, {strict = settings.strict}) ~= nil
     end
     -- The program's `arg` is its own, as it is for a script `luajit` runs: `arg[0]` the
     -- program and `arg[1]` onwards what followed it. The compiler's command line is

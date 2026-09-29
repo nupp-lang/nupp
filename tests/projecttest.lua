@@ -820,7 +820,7 @@ function M.browserBundlesKeepWasmAndGuestNativeAotPolicies()
                 "nupp.lua"
             ] = (
                 [[return {include = {"src"}, build = {kind = "bundle",
-                dialect = "luajit", host = "browser", entries = {"main"}, outDir = "out",
+                host = "browser", entries = {"main"}, outDir = "out",
                 output = "out/app.lua", aot = %q}}]]
             ):format(policy),
             ["src/main.nupp"] = "return 42\n",
@@ -1135,6 +1135,14 @@ function M.retiredManifestKeysFailAsUnknownKeys()
             .. 'aotFeatures = "avx2"}}}}\n',
         "aotFeatures must be a table"
     )
+    reject(
+        'return {include = {"src"}, build = {targets = {app = {kind = "modules", dialect = "luajit"}}}}\n',
+        'has no key "dialect"'
+    )
+    reject(
+        'return {include = {"src"}, build = {targets = {site = {kind = "docs", sources = {"src"}, dialect = "luajit"}}}}\n',
+        'has no key "dialect"'
+    )
     -- A produced path is `output` everywhere a manifest names one.
     reject(
         'return {include = {"src"}, dependencies = {native = {kind = "c", out = "lib/native.so"}}}\n',
@@ -1252,74 +1260,6 @@ return {include = {"src"}, build = {targets = {app = {
     assert(unknown and unknown:find("nativeFeatures names no feature jsoon", 1, true), tostring(unknown))
     local _, wrongType = load("{lpeg = 'yes'}")
     assert(wrongType and wrongType:find("nativeFeatures.lpeg must be true or false", 1, true), tostring(wrongType))
-end
-
-function M.dialectsAreValidatedInheritedReportedAndCacheSeparately()
-    local function load(dialect)
-        local dir = tempProject({
-            [
-                "nupp.lua"
-            ] = [[
-return {include = {"src"}, build = {targets = {app = {
-   entries = {"main"}, dialect = ]]
-            .. dialect
-            .. [[
-}}}}
-]]
-        })
-        local config, err = project.loadManifest(dir)
-        remove(dir)
-
-        return config, err
-    end
-
-    assert(load('"luajit"'), "the LuaJIT dialect is accepted")
-    local _, removed = load('"lua51"')
-    assert(removed and removed:find('build.targets.app.dialect must be "luajit"', 1, true), tostring(removed))
-    local _, unsupported = load('"lua54"')
-    assert(
-        unsupported and unsupported:find('build.targets.app.dialect must be "luajit"', 1, true),
-        tostring(unsupported)
-    )
-    local _, wrongType = load("true")
-    assert(wrongType and wrongType:find('build.targets.app.dialect must be "luajit"', 1, true), tostring(wrongType))
-
-    local inherited = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {build = {dialect = "luajit", targets = {
-   inherited = {entries = {"main"}},
-   explicit = {entries = {"main"}, dialect = "luajit"},
-}}}
-]]
-    })
-    local inheritedTask = assert(project.describeTasks(inherited, "inherited"))
-    local explicitTask = assert(project.describeTasks(inherited, "explicit"))
-    assertEq(inheritedTask.dialect, "luajit", "a target inherits the build dialect")
-    assertEq(explicitTask.dialect, "luajit", "a target may restate the build dialect")
-    remove(inherited)
-
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {include = {"src"}, build = {outDir = "out", entries = {"main"},
-   dialect = "luajit"}}
-]],
-        ["src/main.nupp"] = "return 42\n",
-    })
-    local produced = {}
-    assertEq(project.build(dir, {produced = produced}), 0, "the configured dialect builds")
-    assertEq(produced.dialect, "luajit", "build reporting names the manifest dialect")
-    local warm = {}
-    assertEq(project.build(dir, {stats = warm}), 0, "the same dialect reuses its build")
-    assertEq(warm.generatedModules, 0, "an unchanged dialect regenerates nothing")
-
-    local checked = {}
-    assertEq(project.check(dir, {dialect = "luajit", produced = checked}), 0, "check accepts the dialect axis")
-    assertEq(checked.dialect, "luajit", "check reporting names its resolved dialect")
-    remove(dir)
 end
 
 function M.subprocessPreservesEmptyArguments()
@@ -2135,7 +2075,7 @@ function M.warmRuntimeCheckUsesRecordedRuntimeDependencies()
         ] = [[
 return {
    include = {"src"},
-   build = {outDir = "out", entries = {"main"}, dialect = "luajit"},
+   build = {outDir = "out", entries = {"main"}},
 }
 ]],
         [

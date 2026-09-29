@@ -136,16 +136,6 @@ function M.generatedPreludeLoadsWithoutLoadstring()
     assert(scope.__testPrelude, "prelude executes with a load-only host")
 end
 
-function M.checkerRecordsTheResolvedDialect()
-    local default = parser.parse("return 42\n", "default.nupp")
-    check.check(default, "default.nupp", sharedEnv)
-    assertEq(default.dialect, "luajit", "the checker defaults to the native dialect")
-
-    local explicit = parser.parse("return 42\n", "explicit.nupp")
-    check.check(explicit, "explicit.nupp", sharedEnv, {dialect = "luajit"})
-    assertEq(explicit.dialect, "luajit", "the checker records the explicit dialect")
-end
-
 function M.portableWideIntegersUseFixedOperations()
     local source = [[
 local a: int64 = 9223372036854775807LL
@@ -218,10 +208,7 @@ return #readable, readable[1].value
 ]]
     local tree = parser.parse(source, "wasm-view.nupp")
     assertEq(
-        #check.check(tree, "wasm-view.nupp", sharedEnv, {
-            dialect = "luajit",
-            host = "browser"
-        }),
+        #check.check(tree, "wasm-view.nupp", sharedEnv, {host = "browser"}),
         0,
         "Wasm views check through both required contracts"
     )
@@ -233,7 +220,7 @@ return #readable, readable[1].value
     assert(code:find("require(\"ffi\")", 1, true), code)
 end
 
-function M.poolIsOrdinaryTablesOnEveryDialect()
+function M.poolIsOrdinaryTablesOnEveryHost()
     local source = table.concat(
         {
             "local pool = require('nupp.util')",
@@ -269,7 +256,7 @@ function M.arenaLowersThroughTheStorageContract()
     )
     sharedEnv.loaded = {}
     local tree = parser.parse(source, "wasm-arena.nupp")
-    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {dialect = "luajit", host = "browser"})
+    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {host = "browser"})
     assertEq(#diags, 0, "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or ""))
     local code, genDiags = gen.generate(tree, "wasm-arena.nupp")
     assertEq(#genDiags, 0, "an arena lowers through the storage contract")
@@ -314,8 +301,7 @@ function M.randomUsesPortableBitops()
                 "return generator:next(), generator:integer(1, 100)",
             },
             "\n"
-        ),
-        {dialect = "luajit"}
+        )
     )
 end
 
@@ -329,8 +315,7 @@ function M.digestUsesPortableBitops()
                 "return rolling:hexDigest()",
             },
             "\n"
-        ),
-        {dialect = "luajit"}
+        )
     )
 end
 
@@ -355,7 +340,7 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     assertEq(#result.errors, 0, "syntax errors in browser HTTP provider")
     local root = HERE .. "/.."
     local env = envMod.new(root)
-    local diags = check.check(result, path, env, {dialect = "luajit", host = "browser"})
+    local diags = check.check(result, path, env, {host = "browser"})
     assertEq(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
 end
 
@@ -1554,7 +1539,7 @@ end
 
 function M.everyFeatureRuntimeIsReachableOrRefused()
     local surface = require("nupp.compiler.standardsurface")
-    local browser = {opts = {dialect = "luajit"}, env = {artifactHost = "browser"}}
+    local browser = {opts = {}, env = {artifactHost = "browser"}}
     for _, effect in ipairs(native.effectNames()) do
         local feature = native.feature(effect)
         local moduleName = feature.runtimeModule
@@ -1574,7 +1559,7 @@ end
 
 function M.reachableStandardFacilitiesHaveRuntimeMetadata()
     local surface = require("nupp.compiler.standardsurface")
-    local browser = {opts = {dialect = "luajit"}, env = {artifactHost = "browser"}}
+    local browser = {opts = {}, env = {artifactHost = "browser"}}
     for moduleName, facility in pairs(surface.all()) do
         if facility.effect and surface.reachable(browser, moduleName) then
             local feature = native.feature(facility.effect)
@@ -1589,7 +1574,7 @@ end
 
 function M.portableFeatureRuntimesAreReachable()
     local surface = require("nupp.compiler.standardsurface")
-    local browser = {opts = {dialect = "luajit"}, env = {artifactHost = "browser"}}
+    local browser = {opts = {}, env = {artifactHost = "browser"}}
     local seen = 0
     for _, effect in ipairs(native.effectNames()) do
         local feature = native.feature(effect)
@@ -2889,7 +2874,7 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
 end
 
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()
-    assertClean("local layout = require('nupp.gpu.layout')", {dialect = "luajit", host = "browser"})
+    assertClean("local layout = require('nupp.gpu.layout')", {host = "browser"})
     assertEq(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
     local selected = native.expand({["runtime.gpu_layout"] = true})
     assert(not selected["native.gpu"], "layout algebra must not select a device provider")

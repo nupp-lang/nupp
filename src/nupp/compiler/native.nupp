@@ -30,7 +30,7 @@ type native.Feature = {
     --- Whether `runtimeModule` compiles for a target the compiler did not build
     --- itself for. A feature that says so is compiled for that target; one that
     --- does not is staged from the compiler's own build, which is only the same
-    --- artifact when the dialects agree. Saying so is a claim that the module
+    --- artifact when both target the same VM. Saying so is a claim that the module
     --- names nothing a portable target lacks, and the feature-runtime suite
     --- holds every feature to it either way.
     portableRuntime: boolean?,

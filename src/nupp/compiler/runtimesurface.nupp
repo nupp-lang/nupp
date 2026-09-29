@@ -4,9 +4,9 @@ module nupp.compiler.runtimesurface
 The ambient Lua identities that have one contract across the portable runtime
 matrix.
 
-The declaration prelude describes LuaJIT, because that remains the native
-dialect. A portable check still resolves through those same definitions so
-hover and field typing do not fork. This closed table is the second half of
+The declaration prelude describes LuaJIT, because every artifact runs on it. A
+portable check still resolves through those same definitions so hover and field
+typing do not fork. This closed table is the second half of
 that arrangement: it identifies the declarations whose runtime contract is
 shared by Lua 5.1 through 5.4 and LuaJIT. Everything else fails closed.
 

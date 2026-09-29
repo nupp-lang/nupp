@@ -484,7 +484,6 @@ type gen.Checked = {
     @readonly moduleName: string?,
     @readonly declaredModuleName: string?,
     @readonly sendableLiterals: {any}?,
-    @readonly dialect: string?,
     @readonly host: string?,
     @readonly compat: string?,
     @readonly effects: {[string]: any}?,
@@ -544,10 +543,10 @@ function gen.generate(
     -- This immutable fact describes generated code and is unrelated to provider
     -- discovery.
     if result.moduleName == "nupp.runtime.target" then
-        return ("return {dialect=%q,host=%q}"):format(result.dialect or "luajit", result.host or "native"), {}, nil, {}
+        return ("return {dialect=\"luajit\",host=%q}"):format(result.host or "native"), {}, nil, {}
     end
     local out = {}
-    local capabilityResolution = capabilities.resolve(result.dialect or "luajit")
+    local capabilityResolution = capabilities.resolve()
     --[[
     The fixed-width scalar members that lower to inline BitOp rather than to a
     call through the installed `nupp.math`.
@@ -2639,7 +2638,7 @@ function gen.generate(
 
     -- Emits what `slot op= value` stores, given `emitRead` emitting the slot's
     -- current value: the bitops helper applied to it when the operator has no
-    -- form in this dialect, and the operator applied to it otherwise. The value
+    -- form in LuaJIT, and the operator applied to it otherwise. The value
     -- is parenthesized so its own operators bind before the compound one.
     function pluck.emitCompoundValue(x, emitRead, lead: string?, line)
         if lead then

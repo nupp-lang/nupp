@@ -12,7 +12,6 @@ anything -- it answers about the manifest.
 local json = require("nupp.codec.json")
 local cache = require("nupp.tools.build.cache")
 local manifest = require("nupp.tools.build.manifest")
-local dialects = require("nupp.compiler.dialects")
 local projectconfig = require("nupp.compiler.project.projectconfig")
 
 local jsonArray = cache.jsonArray
@@ -126,7 +125,6 @@ local function taskDescription(config, name, isDefault)
         resources = copyResources(target.resources),
         dependencies = copyStrings(target.dependencies),
         nativeFeatures = target.nativeFeatures,
-        dialect = target.dialect or dialects.DEFAULT,
         layoutTarget = target.layoutTarget,
         platforms = copyStrings(target.platforms),
         command = jsonArray({"nupp", "build", "--target", name}),
