@@ -365,6 +365,10 @@ function M.actionsAndJsonDiagnosticsAreMachineReadable()
    for _, action in ipairs(actions.actions) do titles[#titles + 1] = action.title end
    contains(table.concat(titles, "|"), "mark it local", "local action")
    contains(table.concat(titles, "|"), "mark it global", "global action")
+   -- Nothing produces a refactoring, so offering the kind would answer an empty list
+   -- that cannot be told apart from "none here".
+   contains(capture(dir, "lsp actions --only refactor point.nupp 2 8; echo \"__exit__:$?\""),
+      "__exit__:2", "refactor is not an action kind")
 
    local checked = json.decode(captureJson(dir, "check --json point.nupp"))
    assert(#checked.diagnostics == 1, "JSON check emits one diagnostic")

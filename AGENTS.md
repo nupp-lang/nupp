@@ -168,7 +168,7 @@ whenever output is not a terminal, so piped output never carries escapes.
   is line N of the input; a bytecode listing carries its own mapping under
   `--json`.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
-  `--only quickfix` or `--only refactor` to narrow the results.
+  `--only quickfix` to narrow the results.
 
 ## Finishing work
 

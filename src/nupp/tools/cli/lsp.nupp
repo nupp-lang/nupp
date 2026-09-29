@@ -1002,7 +1002,7 @@ local function runActions(client, opts)
     params.range = {start = position, ["end"] = position}
     local context: CodeActionContext = {diagnostics = jsonArray({})}
     if opts.only then
-        context.only = jsonArray({opts.only == "refactor" and "refactor.rewrite" or opts.only})
+        context.only = jsonArray({opts.only})
     end
     params.context = context
     local result, requestErr = client.request("textDocument/codeAction", params)
@@ -1505,8 +1505,8 @@ local record Actions
     @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
     format: string?
 
-    --- Narrow the results to quickfix or refactor.
-    @cli(value = "KIND", choices = {"quickfix", "refactor"})
+    --- Narrow the results to one kind of action.
+    @cli(value = "KIND", choices = {"quickfix"})
     only: string?
 
     --- Print the JSON Schema of JSON output and exit.

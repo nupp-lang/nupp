@@ -34,7 +34,7 @@ it.
 | Folding ranges | Any multi-line node |
 | Selection ranges | The enclosing node chain |
 | Formatting | Whole document and range |
-| Code actions | Quick fixes and refactorings |
+| Code actions | Quick fixes |
 | Code lenses | One `Inspect` lens over every checked function, for a client that asked |
 | Go to implementation | Registered service members |
 
@@ -274,7 +274,7 @@ nupp lsp definition  --json FILE LINE COLUMN
 nupp lsp references  --json [--include-declaration] FILE LINE COLUMN
 nupp lsp symbols     --json [--file FILE] [PATTERN]
 nupp lsp rename            FILE LINE COLUMN NEW_NAME
-nupp lsp actions     --json [--only quickfix|refactor] FILE LINE COLUMN
+nupp lsp actions     --json [--only quickfix] FILE LINE COLUMN
 nupp lsp trace-check --json FILE LINE COLUMN
 nupp lsp artifacts   --json FILE LINE COLUMN
 nupp lsp artifact    --json --kind lua|bytecode [-O0|-O1|-O2] FILE
@@ -290,8 +290,7 @@ character is an error rather than a guess.
 refuses a symbol not declared in a project file. It also refuses a new name that
 would change what the program means: one already bound where the declaration or
 a use stands, so that a use would resolve to a different declaration afterwards,
-or a member name the module already declares. `--only refactor` selects the
-`refactor.rewrite` kind.
+or a member name the module already declares.
 
 `trace-check` selects the smallest enclosing checked function and returns the
 same normalized blocker and risk identities used by `@jit`, including resolved
