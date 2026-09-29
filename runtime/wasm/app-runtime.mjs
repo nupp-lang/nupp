@@ -236,38 +236,15 @@ function gpuRuntime(options) {
 }
 
 function memoryLease(effect, options, expectedBytes, writable = false) {
-  if (options.transfers) return options.transfers.lease(effect.lease, expectedBytes, writable);
-  const module = options.wasmModule;
-  const id = effect.lease;
-  if (!module || !Number.isInteger(id) || id < 1 || !module._nupp_wasm_lease_address ||
-      !module._nupp_wasm_lease_size || !module._nupp_wasm_release_lease) {
-    throw new Error("browser operation has no valid Wasm transfer lease");
-  }
-  const pointer = module._nupp_wasm_lease_address(id);
-  const bytes = module._nupp_wasm_lease_size(id);
-  if (!pointer || (expectedBytes !== undefined && bytes !== expectedBytes)) {
-    throw new Error("browser transfer lease is stale or has the wrong size");
-  }
-  if (!Number.isInteger(pointer) || pointer < 0 || !Number.isInteger(bytes) || bytes < 0 ||
-      !module.HEAPU8 || pointer > module.HEAPU8.byteLength || bytes > module.HEAPU8.byteLength - pointer) {
-    throw new Error("browser transfer lease is outside Wasm memory");
-  }
-  if (writable && (!module._nupp_wasm_lease_writable || module._nupp_wasm_lease_writable(id) !== 1)) {
-    throw new Error("browser destination requires a writable transfer lease");
-  }
-  return {id, bytes, view: module.HEAPU8.subarray(pointer, pointer + bytes), module};
+  if (!options.transfers) throw new Error("browser operation has no transfer lease table");
+  return options.transfers.lease(effect.lease, expectedBytes, writable);
 }
 
 // Releases the lease an effect names, whether or not memoryLease returned it:
 // the Lua side only releases after a successful answer, so every failed
-// operation would otherwise strand one of the fixed lease slots.
+// operation would otherwise strand one of the frame's leases.
 function releaseEffectLease(effect, options) {
-  if (options.transfers) { options.transfers.release(effect.lease); return; }
-  const module = options.wasmModule;
-  const id = effect.lease;
-  if (module && module._nupp_wasm_release_lease && Number.isInteger(id) && id > 0) {
-    module._nupp_wasm_release_lease(id);
-  }
+  if (options.transfers) options.transfers.release(effect.lease);
 }
 
 function gpuBuffer(runtime, id) {

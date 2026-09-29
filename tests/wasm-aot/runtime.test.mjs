@@ -8,6 +8,25 @@ import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
 
+// A guest transfer table over one heap: each lease is a window into it, and a
+// release records the lease and retires it.
+function heapTransfers(heap, leases, released = [], writable = () => true) {
+  return {
+    lease(id, expectedBytes, wantsWritable) {
+      const entry = leases.get(id);
+      if (!entry || (expectedBytes !== undefined && entry.bytes !== expectedBytes)) {
+        throw new Error("browser transfer lease is stale or has the wrong size");
+      }
+      if (wantsWritable && !writable(id)) throw new Error("browser destination requires a writable transfer lease");
+      return {id, bytes: entry.bytes, view: heap.subarray(entry.pointer, entry.pointer + entry.bytes)};
+    },
+    release(id) {
+      released.push(id);
+      leases.delete(id);
+    },
+  };
+}
+
 test("browser system effects report usable parallelism", async () => {
   const result = await handleBrowserEffects({
     kind: "effects", requests: [{id: 1, kind: "system"}],
@@ -449,7 +468,7 @@ test("browser WebGPU xor runs one uint32 invocation per input", async () => {
   }]);
 });
 
-test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
+test("browser WebGPU runtime moves bytes through transfer leases", async () => {
   const heap = new Uint8Array(128);
   const released = [];
   const leases = new Map([
@@ -524,13 +543,7 @@ test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
     gpu: {requestAdapter: async () => ({requestDevice: async () => device})},
     GPUBufferUsage: {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, UNIFORM: 8, MAP_READ: 16},
     GPUMapMode: {READ: 1},
-    wasmModule: {
-      HEAPU8: heap,
-      _nupp_wasm_lease_address(id) { return leases.get(id)?.pointer || 0; },
-      _nupp_wasm_lease_size(id) { return leases.get(id)?.bytes || 0; },
-      _nupp_wasm_lease_writable(id) { return leases.has(id) ? 1 : 0; },
-      _nupp_wasm_release_lease(id) { released.push(id); return leases.delete(id) ? 1 : 0; },
-    },
+    transfers: heapTransfers(heap, leases, released),
   };
   const run = async (id, operation) => {
     const result = await handleBrowserEffects({kind: "effects", requests: [{id, kind: "gpu", ...operation}]}, options);
@@ -705,61 +718,6 @@ test("the browser GPU host surfaces validation errors instead of reporting succe
   assert.equal(next.ok, false);
   assert.match(next.error, /WebGPU device error: the device saw something wrong/);
   assert.equal((await perform({operation: "runtime-synchronize"})).ok, true, "one error is reported once");
-});
-
-test("browser GPU download refreshes a lease after memory growth and rejects revoked permissions", async () => {
-  for (const revoke of [false, true, "readonly"]) {
-    const memory = new WebAssembly.Memory({initial: 1, maximum: 2});
-    let live = true;
-    let writable = true;
-    let released = 0;
-    let destroyed = false;
-    const module = {
-      HEAPU8: new Uint8Array(memory.buffer),
-      _nupp_wasm_lease_address() { return live ? 16 : 0; },
-      _nupp_wasm_lease_size() { return live ? 4 : 0; },
-      _nupp_wasm_lease_writable() { return live && writable ? 1 : 0; },
-      _nupp_wasm_release_lease() { live = false; released++; return 1; },
-    };
-    const device = {
-      queue: {submit() {}},
-      createBuffer() {
-        return {
-          async mapAsync() {
-            memory.grow(1);
-            module.HEAPU8 = new Uint8Array(memory.buffer);
-            if (revoke === true) live = false;
-            if (revoke === "readonly") writable = false;
-          },
-          getMappedRange() { return Uint8Array.of(1, 2, 3, 4).buffer; },
-          unmap() {},
-          destroy() { destroyed = true; },
-        };
-      },
-      createCommandEncoder() {
-        return {copyBufferToBuffer() {}, finish() { return {}; }};
-      },
-    };
-    const result = await handleBrowserEffects({
-      kind: "effects",
-      requests: [{id: 1, kind: "gpu", operation: "runtime-download", buffer: 1, lease: 1}],
-    }, {
-      gpuDevice: Promise.resolve(device),
-      gpuRuntime: {buffers: new Map([[1, {bytes: 4, buffer: {}}]])},
-      GPUBufferUsage: {MAP_READ: 1, COPY_DST: 2},
-      GPUMapMode: {READ: 1},
-      wasmModule: module,
-    });
-    assert.equal(result.responses[0].ok, !revoke, result.responses[0].error);
-    if (revoke) {
-      assert.match(result.responses[0].error, revoke === "readonly" ? /writable/ : /stale/);
-      assert.deepEqual(Array.from(module.HEAPU8.subarray(16, 20)), [0, 0, 0, 0]);
-    } else {
-      assert.deepEqual(Array.from(module.HEAPU8.subarray(16, 20)), [1, 2, 3, 4]);
-    }
-    assert.equal(released, 1);
-    assert.equal(destroyed, true);
-  }
 });
 
 test("browser WebGPU effects reject invalid uint32 input before opening a device", async () => {
@@ -979,18 +937,12 @@ test("closing a worker pool fails everything still outstanding", async () => {
   assert.ok(FakeLane.opened.every((lane) => lane.terminated));
 });
 
-test("HTTP moves response chunks through a writable memory lease without base64", async () => {
+test("HTTP moves response chunks through a writable transfer lease without base64", async () => {
   const heap = new Uint8Array(64);
-  let live = true;
+  const leases = new Map([[1, {pointer: 8, bytes: 5}]]);
   let writable = true;
   const options = {
-    wasmModule: {
-      HEAPU8: heap,
-      _nupp_wasm_lease_address: () => live ? 8 : 0,
-      _nupp_wasm_lease_size: () => live ? 5 : 0,
-      _nupp_wasm_lease_writable: () => writable ? 1 : 0,
-      _nupp_wasm_release_lease: () => { live = false; return 1; },
-    },
+    transfers: heapTransfers(heap, leases, [], () => writable),
     fetch: async () => new Response(Uint8Array.of(0, 255, 65, 66, 67), {status: 200}),
   };
   const request = {kind: "effects", requests: [{id: 1, kind: "http", url: "https://example.test", memoryResponse: true}]};
@@ -1002,10 +954,10 @@ test("HTTP moves response chunks through a writable memory lease without base64"
   result = (await handleBrowserEffects({kind: "effects", requests: [{id: 2, kind: "http", operation: "read-body", body, lease: 1}]}, options)).responses[0];
   assert.equal(result.ok, true, result.error);
   assert.deepEqual(Array.from(heap.subarray(8, 13)), [0, 255, 65, 66, 67]);
-  assert.equal(live, false);
+  assert.equal(leases.has(1), false);
   assert.equal(options.httpBodies.size, 0);
 
-  live = true;
+  leases.set(1, {pointer: 8, bytes: 5});
   result = (await handleBrowserEffects(request, options)).responses[0];
   const orphan = result.value.body;
   assert.equal(options.httpBodies.has(orphan), true);
@@ -1015,34 +967,11 @@ test("HTTP moves response chunks through a writable memory lease without base64"
   assert.deepEqual(result.value, {released: true});
   assert.equal(options.httpBodies.size, 0);
 
-  live = true;
   writable = false;
   result = (await handleBrowserEffects(request, options)).responses[0];
   result = (await handleBrowserEffects({kind: "effects", requests: [{id: 3, kind: "http", operation: "read-body", body: result.value.body, lease: 1}]}, options)).responses[0];
   assert.equal(result.ok, false);
   assert.match(result.error, /writable/);
-  assert.equal(live, false);
+  assert.equal(leases.has(1), false);
   assert.equal(options.httpBodies.size, 0);
-});
-
-test("Fetch owns request bytes before an asynchronous memory growth", async () => {
-  let live = true;
-  const heap = Uint8Array.of(0, 1, 2, 3, 4, 5);
-  const options = {
-    wasmModule: {
-      HEAPU8: heap,
-      _nupp_wasm_lease_address: () => live ? 1 : 0,
-      _nupp_wasm_lease_size: () => 3,
-      _nupp_wasm_release_lease: () => { live = false; return 1; },
-    },
-    fetch: async (_url, request) => {
-      heap.fill(99);
-      assert.deepEqual(Array.from(request.body), [1, 2, 3]);
-      return new Response("");
-    },
-  };
-  const result = (await handleBrowserEffects({kind: "effects", requests: [{id: 1, kind: "http", url: "https://example.test", bodyLease: 1, method: "POST", memoryResponse: true}]}, options)).responses[0];
-  assert.equal(result.ok, true, result.error);
-  assert.equal(live, false);
-  assert.equal(result.value.bodyBytes, 0);
 });

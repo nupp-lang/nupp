@@ -3,8 +3,6 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$script_dir/../.." && pwd)
-temporary=${RUNNER_TEMP:-/tmp}
-lua_source=${NUPP_LUA51_SOURCE:-$temporary/nupp-portable-compiler/lua-5.1.5/src}
 port=${NUPP_BROWSER_TEMPLATE_PORT:-8792}
 work=$(mktemp -d "${TMPDIR:-/tmp}/nupp-browser-templates.XXXXXX")
 server_pid=
@@ -21,7 +19,6 @@ trap cleanup EXIT
 
 plain="$work/plain-project"
 simd="$work/simd-project"
-runtime="$work/runtime"
 site="$work/site"
 "$repo/bin/nupp" init browser "$plain" --name browser-example --yes >/dev/null
 "$repo/bin/nupp" init browser-simd "$simd" --name browser-simd-example --yes >/dev/null
@@ -29,10 +26,7 @@ site="$work/site"
 for project in "$plain" "$simd"; do
   (
     cd "$project"
-    NUPP_SOURCE="$repo" \
-    NUPP_BROWSER_RUNTIME="$runtime" \
-    NUPP_LUA51_SOURCE="$lua_source" \
-      "$repo/bin/nupp" task package >/dev/null
+    NUPP_SOURCE="$repo" "$repo/bin/nupp" task package >/dev/null
   )
 done
 

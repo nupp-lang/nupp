@@ -508,7 +508,7 @@ end
 
 A target's `aot` build policy says what happens with it: `off`, the default,
 does nothing; `require` compiles it into the project's own shared library and
-fails the build when it cannot. Lua 5.1 targets use `emit-wasm` to package
+fails the build when it cannot. Browser targets use `emit-wasm` to package
 pointer kernels as Wasm modules, or `require-wasm` to replace their bodies with
 checked calls into those modules. See
 [wasm-aot.md](../learn/performance/ahead-of-time/wasm.md) for that host and its limits.

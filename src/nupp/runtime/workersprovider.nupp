@@ -44,7 +44,7 @@ export const provider: contracts.Provider? = do
     then
         yield available("nupp.runtime.provider.workers")
     end
-    if target.host == "browser" and (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil) then
+    if target.host == "browser" and rawget(_G, "__nuppBrowser") ~= nil then
         yield available("nupp.runtime.browser.workers")
     end
     yield nil

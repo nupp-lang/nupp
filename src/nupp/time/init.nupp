@@ -27,10 +27,7 @@ const provider: contracts.TimeProvider = require("nupp.runtime.timeprovider").pr
     if target.host == "native" then
         yield _G.require("nupp.runtime.provider.nativetime") as contracts.TimeProvider
     end
-    assert(
-        target.host == "browser" and (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil),
-        "nupp.time: no clock provider is available"
-    )
+    assert(target.host == "browser" and rawget(_G, "__nuppBrowser") ~= nil, "nupp.time: no clock provider is available")
     yield _G.require("nupp.runtime.browser.time") as contracts.TimeProvider
 end
 

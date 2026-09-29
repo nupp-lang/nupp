@@ -39,7 +39,7 @@ operations with the collector stopped. Latency is sampled in batches of a
 thousand operations, because `os.clock` resolves to a microsecond and a single
 emission is tens of nanoseconds; a percentile is over the per-batch means.
 
-Following `bench/soa.md` and `bench/portable-storage-io`: every side is warmed
+Following `bench/soa.md`: every side is warmed
 with twenty thousand operations before it is timed, the five runs of the two
 sides are interleaved with the side that goes first alternating, and every
 column is the median of the five. Allocation is measured on a separate pass

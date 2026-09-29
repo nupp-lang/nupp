@@ -42,46 +42,6 @@ local function pack(...: any): Packed
     return {values = {...}, count = select("#", ...)}
 end
 
---- Runs one body protected, letting it park on the Wasm host boundary.
----
---- Every wait a browser application performs is a yield out to JavaScript, so the
---- body runs on its own coroutine and this forwards whatever it yields. LuaJIT, the
---- only runtime the browser guest carries, could yield through a plain `pcall`;
---- the forwarding stays for `compat = "lua51"` output until that target's future is
---- decided.
-local function protectedCall(body: function(): any): (boolean, any)
-    -- The resumed value belongs to whichever `coroutine.yield` inside the body is
-    -- waiting for it, not to the body's own parameters, which is a shape the typed
-    -- coroutine pack has no way to name.
-    --
-    -- Created through the suspension provider so the body inherits any installed
-    -- handler: a raw coroutine would park on the host boundary instead, and inside
-    -- a `nupp.suspension` branch that boundary yield is discarded by the driver.
-    local thread: any = suspension.create(body)
-    -- Its parks are this frame's parks, handed on below, so a wait with no handler
-    -- inside it may reach the page wherever this frame may.
-    browserEffects.relay(thread)
-    local passed: any = nil
-    while true do
-        local ok, value = coroutine.resume(thread, passed)
-        if not ok then
-            return false, value
-        end
-        if coroutine.status(thread) == "dead" then
-            return true, value
-        end
-        -- The park is the inner thread's, handed on to whoever drives this frame,
-        -- which resumes it as the scheduler does every other park. Written as a
-        -- raw yield because that is what forwarding is, and under `unsafe` because
-        -- callers hold borrows across it -- `Scope.close` settling its tasks -- and
-        -- the driver, not a handler, is what answers for the continuation.
-        @unsafe
-        do
-            passed = coroutine.yield(value)
-        end
-    end
-end
-
 local type SendableDescriptor = {
     module: string,
     member: string,
@@ -531,7 +491,7 @@ local function settleAll(children: {any}, wait: function(any): nil): any?
             ensureAwait(ahead)
         end
         local observed = task._observed == true
-        local ok, problem = protectedCall(function(): nil
+        local ok, problem = pcall(function(): nil
             wait(task)
         end)
         if ok and not observed and task._state == "failed" then
@@ -637,7 +597,7 @@ end
 local function runFrame(frame: any): any
     checkpointCancelled = false
     checkpointDeadline = false
-    local ok, answer = protectedCall(function(): Packed
+    local ok, answer = pcall(function(): Packed
         local moduleName = frame.module as string
         local member = frame.member as string
         local moduleValue = require(moduleName)

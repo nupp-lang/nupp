@@ -53,7 +53,7 @@ local provider: contracts.Provider = require("nupp.runtime.workersprovider").pro
         yield _G.require("nupp.runtime.provider.workers") as contracts.Provider
     end
     assert(
-        target.host == "browser" and (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil),
+        target.host == "browser" and rawget(_G, "__nuppBrowser") ~= nil,
         "nupp.workers: no worker provider is available"
     )
     yield _G.require("nupp.runtime.browser.workers") as contracts.Provider

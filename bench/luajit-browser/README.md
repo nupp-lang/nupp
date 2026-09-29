@@ -89,9 +89,8 @@ Automatic bitops, int64 and structvalue lowering is deliberately absent from
 `compat=lua51`. `scalarbitops.nupp` is an ordinary arithmetic implementation;
 the compatibility test checks a public library using that actual source.
 `int64.nupp` is an SPI provider facade, not a portable integer implementation.
-`representation/init.nupp` selects native or Wasm storage; `wasmstoragefactory.nupp`
-requires a memory host and takes its integer operations from that host.
-`tablestruct.nupp` is the table implementation. These files have live consumers
+`representation/init.nupp` selects native storage; the Wasm storage and its
+memory host are deleted. `tablestruct.nupp` is the table implementation. These files have live consumers
 through the legacy compiler/runtime and cannot yet be deleted. An internal
 provider module is not automatically a supported public library API.
 

@@ -10,7 +10,6 @@ names = [
     'nupp.runtime.provider.scalarbitops',
     'nupp.runtime.provider.tablebuffer',
     'nupp.runtime.provider.tablestruct',
-    'nupp.runtime.provider.wasmstoragefactory',
     'runtime/wasm/app-runtime.mjs',
     'runtime/wasm/worker-pool.mjs',
     'runtime/wasm/browser-entry.mjs',

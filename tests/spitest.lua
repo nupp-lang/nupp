@@ -607,7 +607,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             module = "nupp.runtime.representation",
             interface = "nupp.runtime.representation.spi.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
-            browser = "nupp.runtime.provider.wasmstorage",
+            -- No other storage ships: a LuaJIT VM takes native storage on either host.
+            browser = "fixture.otherstorage",
             storage = true,
             vm = true
         },
@@ -797,7 +798,6 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
         {"nupp.runtime.provider.nativebuffer", true, true},
         {"nupp.runtime.provider.nativestorage", true, true},
         {"bit", true, true},
-        {"nupp.runtime.provider.wasmstorage", false, false},
         {"nupp.runtime.provider.nativetime", true, false},
         {"nupp.runtime.provider.workers", true, false},
         {"nupp.runtime.provider.nativeprocess", true, false},
@@ -818,23 +818,20 @@ function M.moduleStagingDistinguishesTheHostFromTheVm()
     end
 end
 
-function M.browserMemoryUsesTheActiveGuestOrTheWasmFallback()
+function M.browserMemoryIsTheActiveGuestTransport()
     local instances = require("providerstate")
     local name = "nupp.runtime.browser.memory"
     local guestMemory = {}
-    local wasmMemory = {}
     local owned = {[name] = true}
-    local replacements = {["nupp.runtime.wasm"] = wasmMemory}
 
-    local guest = instances.instance(owned, replacements, nil, {__nuppBrowser = {memory = guestMemory},})
+    local guest = instances.instance(owned, {}, nil, {__nuppBrowser = {memory = guestMemory},})
     assert(guest(name) == guestMemory, "the active LuaJIT browser guest supplies its memory transport")
 
-    local wasm = instances.instance(owned, replacements)
-    assert(wasm(name) == wasmMemory, "a Wasm guest uses the target representation host")
-
-    local missing = instances.instance(owned, replacements, nil, {__nuppBrowser = {}})
-    local ok, problem = pcall(missing, name)
-    assert(not ok and tostring(problem):find("memory transport is unavailable", 1, true), tostring(problem))
+    for _, globals in ipairs({{__nuppBrowser = {}}, {}}) do
+        local missing = instances.instance(owned, {}, nil, globals)
+        local ok, problem = pcall(missing, name)
+        assert(not ok and tostring(problem):find("memory transport is unavailable", 1, true), tostring(problem))
+    end
 end
 
 -- Every facade that picks a provider copies the same rule: the unique highest

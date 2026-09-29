@@ -1,14 +1,9 @@
 @!internal
 module nupp.runtime.browser.memory
 
--- Browser transfers borrow storage from the current VM. LuaJIT keeps native
--- cdata in the guest; the legacy Wasm host retains linear-memory leases.
+-- Browser transfers borrow storage from the current VM: the LuaJIT guest keeps
+-- native cdata and lends it through its memory transport.
 local guest: any = rawget(_G, "__nuppBrowser")
-local memory: any
-if guest ~= nil then
-    memory = assert(guest.memory, "nupp: browser guest memory transport is unavailable")
-else
-    memory = require("nupp.runtime.wasm")
-end
+local memory: any = assert(guest and guest.memory, "nupp: browser guest memory transport is unavailable")
 
 export = memory

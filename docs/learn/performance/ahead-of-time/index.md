@@ -22,8 +22,8 @@ end
 something the backend could not compile is an error rather than a surprise
 later. [Build policy](build-and-artifacts.md) selects what a build does with a
 CPU result: `off` by default, and `require` to compile it into the project's
-own shared library and call it. Lua
-5.1 applications have corresponding
+own shared library and call it. Browser
+applications have corresponding
 [`emit-wasm` and `require-wasm`](wasm.md) policies for pointer kernels and
 Lua-building entries.
 
@@ -103,7 +103,7 @@ Each page owns one part of the AOT pipeline.
   verification.
 - [Builds and artifacts](build-and-artifacts.md) covers policies, cross builds,
   caches, and shipping.
-- [Wasm applications](wasm.md) covers Lua 5.1 hosts and Wasm side modules.
+- [Wasm applications](wasm.md) covers the browser guest and Wasm side modules.
 - [GPU compute](gpu.md) covers native resident buffers, workgroup kernels, and
   browser WebGPU.
 

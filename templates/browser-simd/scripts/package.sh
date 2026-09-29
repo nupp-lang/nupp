@@ -7,9 +7,6 @@ if [ -z "$nupp_source" ] || [ ! -x "$nupp_source/scripts/browser-app" ]; then
     exit 2
 fi
 
-runtime=$${NUPP_BROWSER_RUNTIME:-"$PWD/dist/browser-runtime"}
-NUPP_BROWSER_RUNTIME="$runtime" "$nupp_source/scripts/browser-app" \
-    . scalar dist/browser/scalar
-NUPP_BROWSER_RUNTIME="$runtime" "$nupp_source/scripts/browser-app" \
-    . simd dist/browser/simd
+"$nupp_source/scripts/browser-app" . scalar dist/browser/scalar
+"$nupp_source/scripts/browser-app" . simd dist/browser/simd
 cp web/index.html web/app.mjs dist/browser/
