@@ -928,6 +928,12 @@ local function runRename(client, opts)
         return nil, usage("expected FILE LINE COLUMN NEW_NAME")
     end
     local newName = opts.positional[4]
+    -- Decidable from the argument alone, so a usage error rather than a refusal from
+    -- the server.
+    local keywords = require("nupp.compiler.syntax.lexer").KEYWORDS
+    if not newName:match("^[A-Za-z_][A-Za-z0-9_]*$") or keywords[newName] then
+        return nil, usage(("NEW_NAME must be an identifier that is not a keyword, not %q"):format(newName))
+    end
     local targetOpts = {positional = {opts.positional[1], opts.positional[2], opts.positional[3]}, root = opts.root}
     local path, source, position, err = target(client, targetOpts)
     if not path then

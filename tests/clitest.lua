@@ -699,6 +699,28 @@ function M.theBinaryHonoursColourFlagsOnRealDiagnostics()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A name checked against a set compiled into the binary, or against the argument
+-- alone, is decidable from argv and so a usage error.
+function M.namesDecidableFromTheArgumentsAreUsageErrors()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local file = assert(io.open(dir .. "/main.nupp", "wb"))
+    file:write("local first = 1\nreturn first\n")
+    file:close()
+    local template, templateCode = captureStatusAt(dir, "init nosuchtemplate")
+    assert(templateCode == 2, "an unknown built-in template is a usage error: " .. template)
+    assert(template:find("the built-ins are app", 1, true), "and names the built-ins: " .. template)
+    assert(template:find("Try 'nupp help init'", 1, true), "and points at the usage: " .. template)
+    for _, name in ipairs({"1st", "end", "two words"}) do
+        local rename, renameCode = captureStatusAt(dir, "lsp rename main.nupp 1 7 '" .. name .. "'")
+        assert(renameCode == 2, name .. " is not an identifier, which argv decides: " .. rename)
+    end
+    local _, validCode = captureStatusAt(dir, "lsp rename main.nupp 1 7 second")
+    assert(validCode == 0, "a valid identifier previews the rename")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.binaryPrintsCompletionScripts()
     local bash = capture("completions bash")
     assert(bash:find("complete -F _nupp nupp", 1, true), "the Bash script is available through the CLI")

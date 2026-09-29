@@ -293,9 +293,11 @@ local function run(options: any): integer
         return usageError(setErr as string)
     end
     local template = require("nupp.tools.template")
+    -- Resolution reads only the arguments and the templates compiled into this binary,
+    -- so what it refuses is a usage error.
     local source, resolveErr = template.resolve(spelling, values.templateFrom, values.rev)
     if not source then
-        return fail(resolveErr as string)
+        return usageError(resolveErr as string)
     end
     local destination = named or values.name or defaultDirectory(source)
     if source.kind ~= "remote" then

@@ -255,7 +255,7 @@ function template.resolve(spelling: string?, from: string?, rev: string?): templ
             end
         end
 
-        return nil, "no built-in template is called " .. asked .. "\nAvailable: " .. table.concat(
+        return nil, "no built-in template is called " .. asked .. "; the built-ins are " .. table.concat(
             template.builtins(),
             ", "
         )

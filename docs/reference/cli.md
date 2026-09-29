@@ -116,8 +116,12 @@ Every command answers with one of three statuses:
 - `1`: the work was attempted and failed
 - `2`: usage error, such as an unknown option or the wrong argument count
 
-A usage error is settled before any work starts, names the argument it could not
-use, and points at that command's help:
+A usage error is whatever the arguments decide on their own: a name checked
+against a set compiled into `nupp` (an explain code, a reference section, a shell,
+a built-in template) or against the argument alone (a rename's new identifier).
+A name checked against the project, such as a target, a task, a file or a line
+past its end, is a failure, status `1`. A usage error is settled before any work
+starts, names the argument it could not use, and points at that command's help:
 
 ```text [nupp check --colour]
 nupp: unknown option --colour
