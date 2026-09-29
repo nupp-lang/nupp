@@ -839,6 +839,40 @@ function M.gpuAvailabilityAnswersWithoutRaising()
     assertEq(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
 end
 
+function M.optionBagsArePlainTables()
+    -- http's options were a record built with `new`, where net, tls and process take
+    -- a table. They are one shape now, and tls.client's table is optional because
+    -- every field in it is.
+    assertClean(
+        table.concat(
+            {
+                "const http = require('nupp.io.http')",
+                "local options: http.Options = {timeoutMs = 5000, maxConnections = 2}",
+                "do local client = http.newClient(options) end",
+                "do local client = http.newClient({userAgent = 'nupp/1'}) end",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        (diagsOf(table.concat({"const http = require('nupp.io.http')", "local options = new http.Options()",}, "\n"))),
+        "NUPP2004:2",
+        "http.Options is not a record to construct"
+    )
+    assertClean(
+        table.concat(
+            {
+                "const net = require('nupp.io.net')",
+                "const tls = require('nupp.io.tls')",
+                "local stream = assert(net.connect({host = 'example.com', port = 443}))",
+                "local session = tls.client(stream)",
+                "print(session)",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.anHttpClientPumpsItsTransfersOnRequest()
     local polls = {}
     local backend = {

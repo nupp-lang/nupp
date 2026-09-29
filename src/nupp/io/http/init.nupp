@@ -132,7 +132,6 @@ type http.Reader = messages.Reader
 type http.Capabilities = messages.Capabilities
 type http.Version = messages.Version
 type http.Options = messages.Options
-http.Options = messages.Options
 type http.Request = messages.Request
 http.Request = messages.Request
 type http.ReaderBody = messages.ReaderBody

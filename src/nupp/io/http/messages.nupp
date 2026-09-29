@@ -37,64 +37,65 @@ type http.Version = "1.0" | "1.1" | "2"
 
 --- What a client applies to every request it sends.
 ---
---- Every field is optional, so `http.newClient()` with nothing is a client with
---- the defaults below. A request may override the three limits it also names.
-record http.Options
+--- A plain table, like every other option bag in the io facades. Every field is
+--- optional, so `http.newClient()` with nothing is a client with the defaults
+--- below. A request may override the three limits it also names.
+type http.Options = {
     --- The `user-agent` header sent with every request.
-    userAgent: string?
+    userAgent: string?,
 
     --- Headers sent with every request, which a request's own headers replace by
     --- name.
-    headers: {[string]: string}?
+    headers: {[string]: string}?,
 
     --- How long one request may take end to end, 30000 by default.
-    timeoutMs: integer?
+    timeoutMs: integer?,
 
     --- How long establishing a connection may take, 10000 by default.
-    connectTimeoutMs: integer?
+    connectTimeoutMs: integer?,
 
     --- How long a response body may make no progress before the transfer fails,
     --- 0 to allow any pause and the default. The wait for the response headers
     --- and a streamed upload are bounded by `timeoutMs` alone.
-    stallTimeoutMs: integer?
+    stallTimeoutMs: integer?,
 
     --- How many redirects one request may follow, 5 by default.
-    maxRedirects: integer?
+    maxRedirects: integer?,
 
     --- How many requests may be in flight at once, 256 by default. A request past
     --- the bound waits for admission rather than failing.
-    maxPendingRequests: integer?
+    maxPendingRequests: integer?,
 
     --- How many connections the pool may hold, 16 by default.
-    maxConnections: integer?
+    maxConnections: integer?,
 
     --- How many connections the pool may hold to one host, 16 by default.
-    maxConnectionsPerHost: integer?
+    maxConnectionsPerHost: integer?,
 
     --- How many response bytes one request may take, 0 for no bound and the
     --- default.
-    maxBytes: integer?
+    maxBytes: integer?,
 
     --- Whether to offer and decode compressed responses, true by default.
-    compressed: boolean?
+    compressed: boolean?,
 
     --- Hosts whose certificates are not verified, each an exact host name or IP
     --- literal. Redirects are followed one hop at a time, so the exemption is
     --- applied per hop rather than to the whole chain.
-    insecureHosts: {string}?
+    insecureHosts: {string}?,
 
     --- The proxy to reach every host through. Omitted takes the environment's,
     --- and an empty string deliberately uses none. Under CGI, where
     --- `REQUEST_METHOD` is set, the environment names no proxy: a request's own
     --- `Proxy` header arrives there as `HTTP_PROXY`.
-    proxy: string?
+    proxy: string?,
 
     --- Hosts to reach directly rather than through the proxy.
-    noProxy: string?
+    noProxy: string?,
 
     --- Credentials for the proxy, as `user:password`.
     proxyCredentials: string?
-end
+}
 
 --- A request body streamed from a reader rather than held in memory.
 ---

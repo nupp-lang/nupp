@@ -555,26 +555,32 @@ record tls.Session is Reader, Writer
 end
 
 --- Encrypts a connection as the client.
+---
+--- Every option is optional. Verification is on unless `verify` is false, and a
+--- verified session needs the `hostname` to check the certificate against, so a
+--- client that names no options is refused for that rather than connecting to
+--- whoever answers.
 --- @param stream the connection to adopt; it is consumed even when setup fails
 --- @param options what to expect of the peer
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @raises string when verification is asked for without a name to verify against
 --- @export
-function tls.client(takes stream: net.Stream, options: tls.ClientOptions): (affine(tls.Session)?, string?)
+function tls.client(takes stream: net.Stream, options: tls.ClientOptions?): (affine(tls.Session)?, string?)
     const chosen = provider
-    const verify = options.verify ~= false
-    if verify and (options.hostname == nil or options.hostname == "") then
+    const given: tls.ClientOptions = options or {}
+    const verify = given.verify ~= false
+    if verify and (given.hostname == nil or given.hostname == "") then
         error("nupp: tls.client needs a hostname to verify the peer against", 2)
     end
-    const protocols = packProtocols(options.protocols, 2)
+    const protocols = packProtocols(given.protocols, 2)
     const session, why = chosen:wrap(
         takeStreamHandle(stream),
         false,
-        options.hostname or "",
+        given.hostname or "",
         "",
         "",
-        options.authority,
+        given.authority,
         protocols,
         verify
     )

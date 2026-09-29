@@ -196,7 +196,7 @@ is not a list: it is a single type standing where a type goes, so it stays on
 the line that names it and breaks only when the width says so.
 
 ```nupp
-record http.Options
+record Settings
     headers: {string: string}?
     limits: {
         connections: integer,

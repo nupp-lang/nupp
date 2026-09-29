@@ -50,7 +50,6 @@ end
 
 type http.Version = messages.Version
 type http.Options = messages.Options
-http.Options = messages.Options
 type http.Reader = messages.Reader
 type http.ReaderBody = messages.ReaderBody
 http.ReaderBody = messages.ReaderBody
@@ -242,11 +241,11 @@ record http.Client is contracts.Client
                 error("nupp: browser HTTP does not support option " .. key, 2)
             end
         end
-        self._options = new http.Options(
+        self._options = {
             headers = copyHeaders(given.headers, "default headers"),
             timeoutMs = given.timeoutMs == nil and 30000 or whole(given.timeoutMs, "timeoutMs", 1),
-            maxBytes = given.maxBytes == nil and 0 or whole(given.maxBytes, "maxBytes", 0)
-        )
+            maxBytes = given.maxBytes == nil and 0 or whole(given.maxBytes, "maxBytes", 0),
+        }
         self._closed = false
         self._pending = 0
     end

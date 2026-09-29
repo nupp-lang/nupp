@@ -65,7 +65,6 @@ end
 
 type http.Version = messages.Version
 type http.Options = messages.Options
-http.Options = messages.Options
 type http.Reader = messages.Reader
 type http.ReaderBody = messages.ReaderBody
 http.ReaderBody = messages.ReaderBody
@@ -822,10 +821,10 @@ record http.Client is BodyClient, contracts.Client
     ---
     --- ```nupp
     --- do
-    ---     local client = http.newClient(new http.Options(
+    ---     local client = http.newClient({
     ---         userAgent = "nupp/1",
-    ---         timeoutMs = 5000
-    ---     ))
+    ---         timeoutMs = 5000,
+    ---     })
     --- end
     --- ```
     ---

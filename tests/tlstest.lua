@@ -638,4 +638,27 @@ function M.providerWritesMustMakeValidProgress()
     session:close()
 end
 
+function M.aClientNeedsNoOptionsTable()
+    -- Every client option is optional, so the table is too. Verification stays on
+    -- without one, and a verified session with no name to check is refused rather
+    -- than trusting whoever answers.
+    local wrapped = {}
+    local facade = require("providerstate").tls({
+        wrap = function(_self, _stream, isServer, hostname, _certificate, _key, _authority, _protocols, verify)
+            wrapped[#wrapped + 1] = {isServer = isServer, hostname = hostname, verify = verify}
+            return {}
+        end,
+        destroy = function()
+        end,
+    })
+    local ok, why = pcall(facade.client, {})
+    assertEq(ok, false, "an unnamed verified client is refused")
+    assertTrue(tostring(why):find("needs a hostname", 1, true) ~= nil, "for want of a name: " .. tostring(why))
+    assertEq(#wrapped, 0, "before anything reached the provider")
+    local session = assert(facade.client({}, {hostname = "example.com"}))
+    assertEq(wrapped[1].verify, true, "a named client verifies by default")
+    assertEq(wrapped[1].hostname, "example.com", "against the name it was given")
+    session:close()
+end
+
 return M
