@@ -1627,7 +1627,12 @@ local function settleFamily(scope: tasks.Scope): {any}, {any}
             errors[index] = child.problem
         elseif child.status == "done" then
             const produced = child.values as Packed
-            if produced.count > 0 then
+            if produced.count > 1 then
+                -- Keeping the first of several would drop the rest where nothing
+                -- could see them, so a longer pack is the branch's failure.
+                const message = "nupp: branch %d returned %d values, and a family branch answers one"
+                errors[index] = message:format(index, produced.count)
+            else
                 values[index] = produced.values[1]
             end
         end
@@ -1638,32 +1643,45 @@ end
 
 --- Runs every body concurrently and answers what each of them did, failures included.
 ---
---- The fail-soft family. Both arrays are indexed as `bodies` was, and exactly one of
---- them holds an entry per branch, so a caller who has to see every outcome sees them
---- beside each other. A scope is the fail-fast answer to the same question: use one
---- where the first failure should end the rest.
+--- The fail-soft family. Both arrays are indexed as `bodies` was. `errors[i]` holds an
+--- entry exactly where branch `i` failed; every other branch returned, and
+--- `values[i]` is what it returned, which may itself be `nil`. So `errors` alone says
+--- which branches failed, and a caller who has to see every outcome sees them beside
+--- each other. A branch answers one value: one that returns several fails, saying how
+--- many, rather than having the rest dropped. A scope is the fail-fast answer to the
+--- same question: use one where the first failure should end the rest.
 ---
 --- ```nupp
 --- const values, errors = nupp.tasks.gather({
 ---     function(): string return fetch(primary) end,
 ---     function(): string return fetch(mirror) end,
 --- })
+--- for index = 1, 2 do
+---     if errors[index] ~= nil then
+---         report(errors[index])
+---     end
+--- end
 --- ```
+---
+--- Like `race`, it takes a borrowed family, left with its owner, or an owned one, whose
+--- bodies are each called or dropped exactly once.
 ---
 --- @param bodies what to run
 --- @return each body's value, where it returned
 --- @return each body's error, where it raised
 --- @raises tasks.Cancellation the enclosing deadline, where one passed before the
 ---     family settled
-function tasks.gather<T>(bodies: {function(): T}): {T?}, {any}
-    const count = #bodies
+local function gatherImpl<T>(takes bodies: {function(): T}): ({T?}, {any})
+    local rawBodies: {function(): T}
+    rawBodies = @unsafe nupp.release(bodies)
+    const count = #rawBodies
     if count == 0 then
         return {}, {}
     end
     const scope = familyScope()
     -- Protected so that a scope opened here is settled however entering goes: an
     -- unsettled one holds an installation and every branch it did enter.
-    const entered, problem = pcall(enterBranches, scope, bodies as {any}, count)
+    const entered, problem = pcall(enterBranches, scope, rawBodies as {any}, count)
     const values, errors = settleFamily(scope)
     if not entered then
         error(problem, 0)
@@ -1672,11 +1690,22 @@ function tasks.gather<T>(bodies: {function(): T}): {T?}, {any}
     return values as {T?}, errors
 end
 
+local gather: function<T>(scoped bodies: {function(): T}): ({T?}, {any})
+    & function<T>(takes bodies: {function(): T}): ({T?}, {any})
+@unsafe
+do
+    -- Both contracts execute synchronously. The owning arm additionally lets
+    -- `gatherImpl` call or drop every affine body exactly once.
+    gather = gatherImpl as any
+end
+tasks.gather = gather
+
 --- Runs every body concurrently and answers the first one to settle.
 ---
 --- The losers are abandoned rather than forgotten: each is resumed once so its park
 --- cancels and its branch unwinds. A loser that had not started never starts, and an
---- affine body that never ran is dropped rather than leaked.
+--- affine body that never ran is dropped rather than leaked. A branch answers one
+--- value, as in `gather`, so a winner that returned several raises saying how many.
 ---
 --- ```nupp
 --- const answer, which = nupp.tasks.race({

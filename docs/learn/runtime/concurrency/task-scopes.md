@@ -185,7 +185,11 @@ const values, errors = nupp.tasks.gather({
 
 Its branches are fail-soft, which is the one thing a scope will not do: a
 branch that raises reports its error beside its siblings' values rather than
-cancelling them.
+cancelling them. `errors[i]` holds an entry exactly where branch `i` failed, so
+it alone says which ones did; every other branch returned, and `values[i]` is
+what it returned, which may itself be `nil`. A branch answers one value, and one
+that returns several fails, saying how many, rather than having the rest
+dropped. `race` holds its branches to the same rule.
 
 `race` returns the first settled value and its one-based index, then cancels
 and unwinds the rest:
@@ -200,9 +204,9 @@ const answer, which = nupp.tasks.race({
 A loser is resumed once so its park cancels and its branch unwinds through
 whatever cleanup it had, and one that had not started never starts. Because the
 call does not return until every body it entered has settled, a body may be
-moved into it: an owner captured by a `race` branch is consumed or dropped
-exactly once, which is what `spawn` cannot promise for a handle that outlives
-it.
+moved into either call: an owner captured by a `gather` or `race` branch is
+consumed or dropped exactly once, which is what `spawn` cannot promise for a
+handle that outlives it.
 
 A family opened inside a bounded scope inherits that scope's deadline, and
 raises its cancellation rather than its branch outcomes where it passes.

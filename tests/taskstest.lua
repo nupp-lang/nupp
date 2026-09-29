@@ -677,6 +677,38 @@ function M.gatherReportsFailuresBesideValues()
    assertEq(errors[2], "no good", "and its error is reported rather than raised")
 end
 
+-- The failure array alone says which branches failed: a branch that returned `nil`,
+-- or nothing at all, has no entry in either array and still did not fail.
+function M.gatherTellsANilResultFromAFailure()
+   local values, errors = tasks.gather({
+      function() return nil end,
+      function() error("no good", 0) end,
+      function() end,
+      function() return false end,
+   })
+   assertEq(values[1], nil, "a nil result is a value")
+   assertEq(errors[1], nil, "and not a failure")
+   assertEq(values[2], nil, "a failed branch has no value")
+   assertEq(errors[2], "no good", "and has its error")
+   assertEq(errors[3], nil, "a branch that returned nothing did not fail")
+   assertEq(values[4], false, "a false result is kept")
+   assertEq(errors[4], nil, "and is not a failure")
+end
+
+-- A branch answers one value. Keeping the first of several would drop the rest where
+-- nothing could see it, so a longer pack is that branch's failure.
+function M.gatherRefusesABranchThatReturnsSeveralValues()
+   local values, errors = tasks.gather({
+      function() return 1, 2 end,
+      function() return 3 end,
+   })
+   assertEq(values[1], nil, "the long pack is not truncated into a value")
+   assertTrue(tostring(errors[1]):find("returned 2 values", 1, true) ~= nil,
+      "the branch failed, naming the count: " .. tostring(errors[1]))
+   assertEq(values[2], 3, "a sibling is unaffected")
+   assertEq(errors[2], nil, "and did not fail")
+end
+
 -- The one thing a scope will not do. A scope is fail-fast, so this is the whole
 -- reason `gather` is a separate call rather than a spelling of one.
 function M.gatherLetsASiblingFinishAfterABranchFails()

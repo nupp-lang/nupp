@@ -5476,6 +5476,59 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
     )
 end
 
+-- `gather` takes the same two contracts `race` does: a borrowed family runs and is
+-- left with its owner, and an owned family is called or dropped exactly once.
+function M.gatherCallsEveryTakingBranchOnce()
+    local source = CLOSURE_RESOURCE .. table.concat(
+        {
+            "",
+            "local tasks = require('nupp.tasks')",
+            "local first = openClosureResource(1)",
+            "local second = openClosureResource(2)",
+            "local values = tasks.gather({",
+            "   function(): integer takes (first)",
+            "      return first.value",
+            "   end,",
+            "   function(): integer takes (second)",
+            "      return second.value",
+            "   end,",
+            "})",
+            "return values[1], values[2], calls",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "ownership-test")
+    assertEq(#genDiags, 0)
+    local chunk, loadErr = loadstring(code, "@taking-closure-gather")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local one, two, calls = chunk()
+    assertEq(one, 1)
+    assertEq(two, 2)
+    assertEq(calls, 2, "gather cleaned both taking branches")
+end
+
+function M.gatherAcceptsBorrowedClosuresWithoutRetainingThem()
+    assertClean(
+        CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local tasks = require('nupp.tasks')",
+                "local resource = openClosureResource(7)",
+                "local values = tasks.gather({",
+                "   function(): integer borrows (resource)",
+                "      return resource.value",
+                "   end,",
+                "})",
+                "print(values[1])",
+                "nupp.drop(resource)",
+            },
+            "\n"
+        )
+    )
+end
+
 -- A named cleanup identity can delegate to an ordinary method without giving the
 -- method or its spelling compiler privilege.
 local DROPPING_RECORD = table.concat(
