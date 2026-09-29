@@ -133,7 +133,6 @@ local type SearchEntry = {
 --- What a manifest configured documentation to do. A build target of kind `docs` is
 --- read as one of these too, which is why `kind` and `targetName` are here.
 type doc.Settings = {
-    all: boolean?,
     customCss: string?,
     description: string?,
     diagnostics: diagnosticsMod.Settings?,
@@ -365,7 +364,6 @@ local function loadModules(root, config, settings, requested)
         else
             local name = moduleName(path, root, config.include or {})
             local module, parseErrors, extraModules = doc.extract(source, path, name, {
-                includeAll = settings.all,
                 includePrivate = settings.includePrivate
             })
             if module then

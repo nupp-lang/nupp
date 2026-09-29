@@ -98,8 +98,8 @@ local function run(options: any): integer
     if #sources > 0 then
         opts.sources = sources
     end
-    if values.all then
-        settings.all = true
+    if values.includePrivate then
+        settings.includePrivate = true
     end
     local written: {string} = {}
     if asJson then
@@ -143,8 +143,8 @@ local record Doc
     @cli(value = "TITLE")
     title: string?
 
-    --- Include private declarations.
-    all: boolean = false
+    --- Include unexported, internal and private declarations.
+    includePrivate: boolean = false
 
     --- Select this command's report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})

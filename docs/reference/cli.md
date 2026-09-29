@@ -1501,7 +1501,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 # Completion for nupp; generated from nupp.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=( $(compgen -W '--accept --against --all --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --compat --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --forks --format --from --function --geo --gpu-costs --help --history --host --include-declaration --inspect --jit-aborts --json --json-pretty --kind --label --lib --library --list --margin --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --pilot --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-file --remarks-out --report-json --rev --root --schema --section --seed --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both browser build bytecode check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints llvm lsp lua lua51 luacats luadoc luajit markdown md migrate native ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--accept --against --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --compat --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --forks --format --from --function --geo --gpu-costs --help --history --host --include-declaration --include-private --inspect --jit-aborts --json --json-pretty --kind --label --lib --library --list --margin --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --pilot --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-file --remarks-out --report-json --rev --root --schema --section --seed --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both browser build bytecode check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints llvm lsp lua lua51 luacats luadoc luajit markdown md migrate native ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
 }
 complete -F _nupp nupp
 ```
@@ -1721,16 +1721,16 @@ Arguments:
 
 Options:
   --output PATH, -o PATH
-                  Output file or directory.
-  --target NAME   Document a named manifest target.
-  --title TITLE   Documentation title.
-  --all           Include private declarations.
+                     Output file or directory.
+  --target NAME      Document a named manifest target.
+  --title TITLE      Documentation title.
+  --include-private  Include unexported, internal and private declarations.
   --format FORMAT, --json, --text
-                  Select this command's report representation.
-  --schema        Print the JSON Schema of JSON output and exit.
-  -h, --help      Show this help
-  --color[=WHEN]  When to color output: always, never, or auto
-  --no-color      Never color output
+                     Select this command's report representation.
+  --schema           Print the JSON Schema of JSON output and exit.
+  -h, --help         Show this help
+  --color[=WHEN]     When to color output: always, never, or auto
+  --no-color         Never color output
 ```
 
 A successful run writes nothing to the terminal. `--json` names what it wrote:

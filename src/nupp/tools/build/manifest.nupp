@@ -342,7 +342,6 @@ local DOCS_KEYS = {
     "customCss",
     "lexers",
     "includePrivate",
-    "all",
     "pages",
     "diagnostics",
     "stdlib",

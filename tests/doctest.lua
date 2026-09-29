@@ -167,12 +167,12 @@ local DECLARATIONS = table.concat(
 ) .. "\n"
 
 function M.documentsAFileHeaderLongCommentAsTheModule()
-    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num", {includeAll = true}))
+    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num"))
     assert(module.text == "# Numbers\n\nDeclarations for the **number** library.", module.text)
 end
 
 function M.documentsTypedBindingsAsTheFunctionsTheyDeclare()
-    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num", {includeAll = true}))
+    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num"))
     local max
     for _, item in ipairs(module.items) do
         if item.name == "max" then
@@ -212,7 +212,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
         },
         "\n"
     ) .. "\n"
-    local module = assert(doc.extract(source, "src/meta.d.nupp", "meta", {includeAll = true}))
+    local module = assert(doc.extract(source, "src/meta.d.nupp", "meta"))
     local items = {}
     for _, item in ipairs(module.items) do
         items[item.name] = item
@@ -261,7 +261,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
 end
 
 function M.documentsFunctionTypedRecordFieldsAsMethods()
-    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num", {includeAll = true}))
+    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num"))
     local counter
     for _, item in ipairs(module.items) do
         if item.name == "Counter" then
@@ -312,7 +312,7 @@ local NESTED_DECLARATIONS = table.concat(
 ) .. "\n"
 
 function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
-    local module = assert(doc.extract(NESTED_DECLARATIONS, "src/config.d.nupp", "config", {includeAll = true}))
+    local module = assert(doc.extract(NESTED_DECLARATIONS, "src/config.d.nupp", "config"))
     local config
     for _, item in ipairs(module.items) do
         if item.name == "Config" then
@@ -376,7 +376,7 @@ local ANNOTATED_DECLARATIONS = table.concat(
 -- alone answered nothing, and the member silently lost its prose and every `@param` and
 -- `@return` description while its unannotated siblings kept theirs.
 function M.anAnnotatedMemberKeepsItsDocumentation()
-    local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle", {includeAll = true}))
+    local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle"))
     local handle
     for _, item in ipairs(module.items) do
         if item.name == "Handle" then
@@ -405,7 +405,7 @@ end
 
 -- Annotations and parameter modes are both public declaration metadata.
 function M.documentsAnnotationsAndParameterModes()
-    local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle", {includeAll = true}))
+    local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle"))
     local handle
     for _, item in ipairs(module.items) do
         if item.name == "Handle" then
@@ -446,7 +446,7 @@ function M.documentsBorrowedResultsWithoutRepeatingTheirSources()
         },
         "\n"
     )
-    local module = assert(doc.extract(source, "src/view.nupp", "view", {includeAll = true}))
+    local module = assert(doc.extract(source, "src/view.nupp", "view", {includePrivate = true}))
     local view = assert(module.items[1])
     assert(view.signature == "function view(borrows source: uint8[?]): ByteSpan", view.signature)
     assert(view.returns[1].type == "ByteSpan", view.returns[1].type)
@@ -465,7 +465,7 @@ function M.documentsDeprecatedMigrationMetadata()
         },
         "\n"
     )
-    local module = assert(doc.extract(source, "src/client.nupp", "client", {includeAll = true}))
+    local module = assert(doc.extract(source, "src/client.nupp", "client", {includePrivate = true}))
     local item = module.items[1]
     assert(
         item.annotations and item.annotations[1] == '@deprecated(reason="legacy protocol", replacement="connect")',
@@ -493,7 +493,7 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
         },
         "\n"
     )
-    local module = assert(doc.extract(source, "src/task.nupp", "task", {includeAll = true, includePrivate = true}))
+    local module = assert(doc.extract(source, "src/task.nupp", "task", {includePrivate = true}))
     local task = module.items[1]
     assert(task.signature == "record Task<T is Value> is Named, Runnable where true", task.signature)
     assert(not task.signature:find("---", 1, true), task.signature)
@@ -533,7 +533,7 @@ function M.documentsMethodImplementationsUnderTheirOwnType()
         },
         "\n"
     )
-    local module = assert(doc.extract(source, "src/job.nupp", "job", {includeAll = true, includePrivate = true}))
+    local module = assert(doc.extract(source, "src/job.nupp", "job", {includePrivate = true}))
     local listed = {}
     for _, item in ipairs(module.items) do
         listed[item.name] = item
@@ -681,7 +681,7 @@ function M.omitsImplementationBodiesFromStructureSignatures()
         },
         "\n"
     )
-    local module = assert(doc.extract(source, "src/user.nupp", "user", {includeAll = true, includePrivate = true}))
+    local module = assert(doc.extract(source, "src/user.nupp", "user", {includePrivate = true}))
     local named, user
     for _, item in ipairs(module.items) do
         if item.name == "Named" then
@@ -825,7 +825,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
         },
         "\n"
     )
-    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib", {includeAll = true})
+    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib")
     assert(module, errors and errors[1] and errors[1].msg)
     assert(#module.items == 0, "internal backing records leaked into public docs")
     assert(extra and #extra == 3, extra and #extra)
@@ -846,7 +846,6 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
     assert(byName["lib.math.vec2"].items[1].name == "length")
 
     local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {
-        includeAll = true,
         includePrivate = true,
     })
     assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
@@ -1485,7 +1484,7 @@ function M.documentsACdefOnlyWhereItReachesAReader()
         not listed["malloc"] and not listed["Header"],
         "a cdef this module only calls is not part of what it publishes"
     )
-    local complete = assert(doc.extract(plumbing, "src/m.nupp", "m", {includeAll = true}))
+    local complete = assert(doc.extract(plumbing, "src/m.nupp", "m", {includePrivate = true}))
     local everything = {}
     for _, item in ipairs(complete.items) do
         everything[item.name] = true
@@ -1682,7 +1681,7 @@ function M.hidesNamespacesNamedInternal()
         },
         "\n"
     )
-    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib", {includeAll = true})
+    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib")
     assert(module, errors and errors[1] and errors[1].msg)
     local byName = {}
     for _, mod in ipairs(extra or {}) do
@@ -1692,7 +1691,6 @@ function M.hidesNamespacesNamedInternal()
     assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
 
     local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {
-        includeAll = true,
         includePrivate = true,
     })
     assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
@@ -1972,7 +1970,7 @@ function M.documentsDeclarationFilesWithoutAskingForEverything()
     for _, item in ipairs(module.items) do
         names[item.name] = true
     end
-    assert(names.limit, "a declaration file must document without --all")
+    assert(names.limit, "a declaration file must document without --include-private")
     assert(not names.hidden, "@local must still opt a declaration out")
     local plain = assert(doc.extract(declarations, "src/lib.nupp", "lib"))
     assert(#plain.items == 0, "an ordinary module must keep its locals private")
@@ -2037,6 +2035,28 @@ function M.hidesPrivateSourcePathsUnlessExplicitlyIncluded()
     local complete = readFile(dir .. "/complete.md")
     assert(complete:find("# `_hidden`", 1, true), complete)
     assert(complete:find("# `internal.secret`", 1, true), complete)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- `doc --all` selected unexported declarations while the manifest's
+-- `includePrivate` selected internal modules, and neither reached the other.
+-- One flag now covers both.
+function M.includePrivateCoversUnexportedDeclarationsAndInternalModules()
+    local dir = tempProject({
+        ["nupp.lua"] = "return {include = {\"src\"}}\n",
+        ["src/shown.nupp"] = "module shown\nexport function visible(): number return 1 end\n"
+            .. "local function unexported(): number return 2 end\n",
+        ["src/internal/secret.nupp"] = "function secret(): number return 3 end\n",
+    })
+    local public = capture(("cd '%s' && '%s' doc markdown -o public.md src"):format(dir, NUPP))
+    local publicText = readFile(dir .. "/public.md")
+    assert(publicText:find("visible", 1, true), public .. publicText)
+    assert(not publicText:find("unexported", 1, true), publicText)
+    assert(not publicText:find("internal.secret", 1, true), publicText)
+    local complete = capture(("cd '%s' && '%s' doc markdown --include-private -o complete.md src"):format(dir, NUPP))
+    local completeText = readFile(dir .. "/complete.md")
+    assert(completeText:find("unexported", 1, true), complete .. completeText)
+    assert(completeText:find("internal.secret", 1, true), completeText)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -21,7 +21,7 @@ Unchanged output files are left untouched.
 ## Choosing a format and a target
 
 ```text
-nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--all] [path...]
+nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--include-private] [path...]
 ```
 
 The format is a positional word rather than a flag, and `md` is accepted for
@@ -112,7 +112,7 @@ documentation.
 | `@raises <Type> [text]` | Listed, one per occurrence, in order |
 | `@module [text]` | Overrides the file's module blurb |
 | `@export`, `@public` | Force a declaration public |
-| `@local` | Keep a declaration out; `--all` brings it back |
+| `@local` | Keep a declaration out; `--include-private` brings it back |
 | `@namespace [prefix]` | Document a shape's own fields as modules |
 
 A tag's description continues onto any following indented line. Any other
@@ -231,9 +231,10 @@ module declaring it.
 
 ## Public surface
 
-Without `--all`, an ordinary module shows its globals, its exported types, and
-anything marked `@export`. Private by default:
+Without `--include-private`, an ordinary module shows its globals, its exported
+types, and anything marked `@export`. Private by default:
 
+- a declaration the module does not export, or one tagged `@local`;
 - a source file whose basename starts with `_`;
 - any module named `internal`, and everything under it: the `internal/`
   directory, the single-file `internal.nupp`, and the namespace an
@@ -248,7 +249,8 @@ anything marked `@export`. Private by default:
 A hidden member leaves the rendered declaration too, not only the member
 table: the signature block a page shows for a record is the record's public
 surface, so a reader never sees a name the documentation refuses to describe.
-`includePrivate = true` on the docs target includes them.
+`--include-private`, or `includePrivate = true` on the docs target, includes
+every one of them.
 
 Metamethods are the one exception to the `_` rule. A metamethod is named for
 the Lua operation it implements, so `__index` says which operator this is
@@ -267,11 +269,12 @@ return {}
 
 The compiler also restricts checked imports of internal modules to their owning
 package namespace. See [internal modules](../language/modules.md#internal-modules).
-`--all` changes documentation visibility only; it does not grant import access.
+`--include-private` changes documentation visibility only; it does not grant
+import access.
 
-A `.d.nupp` declaration file documents in full without `--all`, because `local`
-there is not privacy. Its bindings are the interface it describes. Mark one
-`@local` to keep it out.
+A `.d.nupp` declaration file documents in full without `--include-private`,
+because `local` there is not privacy. Its bindings are the interface it
+describes. Mark one `@local` to keep it out.
 
 ### Cleanup names
 
@@ -760,8 +763,8 @@ targets](../projects/build.md#documentation-targets) for every key one takes.
 ### Why is a declaration missing from the reference?
 
 It is private by default: a name starting with `_`, a file or module under
-`internal`, or a file marked `@!internal`. Render with `--all`, or set
-`includePrivate = true` on the target, to see them. See [Public
+`internal`, or a file marked `@!internal`. Render with `--include-private`, or
+set `includePrivate = true` on the target, to see them. See [Public
 surface](#public-surface) for the whole rule.
 
 ### Does `nupp doc` type-check the sources it reads?

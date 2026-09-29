@@ -1149,6 +1149,10 @@ function M.retiredManifestKeysFailAsUnknownKeys()
         'return {include = {"src"}, dependencies = {native = {kind = "rust"}}}\n',
         'kind must be "c", "cargo", "luarocks", or "types"'
     )
+    reject(
+        'return {include = {"src"}, build = {targets = {site = {kind = "docs", sources = {"src"}, all = true}}}}\n',
+        'has no key "all"'
+    )
 end
 
 function M.deliverableTargetsStillRequireAnEntry()
@@ -1205,7 +1209,7 @@ return {
       kind = "docs", sources = {"src"}, dependencies = {"lunamark"},
       format = "both", name = "N", github = "https://example.com",
       logo = "l.svg", public = "p", customCss = "c.css", lexers = "lx",
-      includePrivate = true, all = true,
+      includePrivate = true,
       pages = {{path = "", title = "H", layout = "home", source = "i.md",
          redirects = {"old"}}, {glob = {"docs/**.md"}, base = "docs",
          exclude = {"docs/style.md"}}},
@@ -1480,7 +1484,7 @@ end
 
 -- `all` and `includePrivate` include different things, and the task table
 -- reported the first under the second's name while never mentioning the second.
-function M.docsTaskReportsBothInclusionSettingsSeparately()
+function M.docsTaskReportsItsPrivacySetting()
     local dir = tempProject({
         [
             "nupp.lua"
@@ -1488,14 +1492,14 @@ function M.docsTaskReportsBothInclusionSettingsSeparately()
 return {
    include = {"src"},
    build = {targets = {site = {
-      kind = "docs", sources = {"src"}, all = true, includePrivate = false,
+      kind = "docs", sources = {"src"}, includePrivate = true,
    }}},
 }
 ]],
     })
     local task = assert(project.describeTasks(dir, "site"))
-    assertEq(task.all, true, "all is reported as itself")
-    assertEq(task.includePrivate, false, "and includePrivate as itself")
+    assertEq(task.includePrivate, true)
+    assertEq(task.all, nil, "there is one privacy setting")
     remove(dir)
 end
 

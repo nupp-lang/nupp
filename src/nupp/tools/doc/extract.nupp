@@ -123,6 +123,10 @@ type extract.Module = {
 
 --- What a caller wants included beyond the public surface a module hands out.
 ---
+--- `includePrivate` renders what privacy rules hide: unexported and `@local`
+--- declarations, `@internal` modules and declarations, and underscored or
+--- `@private` members.
+---
 --- `shapesAsModules` is for a file whose declarations are globals rather than a
 --- module's
 --- exports: every shape-typed global comes back as a module of its own name, holding
@@ -136,7 +140,6 @@ type extract.Module = {
 --- its
 --- own, which an ordinary run documents already.
 type extract.Options = {
-    includeAll: boolean?,
     includePrivate: boolean?,
     shapesAsModules: boolean?
 }
@@ -1127,7 +1130,7 @@ end
 -- wrapper owns the leading trivia, so documentation comes from the outside while the
 -- name, signature and visibility come from the declaration at the centre. Following
 -- every wrapper also handles stacked annotations.
-declarationItem = function(stat, moduleName, includeAll, declarationFile, includePrivate, published)
+declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, includePrivate, published)
     local documented = stat
     local applied = {}
     while stat.kind == "pragmaStmt" and stat.stat do
@@ -1143,7 +1146,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
     end
     local lines = docLines(documented)
     local info = parseDoc(lines)
-    local public = includeAll or declarationFile or explicitlyExported or info.tags.export or info.tags.public
+    local public = everyDeclaration or declarationFile or explicitlyExported or info.tags.export or info.tags.public
     local kind, name, signature, itemComptimeKind
     if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" then
         name = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
@@ -1190,7 +1193,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         return nil
     end
     if info.tags["local"] then
-        public = includeAll
+        public = everyDeclaration
     end
     if info.tags.internal and not includePrivate then
         public = false
@@ -1564,9 +1567,9 @@ function extract.extract(
                 and stat.types[1]
                 or nil
             local shapeName = shape and stat.kind == "localStmt" and stat.names[1].text or nil
-            local shapePublic = opts.includeAll or declarationFile or info.tags.export or info.tags.public
+            local shapePublic = opts.includePrivate or declarationFile or info.tags.export or info.tags.public
             if info.tags["local"] then
-                shapePublic = opts.includeAll
+                shapePublic = opts.includePrivate
             end
             if info.tags.internal and not opts.includePrivate then
                 shapePublic = false
@@ -1590,7 +1593,7 @@ function extract.extract(
                 local item = declarationItem(
                     stat,
                     name,
-                    opts.includeAll,
+                    opts.includePrivate,
                     declarationFile,
                     opts.includePrivate,
                     published
