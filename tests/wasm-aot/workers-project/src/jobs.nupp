@@ -10,7 +10,6 @@ end
 
 local tasks = require("nupp.tasks")
 local time = require("nupp.time")
-local workers = require("nupp.workers")
 
 export record Reading
     label: string
@@ -69,11 +68,14 @@ export function cooperative(rounds: integer, pauseMs: integer): integer
     return total
 end
 
---- Submitting this raises where it runs: a worker task cannot open another scope.
+--- Submitting this raises where it runs: a worker task cannot fork onto another lane.
 export function nested(shards: integer): integer
-    with scope = workers.scope() do
-        return shards
+    local answer: integer = 0
+    with scope = tasks.open() do
+        answer = scope:fork(|| -> shards):await()
     end
+
+    return answer
 end
 
 --- A value no copy could reproduce, refused by the lane rather than by the caller.

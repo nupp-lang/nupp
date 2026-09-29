@@ -3031,8 +3031,6 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
         {"nupp.gpu", "Buffer<uint32>", "_handle"},
         {"nupp.gpu", "Shared<uint32>", "_values"},
         {"nupp.gpu", "Phases", "_size"},
-        {"nupp.workers", "Scope", "_scheduler"},
-        {"nupp.workers", "Scope", "_cancelAll"},
     }) do
         local diagnostics = diagsOf(
             (
@@ -3046,6 +3044,12 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
             table.concat(example, ".") .. " must be inaccessible: " .. diagnostics
         )
     end
+    -- A worker scope is not public at all: `fork` on a task scope is the only way to a
+    -- lane, so the facade names no scope type for application source to reach into.
+    local unnamed = diagsOf(
+        'const workers = require("nupp.workers")\nlocal function expose(borrows value: workers.Scope): nil\nend\n'
+    )
+    assert(unnamed:find("NUPP2101", 1, true), "nupp.workers must not name a scope type: " .. unnamed)
 end
 
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()

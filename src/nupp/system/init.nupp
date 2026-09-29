@@ -83,9 +83,9 @@ export const pointerBits = provider.pointerBits
 --- no worker pool, so it is a fair default for the `limit` one is opened with.
 ---
 --- ```nupp
---- with scope = nupp.workers.scope() do
----     for lane = 1, nupp.system.availableParallelism() do
----         scope:spawn(lane, jobs.shard)
+--- with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
+---     for _, shard in ipairs(shards) do
+---         scope:fork(shard, jobs.shard)
 ---     end
 --- end
 --- ```

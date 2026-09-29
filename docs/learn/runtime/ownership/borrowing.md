@@ -132,7 +132,7 @@ function(takes Representation): nil
 
 The terminal may raise, and it may suspend. One that waits for the resource's
 own work to finish before returning is a *settling* terminal: a task scope's
-terminal waits for its children, and a worker scope's for its lanes. Discharging
+terminal waits for its children, including those it forked onto lanes. Discharging
 one parks the coroutine as any wait does, and is therefore refused inside a
 `@nosuspend` region. A terminal declared `@nosuspend` is a stronger promise and
 still fits. Automatic destruction keeps the first failure primary,
@@ -529,9 +529,9 @@ loan can dangle across an edge that carries none:
 
 ```nupp
 local frame = heap.allocate(ffi.typeof<uint8>(), size)
-with scope = workers.scope() do
+with scope = nupp.tasks.open() do
     for generation = 1, 60 do
-        frame = scope:spawn(frame, generation, jobs.fill):await()
+        frame = scope:fork(frame, generation, jobs.fill):await()
     end
 end
 nupp.drop(frame)

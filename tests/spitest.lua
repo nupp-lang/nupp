@@ -538,7 +538,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.workers.spi.Provider",
             native = "nupp.runtime.provider.workers",
             browser = "nupp.runtime.browser.workers",
-            member = "scope",
+            member = "runScheduler",
+            exported = "__runScheduler",
             cache = "nupp.runtime.workersprovider"
         },
         {

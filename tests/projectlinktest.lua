@@ -869,11 +869,11 @@ local function workerTaskChecksLikeAnOrdinaryFunctionCall()
 module main
 
 const jobs = require("jobs.hash")
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
 
 export function good(contents: string): uint64
-    with scope = workers.scope() do
-        const task = scope:spawn({name = "level1", bytes = contents}, jobs.hash)
+    with scope = tasks.open() do
+        const task = scope:fork({name = "level1", bytes = contents}, jobs.hash)
 
         return task:await().hash
     end

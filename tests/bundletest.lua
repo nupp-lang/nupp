@@ -649,12 +649,15 @@ export function total(takes values: heap.Array<int32>): integer
     return sum
 end
 
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
 
 export function nested(shards: integer): integer
-    with scope = workers.scope() do
-        return shards
+    local squared: integer = 0
+    with scope = tasks.open() do
+        squared = scope:fork(|| -> shards * shards):await()
     end
+
+    return squared
 end
 ]],
         [
@@ -662,39 +665,39 @@ end
         ] = [[
 const capture = require("capture")
 const jobs = require("jobs")
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
 const sharedbytes = require("nupp.mem.sharedbytes")
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
-with scope = workers.scope() do
-    local independent = scope:spawn(jobs.nextCounter)
+with scope = tasks.open() do
+    local independent = scope:fork(jobs.nextCounter)
     assert(independent:await() == 1, "the worker has the same SPI index and fresh provider state")
     assert(counter.next() == 101, "worker initialization does not mutate the caller's provider")
-    const left = scope:spawn(6, jobs.square)
-    const right = scope:spawn(7, jobs.square)
-    const paired = scope:spawn(5, jobs.pair)
+    const left = scope:fork(6, jobs.square)
+    const right = scope:fork(7, jobs.square)
+    const paired = scope:fork(5, jobs.pair)
     const box = new jobs.Box(value = 8)
     local dynamicBox = box as any
     dynamicBox.extra = "kept"
-    const boxed = scope:spawn(box, jobs.doubleBox)
-    const returnedBox = scope:spawn(box, jobs.bumpBox)
-    const gradualBox = scope:spawn(box, jobs.gradual)
-    const nested = scope:spawn(new jobs.Box.Label(text = "worker"), jobs.labelSize)
-    const text = scope:spawn("native string", jobs.echo)
-    const payload = scope:spawn(new jobs.Payload(id = 9, label = "schema", ready = true), jobs.echoPayload)
+    const boxed = scope:fork(box, jobs.doubleBox)
+    const returnedBox = scope:fork(box, jobs.bumpBox)
+    const gradualBox = scope:fork(box, jobs.gradual)
+    const nested = scope:fork(new jobs.Box.Label(text = "worker"), jobs.labelSize)
+    const text = scope:fork("native string", jobs.echo)
+    const payload = scope:fork(new jobs.Payload(id = 9, label = "schema", ready = true), jobs.echoPayload)
     local malformed = new jobs.Payload(id = 10, label = "fallback", ready = false)
     local dynamicMalformed = malformed as any
     dynamicMalformed.id = "dynamic"
-    const fallbackPayload = scope:spawn(malformed, jobs.echoPayload)
-    const anyPayload = scope:spawn(new jobs.Payload(id = 11, label = "any", ready = false), jobs.echoDynamic)
+    const fallbackPayload = scope:fork(malformed, jobs.echoPayload)
+    const anyPayload = scope:fork(new jobs.Payload(id = 11, label = "any", ready = false), jobs.echoDynamic)
     local spare = new jobs.Payload(id = 12, label = "extra", ready = true)
     local dynamicSpare = spare as any
     dynamicSpare.extra = "spare"
-    const extraPayload = scope:spawn(spare, jobs.echoPayload)
+    const extraPayload = scope:fork(spare, jobs.echoPayload)
     const region = sharedbytes.copy("region payload")
-    const regionByte = scope:spawn(region:slice(7, 7), jobs.firstByte)
-    const markerResult = scope:spawn({
+    const regionByte = scope:fork(region:slice(7, 7), jobs.firstByte)
+    const markerResult = scope:fork({
         region = region:slice(0, 6),
         markers = {
             region = {__nuppRegion = 17},
@@ -702,8 +705,8 @@ with scope = workers.scope() do
             escaped = {__nuppAttachmentTable = {nested = true}},
         },
     }, jobs.attachmentMarkers)
-    const sparse = scope:spawn(new jobs.Sparse(id = 13, ready = true), jobs.echoSparse)
-    const noted = scope:spawn(new jobs.Sparse(id = 14, ready = false, note = "held"), jobs.echoSparse)
+    const sparse = scope:fork(new jobs.Sparse(id = 13, ready = true), jobs.echoSparse)
+    const noted = scope:fork(new jobs.Sparse(id = 14, ready = false, note = "held"), jobs.echoSparse)
     local doubled, label = paired:await()
     const leftValue = left:await()
     const restored = returnedBox:await()
@@ -748,23 +751,23 @@ end
 print(capture.run(40))
 
 local nestedOk, nestedProblem = pcall(function(): nil
-    with scope = workers.scope() do
-        scope:spawn(4, jobs.nested):await()
+    with scope = tasks.open() do
+        scope:fork(4, jobs.nested):await()
     end
 end)
 print(not nestedOk, tostring(nestedProblem):find("another worker scope", 1, true) ~= nil)
 
 
 local ok, problem = pcall(function(): nil
-    with scope = workers.scope() do
-        scope:spawn(jobs.fail)
+    with scope = tasks.open() do
+        scope:fork(jobs.fail)
     end
 end)
 print(ok, tostring(problem):find("deliberate worker failure", 1, true) ~= nil)
 
 local copied, copyProblem = pcall(function(): nil
-    with scope = workers.scope() do
-        scope:spawn(setmetatable({value = 1}, {}), jobs.gradual)
+    with scope = tasks.open() do
+        scope:fork(setmetatable({value = 1}, {}), jobs.gradual)
     end
 end)
 print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
@@ -773,8 +776,8 @@ const ffi = require("ffi")
 const heap = require("nupp.mem.heap")
 
 local frame = heap.allocate(ffi.typeof<uint8>(), 64)
-with scope = workers.scope() do
-    frame = scope:spawn(frame, 200, jobs.stamp):await()
+with scope = tasks.open() do
+    frame = scope:fork(frame, 200, jobs.stamp):await()
 end
 do
     local readable = frame:read()
@@ -790,8 +793,8 @@ do
     end
     nupp.drop(writable)
 end
-with scope = workers.scope() do
-    print(scope:spawn(counts, jobs.total):await())
+with scope = tasks.open() do
+    print(scope:fork(counts, jobs.total):await())
 end
 
 local builder = sharedbytes.newBuilder()
@@ -822,13 +825,13 @@ print(rawShared.accounted() == before)
 module capture
 
 const jobs = require("jobs")
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
 
 export function run(base: integer): integer
     const box = new jobs.Box(value = 21)
-    with scope = workers.scope() do
-        const scalar = scope:spawn(2, |value: integer| -> base + value)
-        const record = scope:spawn(|| -> box:doubled())
+    with scope = tasks.open() do
+        const scalar = scope:fork(2, |value: integer| -> base + value)
+        const record = scope:fork(|| -> box:doubled())
         return scalar:await() + record:await()
     end
 end
@@ -928,17 +931,19 @@ end
 const jobs = require("jobs")
 const points = require("points")
 const shapes = require("shapes")
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
+
+local function doubled(index: integer): nil
+    with lane = tasks.open() do
+        assert(lane:fork(index, jobs.double):await() == index * 2)
+    end
+end
 
 local function wide(): boolean
     local ok = pcall(function(): nil
-        with scope = workers.scope() do
-            local handles = {}
+        with scope = tasks.open() do
             for index = 1, 100 do
-                handles[index] = scope:spawn(index, jobs.double)
-            end
-            for index = 1, 100 do
-                assert(handles[index]:await() == index * 2)
+                scope:spawn(index, doubled)
             end
         end
     end)
@@ -946,8 +951,8 @@ local function wide(): boolean
 end
 
 local loaded, loadProblem = pcall(function(): nil
-    with scope = workers.scope() do
-        scope:spawn(new shapes.Point(x = 1, y = 2), points.sum):await()
+    with scope = tasks.open() do
+        scope:fork(new shapes.Point(x = 1, y = 2), points.sum):await()
     end
 end)
 print(loaded, tostring(loadProblem):find("cannot initialize on a worker lane", 1, true) ~= nil, wide())
@@ -956,8 +961,8 @@ local made = 0
 local madeProblem: any = nil
 for index = 1, 300 do
     local ok, problem = pcall(function(): nil
-        with scope = workers.scope() do
-            assert((scope:spawn(index, jobs.make):await() as any).v == index)
+        with scope = tasks.open() do
+            assert((scope:fork(index, jobs.make):await() as any).v == index)
         end
     end)
     if ok then
@@ -973,11 +978,11 @@ print(made, tostring(madeProblem):find("at most 256 record types", 1, true) ~= n
 const total: integer = 64 * 2 * 1024 + 1
 local spawned = 0
 pcall(function(): nil
-    with scope = workers.scope() do
+    with scope = tasks.open() do
         for index = 1, total do
             local spin = 0
             for _ = 1, 20000 do spin = spin + 1 end
-            scope:spawn(index, jobs.double)
+            scope:fork(index, jobs.double)
             spawned = index
         end
     end
@@ -1207,21 +1212,21 @@ end
 const jobs = require("jobs")
 const heap = require("nupp.mem.heap")
 const sharedbytes = require("nupp.mem.sharedbytes")
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
 
 local region = sharedbytes.copy("abc")
 rawset(region as any, "_length", 99)
 local ok, problem = pcall(function(): nil
     local frame = heap.allocate(ffi.typeof<uint8>(), 64)
-    with scope = workers.scope() do
-        scope:spawn(frame, region, jobs.inspect)
+    with scope = tasks.open() do
+        scope:fork(frame, region, jobs.inspect)
     end
 end)
 print(ok, tostring(problem):find("extent lies outside its storage", 1, true) ~= nil)
 rawset(region as any, "_length", 3)
 local frame = heap.allocate(ffi.typeof<uint8>(), 64)
-with scope = workers.scope() do
-    print(scope:spawn(frame, region, jobs.inspect):await())
+with scope = tasks.open() do
+    print(scope:fork(frame, region, jobs.inspect):await())
 end
 ]],
     })
@@ -1550,15 +1555,15 @@ return 1
         [
             "workerstyped.nupp"
         ] = [[
-local workers = require("nupp.workers")
-local wrong: integer = workers.scope
+local tasks = require("nupp.tasks")
+local wrong: integer = tasks.open
 return wrong
 ]],
         [
             "workersowned.nupp"
         ] = [[
-local workers = require("nupp.workers")
-with scope = workers.scope() do
+local tasks = require("nupp.tasks")
+with scope = tasks.open() do
     print(scope ~= nil)
 end
 return true

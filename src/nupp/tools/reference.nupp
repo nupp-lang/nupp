@@ -2309,7 +2309,8 @@ family instead:
 - `race` answers the first settled value and its index, then cancels the rest.
 
 These share one LuaJIT state and run one at a time between suspensions, so they
-are concurrency and not CPU parallelism. Cores are `nupp.workers`.
+are concurrency and not CPU parallelism. Cores are `fork`, which runs a child on
+a `nupp.workers` lane.
 
 A closure that captures an owner directly cannot be stored, so a body that
 shares one client calls a function holding it rather than closing over it.
@@ -2422,8 +2423,8 @@ a snapshot of its activation-local captures.
 
 The fact rides on the type, so a binding, field, parameter, or return keeps it.
 Write the modifier where a callable is held as a value and its source is no
-longer visible. A worker spawn supplies the expectation to its final argument,
-so an inline literal there needs no annotation.
+longer visible. A task scope's `fork` supplies the expectation to its final
+argument, so an inline literal there needs no annotation.
 
 Like `@nosuspend`, it is a positive guarantee that participates in identity,
 subtyping, aliasing and substitution. A `@sendable function` fits an ordinary
@@ -2440,8 +2441,8 @@ table, a record, or an `any` actually holds is not a fact of the type, so it is
 verified when the message is built: a closure, a foreign metatable, or a cycle
 found inside one is refused at the spawn, naming the position it was found at.
 
-`nupp.workers` is what asks for this today. Its source form puts the callable
-last: `scope:spawn(arguments..., callable)`. See
+`fork` on a `nupp.tasks` scope is what asks for this today. Its source form puts
+the callable last: `scope:fork(arguments..., callable)`. See
 [workers.md](docs/learn/runtime/concurrency/workers.md).
 ]=],
         context = {

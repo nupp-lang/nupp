@@ -57,11 +57,10 @@ or lifetime. A server, a loading pipeline, or a scene needs somewhere to put
 children found over time and one answer to what happens when the body returns, a
 child fails, or the whole thing is cancelled.
 
-[](nupp.workers) has that shape already, for CPU work on other threads, but its
-cleanup cannot suspend: leaving a worker scope blocks the thread until unawaited
-children finish. Right for a worker scope, wrong inside a frame. A task scope
-owns one lazily and closes it through the suspension-aware path first, which is
-what `fork` is.
+CPU work on other threads is [](nupp.workers), and a task scope is the only way
+to it: `fork` hands a child to a lane, and the scope owns the family of lanes
+lazily and closes it through the suspension-aware path, so leaving the block
+inside a frame parks rather than blocking the thread.
 
 The scheduling contract is with the host rather than with each child. The host
 sees one aggregate and decides when it runs; this decides which children run
@@ -1014,8 +1013,7 @@ local function workersImpl(scope: tasks.Scope): any
             end,
         }
         owner.settleHook = workerModule.settle
-        local workerScope = workerModule.openScope(owner.deadline, observer)
-        owner.workerScope = @unsafe nupp.release(workerScope)
+        owner.workerScope = workerModule.openScope(owner.deadline, observer)
     end
 
     return owner.workerScope

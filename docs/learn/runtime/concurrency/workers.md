@@ -6,9 +6,10 @@ order: 150
 
 `nupp.workers` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads with isolated LuaJIT states.
-Arguments and results cross as copies, while Lua heaps and their globals,
-userdata, cdata, and mutable module state stay isolated. Eligible closure
-captures cross only as independent copies.
+A lane is reached through `fork` on an [application task scope](task-scopes.md),
+which owns the worker children it starts. Arguments and results cross as copies,
+while Lua heaps and their globals, userdata, cdata, and mutable module state stay
+isolated. Eligible closure captures cross only as independent copies.
 
 ```nupp
 module jobs
@@ -22,12 +23,12 @@ end
 module main
 
 const jobs = require("jobs")
-const workers = nupp.workers
+const tasks = nupp.tasks
 
 export function hashes(left: string, right: string): (string, string)
-    with scope = workers.scope() do
-        const first = scope:spawn(left, jobs.hash)
-        const second = scope:spawn(right, jobs.hash)
+    with scope = tasks.open() do
+        const first = scope:fork(left, jobs.hash)
+        const second = scope:fork(right, jobs.hash)
 
         return first:await(), second:await()
     end
@@ -35,7 +36,7 @@ end
 ```
 
 `jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
-in the current Lua state; passing it to `scope:spawn` runs it on the worker
+in the current Lua state; passing it to `scope:fork` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
 ::: note Workers need a compiler-owned binary, or a browser package
@@ -64,13 +65,13 @@ Worker rather than a thread.
 
 ## Structured scopes
 
-Every task belongs to a `Scope`. Leaving the exact `with` extent waits for all
-of its children, including tasks the body never awaited and every path out by
-return or error.
+Every worker task belongs to the task scope that forked it. Leaving the exact
+`with` extent waits for all of its children, including tasks the body never
+awaited and every path out by return or error.
 
 ```nupp
-with scope = workers.scope() do
-    scope:spawn(snapshot, jobs.rebuildIndex)
+with scope = tasks.open() do
+    scope:fork(snapshot, jobs.rebuildIndex)
 end -- rebuildIndex has settled here
 ```
 
@@ -78,9 +79,11 @@ end -- rebuildIndex has settled here
 list and complete result pack are inferred from that function, so wrong
 arguments and wrong result uses are ordinary type errors at the call site.
 
-Awaiting a settled task is repeatable. A failure is raised by `await`. If the
-body never observes a failed task, scope exit waits for every sibling and then
-raises the first unobserved failure.
+Awaiting a settled task is repeatable. A failure is raised by `await`, and it is
+the scope's from the moment it happens, whether or not anything awaits it: the
+scope cancels its unfinished children, waits for them, and raises the failure
+where the block is left. [Failure and termination](#failure-and-termination)
+says more.
 
 `Task:isDone()` answers whether a reply has arrived without waiting for one. It
 is a progress question, not a scheduling one: a task is settled or it is not,
@@ -93,43 +96,47 @@ the lane discards its work frame without loading or invoking the function. A
 running task is cooperative as described under [Failure and
 termination](#failure-and-termination).
 
-`Task:await()` and explicit `Scope:close()` are suspension-aware ordinary
-calls. With a [suspension handler](suspension.md) they park the current
-coroutine; without one they sleep on the native channel. Automatic cleanup uses
-the worker scope's blocking native terminal, so it has the same behavior even
-when no suspension handler is installed.
+`Task:await()` and leaving the block are suspension-aware. With a [suspension
+handler](suspension.md) they park the current coroutine; without one they sleep
+on the native channel.
 
 ## Fanning out over a list
 
-Two spawns are two lines; a list is a loop. A scope is never told in advance
+Two forks are two lines; a list is a loop. A scope is never told in advance
 how many children it will have.
+
+A handle borrows the scope that made it, so it lives in a local rather than a
+table. A list therefore fans out through children: each one forks its item and
+waits for it, and the children wait together, so every item is on a lane at
+once.
 
 ```nupp
 export function hashEach(inputs: {string}): {string}
-    with scope = workers.scope() do
-        local tasks: {nupp.tasks.Task<function(string): string>} = {}
-        for index, bytes in ipairs(inputs) do
-            tasks[index] = scope:spawn(bytes, jobs.hash)
-        end
+    local hashed: {string} = {}
 
-        local hashed: {string} = {}
-        for index, task in ipairs(tasks) do
-            hashed[index] = task:await()
+    local function hashInto(index: integer, bytes: string): nil
+        with lane = tasks.open() do
+            hashed[index] = lane:fork(bytes, jobs.hash):await()
         end
-
-        return hashed
     end
+
+    with scope = tasks.open() do
+        for index, bytes in ipairs(inputs) do
+            scope:spawn(index, bytes, hashInto)
+        end
+    end
+
+    return hashed
 end
 ```
 
-Submit the whole list before awaiting any of it. Awaiting inside the first loop
-would spawn one task, wait for it, and spawn the next: still correct, and
-exactly as parallel as calling the function. A single task rarely needs a type
-annotation, because `const task = scope:spawn(bytes, jobs.hash)` infers one;
-a table of them names the submitted function's type as `nupp.tasks.Task<F>`. The
-handle is derived from the signature alone, so it is written as
-`nupp.tasks.Task<function(string): string>` even though [`spawn` requires an
-`@sendable` function](#functions-that-can-be-submitted).
+Waiting inside the loop that forks would fork one task, wait for it, and fork the
+next: still correct, and exactly as parallel as calling the function. A handle
+rarely needs a type annotation, because `const task = scope:fork(bytes,
+jobs.hash)` infers one. Where one is written, it is `nupp.tasks.Task<F>`, named
+by the submitted function's type: the handle is derived from the signature
+alone, so it is `nupp.tasks.Task<function(string): string>` even though [`fork`
+requires an `@sendable` function](#functions-that-can-be-submitted).
 
 ### Work in the caller
 
@@ -138,8 +145,8 @@ work divides:
 
 ```nupp
 export function bothHashes(left: string, right: string): (string, string)
-    with scope = workers.scope() do
-        const task = scope:spawn(right, jobs.hash)
+    with scope = tasks.open() do
+        const task = scope:fork(right, jobs.hash)
         const mine = jobs.hash(left)
 
         return mine, task:await()
@@ -155,25 +162,34 @@ than its elements when the work per element is small:
 
 ```nupp
 export function hashChunks(inputs: {string}, size: integer): {string}
-    with scope = workers.scope() do
-        local tasks: {nupp.tasks.Task<function({string}): {string}>} = {}
+    local chunks: {{string}} = {}
+
+    local function hashChunk(at: integer, chunk: {string}): nil
+        with lane = tasks.open() do
+            chunks[at] = lane:fork(chunk, jobs.hashAll):await()
+        end
+    end
+
+    with scope = tasks.open() do
+        local count = 0
         for first = 1, #inputs, size do
             local chunk: {string} = {}
             for offset = first, math.min(first + size - 1, #inputs) do
                 chunk[#chunk + 1] = inputs[offset]
             end
-            tasks[#tasks + 1] = scope:spawn(chunk, jobs.hashAll)
+            count = count + 1
+            scope:spawn(count, chunk, hashChunk)
         end
-
-        local hashed: {string} = {}
-        for _, task in ipairs(tasks) do
-            for _, one in ipairs(task:await()) do
-                hashed[#hashed + 1] = one
-            end
-        end
-
-        return hashed
     end
+
+    local hashed: {string} = {}
+    for _, chunk in ipairs(chunks) do
+        for _, one in ipairs(chunk) do
+            hashed[#hashed + 1] = one
+        end
+    end
+
+    return hashed
 end
 ```
 
@@ -184,9 +200,11 @@ same lanes and pay ten thousand copies to do it.
 
 ## Shared scheduler
 
-The first scope creates one scheduler for the process. Its lane count is the
-host's online processor count, capped at 64. Later and concurrent scopes reuse
-the same lanes rather than creating a pool or a thread per task.
+The first fork creates one scheduler for the process. Its lane count is the
+host's online processor count, capped at 64, and
+`nupp.system.availableParallelism()` answers that count without opening
+anything. Later and concurrent scopes reuse the same lanes rather than creating
+a pool or a thread per task.
 
 Submission chooses the lane with the fewest unsettled tasks. Each lane runs
 one task at a time in its own Lua state, while different lanes run in parallel.
@@ -198,21 +216,26 @@ available replies from every lane and wakes the tasks that settled. Awaiting
 many tasks therefore does not register one source or lock every lane again for
 each awaiter.
 
-A worker task cannot open another worker scope. Its isolated state cannot
-submit back into the parent scheduler without either exposing scheduler
-internals across the heap boundary or risking that a lane waits on itself.
+A worker task cannot fork. Its isolated state cannot submit back into the
+parent scheduler without either exposing scheduler internals across the heap
+boundary or risking that a lane waits on itself.
 
 ```nupp
 module jobs.index
 
-const workers = nupp.workers
+const tasks = nupp.tasks
 
--- Submitting this raises where it runs: a worker task cannot open another
+-- Submitting this raises where it forks: a worker task cannot open another
 -- worker scope.
 export function countAll(shards: {{string}}): integer
-    with scope = workers.scope() do
-        return #shards
+    local total: integer = 0
+    with scope = tasks.open() do
+        for _, paths in ipairs(shards) do
+            total = total + scope:fork(|| -> #paths):await()
+        end
     end
+
+    return total
 end
 
 -- One shard of the same work, which a lane can run.
@@ -229,19 +252,21 @@ its leaves:
 const indexJobs = jobs.index
 
 export function countAll(shards: {{string}}): number
-    with scope = workers.scope() do
-        local tasks: {nupp.tasks.Task<function({string}): integer>} = {}
-        for at, paths in ipairs(shards) do
-            tasks[at] = scope:spawn(paths, indexJobs.count)
-        end
+    local total: number = 0
 
-        local total: number = 0
-        for _, task in ipairs(tasks) do
-            total = total + task:await()
+    local function countShard(paths: {string}): nil
+        with lane = tasks.open() do
+            total = total + lane:fork(paths, indexJobs.count):await()
         end
-
-        return total
     end
+
+    with scope = tasks.open() do
+        for _, paths in ipairs(shards) do
+            scope:spawn(paths, countShard)
+        end
+    end
+
+    return total
 end
 ```
 
@@ -251,7 +276,7 @@ mailboxes would be a separate abstraction.
 
 ## Functions that can be submitted
 
-The final argument to `spawn` must be a `@sendable function`. A function read
+The final argument to `fork` must be a `@sendable function`. A function read
 from a loaded module is sendable with no captures:
 
 ```nupp
@@ -264,7 +289,7 @@ end
 
 ```nupp
 const imageJobs = image.jobs
-const task = scope:spawn(bytes, 320, imageJobs.resize)
+const task = scope:fork(bytes, 320, imageJobs.resize)
 ```
 
 The function reference is also the build dependency. The binary automatically
@@ -274,7 +299,7 @@ An eligible function literal is sendable too. Its activation-local captures are
 snapshotted when the literal is created and copied with the explicit arguments:
 
 ```nupp
-scope:spawn(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
+scope:fork(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
 ```
 
 The binding `requestedWidth` must be initialized and never reassigned. Its value
@@ -338,7 +363,7 @@ with `new` carries its declaration table and crosses with that identity; a plain
 table cast to the same record type remains plain. The type alone cannot decide
 which value arrives. The checker's guarantee is therefore one level deep -- each
 capture and argument is held to its declared type -- and the transport walks the
-values themselves when the message is built, at `spawn` or `fork`.
+values themselves when the message is built, at `fork`.
 
 The following are therefore still rejected while copying:
 
@@ -352,20 +377,20 @@ A rejection names the position it found, so the message says which argument and
 which field stopped the copy rather than that the message was untransferable:
 
 ```nupp
-with scope = workers.scope() do
+with scope = tasks.open() do
     const row = new jobs.Row(name = "a")
 
     -- The lane receives its own jobs.Row metatable, so its methods work there.
-    scope:spawn(row, jobs.displayRow)
+    scope:fork(row, jobs.displayRow)
 
     const plain = {name = "a"}
 
     -- nupp: cannot copy task arguments: arguments[1][2] repeats a table
     -- already present in the message
-    scope:spawn({plain, plain}, jobs.count)
+    scope:fork({plain, plain}, jobs.count)
 
     -- Two tables, and a lane that reads two rows:
-    scope:spawn({{name = "a"}, {name = "a"}}, jobs.count)
+    scope:fork({{name = "a"}, {name = "a"}}, jobs.count)
 end
 ```
 
@@ -396,7 +421,7 @@ One exception to the ownership refusal is deliberate. A worker parameter may
 take a [](nupp.mem.heap) array of a fixed-width element, and an affine result
 may return one; neither is a copy. The array's storage lives in neither Lua
 heap, so the message hands its pointer across and the receiving lane becomes
-the one owner. The spawn consumes the sender's binding, so touching it
+the one owner. The fork consumes the sender's binding, so touching it
 afterwards is a compile error at the send site, and an affine result moves
 ownership back to whichever lane awaits the task.
 
@@ -418,9 +443,9 @@ end
 
 ```nupp
 local frame = heap.allocate(ffi.typeof<uint8>(), 8 * 1048576)
-with scope = workers.scope() do
+with scope = tasks.open() do
     for generation = 1, 60 do
-        frame = scope:spawn(frame, generation, jobs.fill):await()
+        frame = scope:fork(frame, generation, jobs.fill):await()
     end
 end
 nupp.drop(frame)
@@ -449,37 +474,42 @@ is the intended composition, and there is no path back.
 
 ## Failure and termination
 
-An error raised by the submitted function becomes that task's failure and is
-raised in the parent by `await` or by scope exit when it was unobserved. Other
-tasks continue to settle so the structured scope never abandons live children.
+An error raised by the submitted function becomes that task's failure, worded
+`nupp: worker task failed: ...`, and the scope's from the moment it happens. The
+scope cancels its unfinished children, waits for every one of them so it never
+abandons a live child, and raises the failure where the block is left. `await`
+raises it too, and so does any later task operation in the scope.
 
 ```nupp
 export function observed(): string
-    with scope = workers.scope() do
-        const good = scope:spawn("alpha", jobs.hash)
-        const bad = scope:spawn("beta", jobs.refuse)
+    local digest = ""
+    with scope = tasks.open() do
+        const bad = scope:fork("beta", jobs.refuse)
 
         -- false, "nupp: worker task failed: ...: cannot hash beta"
         print(pcall(function(): nil
             bad:await()
         end))
 
-        return good:await() -- the sibling ran anyway
+        digest = jobs.hash("alpha") -- the block goes on, but the scope has failed
     end
+
+    return digest -- not reached: leaving the scope raised the failure
 end
 
 export function unobserved(): string
-    with scope = workers.scope() do
-        scope:spawn("beta", jobs.refuse)
+    with scope = tasks.open() do
+        scope:fork("beta", jobs.refuse)
 
         return jobs.hash("alpha") -- the failure is raised leaving the scope
     end
 end
 ```
 
-`observed` returns a hash and `unobserved` raises, from the same pair of
-children. Handling a failure means observing it, and the way to observe one is
-to await the task that carries it.
+Both raise. A scope is fail-fast rather than a supervisor, so a failure is
+handled where the scope is left, not by awaiting the task that carries it. Where
+each item should keep its own outcome, give each one a scope of its own, as the
+[fan-out](#fanning-out-over-a-list) children do, and catch there.
 
 A running task is not preempted. Lua and foreign code have no safe general
 interruption point, so leaving a scope waits for a task that is already running.
@@ -503,12 +533,11 @@ that scope's absolute deadline; expiry becomes a cancellation request in the
 native task registry. A normal result or application failure that wins the race
 remains that result or failure.
 
-`workers.scope()` itself has no deadline and cancelling one child does not
-cancel its siblings. `scope:fork` on an application task scope is the fail-fast
-form: the task scope requests cancellation for every unfinished worker child when
-a sibling fails, then awaits running cleanup through the installed suspension
-handler. The task scope owns that worker scope privately; `fork` is the only way
-in.
+Cancelling one child with `Task:cancel` does not cancel its siblings, and
+`scope:cancel` cancels every one. When a sibling fails, the task scope requests
+cancellation for every unfinished worker child, then awaits running cleanup
+through the installed suspension handler. The task scope owns its family of
+lanes privately; `fork` is the only way in.
 
 The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
@@ -548,7 +577,6 @@ One thing the native scheduler offers is not there. A [moved owned
 buffer](#moving-owned-buffers) cannot transfer its native pointer ownership into
 another guest, so every ownership mode keeps the copy refusal.
 
-Everything else is the same, [application task scopes](task-scopes.md) included:
-`scope:fork` gives a browser page the fail-fast form, a scope deadline reaches a
+Everything else is the same: a scope is fail-fast, a scope deadline reaches a
 lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its
 cancellation was requested.

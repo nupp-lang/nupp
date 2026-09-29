@@ -248,10 +248,6 @@ raises before its children have settled, because nothing could complete a wait
 one of them is parked on, still gives the frame back and forgets the scope, and
 may be called again.
 
-Direct `workers.scope()` remains useful in blocking programs. Its terminal
-settles the scope the same way: under a suspension handler it parks until every
-child has settled, and without one it drains synchronously.
-
 ## Host scheduling
 
 An installed [suspension handler](suspension.md) schedules the aggregate, not

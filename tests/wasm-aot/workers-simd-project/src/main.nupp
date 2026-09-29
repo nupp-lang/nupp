@@ -1,25 +1,27 @@
-const {type Task} = require("nupp.tasks")
-
 local kernels = require("kernels")
-local workers = require("nupp.workers")
+local tasks = require("nupp.tasks")
 
 -- The same kernel, run once here and once on every lane, has to agree everywhere.
 local expected = kernels.scaled(64, 2)
 local agreed = true
 local lanes: integer = 0
 
-with scope = workers.scope() do
-    local submitted: {Task<function(integer, number): {number}>} = {}
-    for index = 1, 8 do
-        submitted[index] = scope:spawn(64, 2, kernels.scaled)
-    end
-    for _, task in ipairs(submitted) do
-        local produced = task:await()
+-- One child per job: each forks the kernel and waits for it, and the children wait
+-- together, so the kernels run on their lanes at the same time.
+local function compare(): nil
+    with lane = tasks.open() do
+        local produced = lane:fork(64, 2, kernels.scaled):await()
         lanes = lanes + 1
         agreed = agreed and #produced == #expected
         for index = 1, #expected do
             agreed = agreed and produced[index] == expected[index]
         end
+    end
+end
+
+with scope = tasks.open() do
+    for _ = 1, 8 do
+        scope:spawn(compare)
     end
 end
 

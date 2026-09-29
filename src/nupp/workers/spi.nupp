@@ -4,8 +4,9 @@ module nupp.workers.spi
 Shared interfaces for structured worker implementations.
 
 The workers module selects an implementation during initialization.
-A provider owns its lane scheduler, but uses the canonical Scope, PublicScope,
-ScopeToken, Task, Status, and submitted-signature types declared here. Generic spawn must
+A provider owns its lane scheduler, but uses the canonical Scope, Task, Status,
+and submitted-signature types declared here. A scope is reached only through a
+task scope's `fork`, which owns one privately. Generic spawn must
 preserve the exact argument and result packs of the sendable function.
 
 Arguments and results cross isolated Lua states as copies. Only explicitly
@@ -257,14 +258,8 @@ end
 --- [](nupp.workers.spi.Status).
 type workers.Task<F> = TaskType(F)
 
---- The cleanup contract a structured worker scope carries.
-interface workers.ScopeToken is nupp.Affine<self.drop>
-    @readonly
-    drop: function(takes self: workers.ScopeToken): nil
-end
-
---- A lexical family of parallel child tasks.
-record workers.Scope is workers.ScopeToken
+--- A family of parallel child tasks, owned by the task scope whose `fork` opened it.
+record workers.Scope
     _scheduler: any
     _tasks: {any}
     _closed: boolean
@@ -278,28 +273,12 @@ record workers.Scope is workers.ScopeToken
         ...: unpackof workers.Submitted(F)
     ): workers.Task<F>
 
-    --- Waits for every child. Idempotent.
+    --- Waits for every child, raising the first failure nothing observed. Idempotent.
+    --- Under a suspension handler it parks until every child has settled, and without
+    --- one it blocks.
     close: function(borrows self: workers.Scope): nil
 
-    --- Closes the scope on every structured exit. A settling terminal: under a
-    --- suspension handler it parks until every child has settled, and without one it
-    --- blocks.
-    drop: function(takes self: workers.Scope): nil
-
     _cancelAll: function(workers.Scope, string?): nil
-end
-
-interface workers.PublicScope is workers.ScopeToken
-    @readonly
-    spawn: function<F is workers.Submittable>(
-        borrows self: workers.PublicScope,
-        F,
-        ...: unpackof workers.Submitted(F)
-    ): workers.Task<F>
-    @readonly
-    close: function(borrows self: workers.PublicScope): nil
-    @readonly
-    drop: function(takes self: workers.PublicScope): nil
 end
 
 --- Complete worker implementation protocol, including structured-task integration.
@@ -307,10 +286,6 @@ end
 interface workers.Provider
     @readonly
     priority: integer?
-
-    --- Creates an affine structured scope that settles children during cleanup.
-    @readonly
-    scope: function(): affine(workers.PublicScope)
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.

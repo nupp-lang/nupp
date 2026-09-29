@@ -137,7 +137,6 @@ local record TaskImpl
     cancel: @nosuspend function(TaskImpl, string?): boolean
 end
 
-type workers.ScopeToken = contracts.ScopeToken
 type workers.Scope = contracts.Scope
 workers.Scope = contracts.Scope
 
@@ -517,11 +516,6 @@ local function closeScope(borrows self: workers.Scope): nil
     end
 end
 
-local function dropScope(takes self: workers.Scope): nil
-    local state = @unsafe nupp.release(self)
-    closeScope(state)
-end
-
 local function cancelAllScope(self: workers.Scope, reason: string?): nil
     for _, task in ipairs(self._tasks) do
         task:cancel(reason)
@@ -537,7 +531,6 @@ local function openScope(deadline: number?, observer: any): workers.Scope
         {
             spawn = spawnSurface,
             close = closeScope,
-            drop = dropScope,
             _cancelAll = cancelAllScope,
             _tasks = {},
             _closed = false,
@@ -546,11 +539,6 @@ local function openScope(deadline: number?, observer: any): workers.Scope
         },
         ScopeMT
     ) as workers.Scope
-end
-
---- Opens a structured family on the page's bounded worker pool.
-function workers.scope(): affine(workers.Scope)
-    return openScope(nil, nil)
 end
 
 workers.openScope = openScope

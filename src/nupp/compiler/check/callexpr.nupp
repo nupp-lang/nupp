@@ -105,12 +105,7 @@ local type CompilerSurface = {
 local COMPILER_SURFACES: {
     [string]: {[string]: {[string]: CompilerSurface}}
 } = {
-    [
-        "nupp.workers.spi"
-    ] = {
-        Scope = {spawn = {rotate = true, sendableLast = true,},},
-        PublicScope = {spawn = {rotate = true, sendableLast = true,},},
-    },
+    ["nupp.workers.spi"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
     [
         "nupp.tasks"
     ] = {
