@@ -629,7 +629,7 @@ int main(int argc, char **argv) {
     error = NULL;
     nupp_handle_release(runtime, calls, &error);
     nupp_error_free(error);
-    nupp_component_release(component);
+    nupp_component_release(runtime, component, NULL);
     error = NULL;
     if (report("shutdown", nupp_runtime_shutdown(runtime, &error), error)) return 1;
     nupp_runtime_free(runtime);
@@ -819,7 +819,7 @@ int main(int argc, char **argv) {
     nupp_value_release(runtime, &result, NULL);
     nupp_handle_release(runtime, kernel, NULL);
     nupp_handle_release(runtime, after, NULL);
-    nupp_component_release(component);
+    nupp_component_release(runtime, component, NULL);
     nupp_runtime_shutdown(runtime, NULL);
     nupp_runtime_free(runtime);
     return 0;
@@ -994,7 +994,7 @@ int main(int argc, char **argv) {
     printf("game.label(true) = %.*s\n", (int)result.length, result.data ? (const char *)result.data : "");
     nupp_value_release(runtime, &result, NULL);
     nupp_handle_release(runtime, label, NULL);
-    nupp_component_release(component);
+    nupp_component_release(runtime, component, NULL);
     nupp_runtime_shutdown(runtime, NULL);
     nupp_runtime_free(runtime);
     free(bytes);
@@ -1135,7 +1135,8 @@ int main(int argc, char **argv) {
     }
     nupp_handle_release(runtime, arm, NULL);
     nupp_handle_release(runtime, fire, NULL);
-    nupp_component_release(component);
+    printf("release = %d\n", (int)nupp_component_release(runtime, component, NULL));
+    printf("release again = %d\n", (int)nupp_component_release(runtime, component, NULL));
     nupp_runtime_shutdown(runtime, NULL);
     nupp_runtime_free(runtime);
     free(bytes);
@@ -1175,6 +1176,10 @@ function M.aRuntimePollAdvancesATimerSource()
     assert(output:find("armed fired = 0", 1, true), output)
     assert(output:find("pass 2 fired = 0", 1, true), output)
     assert(output:find("pass 3 fired = 1", 1, true), output)
+    -- A component release answers a status like the other releases, and a
+    -- released component is a stale name.
+    assert(output:find("release = 0", 1, true), output)
+    assert(output:find("release again = 1", 1, true), output)
 end
 
 return M

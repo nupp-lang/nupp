@@ -83,7 +83,9 @@ done:
     error = NULL;
     nupp_handle_release(runtime, answer, &error);
     nupp_error_free(error);
-    nupp_component_release(component);
+    error = NULL;
+    nupp_component_release(runtime, component, &error);
+    nupp_error_free(error);
     free(bytes);
     if (runtime) {
         error = NULL;

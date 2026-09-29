@@ -17,7 +17,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-const EMBED_ABI_VERSION: u32 = 1;
+const EMBED_ABI_VERSION: u32 = 2;
 const CONFIG_OPEN_LIBRARIES: u32 = 1;
 
 const STATUS_OK: c_int = 0;
@@ -348,7 +348,9 @@ unsafe fn config_flags(config: *const NuppConfig, fallback: u32) -> Result<u32, 
         return Err(Failure {
             status: STATUS_INCOMPATIBLE,
             category: ERROR_COMPATIBILITY,
-            message: "nupp_config is smaller than embedding ABI 1 requires".to_owned(),
+            message: format!(
+                "nupp_config is smaller than embedding ABI {EMBED_ABI_VERSION} requires"
+            ),
         });
     }
     let config = unsafe { config.read() };
@@ -356,7 +358,7 @@ unsafe fn config_flags(config: *const NuppConfig, fallback: u32) -> Result<u32, 
         return Err(Failure {
             status: STATUS_INCOMPATIBLE,
             category: ERROR_COMPATIBILITY,
-            message: "libnupp embedding ABI 1 cannot accept another ABI".to_owned(),
+            message: format!("libnupp embedding ABI {EMBED_ABI_VERSION} cannot accept another ABI"),
         });
     }
     if config.flags & !CONFIG_OPEN_LIBRARIES != 0 {
@@ -1073,7 +1075,9 @@ unsafe fn reload_configuration<'a>(
         return Err(Failure {
             status: STATUS_INCOMPATIBLE,
             category: ERROR_COMPATIBILITY,
-            message: "nupp_reload_config is smaller than embedding ABI 1 requires".to_owned(),
+            message: format!(
+                "nupp_reload_config is smaller than embedding ABI {EMBED_ABI_VERSION} requires"
+            ),
         });
     }
     let config = unsafe { config.read() };
@@ -1333,15 +1337,25 @@ pub unsafe extern "C" fn nupp_reload_free(reload: *mut NuppReload) {
     }
 }
 
+/// Releases the C name of a component, not the modules it installed. A null
+/// component releases nothing; a released one, or another runtime's, is
+/// refused like any other stale name.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nupp_component_release(component: *mut NuppComponent) {
-    if !component.is_null() {
-        let _ = catch_unwind(|| {
-            let mut registry = registry();
-            if let Some(Named::Component(_)) = registry.names.get(&key(component)) {
-                registry.names.remove(&key(component));
+pub unsafe extern "C" fn nupp_component_release(
+    runtime: *mut NuppRuntime,
+    component: *mut NuppComponent,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            if component.is_null() {
+                return Ok(());
             }
-        });
+            let entry = enter(runtime)?;
+            component_for(entry.runtime(), component)?;
+            registry().names.remove(&key(component));
+            Ok(())
+        })
     }
 }
 
@@ -1711,7 +1725,10 @@ return {
                 ),
                 STATUS_RUNTIME
             );
-            nupp_component_release(component);
+            assert_eq!(
+                nupp_component_release(runtime, component, ptr::null_mut()),
+                STATUS_OK
+            );
             nupp_runtime_free(runtime);
 
             let runtime = new_runtime();
@@ -1897,7 +1914,10 @@ return {
                 nupp_component_start(runtime, component, 0, ptr::null(), ptr::null_mut()),
                 STATUS_RUNTIME
             );
-            nupp_component_release(component);
+            assert_eq!(
+                nupp_component_release(runtime, component, ptr::null_mut()),
+                STATUS_OK
+            );
             assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
             nupp_runtime_free(runtime);
         }
@@ -1985,7 +2005,15 @@ return {
                 nupp_handle_release(first, callable, ptr::null_mut()),
                 STATUS_OK
             );
-            nupp_component_release(component);
+            // A component answers to the runtime that loaded it.
+            assert_eq!(
+                nupp_component_release(second, component, ptr::null_mut()),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                nupp_component_release(first, component, ptr::null_mut()),
+                STATUS_OK
+            );
             nupp_runtime_free(first);
             nupp_runtime_free(second);
         }
@@ -2100,7 +2128,10 @@ return {
                 ),
                 STATUS_INVALID_ARGUMENT
             );
-            nupp_component_release(component);
+            assert_eq!(
+                nupp_component_release(runtime, component, ptr::null_mut()),
+                STATUS_OK
+            );
             assert_eq!(
                 nupp_export_find(
                     runtime,
@@ -2112,7 +2143,14 @@ return {
                 STATUS_INVALID_ARGUMENT
             );
             assert!(handle.is_null());
-            nupp_component_release(component);
+            assert_eq!(
+                nupp_component_release(runtime, component, ptr::null_mut()),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                nupp_component_release(runtime, ptr::null_mut(), ptr::null_mut()),
+                STATUS_OK
+            );
             nupp_handle_release(runtime, read, ptr::null_mut());
             nupp_handle_release(runtime, doubled, ptr::null_mut());
             assert_eq!(nupp_runtime_shutdown(runtime, ptr::null_mut()), STATUS_OK);
@@ -2386,7 +2424,7 @@ return { format = 1, hostAbi = 1, install = function() return {
             assert!(text.starts_with(b"before?after-NULbefore?"));
             nupp_error_free(error);
             nupp_handle_release(runtime, fail, ptr::null_mut());
-            nupp_component_release(component);
+            nupp_component_release(runtime, component, ptr::null_mut());
             nupp_runtime_free(runtime);
         }
     }

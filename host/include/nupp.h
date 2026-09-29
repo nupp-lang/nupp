@@ -31,7 +31,7 @@ typedef struct nupp_error nupp_error;
 typedef struct nupp_reload nupp_reload;
 
 enum {
-    NUPP_EMBED_ABI_VERSION = 1,
+    NUPP_EMBED_ABI_VERSION = 2,
     NUPP_CONFIG_OPEN_LIBRARIES = 1,
     NUPP_RELOAD_STRICT = 1,
 };
@@ -297,7 +297,13 @@ NUPP_API nupp_status nupp_reload_close(
 
 NUPP_API void nupp_reload_free(nupp_reload *reload);
 
-NUPP_API void nupp_component_release(nupp_component *component);
+/* Releases the component's name, not the modules it installed, which stay
+ * until the runtime's state closes. A null component releases nothing. */
+NUPP_API nupp_status nupp_component_release(
+    nupp_runtime *runtime,
+    nupp_component *component,
+    nupp_error **error
+);
 /* Called beneath a running call, the free waits until the last call running in
  * the runtime's Lua state returns. */
 NUPP_API void nupp_runtime_free(nupp_runtime *runtime);

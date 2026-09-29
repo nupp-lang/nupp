@@ -19,7 +19,7 @@ nupp_config_init(&config);
 nupp_runtime_new(&config, &runtime, &error);
 nupp_component_load(runtime, bytes, length, "game.nuppc", &component, &error);
 nupp_component_start(runtime, component, 0, NULL, &error);
-nupp_component_release(component);
+nupp_component_release(runtime, component, &error);
 nupp_runtime_shutdown(runtime, &error);
 nupp_runtime_free(runtime);
 ```
@@ -298,8 +298,9 @@ Loading, starting, and releasing are separate operations.
    starts.
 3. `nupp_component_start` runs the entry exactly once and installs its `arg`
    table from the supplied arguments.
-4. `nupp_component_release` releases the C wrapper, not the modules installed
-   in the runtime.
+4. `nupp_component_release` releases the C name, not the modules installed in
+   the runtime. Like the other releases it takes the runtime and answers a
+   status, refusing a component already released or loaded by another runtime.
 
 ```c
 nupp_component_load(runtime, bytes, length, "game.nuppc", &component, &error);
@@ -491,7 +492,7 @@ roots can both be retired cleanly:
 ```c
 nupp_value_release(runtime, &result, &error);
 nupp_handle_release(runtime, answer, &error);
-nupp_component_release(component);
+nupp_component_release(runtime, component, &error);
 nupp_runtime_shutdown(runtime, &error);
 nupp_runtime_free(runtime);
 ```
