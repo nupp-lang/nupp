@@ -42,7 +42,7 @@ grep -rl '@aot' bench tests/wasm-aot --include='*.nupp' | sort | while read -r f
     fi
     dir=$root/$dir
     emit "$dir" "$rel" ll --emit llvm
-    emit "$dir" "$rel" avx2.ll --emit llvm --target x86_64-unknown-linux-gnu --features avx2
+    emit "$dir" "$rel" avx2.ll --emit llvm --triple x86_64-unknown-linux-gnu --features avx2
     emit "$dir" "$rel" wgsl --emit wgsl
     emit "$dir" "$rel" spirv --emit spirv
     emit "$dir" "$rel" ir --emit ir

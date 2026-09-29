@@ -36,7 +36,7 @@ export GEMM_M=64 GEMM_N=64 GEMM_K=64
 wgsl=$typed/counted-wgsl
 mkdir -p "$wgsl"
 for kernel in literal boundaries snapshots control; do
-    "$root/bin/nupp" aot --emit wgsl --target wasm32-unknown-emscripten \
+    "$root/bin/nupp" aot --emit wgsl --triple wasm32-unknown-emscripten \
         --function "$kernel" "$bench/typed/counted.nupp" > "$wgsl/$kernel.wgsl"
 done
 cargo run --locked -p nupp-native-gpu --example counted_wgsl -- "$wgsl"
