@@ -4596,7 +4596,7 @@ end
                 ty[1] .. "_" .. op[1]:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer." .. ty[1] .. "." .. op[1] .. "(seed)",
+                "local fold = simd.reducer." .. op[1] .. "(nupp.mem.array." .. ty[2] .. ", seed)",
                 op[2],
                 ty[2],
                 ty[3],
@@ -4608,7 +4608,7 @@ end
                 ty[1] .. "_" .. extreme:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer.integer" .. extreme .. "(seed)",
+                "local fold = simd.reducer.integer" .. extreme .. "(nupp.mem.array." .. ty[2] .. ", seed)",
                 "add",
                 ty[2],
                 ty[3]
@@ -4617,7 +4617,7 @@ end
                 ty[1] .. "_arg" .. extreme:lower(),
                 ty[2],
                 ty[3],
-                "local fold: simd.IntegerArg" .. extreme .. "<TYPE> = simd.reducer.integerArg" .. extreme .. "()",
+                "local fold = simd.reducer.integerArg" .. extreme .. "(nupp.mem.array." .. ty[2] .. ")",
                 "add",
                 "integer",
                 "double",
@@ -6197,9 +6197,9 @@ end
 @aot
 local function exact(borrows input: span.Span<int32>, seed: int32): (int32, int32, int32)
     local s = assert(simd.species(array.int32, 4))
-    local sum = simd.reducer.i32.wrappingSum(seed)
-    local bits = simd.reducer.i32.xorBits(seed)
-    local least = simd.reducer.integerMin(seed)
+    local sum = simd.reducer.wrappingSum(array.int32, seed)
+    local bits = simd.reducer.xorBits(array.int32, seed)
+    local least = simd.reducer.integerMin(array.int32, seed)
     do
         local cursor: uint32 = 0
         while cursor + s.lanes <= #input do
@@ -6405,12 +6405,13 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     end
 
     -- Exact integer reducers with masked contributions.
+    local array = require("nupp.mem.array")
     local integers = ffi.new("int32_t[13]", {5, -7, 2147483647, -2147483648, 3, 3, 12, -1, 0, 99, -99, 41, 7})
     for count = 0, 13 do
         for _, seed in ipairs({0, -3, 2147483647}) do
-            local sum = simd.reducer.i32.wrappingSum(seed)
-            local bits = simd.reducer.i32.xorBits(seed)
-            local least = simd.reducer.integerMin(seed)
+            local sum = simd.reducer.wrappingSum(array.int32, seed)
+            local bits = simd.reducer.xorBits(array.int32, seed)
+            local least = simd.reducer.integerMin(array.int32, seed)
             for i = 0, count - 1 do
                 sum:add(integers[i])
                 bits:add(integers[i])

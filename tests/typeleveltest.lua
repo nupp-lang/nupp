@@ -2156,7 +2156,7 @@ function M.exactReducerLifecycleAndTypesAreChecked()
 local simd = require("nupp.simd")
 @aot
 local function total(seed: uint32): uint32
-    local fold = simd.reducer.u32.wrappingSum(seed)
+    local fold = simd.reducer.wrappingSum(nupp.mem.array.uint32, seed)
     for i = 1, 4 do
         fold:add(seed)
     end
@@ -2171,7 +2171,7 @@ return total
     clean(
         [[
 local simd = require("nupp.simd")
-local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin()
+local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin(nupp.mem.array.uint64)
 local flag: boolean = simd.reducer.any():value()
 local count: uint64 = simd.reducer.count():value()
 return minimum, flag, count
@@ -2254,6 +2254,37 @@ product:multiply(2.0)
 return product:value()
 ]]),
         "NUPP2004"
+    )
+end
+
+-- An integer reducer is selected by its element's type, which its array witness
+-- names; a written type argument and the witness have to agree.
+function M.integerReducersAreSelectedByTheirElementType()
+    clean([[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+local sum: simd.WrappingSum<int32> = simd.reducer.wrappingSum<int32>(array.int32, 0)
+local product: simd.Reducer<uint64> = simd.reducer.wrappingProduct(array.uint64, 1ULL)
+local bits: simd.AndBits<uint32> = simd.reducer.andBits(array.uint32, nupp.math.u32.wrap(7))
+local least: simd.IntegerMin<int64> = simd.reducer.integerMin(array.int64, 0LL)
+local position: simd.IntegerArgMax<uint32> = simd.reducer.integerArgMax(array.uint32)
+return sum, product, bits, least, position
+]])
+    assertEq(
+        codes([[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+return simd.reducer.wrappingSum<uint32>(array.int32, 0)
+]]):match("NUPP%d+"),
+        "NUPP2006"
+    )
+    assertEq(
+        codes([[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+return simd.reducer.xorBits(array.float, 0)
+]]):match("NUPP%d+"),
+        "NUPP2116"
     )
 end
 

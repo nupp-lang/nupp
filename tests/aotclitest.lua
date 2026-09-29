@@ -2244,8 +2244,8 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 @aot
 local function folds(borrows input: span.Span<uint64>, seed: uint64): (uint64, integer, uint64, boolean)
-    local sum = simd.reducer.u64.wrappingSum(4294967296ULL)
-    local arg: simd.IntegerArgMax<uint64> = simd.reducer.integerArgMax()
+    local sum = simd.reducer.wrappingSum(nupp.mem.array.uint64, 4294967296ULL)
+    local arg = simd.reducer.integerArgMax(nupp.mem.array.uint64)
     local count = simd.reducer.count()
     local all = simd.reducer.all()
     for i = 3, #input do
@@ -2884,7 +2884,7 @@ local simd = require("nupp.simd")
 @aot
 local function sum(borrows input: span.Span<int32>): int32
     local species = assert(simd.species(array.int32, 17))
-    local fold = simd.reducer.i32.wrappingSum(0)
+    local fold = simd.reducer.wrappingSum(array.int32, 0)
     do
         local active = species:tail(#input)
         local value = species:load(input, 1, active)

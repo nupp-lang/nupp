@@ -54,6 +54,7 @@ const {
     type WriteSpan as SoaWriteSpan,
     type WriteToken as SoaWriteToken
 } = require("nupp.mem.soa")
+const storageWitnesses = require("nupp.mem.array")
 const {type Scalar as StorageWitness} = require("nupp.mem.array")
 
 local simd = {}
@@ -76,6 +77,14 @@ interface simd.Reducer<T>
     value: function(self: simd.Reducer<T>): T
 end
 
+--- `T` itself, written where an argument should not decide what `T` is: an
+--- integer reducer's element witness names its type, and an initial literal
+--- such as `0` is admitted into that type rather than joined with it.
+@comptime
+local function Given(T: type): type
+    return T
+end
+
 --- Closed reduction values for scalar or explicit masked vector contributions.
 --- @export
 local reducer: {
@@ -89,41 +98,39 @@ local reducer: {
     orderedDot: function(initial: number): simd.OrderedDot,
     pairwiseDot: function(initial: number): simd.PairwiseDot,
     algebraicDot: function(initial: number): simd.AlgebraicDot,
-    i32: {
-        wrappingSum: function(initial: int32): simd.WrappingSum<int32>,
-        wrappingProduct: function(initial: int32): simd.WrappingProduct<int32>,
-        andBits: function(initial: int32): simd.AndBits<int32>,
-        orBits: function(initial: int32): simd.OrBits<int32>,
-        xorBits: function(initial: int32): simd.XorBits<int32>
-    },
-    u32: {
-        wrappingSum: function(initial: uint32): simd.WrappingSum<uint32>,
-        wrappingProduct: function(initial: uint32): simd.WrappingProduct<uint32>,
-        andBits: function(initial: uint32): simd.AndBits<uint32>,
-        orBits: function(initial: uint32): simd.OrBits<uint32>,
-        xorBits: function(initial: uint32): simd.XorBits<uint32>
-    },
-    i64: {
-        wrappingSum: function(initial: int64): simd.WrappingSum<int64>,
-        wrappingProduct: function(initial: int64): simd.WrappingProduct<int64>,
-        andBits: function(initial: int64): simd.AndBits<int64>,
-        orBits: function(initial: int64): simd.OrBits<int64>,
-        xorBits: function(initial: int64): simd.XorBits<int64>
-    },
-    u64: {
-        wrappingSum: function(initial: uint64): simd.WrappingSum<uint64>,
-        wrappingProduct: function(initial: uint64): simd.WrappingProduct<uint64>,
-        andBits: function(initial: uint64): simd.AndBits<uint64>,
-        orBits: function(initial: uint64): simd.OrBits<uint64>,
-        xorBits: function(initial: uint64): simd.XorBits<uint64>
-    },
+    wrappingSum: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.WrappingSum<T>,
+    wrappingProduct: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.WrappingProduct<T>,
+    andBits: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.AndBits<T>,
+    orBits: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.OrBits<T>,
+    xorBits: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.XorBits<T>,
     any: function(): simd.Any,
     all: function(): simd.All,
     count: function(): simd.Count,
-    integerMin: function<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMin<T>,
-    integerMax: function<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMax<T>,
-    integerArgMin: function<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMin<T>,
-    integerArgMax: function<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMax<T>,
+    integerMin: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.IntegerMin<T>,
+    integerMax: function<T is int32 | uint32 | int64 | uint64>(
+        element: StorageWitness<T>,
+        initial: Given(T)
+    ): simd.IntegerMax<T>,
+    integerArgMin: function<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMin<T>,
+    integerArgMax: function<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMax<T>,
     propagatingMin: function(initial: number): simd.PropagatingMin,
     propagatingMax: function(initial: number): simd.PropagatingMax,
     propagatingArgMin: function(): simd.PropagatingArgMin,
@@ -533,8 +540,8 @@ function reducer.algebraicDot(initial: number): simd.AlgebraicDot
     return new simd.AlgebraicDot(total = initial)
 end
 
---- Fixed-width reducers use the same namespaces as explicit scalar arithmetic.
---- Their initial value participates in the fold. Narrow storage loads contribute
+--- Fixed-width reducers name their element with its array witness, as a species
+--- does. Their initial value participates in the fold. Narrow storage loads contribute
 --- to i32 or u32; i64 and u64 never pass through a Lua double.
 --- @export
 record simd.WrappingSum<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
@@ -656,189 +663,150 @@ record simd.XorBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     end
 end
 
---- int32 exact, wrapping reductions.
---- @export
-local i32 = {}
-
---- Constructs an `int32` `wrappingSum` fold, including the supplied initial value.
---- @export
-function i32.wrappingSum(initial: int32): simd.WrappingSum<int32>
-    return new simd.WrappingSum(total = initial, operation = nupp.math.i32.add)
-end
-
---- Constructs an `int32` `wrappingProduct` fold, including the supplied initial value.
---- @export
-function i32.wrappingProduct(initial: int32): simd.WrappingProduct<int32>
-    return new simd.WrappingProduct(total = initial, operation = nupp.math.i32.mul)
-end
-
---- Constructs an `int32` `andBits` fold, including the supplied initial value.
---- @export
-function i32.andBits(initial: int32): simd.AndBits<int32>
-    return new simd.AndBits(total = initial, operation = nupp.math.i32.andBits)
-end
-
---- Constructs an `int32` `orBits` fold, including the supplied initial value.
---- @export
-function i32.orBits(initial: int32): simd.OrBits<int32>
-    return new simd.OrBits(total = initial, operation = nupp.math.i32.orBits)
-end
-
---- Constructs an `int32` `xorBits` fold, including the supplied initial value.
---- @export
-function i32.xorBits(initial: int32): simd.XorBits<int32>
-    return new simd.XorBits(total = initial, operation = nupp.math.i32.xorBits)
-end
-
-reducer.i32 = i32
-
---- uint32 exact, wrapping reductions.
---- @export
-local u32 = {}
-
---- Constructs a `uint32` `wrappingSum` fold, including the supplied initial value.
---- @export
-function u32.wrappingSum(initial: uint32): simd.WrappingSum<uint32>
-    return new simd.WrappingSum(total = initial, operation = nupp.math.u32.add)
-end
-
---- Constructs a `uint32` `wrappingProduct` fold, including the supplied initial value.
---- @export
-function u32.wrappingProduct(initial: uint32): simd.WrappingProduct<uint32>
-    return new simd.WrappingProduct(total = initial, operation = nupp.math.u32.mul)
-end
-
---- Constructs a `uint32` `andBits` fold, including the supplied initial value.
---- @export
-function u32.andBits(initial: uint32): simd.AndBits<uint32>
-    return new simd.AndBits(total = initial, operation = nupp.math.u32.andBits)
-end
-
---- Constructs a `uint32` `orBits` fold, including the supplied initial value.
---- @export
-function u32.orBits(initial: uint32): simd.OrBits<uint32>
-    return new simd.OrBits(total = initial, operation = nupp.math.u32.orBits)
-end
-
---- Constructs a `uint32` `xorBits` fold, including the supplied initial value.
---- @export
-function u32.xorBits(initial: uint32): simd.XorBits<uint32>
-    return new simd.XorBits(total = initial, operation = nupp.math.u32.xorBits)
-end
-
-reducer.u32 = u32
-
---- int64 exact, wrapping reductions.
---- @export
-local i64 = {}
-
 local function i64WrappingSum(a: int64, b: int64): int64
     return (a + b) as int64
-end
-
---- Constructs an `int64` `wrappingSum` fold, including the supplied initial value.
---- @export
-function i64.wrappingSum(initial: int64): simd.WrappingSum<int64>
-    return new simd.WrappingSum(total = initial, operation = i64WrappingSum)
 end
 
 local function i64WrappingProduct(a: int64, b: int64): int64
     return (a * b) as int64
 end
 
---- Constructs an `int64` `wrappingProduct` fold, including the supplied initial value.
---- @export
-function i64.wrappingProduct(initial: int64): simd.WrappingProduct<int64>
-    return new simd.WrappingProduct(total = initial, operation = i64WrappingProduct)
-end
-
 local function i64AndBits(a: int64, b: int64): int64
     return (a & b) as int64
-end
-
---- Constructs an `int64` `andBits` fold, including the supplied initial value.
---- @export
-function i64.andBits(initial: int64): simd.AndBits<int64>
-    return new simd.AndBits(total = initial, operation = i64AndBits)
 end
 
 local function i64OrBits(a: int64, b: int64): int64
     return (a | b) as int64
 end
 
---- Constructs an `int64` `orBits` fold, including the supplied initial value.
---- @export
-function i64.orBits(initial: int64): simd.OrBits<int64>
-    return new simd.OrBits(total = initial, operation = i64OrBits)
-end
-
 local function i64XorBits(a: int64, b: int64): int64
     return (a ~ b) as int64
 end
 
---- Constructs an `int64` `xorBits` fold, including the supplied initial value.
---- @export
-function i64.xorBits(initial: int64): simd.XorBits<int64>
-    return new simd.XorBits(total = initial, operation = i64XorBits)
-end
-
-reducer.i64 = i64
-
---- uint64 exact, wrapping reductions.
---- @export
-local u64 = {}
-
 local function u64WrappingSum(a: uint64, b: uint64): uint64
     return (a + b) as uint64
-end
-
---- Constructs a `uint64` `wrappingSum` fold, including the supplied initial value.
---- @export
-function u64.wrappingSum(initial: uint64): simd.WrappingSum<uint64>
-    return new simd.WrappingSum(total = initial, operation = u64WrappingSum)
 end
 
 local function u64WrappingProduct(a: uint64, b: uint64): uint64
     return (a * b) as uint64
 end
 
---- Constructs a `uint64` `wrappingProduct` fold, including the supplied initial value.
---- @export
-function u64.wrappingProduct(initial: uint64): simd.WrappingProduct<uint64>
-    return new simd.WrappingProduct(total = initial, operation = u64WrappingProduct)
-end
-
 local function u64AndBits(a: uint64, b: uint64): uint64
     return (a & b) as uint64
-end
-
---- Constructs a `uint64` `andBits` fold, including the supplied initial value.
---- @export
-function u64.andBits(initial: uint64): simd.AndBits<uint64>
-    return new simd.AndBits(total = initial, operation = u64AndBits)
 end
 
 local function u64OrBits(a: uint64, b: uint64): uint64
     return (a | b) as uint64
 end
 
---- Constructs a `uint64` `orBits` fold, including the supplied initial value.
---- @export
-function u64.orBits(initial: uint64): simd.OrBits<uint64>
-    return new simd.OrBits(total = initial, operation = u64OrBits)
-end
-
 local function u64XorBits(a: uint64, b: uint64): uint64
     return (a ~ b) as uint64
 end
 
---- Constructs a `uint64` `xorBits` fold, including the supplied initial value.
---- @export
-function u64.xorBits(initial: uint64): simd.XorBits<uint64>
-    return new simd.XorBits(total = initial, operation = u64XorBits)
+--- The exact operations of each integer element, keyed by its storage witness.
+---
+--- The element's width and signedness decide the operation, and an `int32`
+--- and a `uint32` are the same Lua number, so the witness is what names it.
+const EXACT: {
+    [any]: {[string]: any}
+} = {
+    [
+        storageWitnesses.int32
+    ] = {
+        sum = nupp.math.i32.add,
+        product = nupp.math.i32.mul,
+        andBits = nupp.math.i32.andBits,
+        orBits = nupp.math.i32.orBits,
+        xorBits = nupp.math.i32.xorBits,
+    },
+    [
+        storageWitnesses.uint32
+    ] = {
+        sum = nupp.math.u32.add,
+        product = nupp.math.u32.mul,
+        andBits = nupp.math.u32.andBits,
+        orBits = nupp.math.u32.orBits,
+        xorBits = nupp.math.u32.xorBits,
+    },
+    [
+        storageWitnesses.int64
+    ] = {
+        sum = i64WrappingSum,
+        product = i64WrappingProduct,
+        andBits = i64AndBits,
+        orBits = i64OrBits,
+        xorBits = i64XorBits,
+    },
+    [
+        storageWitnesses.uint64
+    ] = {
+        sum = u64WrappingSum,
+        product = u64WrappingProduct,
+        andBits = u64AndBits,
+        orBits = u64OrBits,
+        xorBits = u64XorBits,
+    },
+}
+
+--- The operation an exact reducer over `element` folds with.
+--- @raises string when the witness names no integer element
+local function exact<T>(element: StorageWitness<T>, operation: string): function(T, T): T
+    local operations = EXACT[element]
+    if operations == nil then
+        error("nupp: an integer reducer takes the int32, uint32, int64 or uint64 array witness", 3)
+    end
+
+    return operations[operation] as function(T, T): T
 end
 
-reducer.u64 = u64
+--- Constructs a wrapping sum over `element`, including the supplied initial value.
+--- @export
+function reducer.wrappingSum<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.WrappingSum<T>
+    return new simd.WrappingSum(total = initial as T, operation = exact(element, "sum")) as simd.WrappingSum<T>
+end
+
+--- Constructs a wrapping product over `element`, including the supplied initial value.
+--- @export
+function reducer.wrappingProduct<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.WrappingProduct<T>
+    return new simd.WrappingProduct(
+        total = initial as T,
+        operation = exact(element, "product")
+    ) as simd.WrappingProduct<T>
+end
+
+--- Constructs a bitwise and over `element`, including the supplied initial value.
+--- @export
+function reducer.andBits<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.AndBits<T>
+    return new simd.AndBits(total = initial as T, operation = exact(element, "andBits")) as simd.AndBits<T>
+end
+
+--- Constructs a bitwise or over `element`, including the supplied initial value.
+--- @export
+function reducer.orBits<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.OrBits<T>
+    return new simd.OrBits(total = initial as T, operation = exact(element, "orBits")) as simd.OrBits<T>
+end
+
+--- Constructs a bitwise exclusive or over `element`, including the supplied initial
+--- value.
+--- @export
+function reducer.xorBits<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.XorBits<T>
+    return new simd.XorBits(total = initial as T, operation = exact(element, "xorBits")) as simd.XorBits<T>
+end
 
 --- Whether any contribution is true; false for an empty loop.
 --- @export
@@ -934,8 +902,12 @@ end
 
 --- Constructs an integer min reducer.
 --- @export
-function reducer.integerMin<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMin<T>
-    return new simd.IntegerMin(best = initial) as simd.IntegerMin<T>
+function reducer.integerMin<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.IntegerMin<T>
+    exact(element, "sum")
+    return new simd.IntegerMin(best = initial as T) as simd.IntegerMin<T>
 end
 
 --- First one-based logical position of the integer extremum; zero when empty.
@@ -963,7 +935,8 @@ end
 
 --- Constructs an integer argmin reducer.
 --- @export
-function reducer.integerArgMin<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMin<T>
+function reducer.integerArgMin<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMin<T>
+    exact(element, "sum")
     return new simd.IntegerArgMin(best = nil as any, position = 0, count = 0) as simd.IntegerArgMin<T>
 end
 
@@ -994,8 +967,12 @@ end
 
 --- Constructs an integer max reducer.
 --- @export
-function reducer.integerMax<T is int32 | uint32 | int64 | uint64>(initial: T): simd.IntegerMax<T>
-    return new simd.IntegerMax(best = initial) as simd.IntegerMax<T>
+function reducer.integerMax<T is int32 | uint32 | int64 | uint64>(
+    element: StorageWitness<T>,
+    initial: Given(T)
+): simd.IntegerMax<T>
+    exact(element, "sum")
+    return new simd.IntegerMax(best = initial as T) as simd.IntegerMax<T>
 end
 
 --- First one-based logical position of the integer extremum; zero when empty.
@@ -1023,7 +1000,8 @@ end
 
 --- Constructs an integer argmax reducer.
 --- @export
-function reducer.integerArgMax<T is int32 | uint32 | int64 | uint64>(): simd.IntegerArgMax<T>
+function reducer.integerArgMax<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMax<T>
+    exact(element, "sum")
     return new simd.IntegerArgMax(best = nil as any, position = 0, count = 0) as simd.IntegerArgMax<T>
 end
 

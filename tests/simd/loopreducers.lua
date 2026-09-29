@@ -34,14 +34,14 @@ local function loopCases(types)
                 {'orBits', 'add'},
                 {'xorBits', 'add'}
             }) do
-                add(ty, code .. '_' .. op[1], 'simd.reducer.' .. code .. '.' .. op[1] .. '(seed)', op[2], ty, nil, seed)
+                add(ty, code .. '_' .. op[1], 'simd.reducer.' .. op[1] .. '(nupp.mem.array.' .. ty .. ', seed)', op[2], ty, nil, seed)
             end
             for _, extreme in ipairs({'Min', 'Max'}) do
-                add(ty, code .. '_' .. extreme, 'simd.reducer.integer' .. extreme .. '(seed)', 'add', ty, nil, seed)
+                add(ty, code .. '_' .. extreme, 'simd.reducer.integer' .. extreme .. '(nupp.mem.array.' .. ty .. ', seed)', 'add', ty, nil, seed)
                 add(
                     ty,
                     code .. '_arg' .. extreme,
-                    'simd.reducer.integerArg' .. extreme .. '()',
+                    'simd.reducer.integerArg' .. extreme .. '(nupp.mem.array.' .. ty .. ')',
                     'add',
                     'integer',
                     nil,

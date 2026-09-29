@@ -11,6 +11,10 @@ record reducers.Contract
     order: string
     operation: string
     element: string
+
+    --- Whether the first argument is the element's array witness.
+    witnessed: boolean
+
     seeded: boolean
     result: string
 end
@@ -19,204 +23,59 @@ const constructors: {
     [string]: reducers.Contract
 } = {
     [
-        "nupp.simd.reducer.i32.wrappingSum"
+        "nupp.simd.reducer.wrappingSum"
     ] = new reducers.Contract(
         recordName = "WrappingSum",
         order = "exact",
         operation = "sum",
-        element = "i32",
+        element = "",
+        witnessed = true,
         seeded = true,
-        result = "i32"
+        result = ""
     ),
     [
-        "nupp.simd.reducer.i32.wrappingProduct"
+        "nupp.simd.reducer.wrappingProduct"
     ] = new reducers.Contract(
         recordName = "WrappingProduct",
         order = "exact",
         operation = "product",
-        element = "i32",
+        element = "",
+        witnessed = true,
         seeded = true,
-        result = "i32"
+        result = ""
     ),
     [
-        "nupp.simd.reducer.i32.andBits"
+        "nupp.simd.reducer.andBits"
     ] = new reducers.Contract(
         recordName = "AndBits",
         order = "exact",
         operation = "and",
-        element = "i32",
+        element = "",
+        witnessed = true,
         seeded = true,
-        result = "i32"
+        result = ""
     ),
     [
-        "nupp.simd.reducer.i32.orBits"
+        "nupp.simd.reducer.orBits"
     ] = new reducers.Contract(
         recordName = "OrBits",
         order = "exact",
         operation = "or",
-        element = "i32",
+        element = "",
+        witnessed = true,
         seeded = true,
-        result = "i32"
+        result = ""
     ),
     [
-        "nupp.simd.reducer.i32.xorBits"
+        "nupp.simd.reducer.xorBits"
     ] = new reducers.Contract(
         recordName = "XorBits",
         order = "exact",
         operation = "xor",
-        element = "i32",
+        element = "",
+        witnessed = true,
         seeded = true,
-        result = "i32"
-    ),
-    [
-        "nupp.simd.reducer.u32.wrappingSum"
-    ] = new reducers.Contract(
-        recordName = "WrappingSum",
-        order = "exact",
-        operation = "sum",
-        element = "u32",
-        seeded = true,
-        result = "u32"
-    ),
-    [
-        "nupp.simd.reducer.u32.wrappingProduct"
-    ] = new reducers.Contract(
-        recordName = "WrappingProduct",
-        order = "exact",
-        operation = "product",
-        element = "u32",
-        seeded = true,
-        result = "u32"
-    ),
-    [
-        "nupp.simd.reducer.u32.andBits"
-    ] = new reducers.Contract(
-        recordName = "AndBits",
-        order = "exact",
-        operation = "and",
-        element = "u32",
-        seeded = true,
-        result = "u32"
-    ),
-    [
-        "nupp.simd.reducer.u32.orBits"
-    ] = new reducers.Contract(
-        recordName = "OrBits",
-        order = "exact",
-        operation = "or",
-        element = "u32",
-        seeded = true,
-        result = "u32"
-    ),
-    [
-        "nupp.simd.reducer.u32.xorBits"
-    ] = new reducers.Contract(
-        recordName = "XorBits",
-        order = "exact",
-        operation = "xor",
-        element = "u32",
-        seeded = true,
-        result = "u32"
-    ),
-    [
-        "nupp.simd.reducer.i64.wrappingSum"
-    ] = new reducers.Contract(
-        recordName = "WrappingSum",
-        order = "exact",
-        operation = "sum",
-        element = "i64",
-        seeded = true,
-        result = "i64"
-    ),
-    [
-        "nupp.simd.reducer.i64.wrappingProduct"
-    ] = new reducers.Contract(
-        recordName = "WrappingProduct",
-        order = "exact",
-        operation = "product",
-        element = "i64",
-        seeded = true,
-        result = "i64"
-    ),
-    [
-        "nupp.simd.reducer.i64.andBits"
-    ] = new reducers.Contract(
-        recordName = "AndBits",
-        order = "exact",
-        operation = "and",
-        element = "i64",
-        seeded = true,
-        result = "i64"
-    ),
-    [
-        "nupp.simd.reducer.i64.orBits"
-    ] = new reducers.Contract(
-        recordName = "OrBits",
-        order = "exact",
-        operation = "or",
-        element = "i64",
-        seeded = true,
-        result = "i64"
-    ),
-    [
-        "nupp.simd.reducer.i64.xorBits"
-    ] = new reducers.Contract(
-        recordName = "XorBits",
-        order = "exact",
-        operation = "xor",
-        element = "i64",
-        seeded = true,
-        result = "i64"
-    ),
-    [
-        "nupp.simd.reducer.u64.wrappingSum"
-    ] = new reducers.Contract(
-        recordName = "WrappingSum",
-        order = "exact",
-        operation = "sum",
-        element = "u64",
-        seeded = true,
-        result = "u64"
-    ),
-    [
-        "nupp.simd.reducer.u64.wrappingProduct"
-    ] = new reducers.Contract(
-        recordName = "WrappingProduct",
-        order = "exact",
-        operation = "product",
-        element = "u64",
-        seeded = true,
-        result = "u64"
-    ),
-    [
-        "nupp.simd.reducer.u64.andBits"
-    ] = new reducers.Contract(
-        recordName = "AndBits",
-        order = "exact",
-        operation = "and",
-        element = "u64",
-        seeded = true,
-        result = "u64"
-    ),
-    [
-        "nupp.simd.reducer.u64.orBits"
-    ] = new reducers.Contract(
-        recordName = "OrBits",
-        order = "exact",
-        operation = "or",
-        element = "u64",
-        seeded = true,
-        result = "u64"
-    ),
-    [
-        "nupp.simd.reducer.u64.xorBits"
-    ] = new reducers.Contract(
-        recordName = "XorBits",
-        order = "exact",
-        operation = "xor",
-        element = "u64",
-        seeded = true,
-        result = "u64"
+        result = ""
     ),
     [
         "nupp.simd.reducer.any"
@@ -225,6 +84,7 @@ const constructors: {
         order = "exact",
         operation = "any",
         element = "bool",
+        witnessed = false,
         seeded = false,
         result = "bool"
     ),
@@ -235,6 +95,7 @@ const constructors: {
         order = "exact",
         operation = "all",
         element = "bool",
+        witnessed = false,
         seeded = false,
         result = "bool"
     ),
@@ -245,6 +106,7 @@ const constructors: {
         order = "exact",
         operation = "count",
         element = "bool",
+        witnessed = false,
         seeded = false,
         result = "u64"
     ),
@@ -255,6 +117,7 @@ const constructors: {
         order = "integer",
         operation = "min",
         element = "",
+        witnessed = true,
         seeded = true,
         result = ""
     ),
@@ -265,6 +128,7 @@ const constructors: {
         order = "integer",
         operation = "max",
         element = "",
+        witnessed = true,
         seeded = true,
         result = ""
     ),
@@ -275,6 +139,7 @@ const constructors: {
         order = "integer",
         operation = "argmin",
         element = "",
+        witnessed = true,
         seeded = false,
         result = "f64"
     ),
@@ -285,6 +150,7 @@ const constructors: {
         order = "integer",
         operation = "argmax",
         element = "",
+        witnessed = true,
         seeded = false,
         result = "f64"
     ),
@@ -295,6 +161,7 @@ const constructors: {
         order = "propagating",
         operation = "min",
         element = "f64",
+        witnessed = false,
         seeded = true,
         result = "f64"
     ),
@@ -305,6 +172,7 @@ const constructors: {
         order = "propagating",
         operation = "max",
         element = "f64",
+        witnessed = false,
         seeded = true,
         result = "f64"
     ),
@@ -315,6 +183,7 @@ const constructors: {
         order = "propagating",
         operation = "argmin",
         element = "f64",
+        witnessed = false,
         seeded = false,
         result = "f64"
     ),
@@ -325,6 +194,7 @@ const constructors: {
         order = "propagating",
         operation = "argmax",
         element = "f64",
+        witnessed = false,
         seeded = false,
         result = "f64"
     ),
@@ -335,6 +205,7 @@ const constructors: {
         order = "number",
         operation = "min",
         element = "f64",
+        witnessed = false,
         seeded = true,
         result = "f64"
     ),
@@ -345,6 +216,7 @@ const constructors: {
         order = "number",
         operation = "max",
         element = "f64",
+        witnessed = false,
         seeded = true,
         result = "f64"
     ),
@@ -355,6 +227,7 @@ const constructors: {
         order = "number",
         operation = "argmin",
         element = "f64",
+        witnessed = false,
         seeded = false,
         result = "f64"
     ),
@@ -365,6 +238,7 @@ const constructors: {
         order = "number",
         operation = "argmax",
         element = "f64",
+        witnessed = false,
         seeded = false,
         result = "f64"
     ),

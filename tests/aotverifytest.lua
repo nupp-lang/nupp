@@ -127,7 +127,7 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 @aot
 local function total(borrows input: span.Span<uint32>, seed: uint32): uint32
-    local fold = simd.reducer.u32.wrappingSum(seed)
+    local fold = simd.reducer.wrappingSum(nupp.mem.array.uint32, seed)
     for i = 1, #input do fold:add(input[i]) end
     return fold:value()
 end

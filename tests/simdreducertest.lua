@@ -55,5 +55,23 @@ function M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel()
     end
 end
 
+-- An int32 and a uint32 are the same Lua number, so the witness alone decides
+-- which way a 32-bit fold wraps.
+function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
+    local array = require("nupp.mem.array")
+    local signed = simd.reducer.wrappingSum(array.int32, 2147483647)
+    local unsigned = simd.reducer.wrappingSum(array.uint32, 2147483647)
+    signed:add(1)
+    unsigned:add(1)
+    test.equal(signed:value(), -2147483648, "int32 wraps to its minimum")
+    test.equal(unsigned:value(), 2147483648, "uint32 keeps counting")
+    local wide = simd.reducer.wrappingProduct(array.uint64, 4294967296ULL)
+    wide:add(4294967296ULL)
+    test.equal(wide:value(), 0ULL, "uint64 wraps modulo 2^64")
+    local ok, problem = pcall(simd.reducer.orBits, array.float, 0)
+    test.equal(ok, false, "a float witness names no integer reducer")
+    assert(tostring(problem):find("array witness", 1, true), tostring(problem))
+end
+
 require("jit").off(M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel, true)
 return M

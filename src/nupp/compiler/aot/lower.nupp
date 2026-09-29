@@ -2307,8 +2307,17 @@ local function call(
     end
 
     local args: {scalarIR.Expr} = {}
-    for _, argument in ipairs(node.args ~= nil and (node.args as cst.Args).exprs or {}) do
-        args[#args + 1] = lower.expression(argument, environment, activeIndex, kernel)
+    local written = node.args ~= nil and (node.args as cst.Args).exprs or {}
+    local contract = identity ~= nil and reducers.CONSTRUCTORS[identity] or nil
+    -- An integer reducer's first argument is its element's array witness: a
+    -- library value the inferred type already carries, which native code
+    -- cannot hold, so it is read from the type rather than lowered.
+    local first = contract ~= nil and (contract as reducers.Contract).witnessed and 2 or 1
+    if first == 2 and #written < 1 then
+        context.reject(lower.site(node), "an integer reducer names its element with an array witness")
+    end
+    for index = first, #written do
+        args[#args + 1] = lower.expression(written[index], environment, activeIndex, kernel)
     end
     -- A spelling is only the prelude's when nothing between here and the
     -- prelude has rebound `string`, which is the same test `table.new` makes.
@@ -2343,8 +2352,7 @@ local function call(
             type = "lua_string",
             source = lower.site(node)
         )
-    elseif identity ~= nil and reducers.CONSTRUCTORS[identity] ~= nil then
-        local contract = reducers.CONSTRUCTORS[identity] as reducers.Contract
+    elseif contract ~= nil then
         local resolved = semanticValueType((node as any).inferredType)
         local order, operation, element = reducers.parse(resolved or "")
         if element == nil or #args ~= (contract.seeded and 1 or 0) then

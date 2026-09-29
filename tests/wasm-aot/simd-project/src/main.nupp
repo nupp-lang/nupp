@@ -129,7 +129,7 @@ end
 
 @aot
 local function wrappingSum(borrows input: span.Span<int32>, seed: int32): int32
-    local fold = simd.reducer.i32.wrappingSum(seed)
+    local fold = simd.reducer.wrappingSum(array.int32, seed)
     for i = 1, #input do
         fold:add(input[i])
     end
@@ -166,7 +166,7 @@ for offset = 0, #reducerSamples - 1 do
         local ordered = simd.reducer.orderedSum(seed)
         local pairwise = simd.reducer.pairwiseSum(seed)
         local dot = simd.reducer.orderedDot(seed)
-        local wrapping = simd.reducer.i32.wrappingSum(word)
+        local wrapping = simd.reducer.wrappingSum(array.int32, word)
         do
             local writableValues = values:write()
             local writableWords = words:write()
