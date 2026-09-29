@@ -71,7 +71,9 @@ interface's qualified name:
 ```
 
 The name is the interface module and the interface it exports, in ordinary
-dots. Imported aliases and re-exports resolve to the defining interface, which
+dots. A key starting with `$`, such as `$schema`, is reserved for metadata and
+ignored, so a descriptor can carry some without breaking an older compiler;
+every other key must be an interface name. Imported aliases and re-exports resolve to the defining interface, which
 must be exported and take no type parameters:
 
 ```text

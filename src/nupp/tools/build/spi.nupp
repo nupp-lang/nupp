@@ -38,7 +38,11 @@ function spi.read(root, config, target, records): ({any}?, string?)
         end
         local names: {string} = {}
         for name in pairs(document) do
-            names[#names + 1] = name
+            -- A `$` key is reserved for metadata such as `$schema`, so a later
+            -- descriptor can carry some without breaking this reader.
+            if type(name) ~= "string" or name:sub(1, 1) ~= "$" then
+                names[#names + 1] = name
+            end
         end
         table.sort(names)
         for _, interface in ipairs(names) do

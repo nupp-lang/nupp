@@ -51,7 +51,7 @@ local function entries(inc: any): {any}
         local document = json.decode(source)
         if type(document) == "table" then
             for interface, modules in pairs(document) do
-                if type(interface) == "string" and type(modules) == "table" then
+                if type(interface) == "string" and interface:sub(1, 1) ~= "$" and type(modules) == "table" then
                     for _, implementation in ipairs(modules) do
                         if type(implementation) == "string" then
                             add(interface, implementation)

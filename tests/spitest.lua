@@ -174,6 +174,27 @@ function M.descriptorsRejectMalformedDocumentsShapesAndNames()
     end
 end
 
+-- `nupp/spi.json` travels inside dependency type roots, so it crosses compiler
+-- versions. A key starting with `$` is reserved for metadata and ignored, so
+-- `$schema` or a later `$version` can be added without breaking an older
+-- reader; any other key is still an interface name and still checked.
+function M.descriptorsIgnoreDollarKeysAndStillRefuseOtherUnknownKeys()
+    fixture(
+        {["nupp/spi.json"] = [[{"$schema":"https://example.com/spi.json","$version":2,
+            "example.api.Codec":["example.first"]}]]},
+        function(dir)
+            local entries, problem = discovery.read(dir, {dependencies = {}}, {dependencies = {}}, {})
+            assert(entries, tostring(problem))
+            assert(#entries == 1 and entries[1].implementation == "example.first", "a $ key became an entry")
+        end
+    )
+    fixture({["nupp/spi.json"] = [[{"schema":"x","example.api.Codec":[]}]]}, function(dir)
+        local entries, problem = discovery.read(dir, {dependencies = {}}, {dependencies = {}}, {})
+        assert(entries == nil, "an unknown key without $ was accepted")
+        assert(tostring(problem):find("invalid qualified interface schema", 1, true), tostring(problem))
+    end)
+end
+
 function M.discoveryTerminatesDependencyCyclesWithoutChangingFirstOccurrenceOrder()
     fixture(
         {
