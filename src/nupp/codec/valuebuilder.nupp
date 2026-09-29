@@ -439,6 +439,9 @@ local function put(builder: any, value: any): nil
         builder.result = value
         builder.hasResult = true
     elseif frame.kind == 5 then
+        -- A dropped value is still a value the container has had, which is
+        -- what the parser asks `state` about before a separator.
+        frame.count = frame.count + 1
         if value == nil then
             return
         end
@@ -448,13 +451,13 @@ local function put(builder: any, value: any): nil
         if frame.key == nil then
             error("value stream object needs a key", 2)
         end
+        frame.count = frame.count + 1
         if value == nil then
             frame.key = nil
             return
         end
         frame.value[frame.key] = value
         frame.key = nil
-        frame.count = frame.count + 1
     end
 end
 
@@ -875,7 +878,7 @@ end
 --- @param capacity how many elements to presize the array part for
 function valuebuilder.openArray(builder: any, capacity: uint32): nil
     local stack = builder.stack
-    stack[#stack + 1] = {kind = 5, value = {}, next = 1}
+    stack[#stack + 1] = {kind = 5, value = {}, next = 1, count = 0}
 end
 
 --- Opens an object. Each value inside it must be preceded by a key from
@@ -922,7 +925,8 @@ end
 --- Returns the number of complete values in the current container.
 ---
 --- Complete means a value has arrived, so an object with a key pending and no
---- value yet still answers with the count before it.
+--- value yet still answers with the count before it. A null dropped because
+--- the stream has no null replacement is a value that arrived.
 --- @param builder the stream
 --- @return how many values the innermost open container holds
 --- @raises string when the stream has no current container
@@ -931,9 +935,8 @@ function valuebuilder.count(builder: any): uint32
     if frame == nil then
         error("value stream has no current container", 2)
     end
-    local count = frame.kind == 5 and frame.next - 1 or frame.count
 
-    return nupp.math.u32.wrap(count as integer)
+    return nupp.math.u32.wrap(frame.count as integer)
 end
 
 --- Returns the current container kind and whether it has a complete value in
@@ -952,9 +955,8 @@ function valuebuilder.state(builder: any): uint32
     if frame == nil then
         return nupp.math.u32.wrap(0)
     end
-    local count = frame.kind == 5 and frame.next - 1 or frame.count
     local state = frame.kind as integer
-    if count > 0 then
+    if frame.count > 0 then
         state = state + 0x100
     end
 

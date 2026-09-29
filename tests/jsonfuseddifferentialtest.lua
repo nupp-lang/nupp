@@ -56,6 +56,10 @@ local WELL_FORMED = {
     "-1.7976931348623157e308",
     "5e-324",
     "-5e-324",
+    -- Nulls between other members and elements.
+    '{"a":null,"b":1}',
+    '[null,1,null,2,null]',
+    '{"a":[null],"b":{"c":null,"d":null},"e":null}',
     "1e-400",
     "2.2250738585072014e-308",
     "1e-323",
@@ -405,8 +409,13 @@ local function render(value, seen)
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
-local function decodedBy(provider, text)
-    local ok, value = pcall(provider.decode, text, NULL)
+local function decodedBy(provider, text, dropNulls)
+    local ok, value
+    if dropNulls then
+        ok, value = pcall(provider.decode, text)
+    else
+        ok, value = pcall(provider.decode, text, NULL)
+    end
     if not ok then
         return nil, tostring(value)
     end
@@ -439,6 +448,13 @@ function M.theFusedDecoderDecodesEveryCorpusDocumentAsLunajsonDoes()
             )
         )
         assert(mine == theirs, string.format("%s decodes to %s but lunajson says %s", show(text), mine, theirs))
+        -- Dropping nulls leaves every other member and element in place.
+        mine, myError = decodedBy(fused, text, true)
+        theirs, theirError = decodedBy(lunajson, text, true)
+        assert(
+            mine == theirs,
+            string.format("%s decodes to %s without nulls but lunajson says %s", show(text), tostring(mine or myError), tostring(theirs or theirError))
+        )
         checked = checked + 1
     end
     assert(checked > 700, "the corpus shrank to " .. checked .. " documents")
