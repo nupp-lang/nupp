@@ -765,9 +765,9 @@ local function exportedSignatureDoesNotFreezeAnAliasItNames()
             ] = [[
 module holder
 
-const workers = require("nupp.workers")
+const tasks = require("nupp.tasks")
 
-export type Handle = workers.Job<function(): integer>
+export type Handle = tasks.Task<function(): integer>
 
 export function uses(value: Handle): nil
     print(value:isDone())

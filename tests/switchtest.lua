@@ -1125,4 +1125,42 @@ return nested(1, 2), nested(1, 9), nested(5, 2)
     assertEq(neither, "other")
 end
 
+-- A task's status is a closed union, so a switch naming its five states is complete,
+-- and one missing a state is caught where it is written.
+function M.aTaskStatusSwitchNeedsNoElse()
+    local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+    local env = require("nupp.compiler.project.env").new(here .. "/..")
+    local function diagnosticCodes(source)
+        local result = parser.parse(source, "switch-test.g.nupp")
+        assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
+        local codes = {}
+        for _, diagnostic in ipairs(check.check(result, "switch-test.g.nupp", env)) do
+            codes[#codes + 1] = diagnostic.code
+        end
+
+        return table.concat(codes, " ")
+    end
+    local head = {
+        "local tasks = require('nupp.tasks')",
+        "local function label(task: tasks.Task<function(): integer>): string",
+        "    return switch task:status() do",
+        "        case 'queued' -> 'waiting'",
+        "        case 'running' -> 'busy'",
+        "        case 'done' -> 'finished'",
+        "        case 'failed' -> 'broken'",
+    }
+    local complete = table.concat(head, "\n")
+        .. "\n        case 'cancelled' -> 'stopped'\n    end\nend\nprint(label)"
+    assertEq(diagnosticCodes(complete), "", "the five states cover the status")
+    local missing = table.concat(head, "\n") .. "\n    end\nend\nprint(label)"
+    assertEq(diagnosticCodes(missing), "NUPP2140", "a missing state is not exhaustive")
+    local status = table.concat({
+        "local tasks = require('nupp.tasks')",
+        "local state: tasks.Status = 'queued'",
+        "print(switch state do case 'queued' -> 1 case 'running' -> 2 case 'done' -> 3 "
+            .. "case 'failed' -> 4 case 'cancelled' -> 5 end)",
+    }, "\n")
+    assertEq(diagnosticCodes(status), "", "tasks.Status names the same union")
+end
+
 return M

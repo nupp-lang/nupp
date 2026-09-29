@@ -32,7 +32,7 @@ local workers = {}
 local contracts = require("nupp.workers.spi")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
-type workers.Job<F is Callable> = contracts.Job<F>
+type workers.Task<F is Callable> = contracts.Task<F>
 local type Packed = {
     values: {any},
     count: integer
@@ -466,7 +466,7 @@ local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
     ...: unpackof contracts.Submitted(F)
-): workers.Job<F>
+): workers.Task<F>
 @unsafe
 do
     spawnSurface = spawnImpl as any

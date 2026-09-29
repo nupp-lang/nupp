@@ -69,6 +69,8 @@ then, in FIFO order, up to a bounded number of activations per host turn.
 Nesting divides that bound rather than multiplying it, because the token belongs
 to the turn.
 ]]
+const {type Task as Task2} = require("nupp.workers.spi")
+const {type Status as Status2} = require("nupp.workers.spi")
 
 local suspension = require("nupp.suspension")
 local {type Submittable} = require("nupp.workers.spi")
@@ -178,62 +180,16 @@ local type ScopeState = {
     frame: any
 }
 
-@comptime
-local function TaskType(F: type): type
-    if nupp.types.kind(F) ~= "function" then
-        return nupp.types.error("a task must name a function type")
-    end
-
-    return nupp.types.shape({
-        {
-            name = "await",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any
-                }),
-                nupp.types.results(F)
-            ),
-        },
-        {
-            name = "isDone",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any
-                }),
-                nupp.types.pack({
-                    nupp.types.boolean
-                })
-            ),
-        },
-        {
-            name = "status",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any
-                }),
-                nupp.types.pack({
-                    nupp.types.string
-                })
-            ),
-        },
-        {
-            name = "cancel",
-            read = nupp.types.function_(
-                nupp.types.pack({
-                    nupp.types.any,
-                    nupp.types.optional(nupp.types.string)
-                }),
-                nupp.types.pack({nupp.types.boolean})
-            ),
-        },
-    })
-end
-
---- Represents the handle one `spawn` answers.
+--- Represents the handle one `spawn` or `fork` answers.
 ---
 --- Its `await` result pack is the body's, which is why this is derived from the
---- function type rather than declared once over `any`.
-type tasks.Task<F> = TaskType(F)
+--- function type rather than declared once over `any`. The worker contract declares
+--- it, so a coroutine child and a worker child answer one type.
+type tasks.Task<F> = Task2<F>
+
+--- Where a task is, as its `status` answers: `queued`, `running`, `done`, `failed`, or
+--- `cancelled`. A closed union, so a `switch` over it needs no `else`.
+type tasks.Status = Status2
 
 --- The arguments a child's function takes, once none of them is an owner or a borrow.
 ---

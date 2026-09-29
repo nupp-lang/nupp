@@ -60,9 +60,7 @@ local provider: contracts.Provider = require("nupp.runtime.workersprovider").pro
 end
 local workers = {}
 
-local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
-type workers.Job<F is Callable> = contracts.Job<F>
 type workers.ScopeToken = contracts.ScopeToken
 type workers.Scope = contracts.PublicScope
 

@@ -54,7 +54,8 @@ provider says which values may cross: the native provider moves an engine-backed
 `await` returns the body's complete result pack, including nil positions, and
 may be called again after settlement. `isDone` checks settlement without
 waiting, and `status` answers `queued`, `running`, `done`, `failed`, or
-`cancelled`. Handles borrow the scope that created them: one cannot be returned
+`cancelled`: a `nupp.tasks.Status`, a closed union a `switch` covers without an
+`else`. Handles borrow the scope that created them: one cannot be returned
 from the block or stored past it, so a task never becomes detached work.
 
 
