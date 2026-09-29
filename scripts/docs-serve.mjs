@@ -39,7 +39,7 @@ function run(label, cmd, args, opts = {}) {
 }
 
 if (!skipBuild) {
-  run("docs build", path.join(root, "bin/nupp"), ["doc", "site"]);
+  run("docs build", path.join(root, "bin/nupp"), ["doc", "--kind", "site"]);
   // The playground's own `npm run build` also serves; `node build.mjs`
   // alone just builds dist/, which is all that's wanted here.
   run("playground build", "node", ["build.mjs"], { cwd: playgroundDir });

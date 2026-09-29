@@ -57,7 +57,7 @@ export function assemblePages({ docs, playground, output }) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  run(path.join(root, "bin/nupp"), ["doc", "site"]);
+  run(path.join(root, "bin/nupp"), ["doc", "--kind", "site"]);
   if (process.env.NUPP_PLAYGROUND_ALREADY_BUILT !== "1") {
     run(process.execPath, ["build.mjs"], path.join(root, "editors/playground"));
   }
