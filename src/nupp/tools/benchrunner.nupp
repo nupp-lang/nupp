@@ -1169,7 +1169,7 @@ end
 --- Reports between-fork variance and the forks a target precision would need.
 local function reportPilot(merged: {any}, forks: integer, failures: {string}): integer
     local recommended: integer = statistics.MIN_INTERVAL_SAMPLES
-    io.stdout:write(("\nbench: pilot over %d forks, one shuffled permutation per round\n\n"):format(forks))
+    io.stdout:write(("\nnupp: pilot over %d forks, one shuffled permutation per round\n\n"):format(forks))
     local style = cli.style(io.stdout)
     local rows: {{cli.Cell}} = {}
     for _, entry in ipairs(merged) do
@@ -1202,9 +1202,9 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
             style = style,
         } as cli.TableOptions
     )
-    io.stdout:write(("\nbench: --forks %d covers every selected benchmark at +-2%%\n"):format(recommended))
+    io.stdout:write(("\nnupp: --forks %d covers every selected benchmark at +-2%%\n"):format(recommended))
     for _, failure in ipairs(failures) do
-        io.stderr:write("bench: " .. failure .. "\n")
+        io.stderr:write("nupp: " .. failure .. "\n")
     end
 
     return #failures > 0 and 1 or 0
@@ -1282,12 +1282,12 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
     lines[
         #lines + 1
     ] = (
-        "bench: %d compared, equivalence margin +-%.1f%%, Benjamini-Hochberg adjusted"
+        "nupp: %d compared, equivalence margin +-%.1f%%, Benjamini-Hochberg adjusted"
     ):format(#verdicts, margin * 100.0)
     lines[
         #lines + 1
     ] = (
-        "       %d regressed, %d improved, %d unchanged, %d inconclusive"
+        "      %d regressed, %d improved, %d unchanged, %d inconclusive"
     ):format(counts.regressed or 0, counts.improved or 0, counts.unchanged or 0, counts.inconclusive or 0)
 
     return table.concat(lines, "\n") .. "\n"
@@ -1358,26 +1358,24 @@ function runner.run(options: runner.Options): integer
     local margin = options.margin
     local against = options.against
     if timeoutMs < 1 or timeoutMs ~= math.floor(timeoutMs) then
-        io.stderr:write("bench: timeout must be a positive whole number of milliseconds\n")
+        io.stderr:write("nupp: timeout must be a positive whole number of milliseconds\n")
 
         return 2
     end
     if forks < 1 or forks ~= math.floor(forks) then
-        io.stderr:write("bench: --forks needs a positive whole number\n")
+        io.stderr:write("nupp: --forks needs a positive whole number\n")
 
         return 2
     end
     if profileIntervalMs < 1 or profileIntervalMs ~= math.floor(profileIntervalMs) then
-        io.stderr:write("bench: profile interval must be a positive whole number of milliseconds\n")
+        io.stderr:write("nupp: profile interval must be a positive whole number of milliseconds\n")
 
         return 2
     end
     if profileDir then
         local made, problem = files.createDirectory(profileDir)
         if not made then
-            io.stderr:write(
-                "bench: cannot create profile directory " .. profileDir .. ": " .. tostring(problem) .. "\n"
-            )
+            io.stderr:write("nupp: cannot create profile directory " .. profileDir .. ": " .. tostring(problem) .. "\n")
 
             return 1
         end
@@ -1391,7 +1389,7 @@ function runner.run(options: runner.Options): integer
         for _, path in ipairs(paths) do
             local problem = listingProblems[path]
             if problem then
-                io.stderr:write("bench: " .. path .. ": " .. problem .. "\n")
+                io.stderr:write("nupp: " .. path .. ": " .. problem .. "\n")
                 failed = true
             end
             for _, benchmark in ipairs(listings[path] or {}) do
@@ -1401,7 +1399,7 @@ function runner.run(options: runner.Options): integer
             end
         end
         if #matched == 0 and not failed then
-            io.stderr:write("bench: no benchmark matched the selection\n")
+            io.stderr:write("nupp: no benchmark matched the selection\n")
             failed = true
         end
         if asJson then
@@ -1447,7 +1445,7 @@ function runner.run(options: runner.Options): integer
         -- A named baseline that is not there is not a pass. Exiting zero here is how a
         -- lost baseline comes to look exactly like a clean run.
         if not previous and not accept then
-            io.stderr:write("bench: no baseline at " .. baselinePath .. "\n")
+            io.stderr:write("nupp: no baseline at " .. baselinePath .. "\n")
 
             return 1
         end
@@ -1455,13 +1453,13 @@ function runner.run(options: runner.Options): integer
 
     if options.gpuCostsDir ~= nil then
         if options.gpuCostsDir == "" then
-            io.stderr:write("bench: --gpu-costs needs an output directory\n")
+            io.stderr:write("nupp: --gpu-costs needs an output directory\n")
             return 1
         end
         gpuCostsDirectory = options.gpuCostsDir .. "/" .. require("nupp.util").uuid4()
         local made, problem = files.createDirectory(gpuCostsDirectory)
         if not made then
-            io.stderr:write("bench: cannot create GPU cost directory: " .. tostring(problem) .. "\n")
+            io.stderr:write("nupp: cannot create GPU cost directory: " .. tostring(problem) .. "\n")
             return 1
         end
     end
@@ -1796,31 +1794,31 @@ function runner.run(options: runner.Options): integer
         end
     end
     for _, note in ipairs(notes) do
-        io.stderr:write("bench: " .. note .. "\n")
+        io.stderr:write("nupp: " .. note .. "\n")
     end
     for _, failure in ipairs(executionFailures) do
-        io.stderr:write("bench: " .. failure .. "\n")
+        io.stderr:write("nupp: " .. failure .. "\n")
     end
     for _, regression in ipairs(regressions) do
-        io.stderr:write("bench: " .. (accept and "accepted: " or "") .. regression .. "\n")
+        io.stderr:write("nupp: " .. (accept and "accepted: " or "") .. regression .. "\n")
     end
     if baselinePath and accept then
         if #executionFailures > 0 then
-            io.stderr:write("bench: baseline not written because a benchmark failed\n")
+            io.stderr:write("nupp: baseline not written because a benchmark failed\n")
 
             return 1
         end
         if not writeFile(baselinePath, encoded) then
-            io.stderr:write("bench: cannot write " .. baselinePath .. "\n")
+            io.stderr:write("nupp: cannot write " .. baselinePath .. "\n")
 
             return 1
         end
-        io.stderr:write("bench: baseline written to " .. baselinePath .. "\n")
+        io.stderr:write("nupp: baseline written to " .. baselinePath .. "\n")
 
         return 0
     end
     if accept and not baselinePath then
-        io.stderr:write("bench: --accept needs --baseline PATH to write\n")
+        io.stderr:write("nupp: --accept needs --baseline PATH to write\n")
 
         return 1
     end

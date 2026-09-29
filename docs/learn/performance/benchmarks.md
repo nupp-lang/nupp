@@ -76,9 +76,9 @@ presize.point.grown    p50     73      46.015  ns/op           72.000   [19.469,
 Those samples alternate between ~21ns and ~140ns, and the harness says so:
 
 ```text
-bench: presize.point.grown: scattered: only 9% of samples lie within 10% of the
-       median, so the score describes no rate this benchmark ran at; raise
-       sampleIterations until one sample spans whole collector cycles
+nupp: presize.point.grown: scattered: only 9% of samples lie within 10% of the
+      median, so the score describes no rate this benchmark ran at; raise
+      sampleIterations until one sample spans whole collector cycles
 ```
 
 That one was real. `bench/presize.bench.nupp` allocated about a collector
@@ -199,7 +199,7 @@ Drop `sampleIterations` from the suite above and the fastest pair says so
 rather than publishing a number off a clock it outran:
 
 ```text
-nupp: bench: sum.floats.index:size=100 reached its sampling limit after 100000
+nupp: nupp: sum.floats.index:size=100 reached its sampling limit after 100000
 samples and 0.028538s measured; increase sampleIterations or the maximums
 ```
 
@@ -220,7 +220,7 @@ nupp bench --file bench/sum.bench.nupp --pilot
 ```
 
 ```text
-bench: pilot over 5 forks, one shuffled permutation per round
+nupp: pilot over 5 forks, one shuffled permutation per round
 
 Benchmark                     Between-fork CV  Forks for +-2%  Forks for +-5%
 sum.floats.ipairs:size=100               2.2%             10             10
@@ -228,7 +228,7 @@ sum.floats.index:size=100                2.2%             10             10
 sum.floats.ipairs:size=10000             2.9%             13             10
 sum.floats.index:size=10000              1.3%             10             10
 
-bench: --forks 13 covers every selected benchmark at +-2%
+nupp: --forks 13 covers every selected benchmark at +-2%
 ```
 
 The pilot is often the whole answer. On `bench/presize.bench.nupp` it reports a
@@ -276,10 +276,10 @@ interior. Below ten you get the range and no verdict.
 `sum.floats.index:size=10000` shows `unstable` above:
 
 ```text
-bench: trend-warning: sum.floats.index:size=10000: monotone trend in 7/12 forks,
-       level moved +5.4% across the series; interval withheld and verdict forced
-       to inconclusive. Raise warmupIterations so the movement happens before
-       timing starts
+nupp: trend-warning: sum.floats.index:size=10000: monotone trend in 7/12 forks,
+      level moved +5.4% across the series; interval withheld and verdict forced
+      to inconclusive. Raise warmupIterations so the movement happens before
+      timing starts
 ```
 
 Each fork's samples are tested in execution order for a monotone trend
@@ -300,7 +300,7 @@ over 2,000 iterations in each of 30 processes to earn that claim.
 ### `scattered` means the score describes nothing
 
 ```text
-bench: scattered: only 9% of samples lie within 10% of the median
+nupp: scattered: only 9% of samples lie within 10% of the median
 ```
 
 A descriptive count, not a test: the fraction of samples within 10% of the
@@ -315,8 +315,8 @@ sample pays its share instead of every other one paying all of it.
 ### Outliers are counted, not dropped
 
 ```text
-bench: outliers: sum.floats.index:size=100: 815 severe of 10586 samples,
-       max 2.3x median; classified only, all samples retained
+nupp: outliers: sum.floats.index:size=100: 815 severe of 10586 samples,
+      max 2.3x median; classified only, all samples retained
 ```
 
 Samples beyond three interquartile ranges are classified and reported, never
@@ -348,8 +348,8 @@ soa.particle-update.generated   -9.7%   [-11.1%, -8.2%]  improved
 sum.floats.index:size=100       -0.4%    [-1.3%, +0.6%]  unchanged
 peg-kernels.single-span.lpeg    +6.2%   [-1.3%, +14.0%]  inconclusive
 
-bench: 49 compared, equivalence margin +-2.0%, Benjamini-Hochberg adjusted
-       1 regressed, 1 improved, 1 unchanged, 46 inconclusive
+nupp: 49 compared, equivalence margin +-2.0%, Benjamini-Hochberg adjusted
+      1 regressed, 1 improved, 1 unchanged, 46 inconclusive
 ```
 
 ### Historical `--baseline` comparisons
@@ -445,7 +445,7 @@ heap, compiled traces and blacklist, so a program declaring more than one
 benchmark refuses a direct run too:
 
 ```text
-nupp: bench: this program defines more than one benchmark; use --case NAME or nupp bench
+nupp: nupp: this program defines more than one benchmark; use --case NAME or nupp bench
 ```
 
 Every declared benchmark needs a nonempty, unique name. The harness rejects a
@@ -486,8 +486,8 @@ timing-dependent, so forks legitimately disagree; only a site present in
 **every** fork can gate:
 
 ```text
-bench: flaky abort site: peg-kernels.capture-list.lpeg: NYI:return-to-lower-frame
-       in 3/12 forks; reported, not gated
+nupp: flaky abort site: peg-kernels.capture-list.lpeg: NYI:return-to-lower-frame
+      in 3/12 forks; reported, not gated
 ```
 
 If either record could not open a trace recorder, the abort comparison is
@@ -498,8 +498,8 @@ every fork of one binary must agree. Disagreement is a defect, not a
 measurement, and is reported as one:
 
 ```text
-bench: json-decode.large: nondeterministic compiler output: fork 4 reported
-       different allocation sites
+nupp: json-decode.large: nondeterministic compiler output: fork 4 reported
+      different allocation sites
 ```
 
 ::: deepdive

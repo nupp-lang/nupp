@@ -433,7 +433,7 @@ local function readOptions(): nil
                 index = (index + 1) as integer
             end
             if not given or given < 1 or given ~= math.floor(given) then
-                error("bench: --n needs a positive whole number", 0)
+                error("nupp: --n needs a positive whole number", 0)
             end
             options.iterations = math.floor(given)
         elseif name == "sample-out" then
@@ -447,7 +447,7 @@ local function readOptions(): nil
                 index = (index + 1) as integer
             end
             if not given or given < 1 or given ~= math.floor(given) then
-                error("bench: --sample-interval-ms needs a positive whole number", 0)
+                error("nupp: --sample-interval-ms needs a positive whole number", 0)
             end
             options.sampleIntervalMs = math.floor(given)
         elseif name == "sample-zone" then
@@ -622,7 +622,7 @@ local function announce(listing: any): nil
     if options.casesOut then
         local handle = io.open(options.casesOut, "a")
         if not handle then
-            error("bench: cannot write " .. options.casesOut, 0)
+            error("nupp: cannot write " .. options.casesOut, 0)
         end
         handle:write(json.encode(listing), "\n")
         handle:close()
@@ -677,10 +677,10 @@ end
 
 local function register(name: string, run: function(): nil, listing: any?): nil
     if name == "" then
-        error("bench: a benchmark name cannot be empty", 3)
+        error("nupp: a benchmark name cannot be empty", 3)
     end
     if declaredNames[name] then
-        error("bench: duplicate benchmark " .. name, 3)
+        error("nupp: duplicate benchmark " .. name, 3)
     end
     declaredNames[name] = true
     local declared = listing or {name = name}
@@ -802,7 +802,7 @@ end
 local function positiveInteger(value: integer?, fallback: integer, name: string): integer
     local answer = value or fallback
     if answer < 1 or answer ~= math.floor(answer) then
-        error("bench: " .. name .. " needs a positive whole number", 3)
+        error("nupp: " .. name .. " needs a positive whole number", 3)
     end
 
     return answer
@@ -811,7 +811,7 @@ end
 local function positiveNumber(value: number?, fallback: number, name: string): number
     local answer = value or fallback
     if answer <= 0 then
-        error("bench: " .. name .. " needs a positive number", 3)
+        error("nupp: " .. name .. " needs a positive number", 3)
     end
 
     return answer
@@ -842,10 +842,10 @@ local function expandedParameters(source: {[string]: {any}}?): {{[string]: any}}
         local key = keys[index]
         local values = source[key]
         if not values then
-            error("bench: parameter " .. key .. " disappeared", 3)
+            error("nupp: parameter " .. key .. " disappeared", 3)
         end
         if #values == 0 then
-            error("bench: parameter " .. key .. " has no values", 3)
+            error("nupp: parameter " .. key .. " has no values", 3)
         end
         for _, value in ipairs(values) do
             current[key] = value
@@ -941,10 +941,10 @@ local function measureSuite(
     local maxDuration = positiveNumber(suite.maxDurationSec, 10.0, "maxDurationSec")
     local operations = positiveInteger(case.operations, 1, "case operations")
     if maxSamples < minSamples then
-        error("bench: maxSamples must be at least minSamples", 0)
+        error("nupp: maxSamples must be at least minSamples", 0)
     end
     if maxDuration < minDuration then
-        error("bench: maxDurationSec must be at least minDurationSec", 0)
+        error("nupp: maxDurationSec must be at least minDurationSec", 0)
     end
 
     announceRun(name)
@@ -977,7 +977,7 @@ local function measureSuite(
     if #samples < minSamples or measured < minDuration then
         error(
             (
-                "bench: %s reached its sampling limit after %d samples and %.6fs measured; increase sampleIterations or the maximums"
+                "nupp: %s reached its sampling limit after %d samples and %.6fs measured; increase sampleIterations or the maximums"
             ):format(name, #samples, measured),
             0
         )
@@ -1109,26 +1109,26 @@ end
 --- @raises string when the declaration or its sampling bounds are invalid
 function bench.suite(options: bench.SuiteOptions): nil
     if #options.variants == 0 then
-        error("bench: a suite needs at least one variant", 2)
+        error("nupp: a suite needs at least one variant", 2)
     end
     if #options.cases == 0 then
-        error("bench: a suite needs at least one case", 2)
+        error("nupp: a suite needs at least one case", 2)
     end
     local variants: {[string]: boolean} = {}
     for _, variant in ipairs(options.variants) do
         if variants[variant.name] then
-            error("bench: duplicate variant " .. variant.name, 2)
+            error("nupp: duplicate variant " .. variant.name, 2)
         end
         variants[variant.name] = true
     end
     local baselineVariant = options.baselineVariant or options.variants[1].name
     if not variants[baselineVariant] then
-        error("bench: baselineVariant does not name a variant", 2)
+        error("nupp: baselineVariant does not name a variant", 2)
     end
     local cases: {[string]: boolean} = {}
     for _, case in ipairs(options.cases) do
         if cases[case.name] then
-            error("bench: duplicate suite case " .. case.name, 2)
+            error("nupp: duplicate suite case " .. case.name, 2)
         end
         cases[case.name] = true
         for _, parameters in ipairs(expandedParameters(case.parameters)) do
@@ -1179,10 +1179,10 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
     -- not the selected one is handed back already finished, so `more` is false and the
     -- application's loop does not run.
     if name == "" then
-        error("bench: a benchmark name cannot be empty", 2)
+        error("nupp: a benchmark name cannot be empty", 2)
     end
     if declaredNames[name] then
-        error("bench: duplicate benchmark " .. name, 2)
+        error("nupp: duplicate benchmark " .. name, 2)
     end
     declaredNames[name] = true
     if options.list then
@@ -1337,7 +1337,7 @@ end
 local function writeFile(path: string, content: string): nil
     local handle = io.open(path, "w")
     if not handle then
-        error("bench: cannot write " .. path, 0)
+        error("nupp: cannot write " .. path, 0)
     end
     handle:write(content)
     handle:close()
@@ -1981,10 +1981,10 @@ function bench.report(): nil
         return
     end
     if options.only and selectedDeclarations == 0 then
-        error("bench: no benchmark named " .. options.only, 0)
+        error("nupp: no benchmark named " .. options.only, 0)
     end
     if not options.only and #jobs > 1 then
-        error("bench: this program defines more than one benchmark; use --case NAME or nupp bench", 0)
+        error("nupp: this program defines more than one benchmark; use --case NAME or nupp bench", 0)
     end
     reported = true
     local pending = jobs
@@ -2010,13 +2010,13 @@ function bench.report(): nil
 
             return
         end
-        io.stderr:write("bench: no baseline at " .. options.baseline .. "\n")
+        io.stderr:write("nupp: no baseline at " .. options.baseline .. "\n")
 
         return
     end
     local failures, uncompared = bench.compare(record, (assert(json.decode(baselineText))))
     for _, note in ipairs(uncompared) do
-        io.stderr:write("bench: uncompared: " .. note .. "\n")
+        io.stderr:write("nupp: uncompared: " .. note .. "\n")
     end
     if options.accept then
         writeFile(options.baseline, encoded)
@@ -2024,7 +2024,7 @@ function bench.report(): nil
         return
     end
     if #failures > 0 then
-        error("bench: " .. table.concat(failures, "\nbench: "), 0)
+        error("nupp: " .. table.concat(failures, "\nnupp: "), 0)
     end
 end
 
