@@ -222,8 +222,7 @@ DEFINITIONS["nupp.arshift"] = function(_: builder.Module, attrs: string): string
     )
 end
 
---- LuaJIT's min/max select the second operand on ties and unordered pairs;
---- stock Lua 5.1 keeps the first.
+--- LuaJIT's min/max select the second operand on ties and unordered pairs.
 DEFINITIONS["nupp.min2"] = function(_: builder.Module, attrs: string): string
     return table.concat(
         {
@@ -243,32 +242,6 @@ DEFINITIONS["nupp.max2"] = function(_: builder.Module, attrs: string): string
             "define internal double @nupp.max2(double %a, double %b) " .. attrs .. " {",
             "  %gt = fcmp ogt double %a, %b",
             "  %out = select i1 %gt, double %a, double %b",
-            "  ret double %out",
-            "}",
-        },
-        "\n"
-    )
-end
-
-DEFINITIONS["nupp.min2.lua51"] = function(_: builder.Module, attrs: string): string
-    return table.concat(
-        {
-            "define internal double @nupp.min2.lua51(double %a, double %b) " .. attrs .. " {",
-            "  %lt = fcmp olt double %b, %a",
-            "  %out = select i1 %lt, double %b, double %a",
-            "  ret double %out",
-            "}",
-        },
-        "\n"
-    )
-end
-
-DEFINITIONS["nupp.max2.lua51"] = function(_: builder.Module, attrs: string): string
-    return table.concat(
-        {
-            "define internal double @nupp.max2.lua51(double %a, double %b) " .. attrs .. " {",
-            "  %gt = fcmp ogt double %b, %a",
-            "  %out = select i1 %gt, double %b, double %a",
             "  ret double %out",
             "}",
         },

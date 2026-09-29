@@ -114,9 +114,6 @@ record context.Context
 
     loops: {context.Loop}
 
-    --- Lua 5.1 rather than LuaJIT min/max tie-breaking.
-    lua51Math: boolean
-
     --- Whether ordinary binary64 arithmetic may contract (`@relax`).
     contract: boolean
 
@@ -196,7 +193,6 @@ function context.new(
         helperParams = {},
         layouts = layouts,
         loops = {},
-        lua51Math = program.numericForRuntime == "lua51",
         contract = program.fpContract == true,
         facts = stated or facts.all(),
         scope = nil,

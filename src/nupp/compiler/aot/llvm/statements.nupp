@@ -136,12 +136,6 @@ local function fornum(ctx: context.Context, statement: scalarIR.Fornum): nil
         local normalized = builder.value(f, ("select i1 %s, double 0.0, double %s"):format(both, from))
         builder.emit(f, ("store double %s, ptr %s"):format(normalized, counter))
     end
-    if runtime == "lua51" and not integral then
-        local start = builder.value(f, ("load double, ptr %s"):format(counter))
-        local less = builder.value(f, ("fsub double %s, 1.0"):format(start))
-        local again = builder.value(f, ("fadd double %s, 1.0"):format(less))
-        builder.emit(f, ("store double %s, ptr %s"):format(again, counter))
-    end
     local head = builder.label(f, "for.head")
     local bodyLabel = builder.label(f, "for.body")
     local latch = builder.label(f, "for.next")

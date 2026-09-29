@@ -3458,8 +3458,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(
         program.numericForRuntime == nil
         or program.numericForRuntime == "luajit-single"
-        or program.numericForRuntime == "luajit-dual"
-        or program.numericForRuntime == "lua51",
+        or program.numericForRuntime == "luajit-dual",
         "unknown numeric-for runtime"
     )
     holds(

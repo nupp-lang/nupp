@@ -274,7 +274,7 @@ const EXACT_INTRINSIC: {
 --- doubles.
 function expressions.math(ctx: context.Context, intrinsic: string, args: {string}): string
     if intrinsic == "min" or intrinsic == "max" then
-        local helper = prelude.use(ctx.module, "nupp." .. intrinsic .. "2" .. (ctx.lua51Math and ".lua51" or ""))
+        local helper = prelude.use(ctx.module, "nupp." .. intrinsic .. "2")
         local current = args[1]
         for position = 2, #args do
             current = context.value(
@@ -286,13 +286,6 @@ function expressions.math(ctx: context.Context, intrinsic: string, args: {string
         return current
     end
     if intrinsic == "log" and #args == 2 then
-        if ctx.lua51Math then
-            local log = prelude.libm(ctx.module, "log", 1)
-            local a = context.value(ctx, ("call double %s(double %s)"):format(log, args[1]))
-            local b = context.value(ctx, ("call double %s(double %s)"):format(log, args[2]))
-
-            return context.value(ctx, ("fdiv double %s, %s"):format(a, b))
-        end
         -- LuaJIT's `math.log(x, base)` is `log2(x) * (1 / log2(base))`, and
         -- keeps the two apart; a quotient of logarithms differs in the last
         -- bits, which loses exact answers such as `math.log(1e17, 0.1)`.
