@@ -504,11 +504,6 @@ if rerunReport ~= nil then
         if type(record) == "table" and record.status == "failed" then
             rerunFailureCount = rerunFailureCount + 1
             local id = record.id
-            if type(id) ~= "string" and type(record.suite) == "string" and type(record.name) == "string" then
-                -- Reports written before stable IDs can still be rerun without
-                -- turning their old shape into the new report contract.
-                id = record.suite .. "/" .. record.name
-            end
             if type(id) ~= "string" then
                 io.stderr:write(("nupp: failed test in %s has no stable ID\n"):format(rerunReport))
                 os.exit(2)
