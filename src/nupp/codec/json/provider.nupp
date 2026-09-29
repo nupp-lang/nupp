@@ -4,8 +4,8 @@ module nupp.codec.json.provider
 local spi = require("nupp.spi")
 local contracts = require("nupp.codec.json.spi")
 
-local provider: contracts.JsonProvider = spi.select(
-    spi.load(contracts.JsonProvider)
+local provider: contracts.Provider = spi.select(
+    spi.load(contracts.Provider)
 ) ?? require("nupp.runtime.provider.lunajson")
 
 export = provider

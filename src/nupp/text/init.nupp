@@ -26,12 +26,12 @@ local spi = require("nupp.spi")
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 local contracts = require("nupp.text.spi")
-local provider: contracts.TextBufferProvider = do
-    const chosen = spi.select(spi.load(contracts.TextBufferProvider))
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end
-    yield _G.require("nupp.runtime.provider.nativebuffer") as contracts.TextBufferProvider
+    yield _G.require("nupp.runtime.provider.nativebuffer") as contracts.Provider
 end
 
 --- A mutable FIFO byte sequence.

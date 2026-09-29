@@ -10,11 +10,11 @@ local contracts = require("nupp.time.spi")
 -- Optional consumers use only implementations present in their artifact. The
 -- public facade's literal imports carry its built-in fallbacks when that facility
 -- is actually used; this dynamic require does not add a native dependency itself.
-local function available(name: string): contracts.TimeProvider?
+local function available(name: string): contracts.Provider?
     local wasPresent = package.loaded[name] ~= nil or package.preload[name] ~= nil
     local ok, value = pcall(require, name)
     if ok then
-        return value as contracts.TimeProvider
+        return value as contracts.Provider
     end
     local wasMissing = tostring(value):find("module '" .. name .. "' not found:", 1, true) == 1
     if wasPresent or not wasMissing then
@@ -24,8 +24,8 @@ local function available(name: string): contracts.TimeProvider?
     return nil
 end
 
-export const provider: contracts.TimeProvider? = do
-    const chosen = spi.select(spi.load(contracts.TimeProvider))
+export const provider: contracts.Provider? = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end

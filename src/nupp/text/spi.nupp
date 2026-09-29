@@ -12,7 +12,7 @@ local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 --- use native objects or portable state, but all signatures and chaining results
 --- must retain that identity. Native pointer and serializer facilities are outside
 --- this portable contract.
-export interface TextBufferProvider
+export interface Provider
     @readonly
     priority: integer?
 

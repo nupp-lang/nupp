@@ -8,7 +8,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 ---
 --- Version 4 provides random UUIDs and version 7 provides time-ordered UUIDs.
 --- Version and variant bits must be correct; randomness failures must be reported.
-export interface UuidProvider
+export interface Provider
     @readonly
     priority: integer?
 

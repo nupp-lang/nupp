@@ -48,5 +48,5 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
     return parts, reason
 end
 
-local checked: contracts.UriTextProvider = {parse = provider.parse}
+local checked: contracts.Provider = {parse = provider.parse}
 export = checked

@@ -506,7 +506,7 @@ function json.writer(exclusive out: Buffer, nullValue: any?): any
 end
 
 -- Check every member against the canonical JSON provider contract.
-local checked: contracts.JsonProvider = {
+local checked: contracts.Provider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.
     -- The contract owns what it marks, because `nupp.codec.json.asArray` promises

@@ -10,7 +10,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 --- shift results whose high bit is set. Inputs normalize to 32 bits; shifts and
 --- rotates mask counts to five bits. Variadic operations consume every operand.
 --- Providers must preserve these conventions even on hosts with unsigned primitives.
-export interface BitopsProvider
+export interface Provider
     @readonly
     priority: integer?
 

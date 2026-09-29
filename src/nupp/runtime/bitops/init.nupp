@@ -12,12 +12,12 @@ has to be split into limbs by whoever holds it.
 local spi = require("nupp.spi")
 local contracts = require("nupp.runtime.bitops.spi")
 
-local provider: contracts.BitopsProvider = do
-    const chosen = spi.select(spi.load(contracts.BitopsProvider))
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end
-    yield _G.require("bit") as contracts.BitopsProvider
+    yield _G.require("bit") as contracts.Provider
 end
 
 export = provider

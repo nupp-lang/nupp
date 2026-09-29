@@ -8,15 +8,15 @@ Public utilities use the same retained functions.]]
 local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.runtime.uuid.spi")
-local provider: contracts.UuidProvider = do
-    const chosen = spi.select(spi.load(contracts.UuidProvider))
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativeuuid") as contracts.UuidProvider
+        yield _G.require("nupp.runtime.provider.nativeuuid") as contracts.Provider
     end
-    yield _G.require("nupp.runtime.browser.crypto") as contracts.UuidProvider
+    yield _G.require("nupp.runtime.browser.crypto") as contracts.Provider
 end
 
 export = provider

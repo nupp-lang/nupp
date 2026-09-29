@@ -172,7 +172,7 @@ general SIMD algebra. Prepared-schema tests cover defaults, nullable fields,
 literals and tuples through the public binding API.
 
 `nupp/spi.json` advertises `nupp.codec.json.aot` for
-`nupp.codec.json.spi.JsonProvider`; codec consumers select it at first load. The default codec remains Lunajson elsewhere.
+`nupp.codec.json.spi.Provider`; codec consumers select it at first load. The default codec remains Lunajson elsewhere.
 The test and benchmark entry points refuse to run unless the public eager,
 pull and serde decoders reach registered native C builders, and classification,
 indexing and arena parsing have registered AOT replacements. Merely loading some other

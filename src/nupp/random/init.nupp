@@ -32,15 +32,15 @@ local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 
 local contracts = require("nupp.random.spi")
-local provider: contracts.CryptoProvider = do
-    const chosen = spi.select(spi.load(contracts.CryptoProvider))
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativecrypto") as contracts.CryptoProvider
+        yield _G.require("nupp.runtime.provider.nativecrypto") as contracts.Provider
     end
-    yield _G.require("nupp.runtime.browser.crypto") as contracts.CryptoProvider
+    yield _G.require("nupp.runtime.browser.crypto") as contracts.Provider
 end
 
 --- Returns cryptographically secure random bytes from the selected host.

@@ -5,15 +5,15 @@ local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.io.uri.spi")
 
-local provider: contracts.UriTextProvider = do
-    const chosen = spi.select(spi.load(contracts.UriTextProvider))
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativeuri") as contracts.UriTextProvider
+        yield _G.require("nupp.runtime.provider.nativeuri") as contracts.Provider
     end
-    yield _G.require("nupp.runtime.browser.uri") as contracts.UriTextProvider
+    yield _G.require("nupp.runtime.browser.uri") as contracts.Provider
 end
 
 export = provider

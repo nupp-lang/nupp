@@ -149,5 +149,5 @@ function crypto.uuid7(): string
 end
 
 @allow("unused-binding")
-const ANSWERS_UUID: contracts.UuidProvider = {uuid4 = crypto.uuid4, uuid7 = crypto.uuid7,}
+const ANSWERS_UUID: contracts.Provider = {uuid4 = crypto.uuid4, uuid7 = crypto.uuid7,}
 export = crypto

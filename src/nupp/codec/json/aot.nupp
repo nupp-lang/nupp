@@ -861,7 +861,7 @@ end
 -- The serde members are this provider's addition; the contract declares them
 -- optional, which is what lets the pure-Lua provider omit them and what makes
 -- each caller's nil test the checker's business rather than a convention.
-local checked: contracts.JsonProvider = {
+local checked: contracts.Provider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.
     -- The contract owns what it marks, because `nupp.codec.json.asArray` promises

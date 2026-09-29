@@ -9,7 +9,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 --- separator reports the host convention. currentDirectory and canonicalize may
 --- return nil with an explanatory message when the host has no such facility or
 --- an operating-system operation fails. Public Path identity remains in nupp.io.path.
-export interface PathProvider
+export interface Provider
     @readonly
     priority: integer?
 

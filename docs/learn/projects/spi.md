@@ -153,19 +153,16 @@ fallback under ordinary target and host conditions.
 
 | Interface module | Implementation interface |
 | --- | --- |
-| `nupp.text.spi` | `TextBufferProvider` |
-| `nupp.codec.json.spi` | `JsonProvider` |
-| `nupp.random.spi` | `CryptoProvider` |
-| `nupp.io.path.spi` | `PathProvider` |
-| `nupp.io.uri.spi` | `UriTextProvider` |
-| `nupp.time.spi` | `TimeProvider` |
-| `nupp.runtime.bitops.spi` | `BitopsProvider` |
-| `nupp.runtime.uuid.spi` | `UuidProvider` |
-| `nupp.runtime.representation.spi` | `CstorageProvider`, `Int64Provider` |
+| `nupp.text.spi`, `nupp.codec.json.spi`, `nupp.random.spi`, `nupp.time.spi` | `Provider` |
+| `nupp.io.path.spi`, `nupp.io.uri.spi`, `nupp.runtime.bitops.spi`, `nupp.runtime.uuid.spi` | `Provider` |
 | `nupp.digest.spi`, `nupp.checksum.spi`, `nupp.mac.spi` | `Provider` |
 | `nupp.compression.spi`, `nupp.system.spi`, `nupp.gpu.spi` | `Provider` |
 | `nupp.io.files.spi`, `nupp.io.http.spi`, `nupp.io.net.spi`, `nupp.io.tls.spi`, `nupp.io.process.spi` | `Provider` |
 | `nupp.suspension.spi`, `nupp.workers.spi` | `Provider` |
+| `nupp.runtime.representation.spi` | `CstorageProvider`, `Int64Provider` |
+
+Every interface is named `Provider`, except where one module declares several:
+the representation module keeps one name per storage concern.
 
 An algorithm catalog overlays its entries on the built-in catalog, and each
 interface module declares the shared resource types and cleanup identities to

@@ -304,7 +304,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
     local cases = {
         {
             module = "nupp.runtime.timeprovider",
-            interface = "nupp.time.spi.TimeProvider",
+            interface = "nupp.time.spi.Provider",
             fallback = "nupp.runtime.provider.nativetime",
         },
         {
@@ -564,7 +564,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
     local cases = {
         {
             module = "nupp.time",
-            interface = "nupp.time.spi.TimeProvider",
+            interface = "nupp.time.spi.Provider",
             native = "nupp.runtime.provider.nativetime",
             browser = "nupp.runtime.browser.time",
             member = "now",
@@ -588,13 +588,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.io.path.provider",
-            interface = "nupp.io.path.spi.PathProvider",
+            interface = "nupp.io.path.spi.Provider",
             native = "nupp.runtime.provider.nativepath",
             browser = "nupp.runtime.browser.path"
         },
         {
             module = "nupp.io.uri.provider",
-            interface = "nupp.io.uri.spi.UriTextProvider",
+            interface = "nupp.io.uri.spi.Provider",
             native = "nupp.runtime.provider.nativeuri",
             browser = "nupp.runtime.browser.uri"
         },
@@ -607,13 +607,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.uuid",
-            interface = "nupp.runtime.uuid.spi.UuidProvider",
+            interface = "nupp.runtime.uuid.spi.Provider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
         },
         {
             module = "nupp.random",
-            interface = "nupp.random.spi.CryptoProvider",
+            interface = "nupp.random.spi.Provider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
             member = "randomBytes"
@@ -627,7 +627,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.text",
-            interface = "nupp.text.spi.TextBufferProvider",
+            interface = "nupp.text.spi.Provider",
             native = "nupp.runtime.provider.nativebuffer",
             browser = "nupp.runtime.provider.tablebuffer",
             member = "new",
@@ -636,7 +636,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.bitops",
-            interface = "nupp.runtime.bitops.spi.BitopsProvider",
+            interface = "nupp.runtime.bitops.spi.Provider",
             native = "bit",
             browser = "nupp.runtime.provider.scalarbitops",
             vm = true
@@ -913,28 +913,28 @@ end
 -- belongs in it.
 local SELECTING_FACADES = {
     {"nupp.checksum", "nupp.checksum.spi.Provider"},
-    {"nupp.codec.json.provider", "nupp.codec.json.spi.JsonProvider"},
+    {"nupp.codec.json.provider", "nupp.codec.json.spi.Provider"},
     {"nupp.compression", "nupp.compression.spi.Provider"},
     {"nupp.digest", "nupp.digest.spi.Provider"},
     {"nupp.gpu", "nupp.gpu.spi.Provider"},
     {"nupp.io.files", "nupp.io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
-    {"nupp.io.path.provider", "nupp.io.path.spi.PathProvider"},
+    {"nupp.io.path.provider", "nupp.io.path.spi.Provider"},
     {"nupp.io.process", "nupp.io.process.spi.Provider"},
     {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
-    {"nupp.io.uri.provider", "nupp.io.uri.spi.UriTextProvider"},
+    {"nupp.io.uri.provider", "nupp.io.uri.spi.Provider"},
     {"nupp.mac", "nupp.mac.spi.Provider"},
-    {"nupp.random", "nupp.random.spi.CryptoProvider"},
-    {"nupp.runtime.bitops", "nupp.runtime.bitops.spi.BitopsProvider"},
+    {"nupp.random", "nupp.random.spi.Provider"},
+    {"nupp.runtime.bitops", "nupp.runtime.bitops.spi.Provider"},
     {"nupp.runtime.int64", "nupp.runtime.representation.spi.Int64Provider"},
     {"nupp.runtime.representation", "nupp.runtime.representation.spi.CstorageProvider"},
-    {"nupp.runtime.timeprovider", "nupp.time.spi.TimeProvider"},
-    {"nupp.runtime.uuid", "nupp.runtime.uuid.spi.UuidProvider"},
+    {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
+    {"nupp.runtime.uuid", "nupp.runtime.uuid.spi.Provider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension", "nupp.suspension.spi.Provider"},
     {"nupp.system", "nupp.system.spi.Provider"},
-    {"nupp.text", "nupp.text.spi.TextBufferProvider"},
+    {"nupp.text", "nupp.text.spi.Provider"},
 }
 
 -- Loads `facade` afresh against a provider index holding `priorities`, one

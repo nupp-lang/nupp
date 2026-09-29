@@ -27,12 +27,10 @@ Each lane uses the artifact's immutable SPI index and loads independent module
 instances. Provider objects and Lua closures are never transferred between lanes.
 ]]
 
-local workers = {}
-
 --- What may actually be submitted: a module member, or an outlined literal whose
 --- effectively-final captures can be copied to another lane. Exported so a task scope
 --- can hold its `fork` to the same bound without linking this module.
-type workers.Submittable = @sendable function(...: any): any
+export type Submittable = @sendable function(...: any): any
 
 --- Whether one type is an engine-backed owner a lane boundary moves rather than
 --- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
@@ -148,7 +146,7 @@ end
 --- copyable. Reached only from `spawn`: naming `Task<F>` describes a handle rather than
 --- a crossing, so a signature is held to this where it is submitted and nowhere else.
 @comptime
-function workers.Submitted(F: type): typepack
+export function Submitted(F: type): typepack
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a worker job must name a function type")
     end
@@ -193,7 +191,7 @@ end
 ---
 --- A closed union, so a `switch` over it needs no `else`. `nupp.tasks` names it
 --- `Status`.
-type workers.Status = "queued" | "running" | "done" | "failed" | "cancelled"
+export type Status = "queued" | "running" | "done" | "failed" | "cancelled"
 
 @comptime
 local function TaskType(F: type): type
@@ -256,10 +254,10 @@ end
 --- Its `await` result pack is the function's, which is why this is derived from the
 --- function type rather than declared once over `any`. `status` answers a
 --- [](nupp.workers.spi.Status).
-type workers.Task<F> = TaskType(F)
+export type Task<F> = TaskType(F)
 
 --- A family of parallel child tasks, owned by the task scope whose `fork` opened it.
-record workers.Scope
+export record Scope
     _scheduler: any
     _tasks: {any}
     _closed: boolean
@@ -267,30 +265,26 @@ record workers.Scope
     _observer: any
 
     --- Starts one sendable function with copied arguments.
-    spawn: function<F is workers.Submittable>(
-        borrows self: workers.Scope,
-        F,
-        ...: unpackof workers.Submitted(F)
-    ): workers.Task<F>
+    spawn: function<F is Submittable>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
 
     --- Waits for every child, raising the first failure nothing observed. Idempotent.
     --- Under a suspension handler it parks until every child has settled, and without
     --- one it blocks.
-    close: function(borrows self: workers.Scope): nil
+    close: function(borrows self: Scope): nil
 
-    _cancelAll: function(workers.Scope, string?): nil
+    _cancelAll: function(Scope, string?): nil
 end
 
 --- Complete worker implementation protocol, including structured-task integration.
 --- Implement generic spawn and ownership guarantees through the shared scope types.
-interface workers.Provider
+export interface Provider
     @readonly
     priority: integer?
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.
     @readonly
-    openScope: function(deadline: number?, observer: any): workers.Scope
+    openScope: function(deadline: number?, observer: any): Scope
 
     --- Waits for a task and returns status, packed values, exact count, and problem.
     --- Status is done, failed, or cancelled; cancellation preserves its shared
@@ -310,7 +304,3 @@ interface workers.Provider
     @readonly
     describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
 end
-
-workers.Scope = workers.Scope
-
-export = workers

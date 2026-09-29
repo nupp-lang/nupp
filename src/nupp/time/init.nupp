@@ -23,12 +23,12 @@ long something took.
 local contracts = require("nupp.time.spi")
 
 local target = require("nupp.runtime.target")
-const provider: contracts.TimeProvider = require("nupp.runtime.timeprovider").provider ?? do
+const provider: contracts.Provider = require("nupp.runtime.timeprovider").provider ?? do
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativetime") as contracts.TimeProvider
+        yield _G.require("nupp.runtime.provider.nativetime") as contracts.Provider
     end
     assert(target.host == "browser" and rawget(_G, "__nuppBrowser") ~= nil, "nupp.time: no clock provider is available")
-    yield _G.require("nupp.runtime.browser.time") as contracts.TimeProvider
+    yield _G.require("nupp.runtime.browser.time") as contracts.Provider
 end
 
 --- Answers monotonic milliseconds, the domain durations and deadlines use.

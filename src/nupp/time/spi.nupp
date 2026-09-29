@@ -11,7 +11,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 --- origin as now. Finite non-negative durations and deadlines are required.
 --- Waits cooperate with the selected suspension implementation. Timer callbacks and
 --- cancellation functions belong to the current Lua state.
-export interface TimeProvider
+export interface Provider
     @readonly
     priority: integer?
 

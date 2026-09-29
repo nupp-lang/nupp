@@ -8,7 +8,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 ---
 --- Use the host secure random source and propagate its failures. Deterministic
 --- pseudo-random generators do not satisfy this contract. Host requests may suspend.
-export interface CryptoProvider
+export interface Provider
     @readonly
     priority: integer?
 

@@ -206,7 +206,7 @@ export type MarkContainer = function<T is table>(takes value: T): T preserves va
 --- schemas and both decode entry points must share their representation and
 --- unknown-member policy. All buffer operations use the canonical shared Buffer;
 --- they must preserve the declared exclusive access and ownership guarantees.
-export interface JsonProvider
+export interface Provider
     @readonly
     priority: integer?
 

@@ -85,7 +85,7 @@ function time.wakeAt(deadline: number, resume: function(boolean): nil): function
     )
 end
 
-local checked: contracts.TimeProvider = {
+local checked: contracts.Provider = {
     wakeAt = time.wakeAt,
     now = time.now,
     wallTime = time.wallTime,

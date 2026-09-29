@@ -52,7 +52,7 @@ end
 --- Return nil and a diagnostic for unsupported or invalid input. Successful parses
 --- must make text, authority, host, port, and path mutually consistent and preserve
 --- absent versus empty query and fragment values.
-export interface UriTextProvider
+export interface Provider
     @readonly
     priority: integer?
 

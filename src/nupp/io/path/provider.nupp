@@ -5,15 +5,15 @@ local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.io.path.spi")
 
-local provider: contracts.PathProvider = do
-    const chosen = spi.select(spi.load(contracts.PathProvider))
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativepath") as contracts.PathProvider
+        yield _G.require("nupp.runtime.provider.nativepath") as contracts.Provider
     end
-    yield _G.require("nupp.runtime.browser.path") as contracts.PathProvider
+    yield _G.require("nupp.runtime.browser.path") as contracts.Provider
 end
 
 export = provider

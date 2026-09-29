@@ -107,7 +107,7 @@ local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
     return nil
 end
 local checked: function(exclusive out: Buffer, nullValue: any?): any = writer
-local provider: contracts.JsonProvider = {writer = writer} as any
+local provider: contracts.Provider = {writer = writer} as any
 local canonical: function(exclusive out: Buffer, nullValue: any?): any = provider.writer
 return checked, canonical
 ]]
@@ -352,13 +352,13 @@ function M.runtimeImplementationInterfacesArePublic()
         [[
 module application
 local spi = require("nupp.spi")
-local {type BitopsProvider} = require("nupp.runtime.bitops.spi")
+local bitops = require("nupp.runtime.bitops.spi")
 local {type CstorageProvider, type Int64Provider} = require("nupp.runtime.representation.spi")
-local {type UuidProvider} = require("nupp.runtime.uuid.spi")
-local bits = spi.load(BitopsProvider)
+local uuid = require("nupp.runtime.uuid.spi")
+local bits = spi.load(bitops.Provider)
 local storage = spi.load(CstorageProvider)
 local integers = spi.load(Int64Provider)
-local uuids = spi.load(UuidProvider)
+local uuids = spi.load(uuid.Provider)
 export = {bits = bits, storage = storage, integers = integers, uuids = uuids}
 ]]
     )

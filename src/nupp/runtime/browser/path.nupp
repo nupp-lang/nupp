@@ -10,7 +10,7 @@ directory or host filesystem to canonicalize, so those two environmental
 operations return `nil` and an explanatory message.
 
 Lexical path manipulation remains available through [](nupp.io.path). This module
-returns only environmental operations checked against the canonical PathProvider;
+returns only environmental operations checked against the canonical path Provider;
 it introduces no alternate Path type and performs no browser request or native
 filesystem access when loaded.
 ]]
@@ -31,7 +31,7 @@ function provider.canonicalize(_path: string): (string?, string?)
 end
 
 -- Check every member against the canonical path provider contract.
-local checked: contracts.PathProvider = {
+local checked: contracts.Provider = {
     separator = provider.separator,
     currentDirectory = provider.currentDirectory,
     canonicalize = provider.canonicalize,
