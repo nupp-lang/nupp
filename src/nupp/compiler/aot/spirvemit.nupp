@@ -1068,7 +1068,8 @@ function spirv.program(
             local expected = valueType(value.type)
             if storedType ~= expected then
                 local converted = id()
-                local conversion = bufferPhysical[value.span]:sub(1, 1) == "i" and OP.SConvert or OP.UConvert
+                local conversion = (bufferPhysical[value.span] as string):sub(1, 1) == "i" and OP.SConvert
+                    or OP.UConvert
                 instruction(functions, conversion, {expected, converted, loaded})
                 return converted, expected
             end
@@ -1380,7 +1381,7 @@ function spirv.program(
                 local value, valueTypeId = expression(statement.value)
                 if storedType ~= valueTypeId then
                     local narrowed = id()
-                    local storedKey = bufferPhysical[statement.span]
+                    local storedKey = bufferPhysical[statement.span] as string
                     instruction(functions, storedKey:sub(1, 1) == "i" and OP.SConvert or OP.UConvert, {
                         storedType,
                         narrowed,

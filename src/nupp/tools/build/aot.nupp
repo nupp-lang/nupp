@@ -1018,7 +1018,7 @@ function aot.emit(
                     -- `fs.join` writes one for a root of "." and the
                     -- listed source does not carry it.
                     local base = fs.join(root, directory):gsub("^%./", "")
-                    local listed = sourceListed[source]:gsub("^%./", "")
+                    local listed = (sourceListed[source] as string):gsub("^%./", "")
                     local relative = listed
                     if listed:sub(1, #base + 1) == base .. "/" then
                         relative = listed:sub(#base + 2)

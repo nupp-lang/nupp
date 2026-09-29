@@ -3372,7 +3372,7 @@ local function renderSection(out: {string}, section: reference.Section, level: i
         out[#out + 1] = "`" .. name .. "`:"
         out[#out + 1] = ""
         out[#out + 1] = "```nupp"
-        out[#out + 1] = (source:gsub("^%s+", ""):gsub("%s+$", ""))
+        out[#out + 1] = ((source as string):gsub("^%s+", ""):gsub("%s+$", ""))
         out[#out + 1] = "```"
         out[#out + 1] = ""
     end

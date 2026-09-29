@@ -442,7 +442,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             if headerPath:match("^[/\\]") or headerPath:match("^%a:[/\\]") then
                 candidates = {headerPath}
             else
-                local dir = c.filename:match("^(.*)[/\\][^/\\]*$") or "."
+                local dir = (c.filename as string):match("^(.*)[/\\][^/\\]*$") or "."
                 candidates = {dir .. "/" .. headerPath, headerPath}
                 for _, root in ipairs(c.env and c.env.roots or {}) do
                     candidates[#candidates + 1] = root .. "/" .. headerPath
