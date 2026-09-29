@@ -1,6 +1,6 @@
 -- Application task scopes: what a scope owns, and when it says so.
 --
--- A scope is opened with `open` and settled with `settle`, which is what leaving
+-- A scope is opened with `open` and settled with its `close`, which is what leaving
 -- its `with` block does in Nupp source; from Lua the two are called directly, and
 -- `scoped` below does what the block's cleanup does: the body's failure stays
 -- primary, and the scope settles either way.
@@ -37,7 +37,7 @@ end
 local function scoped(options, body)
    local scope = tasks.open(options and options.limit, options and options.deadline)
    local ok, problem = pcall(body, scope)
-   local settled, settleProblem = pcall(tasks.settle, scope)
+   local settled, settleProblem = pcall(scope.close, scope)
    if not ok then error(problem, 0) end
    if not settled then error(settleProblem, 0) end
 end
@@ -437,9 +437,10 @@ end
 
 function M.aSettledScopeRefusesNewChildren()
    local scope = tasks.open()
-   tasks.settle(scope)
-   -- Idempotent: a scope settled by hand before its block ends settles once.
-   tasks.settle(scope)
+   scope:close()
+   -- Idempotent: a scope closed early, as `nupp.drop` does, settles once when its
+   -- block ends.
+   scope:close()
    local problem = raises(function() scope:spawn(function() end) end)
    assertTrue(tostring(problem):find("the task scope is closed", 1, true) ~= nil,
       "a settled scope accepted a child: " .. tostring(problem))
@@ -942,7 +943,7 @@ function M.aSettleThatRaisesGivesBackTheFrame()
    scope:spawn(function()
       suspension.suspend("never answered", function() return function() end end)
    end)
-   local ok, problem = pcall(tasks.settle, scope)
+   local ok, problem = pcall(scope.close, scope)
    assertEq(ok, false, "a wait nothing can answer settled")
    assertTrue(tostring(problem):find("no readiness source", 1, true), tostring(problem))
    assertEq(suspension.handled(), before, "the scope's frame handler outlived its settle")

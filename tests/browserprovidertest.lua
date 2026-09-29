@@ -162,7 +162,7 @@ end
 local function scoped(tasks, body, limit, deadline)
     local scope = tasks.open(limit, deadline)
     local ok, problem = pcall(body, scope)
-    local settled, settleProblem = pcall(tasks.settle, scope)
+    local settled, settleProblem = pcall(scope.close, scope)
     if not ok then
         error(problem, 0)
     end

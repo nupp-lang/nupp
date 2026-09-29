@@ -182,7 +182,7 @@ function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
         return suspension.create(function()
             local scope = tasks.open(nil, deadline)
             coroutine.yield(tasks.deadline())
-            tasks.settle(scope)
+            scope:close()
         end)
     end
 

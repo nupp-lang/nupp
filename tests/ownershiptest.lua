@@ -5476,6 +5476,34 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
     )
 end
 
+-- A task scope is a Closeable: its `with` closes it on the way out, and `nupp.drop`
+-- closes one held in an ordinary local early, settling its children there rather
+-- than where the block ends.
+function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
+    local order = runGenerated(
+        table.concat(
+            {
+                "local tasks = require('nupp.tasks')",
+                "local order: {string} = {}",
+                "with scope = tasks.open() do",
+                "   scope:spawn(function(): nil order[#order + 1] = 'child' end)",
+                "end",
+                "order[#order + 1] = 'after block'",
+                "do",
+                "   local scope = tasks.open()",
+                "   scope:spawn(function(): nil order[#order + 1] = 'early child' end)",
+                "   nupp.drop(scope)",
+                "   order[#order + 1] = 'after drop'",
+                "end",
+                "return table.concat(order, ',')",
+            },
+            "\n"
+        ),
+        "task-scope-close"
+    )
+    assertEq(order, "child,after block,early child,after drop", "each scope settled where it was closed")
+end
+
 -- `gather` takes the same two contracts `race` does: a borrowed family runs and is
 -- left with its owner, and an owned family is called or dropped exactly once.
 function M.gatherCallsEveryTakingBranchOnce()

@@ -223,9 +223,10 @@ end
 
 --- Represents a scope opened by `open`.
 ---
---- `open` wraps this record in the affine settlement obligation held by a `with`
---- block. The block can add children to the scope and reach the worker scope it owns.
-record tasks.Scope
+--- A `nupp.Closeable`: `open` answers it as an owner a `with` block holds, and leaving
+--- the block closes it. The block can add children to the scope and reach the worker
+--- scope it owns.
+record tasks.Scope is nupp.Closeable
     --- Private state. Named rather than hidden because the checked surface below is
     --- what callers use, and a record needs somewhere to keep this.
     _state: any
@@ -263,6 +264,9 @@ record tasks.Scope
 
     --- Requests cancellation of every child.
     cancel: function(borrows self: tasks.Scope, reason: string?): nil
+
+    --- Settles the scope, which is what leaving its `with` does.
+    close: function(takes self: tasks.Scope): nil
 end
 
 -- The record's own table is the method table, so a declared method reaches an
@@ -275,7 +279,7 @@ local activeScope: any = nil
 --- The child currently running, for the same two.
 local activeChild: any = nil
 
-local function state(borrows scope: tasks.Scope): ScopeState
+local function state(scope: any): ScopeState
     return (scope as any)._state as ScopeState
 end
 
@@ -914,8 +918,7 @@ local function admit(owner: ScopeState, name: string): nil
     awaitSlot(owner, name)
 end
 
-local function spawnRaw(scope: tasks.Scope, name: string, body: any, arguments: Packed?): Child
-    const owner = state(scope)
+local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: Packed?): Child
     -- The body was transferred at the call: a single-shot closure's captures now
     -- belong to the child. The record that can give them back exists before anything
     -- here can refuse the child, so a spawn parked for a slot when a sibling fails
@@ -988,12 +991,11 @@ local function spawnRaw(scope: tasks.Scope, name: string, body: any, arguments: 
     return child
 end
 
-local function spawnChild(scope: tasks.Scope, name: string, body: any, arguments: Packed?): any
-    return newTask(state(scope), spawnRaw(scope, name, body, arguments))
+local function spawnChild(owner: ScopeState, name: string, body: any, arguments: Packed?): any
+    return newTask(owner, spawnRaw(owner, name, body, arguments))
 end
 
-local function workersImpl(scope: tasks.Scope): any
-    local owner = state(scope)
+local function workersImpl(owner: ScopeState): any
     if owner.workerScope == nil then
         if workerModule == nil then
             error("nupp.tasks: worker provider unavailable: " .. tostring(workerModule), 2)
@@ -1061,13 +1063,13 @@ function ForkMT.await(self: any): ...any
     return unpack(values as {any}, 1, count)
 end
 
-local function forkImpl(scope: tasks.Scope, fn: any, ...: any): any
+local function forkImpl(scope: any, fn: any, ...: any): any
     const owner = state(scope)
     if owner.closed then
         error("nupp: the task scope is closed", 2)
     end
     settleAgainstScope(owner)
-    const workerScope = workersImpl(scope)
+    const workerScope = workersImpl(owner)
     awaitSlot(owner, "a worker task")
     -- The provider's runtime keeps the callable first; the source order that puts it
     -- last is the checker's view, restored before lowering.
@@ -1076,8 +1078,7 @@ local function forkImpl(scope: tasks.Scope, fn: any, ...: any): any
     return setmetatable({_owner = owner, _task = task,}, ForkMT)
 end
 
-local function cancelImpl(scope: tasks.Scope, reason: string?): nil
-    const owner = state(scope)
+local function cancelImpl(owner: ScopeState, reason: string?): nil
     if owner.closed then
         error("nupp: the task scope is closed", 2)
     end
@@ -1107,14 +1108,16 @@ do
     -- the transferred body in a coroutine and stores the scope state in the handle.
     -- This contract exposes those two facts to authored code without sending either
     -- capability through the implementation's deliberately opaque runtime tables.
-    spawnSurface = function(scope: tasks.Scope, body: any, ...: any): any
-        return spawnChild(scope, "a task", body, select("#", ...) > 0 and pack(...) or nil)
+    spawnSurface = function(scope: any, body: any, ...: any): any
+        return spawnChild(state(scope), "a task", body, select("#", ...) > 0 and pack(...) or nil)
     end as any
-    spawnNamedSurface = function(scope: tasks.Scope, body: any, name: string): any
-        return spawnChild(scope, name, body, nil)
+    spawnNamedSurface = function(scope: any, body: any, name: string): any
+        return spawnChild(state(scope), name, body, nil)
     end as any
     forkSurface = forkImpl as any
-    cancelSurface = cancelImpl as any
+    cancelSurface = function(scope: any, reason: string?): nil
+        cancelImpl(state(scope), reason)
+    end as any
 end
 
 --- Starts a child under this scope.
@@ -1279,7 +1282,7 @@ local function draining(child: Child): boolean
     return false
 end
 
-local function newScope(deadline: number?, limit: integer?): tasks.Scope
+local function newState(deadline: number?, limit: integer?): ScopeState
     const owner: ScopeState = {
         children = {},
         queue = {},
@@ -1338,7 +1341,7 @@ local function newScope(deadline: number?, limit: integer?): tasks.Scope
         end
     )
 
-    return setmetatable({_state = owner,}, ScopeMT) as tasks.Scope
+    return owner
 end
 
 --- Cancels and drains, then answers what the scope owns.
@@ -1409,7 +1412,7 @@ end
 
 --- Settles a scope, forgets it, and raises whatever it ended up owning.
 ---
---- The closing sequence behind both `settle` and the whole-family calls: drain, give
+--- The closing sequence behind both `close` and the whole-family calls: drain, give
 --- back the installation the scope holds on its frame, and report a failure or an
 --- unasked-for cancellation. Idempotent, so a scope closed twice closes once.
 ---
@@ -1444,13 +1447,13 @@ local function closeScope(owner: ScopeState): nil
     end
 end
 
---- Settles an opened scope, which is what leaving its `with` does.
+--- Settles the scope, which is what leaving its `with` does.
 ---
 --- Every child has run, been cancelled, or unwound when this returns, and the worker
 --- scope, where one was opened, has been closed through the suspension-aware path.
 --- It is a settling terminal: it parks until that is so, and so is refused inside a
---- `@nosuspend` region. Idempotent, so a scope settled by hand before its block ends
---- settles once.
+--- `@nosuspend` region. A scope held in an ordinary local rather than a `with` is
+--- closed early by `nupp.drop(scope)`, and closes once.
 ---
 --- A failure the block itself raises does not cancel the children: they run to
 --- completion before it propagates. Call `cancel` first where that is not wanted.
@@ -1461,11 +1464,15 @@ end
 --- end
 --- ```
 ---
---- @param scope the scope `open` answered
 --- @raises any the first failure a child had
 --- @raises tasks.Cancellation the cancellation a deadline caused
-function tasks.settle(takes scope: tasks.Scope): nil
-    closeScope(state(scope))
+@unsafe
+do
+    -- The scope's state outlives the owner this consumes: handles reach it after
+    -- close, and closing again is a no-op.
+    tasks.Scope.close = function(scope: any): nil
+        closeScope(state(scope))
+    end as any
 end
 
 --- Opens a scope, to be held by a `with`.
@@ -1503,7 +1510,7 @@ end
 --- @raises string where the limit is not a positive integer or the deadline is not a
 ---     finite
 ---     non-negative number
-function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope, tasks.settle)
+function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope)
     if limit ~= nil and (limit < 1 or limit ~= math.floor(limit)) then
         error("nupp: a task scope limit must be a positive integer", 2)
     end
@@ -1518,8 +1525,7 @@ function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope, tas
     if inherited ~= nil and (absolute == nil or inherited < absolute) then
         absolute = inherited
     end
-    const scope = newScope(absolute, limit)
-    const owner = state(scope)
+    const owner = newState(absolute, limit)
     registerOpen(owner)
     -- The block's own waits drive the children. Installed transparently: a driver in
     -- front of the host, not a host, so where nothing hosts the frame the turn stays
@@ -1527,7 +1533,7 @@ function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope, tas
     local handling = suspension.install(frameHandler(owner), true)
     owner.frame = @unsafe nupp.release(handling)
 
-    return scope
+    return setmetatable({_state = owner,}, ScopeMT) as tasks.Scope
 end
 
 ----------------------------------------------------------------------------
@@ -1541,22 +1547,21 @@ end
 --- soft, which is the whole difference from an application scope -- a branch failure
 --- stays on the branch that had it, and the call decides what the family does about
 --- it, rather than the first failure cancelling the rest.
-local function familyScope(): tasks.Scope
-    const scope = newScope(tasks.deadline(), nil)
-    const owner = state(scope)
+local function familyScope(): ScopeState
+    const owner = newState(tasks.deadline(), nil)
     owner.soft = true
     registerOpen(owner)
     -- The call's own frame drives the branches, exactly as a block's does.
     local handling = suspension.install(frameHandler(owner), true)
     owner.frame = @unsafe nupp.release(handling)
 
-    return scope
+    return owner
 end
 
 --- Enters every body as a branch of `scope`, indexed as `bodies` was.
-local function enterBranches(scope: tasks.Scope, bodies: {any}, count: integer): nil
+local function enterBranches(owner: ScopeState, bodies: {any}, count: integer): nil
     for index = 1, count do
-        spawnRaw(scope, "branch " .. tostring(index), bodies[index], nil)
+        spawnRaw(owner, "branch " .. tostring(index), bodies[index], nil)
     end
 end
 
@@ -1566,13 +1571,12 @@ end
 --- bounded by an enclosing scope reports that rather than reporting branch outcomes
 --- from a family that was cut short.
 ---
---- @param scope the family scope, settled by this call
+--- @param owner the family scope, settled by this call
 --- @return each branch's value, where it returned
 --- @return each branch's error, where it raised
 --- @raises any a failure the scope itself owns
 --- @raises tasks.Cancellation the cancellation its deadline caused
-local function settleFamily(scope: tasks.Scope): {any}, {any}
-    const owner = state(scope)
+local function settleFamily(owner: ScopeState): {any}, {any}
     closeScope(owner)
     const values: {any} = {}
     const errors: {any} = {}
@@ -1632,11 +1636,11 @@ local function gatherImpl<T>(takes bodies: {function(): T}): ({T?}, {any})
     if count == 0 then
         return {}, {}
     end
-    const scope = familyScope()
+    const owner = familyScope()
     -- Protected so that a scope opened here is settled however entering goes: an
     -- unsettled one holds an installation and every branch it did enter.
-    const entered, problem = pcall(enterBranches, scope, rawBodies as {any}, count)
-    const values, errors = settleFamily(scope)
+    const entered, problem = pcall(enterBranches, owner, rawBodies as {any}, count)
+    const values, errors = settleFamily(owner)
     if not entered then
         error(problem, 0)
     end
@@ -1679,8 +1683,7 @@ local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     if count == 0 then
         return nil, nil
     end
-    const scope = familyScope()
-    const owner = state(scope)
+    const owner = familyScope()
     local first: integer? = nil
 
     const function settledOne(): boolean
@@ -1699,7 +1702,7 @@ local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     end
 
     const raced, problem = pcall(function(): nil
-        enterBranches(scope, rawBodies as {any}, count)
+        enterBranches(owner, rawBodies as {any}, count)
         pump(owner, "a racing family", function(): boolean
             return settledOne() or owner.live == 0
         end)
@@ -1707,9 +1710,9 @@ local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     if raced and first ~= nil then
         -- Deliberate, so that settling reports the winner rather than the cancellation
         -- this call made on its own behalf.
-        cancelImpl(scope, "another branch settled first")
+        cancelImpl(owner, "another branch settled first")
     end
-    const values, errors = settleFamily(scope)
+    const values, errors = settleFamily(owner)
     if not raced then
         error(problem, 0)
     end

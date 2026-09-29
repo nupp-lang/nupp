@@ -239,14 +239,13 @@ or `open(limit = 8, deadline = 500)`.
 
 ## Settlement
 
-`nupp.tasks.settle` is the terminal `open` carries, and what leaving the `with`
-calls. It is a settling terminal: it parks until every child has settled and the
-owned worker scope has been closed through the suspension-aware path, and so it
-is refused inside a `@nosuspend` region. A scope may be settled by hand before its
-block ends; it settles once. Operations on a settled scope raise. A settle that
-raises before its children have settled, because nothing could complete a wait
-one of them is parked on, still gives the frame back and forgets the scope, and
-may be called again.
+A scope is a `nupp.Closeable`, and its `close` is what leaving the `with` calls.
+It is a settling terminal: it parks until every child has settled and the owned
+worker scope has been closed through the suspension-aware path, and so it is
+refused inside a `@nosuspend` region. A scope held in an ordinary local rather
+than a `with` is closed early by `nupp.drop(scope)`, and settles once. Operations on a settled scope raise. A close that raises before its
+children have settled, because nothing could complete a wait one of them is
+parked on, still gives the frame back and forgets the scope.
 
 ## Host scheduling
 
