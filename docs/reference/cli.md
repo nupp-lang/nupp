@@ -104,7 +104,9 @@ and `-Zno-opt` on `build` and `run`.
 A command writes its JSON as one line with no ordering guarantee across keys,
 and only [`ast`](#ast) offers an indented form, under `--json-pretty`. The
 `json` blocks on this page are indented so they can be read; the `text` blocks
-are the bytes the command wrote.
+are the bytes the command wrote. A test runs each of them in the example project
+below and compares, apart from the few that write a project, need Nupp's own
+repository or a C toolchain, depend on the host, or are abridged.
 
 ## Exit codes
 
@@ -119,7 +121,7 @@ use, and points at that command's help:
 
 ```text [nupp check --colour]
 nupp: unknown option --colour
-Try 'nupp help check' for more information.
+Try 'nupp help check' for usage.
 ```
 
 ## Example project
@@ -217,7 +219,10 @@ and no checkout:
 ```text [nupp init --list]
   built-in template  what it writes
   app                A runnable program, with a test and a task to start it
+  browser            A browser application using crypto and timers
+  browser-simd       A browser application with scalar and SIMD128 AOT kernels
   lib                A typed library packaged as a LuaRocks rock
+  love               A small LÖVE game using Nupp's LuaJIT compatibility target
 ```
 
 `nupp init` with no arguments writes the `app` template into a directory named
@@ -1249,10 +1254,10 @@ return {new = blockNew, free = blockFree, sizeOf = sizeOf}
 Foreign ownership contracts
   src/block.nupp:5  blockCreate
     result 1: block*
-  src/block.nupp:8  blockFree
+  src/block.nupp:7  blockFree
     parameter 1 b: block*  takes
 Unsafe assertion sites
-  src/block.nupp:15:5  unsafe assertion region
+  src/block.nupp:14:5  unsafe assertion region
 ```
 
 The audit reports what the *foreign* boundary states. `blockCreate` returns a
@@ -1325,7 +1330,7 @@ Does not:
 
 Related: NUPP2106, NUPP2120
 
-Reference: docs/reference/diagnostics.md#diagnostic-index
+Reference: docs/reference/diagnostics.md#nupp2119
 ```
 
 ### `reference`
@@ -1496,7 +1501,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 # Completion for nupp; generated from nupp.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=( $(compgen -W '--accept --all --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --format --from --function --geo --help --history --include-declaration --inspect --jit-aborts --json --kind --label --lib --library --list --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-out --report-json --rev --root --schema --section --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both build bytecode c check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints lsp lua lua51 luacats luadoc luajit luajit-compat markdown md migrate ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--accept --against --all --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --compat --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --forks --format --from --function --geo --gpu-costs --help --history --host --include-declaration --inspect --jit-aborts --json --json-pretty --kind --label --lib --library --list --margin --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --pilot --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-file --remarks-out --report-json --rev --root --schema --section --seed --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both browser build bytecode check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints llvm lsp lua lua51 luacats luadoc luajit markdown md migrate native ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
 }
 complete -F _nupp nupp
 ```
@@ -1656,9 +1661,10 @@ Options:
 The list marks the default build target:
 
 ```text [nupp task --list]
-task           kind     what it does
+task           kind     description
 app (default)  modules  Build the greeter
 greet          task     Print a greeting
+test           test     Build and run project tests
 ```
 
 Naming one after `--list` prints its effective configuration, inherited
@@ -1672,6 +1678,7 @@ Kind: modules
 Category: build
 Command: nupp build --target app
 Output directory: build
+Dialect: luajit
 Entries:
   - main
 Resources:

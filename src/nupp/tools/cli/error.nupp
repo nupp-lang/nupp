@@ -37,9 +37,7 @@ function errors.forCommand(name: string): function(string?): integer
                 "error"
             )(
                 "nupp:"
-            ) .. " " .. tostring(
-                message
-            ) .. "\nTry '" .. style.strong("nupp help " .. name) .. "' for more information.\n"
+            ) .. " " .. tostring(message) .. "\nTry '" .. style.strong("nupp help " .. name) .. "' for usage.\n"
         )
 
         return 2
