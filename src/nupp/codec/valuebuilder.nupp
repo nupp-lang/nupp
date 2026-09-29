@@ -453,6 +453,10 @@ local function put(builder: any, value: any): nil
         end
         frame.count = frame.count + 1
         if value == nil then
+            -- A dropped null leaves no key behind, so its name is remembered
+            -- for the duplicate check.
+            frame.dropped = frame.dropped or {}
+            frame.dropped[frame.key] = true
             frame.key = nil
             return
         end
@@ -965,9 +969,10 @@ end
 
 --- Sets the next object key from a range of the rooted source.
 ---
---- The range is read in place, so a key that holds no escape costs one copy and
---- no substring. Pass `escaped` as true only when the range may hold backslash
---- escapes; false takes the bytes exactly as they lie. Assemble a key that is
+--- A name the object already has is refused, whether the earlier member was stored or
+--- was a dropped null. The range is read in place, so a key that holds no escape costs
+--- one copy and no substring. Pass `escaped` as true only when the range may hold
+--- backslash escapes; false takes the bytes exactly as they lie. Assemble a key that is
 --- not a contiguous source range with [](nupp.codec.valuebuilder.keyScratch) instead.
 --- @param builder the stream
 --- @param source the rooted string the range indexes
@@ -977,12 +982,19 @@ end
 --- @raises string when outside an object, or when a key is already pending
 --- @raises string when the source range is out of bounds
 --- @raises string when an escape in the range is malformed
+--- @raises string when the object already has a member of this name
 function valuebuilder.key(builder: any, borrows source: any, start: uint32, length: uint32, escaped: boolean): nil
     local frame = builder.stack[#builder.stack]
     if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
         error("value stream key is outside an object", 2)
     end
-    frame.key = decodeString(source, start, length, escaped)
+    local name = decodeString(source, start, length, escaped)
+    -- The range starts after the opening quote, so its zero-based first byte is
+    -- the quote's one-based position.
+    if frame.value[name] ~= nil or frame.dropped ~= nil and frame.dropped[name] then
+        error("invalid JSON at byte " .. tostring(start) .. ": duplicate member name", 0)
+    end
+    frame.key = name
 end
 
 --- Adds a string value from a range of the rooted source.

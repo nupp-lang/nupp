@@ -209,6 +209,31 @@ return {refused = refused == nil, problem = tostring(problem), tiny = tiny and t
     assert(result.tiny == 0, tostring(result.tiny))
 end
 
+-- A repeated member is refused before the schema looks at either occurrence,
+-- so a first occurrence of the wrong type cannot hide behind the second.
+function M.repeatedMembersAreRefused()
+    local result = run(
+        [=[
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string?
+end
+
+local prepared = nupp.serde.json():prepare(nupp.serde.of(User))
+local problems = {}
+for _, text in ipairs({[[{"id":"x","id":1}]], [[{"id":1,"id":2}]], [[{"id":1,"name":null,"name":"b"}]]}) do
+    local value, problem = prepared:decode(text)
+    problems[#problems + 1] = value == nil and tostring(problem) or "accepted " .. text
+end
+return problems
+]=]
+    )
+    assert(result[1] == "invalid JSON at byte 11: duplicate member name", result[1])
+    assert(result[2] == "invalid JSON at byte 9: duplicate member name", result[2])
+    assert(result[3] == "invalid JSON at byte 21: duplicate member name", result[3])
+end
+
 function M.profilesRenameKeysAndIgnoreUnknownValues()
     local result = run(
         [=[

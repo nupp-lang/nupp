@@ -11,7 +11,7 @@ local WORK_CEILINGS = {
     utf8simd = {units = 1, cases = 199082, calls = 1, fingerprint = "park-miller:31:9704630:1254652296"},
     base64simd = {units = 1, cases = 80744, calls = 1, fingerprint = "park-miller:20260917:4493157:2096655930"},
     ["simd-json"] = {units = 2, cases = 223519, calls = 1, fingerprint = "park-miller:20260917:453616:447386101"},
-    ["fused-json"] = {units = 1, cases = 9, calls = 1},
+    ["fused-json"] = {units = 1, cases = 10, calls = 1},
 }
 
 local function projectFiles(name)

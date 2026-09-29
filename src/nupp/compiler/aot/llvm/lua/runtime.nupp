@@ -40,13 +40,13 @@ const runtime.SCRATCH_U32 = "{ ptr, i32, i32, i32, i32, [32 x i32] }"
 const runtime.SCRATCH_U8 = "{ ptr, i32, i32, i32, i32 }"
 
 --- One value-stream frame: table and shape indices, kind, next, count,
---- mode, plan, expected, seen, expects-key, aliases, tuple.
-const runtime.FRAME = "{ i32, i32, i32, i32, i32, i32, i32, i32, i64, i32, i32, i32 }"
+--- mode, plan, expected, seen, expects-key, aliases, tuple, serial.
+const runtime.FRAME = "{ i32, i32, i32, i32, i32, i32, i32, i32, i64, i32, i32, i32, i32 }"
 
 --- The fields of a value stream's state generated code reads: ten stack
 --- indices, then depth (1), frame capacity, pending mode, three flags, the
 --- spilled frames (7) and the inline ones (8).
-const runtime.BUILDER = "{ [10 x i32], i32, i32, i32, i32, i32, i32, ptr, [16 x { i32, i32, i32, i32, i32, i32, i32, i32, i64, i32, i32, i32 }] }"
+const runtime.BUILDER = "{ [10 x i32], i32, i32, i32, i32, i32, i32, ptr, [16 x { i32, i32, i32, i32, i32, i32, i32, i32, i64, i32, i32, i32, i32 }] }"
 
 --- The runtime's messages, by the id `raise` takes (`ks_rt_messages`).
 const MESSAGE: {

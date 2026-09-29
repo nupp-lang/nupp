@@ -62,16 +62,27 @@ json.NULL = setmetatable({}, {
 json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
 json.EMPTY_OBJECT = setmetatable({}, OBJECT_MARKER)
 
+-- A raise from inside the compiled builder carries the chunk and line of the
+-- Lua code that called the decoder. What reaches the caller describes its
+-- text, as a decode failure does, so the position is dropped.
+local function withoutPosition(problem: any): string
+    local text = tostring(problem)
+    text = text:gsub("^%a:[^\n:]-:%d+: ", "", 1)
+    text = text:gsub("^[^\n:]-:%d+: ", "", 1)
+
+    return text
+end
+
 -- The decoder stops at a number token's first byte when its value is not
 -- finite. Only the failure path asks which syntax error that was.
-local function outOfRange(text: string, position: uint32): boolean
+local function outOfRange(text: string, position: number): boolean
     local token = text:match("^%-?%d+%.?%d*[eE]?[-+]?%d*", position)
     local value = token ~= nil and tonumber(token) or nil
 
     return value == math.huge or value == -math.huge
 end
 
-local function failDecode(code: uint32, position: uint32, source: string): never
+local function failDecode(code: number, position: number, source: string): never
     local message = code == 2 and "invalid UTF-8"
         or code == 3 and "unescaped control byte"
         or code == 4 and "backslash outside a string"
@@ -82,7 +93,8 @@ local function failDecode(code: uint32, position: uint32, source: string): never
 end
 
 function json.decode(text: string, nullValue: any?): any
-    local value, code, position = eagerDecoder.decode(
+    local ok, value, code, position = pcall(
+        eagerDecoder.decode as any,
         text,
         nullValue,
         ARRAY_MARKER,
@@ -91,6 +103,9 @@ function json.decode(text: string, nullValue: any?): any
         ARRAY_SHAPE,
         SERDE_MARKERS
     )
+    if not ok then
+        error(withoutPosition(value), 0)
+    end
     if code ~= 0 then
         failDecode(code, position, text)
     end
@@ -353,7 +368,8 @@ function json.pull(text: string, shape: any, nullValue: any?): any
     if shape == nil then
         error("pull shape entries must be true, false, object shapes, or array shapes", 2)
     end
-    local value, code, position = pullDecoder.decode(
+    local ok, value, code, position = pcall(
+        pullDecoder.decode as any,
         text,
         nullValue,
         ARRAY_MARKER,
@@ -362,6 +378,9 @@ function json.pull(text: string, shape: any, nullValue: any?): any
         ARRAY_SHAPE,
         nil
     )
+    if not ok then
+        error(withoutPosition(value), 0)
+    end
     if code ~= 0 then
         failDecode(code, position, text)
     end
@@ -630,7 +649,8 @@ function json.compileSerde(plan: any, unknownMembers: string): any
 end
 
 function json.decodeSerde(schema: any, text: string): (any?, string?)
-    local value, code, position = serdeDecoder.decode(
+    local ok, value, code, position = pcall(
+        serdeDecoder.decode as any,
         text,
         nil,
         ARRAY_MARKER,
@@ -639,6 +659,9 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
         ARRAY_SHAPE,
         SERDE_MARKERS
     )
+    if not ok then
+        error(withoutPosition(value), 0)
+    end
     if code ~= 0 then
         failDecode(code, position, text)
     end
@@ -647,7 +670,8 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
 end
 
 function json.decodeSerdeBuffer(schema: any, exclusive input: Buffer): (any?, string?)
-    local value, code, position = serdeDecoder.decode(
+    local ok, value, code, position = pcall(
+        serdeDecoder.decode as any,
         input,
         nil,
         ARRAY_MARKER,
@@ -656,6 +680,9 @@ function json.decodeSerdeBuffer(schema: any, exclusive input: Buffer): (any?, st
         ARRAY_SHAPE,
         SERDE_MARKERS
     )
+    if not ok then
+        error(withoutPosition(value), 0)
+    end
     if code ~= 0 then
         failDecode(code, position, code == 1 and input:tostring() or "")
     end

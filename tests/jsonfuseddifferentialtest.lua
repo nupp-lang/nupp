@@ -166,6 +166,12 @@ local MALFORMED = {
     "[1e309]",
     '{"a":0.1e400}',
     "123456789012345678901234567890e290",
+    -- A member name appears once in an object.
+    '{"a":1,"a":2}',
+    '{"a":null,"a":2}',
+    '{"a":1,"a":null}',
+    '[{"a":1},{"b":{"c":1,"c":2}}]',
+    '{"a\\u0062":1,"ab":2}',
     "[",
     "]",
     "{",
@@ -469,8 +475,9 @@ function M.theFusedDecoderRejectsEveryDocumentLunajsonRejects()
             theirError ~= nil,
             string.format("lunajson accepted the malformed %s as %s", show(text), tostring(theirs))
         )
-        -- An out-of-range number is named alike, at the token's first byte.
-        if tostring(theirError):find("out of range", 1, true) then
+        -- An out-of-range number and a repeated member name are named alike,
+        -- at the byte where each begins.
+        if tostring(theirError):find("out of range", 1, true) or tostring(theirError):find("duplicate", 1, true) then
             assert(
                 myError == theirError,
                 string.format("%s: fused says %s but lunajson says %s", show(text), myError, theirError)
@@ -495,6 +502,58 @@ function M.theFusedDecoderRejectsEveryDocumentLunajsonRejects()
         tostring(problem):match("at byte 1025"),
         "the nesting error did not identify its opening byte: " .. tostring(problem)
     )
+end
+
+-- Pulling and schema decoding skip what they do not select, and a skipped
+-- member is still a member: a repeated name is refused wherever it sits. The
+-- pull and serde builders exist only in a compiled artifact, so this runs
+-- where the fused-json fixture links one.
+function M.compiledPullAndSerdeRefuseRepeatedMemberNames()
+    if not pcall(fused.pull, "{}", {}) then
+        return
+    end
+    local pulled = {
+        {'{"a":1,"a":2}', {a = true}, 8},
+        {'{"a":1,"b":2,"b":3}', {a = true}, 14},
+        {'{"a":{"x":1,"x":2}}', {b = true}, 13},
+        {'{"a":null,"a":1}', {a = true}, 11},
+        {'[{"a":1,"a":1}]', fused.arrayOf({a = true}), 9},
+    }
+    for _, row in ipairs(pulled) do
+        local ok, problem = pcall(fused.pull, row[1], row[2])
+        assert(not ok, show(row[1]) .. " was pulled")
+        assert(
+            tostring(problem) == ("invalid JSON at byte %d: duplicate member name"):format(row[3]),
+            show(row[1]) .. ": " .. tostring(problem)
+        )
+    end
+    local plan = {
+        kind = "structure",
+        access = "dynamic",
+        fields = {
+            {wire = "id", name = "id", required = true, target = {kind = "integer"}},
+            {wire = "name", name = "name", target = {kind = "optional", element = {kind = "string"}}},
+        },
+    }
+    for _, unknown in ipairs({"reject", "ignore"}) do
+        local schema = fused.compileSerde(plan, unknown)
+        local decoded = {
+            {'{"id":1,"id":2}', 9},
+            {'{"id":1,"name":null,"name":"b"}', 21},
+        }
+        if unknown == "ignore" then
+            decoded[#decoded + 1] = {'{"id":1,"other":2,"other":3}', 19}
+        end
+        for _, row in ipairs(decoded) do
+            local ok, value, problem = pcall(fused.decodeSerde, schema, row[1])
+            local message = not ok and tostring(value) or tostring(problem)
+            assert(not ok or value == nil, show(row[1]) .. " was decoded")
+            assert(
+                message == ("invalid JSON at byte %d: duplicate member name"):format(row[2]),
+                unknown .. " " .. show(row[1]) .. ": " .. message
+            )
+        end
+    end
 end
 
 function M.theFusedScanReportsTheSameFirstErrorAsTheScalarReference()

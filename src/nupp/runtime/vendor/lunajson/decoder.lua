@@ -1,7 +1,7 @@
 -- Vendored from Lunajson 1.2.3. The assertions below preserve its runtime
 -- behavior while making successful pattern matches explicit to Nupp's checker.
 -- Nupp's JSON policy adds what the codec refuses: a number token whose value is
--- not finite.
+-- not finite, and a member name an object already has.
 local setmetatable, tonumber, tostring = setmetatable, tonumber, tostring
 local floor, inf = math.floor, math.huge
 -- Lua 5.1 coalesces literal -0.0 and +0 in one prototype's constant table.
@@ -486,13 +486,20 @@ local function newdecoder()
             pos = pos + 1
         else
             local newpos = pos
+            -- Nupp: the names a dropped null left no key for.
+            local dropped
 
             repeat
                 if byte(json, newpos) ~= 0x22 then -- check '"'
                     decode_error("not key")
                 end
+                local keypos = newpos
                 pos = newpos + 1
                 local key = f_str(true) -- parse key
+                -- Nupp: a second member of the same name is refused at its quote.
+                if obj[key] ~= nil or dropped and dropped[key] then
+                    _decode_error(keypos, "duplicate member name")
+                end
 
                 -- optimized for compact json
                 -- c1, c2 == ':', <the first char of the value> or
@@ -518,7 +525,12 @@ local function newdecoder()
                     newpos = newpos + 1
                 end
                 pos = newpos
-                obj[key] = f() -- parse value
+                local value = f() -- parse value
+                if value == nil then
+                    dropped = dropped or {}
+                    dropped[key] = true
+                end
+                obj[key] = value
                 newpos = match(json, '^[ \n\r\t]*,[ \n\r\t]*()', pos)
             until not newpos
 

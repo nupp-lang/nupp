@@ -13,7 +13,9 @@ assert(decoded.name == "Nupp")
 ```
 
 The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
-sparse arrays, mixed-key containers, cycles, and excessive nesting. A number too
+sparse arrays, mixed-key containers, cycles, and excessive nesting. An object
+that names one member twice is refused at the second occurrence, as I-JSON
+requires, even when the first held a null that decoding drops. A number too
 large for binary64, such as `1e400`, is refused with its byte position rather
 than read as an infinity the encoder would refuse to write back; one too small,
 such as `1e-400`, is zero.

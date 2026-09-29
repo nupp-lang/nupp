@@ -185,4 +185,53 @@ function M.nonFiniteNumbersAreRefusedByEveryProvider()
     end
 end
 
+-- A member name that appears twice in one object is refused at the second
+-- occurrence's opening quote, whichever value either occurrence holds, a
+-- dropped null included. I-JSON forbids it, and last-wins let a first
+-- occurrence of the wrong type past a schema that only saw the second.
+local DUPLICATES = {
+    {'{"a":1,"a":2}', 8},
+    {'{"a":1, "a" :2}', 9},
+    {'{"a":null,"a":2}', 11},
+    {'{"a":1,"a":null}', 8},
+    {'{"a":null,"a":null}', 11},
+    {'{"id":"x","id":1}', 11},
+    {'[{"a":1},{"b":{"c":1,"c":2}}]', 22},
+    {'{"a\\u0062":1,"ab":2}', 14},
+    {'{"a":{"x":1},"b":{"x":1},"a":0}', 26},
+}
+
+function M.duplicateMemberNamesAreRefusedByEveryProvider()
+    local providers = {
+        lunajson = require("nupp.runtime.provider.lunajson"),
+        aot = require("nupp.codec.json.aot"),
+    }
+    for name, provider in pairs(providers) do
+        for _, row in ipairs(DUPLICATES) do
+            local decoders = {
+                function(text) return provider.decode(text) end,
+                function(text) return provider.decode(text, provider.NULL) end,
+                function(text) return provider.verified(text) end,
+            }
+            if name == "lunajson" then
+                decoders[#decoders + 1] = function(text) return provider.pull(text, {a = true}) end
+            end
+            for _, decode in ipairs(decoders) do
+                local ok, problem = pcall(decode, row[1])
+                assert(not ok, ("%s accepted %q"):format(name, row[1]))
+                test.equal(
+                    tostring(problem),
+                    ("invalid JSON at byte %d: duplicate member name"):format(row[2]),
+                    name .. " " .. row[1]
+                )
+            end
+        end
+        -- The same name in two objects is two members.
+        local value = provider.decode('[{"a":1},{"a":2},{"a":null},{"a":3}]')
+        test.equal(value[1].a, 1, name)
+        test.equal(value[4].a, 3, name)
+        test.equal(provider.decode('{"a":{"a":{"a":1}}}').a.a.a, 1, name)
+    end
+end
+
 return M

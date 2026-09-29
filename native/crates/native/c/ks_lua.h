@@ -826,8 +826,10 @@ static size_t ks_lua_utf8(unsigned char *out, uint32_t codepoint) {
 }
 typedef struct { const char *bytes; size_t length; uint64_t packed; uint32_t hash; int32_t scalar; } KsLuaShapeKey;
 typedef struct { const void *identity; const unsigned char *compiled; size_t compiled_length; uint32_t first, count; uint64_t required; int aliases, defaults, factory; } KsLuaShapePlan;
-typedef struct { int table_index, shape_index; uint32_t kind, next, count, mode, plan, expected; uint64_t seen; int expects_key, aliases, tuple; } KsLuaBuildFrame;
-typedef struct { int null_index, array_marker_index, object_marker_index, root_index, frame_root_index, byte_root_index, selection_shape_index, array_shape_marker_index, serde_markers_index, pending_shape_index; uint32_t depth, frame_capacity, pending_mode; int pending_shape_owned, pending_scalar, root_done; KsLuaBuildFrame *frames; KsLuaBuildFrame inline_frames[16]; unsigned char *bytes; uint32_t byte_capacity, byte_allocated, plan_count, key_count; KsLuaShapePlan plans[16]; KsLuaShapeKey keys[64]; } KsLuaBuilder;
+/* `serial` names an object frame for the duplicate-member sets; it sits in what
+ * was the struct's tail padding, so the frame keeps its size. */
+typedef struct { int table_index, shape_index; uint32_t kind, next, count, mode, plan, expected; uint64_t seen; int expects_key, aliases, tuple; uint32_t serial; } KsLuaBuildFrame;
+typedef struct { int null_index, array_marker_index, object_marker_index, root_index, frame_root_index, byte_root_index, selection_shape_index, array_shape_marker_index, serde_markers_index, pending_shape_index; uint32_t depth, frame_capacity, pending_mode; int pending_shape_owned, pending_scalar, root_done; KsLuaBuildFrame *frames; KsLuaBuildFrame inline_frames[16]; unsigned char *bytes; uint32_t byte_capacity, byte_allocated, plan_count, key_count; KsLuaShapePlan plans[16]; KsLuaShapeKey keys[64]; int dup_index; uint32_t dup_serial; } KsLuaBuilder;
 typedef struct { uint32_t capacity; uint32_t words[1]; } KsLuaScratchU32Storage;
 typedef struct { uint32_t *words; uint32_t capacity, length, escape_length; int root_index; uint32_t inline_words[32]; } KsLuaScratchU32;
 typedef struct { unsigned char *bytes; uint32_t capacity, length; int root_index, cached; } KsLuaScratchU8;
@@ -1055,7 +1057,7 @@ static void ks_lua_builder_init(lua_State *L, KsLuaBuilder *builder, int null_in
     if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, "AOT value stream depth capacity overflows"); max_depth = 0u; }
     if (selection_shape_index != 0 && lua_type(L, selection_shape_index) <= 0) { selection_shape_index = 0; }
     uint32_t pending_mode = selection_shape_index == 0 ? KS_LUA_BUILD_ALL : KS_LUA_BUILD_OBJECT;
-    builder->null_index = null_index; builder->array_marker_index = array_marker_index; builder->object_marker_index = object_marker_index; builder->root_index = 0; builder->frame_root_index = lua_gettop(L); builder->byte_root_index = 0; builder->selection_shape_index = selection_shape_index; builder->array_shape_marker_index = array_shape_marker_index; builder->serde_markers_index = serde_markers_index; builder->pending_shape_index = selection_shape_index; builder->depth = 0u; builder->frame_capacity = max_depth; builder->pending_mode = pending_mode; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->root_done = 0; builder->frames = NULL; builder->bytes = NULL; builder->byte_capacity = byte_capacity; builder->byte_allocated = 0u; builder->plan_count = 0u; builder->key_count = 0u;
+    builder->null_index = null_index; builder->array_marker_index = array_marker_index; builder->object_marker_index = object_marker_index; builder->root_index = 0; builder->frame_root_index = lua_gettop(L); builder->byte_root_index = 0; builder->selection_shape_index = selection_shape_index; builder->array_shape_marker_index = array_shape_marker_index; builder->serde_markers_index = serde_markers_index; builder->pending_shape_index = selection_shape_index; builder->depth = 0u; builder->frame_capacity = max_depth; builder->pending_mode = pending_mode; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->root_done = 0; builder->frames = NULL; builder->bytes = NULL; builder->byte_capacity = byte_capacity; builder->byte_allocated = 0u; builder->plan_count = 0u; builder->key_count = 0u; builder->dup_index = 0; builder->dup_serial = 0u;
 }
 static KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {
     return builder->frames != NULL ? &builder->frames[index] : &builder->inline_frames[index];
@@ -1065,6 +1067,7 @@ static void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int destination)
     if (builder->array_marker_index >= destination) { builder->array_marker_index += 1; } if (builder->object_marker_index >= destination) { builder->object_marker_index += 1; }
     if (builder->selection_shape_index >= destination) { builder->selection_shape_index += 1; } if (builder->array_shape_marker_index >= destination) { builder->array_shape_marker_index += 1; } if (builder->serde_markers_index >= destination) { builder->serde_markers_index += 1; }
     if (builder->pending_shape_index >= destination) { builder->pending_shape_index += 1; }
+    if (builder->dup_index >= destination) { builder->dup_index += 1; }
     for (uint32_t at = 0u; at < builder->depth; ++at) { KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, at); if (frame->table_index >= destination) { frame->table_index += 1; } if (frame->shape_index >= destination) { frame->shape_index += 1; } }
     if (builder->root_index >= destination) { builder->root_index += 1; }
 }
@@ -1086,6 +1089,22 @@ static unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder *builder, 
     builder->bytes = bytes; builder->byte_allocated = capacity;
     return builder->bytes;
 }
+/* Names an object has had that it holds no entry for: a dropped null, a skipped
+ * member, or a member stored under another name. One set per depth, rooted
+ * with the builder, maps a name to the serial of the last object that had it,
+ * so a set is reused by the next object at its depth without being cleared.
+ * The name is on top of the stack and stays there. With `check`, a name the
+ * current object already had is refused at `start`, the one-based position of
+ * its opening quote. */
+static KS_COLD int ks_lua_builder_duplicate(lua_State *L, uint32_t start) { return luaL_error(L, "invalid JSON at byte %d: duplicate member name", (int)start); }
+static void ks_lua_builder_note_key(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, uint32_t start, int check) {
+    if (!lua_checkstack(L, 4)) { luaL_error(L, "AOT builder Lua stack exhausted"); return; }
+    if (builder->dup_index == 0) { lua_createtable(L, 4, 0); int destination = builder->frame_root_index + 1; lua_insert(L, destination); ks_lua_builder_shift_indices(builder, destination); builder->dup_index = destination; }
+    int depth = (int)builder->depth; lua_rawgeti(L, builder->dup_index, depth);
+    if (lua_type(L, -1) != 5) { lua_settop(L, lua_gettop(L) - 1); lua_createtable(L, 0, 8); lua_pushvalue(L, -1); lua_rawseti(L, builder->dup_index, depth); }
+    if (check) { lua_pushvalue(L, -2); lua_rawget(L, -2); if (lua_type(L, -1) == 3 && (uint32_t)lua_tonumber(L, -1) == frame->serial) { ks_lua_builder_duplicate(L, start); return; } lua_settop(L, lua_gettop(L) - 1); }
+    lua_pushvalue(L, -2); lua_pushnumber(L, (double)frame->serial); lua_rawset(L, -3); lua_settop(L, lua_gettop(L) - 1);
+}
 static int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker);
 static inline __attribute__((always_inline)) int ks_lua_builder_complete(lua_State *L, KsLuaBuilder *builder, int pushed, int eager) {
     if (!eager && pushed && builder->pending_mode == KS_LUA_BUILD_OBJECT && builder->pending_shape_index != 0 && lua_type(L, builder->pending_shape_index) == 5) { int value = lua_gettop(L), matched = 0, literal = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 11); if (lua_type(L, literal) != 0) { matched = lua_equal(L, value, literal); } else { int choices = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 14); if (lua_type(L, choices) == 5) { size_t count = lua_objlen(L, choices); for (size_t at = 1u; at <= count && !matched; ++at) { lua_rawgeti(L, choices, (int)at); matched = lua_equal(L, value, -1); lua_settop(L, lua_gettop(L) - 1); } } } if (!matched) { return luaL_error(L, "nupp: value does not match literal schema or union"); } lua_settop(L, value); if (builder->pending_shape_owned) { lua_remove(L, builder->pending_shape_index); } builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_mode = KS_LUA_BUILD_PENDING; }
@@ -1105,7 +1124,7 @@ static inline __attribute__((always_inline)) int ks_lua_builder_complete(lua_Sta
     if (frame->count == UINT32_MAX) { return luaL_error(L, "AOT value stream object is too large"); }
     frame->count += 1u; frame->expects_key = 1; if (!pushed) { return 1; }
     if (frame->table_index == 0 || (!eager && lua_gettop(L) != frame->table_index + 2)) { return luaL_error(L, "AOT value stream key and value are not above their object"); }
-    if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return 1; } lua_rawset(L, frame->table_index); return 1;
+    if (lua_type(L, -1) == 0) { if (frame->mode == KS_LUA_BUILD_ALL) { lua_settop(L, lua_gettop(L) - 1); ks_lua_builder_note_key(L, builder, frame, 0u, 0); frame->seen = 1u; } lua_settop(L, frame->table_index); return 1; } lua_rawset(L, frame->table_index); return 1;
 }
 static int ks_lua_builder_prepare(lua_State *L, KsLuaBuilder *builder) {
     if (builder->pending_mode != KS_LUA_BUILD_PENDING) { return 1; }
@@ -1226,7 +1245,7 @@ static inline __attribute__((always_inline)) int ks_lua_builder_open(lua_State *
     uint32_t object_capacity = plan == UINT32_MAX ? capacity : builder->plans[plan].count;
     if (mode != KS_LUA_BUILD_SKIP) { lua_createtable(L, kind == 5u ? (int)capacity : 0, kind == 6u ? (int)object_capacity : 0); }
     KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth++);
-    frame->table_index = mode == KS_LUA_BUILD_SKIP ? 0 : lua_gettop(L); frame->shape_index = shape_index; frame->kind = kind; frame->next = 1u; frame->count = 0u; frame->mode = mode; frame->plan = plan; frame->expected = 0u; frame->seen = 0u; frame->expects_key = kind == 6u; frame->aliases = plan != UINT32_MAX && builder->plans[plan].aliases; frame->tuple = 0; if (kind == 5u && mode == KS_LUA_BUILD_ARRAY && lua_type(L, shape_index) == 5) { int top = lua_gettop(L), tuple = ks_lua_builder_shape_marker(L, builder, shape_index, 13); frame->tuple = lua_toboolean(L, tuple); lua_settop(L, top); } if (kind == 6u && mode == KS_LUA_BUILD_OBJECT && plan == UINT32_MAX) { int aliases = ks_lua_builder_shape_marker(L, builder, shape_index, 1); frame->aliases = lua_type(L, aliases) == 5; lua_settop(L, frame->table_index); }
+    frame->table_index = mode == KS_LUA_BUILD_SKIP ? 0 : lua_gettop(L); frame->shape_index = shape_index; frame->kind = kind; frame->next = 1u; frame->count = 0u; frame->mode = mode; frame->plan = plan; frame->expected = 0u; frame->seen = 0u; frame->expects_key = kind == 6u; frame->serial = kind == 6u ? ++builder->dup_serial : 0u; frame->aliases = plan != UINT32_MAX && builder->plans[plan].aliases; frame->tuple = 0; if (kind == 5u && mode == KS_LUA_BUILD_ARRAY && lua_type(L, shape_index) == 5) { int top = lua_gettop(L), tuple = ks_lua_builder_shape_marker(L, builder, shape_index, 13); frame->tuple = lua_toboolean(L, tuple); lua_settop(L, top); } if (kind == 6u && mode == KS_LUA_BUILD_OBJECT && plan == UINT32_MAX) { int aliases = ks_lua_builder_shape_marker(L, builder, shape_index, 1); frame->aliases = lua_type(L, aliases) == 5; lua_settop(L, frame->table_index); }
     return 1;
 }
 static inline __attribute__((always_inline)) uint32_t ks_lua_builder_query(lua_State *L, KsLuaBuilder *builder, uint32_t query) {
@@ -1352,7 +1371,8 @@ static int ks_lua_builder_select_entry(lua_State *L, KsLuaBuilder *builder, KsLu
 static int ks_lua_builder_select_known(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {
     lua_pushlstring(L, (const char *)key, key_length); if (!frame->aliases) { lua_pushvalue(L, -1); } lua_rawget(L, frame->shape_index); return ks_lua_builder_select_entry(L, builder, frame, key, key_length);
 }
-static int ks_lua_builder_select_planned(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, uint32_t index, const KsLuaShapeKey *key) {
+static int ks_lua_builder_select_planned(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, uint32_t index, const KsLuaShapeKey *key, uint32_t start) {
+    if ((frame->seen & (UINT64_C(1) << index)) != 0u) { return ks_lua_builder_duplicate(L, start); }
     frame->seen |= UINT64_C(1) << index;
     if (frame->aliases) { lua_rawgeti(L, frame->shape_index, -((int)index + 1)); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushlstring(L, key->bytes, key->length); } } else { lua_pushlstring(L, key->bytes, key->length); } if (key->scalar != 0) { builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = key->scalar; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1; } lua_rawgeti(L, frame->shape_index, (int)index + 1);
     if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return ks_lua_builder_select_known(L, builder, frame, (const unsigned char *)key->bytes, key->length); } builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;
@@ -1366,9 +1386,20 @@ static int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const 
     if (builder->depth == 0u) { return luaL_error(L, "AOT value stream key is outside an object"); }
     KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);
     if (frame->kind != 6u || !frame->expects_key) { return luaL_error(L, "AOT value stream object is not expecting a key"); } frame->expects_key = 0;
-    if (frame->mode == KS_LUA_BUILD_SKIP) { if (escaped) { ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); } builder->pending_mode = KS_LUA_BUILD_SKIP; return 1; }
+    /* A skipped object is still one object: its names are read, and a second
+     * member of one name is refused, as in any other. */
+    if (frame->mode == KS_LUA_BUILD_SKIP) {
+        const unsigned char *skipped = source + first; size_t skipped_length = key_length;
+        if (escaped) { if (escape_positions != NULL) { ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escape_positions, escape_index, escape_count, &skipped, &skipped_length); } else { ks_lua_builder_unescape(L, builder, source, source_length, start, length, &skipped, &skipped_length); } frame = ks_lua_builder_frame(builder, builder->depth - 1u); }
+        lua_pushlstring(L, (const char *)skipped, skipped_length); ks_lua_builder_note_key(L, builder, frame, start, 1); lua_settop(L, lua_gettop(L) - 1);
+        builder->pending_mode = KS_LUA_BUILD_SKIP; return 1;
+    }
     if (frame->mode == KS_LUA_BUILD_ALL) {
         if (escaped) { ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); } else { lua_pushlstring(L, (const char *)(source + first), key_length); }
+        /* The object holds every member under its own name, so it answers for
+         * itself; the set only knows the names a dropped null left behind. */
+        lua_pushvalue(L, -1); lua_rawget(L, frame->table_index); if (lua_type(L, -1) != 0) { return ks_lua_builder_duplicate(L, start); } lua_settop(L, lua_gettop(L) - 1);
+        if (frame->seen != 0u) { ks_lua_builder_note_key(L, builder, frame, start, 1); }
         builder->pending_mode = KS_LUA_BUILD_ALL; return 1;
     }
     const unsigned char *key = source + first;
@@ -1381,15 +1412,21 @@ static int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const 
         KsLuaShapePlan *plan = &builder->plans[frame->plan];
         uint64_t packed = 0u; uint32_t hash = key_length > 7u ? ks_lua_builder_key_hash(key, key_length) : 0u; if (!escaped && key_length <= 7u && first + key_length < source_length) { memcpy(&packed, key, key_length + 1u); }
         uint32_t expected = frame->expected < plan->count ? frame->expected : 0u;
-        if (plan->count != 0u) { KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, expected, &shape_key)) { return luaL_error(L, "AOT serde key plan is malformed"); } if (ks_lua_builder_shape_key_matches(&shape_key, key, key_length, packed, hash, escaped)) { frame->expected = expected + 1u; return ks_lua_builder_select_planned(L, builder, frame, expected, &shape_key); } }
+        if (plan->count != 0u) { KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, expected, &shape_key)) { return luaL_error(L, "AOT serde key plan is malformed"); } if (ks_lua_builder_shape_key_matches(&shape_key, key, key_length, packed, hash, escaped)) { frame->expected = expected + 1u; return ks_lua_builder_select_planned(L, builder, frame, expected, &shape_key, start); } }
         for (uint32_t index = 0u; index < plan->count; ++index) {
             if (index == expected) { continue; }
             KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, index, &shape_key)) { return luaL_error(L, "AOT serde key plan is malformed"); }
             if (ks_lua_builder_shape_key_matches(&shape_key, key, key_length, packed, hash, escaped)) {
-                frame->expected = index + 1u; return ks_lua_builder_select_planned(L, builder, frame, index, &shape_key);
+                frame->expected = index + 1u; return ks_lua_builder_select_planned(L, builder, frame, index, &shape_key, start);
             }
         }
-    } else {
+    }
+    /* Every name the plan does not index goes through the set, whether it is
+     * selected, mapped, refused or skipped. The set may root itself below the
+     * object, so the object's index is read again afterwards. */
+    lua_pushlstring(L, (const char *)key, key_length); ks_lua_builder_note_key(L, builder, frame, start, 1); lua_settop(L, lua_gettop(L) - 1);
+    table_index = frame->table_index;
+    if (frame->plan == UINT32_MAX) {
         lua_pushnil(L);
         while (lua_next(L, frame->shape_index) != 0) {
             if (lua_type(L, -2) == 4) {
