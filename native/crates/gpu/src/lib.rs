@@ -452,6 +452,15 @@ pub struct GpuContext {
     resources: Resources<BufferEntry, KernelEntry, BindingEntry>,
     pending_downloads: Vec<BufferHandle>,
     device_errors: DeviceErrorQueue,
+    idle: Arc<Mutex<IdleWatch>>,
+}
+
+/// Whether a helper thread is waiting for this context's device to finish its
+/// submitted work, and what its last wait failed with.
+#[derive(Default)]
+struct IdleWatch {
+    armed: bool,
+    failure: Option<String>,
 }
 
 impl GpuContext {
@@ -513,6 +522,7 @@ impl GpuContext {
             resources: Resources::new(),
             pending_downloads: Vec::new(),
             device_errors,
+            idle: Arc::new(Mutex::new(IdleWatch::default())),
         })
     }
 
@@ -1235,6 +1245,59 @@ impl GpuContext {
         Ok(())
     }
 
+    /// Whether the work submitted so far has finished, so that `synchronize`
+    /// would not wait for it. Never blocks.
+    ///
+    /// When the work is still running, one helper thread waits for the device
+    /// and then calls `wake`, which is how a caller parked on some readiness
+    /// signal learns to ask again. The helper is armed at most once at a time;
+    /// asking again while it waits arms nothing new. A wait that failed, a
+    /// timeout included, is answered by the next call.
+    pub fn submitted_work_done(&mut self, wake: fn()) -> Result<bool, GpuError> {
+        let failure = self
+            .idle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .failure
+            .take();
+        if let Some(failure) = failure {
+            return Err(GpuError::Poll(failure));
+        }
+        let status = self
+            .device
+            .poll(wgpu::PollType::Poll)
+            .map_err(|error| GpuError::Poll(error.to_string()))?;
+        if status.is_queue_empty() {
+            return Ok(true);
+        }
+        let mut watch = self.idle.lock().unwrap_or_else(|error| error.into_inner());
+        if watch.armed {
+            return Ok(false);
+        }
+        let device = self.device.clone();
+        let idle = Arc::clone(&self.idle);
+        std::thread::Builder::new()
+            .name("nupp-gpu-idle".to_owned())
+            .spawn(move || {
+                let outcome = device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(WAIT_TIMEOUT),
+                });
+                let mut watch = idle.lock().unwrap_or_else(|error| error.into_inner());
+                watch.armed = false;
+                if let Err(error) = outcome {
+                    watch.failure = Some(error.to_string());
+                }
+                // Disarmed before the wake, so a caller that finds the work
+                // still running after it (more was submitted) arms a new one.
+                drop(watch);
+                wake();
+            })
+            .map_err(|error| GpuError::Poll(format!("cannot start the GPU wait: {error}")))?;
+        watch.armed = true;
+        Ok(false)
+    }
+
     pub fn synchronize(&mut self) -> Result<(), GpuError> {
         let start = costs::clock();
         self.poll_wait()?;
@@ -1885,6 +1948,51 @@ mod tests {
         assert!(spirv_words(&[3, 2, 35]).is_err());
         assert!(spirv_words(&[7, 35, 2, 3]).is_err());
         assert_eq!(spirv_words(&[3, 2, 35, 7]), Ok(vec![0x0723_0203]));
+    }
+
+    #[test]
+    fn submitted_work_wakes_its_waiter_without_blocking_when_available() {
+        static WOKEN: AtomicU64 = AtomicU64::new(0);
+        fn wake() {
+            WOKEN.fetch_add(1, Ordering::SeqCst);
+        }
+        let Ok(mut gpu) = GpuContext::new() else {
+            eprintln!("GPU adapter test skipped");
+            return;
+        };
+        let kernel = gpu.create_test_kernel().unwrap();
+        let buffer = gpu.create_buffer(1 << 16).unwrap();
+        let bindings = gpu.create_bindings(kernel).unwrap();
+        gpu.set_write_buffer(bindings, 0, buffer, 0, 1 << 16)
+            .unwrap();
+        for _ in 0..8 {
+            gpu.dispatch(bindings, [1 << 14, 1, 1], &[]).unwrap();
+        }
+        let woken = WOKEN.load(Ordering::SeqCst);
+        let deadline = std::time::Instant::now() + WAIT_TIMEOUT;
+        let mut armed = false;
+        while !gpu.submitted_work_done(wake).unwrap() {
+            armed = true;
+            assert!(
+                std::time::Instant::now() < deadline,
+                "GPU work never finished"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // Work that was still running armed the helper, which woke once it
+        // finished; work already done by the first ask needed no helper.
+        if armed {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while WOKEN.load(Ordering::SeqCst) == woken {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the helper never woke"
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        assert!(gpu.submitted_work_done(wake).unwrap());
+        gpu.synchronize().unwrap();
     }
 
     #[test]

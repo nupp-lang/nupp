@@ -175,12 +175,13 @@ static int malformed_spirv_answers_a_status(void) {
 
 /* A settled whole-file read advances the one process-wide readiness
  * generation, so a caller that polled it, found the transfer pending, and
- * waits from it is woken by the transfer rather than by the timeout. */
+ * waits from it is woken by the transfer rather than by the timeout. A GPU
+ * context with no work in flight is ready at once. */
 static int readiness_generation_wakes_waiters(void) {
     NuppNativeFilesSlice cargo = {
         (const uint8_t *)"Cargo.toml", sizeof "Cargo.toml" - 1};
-    uint64_t generation = 0, found = 0, transfer = 0;
-    uint32_t state = NUPP_NATIVE_FILES_TRANSFER_PENDING;
+    uint64_t generation = 0, found = 0, transfer = 0, context = 0;
+    uint32_t state = NUPP_NATIVE_FILES_TRANSFER_PENDING, ready = 0;
     int waits = 0;
     int32_t status;
     if (nuppNativePoll(NULL) != NUPP_NATIVE_INVALID_ARGUMENT
@@ -211,6 +212,26 @@ static int readiness_generation_wakes_waiters(void) {
     nuppNativeFilesTransferRelease(transfer);
     if (state != NUPP_NATIVE_FILES_TRANSFER_READY) {
         fprintf(stderr, "the whole-file read did not succeed\n");
+        return 1;
+    }
+    if (nuppNativeGpuSynchronizeReady(0, &ready) != NUPP_NATIVE_STALE_HANDLE) {
+        fprintf(stderr, "a stale GPU context was ready\n");
+        return 1;
+    }
+    status = nuppNativeGpuContextCreate(&context);
+    if (status == NUPP_NATIVE_UNAVAILABLE) return 0;
+    if (status != NUPP_NATIVE_OK) return failed("GPU context", status);
+    if (nuppNativeGpuSynchronizeReady(context, NULL)
+        != NUPP_NATIVE_INVALID_ARGUMENT) {
+        nuppNativeGpuContextRelease(context);
+        fprintf(stderr, "a GPU ready output of NULL was accepted\n");
+        return 1;
+    }
+    status = nuppNativeGpuSynchronizeReady(context, &ready);
+    nuppNativeGpuContextRelease(context);
+    if (status != NUPP_NATIVE_OK) return failed("GPU ready", status);
+    if (ready != 1) {
+        fprintf(stderr, "a GPU context with no work was not ready\n");
         return 1;
     }
     return 0;

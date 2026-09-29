@@ -1446,6 +1446,36 @@ local function run(kernel, count, added)
 end
 run(gpucheck.increment, 16776961, 1)
 run(gpucheck.tiled, 65537 * 256, 2)
+-- A synchronize parks rather than blocking the thread, so a sibling task runs while
+-- the device works on a dispatch this large.
+do
+    local tasks = require("nupp.tasks")
+    local time = require("nupp.time")
+    local count = 16776961
+    local values = ffi.new("uint32_t[?]", count)
+    local input = context:buffer(require("nupp.mem.array").uint32, count)
+    local output = context:buffer(require("nupp.mem.array").uint32, count)
+    context:upload(input, span.fromCarray(values, count))
+    local binding = gpucheck.increment:compile(context):bind(output, input)
+    local waiting, finished, ran = false, false, 0
+    local scope = tasks.open()
+    scope:spawn(function()
+        binding:dispatch()
+        waiting = true
+        context:synchronize()
+        waiting, finished = false, true
+    end)
+    scope:spawn(function()
+        while not finished do
+            if waiting then ran = ran + 1 end
+            time.sleep(1)
+        end
+    end)
+    scope:close()
+    print(ran > 0 and "a sibling ran while synchronizing" or "nothing ran while synchronizing")
+    input:close()
+    output:close()
+end
 ]]
     local file = assert(io.open(dir .. "/run.lua", "wb"))
     assert(file:write(script))
@@ -1460,6 +1490,7 @@ run(gpucheck.tiled, 65537 * 256, 2)
     end
     assert(runOut:find("0 of 16776961 wrong, last 16776961", 1, true), runOut)
     assert(runOut:find("0 of 16777472 wrong, last 16777473", 1, true), runOut)
+    assert(runOut:find("a sibling ran while synchronizing", 1, true), runOut)
 end
 
 function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()

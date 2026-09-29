@@ -66,7 +66,8 @@
 #define NUPP_NATIVE_FEATURE_AOT_RUNTIME (UINT64_C(1) << 12)
 /* The endpoint calls of the network family, which carry an IPv6 scope. */
 #define NUPP_NATIVE_FEATURE_NET_ENDPOINT (UINT64_C(1) << 13)
-/* The process-wide readiness generation: nuppNativePoll and nuppNativeWait. */
+/* The process-wide readiness generation, nuppNativePoll and nuppNativeWait,
+ * and nuppNativeGpuSynchronizeReady when NUPP_NATIVE_FEATURE_GPU is set. */
 #define NUPP_NATIVE_FEATURE_READINESS (UINT64_C(1) << 14)
 
 #ifdef __cplusplus
@@ -108,8 +109,9 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeXxh64Digest(
 /* Present when NUPP_NATIVE_FEATURE_READINESS is set. One process-wide
  * generation that every family advances when something a caller could be
  * waiting for changes: a socket or TLS session moves, a file transfer
- * settles, an HTTP client has events, or a child exits or a pipe moves. A
- * caller waiting on any mix of them sleeps here once.
+ * settles, an HTTP client has events, a child exits or a pipe moves, or GPU
+ * work finishes (see nuppNativeGpuSynchronizeReady). A caller waiting on any
+ * mix of them sleeps here once.
  *
  * Poll the generation first, then check the resources you are waiting for
  * with their non-blocking calls, and wait from the generation you polled:
@@ -745,6 +747,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
  *   it, before queuing the next.
  * - Validation failures inside the device and device faults are reported by
  *   the next synchronize, not by the call that caused them.
+ * - Synchronize blocks until the submitted work finishes. A caller that must
+ *   not block asks nuppNativeGpuSynchronizeReady first and, while it answers
+ *   0, waits on the process readiness generation, which advances once the
+ *   work is done; Synchronize then only maps the finished downloads.
  * - No usable adapter fails context creation with UNAVAILABLE. */
 /* Empty path restores NUPP_GPU_COSTS, appending to it after the first time the
  * process opened it. Nonempty paths select process-local JSONL. The switch
@@ -787,6 +793,12 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeGpuDispatch(
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuDownloadQueue(
     uint64_t context, uint64_t buffer, uint64_t offset, uint64_t size);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuSynchronize(uint64_t context);
+/* Present when NUPP_NATIVE_FEATURE_READINESS is also set. Writes 1 when the
+ * context's submitted work has finished and 0 while it runs, and never
+ * blocks. A failed wait for the device, a timeout included, is answered here
+ * as INTERNAL. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeGpuSynchronizeReady(
+    uint64_t context, uint32_t *ready);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuDownloadRead(
     uint64_t context, uint64_t buffer, uint64_t offset, uint64_t size,
     void *output, size_t capacity);

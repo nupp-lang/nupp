@@ -99,17 +99,20 @@ panic's text as the last error.
 
 Every native family advances one process-wide readiness generation when
 something a caller could be waiting for changes: a socket or TLS session moves,
-a whole-file transfer settles, an HTTP client has events, or a child exits or
-one of its pipes moves. `nuppNativePoll` snapshots it and
+a whole-file transfer settles, an HTTP client has events, a child exits or one
+of its pipes moves, or GPU work finishes. `nuppNativePoll` snapshots it and
 `nuppNativeWait` sleeps until it moves past a snapshot. A caller polls first,
 checks what it is waiting for with the families' non-blocking calls, and waits
 from the snapshot, so an edge after the poll ends the wait at once and none is
 lost.
 
 So every native wait in a Lua state sleeps on the same thing, and a program
-waiting on a socket, a child and an HTTP response at once wakes for whichever
+waiting on a socket, a child and a GPU dispatch at once wakes for whichever
 moves first. `nupp.runtime.native` keeps one snapshot for all of them, and each
-family's readiness source sleeps from it.
+family's readiness source sleeps from it. GPU `synchronize` parks on it too:
+`nuppNativeGpuSynchronizeReady` answers whether the submitted work is done
+without blocking, and a helper thread advances the generation when it is, so a
+task deadline reaches the wait and other tasks run meanwhile.
 
 The per-family poll and wait calls that came before are superseded and stay
 declared, because the pinned stage-zero compiler still calls them.

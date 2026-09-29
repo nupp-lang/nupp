@@ -65,7 +65,10 @@ end
 ```
 
 Uploads, dispatches, and downloads enqueue work. `synchronize()` is the explicit
-CPU boundary, so a chain of kernels can keep intermediate buffers resident.
+CPU boundary, so a chain of kernels can keep intermediate buffers resident. It
+parks rather than blocking the thread: while the device works, other tasks run,
+and a task deadline or cancellation reaches the wait. With nothing to yield to it
+sleeps until the work is done.
 The context, its buffers, compiled kernels and bindings are all closeable, and
 each child borrows what it was made from: a binding its kernel, a kernel and a
 buffer the context. The checker therefore refuses a close while something still

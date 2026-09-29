@@ -470,8 +470,8 @@ thread, or independent LuaJIT states with no shared handles.
 
 `nupp_runtime_poll` is the pump for a host that owns the event loop. Each call
 makes one non-blocking pass over the readiness sources the state's modules have
-registered with `nupp.suspension` -- the network, HTTP, process, file-transfer
-and timer sources -- and returns. It never waits, so call it from the loop, once per
+registered with `nupp.suspension` -- the network, HTTP, process, file-transfer,
+GPU and timer sources -- and returns. It never waits, so call it from the loop, once per
 frame or whenever the host's own readiness fires. A failure a source raises
 returns `NUPP_STATUS_RUNTIME`. Polling drives readiness; it does not install a
 scheduler or resume a coroutine nobody is waiting on, and a host-provided

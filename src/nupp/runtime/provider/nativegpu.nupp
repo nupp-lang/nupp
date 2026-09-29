@@ -21,6 +21,7 @@ operate on the retained context without further service resolution.
 ]]
 
 local native = require("nupp.runtime.native")
+local suspension = require("nupp.suspension")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local span = require("nupp.mem.span")
 local ffi = native.ffi
@@ -47,6 +48,7 @@ int32_t nuppNativeGpuDispatch(
     uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, const uint8_t *, size_t);
 int32_t nuppNativeGpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
 int32_t nuppNativeGpuSynchronize(uint64_t);
+int32_t nuppNativeGpuSynchronizeReady(uint64_t, uint32_t *);
 int32_t nuppNativeGpuDownloadRead(
     uint64_t, uint64_t, uint64_t, uint64_t, void *, size_t);
 ]]
@@ -731,8 +733,67 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
     )
 end
 
+const READINESS_FEATURE = 16384
+
+-- Whether the context's submitted work has finished, or why that cannot be told.
+-- Never blocks: while the work runs, the provider advances the readiness generation
+-- once it is done.
+local function workDone(handle: any, ready: any): (boolean, string?)
+    if C.nuppNativeGpuSynchronizeReady(handle, ready) ~= 0 then
+        return false, "nupp: " .. ffi.string(C.nuppNativeLastError())
+    end
+
+    return ready[0] ~= 0, nil
+end
+
+--- Parks until the context's submitted work finishes, then settles its downloads.
+---
+--- The wait is a suspension on the readiness generation every native family
+--- shares, so a task deadline or a cancellation reaches it and other work keeps
+--- running meanwhile; a frame with nobody to yield to sleeps until the device is
+--- done. Only mapping the finished downloads happens in the blocking call.
+--- @raises string when the context is closed, the device cannot be waited for, or
+---     the work it finished reports a validation failure or device fault
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
-    native.succeeded(C.nuppNativeGpuSynchronize(live(self)), 2)
+    local handle = live(self)
+    native.requireFeature(READINESS_FEATURE, "readiness")
+    local ready = ffi.new("uint32_t[1]")
+    local done, failure = workDone(handle, ready)
+    if not done and failure == nil then
+        -- The check's failure is the waiter's to raise, not the driver's that polled
+        -- it, so it is handed over through the resumption.
+        failure = suspension.suspend("GPU synchronize", function(
+            resume: function(string?),
+            context: suspension.Context
+        ): function()?
+            local waiting = true
+            context:source(
+                "nupp-gpu",
+                native.READINESS_PRIORITY,
+                native.pump(function(): integer
+                    if not waiting then
+                        return 0
+                    end
+                    local finished, reason = workDone(handle, ready)
+                    if not finished and reason == nil then
+                        return 0
+                    end
+                    waiting = false
+                    resume(reason)
+
+                    return 1
+                end)
+            )
+
+            return function(): nil
+                waiting = false
+            end
+        end)
+    end
+    if failure ~= nil then
+        error(failure, 2)
+    end
+    native.succeeded(C.nuppNativeGpuSynchronize(handle), 2)
 end
 
 function gpu.Context.readDownloaded<T>(

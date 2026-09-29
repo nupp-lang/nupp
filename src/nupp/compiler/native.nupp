@@ -289,9 +289,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "gpu_layoutfacts", runtimeModule = "nupp.gpu.layoutfacts", portableRuntime = true},
     ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "nupp.gpu", portableRuntime = true},
     ["runtime.gpu"] = {name = "gpu_runtime", module = "nupp.gpu", runtimeModule = "nupp.gpu", portableRuntime = true},
-    [
-        "native.gpu"
-    ] = {
+    ["native.gpu"] = {
         name = "gpu",
         modules = {"nupp.runtime.provider.nativegpu"},
         runtimeModule = "nupp.runtime.provider.nativegpu",
@@ -301,7 +299,15 @@ local FEATURES: {[string]: native.Feature} = {
         host = "native-gpu",
         library = "nupp_native",
         binary = true,
-        requires = {"runtime.native", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},
+        -- Synchronizing parks on the native readiness generation, so the runtime that
+        -- answers a suspension travels with the provider.
+        requires = {
+            "runtime.native",
+            "runtime.suspension",
+            "runtime.spanview",
+            "runtime.gpu_api",
+            "runtime.gpu_layout"
+        },
     },
     -- The runtime LLVM-compiled Lua builders call, which every provider built
     -- for a platform that has it carries; a loader reaching this module is

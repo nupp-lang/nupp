@@ -434,6 +434,28 @@ pub extern "C" fn nuppNativeGpuSynchronize(context: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+/// Answers whether the context's submitted work has finished, without
+/// blocking. While it has not, the process readiness generation advances once
+/// it does.
+///
+/// # Safety
+/// `ready` must be writable.
+pub unsafe extern "C" fn nuppNativeGpuSynchronizeReady(context: u64, ready: *mut u32) -> i32 {
+    boundary(|| {
+        if ready.is_null() {
+            return Err((Status::InvalidArgument, "ready output is null".to_owned()));
+        }
+        let done = with_context(context, |gpu| {
+            gpu.submitted_work_done(nupp_native_runtime::activity::advance)
+        })?;
+        // SAFETY: the pointer was checked above and the ABI requires writable
+        // storage for one u32.
+        unsafe { ready.write(u32::from(done)) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Copies one synchronized download into caller-owned storage.
 ///
 /// # Safety
