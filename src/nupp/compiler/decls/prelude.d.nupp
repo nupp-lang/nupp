@@ -200,7 +200,7 @@ local nupp: {
     ---
     --- | Operation | Signature shape |
     --- | --- | --- |
-    --- | `add`, `subtract` | (ax, ay, bx, by) -> x, y |
+    --- | `add`, `sub` | (ax, ay, bx, by) -> x, y |
     --- | `scale` | (x, y, factor) -> x, y |
     --- | `dot`, `cross` | (ax, ay, bx, by) -> number |
     --- | `length`, `lengthSquared` | (x, y) -> number |
@@ -2411,7 +2411,7 @@ record nupp.Vec2Library
     --- @param by the second vector's y component
     --- @return the difference's x component
     --- @return the difference's y component
-    subtract: function(ax: number, ay: number, bx: number, by: number): (number, number)
+    sub: function(ax: number, ay: number, bx: number, by: number): (number, number)
 
     --- Multiplies a vector by a scalar.
     --- @param x the vector's x component
@@ -2588,7 +2588,7 @@ record nupp.QuatLibrary
     --- @return the difference's y component
     --- @return the difference's z component
     --- @return the difference's w component
-    subtract: function(
+    sub: function(
         ax: number,
         ay: number,
         az: number,

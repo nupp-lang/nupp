@@ -415,7 +415,7 @@ function M.componentwiseArithmeticIntegratesAngularVelocity()
     local ex, ey, ez, ew = quat.fromAxisAngle(0, 0, 1, rate)
     assertRotation("the integrated orientation", 1e-6, rotationOf(x, y, z, w), {ex, ey, ez, ew})
 
-    local sx, sy, sz, sw = quat.subtract(1, 2, 3, 4, 0.5, 1.5, 2.5, 3.5)
+    local sx, sy, sz, sw = quat.sub(1, 2, 3, 4, 0.5, 1.5, 2.5, 3.5)
     assertRotation("componentwise subtraction", nil, rotationOf(sx, sy, sz, sw), {0.5, 0.5, 0.5, 0.5})
 end
 

@@ -780,7 +780,7 @@ function vec2.add(ax: number, ay: number, bx: number, by: number): number, numbe
     return ax + bx, ay + by
 end
 
-function vec2.subtract(ax: number, ay: number, bx: number, by: number): number, number
+function vec2.sub(ax: number, ay: number, bx: number, by: number): number, number
     return ax - bx, ay - by
 end
 
@@ -961,7 +961,7 @@ function quat.add(
     return ax + bx, ay + by, az + bz, aw + bw
 end
 
-function quat.subtract(
+function quat.sub(
     ax: number,
     ay: number,
     az: number,
