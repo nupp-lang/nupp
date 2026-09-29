@@ -283,12 +283,11 @@ function M.hostBuildSelectsThePinnedWorkspaceBinary()
     -- A binary host strips dead code rooted at its exports, except on Windows.
     local windows = arguments:find("-Wl,--export-all-symbols", 1, true) ~= nil
     assert((arguments:find("-C link-dead-code", 1, true) ~= nil) == windows, arguments)
+    -- The exports themselves: Linux exports dynamically, and macOS takes the
+    -- committed host/include/nupp.exports list through the host crate's build
+    -- script, so its command line only strips local symbols.
     assert(
-        arguments:find(
-            "-Wl,-export_dynamic",
-            1,
-            true
-        ) or arguments:find("-Wl,-E", 1, true) or windows,
+        arguments:find("-Wl,-E", 1, true) or arguments:find("-Wl,-x", 1, true) or windows,
         arguments
     )
     assert(output:find(host, 1, true), output)
