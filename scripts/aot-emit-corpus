@@ -1,5 +1,5 @@
 #!/bin/sh
-# Emits C, WGSL and SPIR-V for every @aot kernel under bench/ and tests/wasm-aot
+# Emits LLVM IR, WGSL, SPIR-V and verified IR for every @aot kernel under bench/ and tests/wasm-aot
 # into one directory, so two compilers can be compared byte for byte.
 #
 #   scripts/aot-emit-corpus OUTDIR [NUPP]
@@ -41,8 +41,8 @@ grep -rl '@aot' bench tests/wasm-aot --include='*.nupp' | sort | while read -r f
         rel=${file#$dir/}
     fi
     dir=$root/$dir
-    emit "$dir" "$rel" c --emit c
-    emit "$dir" "$rel" avx2.c --emit c --target x86_64-unknown-linux-gnu --features avx2
+    emit "$dir" "$rel" ll --emit llvm
+    emit "$dir" "$rel" avx2.ll --emit llvm --target x86_64-unknown-linux-gnu --features avx2
     emit "$dir" "$rel" wgsl --emit wgsl
     emit "$dir" "$rel" spirv --emit spirv
     emit "$dir" "$rel" ir --emit ir
