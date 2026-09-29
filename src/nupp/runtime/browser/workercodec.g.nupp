@@ -21,7 +21,7 @@ module nupp.runtime.browser.workercodec
 --- application whose record the message carried rather than code this one is
 --- defined by.
 @allow("unused-binding")
-const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
 local codec = {}
 

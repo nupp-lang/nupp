@@ -20,7 +20,7 @@ Each consumer chooses during initialization; provider state remains in its lane.
 ]]
 
 @allow("unused-binding")
-const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
 local base64 = require("nupp.codec.base64")
 local browserEffects = require("nupp.runtime.browser.effects")

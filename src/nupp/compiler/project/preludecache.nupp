@@ -128,7 +128,7 @@ local WALK_DEPTH = 8
 --- covering this need not cover them -- which would be the whole compiler, since the
 --- walk above takes every loaded `nupp.` module.
 @allow("unused-binding")
-const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
 --- Every table a loaded compiler module owns, and the name it owns it under.
 ---
