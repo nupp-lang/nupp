@@ -125,6 +125,7 @@ export record Application
         return self:renderCommandHelp(command, resolved)
     end
 
+    --- @internal
     function renderCommandHelp(self, command: Descriptor, resolved: {string}): string
         local schema = command.schema
         local out = {command.documentation ~= "" and command.documentation or command.summary, "", "Usage:"}
@@ -355,22 +356,27 @@ export record Application
         return invocation.options:run()
     end
 
+    --- @internal
     function programName(self): string
         return self.options.name or self.root.name
     end
 
+    --- @internal
     function stdout(self): LuaFile
         return self.options.stdout or io.stdout
     end
 
+    --- @internal
     function stderr(self): LuaFile
         return self.options.stderr or io.stderr
     end
 
+    --- @internal
     function indent(self): string
         return self.options.indent or "  "
     end
 
+    --- @internal
     function children(self, subject: any): {Descriptor}
         local out: {Descriptor} = {}
         for _, command in ipairs(self.commands) do
@@ -382,11 +388,13 @@ export record Application
         return out
     end
 
+    --- @internal
     function child(self, parent: any, name: string?): Descriptor?
         local children = self.byParent[parent]
         return name and children and children[name] or nil
     end
 
+    --- @internal
     function resolvePath(self, argv: {string}): Descriptor, {string}, {string}, any?
         local command = self.root
         local path: {string} = {}
@@ -416,6 +424,7 @@ export record Application
         return command, rest, path, nil
     end
 
+    --- @internal
     function frameworkOptions(
         self,
         argv: {string},
@@ -492,6 +501,7 @@ export record Application
         return out, help, color, colorProblem
     end
 
+    --- @internal
     function usageError(self, message: string, path: {string}?): integer
         local output = self:stderr()
         local style = terminal.style(output)
@@ -502,6 +512,7 @@ export record Application
         return 2
     end
 
+    --- @internal
     function usageSuffix(self, schema: any): string
         local out = ""
         local hasOptions = false
@@ -523,6 +534,7 @@ export record Application
         return out
     end
 
+    --- @internal
     function optionLabel(self, field: any): string
         if field.displayOverride ~= nil then
             return field.displayOverride
@@ -543,6 +555,7 @@ export record Application
         return table.concat(names, ", ")
     end
 
+    --- @internal
     function optionSpellings(self, field: any): {string}
         local names: {string} = {}
         if field.pattern ~= nil then
@@ -560,6 +573,7 @@ export record Application
         return names
     end
 
+    --- @internal
     function addCommandRows(self, out: {string}, commands: {Descriptor}): nil
         local width = 0
         for _, command in ipairs(commands) do
@@ -578,6 +592,7 @@ export record Application
         end
     end
 
+    --- @internal
     function addOptionRows(self, out: {string}, fields: {any}): nil
         local rows: {any} = {}
         for _, field in ipairs(fields) do
@@ -618,10 +633,12 @@ export record Application
         end
     end
 
+    --- @internal
     function width(self): integer
         return self.options.width or 79
     end
 
+    --- @internal
     function wrap(self, text: string, width: integer): {string}
         local lines: {string} = {}
         local line = ""
@@ -642,6 +659,7 @@ export record Application
         return lines
     end
 
+    --- @internal
     function styled(self, text: string, stream: LuaFile): string
         local style = terminal.style(stream)
         local inExamples = false
@@ -691,6 +709,7 @@ export record Application
         return rendered
     end
 
+    --- @internal
     function addCandidate(self, out: {any}, value: string, description: string?, kind: string?, prefix: string): nil
         if value:sub(1, #prefix) ~= prefix then
             return
@@ -703,6 +722,7 @@ export record Application
         out[#out + 1] = {value = value, description = description, kind = kind}
     end
 
+    --- @internal
     function completeField(
         self,
         command: Descriptor,
@@ -813,6 +833,7 @@ export record Application
         return out
     end
 
+    --- @internal
     function completionQuery(self, argv: {string}): integer
         local cursor: integer = (tonumber(argv[3]) or 1) as integer
         local words: {string} = {}
