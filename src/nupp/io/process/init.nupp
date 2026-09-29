@@ -1161,15 +1161,32 @@ awaitTick = function(self: any, operation: string, scoped interest: function(): 
         return
     end
     ensurePump(self)
+    const wanted = interest()
     suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
-        local source = context:source("nupp.io.process.tick", 50, function(): integer
-            pumpOnce(self)
-            -- Resumed unconditionally: one pass has happened, which is all this waits
-            -- for. The caller decides whether that was useful.
-            resume(true)
+        local passes = 0
+        local source = context:source(
+            "nupp.io.process.tick",
+            50,
+            function(): integer
+                passes = passes + 1
+                -- A quiet first pass leaves the driver its chance to sleep. The second
+                -- resumes unconditionally: one pass has happened, which is all this
+                -- waits for, and the caller decides whether it was useful.
+                if pumpOnce(self) == 0 and passes == 1 then
+                    return 0
+                end
+                resume(true)
 
-            return 1
-        end)
+                return 1
+            end,
+            -- Only the built-in driver calls this, when a task scope runs with no host
+            -- beneath it. Without it a drain loop there polled flat out.
+            function(waitMs: integer): integer
+                self.backend:waitReady(wanted, waitMs)
+
+                return 0
+            end
+        )
 
         return function(): nil
             source:release()
@@ -1207,18 +1224,36 @@ await = function(
     end
     ensurePump(self)
 
+    -- What the wait sleeps on, taken afresh before each park: the streams a wait is
+    -- interested in change as they end.
+    local wanted: shared.Interest? = nil
+
     -- Built once rather than per pass: this is already the slow path.
     local function subscribe(resume: function(boolean), context: any): function()?
-        local source = context:source("nupp.io.process.wait", 50, function(): integer
-            local moved = pumpOnce(self)
-            if ready() or stopAt ~= nil and self.backend:now() >= stopAt or moved > 0 then
-                resume(true)
+        local source = context:source(
+            "nupp.io.process.wait",
+            50,
+            function(): integer
+                local moved = pumpOnce(self)
+                if ready() or stopAt ~= nil and self.backend:now() >= stopAt or moved > 0 then
+                    resume(true)
 
-                return 1
+                    return 1
+                end
+
+                return 0
+            end,
+            -- A host never calls a source's wait; the built-in driver does, between
+            -- quiet passes, when a task scope runs with no host beneath it. Without
+            -- one it would poll the child flat out for as long as the child ran.
+            function(waitMs: integer): integer
+                if wanted ~= nil then
+                    self.backend:waitReady(wanted, waitMs)
+                end
+
+                return 0
             end
-
-            return 0
-        end)
+        )
 
         return function(): nil
             source:release()
@@ -1233,6 +1268,7 @@ await = function(
         if ready() then
             return true
         end
+        wanted = interest()
         suspension.suspend(operation, subscribe)
     end
 

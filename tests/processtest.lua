@@ -1401,4 +1401,50 @@ function M.plainLuaInputsAreValidatedBeforeTheyReachTheProvider()
     child:close()
 end
 
+function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
+    -- A task scope with no host beneath it drives its family through the built-in
+    -- driver, which sleeps in a source's wait between quiet passes. A process wait
+    -- that registered no wait left the driver nothing to sleep in, so it polled the
+    -- child flat out, a whole core, for as long as the child ran.
+    local tasks = require("nupp.tasks")
+    local backend = fakeBackend({out = {}, err = {}, exitAfter = 6, code = 0})
+    local sleeps = 0
+    function backend:waitReady(_interest, _timeoutMs)
+        sleeps = sleeps + 1
+        return 0
+    end
+    local child = spawnOn(backend, {args = {"quiet"}})
+    local scope = tasks.open()
+    local waited = scope:spawn(function()
+        return child:wait()
+    end)
+    local exit = waited:await()
+    scope:close()
+    assertEq(exit.exitCode, 0, "the child's exit")
+    assertTrue(sleeps > 0, "the driver slept in the platform between quiet passes")
+    child:close()
+end
+
+function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
+    -- The drain loop parks for one pass at a time. A pass that moved nothing used to
+    -- resume it at once, so under the built-in driver the loop polled flat out.
+    local tasks = require("nupp.tasks")
+    local backend = fakeBackend({out = {"one", "two"}, err = {}, outDelay = 3, exitAfter = 12, code = 0})
+    local sleeps = 0
+    function backend:waitReady(_interest, _timeoutMs)
+        sleeps = sleeps + 1
+        return 0
+    end
+    local child = spawnOn(backend, {args = {"slow"}})
+    local scope = tasks.open()
+    local drained = scope:spawn(function()
+        return assert(child:communicate())
+    end)
+    local result = drained:await()
+    scope:close()
+    child:close()
+    assertEq(result.output, "onetwo", "everything arrived")
+    assertTrue(sleeps > 0, "the driver slept in the platform between quiet passes")
+end
+
 return M
