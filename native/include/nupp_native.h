@@ -717,7 +717,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
  *   it, before queuing the next.
  * - Validation failures inside the device and device faults are reported by
  *   the next synchronize, not by the call that caused them.
- * - No usable adapter fails context creation with INTERNAL. */
+ * - No usable adapter fails context creation with UNAVAILABLE. */
 /* Empty path restores NUPP_GPU_COSTS, appending to it after the first time the
  * process opened it. Nonempty paths select process-local JSONL. The switch
  * happens even when the previous output had a write failure, which is then
