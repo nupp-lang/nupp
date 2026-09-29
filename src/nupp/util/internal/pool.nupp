@@ -109,13 +109,13 @@ end
 --- @export
 function pool.Pool.release<T is table>(exclusive self: pool.Pool<T>, value: T): nil
     if self.liveCount == 0 then
-        error("pool release without a live instance", 2)
+        error("nupp: pool release without a live instance", 2)
     end
     if getmetatable(value) ~= self.witness then
-        error("pool release of a value the pool's declaration did not stamp", 2)
+        error("nupp: pool release of a value the pool's declaration did not stamp", 2)
     end
     if not self.liveValues[value] then
-        error("pool release of a value not live in this pool", 2)
+        error("nupp: pool release of a value not live in this pool", 2)
     end
     self.liveValues[value] = nil
     self.liveCount = self.liveCount - 1
@@ -139,7 +139,7 @@ end
 --- @export
 function pool.Pool.reserve<T is table>(exclusive self: pool.Pool<T>, count: integer): nil
     if count < 0 then
-        error("pool reserve count cannot be negative", 2)
+        error("nupp: pool reserve count cannot be negative", 2)
     end
     local free = self.freeCount
     while free < count do
@@ -176,7 +176,7 @@ end
 --- @export
 function pool.Pool.reset<T is table>(exclusive self: pool.Pool<T>): nil
     if self.liveCount > 0 then
-        error("pool reset with " .. tostring(self.liveCount) .. " live instances", 2)
+        error("nupp: pool reset with " .. tostring(self.liveCount) .. " live instances", 2)
     end
     self.freeList = {}
     self.freeCount = 0
@@ -202,7 +202,7 @@ end
 function pool.new<T is table>(witness: Type<T>, capacity: integer?): pool.Pool<T>
     local retained = capacity or 32
     if retained < 0 then
-        error("pool capacity cannot be negative", 2)
+        error("nupp: pool capacity cannot be negative", 2)
     end
     local created = new pool.Pool(
         witness = witness,

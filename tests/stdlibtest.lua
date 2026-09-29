@@ -134,6 +134,30 @@ function M.aLineReaderReadTakesNoArguments()
     assertClean("local lines = nupp.io.newLines(nupp.io.newStringReader('a'))\nprint(lines:read())")
 end
 
+-- An invalid argument raises with the prefix every other standard module uses.
+function M.memAndUtilRefusalsCarryTheLibraryPrefix()
+    local ffi = require("ffi")
+    local spans = require("nupp.mem.span")
+    for label, refused in pairs({
+        heap = function()
+            require("nupp.mem.heap").allocate(ffi.typeof("int32_t"), -1)
+        end,
+        bytes = function()
+            require("nupp.mem.array").bytes(-1)
+        end,
+        span = function()
+            spans.fromCarray(ffi.new("int32_t[1]"), -1)
+        end,
+        indexed = function()
+            require("nupp.mem.indexed").range(0, 1)
+        end,
+    }) do
+        local ok, reason = pcall(refused)
+        assert(not ok, label .. " must refuse")
+        assert(tostring(reason):find("nupp: ", 1, true), label .. ": " .. tostring(reason))
+    end
+end
+
 function M.formerResultClosesAnswerNothing()
     local io = require("nupp.io")
     local buffer = io.newBuffer("abc")

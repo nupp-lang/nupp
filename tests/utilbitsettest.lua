@@ -291,7 +291,7 @@ function M.positionsPastTheBoundAreRefused()
     set:set(100)
     local before = set:wordCount()
     for _, bad in ipairs({TWO32 - 1, TWO32, TWO32 + 5, LIMIT + 1, nan, 2.5}) do
-        check.raises(function() set:set(bad) end, "bitset index", "set " .. tostring(bad))
+        check.raises(function() set:set(bad) end, "nupp: bitset index", "set " .. tostring(bad))
         check.raises(function() set:setOnly(bad) end, "bitset index", "setOnly " .. tostring(bad))
         set:set(0)
         set:set(100)

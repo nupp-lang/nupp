@@ -153,7 +153,7 @@ record data.Bitset
     constructor(self, capacityBits: integer?)
         local bits = capacityBits ?? DEFAULT_BITS
         if bits > MAX_INDEX + 1 then
-            error("bitset cannot hold more than 2^31 bits", 2)
+            error("nupp: bitset cannot hold more than 2^31 bits", 2)
         end
         buildTables()
         local words = wordsFor(bits)
@@ -171,7 +171,7 @@ record data.Bitset
     --- @raises string when bits is NaN or more than 2^31
     function reserve(self, bits: integer): nil
         if not (bits <= MAX_INDEX + 1) then
-            error("bitset cannot hold more than 2^31 bits", 2)
+            error("nupp: bitset cannot hold more than 2^31 bits", 2)
         end
         local needed = wordsFor(bits)
         if needed <= self.capacity then
@@ -195,7 +195,7 @@ record data.Bitset
         -- outside the array. `get` and `clear` read such an index as absent and
         -- answer with nothing; a write has no such reading, so it is refused.
         if not isPosition(index) then
-            error("bitset index cannot be negative, fractional or past 2^31 - 1", 2)
+            error("nupp: bitset index cannot be negative, fractional or past 2^31 - 1", 2)
         end
 
         local word = rshift(index, WORD_SHIFT)
@@ -276,10 +276,10 @@ record data.Bitset
             return
         end
         if not isPosition(low) then
-            error("bitset range cannot start below zero or at a non-integer", 2)
+            error("nupp: bitset range cannot start below zero or at a non-integer", 2)
         end
         if not isPosition(high) then
-            error("bitset range must end at an integer no greater than 2^31 - 1", 2)
+            error("nupp: bitset range must end at an integer no greater than 2^31 - 1", 2)
         end
 
         self:reserve(high + 1)
@@ -412,7 +412,7 @@ record data.Bitset
     ---     integer; the set is left unchanged
     function setOnly(self, index: integer): nil
         if not isPosition(index) then
-            error("bitset index cannot be negative, fractional or past 2^31 - 1", 2)
+            error("nupp: bitset index cannot be negative, fractional or past 2^31 - 1", 2)
         end
         self:clearAll()
         self:set(index)
@@ -506,7 +506,7 @@ record data.Bitset
     --- @raises string when capacity is negative
     function positionsInto(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
         if capacity < 0 then
-            error("bitset target capacity cannot be negative", 2)
+            error("nupp: bitset target capacity cannot be negative", 2)
         end
 
         local start = from < 0 ? 0 : from

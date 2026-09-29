@@ -137,14 +137,14 @@ record soa.Layout
     ---     overflows
     function forCount(self, count: integer): soa.InstanceLayout
         if count < 0 or count ~= math.floor(count) then
-            error("SoA row count must be a nonnegative integer", 2)
+            error("nupp: SoA row count must be a nonnegative integer", 2)
         end
 
         local segments: {soa.SegmentLayout} = {}
         local cursor: integer = 0
         for ordinal, field in ipairs(self.fields) do
             if count > 0 and count > MAX_EXACT_INTEGER // field.elementSize then
-                error("SoA field byte size is too large", 2)
+                error("nupp: SoA field byte size is too large", 2)
             end
             local byteCount = (field.elementSize * count) as integer
             local remainder = cursor % field.alignment
@@ -152,7 +152,7 @@ record soa.Layout
                 cursor = (cursor + field.alignment - remainder) as integer
             end
             if cursor > MAX_EXACT_INTEGER - byteCount then
-                error("SoA slab byte size is too large", 2)
+                error("nupp: SoA slab byte size is too large", 2)
             end
             segments[ordinal] = new soa.SegmentLayout(field = field, offset = cursor, byteCount = byteCount)
             cursor = (cursor + byteCount) as integer
@@ -294,7 +294,7 @@ local record SpanImpl<T> is soa.Span<T>
 
     function checkedIndex(self, index: integer): integer
         if index % 1 ~= 0 or index < 1 or index > self.count then
-            error("SoA row index out of bounds", 2)
+            error("nupp: SoA row index out of bounds", 2)
         end
         return self.offset + index - 1
     end
@@ -312,7 +312,7 @@ local record SpanImpl<T> is soa.Span<T>
     function slice(self, first: integer, last: integer?): soa.Span<T> borrows (self)
         local finish = last or self.count
         if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
-            error("SoA slice out of bounds", 2)
+            error("nupp: SoA slice out of bounds", 2)
         end
 
         return new SpanImpl(
@@ -326,7 +326,7 @@ local record SpanImpl<T> is soa.Span<T>
     end
 
     function field(borrows self, name: string): any borrows (self)
-        error("SoA field projection requires compiler lowering: " .. tostring(name), 2)
+        error("nupp: SoA field projection requires compiler lowering: " .. tostring(name), 2)
     end
 
     function fieldBySlot(borrows self, ordinal: integer): span.Span<any> borrows (self)
@@ -424,7 +424,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
 
     function checkedIndex(self, index: integer): integer
         if index % 1 ~= 0 or index < 1 or index > self.count then
-            error("SoA row index out of bounds", 2)
+            error("nupp: SoA row index out of bounds", 2)
         end
         return self.offset + index - 1
     end
@@ -447,7 +447,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
     end
 
     function field(exclusive self, name: string): any borrows (self)
-        error("SoA field projection requires compiler lowering: " .. tostring(name), 2)
+        error("nupp: SoA field projection requires compiler lowering: " .. tostring(name), 2)
     end
 
     function fieldBySlot(exclusive self, ordinal: integer): span.Writable<any> borrows (self)
@@ -489,7 +489,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
             or targetFirst - 1 > self.count - count
             or sourceFirst - 1 > #source - count
         then
-            error("SoA copy range is out of bounds", 2)
+            error("nupp: SoA copy range is out of bounds", 2)
         end
         if count == 0 then
             return
@@ -509,7 +509,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
     ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
         local finish = last or self.count
         if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
-            error("SoA slice out of bounds", 2)
+            error("nupp: SoA slice out of bounds", 2)
         end
 
         return new WriteSpanImpl(
@@ -623,7 +623,7 @@ function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): 
     local alignment = layout.alignment
     local padding = alignment - 1
     if bytes > MAX_EXACT_INTEGER - padding then
-        error("SoA aligned slab byte size is too large", 2)
+        error("nupp: SoA aligned slab byte size is too large", 2)
     end
     local allocationBytes = bytes + padding
     if allocationBytes == 0 then
@@ -631,7 +631,7 @@ function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): 
     end
     local raw = malloc(allocationBytes as uint64)
     if raw == nil then
-        error("SoA allocation failed", 2)
+        error("nupp: SoA allocation failed", 2)
     end
 
     local columns: {any} = {}
@@ -675,7 +675,7 @@ end
 --- @raises string when count is invalid, layout arithmetic overflows, or allocation
 ---     fails
 function soa.allocate<T>(element: ctype<T>, count: integer): affine(soa.Array<T>, soa.destroyArray)
-    error("soa.allocate requires compiler lowering", 2)
+    error("nupp: soa.allocate requires compiler lowering", 2)
 end
 
 --- Answers immutable SoA reflection for a reified struct type without allocating.
@@ -694,7 +694,7 @@ end
 --- @export
 --- @raises string when compiler lowering is unavailable
 function soa.layoutof<T>(element: ctype<T>): soa.Layout
-    error("soa.layoutof requires compiler lowering", 2)
+    error("nupp: soa.layoutof requires compiler lowering", 2)
 end
 
 export = soa

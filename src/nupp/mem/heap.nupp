@@ -133,12 +133,12 @@ end
 ---     fails
 function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
     if count < 0 or count ~= math.floor(count) then
-        error("heap array count must be a nonnegative integer", 2)
+        error("nupp: heap array count must be a nonnegative integer", 2)
     end
 
     local width = ffi.sizeof(element)
     if width <= 0 or (count > 0 and count > 9007199254740991 // width) then
-        error("heap array byte size is too large", 2)
+        error("nupp: heap array byte size is too large", 2)
     end
 
     local bytes = width * count
@@ -147,7 +147,7 @@ function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<
     end
     local raw = malloc(bytes as uint64)
     if raw == nil then
-        error("heap array allocation failed", 2)
+        error("nupp: heap array allocation failed", 2)
     end
 
     -- A variable spec keeps this on LuaJIT's dynamic-ctype path. The static assertion

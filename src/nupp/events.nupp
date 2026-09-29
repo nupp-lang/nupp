@@ -163,7 +163,7 @@ local function infoOf(witness: any): Info
     local recorded = data and data.events or nil
     local initializer = derive.initializer(witness)
     if recorded == nil or initializer == nil then
-        error("nupp.events: the type did not derive events.Event", 3)
+        error("nupp: the type did not derive events.Event", 3)
     end
     local info = new Info(
         id = nextId,
@@ -486,7 +486,7 @@ local function register<A, S is events.Source<A>, E is events.Emittable>(
         for index = 1, n do
             local base = (index - 1) * STRIDE
             if list[base + 1] == id and list[base + 2] ~= tombstone then
-                error(("nupp.events: observer %q is already registered for %s here"):format(id, info.name), 3)
+                error(("nupp: events observer %q is already registered for %s here"):format(id, info.name), 3)
             end
         end
     end
@@ -698,7 +698,7 @@ function events.setAllocator<A, S is events.Source<A>, E is events.Emittable>(
 ): nil
     local observers = source.observers as any
     if observers.depth > 0 then
-        error("nupp.events: an allocator cannot change while a delivery is active", 2)
+        error("nupp: events allocator cannot change while a delivery is active", 2)
     end
     observers.allocators[infoOf(event).id] = allocator
 end

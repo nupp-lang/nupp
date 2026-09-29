@@ -115,7 +115,7 @@ end
 --- @raises string when count is not a nonnegative integer
 function array.bytes(count: integer): array.Bytes
     if count < 0 or count ~= math.floor(count) then
-        error("byte array count must be a non-negative integer", 2)
+        error("nupp: byte array count must be a non-negative integer", 2)
     end
     return new array.Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
 end

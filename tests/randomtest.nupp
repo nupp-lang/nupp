@@ -60,16 +60,14 @@ function M.readsSeedsAndStateAsSigned32BitWords(): nil
     end
 
     local generator = new random.Xoshiro128(1)
-    assert(
-        not pcall(function(): nil
-            generator:setState({0, 0, 0, 0})
-        end)
-    )
-    assert(
-        not pcall(function(): nil
-            generator:setState({1, 2, 3})
-        end)
-    )
+    local zeroOk, zeroReason = pcall(function(): nil
+        generator:setState({0, 0, 0, 0})
+    end)
+    assert(not zeroOk and tostring(zeroReason):find("nupp: ", 1, true), "a refusal carries the library prefix")
+    local shortOk, shortReason = pcall(function(): nil
+        generator:setState({1, 2, 3})
+    end)
+    assert(not shortOk and tostring(shortReason):find("nupp: ", 1, true), "a refusal carries the library prefix")
 end
 
 function M.drawsRangesAndDeterministicPermutations(): nil

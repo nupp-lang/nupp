@@ -145,7 +145,7 @@ end
 @allow("unused-binding")
 function arena.Arena.release<S>(exclusive self: arena.Arena<S>, row: S): nil
     if rawget(self.leases, row as any) ~= true then
-        error("arena release of a row without a live lease", 2)
+        error("nupp: arena release of a row without a live lease", 2)
     end
     rawset(self.leases, row as any, false)
     self.liveCount = self.liveCount - 1
@@ -162,7 +162,7 @@ end
 --- @export
 function arena.Arena.reset<S>(exclusive self: arena.Arena<S>): nil
     if self.liveCount > 0 then
-        error("arena reset with " .. tostring(self.liveCount) .. " live leases", 2)
+        error("nupp: arena reset with " .. tostring(self.liveCount) .. " live leases", 2)
     end
     self.pageIndex = 0
     self.cursor = self.pageSize
@@ -213,7 +213,7 @@ end
 function arena.newArena<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
     local rows = pageSize or 256
     if rows < 1 or rows % 1 ~= 0 then
-        error("arena page size must be a positive integer", 2)
+        error("nupp: arena page size must be a positive integer", 2)
     end
     -- The physical descriptor is answered for a value: on LuaJIT the
     -- declaration is already the ctype, and a table-backed provider knows a

@@ -154,12 +154,17 @@ export record Xoshiro128
         end
         if low % 1 ~= 0 or high % 1 ~= 0 or math.abs(low) > TWO53 or math.abs(high) > TWO53 then
             error(
-                "nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") needs finite integer bounds",
+                "nupp: random.Xoshiro128:integer(" .. tostring(
+                    low
+                ) .. ", " .. tostring(high) .. ") needs finite integer bounds",
                 2
             )
         end
         if high < low then
-            error("nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") has an empty range", 2)
+            error(
+                "nupp: random.Xoshiro128:integer(" .. tostring(low) .. ", " .. tostring(high) .. ") has an empty range",
+                2
+            )
         end
         local span = high - low + 1
         if span <= TWO32 then
@@ -167,7 +172,9 @@ export record Xoshiro128
         end
         if span > TWO53 then
             error(
-                "nupp.random: integer(" .. tostring(low) .. ", " .. tostring(high) .. ") spans more than 2^53 values",
+                "nupp: random.Xoshiro128:integer(" .. tostring(
+                    low
+                ) .. ", " .. tostring(high) .. ") spans more than 2^53 values",
                 2
             )
         end
@@ -216,14 +223,14 @@ export record Xoshiro128
     --- @raises string when there are not four words or all four are zero
     function setState(self, words: {integer}): nil
         if #words ~= 4 then
-            error("nupp.random: setState needs four state words", 2)
+            error("nupp: random.Xoshiro128:setState needs four state words", 2)
         end
         local s0 = nupp.math.i32.wrap(words[1])
         local s1 = nupp.math.i32.wrap(words[2])
         local s2 = nupp.math.i32.wrap(words[3])
         local s3 = nupp.math.i32.wrap(words[4])
         if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
-            error("nupp.random: the all-zero state is the one xoshiro cannot leave", 2)
+            error("nupp: random.Xoshiro128:setState refused the all-zero state, the one xoshiro cannot leave", 2)
         end
         self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
     end
