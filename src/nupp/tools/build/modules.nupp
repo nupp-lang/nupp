@@ -716,6 +716,7 @@ local function openSession(
         nativeCompilerServices = true,
         typeRoots = rocks and rocks.typeRoots or {},
         ambientTypeRoots = ambientTypeRoots,
+        runtimeSourceRoots = {stagedRoot},
         observe = observer,
     })
 

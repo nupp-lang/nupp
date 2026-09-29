@@ -810,6 +810,10 @@ local function scaffoldAndVerify(name, project, expectedOutput, prepare)
         assert(ok, scaffolded .. " does not run:\n" .. out)
         assert(
             out:find(expectedOutput, 1, true),
+    -- A build stages the compiler's runtime sources for a portable target, and the
+    -- project's strict floor is not theirs to meet.
+    ok, out = shell(quoted .. NUPP .. " check --strict")
+    assert(ok, scaffolded .. " does not check under --strict once built:\n" .. out)
             scaffolded .. " ran but printed " .. out .. " rather than " .. expectedOutput
         )
     end
