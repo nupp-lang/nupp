@@ -229,12 +229,12 @@ local function nuppRun(
         timeoutMs = timeoutMs,
     })
     if child == nil then
-        return false, spawnProblem or "could not start the child"
+        return false, tostring(spawnProblem or "could not start the child")
     end
     local result, communicateProblem = child:communicate()
     child:close()
     if not result then
-        return false, communicateProblem or "could not collect child output"
+        return false, tostring(communicateProblem or "could not collect child output")
     end
     if result.errorOutput ~= "" then
         io.stderr:write(result.errorOutput)

@@ -380,14 +380,15 @@ function M.listenReportsWhyItCouldNotBind()
     install((fakeBackend({listenFails = "address already in use"})))
     local listener, why = net.listen({host = "127.0.0.1", port = 80})
     assertEq(listener, nil, "a refused bind answers nil")
-    assertTrue(why ~= nil and why:find("address already in use", 1, true) ~= nil, "and carries what the platform said")
+    assertTrue(why ~= nil and tostring(why):find("address already in use", 1, true) ~= nil, "and carries what the platform said")
 end
 
 function M.connectReportsWhyItCouldNotConnect()
     install((fakeBackend({connectFails = "connection refused"})))
     local stream, why = net.connect({host = "example", port = 80})
     assertEq(stream, nil, "a refused connect answers nil")
-    assertTrue(why ~= nil and why:find("connection refused", 1, true) ~= nil, "and carries what the platform said")
+    assertTrue(why ~= nil and tostring(why):find("connection refused", 1, true) ~= nil, "and carries what the platform said")
+    assertEq(why.kind, "refused", "as a refusal a caller can branch on")
 end
 
 function M.connectWaitsForTheHandshake()
@@ -502,7 +503,7 @@ function M.bindReportsWhyItCouldNotBind()
     install((fakeBackend({bindFails = "address already in use"})))
     local socket, why = net.bind({host = "0.0.0.0", port = 53})
     assertEq(socket, nil, "a refused bind answers nil")
-    assertTrue(why ~= nil and why:find("address already in use", 1, true) ~= nil, "and carries what the platform said")
+    assertTrue(why ~= nil and tostring(why):find("address already in use", 1, true) ~= nil, "and carries what the platform said")
 end
 
 function M.flushWaitsForTheQueueToEmpty()

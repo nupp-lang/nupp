@@ -12,6 +12,17 @@ local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 
+-- Whether a reason is a nupp.io.Error: a kind to branch on and a message that is
+-- also what it prints as.
+local function isIoError(reason, kind)
+    return type(reason) == "table"
+        and type(reason.kind) == "string"
+        and type(reason.message) == "string"
+        and #reason.message > 0
+        and tostring(reason) == reason.message
+        and (kind == nil or reason.kind == kind)
+end
+
 local root, provider, buffers, previous
 local unavailable
 
@@ -110,7 +121,8 @@ function M.infoDescribesAFileAndFailsOnAMissingOne()
 
     local missing, reason = files.info(inRoot("info/absent"))
     test.equal(missing, nil)
-    assert(type(reason) == "string" and #reason > 0, "a missing path answers the platform's reason")
+    assert(isIoError(reason, "notFound"), "a missing path is notFound, whatever the platform said")
+    assert(("cannot read: " .. reason):find(reason.message, 1, true), "and joins text as its message")
     assert(not files.exists(inRoot("info/absent")))
 end
 
@@ -147,7 +159,7 @@ function M.listingDescribesEachChildWithoutFollowingLinks()
 
     local absent, reason = files.list(inRoot("listing/absent"))
     test.equal(absent, nil)
-    assert(type(reason) == "string", "listing a missing directory answers a reason")
+    assert(isIoError(reason), "listing a missing directory answers a reason")
 end
 
 function M.globbingMatchesRecursivelyAndSortsPaths()
@@ -185,7 +197,7 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
 
     local invalid, reason = files.glob(inRoot("glob/["))
     test.equal(invalid, nil)
-    assert(type(reason) == "string" and #reason > 0, "an invalid pattern answers a reason")
+    assert(isIoError(reason), "an invalid pattern answers a reason")
 end
 
 function M.renamingAndRemovingMoveAndDeletePaths()
@@ -200,7 +212,7 @@ function M.renamingAndRemovingMoveAndDeletePaths()
     assert(not files.exists(inRoot("moves/to.txt")))
 
     local refused, reason = files.remove(inRoot("moves/tree"))
-    assert(not refused and type(reason) == "string", "removing a populated directory needs the recursive flag")
+    assert(not refused and isIoError(reason), "removing a populated directory needs the recursive flag")
     assert(files.remove(inRoot("moves/tree"), true))
     assert(not files.exists(inRoot("moves/tree")))
 end
@@ -240,11 +252,11 @@ function M.temporariesAreCreatedNotProposed()
 
     local absent, reason = files.createTemporaryFile({directory = inRoot("temporary/absent"),})
     test.equal(absent, nil)
-    assert(type(reason) == "string", "an unusable directory answers a reason")
+    assert(isIoError(reason), "an unusable directory answers a reason")
 
     local escaped, escapeReason = files.createTemporaryFile({directory = inRoot("temporary"), prefix = "../outside-",})
     test.equal(escaped, nil)
-    assert(type(escapeReason) == "string", "a name fragment cannot escape its selected directory")
+    assert(isIoError(escapeReason), "a name fragment cannot escape its selected directory")
 
     other:close()
     directory:close()
@@ -308,7 +320,7 @@ function M.wholeFilesAreReadWrittenAndCopied()
 
     local missing, reason = files.read(inRoot("whole/absent"))
     test.equal(missing, nil)
-    assert(type(reason) == "string")
+    assert(isIoError(reason))
 end
 
 function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
@@ -327,11 +339,11 @@ function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
 
     local missing, reason = files.read(inRoot("lane/absent"))
     test.equal(missing, nil)
-    assert(type(reason) == "string" and #reason > 0)
+    assert(isIoError(reason))
     test.equal(files.pendingTransfers(), 0, "a refused transfer holds nothing")
 
     local written, why = files.write(inRoot("lane/absent/deep.bin"), "x")
-    assert(not written and type(why) == "string", "a write that fails on the worker carries its reason back")
+    assert(not written and isIoError(why), "a write that fails on the worker carries its reason back")
     test.equal(files.pendingTransfers(), 0)
 end
 
@@ -400,7 +412,7 @@ function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
     assert(files.createDirectory(inRoot("atomic")))
     assert(files.write(inRoot("atomic/kept.txt"), "original"))
     local written, reason = files.writeAtomic(inRoot("atomic/absent/kept.txt"), "replacement")
-    assert(not written and type(reason) == "string")
+    assert(not written and isIoError(reason))
     test.equal(assert(files.read(inRoot("atomic/kept.txt"))), "original")
 end
 
@@ -422,12 +434,12 @@ function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     test.equal(reader:read(4), "!")
     local invalid, invalidReason = file:seek(-100, "current")
     test.equal(invalid, nil)
-    assert(type(invalidReason) == "string", "a seek before the start answers a reason")
+    assert(isIoError(invalidReason), "a seek before the start answers a reason")
     test.equal(assert(file:position()), 12, "a failed seek leaves the cursor unchanged")
     test.equal(assert(file:seek(9007199254740991)), 9007199254740991)
     local overflow, overflowReason = file:seek(1, "current")
     test.equal(overflow, nil)
-    assert(type(overflowReason) == "string", "a seek beyond the exact integer range answers a reason")
+    assert(isIoError(overflowReason), "a seek beyond the exact integer range answers a reason")
     test.equal(assert(file:position()), 9007199254740991, "a refused seek leaves the cursor unchanged")
     file:close()
     assert(file:isReleased())
@@ -442,7 +454,7 @@ function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
 
     local missing, reason = files.open(inRoot("handles/absent"))
     test.equal(missing, nil)
-    assert(type(reason) == "string")
+    assert(isIoError(reason))
     test.raises(
         function()
             files.open(inRoot("handles/sink.txt"), "sideways")
@@ -533,7 +545,7 @@ function M.linesSplitOnEitherPlatformsEnding()
 
     local missing, missingReason = files.lines(inRoot("lines/absent"))
     test.equal(missing, nil)
-    assert(type(missingReason) == "string")
+    assert(isIoError(missingReason, "notFound"), "a missing file is notFound")
 end
 
 -- A directory is the deterministic way to make the first read fail on a handle
@@ -701,7 +713,7 @@ function M.applicationPathsAreScopedPortableAndStable()
     test.equal(files.applicationIdentity(), nil)
     local missing, reason = files.dataPath()
     test.equal(missing, nil)
-    assert(reason:find("setApplicationIdentity", 1, true))
+    assert(tostring(reason):find("setApplicationIdentity", 1, true))
 
     local application = "portable-files-" .. tostring(math.random(1, 1e9))
     files.setApplicationIdentity("nupp", application)

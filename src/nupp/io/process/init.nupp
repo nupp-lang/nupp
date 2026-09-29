@@ -24,6 +24,7 @@ out under.
 local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 
+const io = require("nupp.io")
 const {type Reader as Reader2} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Writer as Writer2} = require("nupp.io")
@@ -679,7 +680,7 @@ record process.Process is nupp.Closeable
 
     --- Asks the direct child to end; `force` insists. Descendants keep their
     --- ordinary operating-system lifetime. Answers whether the request was made.
-    function kill(self, force: boolean?): (boolean, string?)
+    function kill(self, force: boolean?): (boolean, io.Error?)
         if self.state.exit ~= nil then
             return true
         end
@@ -687,7 +688,7 @@ record process.Process is nupp.Closeable
             self.state.backend:kill(self.state.handle, force == true)
         end)
         if not ok then
-            return false, problem == nil and "the process could not be terminated" or tostring(problem)
+            return false, io.toError(problem == nil and "the process could not be terminated" or tostring(problem))
         end
 
         return true
@@ -698,7 +699,7 @@ record process.Process is nupp.Closeable
     ---
     --- One combined step per pass: offer some input, take whatever each output has,
     --- suspend only when none of the three moved.
-    function communicate(self, options: process.CommunicateOptions?): (process.Result?, string?)
+    function communicate(self, options: process.CommunicateOptions?): (process.Result?, io.Error?)
         local ok, answer = pcall(function(): process.Result
             local given = options or {}
             local input = given.input
@@ -841,7 +842,9 @@ record process.Process is nupp.Closeable
             return new process.Result(output = table.concat(out), errorOutput = table.concat(err), exit = self:wait())
         end)
         if not ok then
-            return nil, answer == nil and "process communication failed without saying why" or tostring(answer)
+            return nil, io.toError(
+                answer == nil and "process communication failed without saying why" or tostring(answer)
+            )
         end
 
         return answer as process.Result
@@ -1343,12 +1346,12 @@ end
 --- @return the child, which the caller owns and must close
 --- @return why it could not be started, when unsuccessful
 --- @raises string when the options could never describe a child
-function process.spawn(options: process.Options): (affine(process.Process)?, string?)
+function process.spawn(options: process.Options): (affine(process.Process)?, io.Error?)
     validateOptions(options)
     local backend = provider
     local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
     if handle == nil then
-        return nil, problem or "the process could not be started"
+        return nil, io.toError(problem or "the process could not be started")
     end
     local state = new Child(
         backend = backend,

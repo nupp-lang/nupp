@@ -171,6 +171,7 @@ function M.aMissingProgramAnswersAReasonRatherThanRaising()
     assert(ok, "spawn did not raise: " .. tostring(child))
     test.equal(child, nil)
     assert(reason ~= nil and #tostring(reason) > 0, "and said why")
+    test.equal(reason.kind, "notFound")
 
     -- uv_spawn initializes its process handle before it can report that exec
     -- failed. The failed handle must be closed rather than freed in place, or
@@ -209,7 +210,8 @@ function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     local noisy = assert(startProcess({args = shell("printf 12345; printf 67890 >&2"),}))
     local limited, limitReason = noisy:communicate({maxOutputBytes = 6})
     test.equal(limited, nil)
-    test.equal(limitReason, "process output exceeds the configured maximum")
+    test.equal(tostring(limitReason), "process output exceeds the configured maximum")
+    test.equal(limitReason.kind, "limit")
     noisy:close()
 end
 

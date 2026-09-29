@@ -769,14 +769,14 @@ export record File is io.Reader, io.Writer
     --- @return the byte length, or nil on failure
     --- @return a failure reason, when unsuccessful
     --- @raises string when the file is closed
-    function size(borrows self): (integer?, string?)
+    function size(borrows self): (integer?, io.Error?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
         local output = ffi.new("int64_t[1]")
         local status = C.nuppNativeFileSize(self._handle, output)
         if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeLastError())
+            return nil, io.toError(ffi.string(C.nuppNativeLastError()))
         end
 
         return tonumber(output[0]) as integer, nil
@@ -789,7 +789,7 @@ export record File is io.Reader, io.Writer
     --- @return the new position, or nil on failure
     --- @return a failure reason, when unsuccessful
     --- @raises string when origin names no seek origin
-    function seek(exclusive self, offset: integer?, origin: Origin?): (integer?, string?)
+    function seek(exclusive self, offset: integer?, origin: Origin?): (integer?, io.Error?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -800,7 +800,7 @@ export record File is io.Reader, io.Writer
         local output = ffi.new("int64_t[1]")
         local status = C.nuppNativeFileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence, output)
         if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeLastError())
+            return nil, io.toError(ffi.string(C.nuppNativeLastError()))
         end
 
         return tonumber(output[0]) as integer, nil
@@ -810,7 +810,7 @@ export record File is io.Reader, io.Writer
     --- @param self this file
     --- @return the position, or nil on failure
     --- @return a failure reason, when unsuccessful
-    function position(exclusive self): (integer?, string?)
+    function position(exclusive self): (integer?, io.Error?)
         return self:seek(0, "current")
     end
 
@@ -894,14 +894,14 @@ export record TemporaryPath is nupp.Closeable
     --- @param destination where to move it
     --- @return whether the move happened
     --- @return a failure reason, when unsuccessful
-    function persist(self, destination: string | paths.Path): (boolean, string?)
+    function persist(self, destination: string | paths.Path): (boolean, io.Error?)
         if self._closed then
-            return false, "the temporary path is released"
+            return false, io.toError("the temporary path is released", "closed")
         end
         local to = named(destination, "destination path", 2)
         local moved, reason = done(C.nuppNativeFilesRename(slice(self._text), slice(to)))
         if not moved then
-            return false, reason
+            return false, io.toError(reason)
         end
         self._closed = true
 

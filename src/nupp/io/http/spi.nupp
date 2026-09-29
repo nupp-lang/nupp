@@ -22,7 +22,7 @@ and resource methods retain direct provider operations.
 
 local {type Version, type Request, type Options, type Capabilities} = require("nupp.io.http.messages")
 local {type URI} = require("nupp.io.uri")
-local {type Reader as ResponseBody} = require("nupp.io")
+local {type Reader as ResponseBody, type Error} = require("nupp.io")
 export type Body = ResponseBody
 
 export interface Response is nupp.Closeable
@@ -73,7 +73,7 @@ export interface Client is nupp.Closeable
 
     --- Borrows the Request while sending and returns an owned Response or an error.
     @readonly
-    send: function(self: Client, borrows request: Request): (Response?, string?)
+    send: function(self: Client, borrows request: Request): (Response?, Error?)
 end
 
 export interface Provider

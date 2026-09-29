@@ -10,13 +10,13 @@ local appPaths = require("nupp.io.files.path")
 --- byte stream: every read and write moves its one cursor.
 export interface File is io.Reader, io.Writer
     --- Returns the file's byte length without moving its cursor.
-    size: function(borrows self: File): (integer?, string?)
+    size: function(borrows self: File): (integer?, io.Error?)
 
     --- Moves the cursor relative to an origin and returns its new position.
-    seek: function(exclusive self: File, offset: integer?, origin: messages.Origin?): (integer?, string?)
+    seek: function(exclusive self: File, offset: integer?, origin: messages.Origin?): (integer?, io.Error?)
 
     --- Returns the shared cursor position.
-    position: function(exclusive self: File): (integer?, string?)
+    position: function(exclusive self: File): (integer?, io.Error?)
 
     --- Publishes buffered file writes, and reports a write that failed to land.
     flush: function(borrows self: File): (boolean, string?)
@@ -37,7 +37,7 @@ export interface TemporaryPath is nupp.Closeable
     path: function(self: TemporaryPath): paths.Path
 
     --- Moves the temporary path to a durable destination.
-    persist: function(self: TemporaryPath, destination: any): (boolean, string?)
+    persist: function(self: TemporaryPath, destination: any): (boolean, io.Error?)
 
     --- Reports whether the temporary owner has been closed or persisted.
     isReleased: function(self: TemporaryPath): boolean

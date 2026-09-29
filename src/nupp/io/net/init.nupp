@@ -25,6 +25,7 @@ out under.
 local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 
+const io = require("nupp.io")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
@@ -187,6 +188,11 @@ local function positive(value: integer, what: string, level: integer): integer
     end
 
     return value
+end
+
+--- Carries a provider's answer out with its reason as an io error.
+local function answered<T>(value: T, why: string?): (T, io.Error?)
+    return value, io.toError(why)
 end
 
 --- The text a filesystem name reaches the platform as.
@@ -595,12 +601,12 @@ record net.Stream is Reader, Writer
     --- @param enable whether to send small writes immediately
     --- @return whether the option was set
     --- @return why it was not, when unsuccessful
-    function setNoDelay(self, enable: boolean): (boolean, string?)
+    function setNoDelay(self, enable: boolean): (boolean, io.Error?)
         if self._closed then
-            return false, "the connection is closed"
+            return false, io.toError("the connection is closed")
         end
 
-        return self._provider:noDelay(self._handle, enable)
+        return answered(self._provider:noDelay(self._handle, enable))
     end
 
     --- Asks the kernel to probe an idle connection.
@@ -616,16 +622,16 @@ record net.Stream is Reader, Writer
     --- @return why it was not, when unsuccessful
     --- @raises string when the delay is not a positive integer no greater than
     ---     4,294,967,295
-    function setKeepAlive(self, enable: boolean, delayMs: integer): (boolean, string?)
+    function setKeepAlive(self, enable: boolean, delayMs: integer): (boolean, io.Error?)
         if self._closed then
-            return false, "the connection is closed"
+            return false, io.toError("the connection is closed")
         end
         const delay = positive(delayMs, "net.Stream setKeepAlive delayMs", 2)
         if delay > MAX_UINT32 then
             error("nupp: net.Stream setKeepAlive delayMs is too large", 2)
         end
 
-        return self._provider:keepAlive(self._handle, enable, delay)
+        return answered(self._provider:keepAlive(self._handle, enable, delay))
     end
 
     --- Reads up to `count` bytes, suspending while none have arrived.
@@ -787,9 +793,9 @@ record net.Stream is Reader, Writer
     --- @param self this connection
     --- @return whether the sending half was ended
     --- @return why it was not, when unsuccessful
-    function shutdownWrite(self): (boolean, string?)
+    function shutdownWrite(self): (boolean, io.Error?)
         if self._closed then
-            return false, "the connection is closed"
+            return false, io.toError("the connection is closed")
         end
         if self._shutdown then
             return true
@@ -800,15 +806,15 @@ record net.Stream is Reader, Writer
         -- ends its sending half and then closes would otherwise cancel both.
         const drained, drainWhy = drain(self._provider, self._handle)
         if not drained then
-            return false, drainWhy
+            return false, io.toError(drainWhy)
         end
         const done, why = self._provider:shutdownWrite(self._handle)
         if not done then
-            return false, why
+            return false, io.toError(why)
         end
         self._shutdown = true
 
-        return drain(self._provider, self._handle)
+        return answered(drain(self._provider, self._handle))
     end
 
     --- Borrows this connection's reading half through the shared contract.
@@ -889,9 +895,9 @@ record net.Listener is nupp.Closeable
     --- @param self this listener
     --- @return the connection, which the caller owns and must close
     --- @return why there is none, when the listener failed
-    function accept(self): (affine(net.Stream)?, string?)
+    function accept(self): (affine(net.Stream)?, io.Error?)
         if self._closed then
-            return nil, "the listener is closed"
+            return nil, io.toError("the listener is closed")
         end
         local handle: any = nil
         local failure: string? = nil
@@ -916,7 +922,7 @@ record net.Listener is nupp.Closeable
             return false
         end)
         if failure ~= nil then
-            return nil, failure
+            return nil, io.toError(failure)
         end
 
         return new net.Stream(
@@ -979,9 +985,9 @@ record net.Datagram is nupp.Closeable
     --- @return what the message was, or nil when the socket failed
     --- @return why there is none, when unsuccessful
     --- @raises string when maximum is not a positive integer
-    function receiveFrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, string?)
+    function receiveFrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, io.Error?)
         if self._closed then
-            return nil, "the datagram socket is closed"
+            return nil, io.toError("the datagram socket is closed")
         end
         const wanted = positive(maximum, "net.Datagram receiveFrom maximum", 2)
         local bytes: string? = nil
@@ -1023,7 +1029,7 @@ record net.Datagram is nupp.Closeable
             return true
         end)
         if failure ~= nil then
-            return nil, failure
+            return nil, io.toError(failure)
         end
         const landed = #(bytes or "") as integer
         if landed > 0 then
@@ -1056,16 +1062,18 @@ record net.Datagram is nupp.Closeable
     --- @param bytes what to send
     --- @return whether the platform took it
     --- @return why it did not, when unsuccessful
-    function sendTo(self, address: net.Address, bytes: string): (boolean, string?)
+    function sendTo(self, address: net.Address, bytes: string): (boolean, io.Error?)
         if self._closed then
-            return false, "the datagram socket is closed"
+            return false, io.toError("the datagram socket is closed")
         end
 
-        return self._provider:sendTo(
-            self._handle,
-            address.host,
-            checkedPort(address.port, "net.Datagram sendTo port", 2),
-            bytes
+        return answered(
+            self._provider:sendTo(
+                self._handle,
+                address.host,
+                checkedPort(address.port, "net.Datagram sendTo port", 2),
+                bytes
+            )
         )
     end
 
@@ -1073,12 +1081,12 @@ record net.Datagram is nupp.Closeable
     ---
     --- Refused by default by the platform, so a program that means to broadcast
     --- has to say so rather than discover it works.
-    function setBroadcast(self, enable: boolean): (boolean, string?)
+    function setBroadcast(self, enable: boolean): (boolean, io.Error?)
         if self._closed then
-            return false, "the datagram socket is closed"
+            return false, io.toError("the datagram socket is closed")
         end
 
-        return self._provider:broadcast(self._handle, enable)
+        return answered(self._provider:broadcast(self._handle, enable))
     end
 
     --- How many hops a multicast datagram may take.
@@ -1086,27 +1094,27 @@ record net.Datagram is nupp.Closeable
     --- One keeps it on the local segment, which is what discovery on a LAN
     --- wants and what the platform starts at.
     --- @raises string when the hop limit is not 1 through 255
-    function setMulticastTTL(self, ttl: integer): (boolean, string?)
+    function setMulticastTTL(self, ttl: integer): (boolean, io.Error?)
         if self._closed then
-            return false, "the datagram socket is closed"
+            return false, io.toError("the datagram socket is closed")
         end
         if ttl < 1 or ttl > 255 or math.floor(ttl) ~= ttl then
             error("nupp: a multicast hop limit must be 1 through 255", 2)
         end
 
-        return self._provider:multicastTtl(self._handle, ttl)
+        return answered(self._provider:multicastTtl(self._handle, ttl))
     end
 
     --- Whether this socket also receives what it sends to a group it joined.
     ---
     --- Off is usually what is wanted: a discovery protocol that answers its own
     --- announcements is the first bug somebody writes with one.
-    function setMulticastLoop(self, enable: boolean): (boolean, string?)
+    function setMulticastLoop(self, enable: boolean): (boolean, io.Error?)
         if self._closed then
-            return false, "the datagram socket is closed"
+            return false, io.toError("the datagram socket is closed")
         end
 
-        return self._provider:multicastLoop(self._handle, enable)
+        return answered(self._provider:multicastLoop(self._handle, enable))
     end
 
     --- Joins a multicast group.
@@ -1114,21 +1122,21 @@ record net.Datagram is nupp.Closeable
     --- `interfaceAddress` names which of this machine's addresses to join on.
     --- On a machine with more than one, the platform's own choice is rarely the
     --- one wanted, which is why it is asked for rather than assumed.
-    function joinMulticast(self, group: string, interfaceAddress: string?): (boolean, string?)
+    function joinMulticast(self, group: string, interfaceAddress: string?): (boolean, io.Error?)
         if self._closed then
-            return false, "the datagram socket is closed"
+            return false, io.toError("the datagram socket is closed")
         end
 
-        return self._provider:membership(self._handle, group, interfaceAddress or "", true)
+        return answered(self._provider:membership(self._handle, group, interfaceAddress or "", true))
     end
 
     --- Leaves a multicast group.
-    function leaveMulticast(self, group: string, interfaceAddress: string?): (boolean, string?)
+    function leaveMulticast(self, group: string, interfaceAddress: string?): (boolean, io.Error?)
         if self._closed then
-            return false, "the datagram socket is closed"
+            return false, io.toError("the datagram socket is closed")
         end
 
-        return self._provider:membership(self._handle, group, interfaceAddress or "", false)
+        return answered(self._provider:membership(self._handle, group, interfaceAddress or "", false))
     end
 
     --- Releases the socket. Idempotent, and terminal.
@@ -1151,12 +1159,12 @@ end
 --- @return why it could not bind, when unsuccessful
 --- @raises string when the options do not describe a bindable address
 --- @export
-function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, string?)
+function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, io.Error?)
     const chosen = provider
     const bound = checkedPort(options.port, "net.bind port", 2)
     const handle, why = chosen:bindDatagram(options.host, bound, options.reusePort or false)
     if handle == nil then
-        return nil, why
+        return nil, io.toError(why)
     end
 
     return new net.Datagram(_provider = chosen, _handle = handle, _closed = false)
@@ -1168,7 +1176,7 @@ end
 --- @return why it could not bind, when unsuccessful
 --- @raises string when the options do not describe a bindable address
 --- @export
-function net.listen(options: net.ListenOptions): (affine(net.Listener)?, string?)
+function net.listen(options: net.ListenOptions): (affine(net.Listener)?, io.Error?)
     const chosen = provider
     const backlog = positive(options.backlog or 128, "net.listen backlog", 2)
     if backlog > MAX_BACKLOG then
@@ -1193,7 +1201,7 @@ function net.listen(options: net.ListenOptions): (affine(net.Listener)?, string?
         )
     end
     if handle == nil then
-        return nil, why
+        return nil, io.toError(why)
     end
 
     return new net.Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
@@ -1205,7 +1213,7 @@ end
 --- @return why it could not connect, when unsuccessful
 --- @raises string when the options do not describe a reachable peer
 --- @export
-function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?)
+function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, io.Error?)
     const chosen = provider
     const deadline = positive(options.timeoutMs or DEFAULT_CONNECT_MS, "net.connect timeoutMs", 2)
     -- Checked here rather than where the stream is built, because that is after
@@ -1230,7 +1238,7 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?
         )
     end
     if request == nil then
-        return nil, why
+        return nil, io.toError(why)
     end
     local requestOpen = true
 
@@ -1269,7 +1277,7 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?
         error(problem, 0)
     end
     if failure ~= nil then
-        return nil, failure
+        return nil, io.toError(failure)
     end
 
     return new net.Stream(

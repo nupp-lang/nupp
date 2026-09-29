@@ -45,6 +45,7 @@ enabled because accepting it requires an application-level replay policy.
 local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 
+const io = require("nupp.io")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
@@ -255,16 +256,16 @@ record tls.Session is Reader, Writer
     --- @param self this session
     --- @return whether the handshake has finished, or nil when it failed
     --- @return why it failed, when it did
-    function step(self): (boolean?, string?)
+    function step(self): (boolean?, io.Error?)
         if self._closed then
-            return nil, "the session is closed"
+            return nil, io.toError("the session is closed")
         end
         if self._ready then
             return true
         end
         const done, why = self._provider:handshake(self._session)
         if done == nil then
-            return nil, why
+            return nil, io.toError(why)
         end
         if done then
             self._ready = true
@@ -278,21 +279,21 @@ record tls.Session is Reader, Writer
     --- @param self this session
     --- @return whether the handshake finished
     --- @return why it did not, when unsuccessful
-    function handshake(self): (boolean, string?)
+    function handshake(self): (boolean, io.Error?)
         if self._closed then
-            return false, "the session is closed"
+            return false, io.toError("the session is closed")
         end
         if not self:isConnected() then
-            return false, "the connection underneath was closed first"
+            return false, io.toError("the connection underneath was closed first")
         end
         if self._ready then
             return true
         end
-        local failure: string? = nil
+        local failure: io.Error? = nil
         await("nupp.io.tls handshake", function(): boolean
             const done, why = self:step()
             if done == nil then
-                failure = why or "the handshake failed"
+                failure = why or io.toError("the handshake failed")
 
                 return true
             end
@@ -566,7 +567,7 @@ end
 --- @return why it could not be made, when unsuccessful
 --- @raises string when verification is asked for without a name to verify against
 --- @export
-function tls.client(takes stream: net.Stream, options: tls.ClientOptions?): (affine(tls.Session)?, string?)
+function tls.client(takes stream: net.Stream, options: tls.ClientOptions?): (affine(tls.Session)?, io.Error?)
     const chosen = provider
     const given: tls.ClientOptions = options or {}
     const verify = given.verify ~= false
@@ -585,7 +586,7 @@ function tls.client(takes stream: net.Stream, options: tls.ClientOptions?): (aff
         verify
     )
     if session == nil then
-        return nil, why
+        return nil, io.toError(why)
     end
 
     return new tls.Session(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
@@ -597,7 +598,7 @@ end
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @export
-function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affine(tls.Session)?, string?)
+function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affine(tls.Session)?, io.Error?)
     const chosen = provider
     const protocols = packProtocols(options.protocols, 2)
     const session, why = chosen:wrap(
@@ -611,7 +612,7 @@ function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affi
         false
     )
     if session == nil then
-        return nil, why
+        return nil, io.toError(why)
     end
 
     return new tls.Session(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)

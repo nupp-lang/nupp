@@ -10,6 +10,7 @@ of this module, and callers pass an argv and never build a command line.
 ]]
 
 const {type Process as NativeProcess} = require("nupp.io.process")
+const {type Error as IoError} = require("nupp.io")
 
 local process = {}
 
@@ -352,7 +353,7 @@ end
 --- read as one. Whether anything says such a thing depends on the machine, so
 --- merging them makes the protocol answer differently on different hosts. The
 --- caller must drain the second pipe; nothing else empties it.
-function process.startIsolated(argv: {string}, opts: process.Options?): (affine(NativeProcess)?, string?)
+function process.startIsolated(argv: {string}, opts: process.Options?): (affine(NativeProcess)?, IoError?)
     opts = (opts or {}) as process.Options
     assert(
         opts.timeoutMs == nil and opts.pump == nil and opts.cancelled == nil,

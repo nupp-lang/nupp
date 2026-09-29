@@ -122,16 +122,21 @@ export function applicationIdentity(): (string?, string?)
     return organization, application
 end
 
-local function applicationPath(kind: string): (appPaths.ApplicationPath?, string?)
+--- Carries a provider's answer out with its reason as an io error.
+local function answered<T>(value: T, why: string?): (T, io.Error?)
+    return value, io.toError(why)
+end
+
+local function applicationPath(kind: string): (appPaths.ApplicationPath?, io.Error?)
     if organization == nil or application == nil then
-        return nil, "application identity is unset; call files.setApplicationIdentity first"
+        return nil, io.toError("application identity is unset; call files.setApplicationIdentity first", "invalid")
     end
     local key = kind .. "\0" .. organization .. "\0" .. application
     local remembered = roots[key]
     if remembered ~= nil then
         local created, reason = provider.createDirectory(remembered)
         if not created then
-            return nil, reason
+            return nil, io.toError(reason)
         end
         return remembered, nil
     end
@@ -140,7 +145,7 @@ local function applicationPath(kind: string): (appPaths.ApplicationPath?, string
         roots[key] = value
     end
 
-    return value, reason
+    return value, io.toError(reason)
 end
 
 --- Resolves and creates this application's platform configuration directory.
@@ -149,21 +154,21 @@ end
 --- clearing one with a recursive `remove` never reaches another.
 --- @return the configuration path, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function configurationPath(): (appPaths.ApplicationPath?, string?)
+export function configurationPath(): (appPaths.ApplicationPath?, io.Error?)
     return applicationPath("configuration")
 end
 
 --- Resolves and creates this application's platform data directory.
 --- @return the data path, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function dataPath(): (appPaths.ApplicationPath?, string?)
+export function dataPath(): (appPaths.ApplicationPath?, io.Error?)
     return applicationPath("data")
 end
 
 --- Resolves and creates this application's platform cache directory.
 --- @return the cache path, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function cachePath(): (appPaths.ApplicationPath?, string?)
+export function cachePath(): (appPaths.ApplicationPath?, io.Error?)
     return applicationPath("cache")
 end
 
@@ -175,8 +180,8 @@ export const capabilities = provider.capabilities
 --- @param path the path to inspect
 --- @return its metadata, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function info(path: Path): (messages.Info?, string?)
-    return provider.info(path)
+export function info(path: Path): (messages.Info?, io.Error?)
+    return answered(provider.info(path))
 end
 
 --- Reports whether a path resolves.
@@ -221,8 +226,8 @@ end
 --- @param path the link to read
 --- @return its target, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function readLink(path: Path): (paths.Path?, string?)
-    return provider.readLink(path)
+export function readLink(path: Path): (paths.Path?, io.Error?)
+    return answered(provider.readLink(path))
 end
 
 --- Creates a symbolic link when the provider supports one.
@@ -231,8 +236,8 @@ end
 --- @param kind whether a Windows link names a file or directory
 --- @return whether the link was created
 --- @return a failure reason, when unsuccessful
-export function createSymlink(targetPath: Path, link: Path, kind: ("file" | "directory")?): (boolean, string?)
-    return provider.createSymlink(targetPath, link, kind)
+export function createSymlink(targetPath: Path, link: Path, kind: ("file" | "directory")?): (boolean, io.Error?)
+    return answered(provider.createSymlink(targetPath, link, kind))
 end
 
 --- Sets or clears a path's native read-only attribute.
@@ -240,16 +245,16 @@ end
 --- @param readOnly whether writes should be refused
 --- @return whether the attribute was changed
 --- @return a failure reason, when unsuccessful
-export function setReadOnly(path: Path, readOnly: boolean): (boolean, string?)
-    return provider.setReadOnly(path, readOnly)
+export function setReadOnly(path: Path, readOnly: boolean): (boolean, io.Error?)
+    return answered(provider.setReadOnly(path, readOnly))
 end
 
 --- Creates a directory and all missing parents.
 --- @param path the directory to create
 --- @return whether the directory exists afterward
 --- @return a failure reason, when unsuccessful
-export function createDirectory(path: Path): (boolean, string?)
-    return provider.createDirectory(path)
+export function createDirectory(path: Path): (boolean, io.Error?)
+    return answered(provider.createDirectory(path))
 end
 
 --- Removes a file, link, or directory.
@@ -257,8 +262,8 @@ end
 --- @param recursive whether to remove a directory's contents
 --- @return whether the path was removed
 --- @return a failure reason, when unsuccessful
-export function remove(path: Path, recursive: boolean?): (boolean, string?)
-    return provider.remove(path, recursive)
+export function remove(path: Path, recursive: boolean?): (boolean, io.Error?)
+    return answered(provider.remove(path, recursive))
 end
 
 --- Renames a path, replacing an existing destination when supported.
@@ -266,32 +271,32 @@ end
 --- @param to the destination path
 --- @return whether the path was renamed
 --- @return a failure reason, when unsuccessful
-export function rename(from: Path, to: Path): (boolean, string?)
-    return provider.rename(from, to)
+export function rename(from: Path, to: Path): (boolean, io.Error?)
+    return answered(provider.rename(from, to))
 end
 
 --- Lists a directory's immediate children.
 --- @param path the directory to list
 --- @return its entries, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function list(path: Path): ({messages.Entry}?, string?)
-    return provider.list(path)
+export function list(path: Path): ({messages.Entry}?, io.Error?)
+    return answered(provider.list(path))
 end
 
 --- Expands a native filesystem glob.
 --- @param pattern the glob pattern
 --- @return sorted matching paths, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function glob(pattern: string): ({paths.Path}?, string?)
-    return provider.glob(pattern)
+export function glob(pattern: string): ({paths.Path}?, io.Error?)
+    return answered(provider.glob(pattern))
 end
 
 --- Reads an entire file as bytes.
 --- @param path the file to read
 --- @return its bytes, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function read(path: Path): (string?, string?)
-    return provider.read(path)
+export function read(path: Path): (string?, io.Error?)
+    return answered(provider.read(path))
 end
 
 --- Replaces a file with the supplied bytes.
@@ -299,8 +304,8 @@ end
 --- @param bytes the byte string or view to write
 --- @return whether the bytes were written
 --- @return a failure reason, when unsuccessful
-export function write(path: Path, borrows bytes: string | io.ByteView): (boolean, string?)
-    return provider.write(path, bytes)
+export function write(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+    return answered(provider.write(path, bytes))
 end
 
 --- Appends bytes to a file, creating it when absent.
@@ -308,8 +313,8 @@ end
 --- @param bytes the byte string or view to append
 --- @return whether the bytes were written
 --- @return a failure reason, when unsuccessful
-export function append(path: Path, borrows bytes: string | io.ByteView): (boolean, string?)
-    return provider.append(path, bytes)
+export function append(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+    return answered(provider.append(path, bytes))
 end
 
 --- Atomically replaces a file when the provider supports it.
@@ -317,8 +322,8 @@ end
 --- @param bytes the byte string or view to write
 --- @return whether the file was replaced
 --- @return a failure reason, when unsuccessful
-export function writeAtomic(path: Path, borrows bytes: string | io.ByteView): (boolean, string?)
-    return provider.writeAtomic(path, bytes)
+export function writeAtomic(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+    return answered(provider.writeAtomic(path, bytes))
 end
 
 --- Copies one file over another.
@@ -326,8 +331,8 @@ end
 --- @param to the destination file
 --- @return whether the file was copied
 --- @return a failure reason, when unsuccessful
-export function copy(from: Path, to: Path): (boolean, string?)
-    return provider.copy(from, to)
+export function copy(from: Path, to: Path): (boolean, io.Error?)
+    return answered(provider.copy(from, to))
 end
 
 --- Reports whole-file transfers that have not settled.
@@ -339,8 +344,13 @@ export const pendingTransfers = provider.pendingTransfers
 --- @param mode the access mode, defaulting to read
 --- @return the open file owner, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function open(path: Path, mode: messages.Mode?): (affine(contracts.File?), string?)
-    return provider.open(path, mode)
+export function open(path: Path, mode: messages.Mode?): (affine(contracts.File?), io.Error?)
+    local file, why = provider.open(path, mode)
+    if file == nil then
+        return nil, io.toError(why)
+    end
+
+    return file, nil
 end
 
 --- Opens a file as a line reader, which takes the file and closes it with itself.
@@ -365,10 +375,10 @@ end
 --- @return the line reader, or nil when the file cannot be opened
 --- @return a failure reason, when unsuccessful
 --- @raises string when limit is not a positive integer
-export function lines(path: Path, limit: integer?): (affine(io.Lines)?, string?)
+export function lines(path: Path, limit: integer?): (affine(io.Lines)?, io.Error?)
     local file, reason = provider.open(path, "r")
     if file == nil then
-        return nil, reason
+        return nil, io.toError(reason)
     end
 
     return io.newLines(file, limit), nil
@@ -378,8 +388,13 @@ end
 --- @param options naming and placement options
 --- @return the temporary path owner, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function createTemporaryFile(options: messages.TemporaryOptions?): (affine(contracts.TemporaryPath?), string?)
-    return provider.createTemporaryFile(options)
+export function createTemporaryFile(options: messages.TemporaryOptions?): (affine(contracts.TemporaryPath?), io.Error?)
+    local owner, why = provider.createTemporaryFile(options)
+    if owner == nil then
+        return nil, io.toError(why)
+    end
+
+    return owner, nil
 end
 
 --- Creates a native temporary directory owner when the provider supports one.
@@ -388,22 +403,33 @@ end
 --- @return a failure reason, when unsuccessful
 export function createTemporaryDirectory(
     options: messages.TemporaryOptions?
-): (affine(contracts.TemporaryPath?), string?)
-    return provider.createTemporaryDirectory(options)
+): (affine(contracts.TemporaryPath?), io.Error?)
+    local owner, why = provider.createTemporaryDirectory(options)
+    if owner == nil then
+        return nil, io.toError(why)
+    end
+
+    return owner, nil
 end
 
 --- Resolves one conventional native user folder.
 --- @param which the folder to resolve
 --- @return its native path, or nil when unavailable
 --- @return a failure reason, when unsuccessful
-export const userFolder = provider.userFolder
+export function userFolder(which: messages.UserFolder): (paths.Path?, io.Error?)
+    return answered(provider.userFolder(which))
+end
 
 --- Returns the native running executable's directory.
 --- @return the executable directory, or nil when unavailable
 --- @return a failure reason, when unsuccessful
-export const executableDirectory = provider.executableDirectory
+export function executableDirectory(): (paths.Path?, io.Error?)
+    return answered(provider.executableDirectory())
+end
 
 --- Requests non-evictable browser storage; native providers succeed without work.
 --- @return whether persistence is guaranteed
 --- @return a failure reason, when unsuccessful
-export const requestPersistentStorage = provider.requestPersistentStorage
+export function requestPersistentStorage(): (boolean, io.Error?)
+    return answered(provider.requestPersistentStorage())
+end

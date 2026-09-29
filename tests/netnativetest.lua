@@ -116,6 +116,8 @@ function M.connectingNowhereReportsWhy()
    local stream, why = net.connect({host = "127.0.0.1", port = 1})
    assertEq(stream, nil, "a refused connect answers nil")
    assertTrue(why ~= nil, "and says why")
+   assertEq(why.kind, "refused", "as a refusal, whatever words the platform used: " .. tostring(why))
+   assertTrue(("connect: " .. why):find(why.message, 1, true) ~= nil, "and it joins text as its message")
 end
 
 function M.aNameThatDoesNotResolveReportsWhy()
@@ -267,6 +269,7 @@ function M.aConnectGivesUpOnItsDeadline()
    })
    assertEq(stream, nil, "the connect gives up rather than hanging")
    assertTrue(why ~= nil, "and says why")
+   assertEq(why.kind, "timeout", "as a timeout: " .. tostring(why))
    assertTrue(os.clock() - started < 10, "well before anything else would time it out")
 end
 

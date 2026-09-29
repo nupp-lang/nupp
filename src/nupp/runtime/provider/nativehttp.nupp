@@ -950,11 +950,11 @@ end
 --- @return the response, owned by the caller, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @raises string when the request names no `http` or `https` URL
-function http.Client:send(borrows request: http.Request): (http.Response?, string?)
+function http.Client:send(borrows request: http.Request): (http.Response?, io.Error?)
     local given = request
     local state = redirectState[request] or {}
     if self._closed then
-        return nil, "the HTTP client is closed"
+        return nil, io.toError("the HTTP client is closed")
     end
     if given == nil or given.url == nil or type(given.url.toString) ~= "function" then
         error("nupp: HTTP request url must be a URI", 2)
@@ -1020,7 +1020,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     local deadline = state.deadline or (now + requestTimeout)
     local remaining = math.floor(deadline - now) as integer
     if remaining < 1 then
-        return nil, "HTTP request timed out"
+        return nil, io.toError("HTTP request timed out")
     end
     local descriptor = {
         uri = given.url,
@@ -1042,17 +1042,17 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     while transfer == nil do
         remaining = math.floor(deadline - self._native:now()) as integer
         if remaining < 1 then
-            return nil, "HTTP request timed out waiting for admission"
+            return nil, io.toError("HTTP request timed out waiting for admission")
         end
         descriptor.timeoutMs = remaining
         local full: boolean?
         transfer, reason, full = self._native:send(descriptor)
         if transfer == nil and not full then
-            return nil, reason
+            return nil, io.toError(reason)
         elseif transfer == nil then
             waitAdmission(self)
             if self._closed then
-                return nil, "the HTTP client is closed"
+                return nil, io.toError("the HTTP client is closed")
             end
         end
     end
@@ -1149,20 +1149,20 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     if head == nil or head.reason ~= nil then
         problem = head and head.reason or "HTTP transfer failed"
         transfer:close()
-        return nil, problem
+        return nil, io.toError(problem)
     end
     local status = head.status
     if type(status) ~= "number" or status ~= math.floor(status) or status < 100 or status > 599 then
         transfer:close()
-        return nil, "the HTTP provider returned an invalid response status"
+        return nil, io.toError("the HTTP provider returned an invalid response status")
     end
     if head.version ~= 10 and head.version ~= 11 and head.version ~= 20 then
         transfer:close()
-        return nil, "the HTTP provider returned an invalid protocol version"
+        return nil, io.toError("the HTTP provider returned an invalid protocol version")
     end
     if type(head.headers) ~= "string" then
         transfer:close()
-        return nil, "the HTTP provider returned invalid response headers"
+        return nil, io.toError("the HTTP provider returned invalid response headers")
     end
     local location = manualRedirects and packedHeader(head.headers, "location") or nil
     if manualRedirects
@@ -1175,18 +1175,18 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 location = nil
             else
                 transfer:close()
-                return nil, "HTTP request exceeded maxRedirects"
+                return nil, io.toError("HTTP request exceeded maxRedirects")
             end
         end
         if location ~= nil then
             local target, targetReason = given.url:resolve(location)
             if target == nil then
                 transfer:close()
-                return nil, targetReason or "HTTP redirect has an invalid location"
+                return nil, io.toError(targetReason or "HTTP redirect has an invalid location")
             end
             if target:scheme() ~= "http" and target:scheme() ~= "https" then
                 transfer:close()
-                return nil, "HTTP redirect must use http or https"
+                return nil, io.toError("HTTP redirect must use http or https", "invalid")
             end
             local nextMethod, nextBody = method, requestBody
             local dropsBody = status == 303 and method ~= "HEAD"
@@ -1202,7 +1202,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 end
             elseif reader ~= nil then
                 transfer:close()
-                return nil, "HTTP redirect cannot replay a ReaderBody"
+                return nil, io.toError("HTTP redirect cannot replay a ReaderBody", "unsupported")
             end
             if origin(given.url) ~= origin(target) then
                 for _, name in ipairs({"authorization", "proxy-authorization", "cookie", "host"}) do
@@ -1229,12 +1229,12 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     local bodyReady, bodyReason = transfer:takeBody()
     if not bodyReady then
         transfer:close()
-        return nil, bodyReason
+        return nil, io.toError(bodyReason)
     end
     local effective = head.url == nil and given.url or uri.newURI(head.url)
     if effective == nil then
         transfer:close()
-        return nil, "the HTTP provider returned an invalid effective URL"
+        return nil, io.toError("the HTTP provider returned an invalid effective URL")
     end
     local version: http.Version = head.version == 10 and "1.0" or head.version == 20 and "2" or "1.1"
     local responseBody = makeBody(self, transfer)

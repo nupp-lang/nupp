@@ -256,6 +256,28 @@ is only borrowed. The buffer created by the no-argument form belongs to the
 scalar writer; `buffer()` borrows it for as long as the scalar writer remains
 live.
 
+## Failures
+
+The files, process, network, TLS and HTTP modules answer a failure from the
+environment as `nil, err`, where `err` is a [](nupp.io.Error): a `kind` a
+program can branch on and a `message` a person can read. The kind is the same
+on every platform and provider, so a missing file is `"notFound"` whether the
+operating system or the browser said so; the message is whatever the platform
+said and is not.
+
+```nupp
+local text, err = nupp.io.files.read("settings.json")
+if text == nil and err ~= nil and err.kind == "notFound" then
+    text = "{}"
+end
+```
+
+An error prints as its message, and joins text the same way, so
+`assert(files.read(path))` and `print("cannot read: " .. err)` read as they
+would with a string. The reads and writes of the `Reader` and `Writer`
+contracts are the exception: their reason stays a string, the same message,
+because a buffer or a string reader answers through the same contract.
+
 ## Byte queues
 
 A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
@@ -348,6 +370,139 @@ export type BufferWriteLease = bytes.BufferWriteLease
 --- separately.
 --- @export
 export type Buffer = bytes.Buffer
+
+--- What kind of failure an io operation met, the same on every platform.
+---
+--- - `notFound`: the file, program, host or other name does not exist.
+--- - `permission`: the platform refused the operation to this process.
+--- - `timeout`: a deadline passed before the operation finished.
+--- - `refused`: the peer turned the connection away.
+--- - `closed`: the resource, or the far end of it, has already gone.
+--- - `invalid`: what was sent or received was not well formed.
+--- - `limit`: a size, count or capacity bound was reached.
+--- - `unsupported`: this platform or provider cannot do it at all.
+--- - `other`: anything else; the message says what.
+--- @export
+export type ErrorKind = "notFound"
+    | "permission"
+    | "timeout"
+    | "refused"
+    | "closed"
+    | "invalid"
+    | "limit"
+    | "unsupported"
+    | "other"
+
+--- Why an io operation failed: a kind to branch on and a message to show.
+---
+--- It prints as its message, and joins text as its message does, so code that
+--- treats a reason as text keeps working. Compare `kind` rather than matching
+--- the message, which is the platform's own words and differs between them.
+--- @export
+export record Error
+    --- What kind of failure it was.
+    kind: ErrorKind
+
+    --- What happened, in the platform's or the module's words.
+    message: string
+
+    metamethod __tostring: function(self): string
+
+    metamethod __concat: function(left: string | number | Error, right: string | number | Error): string
+end
+
+Error.__tostring = function(self: Error): string
+    return self.message
+end
+
+Error.__concat = function(left: string | number | Error, right: string | number | Error): string
+    return tostring(left) .. tostring(right)
+end
+
+-- The platform's words for each kind, most specific first. Matched against the
+-- lowercased message, so the native providers' operating-system text, the
+-- browser's DOMException names and this library's own reasons all land on the
+-- same kind. The order matters where one message could match two: a refused
+-- connection that timed out is a timeout.
+local KIND_PATTERNS: {
+    {string}
+} = {
+    {"timeout", "timed out"},
+    {"timeout", "timeouterror"},
+    {"timeout", "deadline"},
+    {"notFound", "no such file"},
+    {"notFound", "not found"},
+    {"notFound", "notfounderror"},
+    {"notFound", "cannot find"},
+    {"notFound", "does not exist"},
+    {"notFound", "no such host"},
+    {"notFound", "failed to lookup address"},
+    {"notFound", "name or service not known"},
+    {"notFound", "nodename nor servname"},
+    {"refused", "connection refused"},
+    {"refused", "actively refused"},
+    {"refused", "connectionrefused"},
+    {"permission", "permission denied"},
+    {"permission", "access is denied"},
+    {"permission", "not permitted"},
+    {"permission", "notallowederror"},
+    {"permission", "securityerror"},
+    {"closed", "broken pipe"},
+    {"closed", "connection reset"},
+    {"closed", "connection aborted"},
+    {"closed", "is closed"},
+    {"closed", "was closed"},
+    {"closed", "no longer reading"},
+    {"closed", "aborterror"},
+    {"limit", "exceed"},
+    {"limit", "too large"},
+    {"limit", "too many"},
+    {"limit", "too long"},
+    {"limit", "quotaexceedederror"},
+    {"limit", "no space"},
+    {"limit", "capacity"},
+    {"unsupported", "not supported"},
+    {"unsupported", "unsupported"},
+    {"unsupported", "notsupportederror"},
+    {"invalid", "invalid"},
+    {"invalid", "malformed"},
+    {"invalid", "typemismatcherror"},
+}
+
+--- Answers the kind a failure message describes, or `other`.
+---
+--- For providers, which mostly have only a platform's text to go on.
+--- @param message the platform's or the provider's words
+--- @return the kind those words describe
+--- @internal
+export function classify(message: string): ErrorKind
+    const lowered = message:lower()
+    for _, entry in ipairs(KIND_PATTERNS) do
+        if lowered:find(entry[2], 1, true) ~= nil then
+            return entry[1] as ErrorKind
+        end
+    end
+
+    return "other"
+end
+
+--- Makes an error from a provider's reason: an error as it is, text classified
+--- by `classify` unless a kind is given, and nothing as nothing.
+--- @param reason the provider's reason, if it gave one
+--- @param kind the kind to use instead of classifying text
+--- @return the error, or nil when there was no reason
+--- @internal
+export function toError(reason: string | Error | nil, kind: ErrorKind?): Error?
+    if reason == nil then
+        return nil
+    end
+    if reason is Error then
+        return reason
+    end
+    const message = tostring(reason)
+
+    return new Error(kind = kind ?? classify(message), message = message)
+end
 
 --- Reads fixed-width numbers from a source of bytes.
 --- @export

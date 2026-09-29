@@ -249,6 +249,21 @@ function M.aCrossOriginRedirectCarriesNeitherTheOldHostNorAReferer()
     client:close()
 end
 
+-- A request past its deadline is a timeout, which a caller tells from any other
+-- failure by its kind rather than by the transport's words.
+function M.aRequestPastItsDeadlineIsATimeout()
+    if unavailable then
+        test.skip("the HTTP provider is unavailable: " .. unavailable)
+    end
+    local client = newHttpClient({timeoutMs = 200})
+    local response, reason = client:send({url = endpoint("/slow")})
+    test.equal(response, nil)
+    assert(reason ~= nil, "the request failed")
+    test.equal(reason.kind, "timeout")
+    test.equal(tostring(reason), reason.message)
+    client:close()
+end
+
 -- The bound is this side's as well: a chain past it answers this module's own
 -- reason, which it can only do when each hop is its own request.
 function M.selectivelyInsecureClientsEnforceMaxRedirectsThemselves()
@@ -258,7 +273,8 @@ function M.selectivelyInsecureClientsEnforceMaxRedirectsThemselves()
     local client = newHttpClient({insecureHosts = {"127.0.0.1"}, maxRedirects = 2,})
     local response, reason = client:send({url = endpoint("/loop")})
     test.equal(response, nil)
-    test.equal(reason, "HTTP request exceeded maxRedirects")
+    test.equal(tostring(reason), "HTTP request exceeded maxRedirects")
+    test.equal(reason.kind, "limit")
     test.equal(client:pending(), 0)
     -- One request per hop and no more: the initial request and two follows. A
     -- transport following on its own would ask the server for every hop it
@@ -465,7 +481,7 @@ function M.aReaderBodyLongerThanItsDeclarationFails()
         body = http.reader(reader, declared),
     })
     test.equal(response, nil)
-    test.equal(reason, "the upload is longer than its declared 4096 bytes")
+    test.equal(tostring(reason), "the upload is longer than its declared 4096 bytes")
     test.equal(client:pending(), 0)
     client:close()
 end
@@ -476,7 +492,7 @@ function M.aContentLengthWithoutABodyIsRefused()
     local client = ready()
     local response, reason = client:send({url = endpoint("/small"), headers = {["Content-Length"] = "5"},})
     test.equal(response, nil)
-    test.equal(reason, "Content-Length does not match the request body")
+    test.equal(tostring(reason), "Content-Length does not match the request body")
     client:close()
 end
 
@@ -485,7 +501,7 @@ function M.aFileBodyThatIsNotARegularFileIsRefused()
     local client = ready()
     local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = http.file("/dev/null"),})
     test.equal(response, nil)
-    assert(reason and reason:find("is not a regular file", 1, true), reason)
+    assert(reason and tostring(reason):find("is not a regular file", 1, true), tostring(reason))
     client:close()
 end
 

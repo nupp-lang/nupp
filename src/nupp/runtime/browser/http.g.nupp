@@ -258,15 +258,15 @@ record http.Client is contracts.Client
         return self._pending
     end
 
-    function send(self, borrows request: http.Request): (http.Response?, string?)
+    function send(self, borrows request: http.Request): (http.Response?, io.Error?)
         if self._closed then
-            return nil, "the HTTP client is closed"
+            return nil, io.toError("the HTTP client is closed")
         end
         if type(request) ~= "table" then
             error("nupp: HTTP request must be a Request", 2)
         end
         if request.stallTimeoutMs ~= nil then
-            return nil, "browser HTTP does not support stallTimeoutMs"
+            return nil, io.toError("browser HTTP does not support stallTimeoutMs")
         end
         local url = request.url
         if url == nil or type(url.toString) ~= "function" then
@@ -314,18 +314,18 @@ record http.Client is contracts.Client
             while true do
                 local bytes, reason = body.reader:read(65536)
                 if bytes == nil then
-                    return nil, reason
+                    return nil, io.toError(reason)
                 elseif bytes == "" then
                     break
                 end
                 length = length + #bytes
                 if body.length ~= nil and length > body.length then
-                    return nil, "HTTP upload exceeded its declared length"
+                    return nil, io.toError("HTTP upload exceeded its declared length")
                 end
                 chunks[#chunks + 1] = bytes
             end
             if body.length ~= nil and length ~= body.length then
-                return nil, "HTTP upload ended before its declared length"
+                return nil, io.toError("HTTP upload ended before its declared length")
             end
             upload = table.concat(chunks)
             if body.contentType ~= nil and headerPositions["content-type"] == nil then
@@ -333,7 +333,7 @@ record http.Client is contracts.Client
                 headerPositions["content-type"] = #headers
             end
         elseif body ~= nil then
-            return nil, "browser HTTP file uploads require an available file host"
+            return nil, io.toError("browser HTTP file uploads require an available file host")
         end
         local descriptor: any = {
             memoryResponse = true,
@@ -373,31 +373,31 @@ record http.Client is contracts.Client
         end
         local answer = suspended as any
         if type(answer) ~= "table" or type(answer.ok) ~= "boolean" then
-            return nil, "browser HTTP host returned an invalid response"
+            return nil, io.toError("browser HTTP host returned an invalid response")
         end
         if not answer.ok then
-            return nil, type(answer.error) == "string" and answer.error or "browser HTTP request failed"
+            return nil, io.toError(type(answer.error) == "string" and answer.error or "browser HTTP request failed")
         end
         local value = answer.value
         if type(value) ~= "table" then
-            return nil, "browser HTTP host returned an invalid response value"
+            return nil, io.toError("browser HTTP host returned an invalid response value")
         end
         local body = hostInteger(value.body, 1, MAX_EXACT_INTEGER)
         if body == nil then
-            return nil, "browser HTTP host returned an invalid body handle"
+            return nil, io.toError("browser HTTP host returned an invalid body handle")
         end
         local bodyBytes = hostInteger(value.bodyBytes, 0, MAX_EXACT_INTEGER)
         local status = hostInteger(value.status, 100, 599)
         local byName, headersProblem = responseHeaders(value.headers)
         if bodyBytes == nil or (descriptor.maxBytes > 0 and bodyBytes > descriptor.maxBytes) then
             releaseBody(body)
-            return nil, "browser HTTP host returned an invalid body length"
+            return nil, io.toError("browser HTTP host returned an invalid body length")
         elseif status == nil then
             releaseBody(body)
-            return nil, "browser HTTP host returned an invalid status"
+            return nil, io.toError("browser HTTP host returned an invalid status")
         elseif byName == nil then
             releaseBody(body)
-            return nil, headersProblem
+            return nil, io.toError(headersProblem)
         end
         local storage = io.newBuffer(bodyBytes)
         local lease = storage:reserveWrite(0, bodyBytes)

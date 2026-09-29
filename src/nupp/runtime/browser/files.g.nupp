@@ -415,19 +415,20 @@ local record File is io.Reader, io.Writer
         return total, nil
     end
 
-    function size(borrows self): (integer?, string?)
+    function size(borrows self): (integer?, io.Error?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
         local value, reason = effect("file-size", nil, {handle = self._handle,})
         if value == nil then
-            return nil, reason
+            return nil, io.toError(reason)
         end
+        local size, invalid = protocol(value, "size", 0)
 
-        return protocol(value, "size", 0)
+        return size, io.toError(invalid, "invalid")
     end
 
-    function seek(exclusive self, offset: integer?, origin: messages.Origin?): (integer?, string?)
+    function seek(exclusive self, offset: integer?, origin: messages.Origin?): (integer?, io.Error?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -442,13 +443,14 @@ local record File is io.Reader, io.Writer
             origin = whence,
         })
         if value == nil then
-            return nil, reason
+            return nil, io.toError(reason)
         end
+        local position, invalid = protocol(value, "position", 0)
 
-        return protocol(value, "position", 0)
+        return position, io.toError(invalid, "invalid")
     end
 
-    function position(exclusive self): (integer?, string?)
+    function position(exclusive self): (integer?, io.Error?)
         return self:seek(0, "current")
     end
 
