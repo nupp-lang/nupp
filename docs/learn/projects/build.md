@@ -1121,6 +1121,7 @@ boundary, not an unpinned-install mode.
 | `luaDir` | Where the Lua headers and libraries live |
 | `server` | An additional rocks server to fetch from |
 | `luarocks` | The LuaRocks executable, `luarocks` by default |
+| `rockDependencies` | `false` installs the rock without its declared dependencies |
 
 Rocks install into `.rocks` in the project root, a tree the project owns rather
 than the one the user's account owns, so two checkouts can hold different
