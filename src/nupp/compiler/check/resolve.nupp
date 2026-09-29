@@ -670,6 +670,15 @@ function resolve.install(c: state.Checker): nil
             if t and t.tag ~= "genericAlias" and resolved then
                 return T.unwrapOwnership(resolved)
             end
+            -- An alias that only names a closeable declaration carries that
+            -- declaration's own policy and nothing the alias wrote, so it names the
+            -- same representation the declaration's own name would here.
+            if resolved and resolved.tag == "affine" then
+                local representation = T.unwrapOwnership(resolved)
+                if T.inherentOwner(representation) == resolved then
+                    return representation
+                end
+            end
             return resolved
         end
 

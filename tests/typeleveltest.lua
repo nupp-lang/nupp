@@ -1481,6 +1481,34 @@ local AFFINE_TYPES = table.concat(
     "\n"
 )
 
+-- A borrowed parameter names the representation it borrows, whether it spells a
+-- closeable generic declaration directly or through an alias of it, so one fits
+-- wherever the other is wanted.
+function M.anAliasOfACloseableGenericBorrowsTheSameRepresentation()
+    clean([[
+local m = {}
+interface m.Gen<T> is nupp.Closeable
+    _w: T?
+    close: function(takes self: m.Gen<T>): nil
+end
+interface m.User
+    @readonly
+    useGen: function<T>(borrows self: m.User, borrows item: m.Gen<T>): nil
+    @readonly
+    useFixed: function(borrows self: m.User, borrows item: m.Gen<integer>): nil
+end
+local type GenAlias<T> = m.Gen<T>
+local function viaAlias(borrows user: m.User, borrows gen: GenAlias<integer>): nil
+    user:useGen(gen)
+    user:useFixed(gen)
+end
+local function direct(borrows user: m.User, borrows gen: m.Gen<integer>): nil
+    viaAlias(user, gen)
+end
+return m, direct
+]])
+end
+
 function M.usersCanDeclareGenericAffineTypes()
     clean(
         AFFINE_TYPES .. table.concat(
