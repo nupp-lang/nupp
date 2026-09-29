@@ -163,7 +163,7 @@ local function plantedTree(stage0Body)
     -- release names it, which is what `scripts/stage0-runtime.lua` looks for.
     plant(
         "stage0.lua",
-        'package.preload["nupp.compiler.build.native"] = function() error("provider body must not run") end\n' .. (
+        'package.preload["nupp.tools.build.native"] = function() error("provider body must not run") end\n' .. (
             stage0Body or 'print("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n'
         )
     )
