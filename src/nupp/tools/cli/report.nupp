@@ -109,7 +109,63 @@ local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknow
     return copied
 end
 
+-- A byte that cannot stand where it is in UTF-8 becomes U+FFFD. JSON text is Unicode,
+-- and a diagnostic can quote whatever the source held: a report that raised on a stray
+-- byte would lose every diagnostic in the run, including the one about that byte.
+local REPLACEMENT = "\239\191\189"
+
+local function validUtf8(text: string): string
+    if not text:find("[\128-\255]") then
+        return text
+    end
+    local out: {string} = {}
+    local index: integer = 1
+    local length = #text
+    while index <= length do
+        local first = text:byte(index)
+        local width: integer = 0
+        local low, high = 0x80, 0xBF
+        if first < 0x80 then
+            width = 1
+        elseif first >= 0xC2 and first <= 0xDF then
+            width = 2
+        elseif first >= 0xE0 and first <= 0xEF then
+            width = 3
+            low = first == 0xE0 and 0xA0 or 0x80
+            high = first == 0xED and 0x9F or 0xBF
+        elseif first >= 0xF0 and first <= 0xF4 then
+            width = 4
+            low = first == 0xF0 and 0x90 or 0x80
+            high = first == 0xF4 and 0x8F or 0xBF
+        end
+        local valid = width > 0 and index + width - 1 <= length
+        for offset = 1, width - 1 do
+            local byte = text:byte(index + offset)
+            local lower, upper = 0x80, 0xBF
+            if offset == 1 then
+                lower, upper = low, high
+            end
+            if not byte or byte < lower or byte > upper then
+                valid = false
+                break
+            end
+        end
+        if valid then
+            out[#out + 1] = text:sub(index, index + width - 1)
+            index = index + width
+        else
+            out[#out + 1] = REPLACEMENT
+            index = index + 1
+        end
+    end
+
+    return table.concat(out)
+end
+
 local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): string
+    if type(value) == "string" then
+        return json.encode(validUtf8(value))
+    end
     if type(value) ~= "table" then
         return json.encode(value)
     end
@@ -136,7 +192,7 @@ local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): st
     end
     table.sort(keys)
     for index, key in ipairs(keys) do
-        parts[index] = json.encode(key) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
+        parts[index] = json.encode(validUtf8(key)) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
     end
     visiting[value] = nil
 

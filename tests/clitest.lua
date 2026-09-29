@@ -689,6 +689,31 @@ function M.schemaStopsAtTheProgramBoundary()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A diagnostic may quote a byte that is not UTF-8, and JSON text is Unicode. The
+-- report replaces it rather than raising, which lost every diagnostic in the run,
+-- including the one about that byte.
+function M.jsonReportsSurviveASourceByteThatIsNotUtf8()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local file = assert(io.open(dir .. "/bad.nupp", "wb"))
+    file:write("local s = 1 \255\n")
+    file:close()
+    local output = captureJsonAt(dir, "check --json bad.nupp")
+    os.execute("rm -rf '" .. dir .. "'")
+    local decoded = json.decode(output)
+    assert(decoded and decoded.ok == false, "the report is JSON: " .. output)
+    assert(#decoded.diagnostics > 0, "and carries the diagnostic: " .. output)
+    assert(not output:find("\255", 1, true), "with the byte replaced")
+
+    local report = require("nupp.tools.cli.report")
+    local encoded = report.encode("a\255b\237\160\128c\240\159\152\128")
+    assert(
+        encoded == '"a\239\191\189b\239\191\189\239\191\189\239\191\189c\240\159\152\128"',
+        "a stray byte and an encoded surrogate are each replaced, and a valid character kept: " .. encoded
+    )
+end
+
 -- A program reads its arguments from `arg` as well as from its varargs, the way a
 -- Lua script run by `luajit` does: `arg[0]` is the program and `arg[1]` its first
 -- argument, not the compiler's own command line. A module the program requires is

@@ -247,6 +247,9 @@ Read `ok` before `diagnostics`. An empty list means the project is clean only
 when `ok` is true, since a run that could not use the manifest never reached a
 file and reports the same empty list.
 
+The output is always valid UTF-8. A byte that is not UTF-8, such as one a
+diagnostic quotes from the source, is written as U+FFFD.
+
 ## Agent workflow
 
 1. Run `nupp check --json --strict`, and read `ok` first.
