@@ -524,6 +524,10 @@ type gen.HotMetadata = {
 -- Generating a module
 ----------------------------------------------------------------------------
 
+-- Set for exactly one call: the regeneration of a module whose body declared more
+-- locals than a Lua function holds. See `spillsModuleScope` below.
+local spillNextModule = false
+
 --- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
 ---
 --- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
@@ -837,6 +841,7 @@ function gen.generate(
         captureFrames = {},
         captureFrameStack = {},
         constructorReturnName = nil as string?,
+        spill = nil as any,
     }
     local coverageOn = coverage == true or type(coverage) == "table"
     local coveragePath = coverageOn
@@ -918,6 +923,48 @@ function gen.generate(
     end
 
     emitDepth.exportTableName = declaredModuleName and reservedName("__nuppExports") or nil
+    -- A module body is one Lua function, which holds at most 200 locals, and every
+    -- top-level declaration is one. A module over that is generated a second time with
+    -- its declarations -- records, structs, interfaces, cdef items and exported
+    -- functions -- moved out of locals into a table the body runs against as its
+    -- environment, so each reference stays the same text and resolves there instead.
+    -- The `local`s a program wrote stay locals, and `check` reports a module with more
+    -- of those than fit. Only a module that did not load pays for this, so every other
+    -- module is generated exactly as before.
+    local spillsModuleScope = spillNextModule
+    spillNextModule = false
+    if spillsModuleScope and declaredModuleName and hot == nil then
+        local spill = {decls = {}, names = {}, order = {}, scopeName = reservedName("__nuppScope")}
+        for _, block in ipairs(result.root.blocks or {}) do
+            for _, statement in ipairs(block.stats or {}) do
+                local actual = statement
+                while actual and (actual.kind == "exportStmt" or actual.kind == "pragmaStmt") do
+                    actual = actual.stat
+                end
+                if actual
+                    and (
+                        actual.kind == "cdefStruct"
+                        or actual.kind == "cdefFunc"
+                        or actual.kind == "recordDecl" and actual.visibility ~= "global" and not declPath(actual)
+                        or actual.kind == "localFuncStmt" and actual.exported
+                        or actual.kind == "funcStmt" and actual.exported
+                    )
+                then
+                    spill.decls[actual] = true
+                end
+            end
+        end
+        -- Names the body assigns into the table rather than through to `_G`: a bare
+        -- assignment to anything else still reaches the real global, as `global`
+        -- declarations mean it to.
+        spill.name = function(name: string): nil
+            if not spill.names[name] then
+                spill.names[name] = true
+                spill.order[#spill.order + 1] = name
+            end
+        end
+        emitDepth.spill = spill
+    end
     if declaredModuleName and cst.exportAssignment(result.root) then
         emitDepth.exportAssignmentValueName = reservedName("__nuppExportValue")
     end
@@ -6084,7 +6131,11 @@ function gen.generate(
             local path = declPath(x)
             local runtimeName = x.recordRuntimeName or path or x.name.text
             local attached = x.recordRuntimeName or path
-            local storage = attached and "" or x.visibility == "global" and "" or "local "
+            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+            if spilled then
+                emitDepth.spill.name(runtimeName)
+            end
+            local storage = (attached or spilled) and "" or x.visibility == "global" and "" or "local "
             local expr = ("%s%s = {} %s.__index = %s"):format(storage, runtimeName, runtimeName, runtimeName)
             e(expr, line)
             local nominal = x.resolvedType
@@ -6144,7 +6195,11 @@ function gen.generate(
             local path = declPath(x)
             local runtimeName = x.recordRuntimeName or path or x.name.text
             local attached = x.recordRuntimeName or path
-            local storage = attached and "" or x.visibility == "global" and "" or "local "
+            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+            if spilled then
+                emitDepth.spill.name(runtimeName)
+            end
+            local storage = (attached or spilled) and "" or x.visibility == "global" and "" or "local "
             e(("%s%s = {}"):format(storage, runtimeName), line)
             for _, entry in ipairs(defaults) do
                 entry.inlineRuntimeOwner = runtimeName
@@ -6224,11 +6279,17 @@ function gen.generate(
             end
             local line = sourceLine(x)
             local path = declPath(x)
-            local storage = path and "" or x.visibility == "global" and "" or "const "
+            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+            local storage = (path or spilled) and "" or x.visibility == "global" and "" or "const "
             -- The metatable is created up front so members declared later (function
             -- S:m()) have somewhere to attach; ffi.metatype hands back the ctype, which
             -- stays callable as the constructor.
             local mt = "__nuppMt_" .. x.name.text
+            local mtStorage = spilled and "" or "const "
+            if spilled then
+                emitDepth.spill.name(x.name.text)
+                emitDepth.spill.name(mt)
+            end
             local tag = structTag[x.name.text]
             local expr
             if tag then
@@ -6240,11 +6301,11 @@ function gen.generate(
                 ):format(
                     tag,
                     table.concat(cdecl, " ")
-                ) .. "const " .. mt .. " = {__index = {}} " .. storage .. (
+                ) .. mtStorage .. mt .. " = {__index = {}} " .. storage .. (
                     path or x.name.text
                 ) .. (" = %s(__nuppFfi.typeof(\"struct %s\"), %s)"):format(metatypeHelper(), tag, mt)
             else
-                expr = "const " .. mt .. " = {__index = {}} " .. storage .. (
+                expr = mtStorage .. mt .. " = {__index = {}} " .. storage .. (
                     path or x.name.text
                 ) .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { " .. table.concat(cdecl, " ") .. " }\""
                 if #params > 0 then
@@ -6316,10 +6377,14 @@ function gen.generate(
             local declaration = declared and ("%s %s { %s };"):format(aggregate, x.name.text, table.concat(fields, " "))
                 or ("%s %s;"):format(aggregate, x.name.text)
             -- pcall tolerates re-declaration when two modules cdef one struct
+            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+            if spilled then
+                emitDepth.spill.name(x.name.text)
+            end
             e(
                 (
-                    '_G.pcall(__nuppFfi.cdef, "%s") const %s = __nuppFfi.typeof("%s %s")'
-                ):format(declaration, x.name.text, aggregate, x.name.text),
+                    '_G.pcall(__nuppFfi.cdef, "%s") %s%s = __nuppFfi.typeof("%s %s")'
+                ):format(declaration, spilled and "" or "const ", x.name.text, aggregate, x.name.text),
                 line
             )
             return
@@ -6345,10 +6410,18 @@ function gen.generate(
                 local mapped = authored and pluck.hotLibraries[authored] or nil
                 ns = mapped and ("__nuppLib(%q)"):format(mapped) or ("__nuppLib(%s)"):format(x.fromLib.text)
             end
+            local storage = "const "
+            if emitDepth.spill and emitDepth.spill.decls[x] then
+                storage = ""
+                emitDepth.spill.name(name)
+            end
             if x.countedAbi then
                 local rawName = nextTemp()
-                e(('_G.pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, rawName, ns, name), line)
-                e((" const %s=function(%s) "):format(name, table.concat(x.countedAbi.logicalNames or {}, ",")))
+                if storage == "" then
+                    emitDepth.spill.name(rawName)
+                end
+                e(('_G.pcall(__nuppFfi.cdef, %q) %s%s = %s.%s'):format(sig, storage, rawName, ns, name), line)
+                e((" %s%s=function(%s) "):format(storage, name, table.concat(x.countedAbi.logicalNames or {}, ",")))
                 local groups: {[integer]: {any}} = {}
                 for _, mapping in ipairs(x.countedAbi.mappings or {}) do
                     local group = groups[mapping.countIndex] or {}
@@ -6398,7 +6471,7 @@ function gen.generate(
                 end
                 e(") end")
             else
-                e(('_G.pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
+                e(('_G.pcall(__nuppFfi.cdef, %q) %s%s = %s.%s'):format(sig, storage, name, ns, name), line)
             end
             pluck.emitRegistrations(x.name.cleanupRegistrations, line, nil, x.name.text)
             return
@@ -9340,11 +9413,18 @@ function gen.generate(
         end
         local instantiation = {}
         for _, name in ipairs(exportedFunctions) do
-            instantiation[
-                #instantiation + 1
-            ] = (
-                "local %s;%s[%q]=function(...) return %s(...) end;"
-            ):format(name, emitDepth.exportTableName, name, name)
+            if emitDepth.spill then
+                emitDepth.spill.name(name)
+                instantiation[
+                    #instantiation + 1
+                ] = ("%s[%q]=function(...) return %s(...) end;"):format(emitDepth.exportTableName, name, name)
+            else
+                instantiation[
+                    #instantiation + 1
+                ] = (
+                    "local %s;%s[%q]=function(...) return %s(...) end;"
+                ):format(name, emitDepth.exportTableName, name, name)
+            end
         end
 
         local function primitiveWorkerTransfer(resolved): string?
@@ -9595,6 +9675,28 @@ function gen.generate(
                 " end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;"
                 .. "package.loaded[%q]=%s;return %s"
             ):format(declaredModuleName, declaredModuleName, emitDepth.exportTableName, emitDepth.exportTableName)
+        local spill = emitDepth.spill
+        if spill then
+            -- The body runs against the table as its environment: through `setfenv` on
+            -- LuaJIT and Lua 5.1, and through its `_ENV` parameter on 5.2 and later.
+            local names = {}
+            for index, name in ipairs(spill.order) do
+                names[index] = ("[%q]=true"):format(name)
+            end
+            local scope = spill.scopeName
+            prefix = prefix:gsub("pcall%(function%(%)$", function(): string
+                return (
+                    "pcall((function(f) if _G.setfenv then _G.setfenv(f,%s) end return f end)(function(_ENV)"
+                ):format(scope)
+            end)
+            prefix = (
+                "local %s;do local names={%s};%s=_G.setmetatable({},{__index=_G,__newindex=function(t,k,v) "
+                .. "if names[k] then _G.rawset(t,k,v) else _G[k]=v end end}) end;"
+            ):format(scope, table.concat(names, ","), scope) .. prefix
+            epilogue = epilogue:gsub("^ end%);", function(): string
+                return (" end),%s);"):format(scope)
+            end)
+        end
         code = prefix .. table.concat(
             instantiation
         ) .. code .. table.concat(
@@ -10067,6 +10169,10 @@ function gen.generate(
             -- this compiler emitting Lua it should not have.
             local cap = text:match("more than (%d+) upvalues")
             local localCap = text:match("more than (%d+) local variables")
+            if localCap and not spillsModuleScope and declaredModuleName and hot == nil then
+                spillNextModule = true
+                return gen.generate(result, filename, coverage, hot, bytecodeBoundary, forcedEffects)
+            end
             local message, help
             if cap then
                 message = (

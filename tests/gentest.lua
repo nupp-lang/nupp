@@ -1147,9 +1147,10 @@ end
 -- More than 200 locals in one function is a limit of Lua's, reached by the program
 -- rather than by the compiler, so it is reported as that limit and not as a bug.
 function M.tooManyLocalsIsReportedAsTheLimit()
+    -- Locals the module wrote: declarations would be moved into a table instead.
     local lines = {}
     for index = 1, 201 do
-        lines[index] = ("export record R%d\n    v: integer\nend"):format(index)
+        lines[index] = ("local v%d = %d"):format(index, index)
     end
     local src = "module wide\n" .. table.concat(lines, "\n")
     local result = parser.parse(src, "wide.nupp")
@@ -1217,6 +1218,120 @@ function M.aFieldlessCdefStructIsOpaque()
         "local pointer = ffi.typeof(name .. ' *')",
         "print(ok, pointer ~= nil)",
     }, "\n")), "false\ttrue")
+end
+
+-- Checks and generates a declared module, runs it, and answers its exports with the
+-- generated text. The module's name is whatever its `module` line says.
+local function moduleExports(src, name)
+    local filename = name .. ".g.nupp"
+    local result = parser.parse(src, filename)
+    assertEq(#result.errors, 0, "syntax errors in test source")
+    local diagnostics = check.check(result, filename, env, {moduleName = name})
+    for _, d in ipairs(diagnostics) do
+        assert(d.severity ~= "error", "check error: " .. tostring(d.code) .. " " .. tostring(d.msg))
+    end
+    local code, generated = gen.generate(result, name)
+    assertEq(#generated, 0, generated[1] and (generated[1].code .. " " .. generated[1].msg) or "gen diagnostics")
+    local chunk = assert(loadstring(code, "@" .. filename))
+    package.loaded[name] = nil
+    local exports = chunk()
+    package.loaded[name] = nil
+
+    return exports, code
+end
+
+-- A module body is one Lua function, which holds at most 200 locals. One whose
+-- declarations do not fit is generated with them moved into a table its body runs
+-- against, so every reference keeps its spelling; one that fits is generated exactly
+-- as before (D-36, X-04).
+function M.aModuleOverTheLocalLimitSpillsItsDeclarations()
+    local function exporting(name, count)
+        local lines = {"module " .. name, "", "local base: integer = 100", "local seen: integer = 0", ""}
+        lines[#lines + 1] = "export record Counter"
+        lines[#lines + 1] = "    n: integer"
+        lines[#lines + 1] = "    function bump(self): integer self.n = self.n + 1 return self.n end"
+        lines[#lines + 1] = "end"
+        for index = 0, count - 1 do
+            lines[#lines + 1] = ("export function f%d(): integer"):format(index)
+            -- The first reads forward to the last, which is declared after it.
+            lines[#lines + 1] = index == 0 and ("    return f%d() + base"):format(count - 1)
+                or ("    return %d"):format(index)
+            lines[#lines + 1] = "end"
+        end
+        lines[#lines + 1] = "export function counted(): integer"
+        lines[#lines + 1] = "    seen = seen + 1"
+        lines[#lines + 1] = "    local counter = new Counter(n = seen)"
+        lines[#lines + 1] = "    return counter:bump()"
+        lines[#lines + 1] = "end"
+        lines[#lines + 1] = ""
+
+        return table.concat(lines, "\n")
+    end
+
+    local exports, code = moduleExports(exporting("genspillwide", 201), "genspillwide")
+    assertEq(exports.f200(), 200, "a spilled export answers")
+    assertEq(exports.f0(), 300, "a forward reference reaches a declaration made after it")
+    assertEq(exports.counted(), 2, "a spilled record builds instances and a user local stays shared")
+    assertEq(exports.counted(), 3, "the user local keeps its state between calls")
+    assertEq(rawget(_G, "f200"), nil, "a spilled declaration does not leak into the global table")
+    assert(code:find("__nuppScope", 1, true), "the wide module runs against a table")
+
+    local _, narrow = moduleExports(exporting("genspillnarrow", 150), "genspillnarrow")
+    assertEq(narrow:find("__nuppScope", 1, true), nil, "a module that fits keeps every declaration a local")
+    assert(narrow:find("local f149;", 1, true), "and declares its exports the way it always did")
+end
+
+-- What `nupp import-c` writes for a large header: hundreds of cdef declarations and an
+-- `export =` table naming them. Every one is a declaration, so the module spills.
+function M.aLargeImportCModuleBuildsAndRuns()
+    local lines = {"module genspillcdefs", ""}
+    local names = {}
+    for index = 0, 289 do
+        lines[#lines + 1] = ("cdef struct NuppGenSpill%d"):format(index)
+        lines[#lines + 1] = "   a: int32"
+        lines[#lines + 1] = "end"
+        names[#names + 1] = ("NuppGenSpill%d = NuppGenSpill%d"):format(index, index)
+    end
+    local functions = {
+        "abs(x: int32): int32",
+        "labs(x: int64): int64",
+        "atoi(s: cstring): int32",
+        "strlen(s: cstring): uint64",
+        "strcmp(a: cstring, b: cstring): int32",
+        "strncmp(a: cstring, b: cstring, n: uint64): int32",
+        "toupper(c: int32): int32",
+        "tolower(c: int32): int32",
+        "isdigit(c: int32): int32",
+        "isalpha(c: int32): int32",
+    }
+    for _, signature in ipairs(functions) do
+        lines[#lines + 1] = "cdef function " .. signature
+        local name = signature:match("^(%w+)")
+        names[#names + 1] = name .. " = " .. name
+    end
+    lines[#lines + 1] = "export = { " .. table.concat(names, ", ") .. " }"
+    lines[#lines + 1] = ""
+    local exports, code = moduleExports(table.concat(lines, "\n"), "genspillcdefs")
+    assert(code:find("__nuppScope", 1, true), "three hundred cdef declarations spill")
+    assertEq(exports.abs(-3), 3, "a spilled cdef function calls through")
+    assertEq(tonumber(exports.strlen("four")), 4, "and so does another")
+    assertEq(exports.NuppGenSpill289(7).a, 7, "a spilled cdef struct constructs")
+end
+
+-- The `local`s a module writes stay locals, so past the limit nothing can spill them:
+-- `check` says so, under the code `build` would report.
+function M.tooManyUserLocalsAreReportedByCheck()
+    local lines = {"module genspilllocals", ""}
+    for index = 0, 200 do
+        lines[#lines + 1] = ("local v%d: integer = %d"):format(index, index)
+    end
+    lines[#lines + 1] = "export function sum(): integer return v0 + v200 end"
+    local result = parser.parse(table.concat(lines, "\n"), "genspilllocals.g.nupp")
+    local codes = {}
+    for _, d in ipairs(check.check(result, "genspilllocals.g.nupp", env, {moduleName = "genspilllocals"})) do
+        codes[#codes + 1] = d.code .. ":" .. d.line
+    end
+    assertEq(table.concat(codes, " "), "NUPP3005:203", "the 201st local is where the module stops fitting")
 end
 
 return M

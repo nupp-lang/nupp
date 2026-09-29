@@ -289,6 +289,67 @@ local function reportTypedLayer(c: state.Checker, node: any)
     end
 end
 
+--- How many locals a Lua function holds at once, the module body included.
+local MODULE_LOCAL_LIMIT = 200
+
+--- Reports a top level with more locals than its module body can hold.
+---
+--- A declared module whose declarations -- records, structs, interfaces, cdef items
+--- and exported functions -- do not fit is generated with them moved into a table, so
+--- only the `local`s it wrote are left to count. A file with no `module` line is not
+--- wrapped that way and counts its records, structs and cdef items too. Past the limit
+--- the generated Lua does not load, and saying so here is what keeps `check` agreeing
+--- with `build`, which reports the same code.
+local function reportModuleLocals(c: state.Checker, root: any, declaredModule: boolean): nil
+    local count = 0
+    local reported = false
+
+    local function counted(node: any, names: integer): nil
+        count = count + names
+        if count > MODULE_LOCAL_LIMIT and not reported then
+            reported = true
+            c.diag(
+                "NUPP3005",
+                node,
+                (
+                    "this module's top level declares more than %d locals, which is more than a Lua function can hold"
+                ):format(MODULE_LOCAL_LIMIT),
+                nil,
+                {
+                    help = "gather related values into a table, or split the module; records, structs, cdef items "
+                    .. "and exported functions of a declared module do not count"
+                }
+            )
+        end
+    end
+
+    for _, block in ipairs(root.blocks or {}) do
+        for _, statement in ipairs(block.stats or {}) do
+            local actual = statement
+            while actual and (actual.kind == "exportStmt" or actual.kind == "pragmaStmt") do
+                actual = actual.stat
+            end
+            if not actual or actual.comptimeTok or actual.comptimeFunction then
+                -- Nothing at run time.
+            elseif actual.kind == "localStmt" then
+                counted(actual, #(actual.names or {}))
+            elseif actual.kind == "localFuncStmt" and not (declaredModule and actual.exported) then
+                counted(actual, 1)
+            elseif not declaredModule
+                and (
+                    actual.kind == "cdefStruct"
+                    or actual.kind == "cdefFunc"
+                    or actual.kind == "recordDecl"
+                    and (actual.declKind == "record" or actual.declKind == "struct")
+                    and actual.visibility ~= "global"
+                )
+            then
+                counted(actual, actual.declKind == "struct" and 2 or 1)
+            end
+        end
+    end
+end
+
 ----------------------------------------------------------------------------
 -- Yielding
 ----------------------------------------------------------------------------
@@ -3093,6 +3154,9 @@ function checkMod.check(
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
         auditWithGotos(block)
+    end
+    if not opts.declarationFile then
+        reportModuleLocals(c, result.root, declaredModuleName ~= nil)
     end
     if declaredModuleName then
         local assignment = cst.exportAssignment(result.root)
