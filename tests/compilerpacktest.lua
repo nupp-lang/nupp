@@ -26,7 +26,6 @@ function M.resolvesAndAuthenticatesTargetIndexedTools()
    os.execute("mkdir -p '" .. directory .. "'")
    local cc = tool(directory .. "/cc", "synthetic compiler")
    local ar = tool(directory .. "/ar", "synthetic archiver")
-   local linker = tool(directory .. "/host-link", "synthetic host linker")
    write(directory .. "/pack.json", json.encode({
       schemaVersion = 1,
       host = host,
@@ -34,7 +33,6 @@ function M.resolvesAndAuthenticatesTargetIndexedTools()
       version = "synthetic-1",
       cc = cc,
       ar = ar,
-      linkHost = linker,
       compileFlags = {"--sysroot={pack}/sysroot"},
       linkFlags = {"-L{pack}/lib"},
    }))
@@ -49,7 +47,6 @@ function M.resolvesAndAuthenticatesTargetIndexedTools()
    assert(pack, err)
    assert(pack.cc == directory .. "/cc")
    assert(pack.ar == directory .. "/ar")
-   assert(pack.linkHost == directory .. "/host-link")
    assert(pack.compileFlags[1] == "--sysroot=" .. directory .. "/sysroot")
    assert(pack.linkFlags[1] == "-L" .. directory .. "/lib")
 

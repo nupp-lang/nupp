@@ -25,9 +25,7 @@ record packs.Pack
     version: string
     manifestDigest: string
     cc: string
-    cxx: string?
     ar: string
-    linkHost: string?
     compileFlags: {string}
     linkFlags: {string}
 
@@ -172,20 +170,6 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     if not ar then
         return nil, arErr
     end
-    local cxx, cxxErr = nil, nil
-    if value.cxx then
-        cxx, cxxErr = readTool(selectedRoot, value.cxx, "compiler pack cxx")
-        if not cxx then
-            return nil, cxxErr
-        end
-    end
-    local linkHost, linkErr = nil, nil
-    if value.linkHost then
-        linkHost, linkErr = readTool(selectedRoot, value.linkHost, "compiler pack linkHost")
-        if not linkHost then
-            return nil, linkErr
-        end
-    end
     local compileFlags, compileErr = stringArray(value.compileFlags, "compiler pack compileFlags")
     if not compileFlags then
         return nil, compileErr
@@ -209,9 +193,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
         version = value.version,
         manifestDigest = hash.digest(text as string),
         cc = cc as string,
-        cxx = cxx,
         ar = ar as string,
-        linkHost = linkHost,
         compileFlags = packFlags(compileFlags as {string}, selectedRoot),
         linkFlags = packFlags(linkFlags as {string}, selectedRoot),
         profile = profile

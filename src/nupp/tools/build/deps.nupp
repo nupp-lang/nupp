@@ -395,7 +395,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             base,
             reference,
             artifactCppflags,
-            dep.cc or pack and (pack as any).cc or nil
+            dep.cc or pack and pack.cc or nil
         )
         if bindingErr then
             return nil, bindingErr
@@ -431,12 +431,12 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     if packErr ~= nil and dep.cc == nil then
         return nil, packErr
     end
-    local compiler = dep.cc or pack and (pack as any).cc or "cc"
+    local compiler = dep.cc or pack and pack.cc or "cc"
     local _, version = process.capture({compiler, "--version"})
     local archiver, archiverIdentity = nil, ""
     if buildsStatic then
         if pack ~= nil then
-            archiver = (pack as any).ar
+            archiver = pack.ar
         else
             local archiveProbe, found = process.capture({compiler, "-print-prog-name=ar"})
             found = (found or ""):match("^%s*(.-)%s*$")
@@ -482,7 +482,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     for _, flag in ipairs(pkgCflags) do
         cppflags[#cppflags + 1] = flag
     end
-    for _, flag in ipairs(pack and (pack as any).compileFlags or {}) do
+    for _, flag in ipairs(pack and pack.compileFlags or {}) do
         cppflags[#cppflags + 1] = flag
     end
     local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
@@ -532,13 +532,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         ) .. "\0" .. hashFiles(
             nativeInputs
         ) .. "\0" .. version .. "\0" .. stable(
-            pack
-            and {
-                version = (pack as any).version,
-                compileFlags = (pack as any).compileFlags,
-                linkFlags = (pack as any).linkFlags,
-            }
-            or {}
+            pack and {version = pack.version, compileFlags = pack.compileFlags, linkFlags = pack.linkFlags,} or {}
         ) .. "\0" .. stable(
             pkgCflags
         ) .. "\0" .. stable(
@@ -591,7 +585,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 for _, flag in ipairs(dep.cppflags or {}) do
                     argv[#argv + 1] = flag
                 end
-                for _, flag in ipairs(pack and (pack as any).compileFlags or {}) do
+                for _, flag in ipairs(pack and pack.compileFlags or {}) do
                     argv[#argv + 1] = flag
                 end
                 for _, flag in ipairs(pkgCflags) do
@@ -621,7 +615,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 for _, flag in ipairs(dep.cflags or {}) do
                     argv[#argv + 1] = flag
                 end
-                for _, flag in ipairs(pack and (pack as any).linkFlags or {}) do
+                for _, flag in ipairs(pack and pack.linkFlags or {}) do
                     argv[#argv + 1] = flag
                 end
                 for _, object in ipairs(objects) do
@@ -685,7 +679,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         for _, flag in ipairs(dep.ldflags or {}) do
             linkFlags[#linkFlags + 1] = flag
         end
-        for _, flag in ipairs(pack and (pack as any).linkFlags or {}) do
+        for _, flag in ipairs(pack and pack.linkFlags or {}) do
             linkFlags[#linkFlags + 1] = flag
         end
     elseif sharedOutput then
