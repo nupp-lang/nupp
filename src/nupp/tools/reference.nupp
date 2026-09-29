@@ -1108,8 +1108,8 @@ a caller wanting the other results writes the explicit conditional.
 The operand's result count must be fixed and must not be a pack union, and its
 first result must admit both a falsy and a successful value. The checker refuses
 any other operand. A direct `pcall` or `xpcall` is refused by that rule: they lead
-with a discriminator rather than a result. [](nupp.util.pcallse) and
-[](nupp.util.xpcallse) answer the conventional layout instead. No slot after the
+with a discriminator rather than a result. [](nupp.util.try) and
+[](nupp.util.tryWith) answer the conventional layout instead. No slot after the
 first may be ownership-bearing, since the successful path discards every one of
 them.
 

@@ -703,7 +703,7 @@ function expr.install(c: state.Checker): nil
                 c.diag("NUPP2002", at, ("forwarded result %d: %s"):format(index, why), nil, {
                     help = got == T.unknown
                     and "`unknown` fits nowhere until it is narrowed; declare this result `unknown` too, "
-                    .. "or supply a handler through `nupp.util.xpcallse`"
+                    .. "or supply a handler through `nupp.util.tryWith`"
                     or explicitForm("return"),
                 })
             end

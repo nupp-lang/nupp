@@ -1082,8 +1082,8 @@ end
 -- The standard-library pair
 ---------------------------------------------------------------------------
 
---- `pcallse` answers the conventional layout, passing the raised value through
---- exactly as raised, and `xpcallse` answers whatever its handler made of it.
+--- `try` answers the conventional layout, passing the raised value through
+--- exactly as raised, and `tryWith` answers whatever its handler made of it.
 function M.protectedWrappersAnswerTheConventionalLayout()
     local protected = require("nupp.util.internal.protected")
 
@@ -1095,9 +1095,9 @@ function M.protectedWrappersAnswerTheConventionalLayout()
         return n * 2
     end
 
-    local value, reason = protected.pcallse(work, 4)
+    local value, reason = protected.try(work, 4)
     assert(value == 8 and reason == nil, tostring(value))
-    value, reason = protected.pcallse(work, -1)
+    value, reason = protected.try(work, -1)
     assert(value == nil and tostring(reason):find("negative", 1, true), tostring(reason))
 
     -- A non-string payload arrives unchanged.
@@ -1105,21 +1105,22 @@ function M.protectedWrappersAnswerTheConventionalLayout()
         error({code = 7})
     end
 
-    value, reason = protected.pcallse(raiseTable)
+    value, reason = protected.try(raiseTable)
     assert(value == nil and type(reason) == "table" and reason.code == 7, tostring(reason))
 
     -- A nil payload is still a failure, and a successful nil is still nil: the
     -- documented limit of the conventional layout.
-    value, reason = protected.pcallse(error, nil)
+    value, reason = protected.try(error, nil)
     assert(value == nil and reason == nil)
-    value, reason = protected.pcallse(function()
+    value, reason = protected.try(function()
         return nil
     end)
     assert(value == nil and reason == nil)
 
     -- The handler decides the reason's type, and runs before the stack unwinds.
     local workIsOnStack = false
-    value, reason = protected.xpcallse(
+    value, reason = protected.tryWith(
+        work,
         function(raised)
             local level = 2
             while true do
@@ -1136,7 +1137,6 @@ function M.protectedWrappersAnswerTheConventionalLayout()
 
             return {message = tostring(raised)}
         end,
-        work,
         -1
     )
     assert(value == nil and type(reason) == "table", tostring(reason))
@@ -1144,7 +1144,7 @@ function M.protectedWrappersAnswerTheConventionalLayout()
     assert(workIsOnStack, "the handler ran before the stack unwound")
 end
 
---- A caller propagating `pcallse`'s reason declares it `unknown`; narrowing it
+--- A caller propagating `try`'s reason declares it `unknown`; narrowing it
 --- at the hop is what is refused.
 function M.propagatingAnUnknownReasonChecks()
     local _, diagnostics = checked(
@@ -1156,7 +1156,7 @@ local function work(n: integer): integer
 end
 
 local function propagated(n: integer): (integer?, unknown)
-    local value = util.pcallse(work, n) or return
+    local value = util.try(work, n) or return
 
     return value + 1, nil
 end
@@ -1174,7 +1174,7 @@ local function work(n: integer): integer
 end
 
 local function narrowed(n: integer): (integer?, string?)
-    local value = util.pcallse(work, n) or return
+    local value = util.try(work, n) or return
 
     return value + 1, nil
 end
@@ -1206,7 +1206,7 @@ local function handler(raised: any): %s
 end
 
 local function described(n: integer): (integer?, %s?)
-    local value = util.xpcallse(handler, work, n) or return
+    local value = util.tryWith(work, handler, n) or return
 
     return value + 1, nil
 end

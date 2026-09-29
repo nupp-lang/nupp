@@ -25,8 +25,8 @@ Each member is one type and the few functions that hand it out, reached by the
 type's name rather than by a module of its own. [](Bitset) is a set of bit
 positions, [](Store) is a bag of values indexed by typed [](Key)s, and [](Pool)
 leases cleared record instances from a free list. [](uuid4) and [](uuid7)
-generate identifiers, and [](fnv1a64) hashes bytes. [](pcallse) and [](xpcallse)
-run a function protected and answer `(result, reason)`, which is the layout the
+generate identifiers, and [](fnv1a64) hashes bytes. [](try) and [](tryWith) run
+a function protected and answer `(result, reason)`, which is the layout the
 `or return` suffix reads and `pcall`'s own is not.
 
 Unlike [](nupp.mem), which keeps every member a module of its own, these are
@@ -77,10 +77,11 @@ export const fnv1a64 = hash.fnv1a64
 
 --- Runs a function under `pcall`, answering `(result, raised)` rather than
 --- `(ok, ...)`, which is the layout `or return` reads.
-export const pcallse = protected.pcallse
+export const try = protected.try
 
---- The same for `xpcall`: the handler runs pre-unwind and its result is the reason.
-export const xpcallse = protected.xpcallse
+--- The same for `xpcall`, with the handler after the function: it runs before the
+--- stack unwinds and its result is the reason.
+export const tryWith = protected.tryWith
 
 --- Generates a random version 4 UUID, hyphenated and lowercase.
 export const uuid4: function(): string = uuid.uuid4

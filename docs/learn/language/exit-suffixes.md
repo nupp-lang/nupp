@@ -95,15 +95,15 @@ operand, naming the pair that answers the conventional order instead:
 const util = require("nupp.util")
 
 function parsed(text: string): (Config?, unknown)
-    local config = util.pcallse(decode, text) or return
+    local config = util.try(decode, text) or return
 
     return config, nil
 end
 ```
 
-[`pcallse`](nupp.util) passes the raised value
+[`try`](nupp.util) passes the raised value
 through as `unknown`, so a function propagating it declares its reason
-`unknown` and narrows at the edge that reports the error. `nupp.util.xpcallse`
+`unknown` and narrows at the edge that reports the error. `nupp.util.tryWith`
 takes a handler instead, which runs before the stack unwinds — so it can still
 collect a traceback — and whatever it returns is the reason.
 

@@ -12,7 +12,7 @@ built-ins so a protected call joins that convention.]]
 --- The raised value is passed through exactly as raised, with no stringification:
 --- what to make of it belongs to the code that reports the error, and `debug` is
 --- not reachable on every target. A caller that wants a typed reason supplies the
---- handler that produces one, which is what [](xpcallse) is for.
+--- handler that produces one, which is what [](tryWith) is for.
 ---
 --- A protected function that succeeds returning nil is indistinguishable from one
 --- that failed, because nil is what the failure answers with too. That is the limit
@@ -24,7 +24,7 @@ built-ins so a protected call joins that convention.]]
 --- @return its result, or nil when it raised
 --- @return the raised value, or nil when it did not
 --- @export
-export function pcallse<R, A...>(f: function(A...): R, ...: A...): (R?, unknown)
+export function try<R, A...>(f: function(A...): R, ...: A...): (R?, unknown)
     const ok, value = pcall(f, ...)
     if ok then
         return value, nil
@@ -36,16 +36,16 @@ end
 --- Runs `f` under `xpcall` and answers the conventional layout.
 ---
 --- `handler` runs before the stack unwinds, so it can still reach a traceback, and
---- whatever it returns is the reason. Neither this nor [](pcallse) ships a default
+--- whatever it returns is the reason. Neither this nor [](try) ships a default
 --- handler: the error type is the caller's to choose.
 ---
---- @param handler what to make of a raised value
 --- @param f the function to run protected
---- @param ... its arguments
+--- @param handler what to make of a raised value
+--- @param ... the function's arguments
 --- @return its result, or nil when it raised
 --- @return what `handler` made of the raised value, or nil when it did not raise
 --- @export
-export function xpcallse<R, E, A...>(handler: function(any): E, f: function(A...): R, ...: A...): (R?, E?)
+export function tryWith<R, E, A...>(f: function(A...): R, handler: function(any): E, ...: A...): (R?, E?)
     const ok, value = xpcall(f, handler, ...)
     if ok then
         return value, nil
