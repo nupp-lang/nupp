@@ -669,6 +669,19 @@ end
 
 local function pack(...) return {n = select("#", ...), ...} end
 
+-- `math.log(x, base)` reaches the platform C library's `log` on the Lua side,
+-- and C libraries differ in the last bits (Windows' against glibc and Apple's),
+-- so the reference itself moves by a unit or two in the last place. These
+-- functions agree within four units; every other one agrees exactly.
+local NEAR = {logbf = true}
+
+local function near(x, y)
+    if type(x) ~= "number" or type(y) ~= "number" then return false end
+    if x ~= x or y ~= y then return x ~= x and y ~= y end
+    local _, exponent = math.frexp(math.max(math.abs(x), math.abs(y)))
+    return math.abs(x - y) <= 4 * 2 ^ (exponent - 53)
+end
+
 local function render(ok, t)
     if not ok then return "error" end
     local parts = {}
@@ -737,7 +750,7 @@ for _, c in ipairs(spec) do
     local oka, okb = table.remove(a, 1), table.remove(b, 1)
     a.n, b.n = a.n - 1, b.n - 1
     local ra, rb = render(oka, a), render(okb, b)
-    if ra ~= rb then
+    if ra ~= rb and not (NEAR[fn] and oka and okb and a.n == 1 and b.n == 1 and near(a[1], b[1])) then
         differ = differ + 1
         local shown = {}
         for i = 1, args.n do shown[i] = show(args[i]) end
