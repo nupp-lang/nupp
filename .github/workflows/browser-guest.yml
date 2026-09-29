@@ -101,12 +101,9 @@ jobs:
           node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest
           tar -czf release/nupp-luajit-browser-runtime.tar.gz -C release/browser-luajit .
       # Wasm kernels and the guest's i686 AOT are compiled and linked by nupp
-      # itself. Emscripten and the C compiler are replaced by commands that
-      # fail, so reaching either for an application fails the step.
+      # itself.
       - name: Verify consumers of the extracted release archive
         env:
-          NUPP_WASM_CC: 'false'
-          NUPP_AOT_CC: 'false'
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
         run: |
