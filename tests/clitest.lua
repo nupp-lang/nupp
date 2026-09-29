@@ -24,23 +24,70 @@ function M.everyRegisteredCommandHasAGrammarAndHelp()
     end
 end
 
-function M.completionsAreRenderedFromTheRegisteredCommandGrammar()
+function M.completionsAskTheProgramWhereTheCursorIs()
     local bash = cli.completion("bash")
-    assert(bash:find("completions", 1, true), "completes the command itself")
-    assert(bash:find("--strict", 1, true), "completes command options")
-    assert(bash:find("text", 1, true) and bash:find("json", 1, true), "completes closed option values")
-    assert(bash:find("compgen", 1, true), "uses its embedded static candidates")
-    assert(not bash:find("__complete bash", 1, true), "does not run nupp when no field is dynamic")
+    assert(bash:find("__complete bash", 1, true), "Bash asks nupp for the candidates at the cursor")
+    assert(bash:find("compgen -f", 1, true), "and hands a path slot to Bash's own file completion")
     assert(bash:find("complete -F _nupp nupp", 1, true), "installs Bash completion")
 
     local zsh = cli.completion("zsh")
     assert(zsh:find("#compdef nupp", 1, true), "installs Zsh completion")
-    assert(zsh:find("compadd", 1, true), "uses its embedded static candidates")
-    assert(not zsh:find("__complete zsh", 1, true), "does not run nupp when no field is dynamic")
+    assert(zsh:find("__complete zsh", 1, true), "Zsh asks nupp for the candidates at the cursor")
+    assert(zsh:find("_files", 1, true), "and hands a path slot to _files")
 
     local fish = cli.completion("fish")
     assert(fish:find("complete -c nupp", 1, true), "installs Fish completion")
-    assert(not fish:find("__complete fish", 1, true), "does not run nupp when no field is dynamic")
+    assert(fish:find("__complete fish", 1, true), "Fish asks nupp for the candidates at the cursor")
+    assert(fish:find("__fish_complete_path", 1, true), "and hands a path slot to Fish's path completion")
+end
+
+-- What `nupp __complete bash CWORD WORDS...` answers, one candidate per line.
+local function completeAt(dir, cursor, words)
+    local quoted = {}
+    for index, word in ipairs(words) do
+        quoted[index] = "'" .. word .. "'"
+    end
+    local pipe = assert(io.popen(("cd '%s' && '%s' __complete bash %d %s"):format(dir, NUPP, cursor, table.concat(quoted, " "))))
+    local out = pipe:read("*a")
+    pipe:close()
+    local lines = {}
+    for line in out:gmatch("[^\n]+") do
+        lines[#lines + 1] = line
+    end
+    return lines
+end
+
+function M.completionOffersOnlyWhatTheCommandAtTheCursorTakes()
+    local here = HERE .. "/.."
+    local json = table.concat(completeAt(here, 2, {"check", "--js"}), " ")
+    assert(json == "--json", "check --js completes check's own --json and not ast's --json-pretty: " .. json)
+    local writ = completeAt(here, 2, {"version", "--writ"})
+    assert(#writ == 0, "version takes no --write: " .. table.concat(writ, " "))
+    local file = completeAt(here, 3, {"lsp", "inspect", ""})
+    assert(file[1] == ":files", "lsp inspect FILE is a path: " .. table.concat(file, " "))
+    local root = completeAt(here, 3, {"build", "--output", ""})
+    assert(root[1] == ":dirs", "build --output DIR is a directory: " .. table.concat(root, " "))
+end
+
+function M.bashCompletesAProgramPathFromTheFilesystem()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    assert(io.open(dir .. "/src/main.nupp", "wb")):close()
+    assert(io.open(dir .. "/src/other.nupp", "wb")):close()
+    local bin = NUPP:match("^(.*)/nupp$")
+    local script = table.concat({
+        'eval "$(nupp completions bash)"',
+        "COMP_WORDS=(nupp run src/ma)",
+        "COMP_CWORD=2",
+        "_nupp",
+        'printf "%s\\n" "${COMPREPLY[@]}"',
+    }, "; ")
+    local pipe = assert(io.popen(("cd '%s' && PATH='%s':\"$PATH\" bash -c '%s' 2>&1"):format(dir, bin, script)))
+    local out = pipe:read("*a")
+    pipe:close()
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(out == "src/main.nupp\n", "run src/ma<TAB> completes the file: " .. out)
 end
 
 function M.colourIsDecidedOncePerStreamAndOverriddenByMode()
@@ -655,7 +702,7 @@ end
 function M.binaryPrintsCompletionScripts()
     local bash = capture("completions bash")
     assert(bash:find("complete -F _nupp nupp", 1, true), "the Bash script is available through the CLI")
-    assert(bash:find("--strict", 1, true), "the script reflects command options")
+    assert(bash:find("__complete bash", 1, true), "the script asks the binary for its candidates")
 
     local fish = capture("completions fish")
     assert(fish:find("complete -c nupp", 1, true), "the Fish script is available through the CLI")

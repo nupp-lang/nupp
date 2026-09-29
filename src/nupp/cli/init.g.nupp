@@ -625,7 +625,6 @@ local function recipe(info: nupp.derive.Info, command: boolean): any
         local complete = annotationArgument(field.annotations, "complete")
         if complete ~= nil then
             local provider = nupp.derive.annotationType(complete)
-            spec.dynamicCompletion = true
             spec.completerMember = "__cliCompleter" .. index
             completers[index] = provider
         end

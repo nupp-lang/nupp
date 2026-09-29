@@ -41,6 +41,21 @@ local type Descriptor = {
     completers: {any}
 }
 
+-- A value named like a path, with no choices and no completer, is left to the
+-- shell's own path completion, which knows the filesystem better than a word list.
+local PATH_VALUES: {
+    [string]: string
+} = {
+    FILE = "files",
+    PATH = "files",
+    HEADER = "files",
+    INPUT = "files",
+    ROCKSPEC = "files",
+    DIR = "dirs",
+    DIRECTORY = "dirs",
+    ROOT = "dirs",
+}
+
 --- A finite tree of derived command types.
 export record Application
     @private
@@ -158,7 +173,10 @@ export record Application
     end
 
     --- Produces shell-neutral candidates for one cursor position.
-    function complete(self, request: any): {any}
+    ---
+    --- The second result is `"files"` or `"dirs"` when the slot is a path the shell
+    --- should complete itself.
+    function complete(self, request: any): ({any}, string?)
         local argv = request.argv
         local command = self.root
         local path: {string} = {}
@@ -203,110 +221,49 @@ export record Application
     end
 
     --- Renders a Bash, Zsh, or Fish completion script from this schema.
+    ---
+    --- The script asks the program itself, through the hidden `__complete` command,
+    --- so what it offers depends on where the cursor is: one command's options rather
+    --- than every command's, and a value's choices rather than every word the grammar
+    --- knows. A reply whose first line is `:files` or `:dirs` hands the word to the
+    --- shell's own path completion.
     function completion(self, shell: "bash" | "zsh" | "fish"): string
         local program = self:programName()
-        local inventory: {string} = {}
-        local seen: {[string]: boolean} = {}
-        local dynamic = false
-
-        local function add(value: string): nil
-            if not seen[value] then
-                seen[value] = true
-                inventory[#inventory + 1] = value
-            end
-        end
-
-        local all = {self.root}
-        for _, command in ipairs(self.commands) do
-            all[#all + 1] = command
-        end
-        for _, command in ipairs(all) do
-            if not command.hidden then
-                if command ~= self.root then
-                    add(command.name)
-                    for _, alias in ipairs(command.aliases) do
-                        add(alias)
-                    end
-                end
-                for _, field in ipairs(command.schema.fields) do
-                    if not field.hidden then
-                        local spellings = self:optionSpellings(field)
-                        if field.role == "option" then
-                            for spellingIndex, spelling in ipairs(spellings) do
-                                local constant = field.names[spellingIndex]
-                                    and field.constants[field.names[spellingIndex]]
-                                if field.arity == "attachedOnly" and constant == nil then
-                                    add(spelling .. "=")
-                                else
-                                    add(spelling)
-                                end
-                            end
-                        end
-                        if field.pattern == nil then
-                            for _, choice in ipairs(field.choices or {}) do
-                                if field.role ~= "option" or field.arity == "required" then
-                                    add(choice)
-                                else
-                                    for spellingIndex, spelling in ipairs(spellings) do
-                                        local name = field.names[spellingIndex]
-                                        if name == nil or field.constants[name] == nil then
-                                            add(spelling .. "=" .. choice)
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                        dynamic = dynamic or field.dynamicCompletion == true
-                    end
-                end
-            end
-        end
-        add("--help")
-        add("--color")
-        add("--color=always")
-        add("--color=never")
-        add("--color=auto")
-        add("--no-color")
-        table.sort(inventory)
-        local words = table.concat(inventory, " ")
         local generated = "# Completion for " .. program .. "; generated from nupp.cli.\n"
         if shell == "bash" then
-            local body = dynamic
-                and "  local IFS=$'\\n'\n  COMPREPLY=( $("
+            return generated .. "_" .. program .. "() {\n" .. "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
+                -- Sliced before IFS changes: Bash 3.2 joins a quoted slice on IFS.
+                .. "  local words=( \"${COMP_WORDS[@]:1}\" )\n"
+                .. "  local IFS=$'\\n'\n"
+                .. "  local reply=( $("
                 .. program
-                .. " __complete bash \"$COMP_CWORD\" \"${COMP_WORDS[@]:1}\") )\n"
-                or "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W " .. self:shellQuote(
-                    words
-                ) .. " -- \"$cur\") )\n"
-            return generated
-                .. "_"
-                .. program
-                .. "() {\n"
-                .. body
+                .. " __complete bash \"$COMP_CWORD\" \"${words[@]}\") )\n"
+                .. "  case \"${reply[0]}\" in\n"
+                .. "    :files) compopt -o filenames 2>/dev/null; COMPREPLY=( $(compgen -f -- \"$cur\") ) ;;\n"
+                .. "    :dirs) compopt -o filenames 2>/dev/null; COMPREPLY=( $(compgen -d -- \"$cur\") ) ;;\n"
+                .. "    *) COMPREPLY=( \"${reply[@]}\" ) ;;\n"
+                .. "  esac\n"
                 .. "}\ncomplete -F _"
                 .. program
                 .. " "
                 .. program
                 .. "\n"
         elseif shell == "zsh" then
-            if not dynamic then
-                return "#compdef " .. program .. "\n" .. generated .. "compadd -- " .. self:quotedWords(
-                    inventory
-                ) .. "\n"
-            end
             return "#compdef "
                 .. program
                 .. "\n"
                 .. generated
                 .. "local -a reply\nreply=(\"${(@f)$("
                 .. program
-                .. " __complete zsh $((CURRENT - 1)) ${words[@]:1})}\")\n_describe '"
+                .. " __complete zsh $((CURRENT - 1)) \"${words[@]:1}\")}\")\n"
+                .. "case \"${reply[1]}\" in\n"
+                .. "  :files) _files ;;\n"
+                .. "  :dirs) _files -/ ;;\n"
+                .. "  *) _describe '"
                 .. program
-                .. " value' reply\n"
+                .. " value' reply ;;\n"
+                .. "esac\n"
         elseif shell == "fish" then
-            if not dynamic then
-                return generated .. "complete -c " .. program .. " -f -a " .. self:shellQuote(words) .. "\n"
-            end
             return generated
                 .. "function __fish_"
                 .. program
@@ -314,9 +271,17 @@ export record Application
                 .. "    set -l words (commandline -opc)\n"
                 .. "    set -e words[1]\n"
                 .. "    set -l cursor (math (count $words) + 1)\n"
-                .. "    "
+                .. "    set -l reply ("
                 .. program
-                .. " __complete fish $cursor $words (commandline -ct)\n"
+                .. " __complete fish $cursor $words (commandline -ct))\n"
+                .. "    switch \"$reply[1]\"\n"
+                .. "        case :files\n"
+                .. "            __fish_complete_path (commandline -ct)\n"
+                .. "        case :dirs\n"
+                .. "            __fish_complete_directories (commandline -ct)\n"
+                .. "        case '*'\n"
+                .. "            printf '%s\\n' $reply\n"
+                .. "    end\n"
                 .. "end\ncomplete -c "
                 .. program
                 .. " -f -a '(__fish_"
@@ -595,19 +560,6 @@ export record Application
         return names
     end
 
-    function shellQuote(self, value: string): string
-        return "'" .. value:gsub("'", "'\\''") .. "'"
-    end
-
-    function quotedWords(self, values: {string}): string
-        local out: {string} = {}
-        for _, value in ipairs(values) do
-            out[#out + 1] = self:shellQuote(value)
-        end
-
-        return table.concat(out, " ")
-    end
-
     function addCommandRows(self, out: {string}, commands: {Descriptor}): nil
         local width = 0
         for _, command in ipairs(commands) do
@@ -760,7 +712,7 @@ export record Application
         prefix: string,
         path: {string},
         request: any
-    ): {any}
+    ): ({any}, string?)
         local schema, expecting, positional = command.schema, nil, 1
         local byName: {[string]: any} = {}
         for _, field in ipairs(schema.fields) do
@@ -854,6 +806,9 @@ export record Application
         table.sort(out, function(left: any, right: any): boolean
             return left.value < right.value
         end)
+        if #out == 0 and #(field.choices or {}) == 0 and providerType == nil then
+            return out, PATH_VALUES[field.value]
+        end
 
         return out
     end
@@ -865,8 +820,11 @@ export record Application
             words[#words + 1] = argv[index]
         end
         local prefix = words[cursor] or ""
-        local candidates = self:complete({argv = words, wordIndex = cursor, prefix = prefix})
+        local candidates, directive = self:complete({argv = words, wordIndex = cursor, prefix = prefix})
         local output = self:stdout()
+        if directive ~= nil then
+            output:write(":" .. directive .. "\n")
+        end
         for _, candidate in ipairs(candidates) do
             output:write(candidate.value .. "\n")
         end

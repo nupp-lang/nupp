@@ -133,8 +133,10 @@ runs the same command without the `tool gmatch` prefix.
 
 ## Complete dynamic values
 
-Literal choices complete automatically. Use `@cli(complete = Provider)` when
-candidates depend on the machine or current project.
+Literal choices complete automatically, and a value named `FILE`, `PATH`,
+`HEADER`, `INPUT` or `ROCKSPEC` (or `DIR`, `DIRECTORY` or `ROOT`) is handed to
+the shell's own file (or directory) completion. Use `@cli(complete = Provider)`
+when candidates depend on the machine or current project.
 
 ```nupp
 local record Files
@@ -165,6 +167,8 @@ end
 ```
 
 Generate shell adapters with `application:completion("bash" | "zsh" | "fish")`.
+Each adapter asks the program for the candidates at the cursor through its
+hidden `__complete` command, so the answer is always the current grammar's.
 
 ## Use terminal colors
 

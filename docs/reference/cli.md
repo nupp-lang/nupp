@@ -1472,9 +1472,12 @@ Options:
   --no-color      Never color output
 ```
 
-The script is generated from the same derived command records that parse
-arguments and render help, so a new command and its options appear in it
-without a second edit. Install it for the shell that runs `nupp`:
+The script asks `nupp` itself what fits at the cursor, through a hidden
+`__complete` command that reads the same derived command records that parse
+arguments and render help. A new command and its options appear without a second
+edit, each command offers only its own options, and a value that names a file or
+directory is handed to the shell's own path completion. Install it for the shell
+that runs `nupp`:
 
 ```bash
 # Bash: add this to ~/.bashrc.
@@ -1487,11 +1490,18 @@ nupp completions zsh > "${fpath[1]}/_nupp"
 nupp completions fish > ~/.config/fish/completions/nupp.fish
 ```
 
-```text [nupp completions bash | head -12]
+```text [nupp completions bash]
 # Completion for nupp; generated from nupp.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=( $(compgen -W '--accept --against --baseline --binary --bridge-out --case --check --color --color=always --color=auto --color=never --compat --coverage --coverage-out --dialect --dry-run --emit --emit-stage0 --features --file --for --forks --format --from --function --geo --gpu-costs --help --history --host --include-declaration --include-private --inspect --jit-aborts --json --json-pretty --kind --label --lib --library --list --margin --name --no-color --no-method-parens --only --opt-level --out --out-dir --output --parameter --pilot --platform --profile --profile-interval-ms --profile-out --profile-zone --progress --progress=always --progress=auto --progress=never --prologue --quiet --regions --remarks --remarks-file --remarks-out --report-json --rev --root --schema --section --seed --set --skill --standalone --strict --target --text --timeout-ms --title --variant --watch --width --write --yes -O -O0 -O1 -O2 -Zno-opt= -l -o -q -w 0 1 2 actions all aot artifact artifacts asm ast auto bash bc bench binding both browser build bytecode check clean cli completions definition doc emmy explain export-c fish fixpoint fmt help implementation import-c init inspect ir json language lints llvm lsp lua lua51 luacats luadoc markdown md migrate native ownership-audit pack performance quickfix refactor reference references rename rock run serve server site skill spirv symbols task test text trace-check version wgsl zsh' -- "$cur") )
+  local words=( "${COMP_WORDS[@]:1}" )
+  local IFS=$'\n'
+  local reply=( $(nupp __complete bash "$COMP_CWORD" "${words[@]}") )
+  case "${reply[0]}" in
+    :files) compopt -o filenames 2>/dev/null; COMPREPLY=( $(compgen -f -- "$cur") ) ;;
+    :dirs) compopt -o filenames 2>/dev/null; COMPREPLY=( $(compgen -d -- "$cur") ) ;;
+    *) COMPREPLY=( "${reply[@]}" ) ;;
+  esac
 }
 complete -F _nupp nupp
 ```

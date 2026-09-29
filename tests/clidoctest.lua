@@ -115,7 +115,7 @@ local REPLAYED = {
    ["nupp lints"] = {},
    ["nupp ownership-audit src/block.nupp"] = {adds = {"src/block.nupp"}},
    ["nupp explain NUPP2119"] = {},
-   ["nupp completions bash | head -12"] = {},
+   ["nupp completions bash"] = {},
    ["nupp task --list"] = {},
    ["nupp task --list app"] = {},
    ["nupp task greet"] = {},
