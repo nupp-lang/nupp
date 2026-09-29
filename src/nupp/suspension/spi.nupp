@@ -20,7 +20,7 @@ the handler an installation is about to displace, and answer that handler's
 `canPark` and `park` later. A task scope's driver defers to its host through
 them. The facade refuses an implementation without both.
 
-Sources report readiness in priority order. Context.uses identifies sources
+Sources report readiness in `order`, lowest first. Context.uses identifies sources
 needed by a wait, while canPark distinguishes schedulers that can yield from
 ones that must drive readiness themselves. Cancellation values must come from
 [](nupp.runtime.cancellation), which preserves recognition by tasks and
@@ -38,8 +38,8 @@ export record Source
     --- Diagnostic identity of the readiness source.
     name: string
 
-    --- Readiness ordering key; smaller priorities are polled first.
-    priority: integer
+    --- Where in a poll pass this source runs; smaller orders are polled first.
+    order: integer
 
     --- Optional bounded blocking waiter receiving milliseconds and returning progress.
     wait: (function(integer): integer)?
@@ -68,7 +68,7 @@ export record Context
     source: function(
         self: Context,
         name: string,
-        priority: integer,
+        order: integer,
         poll: function(): integer,
         wait: (function(integer): integer)?,
         active: (function(source: Source): boolean)?
@@ -157,12 +157,12 @@ export interface Provider
     @readonly
     priority: integer?
 
-    --- Registers a named poll source with a priority and optional blocking waiter.
+    --- Registers a named poll source with a poll order and optional blocking waiter.
     --- The optional active predicate controls whether the source can make progress.
     @readonly
     source: function(
         name: string,
-        priority: integer,
+        order: integer,
         poll: function(): integer,
         wait: (function(integer): integer)?,
         active: (function(Source): boolean)?

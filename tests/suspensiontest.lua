@@ -152,7 +152,7 @@ function M.blockingDriverWaitsOnTheSourceUsedByThePark()
    unrelated:release()
    assertEq(answer, "ready", "the associated source settled the park")
    assertEq(waited, 1, "the blocking slice is bounded to one millisecond")
-   assertEq(unrelatedWaits, 0, "an unrelated lower-priority source did not delay it")
+   assertEq(unrelatedWaits, 0, "an unrelated later-ordered source did not delay it")
 end
 
 function M.hostPollNeverCallsTheBlockingHalfOfASource()
@@ -370,7 +370,7 @@ function M.ordersSourcesByPriority()
    late:release()
    early:release()
    settle:release()
-   assertEq(order[1], "early", "lowest priority runs first")
+   assertEq(order[1], "early", "lowest order runs first")
    assertEq(order[2], "late", "then the rest")
 end
 
@@ -432,7 +432,7 @@ function M.mutatesSourcesWithoutChangingTheCurrentPollPass()
    order = {}
    suspension.poll()
    assertEq(table.concat(order, ","), "new-early,middle,new-middle,last,new-late",
-      "the next pass keeps priority order after mutations")
+      "the next pass keeps poll order after mutations")
 
    middle:release()
    last:release()

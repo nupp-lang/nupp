@@ -53,7 +53,7 @@ function suite.test(provider: any): (boolean, string?)
         )
         order = {}
         provider.poll()
-        assert(table.concat(order, ",") == "added,middle", "the next pass must restore stable priority order")
+        assert(table.concat(order, ",") == "added,middle", "the next pass must restore stable poll order")
         added:release()
         middle:release()
 

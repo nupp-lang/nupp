@@ -11,7 +11,7 @@ uses the selected suspension implementation so an installed scheduler can park
 instead of blocking its Lua state.
 
 `wakeAt` registers a callback and returns a non-suspending cancellation function.
-The timer readiness source runs at priority 20, ahead of I/O. At most 4,096 timer
+The timer readiness source runs at order 20, ahead of I/O. At most 4,096 timer
 registrations may be pending; cancellation releases a registration without
 waiting for its deadline. State and callbacks are local to one Lua state.
 
@@ -44,7 +44,7 @@ local MAX_PENDING_TIMERS = 4096
 ---
 --- Ahead of I/O, because a deadline that has passed decides whether the I/O behind
 --- it is still wanted.
-local TIMER_PRIORITY: integer = 20
+local TIMER_ORDER: integer = 20
 
 local function duration(value: number, label: string): number
     if value ~= value or value < 0 or value == math.huge then
@@ -179,7 +179,7 @@ const function source(): suspension.Source
     -- is willing to wait for it. That is what it did: a test run would sometimes
     -- take thirty-five minutes instead of two and a half, depending on whether
     -- some earlier suite in the same process had slept.
-    const created = suspension.source("nupp.time", TIMER_PRIORITY, fireDue, sleepUntilDue, function(): boolean
+    const created = suspension.source("nupp.time", TIMER_ORDER, fireDue, sleepUntilDue, function(): boolean
         return #pending > 0
     end)
     timerSource = created

@@ -49,7 +49,7 @@ rawset(suspension, "__isTaskCancellation", isTaskCancellation)
 -- that, so a driver running inside a child parks through the child's handler rather
 -- than yielding its caller's coroutine out from under it.
 local ACTIVATIONS_PER_TURN: integer = 64
-local TURN_PRIORITY: integer = 30
+local TURN_ORDER: integer = 30
 local turnRemaining: integer = ACTIVATIONS_PER_TURN
 local turnHost: any = nil
 local turnGeneration: integer = -1
@@ -77,12 +77,12 @@ suspension.Context = contract.Context
 local function contextsource(
     self: contract.Context,
     name: string,
-    priority: integer,
+    order: integer,
     poller: function(): integer,
     waiter: (function(integer): integer)?,
     active: (function(suspension.Source): boolean)?
 ): suspension.Source
-    local source = suspension.source(name, priority, poller, waiter, active)
+    local source = suspension.source(name, order, poller, waiter, active)
     local associated = assert(self._associated)
     associated[#associated + 1] = source
     local owned = ownedSources[self]
@@ -156,8 +156,8 @@ suspension._installed = setmetatable({}, {__mode = "k"})
 suspension._main = nil
 
 local function sourceBefore(left: suspension.Source, right: suspension.Source): boolean
-    if left.priority ~= right.priority then
-        return left.priority < right.priority
+    if left.order ~= right.order then
+        return left.order < right.order
     end
     if left.name ~= right.name then
         return left.name < right.name
@@ -311,7 +311,7 @@ local function turnDeferralSource(): suspension.Source
     if existing ~= nil and not existing._released then
         return existing
     end
-    local created = suspension.source("nupp.suspension.turn", TURN_PRIORITY, openNextTurn, nil, function(
+    local created = suspension.source("nupp.suspension.turn", TURN_ORDER, openNextTurn, nil, function(
         _: suspension.Source
     ): boolean
         return #turnWaiters > 0
@@ -348,7 +348,7 @@ rawset(suspension, "__deferTurn", deferTurn)
 
 function suspension.source(
     name: string,
-    priority: integer,
+    order: integer,
     poller: function(): integer,
     waiter: (function(integer): integer)?,
     active: (function(suspension.Source): boolean)?
@@ -357,7 +357,7 @@ function suspension.source(
     local source = new contract.Source(
         release = sourcerelease,
         name = name,
-        priority = priority,
+        order = order,
         _sequence = sourceSequence,
         _poller = poller,
         _waiter = waiter,
