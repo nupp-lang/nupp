@@ -190,8 +190,8 @@ need a restart.
 ## Documentation
 
 ```bash
-nupp doc site -o build/docs src
-nupp doc markdown -o docs/api.md src
+nupp doc --kind site -o build/docs src
+nupp doc --kind markdown -o docs/api.md src
 ```
 
 `nupp doc` reads the parser's lossless CST and never invokes the checker or the

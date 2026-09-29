@@ -3,18 +3,14 @@ module nupp.tools.cli.doc
 --[[
 `nupp doc`: the API documentation, generated from what the source already says.
 
-The format is a word rather than an option, as in `nupp doc markdown`, because it
-names what is being produced rather than modifying how. Everything else the
+What is produced is `--kind`, the same word `lsp artifact` uses, rather than a
+leading positional that a source path could be mistaken for. Everything else the
 manifest already configured; the options here override it for one run.
 ]]
 const {type Config} = require("nupp.tools.build.manifest")
 const {type Target} = require("nupp.tools.build.manifest")
 
 local cliModule = require("nupp.cli")
-
-local FORMATS: {
-    [string]: string
-} = {site = "site", markdown = "markdown", md = "markdown", json = "json", both = "both",}
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -33,13 +29,6 @@ local REPORT_SCHEMA = {
 }
 
 local function run(options: any): integer
-    local positional: {string} = {}
-    if options.kind ~= nil then
-        positional[#positional + 1] = options.kind
-    end
-    for _, path in ipairs(options.paths) do
-        positional[#positional + 1] = path
-    end
     local values = options
     local asJson = values.format == "json"
     local settings: any = nil
@@ -51,7 +40,7 @@ local function run(options: any): integer
                 ok = false,
                 files = {},
                 output = values.output or settings and settings.outDir or "",
-                format = values.kind and FORMATS[values.kind] or settings and settings.format or "",
+                format = values.kind or settings and settings.format or "",
             })
         end
 
@@ -84,19 +73,16 @@ local function run(options: any): integer
         return fail(depErr)
     end
     local opts: {[string]: any} = {output = values.output, title = values.title}
-    -- The format is the first word when it is one of the format names. Anything else in
-    -- that position is a path, which is what it would have been anyway.
-    local sources: {string} = {}
-    local first = positional[1]
-    local named = first and FORMATS[first] or nil
-    if named then
-        opts.format = named
-    end
-    for index = named and 2 or 1, #positional do
-        sources[#sources + 1] = positional[index]
-    end
-    if #sources > 0 then
-        opts.sources = sources
+    opts.format = values.kind
+    if #values.paths > 0 then
+        -- A path that names nothing documented nothing and said so with a clean exit,
+        -- which is also what became of a format word written where a path goes.
+        for _, path in ipairs(values.paths) do
+            if not require("nupp.compiler.fs").exists(path) then
+                return fail("no source file or directory named " .. path)
+            end
+        end
+        opts.sources = values.paths
     end
     if values.includePrivate then
         settings.includePrivate = true
@@ -120,17 +106,21 @@ end
 
 --- Generate API documentation from source comments.
 ---
---- The first argument may name the documentation format. Remaining arguments
---- are source paths; with none, the manifest's configured sources are used.
+--- `--kind` names what to produce. Arguments are source paths; with none, the
+--- manifest's configured sources are used.
 ---
 --- Examples:
 ---
 ---     nupp doc
----     nupp doc markdown -o docs/api.md
----     nupp doc site --target library --output build/site
+---     nupp doc --kind markdown -o docs/api.md
+---     nupp doc --kind site --target library --output build/site
 @cli("doc")
 @derive(cliModule.Command)
 local record Doc
+    --- What to produce: site, markdown, json, or both.
+    @cli(value = "KIND", choices = {"site", "markdown", "json", "both"})
+    kind: string?
+
     --- Output file or directory.
     @cli(short = "o", value = "PATH")
     output: string?
@@ -152,10 +142,6 @@ local record Doc
 
     --- Print the JSON Schema of JSON output and exit.
     schema: boolean = false
-
-    --- Documentation output format.
-    @cli(positional = "KIND", choices = {"site", "markdown", "md", "json", "both"})
-    kind: string?
 
     --- Source paths to document.
     @cli(positional = "PATH")

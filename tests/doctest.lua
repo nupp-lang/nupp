@@ -1971,12 +1971,34 @@ function M.documentsTheProjectSourcesRatherThanTheWholeTree()
         ["src/.worktree/copy.nupp"] = "--- A hidden copy.\nfunction copied(): number return 1 end\n",
         ["scratch/extra.nupp"] = "--- Outside the include list.\nfunction extra(): number return 2 end\n",
     })
-    local output = capture(("cd '%s' && '%s' doc markdown -o api.md"):format(dir, NUPP))
+    local output = capture(("cd '%s' && '%s' doc --kind markdown -o api.md"):format(dir, NUPP))
     assert(output == "", output)
     local api = readFile(dir .. "/api.md")
     assert(api:find("# `math`", 1, true), api)
     assert(not api:find("copied", 1, true), "documented a hidden directory")
     assert(not api:find("extra", 1, true), "documented outside the include list")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- What to produce is `--kind`, so every argument is a source path: a leading word
+-- that happens to name a format is a path like any other.
+function M.theKindIsAnOptionAndEveryArgumentIsAPath()
+    local dir = tempProject({["nupp.lua"] = "return { include = {\"src\"} }\n", ["src/math.nupp"] = SOURCE})
+    local output = capture(("cd '%s' && '%s' doc --kind json -o api.json src"):format(dir, NUPP))
+    assert(output == "", output)
+    assert(readFile(dir .. "/api.json"):find('"modules"', 1, true), "--kind json writes the JSON model")
+    local function status(arguments)
+        local pipe = assert(io.popen(("cd '%s' && '%s' doc %s 2>&1; echo rc=$?"):format(dir, NUPP, arguments)))
+        local text = pipe:read("*a")
+        pipe:close()
+        return text
+    end
+    local positional = status("json -o other.json")
+    assert(positional:find("rc=1", 1, true), "json is a source path now, and there is none: " .. positional)
+    assert(positional:find("no source file or directory named json", 1, true), "and says so: " .. positional)
+    assert(not io.open(dir .. "/other.json", "rb"), "and no document was written")
+    local alias = status("--kind md -o api.md")
+    assert(alias:find("rc=2", 1, true), "md is not a kind: " .. alias)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1990,7 +2012,7 @@ function M.aManifestThatDoesNotLoadStopsTheRun()
         "error('boom')\n",
     }) do
         local dir = tempProject({["nupp.lua"] = manifest, ["src/math.nupp"] = SOURCE})
-        local pipe = assert(io.popen(("cd '%s' && '%s' doc markdown -o api.md 2>&1; echo rc=$?"):format(dir, NUPP)))
+        local pipe = assert(io.popen(("cd '%s' && '%s' doc --kind markdown -o api.md 2>&1; echo rc=$?"):format(dir, NUPP)))
         local output = pipe:read("*a")
         pipe:close()
         assert(output:find("rc=1", 1, true), manifest .. output)
@@ -2036,12 +2058,12 @@ function M.includePrivateCoversUnexportedDeclarationsAndInternalModules()
             .. "local function unexported(): number return 2 end\n",
         ["src/internal/secret.nupp"] = "function secret(): number return 3 end\n",
     })
-    local public = capture(("cd '%s' && '%s' doc markdown -o public.md src"):format(dir, NUPP))
+    local public = capture(("cd '%s' && '%s' doc --kind markdown -o public.md src"):format(dir, NUPP))
     local publicText = readFile(dir .. "/public.md")
     assert(publicText:find("visible", 1, true), public .. publicText)
     assert(not publicText:find("unexported", 1, true), publicText)
     assert(not publicText:find("internal.secret", 1, true), publicText)
-    local complete = capture(("cd '%s' && '%s' doc markdown --include-private -o complete.md src"):format(dir, NUPP))
+    local complete = capture(("cd '%s' && '%s' doc --kind markdown --include-private -o complete.md src"):format(dir, NUPP))
     local completeText = readFile(dir .. "/complete.md")
     assert(completeText:find("unexported", 1, true), complete .. completeText)
     assert(completeText:find("internal.secret", 1, true), completeText)

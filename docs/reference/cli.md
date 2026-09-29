@@ -1709,23 +1709,23 @@ first.
 ```text [nupp doc --help]
 Generate API documentation from source comments.
 
-The first argument may name the documentation format. Remaining arguments
-are source paths; with none, the manifest's configured sources are used.
+`--kind` names what to produce. Arguments are source paths; with none, the
+manifest's configured sources are used.
 
 Examples:
 
     nupp doc
-    nupp doc markdown -o docs/api.md
-    nupp doc site --target library --output build/site
+    nupp doc --kind markdown -o docs/api.md
+    nupp doc --kind site --target library --output build/site
 
 Usage:
-  nupp doc [options] [KIND] [PATH...]
+  nupp doc [options] [PATH...]
 
 Arguments:
-  KIND  Documentation output format.
   PATH  Source paths to document.
 
 Options:
+  --kind KIND        What to produce: site, markdown, json, or both.
   --output PATH, -o PATH
                      Output file or directory.
   --target NAME      Document a named manifest target.
@@ -1741,7 +1741,7 @@ Options:
 
 A successful run writes nothing to the terminal. `--json` names what it wrote:
 
-```json [nupp doc markdown -o docs/api.md --json]
+```json [nupp doc --kind markdown -o docs/api.md --json]
 {
   "ok": true,
   "format": "markdown",

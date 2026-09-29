@@ -242,8 +242,8 @@ end
 ---
 --- `all` is every module the run documented. A page renders one module at a time but
 --- still has to name the ones nested under it, and only the whole set says which those
---- are; rendering the whole set at once, as `nupp doc markdown` does, is the case where
---- the two arguments are the same list.
+--- are; rendering the whole set at once, as `nupp doc --kind markdown` does, is the
+--- case where the two arguments are the same list.
 ---
 --- `overview` is the handwritten prose a page opens with, which is why it only makes
 --- sense for a single module: it belongs to one page rather than to the set.

@@ -229,7 +229,7 @@ function M.docOutputMatchesItsSchema()
         ["nupp.lua"] = 'return {include = {"."}}\n',
         ["good.nupp"] = "--- A point in the plane.\nglobal record Point\n" .. "    x: number\nend\n"
     })
-    local decoded = agrees(dir, "doc markdown -o out/api.md")
+    local decoded = agrees(dir, "doc --kind markdown -o out/api.md")
     assert(decoded.format == "markdown", "the resolved format is reported")
     assert(#decoded.files > 0, "and every path it wrote")
     os.execute("rm -rf '" .. dir .. "'")

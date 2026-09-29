@@ -8,10 +8,10 @@ order: 540
 handwritten Markdown pages the manifest lists. This site is built by it.
 
 ```bash
-nupp doc site -o build/docs src
-nupp doc markdown -o docs/api.md src
-nupp doc json -o build/docs.json src
-nupp doc both -o build/docs
+nupp doc --kind site -o build/docs src
+nupp doc --kind markdown -o docs/api.md src
+nupp doc --kind json -o build/docs.json src
+nupp doc --kind both -o build/docs
 ```
 
 The generator reads the parser's lossless CST and never invokes the checker or
@@ -21,12 +21,11 @@ Unchanged output files are left untouched.
 ## Choosing a format and a target
 
 ```text
-nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--include-private] [path...]
+nupp doc [--kind site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--include-private] [path...]
 ```
 
-The format is a positional word rather than a flag, and `md` is accepted for
-`markdown`. With none, the manifest's configured format is used, and `site` if
-it has none. Anything in first position that is not a format word is a path.
+`--kind` names what to produce. Without it, the manifest's configured format is
+used, and `site` if it has none. Every argument is a source path.
 
 `--target` names which docs target to render, the way `nupp build --target`
 names which target to build. Only a manifest carrying more than one needs it:
