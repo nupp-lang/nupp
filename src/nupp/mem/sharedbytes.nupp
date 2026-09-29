@@ -22,7 +22,7 @@ directly through a reserve-and-commit pair, with no intermediate chunk string:
 ```nupp
 const sharedbytes = nupp.mem.sharedbytes
 
-local builder = sharedbytes.builder()
+local builder = sharedbytes.newBuilder()
 with writer = builder:reserve(5) do
     for index = 1, 5 do
         writer[index] = 64 + index
@@ -299,7 +299,7 @@ end
 
 --- Opens an empty builder.
 --- @raises string when the engine cannot allocate the builder
-function sharedbytes.builder(): affine(sharedbytes.Builder)
+function sharedbytes.newBuilder(): affine(sharedbytes.Builder)
     local handle = native.builderNew()
     if handle == nil then
         error("nupp: cannot allocate a region builder", 2)

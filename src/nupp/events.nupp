@@ -712,7 +712,7 @@ local function allocatorFor(observers: any, info: Info): any
     end
     local made: any
     if info.representation == "struct" then
-        made = arena.new(info.witness, 256)
+        made = arena.newArena(info.witness, 256)
         local owned = observers.ownedArenas
         owned[#owned + 1] = made
     else

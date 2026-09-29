@@ -76,7 +76,7 @@ end
 --- Allocates zeroed storage with the struct witness's physical layout.
 --- @raises string when count is not a nonnegative integer or exceeds the
 ---     target's storage limit
-function array.new<T>(takes witness: T, count: integer): array.Array<T>
+function array.newArray<T>(takes witness: T, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
     local raw = @unsafe nupp.release(witness)
     local element = storage.descriptor(raw)

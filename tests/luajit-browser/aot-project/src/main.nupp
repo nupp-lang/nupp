@@ -25,14 +25,14 @@ local function scale(
     end
 end
 
-local input = array.new(new Sample(), 3)
+local input = array.newArray(new Sample(), 3)
 local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
 nupp.drop(inputRows)
 
-local output = array.new(new Sample(), 3)
+local output = array.newArray(new Sample(), 3)
 do
     local writable = output:write()
     scale(writable, input:read(), 2, true)

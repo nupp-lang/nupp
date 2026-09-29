@@ -794,7 +794,7 @@ with scope = workers.scope() do
     print(scope:spawn(counts, jobs.total):await())
 end
 
-local builder = sharedbytes.builder()
+local builder = sharedbytes.newBuilder()
 with writer = builder:reserve(3) do
     writer[1] = 104
     writer[2] = 105

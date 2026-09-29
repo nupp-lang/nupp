@@ -68,13 +68,13 @@ function M.emptyRegionsKeepEngineBlockIdentity()
 end
 
 function M.builderCountsRemainExactAtThePublicBoundary()
-    local reserve = sharedbytes.builder()
+    local reserve = sharedbytes.newBuilder()
     assert(
         not pcall(function()
             reserve:reserve(1.5)
         end)
     )
-    local commit = sharedbytes.builder()
+    local commit = sharedbytes.newBuilder()
     assert(
         not pcall(function()
             commit:commit(1.5)
@@ -83,7 +83,7 @@ function M.builderCountsRemainExactAtThePublicBoundary()
 end
 
 function M.droppingAnUnfrozenBuilderReleasesItsStorageAtOnce()
-    local builder = sharedbytes.builder()
+    local builder = sharedbytes.newBuilder()
     local handle = builder._handle
     local before = #released
     builder:drop()

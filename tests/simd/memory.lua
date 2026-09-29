@@ -149,8 +149,8 @@ local function checkIndexed(probe: IndexedProbe, modes: integer): number
 end
 
 local function checkFields(probe: FieldProbe): number
-    local input = array.new(new Pair(), 64)
-    local output = array.new(new Pair(), 64)
+    local input = array.newArray(new Pair(), 64)
+    local output = array.newArray(new Pair(), 64)
     do
         local writable = input:write()
         for i = 1, 64 do writable[u32.wrap(i)] = new Pair(i, 64 - i) end

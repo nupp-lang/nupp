@@ -30,14 +30,14 @@ local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: sp
     end
 end
 
-local input = array.new(new Sample(), 4096)
+local input = array.newArray(new Sample(), 4096)
 local writable = input:write()
 for index = 1, #writable do
     writable[index] = new Sample(index, index * 2, index * 3)
 end
 nupp.drop(writable)
 
-local output = array.new(new Sample(), 4096)
+local output = array.newArray(new Sample(), 4096)
 scale(output:write(), input:read(), 2)
 local rows = output:read()
 

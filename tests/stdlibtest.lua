@@ -265,7 +265,7 @@ local array = require("nupp.mem.array")
 local struct Sample
    value: float
 end
-local values = array.new(new Sample(), 2)
+local values = array.newArray(new Sample(), 2)
 local writable = values:write()
 writable[1] = new Sample(3)
 nupp.drop(writable)
@@ -312,7 +312,7 @@ function M.arenaLowersThroughTheStorageContract()
             "local struct Sample",
             "   value: float",
             "end",
-            "local samples = arena.new(Sample, 8)",
+            "local samples = arena.newArena(Sample, 8)",
             "local sample = samples:acquire()",
             "sample.value = 3",
             "samples:release(sample)",

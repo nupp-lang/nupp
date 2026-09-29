@@ -17,7 +17,7 @@ local struct Impact
     y: float
 end
 
-local impacts = arena.new(Impact, 256)
+local impacts = arena.newArena(Impact, 256)
 local impact = impacts:acquire() -- zero-filled
 impact.x = 1.5
 impacts:release(impact)
@@ -201,7 +201,7 @@ end
 ---     value: int32
 --- end
 ---
---- local cells = arena.new(Cell, 16)
+--- local cells = arena.newArena(Cell, 16)
 --- assert(cells:pages() == 1 and cells:used() == 0)
 --- ```
 ---
@@ -210,7 +210,7 @@ end
 --- @return the arena, holding its first page
 --- @raises string when pageSize is not a positive integer
 --- @export
-function arena.new<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
+function arena.newArena<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
     local rows = pageSize or 256
     if rows < 1 or rows % 1 ~= 0 then
         error("arena page size must be a positive integer", 2)

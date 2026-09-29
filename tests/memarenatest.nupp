@@ -57,7 +57,7 @@ local function allocated(body: function(): nil): number
 end
 
 function M.newHoldsOnePageAndHonoursThePageSize(): nil
-    local rows = arena.new(Row, 4)
+    local rows = arena.newArena(Row, 4)
     test.equal(rows.pageSize, 4)
     test.equal(rows:pages(), 1)
     test.equal(rows:used(), 0)
@@ -70,17 +70,17 @@ function M.newHoldsOnePageAndHonoursThePageSize(): nil
     test.equal(rows:pages(), 2, "the fifth row needs a second page")
     test.equal(rows:used(), 5)
     test.equal(rows:live(), 5)
-    test.equal(arena.new(Row).pageSize, 256)
+    test.equal(arena.newArena(Row).pageSize, 256)
     test.raises(
         function()
-            arena.new(Row, 0)
+            arena.newArena(Row, 0)
         end,
         "positive"
     )
 end
 
 function M.rowsAreStructReferencesIntoThePage(): nil
-    local rows = arena.new(Row, 4)
+    local rows = arena.newArena(Row, 4)
     local first = rows:acquire()
     assert(ffi.istype(Row, first), "a row is a reference of the struct type")
     first.x = 1.5
@@ -92,7 +92,7 @@ function M.rowsAreStructReferencesIntoThePage(): nil
 end
 
 function M.nestedAcquiresGiveDistinctRows(): nil
-    local rows = arena.new(Row, 8)
+    local rows = arena.newArena(Row, 8)
     local outer = rows:acquire()
     outer.x = 1
     local inner = rows:acquire()
@@ -113,7 +113,7 @@ function M.nestedAcquiresGiveDistinctRows(): nil
 end
 
 function M.acquireAllocatesNothingOnceItsPageExists(): nil
-    local rows = arena.new(Row, 64)
+    local rows = arena.newArena(Row, 64)
 
     local function epoch(count: integer): nil
         for _ = 1, count do
@@ -136,7 +136,7 @@ function M.acquireAllocatesNothingOnceItsPageExists(): nil
 end
 
 function M.resetWithLiveLeasesRaisesAndChangesNothing(): nil
-    local rows = arena.new(Row, 4)
+    local rows = arena.newArena(Row, 4)
     local first = rows:acquire()
     local second = rows:acquire()
     second.x = 9
@@ -158,7 +158,7 @@ function M.resetWithLiveLeasesRaisesAndChangesNothing(): nil
 end
 
 function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
-    local rows = arena.new(Row, 2)
+    local rows = arena.newArena(Row, 2)
     local first = rows:acquire()
     first.x = 7
     first.y = 8
@@ -188,7 +188,7 @@ function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
 end
 
 function M.pagesNeverMoveWhenTheArenaGrows(): nil
-    local rows = arena.new(Row, 2)
+    local rows = arena.newArena(Row, 2)
     local first = rows:acquire()
     first.x = 3
     local pageOne = addressOf(first)
@@ -224,7 +224,7 @@ function M.pagesNeverMoveWhenTheArenaGrows(): nil
 end
 
 function M.releaseWithoutALeaseRaises(): nil
-    local rows = arena.new(Row, 2)
+    local rows = arena.newArena(Row, 2)
     local row = rows:acquire()
     rows:release(row)
     test.raises(
@@ -236,7 +236,7 @@ function M.releaseWithoutALeaseRaises(): nil
 end
 
 function M.releaseTracksTheExactLeasedRow(): nil
-    local rows = arena.new(Row, 2)
+    local rows = arena.newArena(Row, 2)
     local first = rows:acquire()
     local second = rows:acquire()
     rows:release(first)
@@ -254,7 +254,7 @@ function M.releaseTracksTheExactLeasedRow(): nil
         "1 live lease"
     )
 
-    local other = arena.new(Row, 1)
+    local other = arena.newArena(Row, 1)
     local foreign = other:acquire()
     test.raises(
         function()

@@ -926,7 +926,7 @@ end
 
 function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): nil
     local bus = newBus()
-    local rows = new Rows(inner = arena.new(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
+    local rows = new Rows(inner = arena.newArena(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
     bus:setAllocator(Contact, rows)
     local seen: {string} = {}
     bus:observe(0, Contact, |event| -> do

@@ -175,7 +175,7 @@ end
                 source[
                     #source + 1
                 ] = (
-                    'local type Probe=function(%s): uint32\nlocal function check(probe: Probe, preferred: boolean): number\n    local input=array.scalar(array.%s,128)\n    local choices=array.scalar(array.%s,64)\n    local output=array.scalar(array.%s,384)\n    local scratch=array.scalar(array.%s,192)\n    local memory=array.scalar(array.%s,192)\n    local fields=array.new(new Pair(),64)\n    local records=array.new(new Pair(),64)\n'
+                    'local type Probe=function(%s): uint32\nlocal function check(probe: Probe, preferred: boolean): number\n    local input=array.scalar(array.%s,128)\n    local choices=array.scalar(array.%s,64)\n    local output=array.scalar(array.%s,384)\n    local scratch=array.scalar(array.%s,192)\n    local memory=array.scalar(array.%s,192)\n    local fields=array.newArray(new Pair(),64)\n    local records=array.newArray(new Pair(),64)\n'
                 ):format(signature, storage, storage, storage, ty, ty)
                 local patterns = ty == 'float'
                     and '{0,0x80000000,0x7f800000,0xff800000,1,0x80000001,0x7f7fffff,0x7fc12345,0x7f812345,0xffc54321,0xff812345}'
