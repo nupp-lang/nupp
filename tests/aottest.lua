@@ -364,7 +364,7 @@ local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
 
 local struct Input value: float end
-local struct Output value: uint32 end
+local struct Output value: float end
 
 @aot(target = "gpu")
 local function convert(
@@ -372,7 +372,7 @@ local function convert(
     borrows input: span.Span<Input>
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
-    for i = 1, #output do output[i].value = nupp.math.u32.wrap(input[i].value) end
+    for i = 1, #output do output[i].value = input[i].value end
 end
 
 local function wrong(
@@ -386,7 +386,7 @@ local function wrong(
 end
 return wrong
 ]],
-        "NUPP2006",
+        "NUPP2006 NUPP2006",
         "the generated binding rejects buffers in the wrong positions"
     )
 end
@@ -458,6 +458,23 @@ return true
 ]],
         "",
         "an array witness names a scalar element and a struct declaration names itself"
+    )
+    reportsGpu(
+        [[
+local gpu = require("nupp.gpu")
+local array = require("nupp.mem.array")
+
+local function wordCount(borrows buffer: gpu.Buffer<uint32>): integer
+    return buffer.count
+end
+
+local context = gpu.open()
+local words = context:buffer(array.float, 4)
+print(wordCount(words))
+return true
+]],
+        "NUPP2006",
+        "the witness decides the buffer's element type"
     )
 end
 

@@ -396,8 +396,8 @@ function gpu.Context._allocate<T>(
     local handle = output[0]
     costMetadata(live(self), handle, false, {format = tostring(element), elementBytes = width, shape = {count}})
 
-    return new shared.Buffer(
-        _elementType = nil as T,
+    return new shared.Buffer<T>(
+        _elementType = nil,
         _anchor = self,
         _context = self,
         _handle = handle,

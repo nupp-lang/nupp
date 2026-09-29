@@ -28,6 +28,11 @@ local gpu = {}
 
 --- Typed resident device storage or a view borrowing its owning context.
 interface gpu.Buffer<T>
+    --- Holds the element type in place, so a buffer of one element is not a
+    --- buffer of another. Always nil; nothing reads or writes it. It is named
+    --- through a span, where a narrow storage width is a meaningful element.
+    _elementType: Span<T>?
+
     --- Number of logical elements in this buffer or view.
     @readonly
     count: integer

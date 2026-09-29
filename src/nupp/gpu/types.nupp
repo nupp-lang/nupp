@@ -3,6 +3,7 @@ module nupp.gpu.types
 
 local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local api = require("nupp.gpu.api")
+local {type Span} = require("nupp.mem.span")
 local gpu = {}
 
 --- A checked logical tensor layout independent of its element and allocation.
@@ -24,7 +25,7 @@ const gpu.PORTABLE_SCRATCH_BYTES = 16384
 --- CPU-addressable, so upload and download explicitly cross that boundary.
 --- @export
 record gpu.Buffer<T> is api.Buffer<T>
-    _elementType: T?
+    _elementType: Span<T>?
     @readonly
     _anchor: any
     @readonly

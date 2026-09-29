@@ -278,8 +278,8 @@ function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout)
         error("nupp: GPU tensor view exceeds its allocation", 2)
     end
 
-    return new types.Buffer(
-        _elementType = nil as T,
+    return new types.Buffer<T>(
+        _elementType = nil,
         _anchor = buffer,
         _context = buffer._context,
         _handle = buffer._handle,
@@ -322,8 +322,8 @@ function gpu.Buffer.subview<T>(
         error("nupp: GPU tensor subview exceeds its allocation", 2)
     end
 
-    return new types.Buffer(
-        _elementType = nil as T,
+    return new types.Buffer<T>(
+        _elementType = nil,
         _anchor = self,
         _context = self._context,
         _handle = self._handle,

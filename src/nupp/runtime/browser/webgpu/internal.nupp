@@ -324,8 +324,8 @@ function gpu.Context._allocate<T>(
     local handle = answerHandle(answer, "buffer")
     rememberHandle(self._buffers, handle, "buffer")
 
-    return new shared.Buffer(
-        _elementType = nil as T,
+    return new shared.Buffer<T>(
+        _elementType = nil,
         _anchor = self,
         _context = self,
         _handle = handle,
