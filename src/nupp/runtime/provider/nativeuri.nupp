@@ -30,7 +30,10 @@ int32_t nuppNativeUriPort(uint64_t, int32_t *);
 local function part(handle: any, kind: integer): string?
     local length = ffi.new("size_t[1]")
     local present = ffi.new<int32[1]>()
-    native.succeeded(C.nuppNativeUriPart(handle[0], kind, nil, 0, length, present), 3)
+    local probed = C.nuppNativeUriPart(handle[0], kind, nil, 0, length, present)
+    if probed ~= native.BUFFER_TOO_SMALL then
+        native.succeeded(probed, 3)
+    end
     if present[0] == 0 then
         return nil
     end

@@ -141,6 +141,15 @@ static int malformed_spirv_answers_a_status(void) {
         free(spirv);
         return failed("GPU context", status);
     }
+    {
+        size_t description = 0;
+        if (nuppNativeGpuContextDescription(context, NULL, 0, &description)
+                != NUPP_NATIVE_BUFFER_TOO_SMALL || description == 0) {
+            fprintf(stderr, "a GPU description size query was not too small\n");
+            free(spirv);
+            return 1;
+        }
+    }
     status = nuppNativeGpuKernelCreate(context, spirv, length, "main", 4,
         1, 1, 16, 64, 1, 1, &kernel);
     free(spirv);
@@ -322,6 +331,12 @@ int main(void) {
         uint8_t small[2];
         size_t part_length = 0;
         int32_t present = 0;
+        if (nuppNativeUriPart(uri, 5, NULL, 0, &part_length, &present)
+                != NUPP_NATIVE_BUFFER_TOO_SMALL
+            || part_length != sizeof "example.com" - 1) {
+            fprintf(stderr, "a URI part size query was not too small\n");
+            return 1;
+        }
         /* Kind 5 is the host, which is longer than the output. */
         if (nuppNativeUriPart(uri, 5, small, sizeof small, &part_length,
                 &present) != NUPP_NATIVE_BUFFER_TOO_SMALL

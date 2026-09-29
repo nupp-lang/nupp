@@ -30,6 +30,10 @@ native.ffi = ffi
 const ABI_VERSION = 2
 const LIBRARY_KEY = "__nuppNativeLibrary"
 
+--- The status a copy answers when its output is short, a size query included.
+--- @export
+native.BUFFER_TOO_SMALL = 6
+
 local function open(): any
     local wanted = os.getenv("NUPP_NATIVE_LIBRARY")
     if wanted then

@@ -185,8 +185,8 @@ pub unsafe extern "C" fn nuppNativeGpuContextCreate(output: *mut u64) -> i32 {
 ///
 /// # Safety
 /// `output_length` must be writable. When `capacity` is nonzero, `output` must
-/// be writable for that many bytes, including the trailing NUL. A null output
-/// with zero capacity performs a size query. The reported length excludes NUL.
+/// be writable for that many bytes. A short output, a zero-capacity size query
+/// included, answers BUFFER_TOO_SMALL with the length written.
 pub unsafe extern "C" fn nuppNativeGpuContextDescription(
     raw: u64,
     output: *mut u8,
@@ -204,20 +204,14 @@ pub unsafe extern "C" fn nuppNativeGpuContextDescription(
         let description = format!("{}: {}", adapter.backend, adapter.name);
         // SAFETY: forwarded from this function's ABI contract.
         unsafe { output_length.write(description.len()) };
-        if capacity == 0 {
-            return Ok(());
-        }
-        if capacity <= description.len() {
+        if capacity < description.len() {
             return Err((
                 Status::BufferTooSmall,
                 "context description output is too small".to_owned(),
             ));
         }
-        // SAFETY: the capacity check proves the payload and trailing NUL fit.
-        unsafe {
-            ptr::copy_nonoverlapping(description.as_ptr(), output, description.len());
-            output.add(description.len()).write(0);
-        }
+        // SAFETY: the capacity check proves the payload fits.
+        unsafe { ptr::copy_nonoverlapping(description.as_ptr(), output, description.len()) };
         Ok(())
     })
 }

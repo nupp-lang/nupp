@@ -42,6 +42,13 @@
 /* The facility is absent from this machine, such as a GPU adapter. */
 #define NUPP_NATIVE_UNAVAILABLE 8
 
+/* A call that copies bytes into caller-owned storage writes the byte count to
+ * its length output first, then answers BUFFER_TOO_SMALL when the capacity is
+ * short. A zero-capacity call therefore asks the size of a nonempty value, and
+ * no copied output carries a trailing NUL. The UUID and digest calls, whose
+ * outputs have a fixed size and no length output, are the exceptions, and a
+ * UUID does end in a NUL. */
+
 #define NUPP_NATIVE_FEATURE_BASE (UINT64_C(1) << 0)
 #define NUPP_NATIVE_FEATURE_UUID (UINT64_C(1) << 1)
 #define NUPP_NATIVE_FEATURE_GPU (UINT64_C(1) << 2)
@@ -447,7 +454,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeUuid7(uint8_t *output, size_t capacity);
 
 /* Present when NUPP_NATIVE_FEATURE_URI is set. URI values are immutable
  * generational handles. Text and components are copied into caller-owned
- * storage; a zero-capacity call queries the required byte count. */
+ * storage. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriParse(
     const uint8_t *data, size_t length, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriRelease(uint64_t uri);
@@ -642,8 +649,6 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeGpuCostsEnabled(void);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuCostMetadata(
     uint64_t context, uint64_t handle, int32_t kernel, const uint8_t *json, size_t length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuContextCreate(uint64_t *output);
-/* `length` receives the byte count excluding the trailing NUL. A NULL output
- * with zero capacity queries that count without copying. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuContextDescription(
     uint64_t context, uint8_t *output, size_t capacity, size_t *length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuContextRelease(uint64_t context);

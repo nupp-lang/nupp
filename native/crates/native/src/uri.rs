@@ -108,7 +108,9 @@ pub extern "C" fn nuppNativeUriRelease(raw: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-/// Copies a URI component into caller-owned storage.
+/// Copies a URI component into caller-owned storage. Like every copy out of
+/// the provider, a short output answers BUFFER_TOO_SMALL with the length
+/// written, so a zero-capacity call asks the size of a nonempty component.
 ///
 /// # Safety
 /// `length` and `present` must be writable. A nonzero `capacity` requires
@@ -141,9 +143,6 @@ pub unsafe extern "C" fn nuppNativeUriPart(
         unsafe {
             length.write(bytes.len());
             present.write(i32::from(found.is_some()));
-        }
-        if capacity == 0 || found.is_none() {
-            return Status::Ok.code();
         }
         if capacity < bytes.len() {
             return failed(Status::BufferTooSmall, "URI component output is too small");
@@ -192,15 +191,19 @@ mod tests {
     fn component(handle: u64, kind: u32) -> Option<String> {
         let mut length = 0;
         let mut present = 0;
-        assert_eq!(
-            unsafe {
-                nuppNativeUriPart(handle, kind, ptr::null_mut(), 0, &mut length, &mut present)
-            },
-            0
-        );
+        let probe = unsafe {
+            nuppNativeUriPart(handle, kind, ptr::null_mut(), 0, &mut length, &mut present)
+        };
         if present == 0 {
+            assert_eq!(probe, Status::Ok.code());
             return None;
         }
+        let expected = if length == 0 {
+            Status::Ok
+        } else {
+            Status::BufferTooSmall
+        };
+        assert_eq!(probe, expected.code());
         let mut output = vec![0; length];
         assert_eq!(
             unsafe {

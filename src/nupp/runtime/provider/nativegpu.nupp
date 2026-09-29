@@ -335,9 +335,12 @@ end
 function gpu.Context.driver(borrows self: gpu.Context): string
     local length = ffi.new("size_t[1]")
     local handle = live(self)
-    native.succeeded(C.nuppNativeGpuContextDescription(handle, nil, 0, length), 2)
-    local output = ffi.new("uint8_t[?]", length[0] + 1)
-    native.succeeded(C.nuppNativeGpuContextDescription(handle, output, length[0] + 1, length), 2)
+    local probed = C.nuppNativeGpuContextDescription(handle, nil, 0, length)
+    if probed ~= native.BUFFER_TOO_SMALL then
+        native.succeeded(probed, 2)
+    end
+    local output = ffi.new("uint8_t[?]", length[0])
+    native.succeeded(C.nuppNativeGpuContextDescription(handle, output, length[0], length), 2)
 
     return ffi.string(output, length[0])
 end
