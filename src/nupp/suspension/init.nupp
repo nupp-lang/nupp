@@ -76,8 +76,6 @@ suspension.suspend = provider.suspend
 suspension.install = provider.install
 suspension.create = provider.create
 suspension.handled = provider.handled
-suspension.delegatedCanPark = provider.delegatedCanPark
-suspension.delegatedPark = provider.delegatedPark
 suspension.canSuspend = provider.canSuspend
 suspension.destroyInstalled = contract.destroyInstalled
 local providerRuntime = provider as any
@@ -103,6 +101,18 @@ end
 rawset(suspension, "__turnAvailable", turnAvailable)
 rawset(suspension, "__consumeTurn", consumeTurn)
 rawset(suspension, "__deferTurn", deferTurn)
+-- A task scope's driver defers to the handler it displaces through these two. They
+-- are scheduling plumbing rather than authored API, and every implementation
+-- supplies them, because a driver without them cannot tell a host barrier from
+-- permission to park.
+local delegatedCanPark = providerRuntime.__delegatedCanPark
+local delegatedPark = providerRuntime.__delegatedPark
+assert(
+    type(delegatedCanPark) == "function" and type(delegatedPark) == "function",
+    "nupp.suspension: an implementation must provide __delegatedCanPark and __delegatedPark"
+)
+rawset(suspension, "__delegatedCanPark", delegatedCanPark)
+rawset(suspension, "__delegatedPark", delegatedPark)
 rawset(suspension, "__taskCancellation", cancellation.create)
 rawset(suspension, "__isTaskCancellation", cancellation.is)
 export = suspension

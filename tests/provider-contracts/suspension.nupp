@@ -103,13 +103,13 @@ function suite.test(provider: any): (boolean, string?)
             shutdown = function(): nil
             end,
         })
-        local parkOutward = provider.delegatedPark()
+        local parkOutward = provider.__delegatedPark()
         local driver = provider.install(
             {
                 park = function(_: any, waiting: any, cancel: any): nil
                     parkOutward(waiting, cancel)
                 end,
-                canPark = provider.delegatedCanPark(),
+                canPark = provider.__delegatedCanPark(),
                 shutdown = function(): nil
                 end,
             },

@@ -794,24 +794,15 @@ function suspension.handled(): boolean
     return effective() ~= nil
 end
 
---- Captures the barrier in force here, for a driver about to displace it.
----
---- A private handler changes where a branch yields; it must not quietly grant
---- permission the handler it displaced refused. So a driver takes this before it
---- installs, and its own `canPark` answers with it -- dynamically, because a host
---- such as an ECS scheduler enters and leaves barriers while a family is still
---- live, and one boolean sampled at install time would answer for the wrong moment.
----
---- ```nupp
---- const outerCanPark = suspension.delegatedCanPark()
---- const handler = new contract.Handler(
----     park = ...,
----     canPark = function(_: suspension.Handler): boolean return outerCanPark() end
---- )
---- ```
----
---- @return whether the displaced handler would permit a park, asked when asked
-function suspension.delegatedCanPark(): function(): boolean
+-- Captures the barrier in force here, for a driver about to displace it.
+--
+-- A private handler changes where a branch yields; it must not quietly grant
+-- permission the handler it displaced refused. So a driver takes this before it
+-- installs, and its own `canPark` answers with it -- dynamically, because a host
+-- such as an ECS scheduler enters and leaves barriers while a family is still
+-- live, and one boolean sampled at install time would answer for the wrong moment.
+-- Published as the `__delegatedCanPark` hook: `nupp.tasks` is its one caller.
+local function delegatedCanPark(): function(): boolean
     const captured = effectiveInstallation()
 
     return function(): boolean
@@ -828,16 +819,14 @@ function suspension.delegatedCanPark(): function(): boolean
     end
 end
 
---- Captures how a wait is parked here, for a driver about to displace the handler.
----
---- A driver runs its own family while the frame waits, and what it cannot satisfy --
---- a wait on the host's clock or sockets with no child left to run -- it hands to the
---- handler it displaced, or to the blocking park where there is none. Captured before
---- the driver installs, like `delegatedCanPark`, and resolved when called, stepping
---- over extents that have since ended.
----
---- @return a park on the displaced handler, or on the blocking fallback
-function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+-- Captures how a wait is parked here, for a driver about to displace the handler.
+--
+-- A driver runs its own family while the frame waits, and what it cannot satisfy --
+-- a wait on the host's clock or sockets with no child left to run -- it hands to the
+-- handler it displaced, or to the blocking park where there is none. Captured before
+-- the driver installs, like `delegatedCanPark`, and resolved when called, stepping
+-- over extents that have since ended. Published as the `__delegatedPark` hook.
+local function delegatedPark(): function(suspension.Waiting, function(): nil): nil
     const captured = effectiveInstallation()
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -961,11 +950,13 @@ local function deferTurn(): nil
     end)
 end
 
--- Task scopes use the same token without turning these scheduling details into
--- authored suspension API.
+-- Task scopes use the same token, and drive a family through the two delegation
+-- captures, without turning these scheduling details into authored suspension API.
 rawset(suspension, "__turnAvailable", turnAvailable)
 rawset(suspension, "__consumeTurn", consumeTurn)
 rawset(suspension, "__deferTurn", deferTurn)
+rawset(suspension, "__delegatedCanPark", delegatedCanPark)
+rawset(suspension, "__delegatedPark", delegatedPark)
 
 local _checked: contract.Provider = suspension
 export = suspension

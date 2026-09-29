@@ -14,6 +14,12 @@ release and Installed.drop must not suspend. Nested installation restores the
 captured handler, and transparent handlers preserve delegation to the outer
 scheduler. `create` propagates the suspension context into a new coroutine.
 
+Beside the interface, an implementation publishes two hooks with `rawset`:
+`__delegatedCanPark` and `__delegatedPark` each capture, where they are called,
+the handler an installation is about to displace, and answer that handler's
+`canPark` and `park` later. A task scope's driver defers to its host through
+them. The facade refuses an implementation without both.
+
 Sources report readiness in priority order. Context.uses identifies sources
 needed by a wait, while canPark distinguishes schedulers that can yield from
 ones that must drive readiness themselves. Cancellation values must come from
@@ -189,14 +195,6 @@ export interface Provider
     --- Reports whether an installed handler owns the current suspension context.
     @readonly
     handled: function(): boolean
-
-    --- Captures the outer handler's park-availability query.
-    @readonly
-    delegatedCanPark: function(): function(): boolean
-
-    --- Captures the outer handler's parking operation.
-    @readonly
-    delegatedPark: function(): function(Waiting, function(): nil): nil
 
     --- Reports whether this execution context can perform a suspension.
     @readonly

@@ -397,12 +397,13 @@ function suspension.handled(): boolean
     return handler() ~= nil
 end
 
---- Whether the handler this one is about to displace would permit a park.
----
---- Captured where it is asked rather than where it is answered, so an installation
---- that wants to defer to the one it replaced keeps asking the outer handler after
---- it has taken the slot. `nupp.tasks` builds every scope handler through this.
-function suspension.delegatedCanPark(): function(): boolean
+-- Whether the handler this one is about to displace would permit a park.
+--
+-- Captured where it is asked rather than where it is answered, so an installation
+-- that wants to defer to the one it replaced keeps asking the outer handler after
+-- it has taken the slot. `nupp.tasks` builds every scope handler through this, as
+-- the `__delegatedCanPark` hook.
+local function delegatedCanPark(): function(): boolean
     local captured = installation()
     -- Where there is no outer handler, the question is whether the frame asking to
     -- displace it could reach the page, not whichever child asks later.
@@ -425,8 +426,9 @@ function suspension.delegatedCanPark(): function(): boolean
     end
 end
 
---- Captures how a wait is parked here, for a driver about to displace the handler.
-function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+-- Captures how a wait is parked here, for a driver about to displace the handler.
+-- Published as the `__delegatedPark` hook.
+local function delegatedPark(): function(suspension.Waiting, function(): nil): nil
     local captured = installation()
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -445,6 +447,9 @@ function suspension.delegatedPark(): function(suspension.Waiting, function(): ni
         end)
     end
 end
+
+rawset(suspension, "__delegatedCanPark", delegatedCanPark)
+rawset(suspension, "__delegatedPark", delegatedPark)
 
 function suspension.canSuspend(): boolean
     local current = handler()

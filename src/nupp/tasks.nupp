@@ -600,8 +600,8 @@ end
 --- cancelled, so the block learns of it where it is waiting rather than at its next
 --- task operation.
 local function frameHandler(owner: ScopeState): suspension.Handler
-    const outerCanPark = suspension.delegatedCanPark()
-    const parkOutward = suspension.delegatedPark()
+    const outerCanPark = suspensionRuntime.__delegatedCanPark() as function(): boolean
+    const parkOutward = suspensionRuntime.__delegatedPark() as function(suspension.Waiting, function(): nil): nil
 
     return new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -1306,7 +1306,7 @@ local function newScope(deadline: number?, limit: integer?): tasks.Scope
     -- A private handler so a child's park returns to this driver rather than
     -- blocking it. Scheduling only: `canPark` delegates outward, so a host barrier
     -- stays visible however deeply scopes nest inside it.
-    const outerCanPark = suspension.delegatedCanPark()
+    const outerCanPark = suspensionRuntime.__delegatedCanPark() as function(): boolean
     owner.handler = new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
             const child = activeChild as Child

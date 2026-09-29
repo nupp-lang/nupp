@@ -642,6 +642,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         provider.describeSendable = function()
                             return name
                         end
+                    elseif case.module == "nupp.suspension" then
+                        provider.__delegatedCanPark = function()
+                            return name
+                        end
+                        provider.__delegatedPark = function()
+                            return name
+                        end
                     elseif case.module == "nupp.system" then
                         provider.platform, provider.architecture = "fixture", "fixture"
                         provider.pointerBits, provider.endianness = 32, "little"
@@ -707,6 +714,10 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
                         consumeTurn()
                         assert(turnAvailable(), label .. ": an unbounded turn must stay available")
+                        for _, hook in ipairs({"__delegatedCanPark", "__delegatedPark"}) do
+                            assert(rawget(facade, hook) == expected[hook], label .. ": " .. hook .. " came from another provider")
+                        end
+                        assert(facade.delegatedCanPark == nil and facade.delegatedPark == nil, label .. ": delegation is not public")
                     elseif case.module == "nupp.workers" then
                         local hooks = {
                             __scope = "openScope",
@@ -787,6 +798,31 @@ function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
     local ok, problem = pcall(load, "nupp.suspension")
     assert(not ok, "a partial turn-budget extension was accepted")
     assert(tostring(problem):find("every turn-budget operation or none", 1, true), tostring(problem))
+end
+
+function M.suspensionProvidersPublishTheirDelegationHooks()
+    local load = require("providerstate").instance(
+        {['nupp.spi'] = true, ['nupp.suspension'] = true},
+        {
+            ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
+            ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
+        },
+        {
+            ['fixture.suspension'] = function()
+                return {
+                    priority = 1,
+                    __delegatedCanPark = function()
+                        return function()
+                            return true
+                        end
+                    end,
+                }
+            end,
+        }
+    )
+    local ok, problem = pcall(load, "nupp.suspension")
+    assert(not ok, "an implementation without __delegatedPark was accepted")
+    assert(tostring(problem):find("__delegatedCanPark and __delegatedPark", 1, true), tostring(problem))
 end
 
 function M.moduleStagingDistinguishesTheHostFromTheVm()
