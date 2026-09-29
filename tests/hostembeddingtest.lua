@@ -863,4 +863,179 @@ function M.aNativePanicUnderACallAnswersAStatus()
     assert(output:find("after = alive", 1, true), output)
 end
 
+-- The symbols host/include/nupp.exports names for FEATURES: every `always`
+-- section and every section naming one of them. The LuaJIT version symbol is
+-- the one entry spelled by its macro, since its name moves with the pin.
+local function committedExports()
+    local enabled = {always = true}
+    for feature in FEATURES:gmatch("[^,]+") do
+        enabled[feature] = true
+    end
+    local file = assert(io.open(ROOT .. "/host/include/nupp.exports", "rb"))
+    local names, applies = {}, false
+    for line in file:lines() do
+        line = line:match("^%s*(.-)%s*$")
+        local section = line:match("^%[(.*)%]$")
+        if section then
+            applies = false
+            for feature in section:gmatch("%S+") do
+                applies = applies or enabled[feature] == true
+            end
+        elseif applies and line ~= "" and not line:find("^#") then
+            names[line] = true
+        end
+    end
+    file:close()
+    return names
+end
+
+-- The dynamic library exports exactly the committed list: the embedding API,
+-- the native provider, and LuaJIT's C API, which a host using the state
+-- nupp_runtime_lua_state returns, or a compiled module, finds by name.
+function M.theDynamicSdkExportsTheCommittedList()
+    local exports
+    if jit.os == "OSX" then
+        exports = "nm -gU " .. quote(sdk() .. "/libnupp.dylib")
+    elseif jit.os == "Linux" then
+        exports = "nm -D --defined-only " .. quote(sdk() .. "/libnupp.so")
+    else
+        test.skip("reads the export table with nm")
+    end
+    local status, output = run(exports)
+    assert(status == 0, output)
+    local expected, found, unexpected = committedExports(), {}, {}
+    for name in output:gmatch("%S+%s+%a%s+_?([%w_]+)") do
+        if name:find("^luaJIT_version_") then
+            found.LUAJIT_VERSION_SYM = true
+        elseif expected[name] then
+            found[name] = true
+        elseif not name:find("^_") then
+            -- Objective-C class records the GPU backend registers begin with
+            -- an underscore of their own; nothing else may appear.
+            unexpected[#unexpected + 1] = name
+        end
+    end
+    local missing = {}
+    for name in pairs(expected) do
+        if not found[name] then
+            missing[#missing + 1] = name
+        end
+    end
+    table.sort(missing)
+    table.sort(unexpected)
+    assert(#missing == 0, "the dynamic SDK does not export: " .. table.concat(missing, ", "))
+    assert(#unexpected == 0, "the dynamic SDK exports what the list does not name: " .. table.concat(unexpected, ", "))
+end
+
+local AOT_COMPONENT_MANIFEST = [[
+return {
+    include = {"src"},
+    build = {
+        kind = "component",
+        description = "A component whose export is a compiled Lua builder",
+        entries = {"game"},
+        exports = {"game.label"},
+        aot = "require",
+    },
+}
+]]
+
+local AOT_COMPONENT_SOURCE = [[
+module game
+
+@aot
+local function label(flag: boolean): string
+    return flag and "compiled" or "fallback"
+end
+
+export = {label = label}
+]]
+
+local AOT_DRIVER = [[
+#include "nupp.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static int report(const char *what, nupp_status status, nupp_error *error) {
+    if (status == NUPP_STATUS_OK) return 0;
+    fprintf(stderr, "%s: %s\n", what, error ? nupp_error_message(error) : "unknown error");
+    nupp_error_free(error);
+    return 1;
+}
+
+static unsigned char *read_all(const char *path, size_t *length) {
+    FILE *file = fopen(path, "rb");
+    long end;
+    unsigned char *bytes;
+    if (!file || fseek(file, 0, SEEK_END) != 0 || (end = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) != 0) return NULL;
+    bytes = (unsigned char *)malloc((size_t)end + 1);
+    if (!bytes || fread(bytes, 1, (size_t)end, file) != (size_t)end) return NULL;
+    fclose(file);
+    *length = (size_t)end;
+    return bytes;
+}
+
+int main(int argc, char **argv) {
+    nupp_runtime *runtime = NULL;
+    nupp_component *component = NULL;
+    nupp_handle *label = NULL;
+    nupp_error *error = NULL;
+    nupp_value argument = {0}, result = {0};
+    size_t count = 0, length = 0;
+    unsigned char *bytes;
+
+    if (argc != 2 || !(bytes = read_all(argv[1], &length))) return 2;
+    if (report("runtime", nupp_runtime_new(NULL, &runtime, &error), error)) return 1;
+    if (report("load", nupp_component_load(runtime, bytes, length, argv[1], &component, &error), error)) return 1;
+    if (report("find", nupp_export_find(runtime, component, "game.label", &label, &error), error)) return 1;
+    argument.kind = NUPP_VALUE_BOOLEAN;
+    argument.boolean = 1;
+    if (report("call", nupp_call(runtime, label, &argument, 1, &result, 1, &count, &error), error)) return 1;
+    printf("game.label(true) = %.*s\n", (int)result.length, result.data ? (const char *)result.data : "");
+    nupp_value_release(runtime, &result, NULL);
+    nupp_handle_release(runtime, label, NULL);
+    nupp_component_release(component);
+    nupp_runtime_shutdown(runtime, NULL);
+    nupp_runtime_free(runtime);
+    free(bytes);
+    return 0;
+}
+]]
+
+-- ER-013: a component whose export is a compiled Lua builder, loaded by a host
+-- linking the dynamic SDK. The compiled module's registrar finds the Lua API
+-- in the process, which it could not while libnupp kept that API to itself:
+-- nuppAotRuntime answered null and the component failed at load.
+function M.anAotComponentLoadsThroughTheDynamicSdk()
+    if jit.os == "Windows" then
+        test.skip("links against the dynamic SDK the Unix way")
+    end
+    local directory, library = temporary(), sdk()
+    local project = directory .. "/project"
+    assert(os.execute("mkdir -p " .. quote(project .. "/src")) == 0)
+    write(project .. "/nupp.lua", AOT_COMPONENT_MANIFEST)
+    write(project .. "/src/game.nupp", AOT_COMPONENT_SOURCE)
+    local status, output = run(("cd %s && %s build"):format(quote(project), quote(ROOT .. "/bin/nupp")))
+    assert(status == 0, output)
+    local source = directory .. "/aot.c"
+    write(source, AOT_DRIVER)
+    local executable = directory .. "/aot"
+    status, output = run(
+        ("%s -std=c11 -I%s %s -L%s -lnupp -Wl,-rpath,%s -o %s"):format(
+            quote(compiler()),
+            quote(library),
+            quote(source),
+            quote(library),
+            quote(library),
+            quote(executable)
+        )
+    )
+    assert(status == 0, output)
+    -- The compiled library travels with the component, and the component looks
+    -- for it from where it runs.
+    status, output = run(("cd %s && %s component.nuppc"):format(quote(project .. "/build"), quote(executable)))
+    assert(status == 0, output)
+    assert(output:find("game.label(true) = compiled", 1, true), output)
+end
+
 return M

@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const LUAJIT_PREFIX_ENV: &str = "NUPP_LUAJIT_PREFIX";
+/// Where `scripts/toolchain` wants this build's resolved export list, for the
+/// Linux link of `libnupp.so` it makes from the static archive.
+const EXPORT_LIST_ENV: &str = "NUPP_EXPORT_LIST";
 
 fn main() {
     println!("cargo:rerun-if-env-changed={LUAJIT_PREFIX_ENV}");
@@ -15,6 +18,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../../scripts/toolchain.pins");
     println!("cargo:rerun-if-changed=c/lua_shim.c");
     println!("cargo:rerun-if-changed=c/worker_shim.c");
+    println!("cargo:rerun-if-changed=../../../host/include/nupp.exports");
+    println!("cargo:rerun-if-env-changed={EXPORT_LIST_ENV}");
 
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets it"));
     let repository = manifest
@@ -61,6 +66,8 @@ fn main() {
         println!("cargo:rustc-link-lib=static=lpeg");
     }
 
+    export_list(&repository, &prefix, &target());
+
     let vmdef = lua_module(&prefix, "vmdef");
     let zone = lua_module(&prefix, "zone");
     println!("cargo:rustc-env=NUPP_LUAJIT_VMDEF={}", vmdef.display());
@@ -74,6 +81,101 @@ fn main() {
     if !target.contains("windows") && !target.contains("apple") {
         println!("cargo:rustc-link-lib=dl");
     }
+}
+
+/// The symbols `host/include/nupp.exports` names for this build's features,
+/// with the LuaJIT version symbol resolved from the staged header.
+fn exported_symbols(repository: &Path, prefix: &Path) -> Vec<String> {
+    let list = repository.join("host/include/nupp.exports");
+    let text = fs::read_to_string(&list)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", list.display()));
+    let version = luajit_version_symbol(prefix);
+    let mut symbols = Vec::new();
+    let mut applies = false;
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(section) = line
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            applies = section.split_whitespace().any(|feature| {
+                feature == "always" || {
+                    let variable = format!(
+                        "CARGO_FEATURE_{}",
+                        feature.to_ascii_uppercase().replace('-', "_")
+                    );
+                    env::var_os(variable).is_some()
+                }
+            });
+            continue;
+        }
+        if applies {
+            symbols.push(if line == "LUAJIT_VERSION_SYM" {
+                version.clone()
+            } else {
+                line.to_owned()
+            });
+        }
+    }
+    symbols
+}
+
+fn luajit_version_symbol(prefix: &Path) -> String {
+    let include_file = prefix.join(".include");
+    let include = fs::read_to_string(&include_file)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", include_file.display()));
+    let header = PathBuf::from(include.trim()).join("luajit.h");
+    let text = fs::read_to_string(&header)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", header.display()));
+    text.lines()
+        .find_map(|line| line.strip_prefix("#define LUAJIT_VERSION_SYM"))
+        .map(|name| name.trim().to_owned())
+        .unwrap_or_else(|| panic!("{} defines no LUAJIT_VERSION_SYM", header.display()))
+}
+
+/// Gives each linker the committed export list in the form it reads.
+///
+/// rustc already exports a cdylib's Rust symbols; the list adds LuaJIT's C API,
+/// which rustc cannot see, and names everything else so that a symbol missing
+/// from the build is a link error rather than an absent export. On macOS the
+/// executable exports exactly the list too. Linux cannot take a second version
+/// script beside rustc's, so `scripts/toolchain` links `libnupp.so` itself from
+/// the static archive with the list this writes.
+fn export_list(repository: &Path, prefix: &Path, target: &str) {
+    let symbols = exported_symbols(repository, prefix);
+    let output = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets it"));
+    if let Some(path) = env::var_os(EXPORT_LIST_ENV) {
+        write(Path::new(&path), &symbols.join("\n"));
+    }
+    if target.contains("apple") {
+        let list = output.join("nupp.exports.darwin");
+        let names: Vec<String> = symbols.iter().map(|name| format!("_{name}")).collect();
+        write(&list, &names.join("\n"));
+        let argument = format!("-Wl,-exported_symbols_list,{}", list.display());
+        println!("cargo:rustc-cdylib-link-arg={argument}");
+        println!("cargo:rustc-link-arg-bins={argument}");
+    } else if target.contains("windows") {
+        // rustc's own module definition file already exports the Rust half,
+        // so this one names only what it cannot.
+        let definition = output.join("nupp-lua.def");
+        let names: Vec<&str> = symbols
+            .iter()
+            .map(String::as_str)
+            .filter(|name| name.starts_with("lua"))
+            .collect();
+        write(
+            &definition,
+            &format!("EXPORTS\n    {}", names.join("\n    ")),
+        );
+        println!("cargo:rustc-cdylib-link-arg={}", definition.display());
+    }
+}
+
+fn write(path: &Path, text: &str) {
+    fs::write(path, format!("{text}\n"))
+        .unwrap_or_else(|error| panic!("cannot write {}: {error}", path.display()));
 }
 
 fn target() -> String {

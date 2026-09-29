@@ -118,13 +118,20 @@ exact-feature Rust native provider. Pass the `staticLinkFlags` array from
 and frameworks selected by the SDK features. The SDK does not require separate
 LuaJIT, LPeg, or provider archives.
 
-The dynamic library exports the `nupp_*` functions in the header and not
-LuaJIT's own C API. A host that calls the Lua C API itself therefore links
-`libnupp.a`, whose LuaJIT VM is the one those calls reach. That covers a
-preload opener or an AOT builder registrar, any use of the state
-`nupp_runtime_lua_state` returns, and attaching to a state the host created.
-Linking a separate LuaJIT beside `libnupp.dylib` does not fill the gap: it is a
-second VM, and `nupp_runtime_attach` cannot use a state that VM made.
+The dynamic library exports what `host/include/nupp.exports` lists and nothing
+else: the `nupp_*` functions in the header, the native provider the runtime
+reaches through LuaJIT's FFI, and LuaJIT's own C API from `lua.h`, `lauxlib.h`,
+`lualib.h` and `luajit.h`. Every platform's linker is given that one list, so
+it is also the file to read for what the library's ABI is. Exporting the Lua C
+API pins the LuaJIT floor stated under
+[Attached LuaJIT states](#attached-luajit-states).
+
+A host may therefore call the Lua C API against either library: a preload
+opener, an AOT builder registrar, any use of the state `nupp_runtime_lua_state`
+returns, or a state the host created and attaches. A shared AOT module finds
+the API in the process the same way. Compile against the LuaJIT headers of that
+floor, and do not link a second LuaJIT beside `libnupp`: it would be a second
+VM, and `nupp_runtime_attach` cannot use a state that VM made.
 
 ## Runtime ownership
 
@@ -186,7 +193,7 @@ after `nupp_runtime_free`, and it must not call `lua_close` while Nupp owns
 registry roots in the state.
 
 `nupp_runtime_lua_state` returns the application state for a host which also
-uses the Lua C API, which means linking the static library. Calls made directly through that API use the host's stack
+uses the Lua C API. Calls made directly through that API use the host's stack
 discipline and protection rules; the managed Nupp calls described below do not
 manage a stack frame the host creates itself.
 
