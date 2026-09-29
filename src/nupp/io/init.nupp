@@ -125,6 +125,11 @@ given no count; an explicit count must be positive. A failed or EOF read does
 not extend the destination. `transferTo(writer)` copies the entire remaining
 source and returns the byte count.
 
+A read moves the reader's cursor as a write moves a writer's, so all four take
+the reader exclusively. Two readers over one cursor, such as a stream and a
+borrowed view of it, cannot both be reading at once; the checker refuses the
+second while the first is live.
+
 ## Writers
 
 `buffer:newWriter()` clears the buffer and returns a forward-only writer

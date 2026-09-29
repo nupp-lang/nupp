@@ -6,7 +6,7 @@ local record Upload is http.Reader
     bytes: string
     closed: {boolean}
 
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         local out = self.bytes:sub(1, count)
         self.bytes = self.bytes:sub(#out + 1)
         return out

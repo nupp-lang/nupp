@@ -461,7 +461,7 @@ local record Reader is io.Reader
     @private
     account: function(self: Reader, consumed: integer, written: integer): string?
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local destinationLength: integer
         do
             local output = destination as span.ByteWriteSpan
@@ -558,7 +558,7 @@ local record Reader is io.Reader
         end
     end
 
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         local wanted = positive(count, count, "compression Reader:read count")
         local output = storage.allocateBytes(wanted)
         local writable = span.writeCarray(output, wanted)
@@ -571,7 +571,12 @@ local record Reader is io.Reader
         return storage.string(output, written), nil
     end
 
-    function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         local from: any = offset == nil and 0 or offset
         if type(from) ~= "number" or from < 0 or from > MAX_EXACT_INTEGER or from ~= math.floor(from) then
             error("nupp: compression Reader:readInto offset must be a non-negative integer", 2)
@@ -594,7 +599,7 @@ local record Reader is io.Reader
         return written, nil
     end
 
-    function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         local output = storage.allocateBytes(self.capacity)
         local total: integer = 0
         while true do

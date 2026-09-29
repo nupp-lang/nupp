@@ -354,7 +354,7 @@ local record FileReader is io.Reader
     @private
     _closed: boolean
 
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -380,7 +380,7 @@ local record FileReader is io.Reader
         return destination:getString(), nil
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -409,7 +409,12 @@ local record FileReader is io.Reader
         return got, invalid
     end
 
-    function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         local from = counted(offset or 0, "FileReader:readInto offset", 2)
         local wanted = math.min(positive(count or READ_SIZE, "FileReader:readInto count", 2), READ_SIZE)
         local lease = destination:reserveWrite(from, wanted)
@@ -429,7 +434,7 @@ local record FileReader is io.Reader
         return got, nil
     end
 
-    function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_SIZE)

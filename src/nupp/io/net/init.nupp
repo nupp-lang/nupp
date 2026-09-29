@@ -459,7 +459,7 @@ record net.Stream is Reader, Writer
     --- @return the bytes, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the connection is closed"
         end
@@ -473,7 +473,7 @@ record net.Stream is Reader, Writer
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when the destination is empty
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "net.Stream readSpan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -495,7 +495,12 @@ record net.Stream is Reader, Writer
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -523,7 +528,7 @@ record net.Stream is Reader, Writer
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)
@@ -665,7 +670,7 @@ record net.DirectionView is Reader, Writer
     _highWater: integer
 
     --- @raises string when count is not a positive integer
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._ended then
             return nil, "the reader is closed"
         end
@@ -677,7 +682,7 @@ record net.DirectionView is Reader, Writer
     end
 
     --- @raises string when the destination is empty
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -692,7 +697,12 @@ record net.DirectionView is Reader, Writer
     end
 
     --- @raises string when count is not a positive integer
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -715,7 +725,7 @@ record net.DirectionView is Reader, Writer
         return landed
     end
 
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)

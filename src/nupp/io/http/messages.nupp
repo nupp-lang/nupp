@@ -8,7 +8,7 @@ local http = {}
 
 --- A portable byte source for an HTTP upload, with consuming teardown.
 interface http.Reader is nupp.Closeable
-    read: function(self: http.Reader, count: integer): (string?, string?)
+    read: function(exclusive self: http.Reader, count: integer): (string?, string?)
 end
 
 --- Transport capability flags describing observable HTTP guarantees.

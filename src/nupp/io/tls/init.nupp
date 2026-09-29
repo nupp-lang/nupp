@@ -318,7 +318,7 @@ record tls.Session is Reader, Writer
     --- @return the bytes, or nil when the session is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the session is closed"
         end
@@ -328,8 +328,13 @@ record tls.Session is Reader, Writer
         const wanted = positive(count, "tls.Session read count", 2)
         local chunk: string? = nil
         local failure: string? = nil
+        local ended = false
+        -- The wait borrows plain values rather than the session, which this read
+        -- holds exclusively.
+        const provider = self._provider
+        const session = self._session
         await("nupp.io.tls read", function(): boolean
-            const got, why = self._provider:read(self._session, wanted)
+            const got, why = provider:read(session, wanted)
             if why ~= nil then
                 failure = why
 
@@ -344,12 +349,13 @@ record tls.Session is Reader, Writer
                 return true
             end
             chunk = got
-            if #got == 0 then
-                self._ended = true
-            end
+            ended = #got == 0
 
             return true
         end)
+        if ended then
+            self._ended = true
+        end
         if failure ~= nil then
             return nil, failure
         end
@@ -359,7 +365,7 @@ record tls.Session is Reader, Writer
 
     --- Reads directly into a checked writable span. A zero answer is the end.
     --- @raises string when the destination is empty
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "tls.Session readSpan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -375,7 +381,12 @@ record tls.Session is Reader, Writer
 
     --- Reads into a buffer. A zero answer is the end.
     --- @raises string when count is not a positive integer
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "tls.Session readInto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -399,7 +410,7 @@ record tls.Session is Reader, Writer
     end
 
     --- Writes everything left to a writer.
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)

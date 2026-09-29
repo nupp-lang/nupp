@@ -12,7 +12,7 @@ local M = {}
 local record ProbeReader is Reader
     state: any
 
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self.state.bytes ~= nil then
             self.state.maxRead = math.max(self.state.maxRead or 0, count)
             if self.state.overread then
@@ -35,15 +35,20 @@ local record ProbeReader is Reader
         return ""
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         return 0
     end
 
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         return 0
     end
 
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         return 0
     end
 

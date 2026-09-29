@@ -100,6 +100,35 @@ function M.everyStandardOwnerClosesThroughNuppDropAlone()
     end
 end
 
+-- A read moves a cursor as a write does, so a reader's reads take it exclusively:
+-- a borrowed reader over a stream and the stream itself cannot both read at once.
+function M.twoLiveReadersOverOneCursorAreRefused()
+    local source = table.concat(
+        {
+            "local stream = assert(nupp.io.net.connect({host = '127.0.0.1', port = 9}))",
+            "local view = nupp.io.net.asReader(stream)",
+            "local first = stream:read(1)",
+            "print(view:read(1), first)",
+        },
+        "\n"
+    )
+    local got = diagsOf(source)
+    assert(got:find("NUPP26%d%d:3"), "a second reader over one cursor must be refused: " .. got)
+    assertClean(
+        table.concat(
+            {
+                "local stream = assert(nupp.io.net.connect({host = '127.0.0.1', port = 9}))",
+                "do",
+                "    local view = nupp.io.net.asReader(stream)",
+                "    print(view:read(1))",
+                "end",
+                "print(stream:read(1))",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.formerResultClosesAnswerNothing()
     local io = require("nupp.io")
     local buffer = io.newBuffer("abc")

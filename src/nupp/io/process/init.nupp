@@ -288,7 +288,7 @@ record process.Reader is Reader2
         self.timeoutMs = timeoutMs
     end
 
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self.closed then
             return nil, "the process reader is closed"
         end
@@ -300,7 +300,7 @@ record process.Reader is Reader2
         return chunk or ""
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = positive(#destination, "process reader destination length", 2)
         local chunk, reason = self:read(wanted)
         if chunk == nil then
@@ -314,7 +314,12 @@ record process.Reader is Reader2
         return #chunk
     end
 
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         local at = offset or 0
         if at < 0 or at ~= math.floor(at) then
             error("nupp: process reader destination offset must be a non-negative integer", 2)
@@ -341,7 +346,7 @@ record process.Reader is Reader2
         return #chunk
     end
 
-    function transferTo(self, exclusive destination: Writer2): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer2): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_LIMIT)

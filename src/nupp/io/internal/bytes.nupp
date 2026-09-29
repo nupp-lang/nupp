@@ -129,14 +129,14 @@ export interface Reader is nupp.Closeable
     --- @return the bytes, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    read: function(self: Reader, count: integer): (string?, string?)
+    read: function(exclusive self: Reader, count: integer): (string?, string?)
 
     --- Reads directly into a checked writable span. A zero answer is the end.
     --- @param self this reader
     --- @param destination the positive-sized range to fill
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    readSpan: function(self: Reader, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    readSpan: function(exclusive self: Reader, exclusive destination: span.Writable<uint8>): (integer?, string?)
 
     --- Reads into a buffer.
     ---
@@ -148,7 +148,7 @@ export interface Reader is nupp.Closeable
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
     readInto: function(
-        self: Reader,
+        exclusive self: Reader,
         exclusive destination: Buffer,
         offset: integer?,
         count: integer?
@@ -159,7 +159,7 @@ export interface Reader is nupp.Closeable
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    transferTo: function(self: Reader, exclusive destination: Writer): (integer?, string?)
+    transferTo: function(exclusive self: Reader, exclusive destination: Writer): (integer?, string?)
 
 end
 
@@ -641,7 +641,7 @@ local record StringReader is Reader
     --- @return the bytes, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -658,7 +658,7 @@ local record StringReader is Reader
         return out, nil
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -679,7 +679,12 @@ local record StringReader is Reader
         return taking, nil
     end
 
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -708,7 +713,7 @@ local record StringReader is Reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -741,7 +746,7 @@ local record QueueReader is Reader
     --- @return the bytes, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -755,7 +760,7 @@ local record QueueReader is Reader
         return takeQueue(source, math.min(wanted, have) as integer), nil
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -776,7 +781,12 @@ local record QueueReader is Reader
         return taking, nil
     end
 
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -805,7 +815,7 @@ local record QueueReader is Reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end

@@ -23,7 +23,7 @@ local record MemoryReader is Reader
     @private
     _closed: boolean
 
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -40,7 +40,7 @@ local record MemoryReader is Reader
         return bytes, nil
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -61,7 +61,12 @@ local record MemoryReader is Reader
         return taking, nil
     end
 
-    function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -82,7 +87,7 @@ local record MemoryReader is Reader
         return taking, nil
     end
 
-    function transferTo(self, exclusive destination: Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end

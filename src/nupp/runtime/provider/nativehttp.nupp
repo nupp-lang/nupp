@@ -387,12 +387,12 @@ record http.Body is io.Reader
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer, or a second reader is on
     ---     the body
-    function read(self, count: integer): (string?, string?)
+    function read(exclusive self, count: integer): (string?, string?)
         local wanted = whole(count, "body read count", 1)
         return self:_next(wanted)
     end
 
-    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = whole(#destination, "body destination length", 1)
         local chunk, reason = self:_next(wanted)
         if chunk == nil then
@@ -419,7 +419,12 @@ record http.Body is io.Reader
     --- @raises string when an argument is not a whole number, or a second reader is on
     ---     the
     ---     body
-    function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(
+        exclusive self,
+        exclusive destination: io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
         local wanted = whole(count or READ_SIZE, "body read count", 1)
         local chunk, reason = self:_next(wanted)
@@ -451,7 +456,7 @@ record http.Body is io.Reader
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
     --- @raises string when a second reader is on the body
-    function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
+    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
         while true do
