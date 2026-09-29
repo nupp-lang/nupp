@@ -544,6 +544,19 @@ test("importing the entry module launches nothing until the page calls run", asy
   assert.equal(worker.terminated, true);
 });
 
+test("a page application runs past thirty seconds when its limits allow", async (t) => {
+  t.mock.timers.enable({apis: ["setTimeout"]});
+  const entry = await importEntry(t);
+  const running = entry.run();
+  const [worker] = FakePageWorker.opened;
+  t.mock.timers.tick(120_000);
+  assert.equal(worker.terminated, false, "no deadline outside limits ends the Worker");
+  const request = worker.posted.find((message) => message.type === "run");
+  worker.emit("message", {data: {id: request.id, ok: true, result: "finished"}});
+  assert.equal(await running, "finished");
+  entry.close();
+});
+
 test("browser Web Crypto effects provide random, SHA-256, and HMAC", async () => {
   const result = await handleBrowserEffects({
     kind: "effects",

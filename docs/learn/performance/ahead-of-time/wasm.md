@@ -86,7 +86,8 @@ const application = await import("./nupp-browser-app.mjs");
 const result = await application.run({limits: {perRun: {deadlineMs: 60000}}});
 ```
 
-`run` settles with the application's result and may be called once; `cancel()`
+`run` settles with the application's result and may be called once. Its
+`limits` are the only bound on how long the application runs. `cancel()`
 asks a running application to stop, and `close()` terminates its Worker. A page
 that hosts the runtime itself calls `runPackagedNuppLuaJITApp()` from
 `app-runtime.mjs` instead. The application may return no value or one

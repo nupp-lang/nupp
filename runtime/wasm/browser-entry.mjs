@@ -27,7 +27,6 @@ function openWorker() {
     const request = pending.get(event.data?.id);
     if (!request) return;
     pending.delete(event.data.id);
-    clearTimeout(request.timeout);
     if (event.data.ok) request.resolve(event.data.result);
     else request.reject(Object.assign(new Error(event.data.error?.message || "Nupp browser worker failed"), {
       stack: event.data.error?.stack,
@@ -35,7 +34,6 @@ function openWorker() {
   });
   worker.addEventListener("error", (event) => {
     for (const request of pending.values()) {
-      clearTimeout(request.timeout);
       request.reject(event.error || new Error(event.message));
     }
     pending.clear();
@@ -47,15 +45,8 @@ export function run(options = {}) {
   if (launchedPromise) return Promise.reject(new Error("this browser application already started"));
   openWorker();
   const id = nextId++;
-  const deadlineMs = options.deadlineMs || 30_000;
-  const result = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pending.delete(id);
-      worker.terminate();
-      reject(new Error(`the Nupp browser application exceeded its ${deadlineMs} ms hard deadline`));
-    }, deadlineMs);
-    pending.set(id, {resolve, reject, timeout});
-  });
+  // `limits` is the application's only deadline; the Worker enforces it.
+  const result = new Promise((resolve, reject) => pending.set(id, {resolve, reject}));
   worker.postMessage({
     id,
     type: "run",
@@ -75,7 +66,6 @@ export function cancel(reason = "the browser application was cancelled") {
 /** Terminates the application's Worker, rejecting a `run` still outstanding. */
 export function close() {
   for (const request of pending.values()) {
-    clearTimeout(request.timeout);
     request.reject(new Error("the Nupp browser Worker was closed"));
   }
   pending.clear();
