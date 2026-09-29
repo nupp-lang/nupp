@@ -312,6 +312,33 @@ function M.windowsAbsolutePathsAreNotModulesUnderTheCurrentRoot()
     )
 end
 
+-- A relative path that climbs out of its root with `..` was named as if it were
+-- beneath it: `../mini.nupp` against "." became the module "...mini", which
+-- import-c then wrote as the generated module's name. A `..` that stays inside
+-- keeps the name its spelling always had, because a source loaded through that
+-- spelling is already known by it.
+function M.aPathThatClimbsOutOfItsRootIsNotAModuleBeneathIt()
+    for _, case in ipairs({
+        {".", "../mini.nupp"},
+        {"src", "src/../mini.nupp"},
+        {"src", "src/a/../../b.nupp"},
+        {"/work/p", "/work/p/../q/c.nupp"},
+    }) do
+        assertEq(compilerEnv.moduleNameInRoots({case[1]}, case[2]), nil, case[2])
+        assert(
+            not compilerEnv.isProjectPath({roots = {case[1]}, config = {}, rootDir = "."}, case[2]),
+            case[2] .. " is not project source"
+        )
+    end
+    assertEq(compilerEnv.moduleNameInRoots({"src"}, "src/a/b.nupp"), "a.b")
+    assertEq(
+        compilerEnv.moduleNameInRoots({"."}, "tests/../src/a.nupp"),
+        "tests....src.a",
+        "a .. that stays inside keeps its spelling"
+    )
+    assert(compilerEnv.isProjectPath({roots = {"."}, config = {}, rootDir = "."}, "tests/../src/a.nupp"))
+end
+
 function M.isolatedProcessStopsAtItsWallClockDeadline()
     if jit.os == "Windows" then
         return
