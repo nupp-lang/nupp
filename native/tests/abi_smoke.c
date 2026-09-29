@@ -277,11 +277,11 @@ int main(void) {
     if (malformed_spirv_answers_a_status()) return 1;
     status = nuppNativeFilesInfo(current, 1, &file_info);
     if (status != NUPP_NATIVE_OK) return failed("filesystem info", status);
-    if (file_info.kind != 2) {
+    if (file_info.kind != NUPP_NATIVE_FILES_KIND_DIRECTORY) {
         fprintf(stderr, "current directory is not a directory\n");
         return 1;
     }
-    status = nuppNativeFileOpen(cargo, 0, &file);
+    status = nuppNativeFileOpen(cargo, NUPP_NATIVE_FILE_OPEN_READ, &file);
     if (status != NUPP_NATIVE_OK) return failed("file open", status);
     status = nuppNativeFileSize(file, &file_size);
     if (status != NUPP_NATIVE_OK) return failed("file size", status);
@@ -335,15 +335,16 @@ int main(void) {
         uint8_t small[2];
         size_t part_length = 0;
         int32_t present = 0;
-        if (nuppNativeUriPart(uri, 5, NULL, 0, &part_length, &present)
+        if (nuppNativeUriPart(uri, NUPP_NATIVE_URI_HOST, NULL, 0,
+                &part_length, &present)
                 != NUPP_NATIVE_BUFFER_TOO_SMALL
             || part_length != sizeof "example.com" - 1) {
             fprintf(stderr, "a URI part size query was not too small\n");
             return 1;
         }
-        /* Kind 5 is the host, which is longer than the output. */
-        if (nuppNativeUriPart(uri, 5, small, sizeof small, &part_length,
-                &present) != NUPP_NATIVE_BUFFER_TOO_SMALL
+        /* The host is longer than the output. */
+        if (nuppNativeUriPart(uri, NUPP_NATIVE_URI_HOST, small, sizeof small,
+                &part_length, &present) != NUPP_NATIVE_BUFFER_TOO_SMALL
             || part_length != sizeof "example.com" - 1 || !present) {
             fprintf(stderr, "a short URI part output was not too small\n");
             return 1;
@@ -359,7 +360,7 @@ int main(void) {
     http_options.max_pending_requests = 1;
     http_options.max_connections = 1;
     http_options.max_connections_per_host = 1;
-    http_options.proxy_mode = 1;
+    http_options.proxy_mode = NUPP_NATIVE_HTTP_PROXY_NONE;
     status = nuppNativeHttpClientCreate(&http_options, &client);
     if (status != NUPP_NATIVE_OK) return failed("HTTP client create", status);
     status = nuppNativeHttpClientRelease(client);

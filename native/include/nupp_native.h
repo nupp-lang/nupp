@@ -102,9 +102,14 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeRandomBytes(uint8_t *output, size_t length)
 NUPP_NATIVE_EXPORT int32_t nuppNativeXxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
 
-/* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Formats are 1 gzip,
- * 2 zlib and 3 raw DEFLATE. Step states are 1 need input, 2 need output and
- * 3 finished. Input and output ranges are borrowed only for one call. */
+/* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Input and output
+ * ranges are borrowed only for one call. */
+#define NUPP_NATIVE_COMPRESSION_GZIP 1u
+#define NUPP_NATIVE_COMPRESSION_ZLIB 2u
+#define NUPP_NATIVE_COMPRESSION_DEFLATE_RAW 3u
+#define NUPP_NATIVE_COMPRESSION_NEED_INPUT 1u
+#define NUPP_NATIVE_COMPRESSION_NEED_OUTPUT 2u
+#define NUPP_NATIVE_COMPRESSION_FINISHED 3u
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderCreate(
     uint32_t format, uint32_t level, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderWrite(
@@ -143,6 +148,48 @@ typedef struct {
     uint64_t size;
     double modified;
 } NuppNativeFilesInfo;
+
+/* NuppNativeFilesInfo.kind. A listing marks each entry with the byte 'f',
+ * 'd', 'l' or 'o' for the same four kinds. */
+#define NUPP_NATIVE_FILES_KIND_FILE 1u
+#define NUPP_NATIVE_FILES_KIND_DIRECTORY 2u
+#define NUPP_NATIVE_FILES_KIND_OTHER 3u
+#define NUPP_NATIVE_FILES_KIND_SYMLINK 4u
+
+/* nuppNativeFilesApplicationBase kinds. */
+#define NUPP_NATIVE_FILES_BASE_CONFIG 0u
+#define NUPP_NATIVE_FILES_BASE_DATA 1u
+#define NUPP_NATIVE_FILES_BASE_CACHE 2u
+
+/* nuppNativeFilesUserFolder kinds. */
+#define NUPP_NATIVE_FILES_FOLDER_HOME 0u
+#define NUPP_NATIVE_FILES_FOLDER_DOCUMENTS 1u
+#define NUPP_NATIVE_FILES_FOLDER_DOWNLOADS 2u
+#define NUPP_NATIVE_FILES_FOLDER_DESKTOP 3u
+#define NUPP_NATIVE_FILES_FOLDER_PICTURES 4u
+#define NUPP_NATIVE_FILES_FOLDER_MUSIC 5u
+#define NUPP_NATIVE_FILES_FOLDER_VIDEOS 6u
+
+/* nuppNativeFileOpen modes and nuppNativeFileSeek origins. */
+#define NUPP_NATIVE_FILE_OPEN_READ 0u
+#define NUPP_NATIVE_FILE_OPEN_WRITE 1u
+#define NUPP_NATIVE_FILE_OPEN_APPEND 2u
+#define NUPP_NATIVE_FILE_OPEN_READ_WRITE 3u
+#define NUPP_NATIVE_FILE_OPEN_READ_WRITE_TRUNCATE 4u
+#define NUPP_NATIVE_FILE_OPEN_READ_APPEND 5u
+#define NUPP_NATIVE_FILE_SEEK_START 0u
+#define NUPP_NATIVE_FILE_SEEK_CURRENT 1u
+#define NUPP_NATIVE_FILE_SEEK_END 2u
+
+/* nuppNativeFilesTransferSubmitWrite modes and nuppNativeFilesTransferStatus
+ * states. */
+#define NUPP_NATIVE_FILES_WRITE_REPLACE 0u
+#define NUPP_NATIVE_FILES_WRITE_APPEND 1u
+#define NUPP_NATIVE_FILES_WRITE_ATOMIC 2u
+#define NUPP_NATIVE_FILES_TRANSFER_PENDING 0u
+#define NUPP_NATIVE_FILES_TRANSFER_READY 1u
+#define NUPP_NATIVE_FILES_TRANSFER_FAILED 2u
+#define NUPP_NATIVE_FILES_TRANSFER_CANCELED 3u
 
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesInfo(
     NuppNativeFilesSlice path, int32_t follow,
@@ -457,6 +504,15 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeUuid7(uint8_t *output, size_t capacity);
 /* Present when NUPP_NATIVE_FEATURE_URI is set. URI values are immutable
  * generational handles. Text and components are copied into caller-owned
  * storage. */
+#define NUPP_NATIVE_URI_TEXT 0u
+#define NUPP_NATIVE_URI_SCHEME 1u
+#define NUPP_NATIVE_URI_AUTHORITY 2u
+#define NUPP_NATIVE_URI_USERNAME 3u
+#define NUPP_NATIVE_URI_PASSWORD 4u
+#define NUPP_NATIVE_URI_HOST 5u
+#define NUPP_NATIVE_URI_PATH 6u
+#define NUPP_NATIVE_URI_QUERY 7u
+#define NUPP_NATIVE_URI_FRAGMENT 8u
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriParse(
     const uint8_t *data, size_t length, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriRelease(uint64_t uri);
@@ -520,6 +576,26 @@ typedef struct {
     uint64_t transfer;
     uint32_t tokens;
 } NuppNativeHttpReady;
+
+/* NuppNativeHttpClientOptions.proxy_mode: the environment's proxies, none,
+ * or the one in `proxy`. */
+#define NUPP_NATIVE_HTTP_PROXY_ENVIRONMENT 0
+#define NUPP_NATIVE_HTTP_PROXY_NONE 1
+#define NUPP_NATIVE_HTTP_PROXY_EXPLICIT 2
+/* NuppNativeHttpRequest.body_kind. */
+#define NUPP_NATIVE_HTTP_BODY_NONE 0u
+#define NUPP_NATIVE_HTTP_BODY_INLINE 1u
+#define NUPP_NATIVE_HTTP_BODY_UPLOAD 2u
+#define NUPP_NATIVE_HTTP_BODY_FILE 3u
+/* NuppNativeHttpHead.state, and the states nuppNativeHttpBodyRead writes. */
+#define NUPP_NATIVE_HTTP_HEAD_PENDING 0u
+#define NUPP_NATIVE_HTTP_HEAD_READY 1u
+#define NUPP_NATIVE_HTTP_HEAD_FAILED 2u
+#define NUPP_NATIVE_HTTP_BODY_DATA 1u
+#define NUPP_NATIVE_HTTP_BODY_PENDING 2u
+#define NUPP_NATIVE_HTTP_BODY_EOF 3u
+#define NUPP_NATIVE_HTTP_BODY_FAILED 4u
+#define NUPP_NATIVE_HTTP_BODY_CLOSED 5u
 
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpClientCreate(
     const NuppNativeHttpClientOptions *options, uint64_t *output);
@@ -591,6 +667,12 @@ typedef struct {
     int32_t code;
     int32_t killed;
 } NuppNativeProcessExit;
+
+/* NuppNativeProcessSpawn stdio modes. Only stderr may join stdout. */
+#define NUPP_NATIVE_PROCESS_STDIO_PIPE 0u
+#define NUPP_NATIVE_PROCESS_STDIO_INHERIT 1u
+#define NUPP_NATIVE_PROCESS_STDIO_NULL 2u
+#define NUPP_NATIVE_PROCESS_STDIO_STDOUT 3u
 
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessSpawn(
     const NuppNativeProcessSpawn *spawn, NuppNativeProcessStarted *output);
