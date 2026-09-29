@@ -1367,6 +1367,101 @@ function M.browserGpuChecksShareTheGeneratedInterface()
     assert(read(dir .. "/build/native/cache/runtime-source/nupp/runtime/native/init.nupp") == nil)
 end
 
+-- A device runs at most 65535 workgroups along one dimension, which is
+-- 16,776,960 elements at 256 lanes. The dispatch folds the rest into a second
+-- dimension, so a map one element past that bound writes its last element, and
+-- a workgroup kernel two groups past it sees its later groups under their own
+-- indexes rather than repeating the first row's. The counts are the smallest
+-- that cross the bound; a machine without a compute adapter has nothing to run
+-- them on and says so instead.
+function M.gpuDispatchesPastOneDimensionsWorkgroupLimit()
+    local dir = gpuProject()
+    local source = assert(io.open(dir .. "/src/gpucheck.nupp", "wb"))
+    source:write(
+        [[
+module gpucheck
+
+local span = require("nupp.mem.span")
+local gpu = require("nupp.gpu")
+
+@aot(target = "gpu")
+local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        output[index] = nupp.math.u32.add(input[index], 1)
+    end
+end
+
+@aot(target = "gpu")
+local function tiled(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(256))
+    gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
+        phases:run(function(localIndex: uint32)
+            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            if cursor < #input then
+                if cursor < #output then
+                    output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 2)
+                end
+            end
+        end)
+    end)
+end
+
+export const increment = increment
+export const tiled = tiled
+]]
+    )
+    source:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local script = searchPathPrelude()
+        .. [[
+local ffi = require("ffi")
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+local gpucheck = require("gpucheck")
+local opened, context = pcall(gpu.open)
+if not opened then
+    assert(tostring(context):find("no suitable compute adapter", 1, true), tostring(context))
+    print("no compute adapter")
+    return
+end
+local function run(kernel, count, added)
+    local values = ffi.new("uint32_t[?]", count)
+    for index = 0, count - 1 do values[index] = index end
+    local input = context:buffer(ffi.typeof("uint32_t"), count)
+    local output = context:buffer(ffi.typeof("uint32_t"), count)
+    context:upload(input, span.fromCarray(values, count))
+    kernel:compile(context):bind(output, input):dispatch()
+    context:synchronize()
+    ffi.fill(values, count * 4)
+    context:download(output, span.fromCarray(values, count))
+    local wrong = 0
+    for index = 0, count - 1 do
+        if values[index] ~= index + added then wrong = wrong + 1 end
+    end
+    print(("%d of %d wrong, last %d"):format(wrong, count, tonumber(values[count - 1])))
+    context:releaseBuffer(input)
+    context:releaseBuffer(output)
+end
+run(gpucheck.increment, 16776961, 1)
+run(gpucheck.tiled, 65537 * 256, 2)
+]]
+    local file = assert(io.open(dir .. "/run.lua", "wb"))
+    assert(file:write(script))
+    file:close()
+    local pipe = assert(io.popen(("cd %q && luajit run.lua 2>&1; echo '__exit__:'$?"):format(dir)))
+    local runOut = pipe:read("*a")
+    pipe:close()
+    test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+    if runOut:find("no compute adapter", 1, true) then
+        io.stderr:write("gpuDispatchesPastOneDimensionsWorkgroupLimit: no compute adapter, nothing dispatched\n")
+        return
+    end
+    assert(runOut:find("0 of 16776961 wrong, last 16776961", 1, true), runOut)
+    assert(runOut:find("0 of 16777472 wrong, last 16777473", 1, true), runOut)
+end
+
 function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()
     local source = [[
 module gpuoverlay

@@ -502,6 +502,12 @@ function spirv.program(
     instruction(declarations, OP.Variable, {globalPointer, globalId, STORAGE.Input})
     name(globalId, "global_invocation_id")
     decorate(globalId, DECORATION.BuiltIn, {28})
+    -- A dispatch past one dimension's 65535 workgroups folds into rows of
+    -- them, and the row width is how the shader recovers the linear index.
+    local workgroupCountId = id()
+    instruction(declarations, OP.Variable, {globalPointer, workgroupCountId, STORAGE.Input})
+    name(workgroupCountId, "num_workgroups")
+    decorate(workgroupCountId, DECORATION.BuiltIn, {24})
 
     local workgroup = program.workgroup
     local groupId: integer? = nil
@@ -798,6 +804,7 @@ function spirv.program(
     local entryOperands = {5, main}
     push(entryOperands, stringWords(program.symbol .. "_gpu"))
     entryOperands[#entryOperands + 1] = globalId
+    entryOperands[#entryOperands + 1] = workgroupCountId
     if groupId ~= nil and localId ~= nil then
         entryOperands[#entryOperands + 1] = groupId as integer
         entryOperands[#entryOperands + 1] = localId as integer
@@ -879,17 +886,38 @@ function spirv.program(
     end
     collect(scalarStatements)
 
+    -- The host folds a long dispatch into rows of at most 65535 workgroups, so
+    -- an invocation's linear index is its column plus its row times the row's
+    -- width in lanes. That width is below 2^32 (65535 groups of at most 1024
+    -- lanes), and so is every index the range guard below admits.
     local loadedGlobal = id()
     instruction(functions, OP.Load, {vec3uType, loadedGlobal, globalId})
+    local globalColumn, globalRow = id(), id()
+    instruction(functions, OP.CompositeExtract, {u32Type, globalColumn, loadedGlobal, 0})
+    instruction(functions, OP.CompositeExtract, {u32Type, globalRow, loadedGlobal, 1})
+    local loadedWorkgroupCount = id()
+    instruction(functions, OP.Load, {vec3uType, loadedWorkgroupCount, workgroupCountId})
+    local rowGroups = id()
+    instruction(functions, OP.CompositeExtract, {u32Type, rowGroups, loadedWorkgroupCount, 0})
+    local threadsU = constant(u32Type, threads)
+    local rowWidth = id()
+    instruction(functions, OP.IMul, {u32Type, rowWidth, rowGroups, threadsU})
+    local rowStart = id()
+    instruction(functions, OP.IMul, {u32Type, rowStart, globalRow, rowWidth})
     local dispatch = id()
-    instruction(functions, OP.CompositeExtract, {u32Type, dispatch, loadedGlobal, 0})
+    instruction(functions, OP.IAdd, {u32Type, dispatch, rowStart, globalColumn})
     local groupIndex: integer? = nil
     local localIndex: integer? = nil
     if workgroup ~= nil then
         local loadedGroup = id()
         instruction(functions, OP.Load, {vec3uType, loadedGroup, groupId as integer})
+        local groupColumn, groupRow = id(), id()
+        instruction(functions, OP.CompositeExtract, {u32Type, groupColumn, loadedGroup, 0})
+        instruction(functions, OP.CompositeExtract, {u32Type, groupRow, loadedGroup, 1})
+        local groupRowStart = id()
+        instruction(functions, OP.IMul, {u32Type, groupRowStart, groupRow, rowGroups})
         groupIndex = id()
-        instruction(functions, OP.CompositeExtract, {u32Type, groupIndex as integer, loadedGroup, 0})
+        instruction(functions, OP.IAdd, {u32Type, groupIndex as integer, groupRowStart, groupColumn})
         local loadedLocal = id()
         instruction(functions, OP.Load, {vec3uType, loadedLocal, localId as integer})
         localIndex = id()
@@ -931,19 +959,40 @@ function spirv.program(
         uniform(param.name, scalarType(param.type))
     end
 
-    local entryMerge: integer? = nil
+    -- A folded dispatch overshoots in its last row, so both shapes retire the
+    -- invocations past the work. A map keeps `index < count`, decided from the
+    -- row and column so that an index past 2^32 cannot wrap back into range.
+    -- A workgroup keeps the groups the unfolded dispatch ran, ceil(count /
+    -- threads); the condition is uniform across a workgroup, so its barriers
+    -- stay in uniform control flow.
+    local count = uniform(dispatchCount, u32Type)
+    local inRange = id()
     if workgroup == nil then
-        local count = uniform(dispatchCount, u32Type)
-        local inRange = id()
-        instruction(functions, OP.ULessThan, {boolType, inRange, dispatch, count})
-        local bodyLabel, returnLabel = id(), id()
-        entryMerge = id()
-        instruction(functions, OP.SelectionMerge, {entryMerge as integer, 0})
-        instruction(functions, OP.BranchConditional, {inRange, bodyLabel, returnLabel})
-        instruction(functions, OP.Label, {returnLabel})
-        instruction(functions, OP.Return, {})
-        instruction(functions, OP.Label, {bodyLabel})
+        local countRow, countColumn = id(), id()
+        instruction(functions, OP.UDiv, {u32Type, countRow, count, rowWidth})
+        instruction(functions, OP.UMod, {u32Type, countColumn, count, rowWidth})
+        local earlierRow, sameRow, earlierColumn, tail = id(), id(), id(), id()
+        instruction(functions, OP.ULessThan, {boolType, earlierRow, globalRow, countRow})
+        instruction(functions, OP.IEqual, {boolType, sameRow, globalRow, countRow})
+        instruction(functions, OP.ULessThan, {boolType, earlierColumn, globalColumn, countColumn})
+        instruction(functions, OP.LogicalAnd, {boolType, tail, sameRow, earlierColumn})
+        instruction(functions, OP.LogicalOr, {boolType, inRange, earlierRow, tail})
+    else
+        local whole, partial, hasPartial, extra, needed = id(), id(), id(), id(), id()
+        instruction(functions, OP.UDiv, {u32Type, whole, count, threadsU})
+        instruction(functions, OP.UMod, {u32Type, partial, count, threadsU})
+        instruction(functions, OP.INotEqual, {boolType, hasPartial, partial, zeroU})
+        instruction(functions, OP.Select, {u32Type, extra, hasPartial, oneU, zeroU})
+        instruction(functions, OP.IAdd, {u32Type, needed, whole, extra})
+        instruction(functions, OP.ULessThan, {boolType, inRange, groupIndex as integer, needed})
     end
+    local bodyLabel, returnLabel = id(), id()
+    local entryMerge = id()
+    instruction(functions, OP.SelectionMerge, {entryMerge, 0})
+    instruction(functions, OP.BranchConditional, {inRange, bodyLabel, returnLabel})
+    instruction(functions, OP.Label, {returnLabel})
+    instruction(functions, OP.Return, {})
+    instruction(functions, OP.Label, {bodyLabel})
 
     local currentBreak: {integer} = {}
     local currentContinue: {integer} = {}
@@ -1515,12 +1564,10 @@ function spirv.program(
         workgroupBarrier()
     end
     statements(scalarStatements)
-    if workgroup == nil then
-        if not terminated then
-            instruction(functions, OP.Branch, {entryMerge as integer})
-        end
-        instruction(functions, OP.Label, {entryMerge as integer})
+    if not terminated then
+        instruction(functions, OP.Branch, {entryMerge})
     end
+    instruction(functions, OP.Label, {entryMerge})
     instruction(functions, OP.Return, {})
     instruction(functions, OP.FunctionEnd, {})
 

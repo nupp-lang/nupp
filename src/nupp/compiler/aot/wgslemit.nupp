@@ -367,14 +367,22 @@ local function emitProgram(
     )
     line(0, "")
     line(0, "@compute @workgroup_size(" .. tostring(threads) .. ")")
-    line(
-        0,
-        "fn " .. entrypoint(
-            program.symbol
-        ) .. "_gpu(@builtin(global_invocation_id) " .. INTERNAL .. "global_id: vec3<u32>) {"
-    )
-    line(1, "let " .. INTERNAL .. "dispatch_index = " .. INTERNAL .. "global_id.x;")
-    line(1, "if (" .. INTERNAL .. "dispatch_index >= " .. INTERNAL .. "uniforms." .. INTERNAL .. "count) {")
+    line(0, "fn " .. entrypoint(program.symbol) .. "_gpu(")
+    line(1, "@builtin(global_invocation_id) " .. INTERNAL .. "global_id: vec3<u32>,")
+    line(1, "@builtin(num_workgroups) " .. INTERNAL .. "workgroups: vec3<u32>,")
+    line(0, ") {")
+    -- The host folds a long dispatch into rows of at most 65535 workgroups, as
+    -- the SPIR-V emitter's comment explains. The guard decides `index < count`
+    -- from the row and column, so an index past 2^32 cannot wrap into range.
+    for _, text in ipairs({
+        "let $row_width = $workgroups.x * " .. tostring(threads) .. "u;",
+        "let $dispatch_index = $global_id.y * $row_width + $global_id.x;",
+        "let $count_row = $uniforms.$count / $row_width;",
+        "let $count_column = $uniforms.$count % $row_width;",
+        "if ($global_id.y > $count_row || ($global_id.y == $count_row && $global_id.x >= $count_column)) {",
+    }) do
+        line(1, (text:gsub("%$", INTERNAL)))
+    end
     line(2, "return;")
     line(1, "}")
     statements((loop as scalarIR.Loop).statements, 1)

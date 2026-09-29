@@ -71,6 +71,13 @@ A map kernel assigns one complete-span iteration to one GPU invocation. Every
 span indexed by the loop position must match the primary output length, unless
 a separately bounded `uint32` cursor proves access to another span.
 
+A dispatch may cover any `uint32` element count. A device runs at most 65535
+workgroups along one dimension, 16,776,960 elements at the default 256 lanes,
+so a longer dispatch is folded into rows of workgroups and the generated shader
+recovers each invocation's position from its row. Both providers fold the same
+way, and a dispatch is refused only past 65535 rows, which no `uint32` count
+reaches at more than one lane per workgroup.
+
 The declaration may take multiple read and write spans plus at most 128 bytes
 of fixed-width scalar uniforms. Host transfers stay explicit, and generated
 bindings preserve the declared element types and parameter order.
@@ -189,9 +196,10 @@ graphics API is substituted when it is unavailable.
 WebGPU reports a rejected call later rather than at the call, so the page checks
 every GPU operation before answering it. A validation or out-of-memory error
 fails the operation that caused it, and an error nothing was waiting for fails
-the next one. A dispatch whose workgroup count exceeds the device's
-per-dimension limit is refused before it is submitted, with the same message
-the native provider gives.
+the next one. A dispatch too long for one dimension of workgroups is folded
+into rows as it is natively; one past the device's per-dimension limit in rows
+as well is refused before it is submitted, with the same message the native
+provider gives.
 
 See [wasm.md](wasm.md#browser-package) for the application package and Worker
 host around this kernel.

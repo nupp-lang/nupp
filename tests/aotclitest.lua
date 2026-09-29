@@ -185,8 +185,8 @@ local function spirvDispatchCountMember(module)
             accessMembers[instruction.operands[2]] = instruction.operands[#instruction.operands]
         elseif instruction.opcode == 61 then -- OpLoad
             loads[instruction.operands[2]] = instruction.operands[3]
-        elseif instruction.opcode == 176 then -- OpULessThan
-            local pointer = loads[instruction.operands[4]]
+        elseif instruction.opcode == 134 then -- OpUDiv: the guard splits the count into rows
+            local pointer = loads[instruction.operands[3]]
             local member = pointer ~= nil and accessMembers[pointer] or nil
             if member ~= nil then
                 return constants[member]
@@ -648,6 +648,56 @@ return reservedNames
     assert(binding:find("uint32_t dispatch_count;", 1, true), binding)
     assert(binding:find("uint32_t uniform_1;", 1, true), binding)
     assert(binding:find("uniforms.uniform_1 = count", 1, true), binding)
+end
+
+-- One dimension holds 65535 workgroups, so the host folds a longer dispatch
+-- into rows and both shaders rebuild the linear index from the workgroup count.
+-- `aotbuildtest` runs a dispatch past the bound where there is a device; this
+-- holds the emitted shape everywhere else.
+function M.gpuShadersRebuildTheIndexOfAFoldedDispatch()
+    local dir = project({
+        [
+            "gpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.u32.add(input[i], 1)
+    end
+end
+return increment
+]],
+    })
+    local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
+    test.equal(moduleCode, 0, module)
+    local workgroups, interface = nil, nil
+    for _, instruction in ipairs(spirvInstructions(module)) do
+        local operands = instruction.operands
+        if instruction.opcode == 71 and operands[2] == 11 and operands[3] == 24 then -- BuiltIn NumWorkgroups
+            workgroups = operands[1]
+        elseif instruction.opcode == 15 then -- OpEntryPoint
+            interface = operands
+        end
+    end
+    assert(workgroups ~= nil, "the SPIR-V kernel does not read the workgroup count")
+    local listed = false
+    for _, operand in ipairs(assert(interface, "no SPIR-V entry point")) do
+        listed = listed or operand == workgroups
+    end
+    assert(listed, "the workgroup count is missing from the entry point's interface")
+    test.equal(spirvDispatchCountMember(module), 0, "the folded guard still reads the compiler-owned count")
+
+    local shader, code = run(dir, "--emit wgsl gpu.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("@builtin(num_workgroups) nupp_tmp_workgroups: vec3<u32>", 1, true), shader)
+    assert(shader:find("let nupp_tmp_row_width = nupp_tmp_workgroups.x * 256u;", 1, true), shader)
+    assert(
+        shader:find("nupp_tmp_dispatch_index = nupp_tmp_global_id.y * nupp_tmp_row_width + nupp_tmp_global_id.x;", 1, true),
+        shader
+    )
 end
 
 function M.gpuBindingNamesCannotCollideWithSourceParameters()

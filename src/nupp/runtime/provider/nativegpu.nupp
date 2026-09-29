@@ -263,10 +263,19 @@ local function readTyped<T>(
     return call(context, buffer, offset, bytes, destination, bytes)
 end
 
+--- The per-dimension workgroup bound every WebGPU device guarantees.
+const WORKGROUPS_PER_DIMENSION = 65535
+
+--- Dispatches `count` invocations of a kernel `threads` lanes wide. One
+--- dimension holds at most 65535 workgroups, so a longer dispatch folds into
+--- rows of that many and the generated shader recovers the linear index from
+--- the row; its `index < count` guard retires the tail of the last row. Only a
+--- dispatch past 65535 rows is refused, by the device's own check.
 local function dispatchNative(
     context: any,
     bindings: any,
     count: integer,
+    threads: integer,
     borrows uniforms: const uint8[?],
     bytes: integer
 ): integer
@@ -279,8 +288,13 @@ local function dispatchNative(
         borrows uniforms: const uint8[?],
         integer
     ): integer
+    local groups = math.ceil(count / threads)
+    if groups <= WORKGROUPS_PER_DIMENSION then
+        return call(context, bindings, count, 1, 1, uniforms, bytes)
+    end
+    local rows = math.ceil(groups / WORKGROUPS_PER_DIMENSION)
 
-    return call(context, bindings, count, 1, 1, uniforms, bytes)
+    return call(context, bindings, WORKGROUPS_PER_DIMENSION * threads, rows, 1, uniforms, bytes)
 end
 
 local contextdestroy = require("nupp.runtime.provider.nativegpurelease").destroy
@@ -603,7 +617,10 @@ function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, un
         end
     end
     local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
-    native.succeeded(dispatchNative(self._context, self._handle, self.count, uniformPointer, uniformBytes), 2)
+    native.succeeded(
+        dispatchNative(self._context, self._handle, self.count, self._kernel._threads, uniformPointer, uniformBytes),
+        2
+    )
 end
 
 function gpu.Context.upload<T>(

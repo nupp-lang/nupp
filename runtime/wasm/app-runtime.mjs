@@ -391,13 +391,18 @@ async function performGpuOperation(effect, options) {
       throw new Error("browser GPU dispatch has the wrong binding count");
     }
     const count = uint32(effect.count, "dispatch count");
-    // The dispatch is one-dimensional. Past the device's per-dimension bound WebGPU
-    // drops it and reports nothing to the caller, so refuse it here, in the native
-    // provider's words.
+    // One dimension holds at most the device's per-dimension workgroup count, so
+    // a longer dispatch folds into rows of that many, as the native provider
+    // does; the generated shader rebuilds the linear index from the row and
+    // retires the tail of the last one. Past as many rows WebGPU would drop the
+    // dispatch and report nothing to the caller, so refuse it here, in the
+    // native provider's words.
     const groups = Math.ceil(count / kernel.threads);
     const limit = device.limits?.maxComputeWorkgroupsPerDimension ?? 65535;
-    if (groups > limit) {
-      throw new Error(`GPU dispatch workgroup count [${groups}, 1, 1] exceeds the per-dimension limit ${limit}`);
+    const columns = Math.min(groups, limit);
+    const rows = groups > limit ? Math.ceil(groups / limit) : 1;
+    if (rows > limit) {
+      throw new Error(`GPU dispatch workgroup count [${columns}, ${rows}, 1] exceeds the per-dimension limit ${limit}`);
     }
     const lease = memoryLease(effect, options, kernel.uniformBytes);
     const entries = [];
@@ -415,7 +420,7 @@ async function performGpuOperation(effect, options) {
         const pass = encoder.beginComputePass();
         pass.setPipeline(kernel.pipeline);
         pass.setBindGroup(0, bindGroup);
-        pass.dispatchWorkgroups(groups);
+        pass.dispatchWorkgroups(columns, rows);
         pass.end();
         device.queue.submit([encoder.finish()]);
       });

@@ -639,8 +639,12 @@ function scopedGpuDevice() {
       }
       return {entries};
     },
+    dispatches: [],
     createCommandEncoder() {
-      const pass = {setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {}, end() {}};
+      const pass = {
+        setPipeline() {}, setBindGroup() {}, end() {},
+        dispatchWorkgroups(x, y = 1, z = 1) { device.dispatches.push([x, y, z]); },
+      };
       return {beginComputePass: () => pass, finish: () => ({})};
     },
   };
@@ -658,7 +662,7 @@ function scopedGpuDevice() {
   return {device, perform};
 }
 
-test("the browser GPU host refuses a dispatch past the per-dimension workgroup limit", async () => {
+test("the browser GPU host folds a long dispatch into rows and refuses past the last", async () => {
   const {device, perform} = scopedGpuDevice();
   const input = (await perform({operation: "runtime-create-buffer", bytes: 64})).value.buffer;
   const output = (await perform({operation: "runtime-create-buffer", bytes: 64})).value.buffer;
@@ -669,12 +673,16 @@ test("the browser GPU host refuses a dispatch past the per-dimension workgroup l
   const dispatch = (count) => perform({
     operation: "runtime-dispatch", kernel, read: [input], write: [output], count, lease: 1,
   });
-  assert.equal((await dispatch(8)).ok, true, "four groups of two fit the limit");
+  // A device holds four workgroups along a dimension here, of two lanes each.
+  assert.equal((await dispatch(8)).ok, true, "four groups of two fit one row");
+  assert.equal((await dispatch(9)).ok, true, "a fifth group starts a second row");
+  assert.equal((await dispatch(32)).ok, true, "four full rows fit the limit");
+  assert.deepEqual(device.dispatches, [[4, 1, 1], [4, 2, 1], [4, 4, 1]]);
   const submitted = device.submitted;
-  const refused = await dispatch(9);
+  const refused = await dispatch(33);
   assert.equal(refused.ok, false, "a dispatch WebGPU would drop was answered as done");
   // The native provider's wording, so a program sees one refusal on both targets.
-  assert.equal(refused.error, "GPU dispatch workgroup count [5, 1, 1] exceeds the per-dimension limit 4");
+  assert.equal(refused.error, "GPU dispatch workgroup count [4, 5, 1] exceeds the per-dimension limit 4");
   assert.equal(device.submitted, submitted, "the refused dispatch was submitted");
 });
 
