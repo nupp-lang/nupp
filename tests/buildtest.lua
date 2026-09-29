@@ -901,7 +901,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     })
     local output = capture(
         (
-            "cd %q && %q build -O1 --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"
+            "cd %q && %q build -O1 --remarks --remarks-out --remarks-for src/main.g.nupp src/main.g.nupp"
         ):format(dir, NUPP)
     )
     assert(not output:find("src/other.g.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
@@ -917,7 +917,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
         assertEq(remark.hotness, "unknown", "static remarks do not invent hotness")
     end
     local manifestCommand = (
-        "cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp"
+        "cd %q && %q build --remarks --remarks-out --remarks-for src/main.g.nupp"
     ):format(dir, NUPP)
     for attempt = 1, 2 do
         local manifestOut = capture(manifestCommand)
@@ -931,7 +931,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
         )
     end
     output = capture(
-        ("cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"):format(dir, NUPP)
+        ("cd %q && %q build --remarks --remarks-out --remarks-for src/main.g.nupp src/main.g.nupp"):format(dir, NUPP)
     )
     assert(output:find("optimizer unavailable at -O0", 1, true), "default tier is explained: " .. output)
     record = json.decode(read(dir .. "/build/remarks.json"))
@@ -939,9 +939,24 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.remarksOutTakesAnAttachedPath()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}',
+        ["src/main.g.nupp"] = 'local t = {}\nt.a = 1\nt.b = 2\nreturn t',
+    })
+    local output = capture(("cd %q && %q build -O1 --remarks-out=account.json src/main.g.nupp"):format(dir, NUPP))
+    assertEq(output, "", "a named remarks path builds quietly: " .. output)
+    local record = json.decode(read(dir .. "/account.json"))
+    assertEq(record.executionProfile.optLevel, 1, "the named file carries the account")
+    assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
+    local refused = capture(("cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""):format(dir, NUPP))
+    assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.optimizerHeatJoinsOnlyTheMatchingFileAndSourceRange()
     local compile = require("nupp.tools.cli.compile")
-    local settings = compile.settings({remarksOut = true})
+    local settings = compile.settings({remarksOut = "build/remarks.json"})
     settings.collectedRemarks = {
         {
             filename = "work.nupp",
@@ -979,7 +994,7 @@ end
 
 function M.optimizerHeatWithoutLuaLocationsStaysUnknown()
     local compile = require("nupp.tools.cli.compile")
-    local settings = compile.settings({remarksOut = true})
+    local settings = compile.settings({remarksOut = "build/remarks.json"})
     settings.collectedRemarks = {
         {filename = "work.nupp", line = 10, code = "OPT-2", status = "declined", hotness = "unknown"},
     }

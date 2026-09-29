@@ -276,6 +276,9 @@ local function run(options: any): integer
     local outDir: string? = #paths > 0 and values.output or nil
     local projectOutDir: string? = #paths == 0 and values.output or nil
     local target = values.target
+    if values.remarksOut == "" then
+        return usageError("--remarks-out= requires a file name")
+    end
     if #paths > 0 and (target or values.platform or values.standalone or values.host) then
         return usageError("--target, --platform, --host and --standalone cannot be used with explicit source files")
     end
@@ -574,11 +577,12 @@ local record Build
     remarks: boolean = false
 
     --- Only report optimizer decisions for this source file.
-    @cli(value = "PATH")
-    remarksFile: string?
+    @cli(value = "FILE")
+    remarksFor: string?
 
-    --- Write the optimizer's account to build/remarks.json.
-    remarksOut: boolean = false
+    --- Write the optimizer's account to a file, build/remarks.json by default.
+    @cli(arity = "optionalAttached", constant = "build/remarks.json", value = "PATH")
+    remarksOut: string?
 
     --- Turn off one optimizer pass by stable code.
     @cli(

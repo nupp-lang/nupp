@@ -5,9 +5,9 @@ module nupp.tools.cli.run
 
 The one command whose argument list has two halves. Everything up to the file
 name is the compiler's; everything after it belongs to the program, which is why
-this grammar stops at the first argument that is not an option. `--profile` and
-`--jit-aborts` carry their values attached rather than in the next argument for
-the same reason: bare, they must not swallow the file name behind them.
+this grammar stops at the first argument that is not an option. `--jit-aborts`
+and `--remarks-out` carry their values attached rather than in the next argument
+for the same reason: bare, they must not swallow the file name behind them.
 
 The reports cover the program and not the compiler. The session opens once the
 file has compiled and closes when it returns, so the work of getting there stays
@@ -81,17 +81,23 @@ local function run(options: any): integer
         positional[#positional + 1] = value
     end
     local values = options
-    local profiling = values.profile ~= nil
+    local profiling = values.profile == true
     if values.gpuCosts == "" then
         return usageError("--gpu-costs needs an output path")
     end
     local intervalMs: integer = DEFAULT_INTERVAL_MS
-    if type(values.profile) == "string" then
-        local given = tonumber(values.profile)
+    if values.profileIntervalMs ~= nil then
+        local given = tonumber(values.profileIntervalMs)
         if not given or given < 1 or given ~= math.floor(given) then
-            return usageError("--profile takes a whole number of " .. "milliseconds, not " .. values.profile)
+            return usageError("--profile-interval-ms needs a positive whole number")
+        end
+        if not profiling then
+            return usageError("--profile-interval-ms sets how often --profile samples, which was not asked for")
         end
         intervalMs = math.floor(given)
+    end
+    if values.remarksOut == "" then
+        return usageError("--remarks-out= requires a file name")
     end
     -- Naming where a report should go reads as asking for the report. Saying which flag
     -- is missing beats accepting it quietly and leaving someone waiting on a file that
@@ -252,11 +258,11 @@ local function run(options: any): integer
     else
         removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain)
     end
-    -- The artifact path is fixed, but an artifact left by an earlier run may still be
-    -- present. Tell a library in this run whether this invocation wrote it, without
-    -- making the path another piece of program configuration.
-    local previousRemarksAvailable = _G.__nuppRemarksAvailable
-    _G.__nuppRemarksAvailable = settings.remarksOut ~= nil
+    -- An artifact left by an earlier run may still be present. Tell a library in this
+    -- run where this invocation writes one, if it does, without making the path
+    -- another piece of program configuration.
+    local previousRemarksOut = _G.__nuppRemarksOut
+    _G.__nuppRemarksOut = settings.remarksOut
     -- Opened here rather than around the compile, so what the report describes is the
     -- program that was asked for and not the compiler that got it ready.
     if profiling or tracingAborts then
@@ -287,7 +293,7 @@ local function run(options: any): integer
             gpuCostsError = closeErr
         end
     end
-    _G.__nuppRemarksAvailable = previousRemarksAvailable
+    _G.__nuppRemarksOut = previousRemarksOut
     removeLoader()
     if watch then
         watch.finish(ok)
@@ -394,7 +400,7 @@ end
 ---
 ---     nupp run src/main.nupp
 ---     nupp run src/main.nupp first second
----     nupp run --profile=2 --profile-out hot.txt src/main.nupp
+---     nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
 ---     nupp run --jit-aborts=jit-aborts.csv src/main.nupp
 @cli(name = "run", stopAtFirstArgument = true)
 @derive(cliModule.Command)
@@ -417,11 +423,12 @@ local record Run
     remarks: boolean = false
 
     --- Only report optimizer decisions for this source file.
-    @cli(value = "PATH")
-    remarksFile: string?
+    @cli(value = "FILE")
+    remarksFor: string?
 
-    --- Write the optimizer account to build/remarks.json.
-    remarksOut: boolean = false
+    --- Write the optimizer's account to a file, build/remarks.json by default.
+    @cli(arity = "optionalAttached", constant = "build/remarks.json", value = "PATH")
+    remarksOut: string?
 
     --- Turn off one optimizer pass by stable code.
     @cli(short = "Zno-opt", long = false, arity = "attachedOnly", value = "CODE")
@@ -430,9 +437,12 @@ local record Run
     --- Keep named function identities patchable at poll points.
     watch: boolean = false
 
-    --- Sample the program, optionally with an attached interval.
-    @cli(arity = "optionalAttached", constant = "10", value = "MS")
-    profile: string?
+    --- Sample the program.
+    profile: boolean = false
+
+    --- Sampling interval in milliseconds.
+    @cli(value = "MS")
+    profileIntervalMs: integer?
 
     --- File which receives profiling samples.
     @cli(value = "PATH")

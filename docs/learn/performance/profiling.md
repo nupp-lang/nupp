@@ -56,7 +56,7 @@ nupp: 2043 samples on 61 stacks every 10ms, written to profile.out
 ```
 
 Drop `profile.out` on [speedscope.app](https://speedscope.app) to view a flame
-graph. `--profile=2` samples every 2 ms instead of the default 10 ms. Shorter
+graph. `--profile-interval-ms 2` samples every 2 ms instead of the default 10 ms. Shorter
 intervals increase profiling overhead; use them for short captures.
 `--profile-out` changes the output path.
 

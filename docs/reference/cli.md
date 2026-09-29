@@ -900,8 +900,9 @@ Options:
   -O0, -O1, -O2         Optimization level.
   --remarks             Report what the optimizer did and what it declined to
                         do.
-  --remarks-file PATH   Only report optimizer decisions for this source file.
-  --remarks-out         Write the optimizer's account to build/remarks.json.
+  --remarks-for FILE    Only report optimizer decisions for this source file.
+  --remarks-out[=PATH]  Write the optimizer's account to a file,
+                        build/remarks.json by default.
   -Zno-opt=CODE         Turn off one optimizer pass by stable code.
   --progress[=WHEN], -q, --quiet
                         When to report progress and timing.
@@ -1800,7 +1801,7 @@ Examples:
 
     nupp run src/main.nupp
     nupp run src/main.nupp first second
-    nupp run --profile=2 --profile-out hot.txt src/main.nupp
+    nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
     nupp run --jit-aborts=jit-aborts.csv src/main.nupp
 
 Usage:
@@ -1811,26 +1812,29 @@ Arguments:
   ARG   Arguments passed to the program.
 
 Options:
-  --strict             Check the program under the strict floor.
-  -O0, -O1, -O2        Optimization level.
-  --remarks            Report what the optimizer did and what it declined to
-                       do.
-  --remarks-file PATH  Only report optimizer decisions for this source file.
-  --remarks-out        Write the optimizer account to build/remarks.json.
-  -Zno-opt=CODE        Turn off one optimizer pass by stable code.
-  --watch              Keep named function identities patchable at poll points.
-  --profile[=MS]       Sample the program, optionally with an attached
-                       interval.
-  --profile-out PATH   File which receives profiling samples.
-  --gpu-costs PATH     Write GPU operation costs and device timestamps to this
-                       JSONL file.
-  --jit-aborts[=PATH]  Record JIT aborts, optionally naming an attached output
-                       path.
-  --json               Write JIT aborts as JSON rather than CSV.
-  --schema             Print the JSON Schema of JSON output and exit.
-  -h, --help           Show this help
-  --color[=WHEN]       When to color output: always, never, or auto
-  --no-color           Never color output
+  --strict              Check the program under the strict floor.
+  -O0, -O1, -O2         Optimization level.
+  --remarks             Report what the optimizer did and what it declined to
+                        do.
+  --remarks-for FILE    Only report optimizer decisions for this source file.
+  --remarks-out[=PATH]  Write the optimizer's account to a file,
+                        build/remarks.json by default.
+  -Zno-opt=CODE         Turn off one optimizer pass by stable code.
+  --watch               Keep named function identities patchable at poll
+                        points.
+  --profile             Sample the program.
+  --profile-interval-ms MS
+                        Sampling interval in milliseconds.
+  --profile-out PATH    File which receives profiling samples.
+  --gpu-costs PATH      Write GPU operation costs and device timestamps to this
+                        JSONL file.
+  --jit-aborts[=PATH]   Record JIT aborts, optionally naming an attached output
+                        path.
+  --json                Write JIT aborts as JSON rather than CSV.
+  --schema              Print the JSON Schema of JSON output and exit.
+  -h, --help            Show this help
+  --color[=WHEN]        When to color output: always, never, or auto
+  --no-color            Never color output
 ```
 
 The first non-option argument is the program; everything after it goes to the
@@ -1845,11 +1849,13 @@ Hello, world
 
 #### Profiling a run
 
-`--profile` and `--jit-aborts` take an attached value or none, never the next
-argument, so a program name after either is still the program:
+`--jit-aborts` and `--remarks-out` take an attached value or none, never the
+next argument, so a program name after either is still the program.
+`--profile` takes no value; `--profile-interval-ms` sets how often it samples,
+as it does for `bench`:
 
 ```bash
-nupp run --profile=2 --profile-out hot.txt src/main.nupp
+nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
 nupp run --jit-aborts src/main.nupp
 ```
 

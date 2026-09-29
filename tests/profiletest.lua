@@ -612,7 +612,7 @@ end
 
 function M.cliProfileWritesCollapsedStacks()
     local dir = tempProject()
-    local out, ok = run(dir, "run --profile=1 work.nupp " .. sampleRepeats(40))
+    local out, ok = run(dir, "run --profile --profile-interval-ms 1 work.nupp " .. sampleRepeats(40))
     assert(ok, "the program ran: " .. out)
     assertMatch(out, "ran", "the program's own output is not swallowed")
     assertMatch(out, "samples on %d+ stacks every 1ms, written to profile%.out", "the summary: " .. out)
@@ -692,11 +692,19 @@ end
 
 function M.cliRejectsAnIntervalThatIsNotAWholeNumberOfMilliseconds()
     local dir = tempProject()
-    for _, argument in ipairs({"--profile=x", "--profile=0", "--profile=1.5", "--profile="}) do
-        local out, ok = run(dir, "run " .. argument .. " work.nupp 1")
+    for _, value in ipairs({"x", "0", "1.5", "''"}) do
+        local argument = "--profile-interval-ms " .. value
+        local out, ok = run(dir, "run --profile " .. argument .. " work.nupp 1")
         assert(not ok, argument .. " must be refused")
-        assertMatch(out, "whole number of milliseconds", argument .. " says what it wanted: " .. out)
+        assertMatch(out, "%-%-profile%-interval%-ms", argument .. " names the option it refused: " .. out)
     end
+    -- The interval is its own option, as it is on `bench`, rather than a value
+    -- attached to `--profile`.
+    local out, ok = run(dir, "run --profile=5 work.nupp 1")
+    assert(not ok, "--profile takes no value: " .. out)
+    out, ok = run(dir, "run --profile-interval-ms 5 work.nupp 1")
+    assert(not ok, "an interval without --profile must be refused")
+    assertMatch(out, "which was not asked for", "and say why: " .. out)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -714,7 +722,7 @@ end
 
 function M.cliRunStillTakesItsOtherArgumentsAndTheProgramsOwn()
     local dir = tempProject()
-    local out, ok = run(dir, "run --strict --profile=5 -- work.nupp 3")
+    local out, ok = run(dir, "run --strict --profile --profile-interval-ms 5 -- work.nupp 3")
     assert(ok, "--strict, --profile and -- compose: " .. out)
     assertMatch(out, "ran", "the program ran")
     os.execute("rm -rf '" .. dir .. "'")
@@ -722,7 +730,7 @@ end
 
 function M.cliGpuCostsComposeWithSamplingAndRetainProgramFailures()
     local dir = tempProject()
-    local out, ok = run(dir, "run --profile=1 --profile-out samples.txt --gpu-costs costs/empty.jsonl work.nupp 1")
+    local out, ok = run(dir, "run --profile --profile-interval-ms 1 --profile-out samples.txt --gpu-costs costs/empty.jsonl work.nupp 1")
     assert(ok, "GPU cost output composes with CPU sampling: " .. out)
     local empty = assert(io.open(dir .. "/costs/empty.jsonl", "rb"))
     assertEq(empty:read("*a"), "", "a CPU-only program invents no GPU events")
@@ -737,7 +745,8 @@ end
 function M.helpDescribesTheProfilingFlags()
     local out, ok = run(HERE .. "/..", "help run")
     assert(ok, "help exits cleanly")
-    assertMatch(out, "%-%-profile%[=MS%]", "the sampling flag")
+    assertMatch(out, "%-%-profile ", "the sampling flag")
+    assertMatch(out, "%-%-profile%-interval%-ms MS", "and its interval")
     assertMatch(out, "%-%-profile%-out PATH", "where it writes")
     assertMatch(out, "%-%-jit%-aborts", "the trace channel")
 end
@@ -861,7 +870,7 @@ print(total)
     source = source:gsub("80000000", sampleRepeats(80000000), 1)
     file:write(source)
     file:close()
-    local out, ok = run(dir, "run -O1 --profile=1 --remarks --remarks-out --remarks-file heat.g.nupp heat.g.nupp")
+    local out, ok = run(dir, "run -O1 --profile --profile-interval-ms 1 --remarks --remarks-out --remarks-for heat.g.nupp heat.g.nupp")
     assert(ok, out)
     local document = require("testjson").decode(readFile(dir .. "/build/remarks.json"))
     assert(document.sampling and document.sampling.totalSamples > 0, "measurement metadata is retained")

@@ -62,9 +62,9 @@ record compile.Settings
     --- Absent from ordinary builds and machine bytecode reports.
     bytecodeBoundary: string?
 
-    --- Where to write the optimizer's account of this build, or nil for nowhere. The
-    --- path is fixed so a running program can consume the artifact without a second
-    --- option telling it where the first option put it.
+    --- Where to write the optimizer's account of this build, or nil for nowhere.
+    --- `--remarks-out` alone names `build/remarks.json`; a running program learns the
+    --- path from `nupp run` rather than from a second option.
     ---
     --- `--remarks` says what the optimizer did to the terminal; this says the same
     --- thing to a file, so a program can read what was compiled into it. A benchmark
@@ -101,12 +101,12 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         compat = values.compat,
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,
-        remarksFile = values.remarksFile,
+        remarksFile = values.remarksFor,
         disabled = values.disabled or {},
         diagnostics = collected,
         coverage = os.getenv("NUPP_COVERAGE") == "1",
         bytecodeBoundary = nil,
-        remarksOut = values.remarksOut and "build/remarks.json" or nil,
+        remarksOut = values.remarksOut,
         collectedRemarks = (values.remarksOut or values.profile and values.remarks) and {} or nil,
         sampledHeat = nil,
         collectedAllocationSites = values.remarksOut and {} or nil,

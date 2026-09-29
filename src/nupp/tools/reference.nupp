@@ -3061,7 +3061,7 @@ After static blockers are handled, sample a representative workload:
 
 ```bash
 nupp run --profile app.nupp
-nupp run --profile=2 --profile-out frame.out app.nupp
+nupp run --profile --profile-interval-ms 2 --profile-out frame.out app.nupp
 ```
 
 The collapsed-stack output opens in speedscope.app, FlameGraph, or inferno.

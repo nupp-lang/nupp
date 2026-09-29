@@ -1157,8 +1157,9 @@ nupp build -O1 -Zno-opt=OPT-2
 ```
 
 `build --remarks` and `run --remarks` report successful and declined rewrites
-with source locations. Add `--remarks-file src/work.nupp` to select one source,
-and `--remarks-out` to write `build/remarks.json`. Each machine-readable remark
+with source locations. Add `--remarks-for src/work.nupp` to select one source,
+and `--remarks-out` to write `build/remarks.json` (`--remarks-out=PATH` names
+another file). Each machine-readable remark
 has `status` (`fired`, `declined`, or `unavailable`). Static decisions carry
 `hotness: "unknown"`. With `run --profile --remarks-out`, Lua leaf samples are
 joined to each decision's source range: `hotness: "sampled"`, `hotnessSamples`,

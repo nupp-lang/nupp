@@ -1314,16 +1314,18 @@ end
 ----------------------------------------------------------------------------
 
 --- Reads the optimizer's account of this build, when `nupp run --remarks-out` wrote
---- one to the benchmark protocol's fixed `build/remarks.json` path.
+--- one: the benchrunner asks for the default `build/remarks.json`, and `run` says
+--- where it wrote.
 ---
 --- Its absence is a result rather than a failure: a case run without one carries no
 --- static counters and says so, and the gate then has only the dynamic half to work
 --- with.
 local function readRemarks(): any
-    if not _G.__nuppRemarksAvailable then
+    local path = _G.__nuppRemarksOut
+    if type(path) ~= "string" then
         return nil
     end
-    local content = readFile("build/remarks.json")
+    local content = readFile(path)
     if not content then
         return nil
     end
