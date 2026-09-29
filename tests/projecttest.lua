@@ -1145,6 +1145,10 @@ function M.retiredManifestKeysFailAsUnknownKeys()
             .. '{header = "native.h", out = "src/native.nupp"}}}}\n',
         'has no key "out"'
     )
+    reject(
+        'return {include = {"src"}, dependencies = {native = {kind = "rust"}}}\n',
+        'kind must be "c", "cargo", "luarocks", or "types"'
+    )
 end
 
 function M.deliverableTargetsStillRequireAnEntry()

@@ -116,7 +116,7 @@ type manifest.Resource = {
 --- what a rock takes have nothing else in common, and each provider in
 --- `nupp.tools.build.deps` reads its own.
 type manifest.Dependency = {
-    --- "c", "cargo", "rust", "luarocks" or "types".
+    --- "c", "cargo", "luarocks" or "types".
     kind: string?,
 
     dependencies: {string}?,
@@ -462,7 +462,6 @@ local SELF_HOST_KEYS = {"target", "bootstrapTarget", "bootstrap", "binary"}
 -- A dependency's keys are its provider's, and the providers have almost nothing in
 -- common: what a C build takes and what a rock takes overlap in `path` and nothing
 -- else. So each kind is closed against what its own provider reads.
--- `rust` and `cargo` name the same provider, so they take the same keys.
 local CARGO_KEYS = {
     "kind",
     "dependencies",
@@ -510,7 +509,6 @@ local DEPENDENCY_KEYS: {
         "bindings"
     },
     cargo = CARGO_KEYS,
-    rust = CARGO_KEYS,
     luarocks = {
         "kind",
         "dependencies",
@@ -1180,10 +1178,8 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return nil, "dependencies." .. name .. " must be a table"
         end
         local kind = dep.kind or ""
-        if kind ~= "c" and kind ~= "cargo" and kind ~= "rust" and kind ~= "luarocks" and kind ~= "types" then
-            return nil, "dependencies."
-                .. name
-                .. ".kind must be \"c\", \"cargo\", \"rust\", \"luarocks\", or \"types\""
+        if kind ~= "c" and kind ~= "cargo" and kind ~= "luarocks" and kind ~= "types" then
+            return nil, "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"luarocks\", or \"types\""
         end
         valid, err = validateKeys(dep, DEPENDENCY_KEYS[kind], "dependencies." .. name)
         if not valid then

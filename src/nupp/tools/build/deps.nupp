@@ -1154,7 +1154,7 @@ local function rockModules(root: string, config: Config, target: Target?): {deps
     return selected
 end
 
-local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo, luarocks = buildRock, types = buildTypes}
+local PROVIDERS = {c = buildC, cargo = buildCargo, luarocks = buildRock, types = buildTypes}
 
 -- The target is passed rather than read off the config for the one caller that has no
 -- build to hang it on: `nupp doc` renders straight from the manifest, and the docs
