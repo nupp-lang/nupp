@@ -101,8 +101,9 @@ local target = require("nupp.runtime.target")
 
 local contracts = require("nupp.io.http.spi")
 local messages = require("nupp.io.http.messages")
-local paths = require("nupp.io.path")
-local {type Path} = paths
+const {type Path} = require("nupp.io.files")
+const paths = require("nupp.io.path")
+const appPaths = require("nupp.io.files.path")
 local provider: contracts.Provider = do
     local chosen: contracts.Provider?
     local tied = false
@@ -200,13 +201,13 @@ end
 --- The path must name a regular file when the request is sent. A device, FIFO or
 --- directory has no length to send, and the native transport refuses it.
 ---
---- @param path the file to send
+--- @param path the file to send, as anything [](nupp.io.files) accepts
 --- @param contentType the `content-type` to send, unless the request names one
 --- @return the request body
 --- @raises string when path is neither a string nor a path, or contentType is not a
 ---     string
-function http.file(path: string | Path, contentType: string?): http.FileBody
-    if type(path) ~= "string" and not (path is paths.Path) then
+function http.file(path: Path, contentType: string?): http.FileBody
+    if type(path) ~= "string" and not (path is paths.Path) and not appPaths.is(path) then
         error("nupp: HTTP file body needs a path", 2)
     end
     if contentType ~= nil and type(contentType) ~= "string" then

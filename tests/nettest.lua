@@ -592,6 +592,32 @@ function M.listenerBacklogsAndPumpDelaysAreChecked()
     stream:close()
 end
 
+function M.aSocketPathMayBeAPathValue()
+    -- The filesystem names every other io facade accepts: text, a nupp.io.path.Path,
+    -- or an application path. The platform receives the text either way.
+    local backend, state = fakeBackend({})
+    function backend:listenPath(path, backlog)
+        state.listenedPath = path
+        return {host = "", port = 0}
+    end
+    function backend:connectPath(path, timeoutMs)
+        state.connectedPath = path
+        return nil, "nobody there"
+    end
+    install(backend)
+    local paths = require("nupp.io.path")
+    local listener = assert(net.listen({path = paths.newPath("/tmp/nupp-b04.sock")}))
+    assertEq(state.listenedPath, "/tmp/nupp-b04.sock", "a Path listens on its text")
+    listener:close()
+    local stream, why = net.connect({path = paths.newPath("/tmp/nupp-b04.sock")})
+    assertEq(stream, nil, "the fake refuses the connect")
+    assertEq(state.connectedPath, "/tmp/nupp-b04.sock", "after receiving the path's text")
+    assertTrue(why ~= nil, "and says why")
+    local ok, problem = pcall(net.listen, {path = 42})
+    assertEq(ok, false, "a number is not a path")
+    assertTrue(tostring(problem):find("path", 1, true) ~= nil, tostring(problem))
+end
+
 function M.keepAliveDelayIsMilliseconds()
     -- Every other duration in the io facades is milliseconds; this one used to be
     -- seconds, so a caller who wrote 30000 asked for eight hours.

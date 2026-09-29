@@ -2,7 +2,7 @@
 
 module nupp.io.http.messages
 
-const path = require("nupp.io.path")
+const {type Path} = require("nupp.io.files")
 const uri = require("nupp.io.uri")
 local http = {}
 
@@ -122,8 +122,9 @@ end
 --- Built by [](nupp.io.http.file). The path must name a regular file: a device,
 --- FIFO or directory has no length to send, and the native transport refuses it.
 record http.FileBody
-    --- The file to send.
-    path: string | path.Path
+    --- The file to send, named as anything [](nupp.io.files) accepts: text, a
+    --- [](nupp.io.path.Path), or an application path.
+    path: Path
 
     --- The `content-type` to send, unless the request names one itself.
     contentType: string?

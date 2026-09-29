@@ -28,6 +28,7 @@ local target = require("nupp.runtime.target")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
+const {type Path} = require("nupp.io.files")
 
 local suspension = require("nupp.suspension")
 local span = require("nupp.mem.span")
@@ -81,12 +82,13 @@ type net.ListenOptions = {
     --- answers which was chosen.
     port: integer?,
 
-    --- A filesystem name to bind instead, for a Unix domain socket.
+    --- A filesystem name to bind instead, for a Unix domain socket, as anything
+    --- [](nupp.io.files) accepts.
     ---
     --- The name is not removed when the listener closes. A caller that binds a
     --- path owns that path, and unlinking a file this process may not have
     --- created is not a transport's decision to make.
-    path: string?,
+    path: Path?,
 
     --- How many connections the platform may hold before this process accepts
     --- them, or nil for the platform's usual depth. When given, it must be
@@ -109,9 +111,10 @@ type net.ConnectOptions = {
     --- The peer's port.
     port: integer?,
 
-    --- A filesystem name to reach instead, for a Unix domain socket. Nothing is
-    --- resolved for one, so a connect to a path starts at the handshake.
-    path: string?,
+    --- A filesystem name to reach instead, for a Unix domain socket, as anything
+    --- [](nupp.io.files) accepts. Nothing is resolved for one, so a connect to a
+    --- path starts at the handshake.
+    path: Path?,
 
     --- The most bytes this connection may hold unsent before `write` waits.
     --- Defaults to one mebibyte.
@@ -184,6 +187,19 @@ local function positive(value: integer, what: string, level: integer): integer
     end
 
     return value
+end
+
+--- The text a filesystem name reaches the platform as.
+--- @raises string when the value is neither text nor a path
+local function pathText(value: Path, what: string, level: integer): string
+    local given: any = value
+    if type(given) == "string" then
+        return given as string
+    end
+    if type(given) == "table" and type(given.toString) == "function" then
+        return given:toString()
+    end
+    error("nupp: " .. what .. " must be a string or a path", level + 1)
 end
 
 --- @raises string when the value is not a port number
@@ -1164,7 +1180,7 @@ function net.listen(options: net.ListenOptions): (affine(net.Listener)?, string?
         if options.host ~= nil or options.port ~= nil then
             error("nupp: net.listen takes a path or a host and port, not both", 2)
         end
-        handle, why = chosen:listenPath(options.path or "", backlog)
+        handle, why = chosen:listenPath(pathText(options.path or "", "net.listen path", 2), backlog)
     else
         if options.host == nil or options.port == nil then
             error("nupp: net.listen needs a path, or a host and a port", 2)
@@ -1202,7 +1218,7 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?
         if options.host ~= nil or options.port ~= nil then
             error("nupp: net.connect takes a path or a host and port, not both", 2)
         end
-        request, why = chosen:connectPath(options.path or "", deadline)
+        request, why = chosen:connectPath(pathText(options.path or "", "net.connect path", 2), deadline)
     else
         if options.host == nil or options.port == nil then
             error("nupp: net.connect needs a path, or a host and a port", 2)

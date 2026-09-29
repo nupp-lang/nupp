@@ -839,6 +839,33 @@ function M.gpuAvailabilityAnswersWithoutRaising()
     assertEq(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
 end
 
+function M.filesystemNamesAreFilesPathsEverywhere()
+    -- http file bodies, socket paths and a child's working directory take the same
+    -- nupp.io.files.Path the files facade does, application paths included.
+    assertClean(
+        table.concat(
+            {
+                "const files = require('nupp.io.files')",
+                "const http = require('nupp.io.http')",
+                "const net = require('nupp.io.net')",
+                "const paths = require('nupp.io.path')",
+                "const process = require('nupp.io.process')",
+                "local function send(where: files.Path): nil",
+                "    local body = http.file(where)",
+                "    local listener = net.listen({path = where})",
+                "    local stream = net.connect({path = where})",
+                "    local child = process.spawn({args = {'true'}, cwd = where})",
+                "    print(body, listener, stream, child)",
+                "end",
+                "send('/tmp/x')",
+                "send(paths.newPath('/tmp/x'))",
+                "send(assert(files.dataPath()))",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.optionBagsArePlainTables()
     -- http's options were a record built with `new`, where net, tls and process take
     -- a table. They are one shape now, and tls.client's table is optional because

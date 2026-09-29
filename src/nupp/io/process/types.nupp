@@ -2,7 +2,7 @@
 
 module nupp.io.process.types
 
-const {type Path} = require("nupp.io.path")
+const {type Path} = require("nupp.io.files")
 const {type Buffer} = require("nupp.io")
 const {type ByteView} = require("nupp.io")
 
@@ -17,8 +17,9 @@ type process.Options = {
     --- it is resolved through `PATH` by the platform, not by this module.
     args: {string},
 
-    --- The child's working directory, or nil to inherit this one.
-    cwd: (string | Path)?,
+    --- The child's working directory, as anything [](nupp.io.files) accepts, or nil
+    --- to inherit this one.
+    cwd: Path?,
 
     --- Variables overlaid on the inherited environment, or the whole environment
     --- when `clearEnv` is set. A name must be non-empty and contain no `=`.

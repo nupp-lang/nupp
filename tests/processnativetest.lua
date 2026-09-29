@@ -218,7 +218,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     local child = assert(
         startProcess({
             args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
-            cwd = "/",
+            cwd = require("nupp.io.path").newPath("/"),
             clearEnv = true,
             env = {NUPP_PROCESS_MARKER = "present"},
             stderr = "null",
