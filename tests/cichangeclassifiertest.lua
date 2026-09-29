@@ -78,7 +78,6 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/runtime/storage.nupp",
         "src/nupp/runtime/representation/init.nupp",
         "src/nupp/runtime/provider/nativestorage.nupp",
-        "src/nupp/runtime/provider/wasmstoragefactory.nupp",
         "src/nupp/text/utf8.nupp",
         "src/nupp/codec/valuebuilder.nupp",
         "src/nupp/codec/json/aot.nupp",
@@ -153,7 +152,7 @@ end
 -- Nothing but the Wasm job runs these fixtures, so classifying them as ordinary
 -- tests left a change to one uncompiled until something else selected the job.
 function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
-    selects("tests/portable-storage/project/src/main.nupp", {"browser-wasm"})
+    selects("tests/wasm-aot/project/src/main.nupp", {"browser-wasm"})
     selects("tests/luajit-browser/prepare-packaged.mjs", {"browser-wasm"})
     selects("tests/simd/primitives.lua", {
         "browser-wasm",
@@ -164,7 +163,6 @@ function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm"})
     selects("src/nupp/tools/build/aot.nupp", {"browser-wasm"})
     selects("src/nupp/simd.nupp", {"browser-wasm"})
-    selects("tests/wasm-memory/run.sh", {"browser-wasm"})
 end
 
 -- The one job narrow enough to be worth narrowing, so the boundary is worth an

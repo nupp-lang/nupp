@@ -57,7 +57,6 @@ local rules = {
     {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native", "simd"}},
     {"^src/nupp/runtime/representation/", {"library", "browser", "native", "simd"}},
     {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native", "simd"}},
-    {"^src/nupp/runtime/provider/wasmstorage", {"library", "browser", "native", "simd"}},
     {"^src/nupp/text/utf8%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/valuebuilder%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/aot%.nupp$", {"library", "simd"}},
@@ -105,19 +104,17 @@ local rules = {
     {"^tests/benchrunnertest%.lua$", {"tests", "measurement"}},
     {"^tests/jsonfuseddifferentialtest%.lua$", {"tests", "aot", "simd"}},
     -- The fixtures below are run by nothing but the Wasm job, so classifying
-    -- them as ordinary tests means a change to one is never compiled: the
-    -- queue in `portable-storage` kept calling a `nupp.text` constructor that
-    -- had been renamed, and stayed broken until an unrelated change to
-    -- `scripts/` selected every job.
+    -- them as ordinary tests means a change to one is never compiled: one
+    -- fixture's queue kept calling a `nupp.text` constructor that had been
+    -- renamed, and stayed broken until an unrelated change to `scripts/`
+    -- selected every job.
     {"^tests/browser%-templates/", {"tests", "browser"}},
     {"^tests/lua51%-compat/", {"tests", "compiler"}},
     {"^scripts/lua51%-compat%-corpus%.sh$", {"tests", "compiler"}},
-    {"^tests/portable%-storage/", {"tests", "browser"}},
     {"^tests/simd/", {"tests", "aot", "browser", "simd"}},
     {"^tests/simd[^/]*%.lua$", {"tests", "aot", "simd"}},
     {"^tests/wasm%-aot/", {"tests", "browser"}},
     {"^tests/luajit%-browser/", {"tests", "browser"}},
-    {"^tests/wasm%-memory/", {"tests", "browser"}},
     {"^tests/acceptance/", {"tests"}},
     {"^tests/", {"tests"}},
 
