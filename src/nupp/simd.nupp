@@ -61,16 +61,16 @@ local simd = {}
 --- Closed reduction values for scalar or explicit masked vector contributions.
 --- @export
 local reducer: {
-    orderedSum: function(initial: number): reducer.OrderedSum,
-    pairwiseSum: function(initial: number): reducer.PairwiseSum,
-    compensatedSum: function(initial: number): reducer.CompensatedSum,
-    algebraicSum: function(initial: number): reducer.AlgebraicSum,
-    orderedProduct: function(initial: number): reducer.OrderedProduct,
-    pairwiseProduct: function(initial: number): reducer.PairwiseProduct,
-    algebraicProduct: function(initial: number): reducer.AlgebraicProduct,
-    orderedDot: function(initial: number): reducer.OrderedDot,
-    pairwiseDot: function(initial: number): reducer.PairwiseDot,
-    algebraicDot: function(initial: number): reducer.AlgebraicDot,
+    orderedSum: function(initial: number): simd.OrderedSum,
+    pairwiseSum: function(initial: number): simd.PairwiseSum,
+    compensatedSum: function(initial: number): simd.CompensatedSum,
+    algebraicSum: function(initial: number): simd.AlgebraicSum,
+    orderedProduct: function(initial: number): simd.OrderedProduct,
+    pairwiseProduct: function(initial: number): simd.PairwiseProduct,
+    algebraicProduct: function(initial: number): simd.AlgebraicProduct,
+    orderedDot: function(initial: number): simd.OrderedDot,
+    pairwiseDot: function(initial: number): simd.PairwiseDot,
+    algebraicDot: function(initial: number): simd.AlgebraicDot,
     i32: {
         wrappingSum: function(initial: int32): simd.WrappingSum<int32>,
         wrappingProduct: function(initial: int32): simd.WrappingProduct<int32>,
@@ -118,7 +118,7 @@ local reducer: {
 
 --- A floating-point sum committed in logical iteration order.
 --- @export
-record reducer.OrderedSum
+record simd.OrderedSum
     @private
     total: number
 
@@ -141,7 +141,7 @@ end
 
 --- A floating-point sum using the width-independent adjacent-pair tree.
 --- @export
-record reducer.PairwiseSum
+record simd.PairwiseSum
     @private
     partials: {number?}
     @private
@@ -198,7 +198,7 @@ end
 --- Ordinary Lua has no lane width to exploit, so its executable reference uses
 --- a left fold. Native lowering may use several accumulators.
 --- @export
-record reducer.AlgebraicSum
+record simd.AlgebraicSum
     @private
     total: number
 
@@ -236,7 +236,7 @@ end
 --- well as the smaller, so a large value added to a small running total does
 --- not lose its correction, which is the case plain Kahan gets wrong.
 --- @export
-record reducer.CompensatedSum
+record simd.CompensatedSum
     @private
     total: number
     @private
@@ -267,7 +267,7 @@ end
 
 --- A floating-point product committed in logical iteration order.
 --- @export
-record reducer.OrderedProduct
+record simd.OrderedProduct
     @private
     total: number
 
@@ -290,7 +290,7 @@ end
 
 --- A floating-point product using the width-independent adjacent-pair tree.
 --- @export
-record reducer.PairwiseProduct
+record simd.PairwiseProduct
     @private
     partials: {number?}
     @private
@@ -344,7 +344,7 @@ end
 
 --- A floating-point product whose named contract permits reassociation.
 --- @export
-record reducer.AlgebraicProduct
+record simd.AlgebraicProduct
     @private
     total: number
 
@@ -367,7 +367,7 @@ end
 
 --- A dot product committed in logical iteration order without contraction.
 --- @export
-record reducer.OrderedDot
+record simd.OrderedDot
     @private
     total: number
 
@@ -395,9 +395,9 @@ end
 
 --- A non-contracting dot product using the adjacent-pair sum tree.
 --- @export
-record reducer.PairwiseDot
+record simd.PairwiseDot
     @private
-    sum: reducer.PairwiseSum
+    sum: simd.PairwiseSum
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -423,7 +423,7 @@ end
 
 --- A dot product permitting reassociation and multiply-add contraction.
 --- @export
-record reducer.AlgebraicDot
+record simd.AlgebraicDot
     @private
     total: number
 
@@ -451,14 +451,14 @@ end
 
 --- Constructs an ordered floating-point sum.
 --- @export
-function reducer.orderedSum(initial: number): reducer.OrderedSum
-    return new reducer.OrderedSum(total = initial)
+function reducer.orderedSum(initial: number): simd.OrderedSum
+    return new simd.OrderedSum(total = initial)
 end
 
 --- Constructs a width-independent pairwise floating-point sum.
 --- @export
-function reducer.pairwiseSum(initial: number): reducer.PairwiseSum
-    local out = new reducer.PairwiseSum(partials = {}, count = 0)
+function reducer.pairwiseSum(initial: number): simd.PairwiseSum
+    local out = new simd.PairwiseSum(partials = {}, count = 0)
     out:add(initial)
 
     return out
@@ -466,26 +466,26 @@ end
 
 --- Constructs a reassociable floating-point sum.
 --- @export
-function reducer.algebraicSum(initial: number): reducer.AlgebraicSum
-    return new reducer.AlgebraicSum(total = initial)
+function reducer.algebraicSum(initial: number): simd.AlgebraicSum
+    return new simd.AlgebraicSum(total = initial)
 end
 
 --- Constructs a compensated floating-point sum.
 --- @export
-function reducer.compensatedSum(initial: number): reducer.CompensatedSum
-    return new reducer.CompensatedSum(total = initial, compensation = 0.0)
+function reducer.compensatedSum(initial: number): simd.CompensatedSum
+    return new simd.CompensatedSum(total = initial, compensation = 0.0)
 end
 
 --- Constructs an ordered floating-point product.
 --- @export
-function reducer.orderedProduct(initial: number): reducer.OrderedProduct
-    return new reducer.OrderedProduct(total = initial)
+function reducer.orderedProduct(initial: number): simd.OrderedProduct
+    return new simd.OrderedProduct(total = initial)
 end
 
 --- Constructs a width-independent pairwise floating-point product.
 --- @export
-function reducer.pairwiseProduct(initial: number): reducer.PairwiseProduct
-    local out = new reducer.PairwiseProduct(partials = {}, count = 0)
+function reducer.pairwiseProduct(initial: number): simd.PairwiseProduct
+    local out = new simd.PairwiseProduct(partials = {}, count = 0)
     out:multiply(initial)
 
     return out
@@ -493,26 +493,26 @@ end
 
 --- Constructs a reassociable floating-point product.
 --- @export
-function reducer.algebraicProduct(initial: number): reducer.AlgebraicProduct
-    return new reducer.AlgebraicProduct(total = initial)
+function reducer.algebraicProduct(initial: number): simd.AlgebraicProduct
+    return new simd.AlgebraicProduct(total = initial)
 end
 
 --- Constructs an ordered, non-contracting floating-point dot product.
 --- @export
-function reducer.orderedDot(initial: number): reducer.OrderedDot
-    return new reducer.OrderedDot(total = initial)
+function reducer.orderedDot(initial: number): simd.OrderedDot
+    return new simd.OrderedDot(total = initial)
 end
 
 --- Constructs a pairwise, non-contracting floating-point dot product.
 --- @export
-function reducer.pairwiseDot(initial: number): reducer.PairwiseDot
-    return new reducer.PairwiseDot(sum = reducer.pairwiseSum(initial))
+function reducer.pairwiseDot(initial: number): simd.PairwiseDot
+    return new simd.PairwiseDot(sum = reducer.pairwiseSum(initial))
 end
 
 --- Constructs a reassociable, contractible floating-point dot product.
 --- @export
-function reducer.algebraicDot(initial: number): reducer.AlgebraicDot
-    return new reducer.AlgebraicDot(total = initial)
+function reducer.algebraicDot(initial: number): simd.AlgebraicDot
+    return new simd.AlgebraicDot(total = initial)
 end
 
 --- Fixed-width reducers use the same namespaces as explicit scalar arithmetic.
