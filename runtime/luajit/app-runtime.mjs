@@ -1,5 +1,5 @@
 import {createKernels} from './aot.mjs';
-import {assetsFor} from './assets.mjs';
+import {assetsFor, sha256} from './assets.mjs';
 import {nativeInitialization} from './native.mjs';
 import {createWorkerPool} from '../wasm/worker-pool.mjs';
 import {createGuest} from './host.mjs';
@@ -127,11 +127,19 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
   }
 }
 
-export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
+// A worker lane refetches the manifest by URL, so it is booted with the SHA-256 of
+// the one its page verified: a deploy between page load and lane start would
+// otherwise pair two builds, whose worker frames need not agree.
+export async function runPackagedNuppLuaJITApp(manifestUrl, {manifestDigest, ...options} = {}) {
   const address = new URL(manifestUrl, globalThis.location?.href);
   const response = await fetch(address);
   if (!response.ok) throw new Error(`Cannot fetch application manifest: ${response.status}`);
-  const manifest = await response.json();
+  const manifestBytes = new Uint8Array(await response.arrayBuffer());
+  const digest = await sha256(manifestBytes);
+  if (manifestDigest !== undefined && digest !== manifestDigest) {
+    throw new Error('the application manifest changed after the page loaded it; reload the page');
+  }
+  const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
   if (manifest.schema !== 1 || manifest.runtime !== 'luajit-v86') throw new Error('Unsupported LuaJIT application manifest');
   const limits = resolveLimits(manifest.limits, options.limits);
   const base = new URL('.', address);
@@ -151,7 +159,7 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
     if (manifest.workers && options.workers !== false) {
       await verified(manifest.workers.lane);
       pool = createWorkerPool({laneUrl: new URL(manifest.workers.lane, base).href,
-        manifestUrl: address.href, maxLanes: manifest.workers.maxLanes || 2, limits,
+        manifestUrl: address.href, manifestDigest: digest, maxLanes: manifest.workers.maxLanes || 2, limits,
         requestPersistentStorage: options.requestPersistentStorage});
     }
     return await runNuppLuaJITApp({...options, app, initialize,

@@ -3,7 +3,7 @@ import { webcrypto } from "node:crypto";
 import test from "node:test";
 
 import { handleBrowserEffects } from "../../runtime/wasm/app-runtime.mjs";
-import { runNuppLuaJITApp } from "../../runtime/luajit/app-runtime.mjs";
+import { runNuppLuaJITApp, runPackagedNuppLuaJITApp } from "../../runtime/luajit/app-runtime.mjs";
 import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
@@ -892,6 +892,7 @@ function pool(overrides = {}) {
   return createWorkerPool({
     laneUrl: "https://example.test/worker-lane.mjs",
     manifestUrl: "https://example.test/nupp-browser-app.json",
+    manifestDigest: "a".repeat(64),
     maxLanes: 2,
     WorkerClass: FakeLane,
     ...overrides,
@@ -919,6 +920,7 @@ test("a worker pool boots at most its lane bound and reuses idle lanes", async (
     assert.deepEqual(lane.posted[0], {
       type: "boot",
       manifestUrl: "https://example.test/nupp-browser-app.json",
+      manifestDigest: "a".repeat(64),
       entry: "nupp.workers",
       limits: undefined,
     });
@@ -929,6 +931,33 @@ test("a worker pool boots at most its lane bound and reuses idle lanes", async (
     status: "done", payload: "Zg==", started: [3],
   });
   workers.close();
+});
+
+test("a worker pool needs the digest of the manifest its page verified", () => {
+  assert.throws(() => pool({manifestDigest: undefined}), /manifest digest/);
+});
+
+test("a worker lane refuses a manifest other than the one its page verified", async (t) => {
+  // A deploy between page load and lane start: the lane's fetch of the same URL
+  // answers with the next build's manifest.
+  const deployed = new TextEncoder().encode(JSON.stringify({
+    schema: 1, runtime: "luajit-v86", app: "app-next.lua", guest: "guest/next/guest-manifest.json",
+    assets: {"app-next.lua": {bytes: 1, sha256: "b".repeat(64)}},
+  }));
+  const fetched = [];
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    fetched.push(String(url));
+    return String(url).endsWith("/nupp-browser-app.json")
+      ? new Response(deployed)
+      : new Response("missing", {status: 404});
+  };
+  t.after(() => { globalThis.fetch = saved; });
+  await assert.rejects(
+    runPackagedNuppLuaJITApp("https://example.test/nupp-browser-app.json", {manifestDigest: "a".repeat(64)}),
+    /manifest changed after the page loaded it/,
+  );
+  assert.deepEqual(fetched, ["https://example.test/nupp-browser-app.json"], "no asset of the other build is fetched");
 });
 
 test("a worker pool carries results, failures and cancellations back unchanged", async () => {

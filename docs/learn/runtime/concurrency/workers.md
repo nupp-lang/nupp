@@ -521,7 +521,11 @@ The [browser implementation](../../performance/ahead-of-time/wasm.md#browser-pla
 satisfies `nupp.workers.spi.Provider`, so everything above is written the same way there.
 A lane is a module Web Worker holding its own LuaJIT guest, booted from the
 same verified application package the page loaded; the packaging step ships the
-lane entry point beside the content-addressed runtime. Nothing is shared between
+lane entry point beside the content-addressed runtime. A lane checks that the
+manifest it fetches has the digest of the one the page verified, so a deploy
+between page load and a lane's start fails that lane's tasks with "the
+application manifest changed after the page loaded it" rather than pairing two
+builds. Nothing is shared between
 lanes, so no Wasm threads, no `SharedArrayBuffer`, and no cross-origin isolation
 headers are involved.
 

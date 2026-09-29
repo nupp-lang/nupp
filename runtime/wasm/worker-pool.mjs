@@ -21,7 +21,14 @@ function laneCount(maxLanes) {
   return Math.max(1, Math.min(requested, available, 64));
 }
 
-export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, WorkerClass, requestPersistentStorage}) {
+// `manifestDigest` is the SHA-256 of the manifest the page verified. Each lane
+// refetches the manifest by URL and refuses one with another digest, so a deploy
+// between page load and lane start cannot pair two builds.
+export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes, limits, WorkerClass,
+  requestPersistentStorage}) {
+  if (typeof manifestDigest !== "string" || !/^[0-9a-f]{64}$/.test(manifestDigest)) {
+    throw new Error("a browser worker pool needs the manifest digest its page verified");
+  }
   const Worker = WorkerClass || globalThis.Worker;
   if (typeof Worker !== "function") {
     throw new Error("Web Workers are unavailable, so this host cannot run Nupp worker tasks");
@@ -114,7 +121,7 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
       lane, "nupp: a worker lane could not decode a task",
     ));
     worker.postMessage({
-      type: "boot", manifestUrl, entry: LANE_ENTRY_MODULE, limits,
+      type: "boot", manifestUrl, manifestDigest, entry: LANE_ENTRY_MODULE, limits,
       ...(typeof requestPersistentStorage === "function" ? {persistentStorageAvailable: true} : {}),
     });
     lanes.push(lane);

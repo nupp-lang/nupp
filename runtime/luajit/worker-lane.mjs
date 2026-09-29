@@ -132,7 +132,9 @@ function beginsTask(request) {
 }
 
 async function boot(message) {
+  if (typeof message.manifestDigest !== "string") throw new Error("a worker lane was booted without its manifest digest");
   await runPackagedNuppLuaJITApp(message.manifestUrl, {
+    manifestDigest: message.manifestDigest,
     limits: message.limits,
     workerEntry: message.entry || "nupp.workers",
     workerSetup: message.setup || "",
