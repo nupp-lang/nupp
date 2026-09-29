@@ -23,6 +23,10 @@ export interface Provider
     @readonly
     priority: integer?
 
+    --- Reports whether `open` can answer a device now, without raising.
+    @readonly
+    available: function(): boolean
+
     --- Opens an owned, closeable device context.
     --- Raises if the host cannot provide a compatible device.
     @readonly

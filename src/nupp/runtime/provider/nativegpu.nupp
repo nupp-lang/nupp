@@ -826,6 +826,20 @@ function gpu.Context.close(takes self: gpu.Context): nil
     state._destroy(state)
 end
 
+--- Opens and closes a device to learn whether one can be opened.
+function gpu.available(): boolean
+    if not pcall(native.requireFeature, 4, "GPU support") then
+        return false
+    end
+    local output = ffi.new("uint64_t[1]")
+    if C.nuppNativeGpuContextCreate(output) ~= 0 then
+        return false
+    end
+    C.nuppNativeGpuContextRelease(output[0])
+
+    return true
+end
+
 function gpu.open(): api.KernelContext
     native.requireFeature(4, "GPU support")
     local output = ffi.new("uint64_t[1]")
@@ -835,5 +849,6 @@ function gpu.open(): api.KernelContext
     return new gpu.Context(_destroy = contextdestroy, _handle = handle, _closed = false)
 end
 
+export const available = gpu.available
 export const open = gpu.open
 export const costsOutput = gpu.costsOutput

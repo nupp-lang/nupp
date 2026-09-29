@@ -7,6 +7,8 @@ The context owns every buffer, compiled kernel and binding made from it. Each
 is closeable and borrows the context, so checked code cannot close the device
 while one is live, or use one after closing it. Uploads, dispatches, and
 downloads only enqueue commands; `synchronize()` is the explicit CPU boundary.
+`gpu.available()` says whether a device can be opened at all, since `open`
+raises when none can.
 
 ```nupp
 local gpu = nupp.gpu
@@ -82,6 +84,13 @@ export const workgroups: function(
     size: uint32,
     scoped controller: function(uint32, api.Phases): nil
 ): nil = operations.workgroups
+
+--- Reports whether the selected provider can open a compute device now.
+---
+--- `open` raises when none can, and `with` needs the context it answers, so
+--- ask this first where a program has another way to run. Answering it opens
+--- and closes a device.
+export const available: function(): boolean = provider.available
 
 --- Opens a compute device through the selected provider.
 export const open: function(): api.Context = provider.open

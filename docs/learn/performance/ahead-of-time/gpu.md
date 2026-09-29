@@ -72,7 +72,8 @@ buffer the context. The checker therefore refuses a close while something still
 borrows the closed value, and any use after a close. `with` gives each one exact
 extent; `nupp.drop(buffer)` releases a buffer early. Closing a root buffer
 releases its allocation, and closing a view ends only the view. No close
-suspends.
+suspends. `gpu.open()` raises when no device can be opened, so a program with
+another way to run asks `gpu.available()` first.
 
 ## Map kernels
 

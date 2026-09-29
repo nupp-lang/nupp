@@ -783,6 +783,62 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
     request:close()
 end
 
+function M.gpuAvailabilityAnswersWithoutRaising()
+    local ffi = require("ffi")
+    local function native(features, createStatus)
+        local released = 0
+        local fixture = {
+            ffi = ffi,
+            C = {
+                nuppNativeFeatures = function()
+                    return features
+                end,
+                nuppNativeGpuContextCreate = function(output)
+                    output[0] = 9
+                    return createStatus
+                end,
+                nuppNativeGpuContextRelease = function(handle)
+                    assertEq(handle, 9ULL)
+                    released = released + 1
+                    return 0
+                end,
+            },
+            requireFeature = function(bit)
+                if features & bit == 0 then
+                    error("the Rust native provider was built without GPU support", 3)
+                end
+            end,
+            succeeded = function(status)
+                assertEq(status, 0)
+            end,
+        }
+        return require("providerstate").nativeGpu(fixture), function()
+            return released
+        end
+    end
+    local withoutFeature = native(0, 0)
+    assertEq(withoutFeature.available(), false, "a provider built without GPU support has no device")
+    local noAdapter = native(4, 1)
+    assertEq(noAdapter.available(), false, "a provider with no adapter has no device")
+    local adapter, released = native(4, 0)
+    assertEq(adapter.available(), true)
+    assertEq(released(), 1, "the probe closes the device it opened")
+
+    local refused = require("providerstate").browserGpu({
+        await = function()
+            error("WebGPU is unavailable", 0)
+        end,
+    })
+    assertEq(refused.available(), false, "a host without WebGPU has no device")
+    local host = {
+        await = function()
+            return {driver = "webgpu"}
+        end,
+    }
+    assertEq(require("providerstate").browserGpu(host).available(), true)
+    assertEq(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
+end
+
 function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
     local ffi = require("ffi")
     local nextHandle = 0

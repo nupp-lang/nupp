@@ -22,6 +22,7 @@ retained context state without service lookups.
 ]]
 
 local response = require("nupp.runtime.browser.response")
+local cancellation = require("nupp.runtime.cancellation")
 local effects = require("nupp.runtime.browser.effects")
 local requestNosuspend = effects.request as @nosuspend function(string, any, function(any): nil): function()
 local memory = require("nupp.runtime.browser.memory") as any
@@ -681,6 +682,26 @@ function gpu.Context.close(takes self: gpu.Context): nil
     state._destroy(state)
 end
 
+--- Asks the host for a device and closes it again. A cancellation still
+--- propagates; any other refusal means no device.
+--- @raises any when the waiting task is cancelled, rethrowing its cancellation
+function gpu.available(): boolean
+    local opened, answer = pcall(response.await, "gpu", {operation = "runtime-open",})
+    if not opened then
+        if cancellation.is(answer) then
+            error(answer, 0)
+        end
+        return false
+    end
+    if type(answer) ~= "table" or answer.driver ~= "webgpu" then
+        return false
+    end
+    requestNosuspend("gpu", {operation = "runtime-close", buffers = {}, kernels = {},}, function(_answer: any): nil
+    end)
+
+    return true
+end
+
 function gpu.open(): api.KernelContext
     local answer = response.await("gpu", {operation = "runtime-open",})
     if type(answer) ~= "table" or answer.driver ~= "webgpu" then
@@ -690,4 +711,5 @@ function gpu.open(): api.KernelContext
     return new gpu.Context(_destroy = contextdestroyNosuspend, _closed = false, _buffers = {}, _kernels = {})
 end
 
+export const available = gpu.available
 export const open = gpu.open

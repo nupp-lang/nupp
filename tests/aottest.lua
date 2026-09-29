@@ -417,6 +417,9 @@ end
     reportsGpu(
         header .. [[
 local function run(): integer
+    if not gpu.available() then
+        return 0
+    end
     with context = gpu.open() do
         with input = context:buffer(array.float, 16), output = context:buffer(array.float, 16) do
             with kernel = double:compile(context) do
