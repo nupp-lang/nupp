@@ -6317,6 +6317,59 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
     )
 end
 
+-- An owner moved into a record field is the record's to close: the region that held
+-- it no longer runs its cleanup, wherever the construction stands -- a binding, an
+-- argument, a statement or a return. Before, every one of these closed it twice.
+function M.anOwnerMovedIntoAFieldIsClosedOnce()
+    local source = table.concat(
+        {
+            "local closed: integer = 0",
+            "local record Inner is nupp.Closeable",
+            "   function close(takes self): nil closed = closed + 1 end",
+            "end",
+            "local record Outer is nupp.Closeable",
+            "   _inner: Inner",
+            "   function close(takes self): nil self._inner:close() end",
+            "end",
+            "local function viaLocal(): nil",
+            "   local inner = new Inner()",
+            "   local outer = new Outer(_inner = inner)",
+            "   outer:close()",
+            "end",
+            "local function consume(takes o: Outer): nil o:close() end",
+            "local function viaArgument(): nil",
+            "   local inner = new Inner()",
+            "   consume(new Outer(_inner = inner))",
+            "end",
+            "local function viaDrop(): nil",
+            "   local inner = new Inner()",
+            "   nupp.drop(new Outer(_inner = inner))",
+            "end",
+            "local function make(): Outer",
+            "   local inner = new Inner()",
+            "   return new Outer(_inner = inner)",
+            "end",
+            "local counts: {integer} = {}",
+            "viaLocal() counts[1] = closed closed = 0",
+            "viaArgument() counts[2] = closed closed = 0",
+            "viaDrop() counts[3] = closed closed = 0",
+            "local outer = make()",
+            "counts[4] = closed",
+            "nupp.drop(outer)",
+            "counts[5] = closed",
+            "return counts",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "ownership-field-move")
+    assertEq(#genDiags, 0)
+    local chunk, loadErr = loadstring(code, "@ownership-field-move")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    assertEq(table.concat(chunk(), ","), "1,1,1,0,1", "each moved owner is closed once, by the record")
+end
+
 function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     local source = table.concat(
         {

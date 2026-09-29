@@ -7263,6 +7263,28 @@ function gen.generate(
             -- `new` is a compile-time word: it decides which lowering the call
             -- underneath gets and then leaves, so a construction emits exactly the
             -- stamp or the ctype call it always did.
+            --
+            -- An owner a field took is the record's from then on. Its flag is cleared
+            -- once the construction has its value, so a raise while building still
+            -- leaves the owner to this region and nothing after it closes it twice.
+            local flags: {string} = {}
+            for _, move in ipairs(x.call and x.call.constructionOwnerMoves or {}) do
+                local flag = activeFlag(move)
+                if flag then
+                    flags[#flags + 1] = flag .. "=false; "
+                end
+            end
+            if #flags > 0 then
+                local value = nextTemp()
+                pluck.loweredFunction(
+                    ("(function(%s) %sreturn %s end)("):format(value, table.concat(flags), value),
+                    sourceLine(x),
+                    pluck.reasons.move
+                )
+                emit(x.call)
+                e(")")
+                return
+            end
             if x.call then
                 emit(x.call)
             end

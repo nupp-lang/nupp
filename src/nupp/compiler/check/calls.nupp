@@ -1502,6 +1502,20 @@ function calls.install(c: state.Checker): calls.Ops
 
             local bindings, bound = {}, {}
 
+            -- The owner a field took stops being the enclosing region's to clean up
+            -- once the record holds it, so the construction carries the move for the
+            -- generator to clear, the way a call carries its `takes` arguments'.
+            local function recordConstructionMove(value: any): nil
+                while value and (value.kind == "paren" or value.kind == "castExpr" or value.kind == "orExitExpr") do
+                    value = value.kind == "orExitExpr" and value.operand or value.expr
+                end
+                local move = value and value.automaticOwnerMove or nil
+                if move then
+                    node.constructionOwnerMoves = node.constructionOwnerMoves or {}
+                    node.constructionOwnerMoves[#node.constructionOwnerMoves + 1] = move
+                end
+            end
+
             local function bindField(fname: string?, value: any, site: any, label: string)
                 if not fname then
                     c.infer(value)
@@ -1566,6 +1580,7 @@ function calls.install(c: state.Checker): calls.Ops
                         deferredAffineRoots[fname] = {node = value, type = vt}
                     else
                         c.moveExpression(value, vt, "affine record construction", c.ownershipKind(vt))
+                        recordConstructionMove(value)
                     end
                 end
                 if genericMap then
@@ -1797,6 +1812,7 @@ function calls.install(c: state.Checker): calls.Ops
             -- resulting aggregate owns the root and needs no external borrow edge.
             for _, root in pairs(deferredAffineRoots) do
                 c.moveExpression(root.node, root.type, "affine record construction", c.ownershipKind(root.type))
+                recordConstructionMove(root.node)
             end
             if calleeT.inherentCleanup then
                 return finished(T.affine(calleeT, {calleeT.inherentCleanup}))
