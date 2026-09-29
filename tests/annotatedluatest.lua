@@ -263,6 +263,39 @@ host = {answer = function() return 42 end}
     os.execute("rm -rf '" .. root .. "'")
 end
 
+-- Files are read in the order their names sort, which is not the order a tree
+-- declares its types in: a.lua here uses a class b.lua declares.
+function M.aDeclarationTreeMayNameATypeAFileReadLaterDeclares()
+    local root = os.tmpname()
+    os.remove(root)
+    assert(os.execute("mkdir -p '" .. root .. "/types'") == 0)
+    local function write(name, text)
+        local f = assert(io.open(root .. "/types/" .. name, "wb"))
+        f:write(text)
+        f:close()
+    end
+    write("a.lua", [[
+---@class game
+game = {}
+
+---@param shape game.Shape
+---@return number
+function game.area(shape) end
+]])
+    write("b.lua", [[
+---@class game.Shape
+---@field width number
+local Shape = {}
+]])
+    local env = envMod.new(root, {cache = false, ambientTypeRoots = {root .. "/types"}})
+    local parsed = parser.parse("local n: number = game.area({width = 2})\n", root .. "/main.nupp")
+    local diagnostics = check.check(parsed, root .. "/main.nupp", env)
+    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    assertEq(#(env.ambientTypeProblems or {}), 0, env.ambientTypeProblems and env.ambientTypeProblems[1]
+        and env.ambientTypeProblems[1].msg)
+    os.execute("rm -rf '" .. root .. "'")
+end
+
 function M.multipleLocalTypesAreMigratedPositionally()
     local source = [[
 ---@type string, integer
