@@ -104,7 +104,9 @@ function M.infoDescribesAFileAndFailsOnAMissingOne()
     test.equal(info.kind, "file")
     test.equal(info.size, 5)
     test.equal(info.readOnly, false)
-    assert(info.modified > 1500000000, "a modification time is a Unix timestamp")
+    assert(info.modified > 1500000000000, "a modification time is a Unix timestamp in milliseconds")
+    local now = require("nupp.time").wallTime()
+    assert(math.abs(now - info.modified) < 1000, "a fresh write's time is the clock's, in the clock's unit")
 
     local missing, reason = files.info(inRoot("info/absent"))
     test.equal(missing, nil)
@@ -118,10 +120,12 @@ function M.symbolicLinksAreCreatedReadAndDistinguished()
     write(inRoot("links/target.txt"), "bytes")
     assert(files.createSymlink(inRoot("links/target.txt"), inRoot("links/alias")))
 
-    assert(files.isSymlink(inRoot("links/alias")))
-    assert(not files.isSymlink(inRoot("links/target.txt")))
+    test.equal(files.isSymlink(inRoot("links/alias")), true)
+    test.equal(files.isSymlink(inRoot("links/target.txt")), false)
+    test.equal(files.isSymlink(inRoot("links/absent")), false, "a failure reads as false, not as nil and a reason")
     assert(files.isFile(inRoot("links/alias")), "every other query follows the link")
-    test.equal(assert(files.readLink(inRoot("links/alias"))), inRoot("links/target.txt"))
+    local target = assert(files.readLink(inRoot("links/alias")))
+    test.equal(target:toString(), inRoot("links/target.txt"), "a link's target is a path value")
     test.equal(assert(files.info(inRoot("links/alias"))).kind, "file")
 end
 
@@ -163,7 +167,8 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
     end
 
     for index, path in ipairs(matches) do
-        matches[index] = nativePath(path)
+        assert(type(path) == "table", "a match is a path value")
+        matches[index] = nativePath(path:toString())
     end
     test.equal(
         table.concat(matches, "|"),
@@ -251,6 +256,7 @@ function M.aTemporaryIsRemovedOnCloseAndKeptOnPersist()
     assert(files.createDirectory(inRoot("settling")))
     local doomed = assert(files.createTemporaryFile({directory = inRoot("settling")}))
     local name = doomed:toString()
+    test.equal(doomed:path():toString(), name, "a temporary answers its path as a path value too")
     assert(files.isFile(name))
     test.equal(select("#", doomed:close()), 0, "a temporary's close answers nothing")
     assert(not files.exists(name), "closing removes what was created")
@@ -537,9 +543,9 @@ end
 
 function M.pathsAndFoldersAnswerTheEnvironment()
     local files = ready()
-    local current = assert(files.currentDirectory())
-    assert(files.isDirectory(current), "the working directory is a directory")
+    test.equal(files.currentDirectory, nil, "the working directory is nupp.io.path's question")
     local home = assert(files.userFolder("home"))
+    assert(type(home) == "table", "a user folder is a path value")
     assert(files.isDirectory(home), "the home folder is a directory")
     test.raises(
         function()

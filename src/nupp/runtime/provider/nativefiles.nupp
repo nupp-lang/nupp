@@ -19,7 +19,7 @@ knowing one is there.
 
 A path argument is a string, a [](nupp.io.path.Path), or an application path
 returned by `configurationPath`, `dataPath`, or `cachePath`; a path result is a
-string. An operation that fails because of the environment answers nil or false
+[](nupp.io.path.Path). An operation that fails because of the environment answers nil or false
 with a reason, and a malformed argument raises at the call site.
 
 ## Querying a name
@@ -34,13 +34,16 @@ print(info.size, info.modified, info.readOnly)
 ```
 
 `info` follows symbolic links, so it describes what a name refers to rather than
-the name itself. `size` is a byte count, `modified` is seconds since the Unix
-epoch with whatever fractional part the platform records, and `readOnly` is the
+the name itself. `size` is a byte count, `modified` is milliseconds since the
+Unix epoch, the unit [](nupp.time.wallTime) answers in, with whatever fraction
+the platform records, and `readOnly` is the
 platform's write refusal rather than a permission model. A size beyond Nupp's
 exact integer range answers a reason instead of a rounded count.
 
 `exists`, `isFile` and `isDirectory` answer the same question without the record
-and without a reason. A missing path is `false` rather than an error:
+and without a reason. Any failure is `false` rather than an error, a refused
+permission or an I/O error as much as a missing path, so ask `info` when the
+reason matters:
 
 ```nupp
 if files.isDirectory(candidate) then
@@ -49,13 +52,14 @@ end
 ```
 
 `isSymlink` is the one query that does not follow, because following is what
-would hide the answer:
+would hide the answer. It answers a boolean like the other three, false on any
+failure:
 
 ```nupp
 assert(files.createSymlink("target.txt", "alias"))
 assert(files.isSymlink("alias"))
 assert(files.isFile("alias"))
-assert(files.readLink("alias") == "target.txt")
+assert(assert(files.readLink("alias")):toString() == "target.txt")
 ```
 
 `createSymlink` takes an optional third argument, `"file"` or `"directory"`.
@@ -79,14 +83,14 @@ listing a large directory costs one call.
 
 ## Matching paths
 
-`glob` expands a pattern into sorted path strings. `*` and `?` stay within one
+`glob` expands a pattern string into sorted paths. `*` and `?` stay within one
 path component, `[abc]` and `[!abc]` select characters, and `**` crosses
 directory boundaries. No matches is an empty list; an invalid pattern or a
 filesystem error answers a reason.
 
 ```nupp
 for _, path in ipairs(assert(files.glob("src/**/*.nupp"))) do
-    print(path)
+    print(path:toString())
 end
 ```
 
@@ -132,7 +136,7 @@ whether the block falls through, returns early, or raises.
 ```nupp
 do
     local scratch = assert(files.createTemporaryFile({suffix = ".json"}))
-    assert(files.write(scratch:toString(), encoded))
+    assert(files.write(scratch:path(), encoded))
     assert(scratch:persist("out/report.json"))
 end
 ```
@@ -208,12 +212,13 @@ reported by `flush`, which is the call to make first when it matters.
 
 ## Platform directories
 
-Two queries answer where the process is and where the platform keeps a user's
-folders:
+Two queries answer where the platform keeps a user's folders and where the
+running program lives; [](nupp.io.path.currentDirectory) answers where the
+process is:
 
 ```nupp
-print(assert(files.currentDirectory()))
 print(assert(files.userFolder("documents")))
+print(assert(files.executableDirectory()))
 ```
 
 `userFolder` takes `home`, `documents`, `downloads`, `desktop`, `pictures`,
@@ -338,7 +343,6 @@ int32_t nuppNativeFilesCreateTemporary(
     struct NuppNativeFilesSlice, struct NuppNativeFilesSlice,
     struct NuppNativeFilesSlice,
     int32_t, uint64_t *);
-int32_t nuppNativeFilesCurrentDirectory(uint64_t *);
 int32_t nuppNativeFilesUserFolder(uint32_t, uint64_t *);
 int32_t nuppNativeFilesApplicationBase(uint32_t, uint64_t *);
 int32_t nuppNativeFilesExecutablePath(uint64_t *);
@@ -880,11 +884,18 @@ export record TemporaryPath is nupp.Closeable
     @private
     _closed: boolean
 
-    --- Returns the created path.
+    --- Returns the created path's text.
     --- @param self this temporary path
     --- @return the path text
     function toString(self): string
         return self._text
+    end
+
+    --- Returns the created path as a path value.
+    --- @param self this temporary path
+    --- @return the path
+    function path(self): paths.Path
+        return paths.newPath(self._text)
     end
 
     --- Moves this path to a permanent destination, replacing what is there.
@@ -1221,7 +1232,9 @@ export function info(path: string | paths.Path): (Info?, string?)
     return new Info(
         kind = KINDS[tonumber(found.kind)] or "other",
         size = tonumber(found.size) as integer,
-        modified = found.modified as number,
+        -- The library answers seconds; the facade answers the milliseconds the clock
+        -- does.
+        modified = (found.modified as number) * 1000,
         readOnly = found.readOnly as boolean
     ), nil
 end
@@ -1258,22 +1271,26 @@ end
 --- @param path the path to test
 --- @return whether it is a symbolic link
 --- @export
-export function isSymlink(path: string | paths.Path): (boolean?, string?)
+export function isSymlink(path: string | paths.Path): boolean
     local found = described(path, false, 2)
 
-    return found ~= nil and found.kind == 4, nil
+    return found ~= nil and found.kind == 4
 end
 
 --- Reads a symbolic link's target without resolving it.
 --- @param path the link to read
---- @return the target text, or nil on failure
+--- @return the target, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function readLink(path: string | paths.Path): (string?, string?)
+export function readLink(path: string | paths.Path): (paths.Path?, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
+    local target, reason = answer(C.nuppNativeFilesReadLink(slice(text), output), output)
+    if target == nil then
+        return nil, reason
+    end
 
-    return answer(C.nuppNativeFilesReadLink(slice(text), output), output)
+    return paths.newPath(target), nil
 end
 
 --- Creates a symbolic link.
@@ -1407,30 +1424,33 @@ end
 ---
 --- ```nupp
 --- for _, match in ipairs(assert(nupp.io.files.glob("src/**/*.nupp"))) do
----     print(match)
+---     print(match:toString())
 --- end
 --- ```
 --- @param pattern the filesystem pattern to expand
 --- @return the matching paths, or nil when the pattern or walk fails
 --- @return a failure reason, when unsuccessful
 --- @export
-export function glob(pattern: string | paths.Path): ({string}?, string?)
-    local text = named(pattern, "glob pattern", 2)
+export function glob(pattern: string): ({paths.Path}?, string?)
+    if type(pattern) ~= "string" then
+        error("nupp: io.files glob pattern must be a string", 2)
+    end
+    local text = pattern
     local output = ffi.new("uint64_t[1]")
     local status = C.nuppNativeFilesGlob(slice(text), output)
     if status ~= 0 then
         return nil, ffi.string(C.nuppNativeLastError())
     end
     local blob = native.bytes(output[0])
-    local matches: {string} = {}
+    local matches: {paths.Path} = {}
     local at = 1
     while at <= #blob do
         local stop = blob:find("\0", at, true)
         if stop == nil then
-            matches[#matches + 1] = blob:sub(at)
+            matches[#matches + 1] = paths.newPath(blob:sub(at))
             break
         end
-        matches[#matches + 1] = blob:sub(at, (stop as integer) - 1)
+        matches[#matches + 1] = paths.newPath(blob:sub(at, (stop as integer) - 1))
         at = (stop as integer) + 1
     end
 
@@ -1687,7 +1707,7 @@ end
 --- ```nupp
 --- do
 ---     local scratch = assert(nupp.io.files.createTemporaryFile({directory = "build"}))
----     assert(nupp.io.files.write(scratch:toString(), bytes))
+---     assert(nupp.io.files.write(scratch:path(), bytes))
 ---     assert(scratch:persist("build/output.bin"))
 --- end
 --- ```
@@ -1719,24 +1739,13 @@ export function createTemporaryDirectory(options: TemporaryOptions?): (affine(Te
     return new TemporaryPath(_text = text as string, _directory = true, _closed = false), nil
 end
 
---- Reads the process's current working directory.
---- @return the current directory, or nil on failure
---- @return a failure reason, when unsuccessful
---- @export
-export function currentDirectory(): (string?, string?)
-    requireFiles()
-    local output = ffi.new("uint64_t[1]")
-
-    return answer(C.nuppNativeFilesCurrentDirectory(output), output)
-end
-
 --- Answers a well-known user folder.
 --- @param which the folder to locate
 --- @return the folder, or nil when the platform has no such folder
 --- @return a failure reason, when unsuccessful
 --- @raises string when which names no user folder
 --- @export
-export function userFolder(which: UserFolder): (string?, string?)
+export function userFolder(which: UserFolder): (paths.Path?, string?)
     local index = FOLDERS[which]
     if index == nil then
         error("nupp: io.files has no user folder named " .. tostring(which), 2)
@@ -1744,8 +1753,12 @@ export function userFolder(which: UserFolder): (string?, string?)
 
     requireFiles()
     local output = ffi.new("uint64_t[1]")
+    local folder, reason = answer(C.nuppNativeFilesUserFolder(index, output), output)
+    if folder == nil then
+        return nil, reason
+    end
 
-    return answer(C.nuppNativeFilesUserFolder(index, output), output)
+    return paths.newPath(folder), nil
 end
 
 --- Reports the complete native filesystem surface.
@@ -1793,7 +1806,7 @@ export function applicationPath(
     return value, nil
 end
 
-export function executableDirectory(): (string?, string?)
+export function executableDirectory(): (paths.Path?, string?)
     requireFiles()
     local output = ffi.new("uint64_t[1]")
     local executable, reason = answer(C.nuppNativeFilesExecutablePath(output), output)
@@ -1805,7 +1818,7 @@ export function executableDirectory(): (string?, string?)
         return nil, "the executable path has no parent directory"
     end
 
-    return parent:toString(), nil
+    return parent, nil
 end
 
 export function requestPersistentStorage(): (boolean, string?)

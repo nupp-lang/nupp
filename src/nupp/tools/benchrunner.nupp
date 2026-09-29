@@ -144,7 +144,7 @@ end
 local function discover(): {string}
     local found: {string} = {}
     for _, path in ipairs(files.glob("bench/*.bench.nupp") or {}) do
-        found[#found + 1] = path
+        found[#found + 1] = path:toString()
     end
     table.sort(found)
 
@@ -345,7 +345,7 @@ local function listingKey(): string?
     local sources: {string} = {}
     for _, pattern in ipairs({"bench/**/*.nupp", "bench/**/*.lua", "bench/*.nupp", "bench/*.lua"}) do
         for _, path in ipairs(files.glob(pattern) or {}) do
-            sources[#sources + 1] = path
+            sources[#sources + 1] = path:toString()
         end
     end
     table.sort(sources)

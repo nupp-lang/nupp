@@ -72,8 +72,8 @@ end
 local function absolute(path: string): string
     path = normalize(path)
     if path:sub(1, 1) ~= "/" and not path:match("^[A-Za-z]:/") then
-        local cwd = files2.currentDirectory()
-        path = join(cwd or ".", path)
+        local cwd = path2.currentDirectory()
+        path = join(cwd and cwd:toString() or ".", path)
     end
     local prefix = path:match("^([A-Za-z]:)/") or (path:sub(1, 1) == "/" and "/" or "")
     local rest = prefix == "/" and path:sub(2) or path:gsub("^[A-Za-z]:/", "")

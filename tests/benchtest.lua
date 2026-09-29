@@ -85,7 +85,10 @@ end
 local M = {}
 
 function M.everyTopLevelNuppBenchmarkUsesTheHarness()
-    local paths = assert(files.glob(HERE .. "/../bench/*.nupp"))
+    local paths = {}
+    for index, path in ipairs(assert(files.glob(HERE .. "/../bench/*.nupp"))) do
+        paths[index] = path:toString()
+    end
     table.sort(paths)
     assertEq(#paths, 11, "all eleven top-level Nupp benchmarks are present")
     for _, path in ipairs(paths) do

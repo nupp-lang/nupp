@@ -173,7 +173,9 @@ function files.info(path: any): (messages.Info?, string?)
         return nil, "browser file host returned invalid metadata"
     end
 
-    return new messages.Info(kind = kind, size = size, modified = modified, readOnly = false), nil
+    -- The host answers seconds; the facade answers the milliseconds the clock does.
+
+    return new messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readOnly = false), nil
 end
 
 function files.exists(path: any): boolean
@@ -191,12 +193,12 @@ function files.isDirectory(path: any): boolean
     return value ~= nil and value.kind == "directory"
 end
 
-function files.isSymlink(path: any): (boolean?, string?)
+function files.isSymlink(path: any): boolean
     descriptor(path, 2)
-    return nil, unavailable("symbolic links")
+    return false
 end
 
-function files.readLink(path: any): (string?, string?)
+function files.readLink(path: any): (nil, string?)
     descriptor(path, 2)
     return nil, unavailable("symbolic links")
 end
@@ -261,8 +263,10 @@ function files.list(path: any): ({messages.Entry}?, string?)
     return entries, nil
 end
 
-function files.glob(path: any): ({string}?, string?)
-    descriptor(path, 2)
+function files.glob(pattern: string): (nil, string?)
+    if type(pattern) ~= "string" then
+        error("nupp: io.files glob pattern must be a string", 2)
+    end
     return nil, unavailable("glob")
 end
 
@@ -624,15 +628,11 @@ function files.createTemporaryDirectory(options: messages.TemporaryOptions?): (n
     return nil, unavailable("temporary paths")
 end
 
-function files.currentDirectory(): (string?, string?)
-    return nil, unavailable("a current directory")
-end
-
-function files.userFolder(which: messages.UserFolder): (string?, string?)
+function files.userFolder(which: messages.UserFolder): (nil, string?)
     return nil, unavailable("user folders")
 end
 
-function files.executableDirectory(): (string?, string?)
+function files.executableDirectory(): (nil, string?)
     return nil, unavailable("an executable directory")
 end
 

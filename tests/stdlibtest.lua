@@ -2040,7 +2040,15 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     )
 
     assertEq((diagsOf("const files = require('nupp.io.files')\nlocal n: number = files.read('x')")), "NUPP2001:2")
-    assertClean("const files = require('nupp.io.files')\nlocal paths: {string} = assert(files.glob('src/**/*.nupp'))")
+    assertClean(
+        "const files = require('nupp.io.files')\nlocal paths: {nupp.io.path.Path} = assert(files.glob('src/**/*.nupp'))"
+    )
+    assertEq(
+        (diagsOf("const files = require('nupp.io.files')\nfiles.glob(nupp.io.path.newPath('src'))")),
+        "NUPP2006:2",
+        "a glob takes a pattern, not a path"
+    )
+    assertClean("const files = require('nupp.io.files')\nlocal link: boolean = files.isSymlink('x')")
     assertEq((diagsOf("const files = require('nupp.io.files')\nfiles.info(42)")), "NUPP2006:2")
     assertEq((diagsOf("const files = require('nupp.io.files')\nfiles.open('x')")), "NUPP2605:2")
     assertEq((diagsOf("const files = require('nupp.io.files')\nfiles.createTemporaryFile()")), "NUPP2605:2")

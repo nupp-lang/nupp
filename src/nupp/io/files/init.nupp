@@ -183,6 +183,9 @@ export function info(path: Path): (messages.Info?, string?)
 end
 
 --- Reports whether a path resolves.
+---
+--- Any failure reads as `false`, a refused permission or an I/O error as much as
+--- a missing name. Ask `info` when the reason matters.
 --- @param path the path to inspect
 --- @return whether it exists
 export function exists(path: Path): boolean
@@ -190,6 +193,8 @@ export function exists(path: Path): boolean
 end
 
 --- Reports whether a path resolves to a file.
+---
+--- Any failure reads as `false`; ask `info` when the reason matters.
 --- @param path the path to inspect
 --- @return whether it is a file
 export function isFile(path: Path): boolean
@@ -197,6 +202,8 @@ export function isFile(path: Path): boolean
 end
 
 --- Reports whether a path resolves to a directory.
+---
+--- Any failure reads as `false`; ask `info` when the reason matters.
 --- @param path the path to inspect
 --- @return whether it is a directory
 export function isDirectory(path: Path): boolean
@@ -204,18 +211,20 @@ export function isDirectory(path: Path): boolean
 end
 
 --- Reports whether a path itself is a symbolic link.
+---
+--- Any failure reads as `false`, and so does a provider with no links at all;
+--- `capabilities().symbolicLinks` says which that is.
 --- @param path the path to inspect
---- @return whether it is a symbolic link, or nil when unsupported
---- @return a failure reason, when unsuccessful
-export function isSymlink(path: Path): (boolean?, string?)
+--- @return whether it is a symbolic link
+export function isSymlink(path: Path): boolean
     return provider.isSymlink(path)
 end
 
 --- Reads a symbolic link target without resolving it.
 --- @param path the link to read
---- @return its target text, or nil on failure
+--- @return its target, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function readLink(path: Path): (string?, string?)
+export function readLink(path: Path): (paths.Path?, string?)
     return provider.readLink(path)
 end
 
@@ -273,11 +282,11 @@ export function list(path: Path): ({messages.Entry}?, string?)
 end
 
 --- Expands a native filesystem glob.
---- @param path the glob pattern
+--- @param pattern the glob pattern
 --- @return sorted matching paths, or nil on failure
 --- @return a failure reason, when unsuccessful
-export function glob(path: Path): ({string}?, string?)
-    return provider.glob(path)
+export function glob(pattern: string): ({paths.Path}?, string?)
+    return provider.glob(pattern)
 end
 
 --- Reads an entire file as bytes.
@@ -362,11 +371,6 @@ export function createTemporaryDirectory(
 ): (affine(contracts.TemporaryPath?), string?)
     return provider.createTemporaryDirectory(options)
 end
-
---- Returns the native process working directory.
---- @return the working directory, or nil when unavailable
---- @return a failure reason, when unsuccessful
-export const currentDirectory = provider.currentDirectory
 
 --- Resolves one conventional native user folder.
 --- @param which the folder to resolve
