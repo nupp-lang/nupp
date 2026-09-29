@@ -50,8 +50,9 @@ import {runPackagedNuppLuaJITApp} from './app-runtime.mjs';
 const output = document.querySelector('#result');
 try {
   const result = await runPackagedNuppLuaJITApp('./nupp-browser-app.json', {limits:{
-    maxEffects:${maxEffects}, maxEffectBytes:${matrixBytes}, maxResponseBytes:${matrixBytes},
-    maxStorageValueBytes:1048576, deadlineMs:${deadlineMs},
+    perTurn:{maxEffectBytes:${matrixBytes}, maxResponseBytes:${matrixBytes}},
+    perRun:{maxEffects:${maxEffects}, maxEffectBytes:${matrixBytes}, maxResponseBytes:${matrixBytes},
+      deadlineMs:${deadlineMs}},
   }});
   if (!result || !Number.isFinite(result.cases) || result.cases <= 0) throw new Error('SIMD corpus returned no cases');
   output.textContent = JSON.stringify({ok:true, result}); output.dataset.status = 'passed';

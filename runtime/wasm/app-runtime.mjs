@@ -2,7 +2,6 @@ const DEFAULT_LIMITS = Object.freeze({
   maxEffects: 256,
   maxEffectBytes: 4 * 1024 * 1024,
   maxResponseBytes: 8 * 1024 * 1024,
-  deadlineMs: 30_000,
 });
 
 function bytesToBase64(bytes) {

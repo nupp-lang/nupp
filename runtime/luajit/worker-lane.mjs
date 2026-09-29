@@ -122,8 +122,9 @@ async function performLaneEffect(effect) {
   return {task: task.id, module: task.module, member: task.member, payload: task.payload};
 }
 
-// A lane runs for as long as the pool keeps it, so its effect budget belongs to one
-// task rather than to the whole run. Every frame that hands it work begins a turn.
+// A lane runs for as long as the pool keeps it, so its turn is one task rather than
+// one frame: every frame that hands it work begins a turn, and the frames a task
+// yields until then (its checkpoints among them) share that turn's budgets.
 function beginsTask(request) {
   return request?.kind === "effects" && (request.requests || []).some(
     (effect) => effect.kind === "lane" && effect.operation !== "checkpoint",
@@ -141,6 +142,6 @@ async function boot(message) {
     workers: false,
     requestPersistentStorage: message.persistentStorageAvailable ? requestPersistentStorage : undefined,
     effectHandlers: {lane: performLaneEffect},
-    resetLimits: beginsTask,
+    beginsTurn: beginsTask,
   });
 }

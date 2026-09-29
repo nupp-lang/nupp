@@ -14,8 +14,9 @@ self.addEventListener('message', async ({data}) => {
     const result = await runNuppLuaJITApp({
       manifestUrl: new URL(`./${__NUPP_LUAJIT_MANIFEST__}`, import.meta.url).href,
       app, initialize, managed: true, signal: controller.signal,
-      limits: {maxEffects: 128, maxEffectBytes: 2 * 1024 * 1024,
-        maxResponseBytes: 4 * 1024 * 1024, maxStorageValueBytes: 512 * 1024, deadlineMs: 5000},
+      // Snippets are untrusted, so the whole run is bounded as well as each turn.
+      limits: {perTurn: {computeMs: 5000}, perRun: {maxEffects: 128, maxEffectBytes: 2 * 1024 * 1024,
+        maxResponseBytes: 4 * 1024 * 1024, deadlineMs: 5000}},
       storageName: `nupp-playground-${digest.slice(0, 24)}`,
     });
     self.postMessage({ok: true, result});

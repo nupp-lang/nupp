@@ -188,5 +188,5 @@ test("Run uses a separate bounded application Worker", () => {
   assert.match(app, /"\.\/app-worker\.js"/);
   assert.match(app, /application\.terminate\(\)/);
   assert.match(worker, /managed: true/);
-  assert.match(worker, /maxEffects: 128/);
+  assert.match(worker, /perRun: \{maxEffects: 128/);
 });

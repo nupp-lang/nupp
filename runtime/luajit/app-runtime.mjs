@@ -6,8 +6,40 @@ import {createGuest} from './host.mjs';
 import {createTransfers} from './transfers.mjs';
 import {handleBrowserEffects} from '../wasm/app-runtime.mjs';
 const encoder = new TextEncoder();
-const defaults = {maxEffects: 256, maxEffectBytes: 4 * 1024 * 1024,
-  maxResponseBytes: 8 * 1024 * 1024, maxStorageValueBytes: 1024 * 1024, deadlineMs: 30000};
+// A turn is one guest frame round trip on a page, and one task on a worker lane:
+// the effects a frame carries, the bytes it and its response move, and the guest
+// compute between a response and its next frame. `perRun` bounds the whole run
+// and is unbounded unless a caller names a limit, which the playground does.
+const LIMIT_KEYS = {
+  perTurn: ['maxEffects', 'maxEffectBytes', 'maxResponseBytes', 'computeMs'],
+  perRun: ['maxEffects', 'maxEffectBytes', 'maxResponseBytes', 'deadlineMs'],
+};
+const defaults = {perTurn: {maxEffects: 256, maxEffectBytes: 4 * 1024 * 1024,
+  maxResponseBytes: 8 * 1024 * 1024, computeMs: 30000}, perRun: {}};
+
+// Layers limit tables over the defaults, later layers winning key by key.
+export function resolveLimits(...layers) {
+  const limits = {perTurn: {...defaults.perTurn}, perRun: {...defaults.perRun}};
+  for (const layer of layers) {
+    if (layer === undefined || layer === null) continue;
+    if (typeof layer !== 'object' || Array.isArray(layer)) throw new Error('Application limits must be an object');
+    for (const [scope, values] of Object.entries(layer)) {
+      const known = LIMIT_KEYS[scope];
+      if (!known) throw new Error(`Unknown application limit ${scope}; limits take perTurn and perRun`);
+      if (values === undefined) continue;
+      if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`Application limits.${scope} must be an object`);
+      for (const [key, value] of Object.entries(values)) {
+        if (!known.includes(key)) throw new Error(`Unknown application limit ${scope}.${key}`);
+        if (!Number.isSafeInteger(value) || value < 1) throw new Error(`Invalid application limit ${scope}.${key}`);
+        limits[scope][key] = value;
+      }
+    }
+  }
+  return limits;
+}
+
+const exceededMessage = (path, value) => `browser application exceeded limits.${path} (${value})`;
+const exceeded = (path, value) => new Error(exceededMessage(path, value));
 
 export function applicationPayload(app, initialize = new Uint8Array()) {
   if (!(app instanceof Uint8Array) || !(initialize instanceof Uint8Array)) throw new Error('Application input must be bytes');
@@ -19,29 +51,35 @@ export function applicationPayload(app, initialize = new Uint8Array()) {
   return bytes;
 }
 
-// A page application's budgets cover its whole run: the effect count and bytes, the
-// response bytes, and the deadline armed when the guest is ready. Only a frame
-// `resetLimits` says begins a turn starts them over, which is what a worker lane
-// passes for each task it takes.
+// Every frame begins a turn unless `beginsTurn` says otherwise, which is how a
+// worker lane makes one task its turn. The per-turn compute watchdog is the guest
+// host's request deadline, so a spinning guest is terminated rather than awaited.
 export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = false,
-  signal, limits: overrides, onProgress, resetLimits, workerEntry, workerSetup,
+  signal, limits: overrides, onProgress, beginsTurn = () => true, workerEntry, workerSetup,
   createGuest: openGuest = createGuest, ...services}) {
-  const limits = {...defaults, ...overrides};
-  for (const [key, value] of Object.entries(limits)) {
-    if (!Number.isSafeInteger(value) || value < 1) throw new Error(`Invalid application limit ${key}`);
-  }
+  const {perTurn, perRun} = resolveLimits(overrides);
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason);
   if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, {once: true});
-  let timer, effectCount = 0, effectBytes = 0, responseBytes = 0;
-  const arm = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => controller.abort(new Error(`browser application exceeded its ${limits.deadlineMs} ms deadline`)), limits.deadlineMs);
+  let timer;
+  const turn = {maxEffects: 0, maxEffectBytes: 0, maxResponseBytes: 0};
+  const run = {...turn};
+  const count = (limit, amount) => {
+    turn[limit] += amount; run[limit] += amount;
+    if (turn[limit] > perTurn[limit]) throw exceeded(`perTurn.${limit}`, perTurn[limit]);
+    if (perRun[limit] !== undefined && run[limit] > perRun[limit]) throw exceeded(`perRun.${limit}`, perRun[limit]);
   };
-  const options = {...services, limits, signal: controller.signal};
+  const armRun = () => {
+    if (perRun.deadlineMs === undefined) return;
+    timer = setTimeout(() => controller.abort(exceeded('perRun.deadlineMs', `${perRun.deadlineMs} ms`)), perRun.deadlineMs);
+  };
+  // Handlers read the per-turn table: an HTTP body or response is bounded by what
+  // one turn may move.
+  const options = {...services, limits: perTurn, signal: controller.signal};
   const guest = openGuest({manifestUrl, app: applicationPayload(app, initialize), signal: controller.signal,
-    config: {mode: 'application', managed, workerEntry, workerSetup}, deadlineMs: 30000,
-    onProgress(message) { if (message.type === 'ready') arm(); onProgress?.(message); }});
+    config: {mode: 'application', managed, workerEntry, workerSetup}, deadlineMs: perTurn.computeMs,
+    timeoutMessage: exceededMessage('perTurn.computeMs', `${perTurn.computeMs} ms`),
+    onProgress(message) { if (message.type === 'ready') armRun(); onProgress?.(message); }});
   const aborted = new Promise((_, reject) => {
     const failed = () => reject(controller.signal.reason || new Error('Application cancelled'));
     if (controller.signal.aborted) failed(); else controller.signal.addEventListener('abort', failed, {once: true});
@@ -55,30 +93,23 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
         if (!frame.result.ok) throw new Error(frame.result.error);
         const value = frame.result.value;
         if (typeof value === 'string') {
-          if (encoder.encode(value).length > limits.maxResponseBytes) throw new Error('Application result exceeds its byte limit');
+          if (encoder.encode(value).length > perTurn.maxResponseBytes) throw exceeded('perTurn.maxResponseBytes', perTurn.maxResponseBytes);
           return value === '' ? null : JSON.parse(value);
         }
         return value ?? null;
       }
       if (frame.type !== 'effect') throw new Error('Unexpected application frame');
       const request = frame.result;
-      const beginsTurn = resetLimits?.(request) === true;
-      if (beginsTurn) {
-        effectCount = effectBytes = responseBytes = 0;
-        clearTimeout(timer);
-      }
-      effectCount += Array.isArray(request.requests) ? request.requests.length : 0;
-      effectBytes += encoder.encode(JSON.stringify(request)).length + (frame.payload?.byteLength || 0);
-      if (effectCount > limits.maxEffects || effectBytes > limits.maxEffectBytes) throw new Error('Application effect budget exceeded');
+      if (beginsTurn(request) === true) turn.maxEffects = turn.maxEffectBytes = turn.maxResponseBytes = 0;
+      count('maxEffects', Array.isArray(request.requests) ? request.requests.length : 0);
+      count('maxEffectBytes', encoder.encode(JSON.stringify(request)).length + (frame.payload?.byteLength || 0));
       const transfers = createTransfers(request._leases, frame.payload);
       delete request._leases;
       options.transfers = transfers;
       const response = await Promise.race([(services.effects || handleBrowserEffects)(request, options), aborted]);
-      if (beginsTurn) arm();
       const returned = transfers.response();
       response._leases = returned.leases;
-      responseBytes += encoder.encode(JSON.stringify(response)).length + returned.payload.length;
-      if (responseBytes > limits.maxResponseBytes) throw new Error('Application response budget exceeded');
+      count('maxResponseBytes', encoder.encode(JSON.stringify(response)).length + returned.payload.length);
       guest.respond(response, returned.payload);
     }
   } finally {
@@ -102,6 +133,7 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
   if (!response.ok) throw new Error(`Cannot fetch application manifest: ${response.status}`);
   const manifest = await response.json();
   if (manifest.schema !== 1 || manifest.runtime !== 'luajit-v86') throw new Error('Unsupported LuaJIT application manifest');
+  const limits = resolveLimits(manifest.limits, options.limits);
   const base = new URL('.', address);
   const verified = assetsFor(manifest, base);
   const app = await verified(manifest.app);
@@ -119,13 +151,11 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
     if (manifest.workers && options.workers !== false) {
       await verified(manifest.workers.lane);
       pool = createWorkerPool({laneUrl: new URL(manifest.workers.lane, base).href,
-        manifestUrl: address.href, maxLanes: manifest.workers.maxLanes || 2,
-        limits: options.limits || manifest.limits,
+        manifestUrl: address.href, maxLanes: manifest.workers.maxLanes || 2, limits,
         requestPersistentStorage: options.requestPersistentStorage});
     }
     return await runNuppLuaJITApp({...options, app, initialize,
-      manifestUrl: new URL(manifest.guest, base).href,
-      limits: options.limits || manifest.limits,
+      manifestUrl: new URL(manifest.guest, base).href, limits,
       storageName: options.storageName || `nupp-${manifest.assets[manifest.app].sha256.slice(0,24)}`,
       requestPersistentStorage: options.requestPersistentStorage,
       effectHandlers: {...options.effectHandlers, aot: kernels, ...(pool ? {workers: effect => pool.perform(effect)} : {})}});

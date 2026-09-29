@@ -374,22 +374,109 @@ function scriptedGuest(frames, request = {kind: "time", operation: "now"}) {
   };
 }
 
-test("a page application's effect budget covers its whole run", async () => {
-  const run = (frames) => runNuppLuaJITApp({app: new Uint8Array(), createGuest: scriptedGuest(frames)});
-  assert.equal(await run(256), "finished", "the documented 256 effects fit");
-  await assert.rejects(run(257), /Application effect budget exceeded/, "one effect per frame still counts");
+test("a page application's budgets start over with every turn", async () => {
+  // A frame loop: far more effects than one turn allows, one frame at a time.
+  const result = await runNuppLuaJITApp({app: new Uint8Array(), createGuest: scriptedGuest(300)});
+  assert.equal(result, "finished");
 });
 
-test("a page application's deadline covers its whole run", async () => {
+test("a page application refuses a turn that carries more than its limit", async () => {
+  const guest = ({onProgress}) => {
+    queueMicrotask(() => onProgress({type: "ready"}));
+    return {
+      async receive() {
+        return {type: "effect", result: {kind: "effects", requests: [1, 2, 3].map((id) => ({id, kind: "time", operation: "now"}))}};
+      },
+      respond() {},
+      close() {},
+    };
+  };
+  await assert.rejects(
+    runNuppLuaJITApp({app: new Uint8Array(), limits: {perTurn: {maxEffects: 2}}, createGuest: guest}),
+    /exceeded limits\.perTurn\.maxEffects \(2\)/,
+  );
+});
+
+test("a page application enforces the run limits it is given", async () => {
+  await assert.rejects(
+    runNuppLuaJITApp({app: new Uint8Array(), limits: {perRun: {maxEffects: 5}}, createGuest: scriptedGuest(10)}),
+    /exceeded limits\.perRun\.maxEffects \(5\)/,
+  );
   await assert.rejects(
     runNuppLuaJITApp({
       app: new Uint8Array(),
-      limits: {deadlineMs: 60},
+      limits: {perRun: {deadlineMs: 60}},
       createGuest: scriptedGuest(10, {kind: "time", operation: "sleep", milliseconds: 20}),
     }),
-    /exceeded its 60 ms deadline/,
-    "no frame starts the deadline over",
+    /exceeded limits\.perRun\.deadlineMs \(60 ms\)/,
+    "no frame starts the run deadline over",
   );
+});
+
+test("a page application refuses limits outside the perTurn and perRun tables", async () => {
+  const run = (limits) => runNuppLuaJITApp({app: new Uint8Array(), limits, createGuest: scriptedGuest(0)});
+  await assert.rejects(run({maxEffects: 10}), /Unknown application limit maxEffects/);
+  await assert.rejects(run({perTurn: {deadlineMs: 10}}), /Unknown application limit perTurn\.deadlineMs/);
+  await assert.rejects(run({perRun: {computeMs: 10}}), /Unknown application limit perRun\.computeMs/);
+  await assert.rejects(run({perRun: {maxEffects: 0}}), /Invalid application limit perRun\.maxEffects/);
+});
+
+test("a page application with no run limit continues past thirty seconds", async (t) => {
+  t.mock.timers.enable({apis: ["setTimeout"]});
+  let answer;
+  const running = runNuppLuaJITApp({
+    app: new Uint8Array(),
+    createGuest: scriptedGuest(1),
+    effects: () => new Promise((resolve) => { answer = resolve; }),
+  });
+  while (!answer) await new Promise(setImmediate);
+  t.mock.timers.tick(120_000);
+  answer({kind: "responses", responses: []});
+  assert.equal(await running, "finished");
+});
+
+// A module Worker standing in for the guest VM: it boots, asks for one effect, and
+// then computes forever instead of yielding the next frame.
+class SpinningGuestWorker {
+  static opened = [];
+
+  constructor(url) {
+    this.url = url;
+    this.terminated = false;
+    SpinningGuestWorker.opened.push(this);
+  }
+
+  postMessage(message) {
+    if (message.type !== "boot") return;
+    queueMicrotask(() => {
+      this.onmessage({data: {type: "ready"}});
+      this.onmessage({data: {
+        type: "effect", sequence: 1,
+        result: {kind: "effects", requests: [{id: 1, kind: "time", operation: "now"}]},
+      }});
+    });
+  }
+
+  terminate() {
+    this.terminated = true;
+  }
+}
+
+test("a spinning guest trips the per-turn compute limit", async (t) => {
+  const saved = globalThis.Worker;
+  globalThis.Worker = SpinningGuestWorker;
+  t.after(() => { globalThis.Worker = saved; });
+  SpinningGuestWorker.opened = [];
+  await assert.rejects(
+    runNuppLuaJITApp({
+      manifestUrl: "https://example.test/guest/guest-manifest.json",
+      app: new Uint8Array(),
+      limits: {perTurn: {computeMs: 40}},
+    }),
+    /exceeded limits\.perTurn\.computeMs \(40 ms\)/,
+  );
+  assert.equal(SpinningGuestWorker.opened.length, 1);
+  assert.equal(SpinningGuestWorker.opened[0].terminated, true, "the spinning VM is terminated, not awaited");
 });
 
 test("browser Web Crypto effects provide random, SHA-256, and HMAC", async () => {

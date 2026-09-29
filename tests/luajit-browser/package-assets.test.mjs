@@ -202,12 +202,12 @@ test('packaged worker pools follow emitted modules across build summary formats'
       const output = path.join(f.root, name);
       const manifest = await packageBrowserApp({project, target:'app', output, guest:f.guest});
       assert.deepEqual(manifest.workers, workers ? {lane:'worker-lane.mjs', maxLanes:2} : undefined, name);
-      assert.deepEqual(manifest.limits, {
+      assert.deepEqual(manifest.limits, {perTurn:{
         maxEffects:workers ? 262144 : 256,
         maxEffectBytes:workers ? 268435456 : 4194304,
         maxResponseBytes:workers ? 268435456 : 8388608,
-        maxStorageValueBytes:1048576, deadlineMs:30000,
-      }, name);
+        computeMs:30000,
+      }}, name);
       assert.deepEqual(JSON.parse(readFileSync(path.join(output, 'nupp-browser-app.json'), 'utf8')), manifest, name);
     }
   } finally {

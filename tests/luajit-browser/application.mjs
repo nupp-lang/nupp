@@ -14,7 +14,7 @@ try {
     const compiled = await compiler.request({kind:'compile', source, filename:'playground.nupp', options:{strict:true, optimize:true}});
     if (!compiled.code || compiled.diagnostics.some(x => x.severity === 'error')) throw new Error(name + ': ' + JSON.stringify(compiled));
     const result = await runNuppLuaJITApp({manifestUrl:'./guest-manifest.json', app:new TextEncoder().encode(compiled.code), initialize, managed:true,
-      storageName:'nupp-luajit-integration', limits:{deadlineMs:15000}, onProgress: x => {if(x.log) terminal.textContent = name+'\n'+x.log;}});
+      storageName:'nupp-luajit-integration', limits:{perRun:{deadlineMs:15000}}, onProgress: x => {if(x.log) terminal.textContent = name+'\n'+x.log;}});
     results.push({name, ...result});
   }
   output.textContent = JSON.stringify({ok:true, results}); output.dataset.status='passed';

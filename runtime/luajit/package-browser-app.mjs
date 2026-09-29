@@ -77,8 +77,10 @@ export async function packageBrowserApp({project, target, output, guest, prebuil
   const manifest = {schema:1, runtime:'luajit-v86', app, guest:guestName, guestBuildKey:guestManifest.buildKey, assets, kernels, nativeLibraries,
     build:{target, host:'browser'},
     ...(workers ? {workers:{lane:'worker-lane.mjs', maxLanes:2}} : {}),
-    limits:{maxEffects:workers ? 262144 : 256, maxEffectBytes:workers ? 268435456 : 4194304,
-      maxResponseBytes:workers ? 268435456 : 8388608, maxStorageValueBytes:1048576, deadlineMs:30000}};
+    // A worker lane's turn is a whole task, checkpoints included, so a package
+    // with workers raises what one turn may carry. No run-wide limit is set.
+    limits:{perTurn:{maxEffects:workers ? 262144 : 256, maxEffectBytes:workers ? 268435456 : 4194304,
+      maxResponseBytes:workers ? 268435456 : 8388608, computeMs:30000}}};
   writeFileSync(path.join(output,'nupp-browser-app.json'), JSON.stringify(manifest,null,2)+'\n');
   return manifest;
 }

@@ -1,6 +1,10 @@
-/** Own one guest worker. CPU-bound cancellation always terminates the VM. */
+/**
+ * Own one guest worker. CPU-bound cancellation always terminates the VM.
+ * `deadlineMs` bounds the guest's own work: booting to its first frame, and each
+ * response to the frame that follows it.
+ */
 export function createGuest({manifestUrl, app, config = {}, profile = 'runner', signal,
-  deadlineMs = 30000, snapshot = true, captureSnapshot = false, onProgress = () => {}}) {
+  deadlineMs = 30000, timeoutMessage = 'Guest request timed out', snapshot = true, captureSnapshot = false, onProgress = () => {}}) {
   if (!(app instanceof Uint8Array)) throw new Error('Guest code must be bytes');
   let worker, restored = false, retried = false, ready = false;
   let closed = false, waiting, resultSequence, timer, closedReason;
@@ -26,7 +30,7 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
     else if (messages.length < 2) messages.push(value);
     else close(new Error('Guest produced unsolicited frames'));
   }
-  const arm = (failed = close) => { clearTimeout(timer); timer = setTimeout(() => failed(new Error('Guest request timed out')), deadlineMs); };
+  const arm = (failed = close) => { clearTimeout(timer); timer = setTimeout(() => failed(new Error(timeoutMessage)), deadlineMs); };
   function launch(useSnapshot) {
     const instance = new Worker(new URL('./vm-worker.mjs', new URL(manifestUrl, import.meta.url)), {type: 'module'});
     worker = instance;
