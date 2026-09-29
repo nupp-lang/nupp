@@ -55,6 +55,13 @@ record gpu.Buffer<T> is api.Buffer<T>
     strides: function(borrows self: gpu.Buffer<T>): {integer}
 
     layout: function(borrows self: gpu.Buffer<T>): TensorLayout
+
+    --- Reports whether this buffer or view occupies one dense element range.
+    isDense: function(borrows self: gpu.Buffer<T>): boolean
+
+    --- Reports whether every logical element maps to a distinct storage element.
+    isInjective: function(borrows self: gpu.Buffer<T>): boolean
+
     view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
 
     --- Creates an allocation-free checked subview.

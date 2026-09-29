@@ -1991,12 +1991,12 @@ uniforms, written as a local function declaration. Uploads and downloads remain
 explicit, so several generated bindings can share resident buffers without an
 intermediate CPU copy. `Context:tensor(element, shape)` attaches a validated
 one- through four-dimensional dense row-major shape to an allocation.
-`gpu.bufferLayout(buffer)` returns an element-independent layout.
+`buffer:layout()` returns an element-independent layout.
 The `nupp.gpu.layout` module (imported as `layout`) owns the
 `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided`
 operations, which check shapes, strides,
-physical extent, density, and write injectivity. `gpu.view(buffer, layout)` applies
+physical extent, density, and write injectivity. `buffer:view(layout)` applies
 it without allocating. Generated bindings add the view offset to proved shader
 indices and use its physical extent for cursor bounds. Host transfers and
 dispatch-indexed spans remain dense; broadcast views are read-only because

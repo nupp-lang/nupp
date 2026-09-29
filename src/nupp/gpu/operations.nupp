@@ -231,13 +231,13 @@ function gpu.refuseReadWriteAlias<T>(bound: {any}, borrows buffer: gpu.Buffer<T>
     end
 end
 
-function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+function gpu.Buffer.isDense<T>(borrows buffer: gpu.Buffer<T>): boolean
     liveBuffer(buffer)
     local _, _, dense = layoutFacts(buffer._shape, buffer._strides, 2)
     return dense
 end
 
-function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+function gpu.Buffer.isInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
     liveBuffer(buffer)
     local _, _, _, injective = layoutFacts(buffer._shape, buffer._strides, 2)
     return injective
@@ -316,6 +316,4 @@ function gpu.Buffer.subview<T>(
     )
 end
 
-gpu.bufferLayout = gpu.Buffer.layout
-gpu.view = gpu.Buffer.view
 export = gpu

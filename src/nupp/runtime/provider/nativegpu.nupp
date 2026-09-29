@@ -68,7 +68,6 @@ type gpu.Phases = shared.Phases
 gpu.Phases = shared.Phases
 
 gpu.destroyContext = shared.destroyContext
-gpu.bufferIsDense = operations.bufferIsDense
 record gpu.Binding is api.Binding
     @readonly
     _anchor: any
@@ -635,7 +634,7 @@ function gpu.Context.upload<T>(
     if buffer._context ~= self or buffer._state.released then
         error("nupp: GPU upload buffer is unavailable in this context", 2)
     end
-    if not gpu.bufferIsDense(buffer) then
+    if not buffer:isDense() then
         error("nupp: GPU uploads require a dense tensor view", 2)
     end
     if #source ~= buffer.count then
@@ -654,7 +653,7 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
     if buffer._context ~= self or buffer._state.released then
         error("nupp: GPU download buffer is unavailable in this context", 2)
     end
-    if not gpu.bufferIsDense(buffer) then
+    if not buffer:isDense() then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
     costLayout(live(self), buffer)
@@ -682,7 +681,7 @@ function gpu.Context.readDownloaded<T>(
     if buffer._context ~= self or buffer._state.released then
         error("nupp: GPU download buffer is unavailable in this context", 2)
     end
-    if not gpu.bufferIsDense(buffer) then
+    if not buffer:isDense() then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
     if #destination ~= buffer.count then

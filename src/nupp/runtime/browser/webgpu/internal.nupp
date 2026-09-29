@@ -48,7 +48,6 @@ type gpu.Phases = shared.Phases
 gpu.Phases = shared.Phases
 
 gpu.destroyContext = shared.destroyContext
-gpu.bufferIsDense = operations.bufferIsDense
 record gpu.Binding is api.Binding
     @readonly
     _anchor: any
@@ -489,7 +488,7 @@ function gpu.Context.upload<T>(
     local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     local pointer, count = source:ref()
-    if buffer._context ~= self or buffer._state.released or not gpu.bufferIsDense(buffer) then
+    if buffer._context ~= self or buffer._state.released or not buffer:isDense() then
         error("nupp: browser GPU upload buffer is unavailable in this context", 2)
     end
     if count ~= buffer.count then
@@ -513,7 +512,7 @@ end
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
     local buffer = bufferValue as gpu.Buffer<T>
     live(self)
-    if buffer._context ~= self or buffer._state.released or not gpu.bufferIsDense(buffer) then
+    if buffer._context ~= self or buffer._state.released or not buffer:isDense() then
         error("nupp: browser GPU download buffer is unavailable in this context", 2)
     end
     response.await("gpu", {
@@ -537,7 +536,7 @@ function gpu.Context.readDownloaded<T>(
     local buffer = bufferValue as gpu.Buffer<T>
     live(self)
     local pointer, count = destination:ref()
-    if buffer._context ~= self or buffer._state.released or not gpu.bufferIsDense(buffer) then
+    if buffer._context ~= self or buffer._state.released or not buffer:isDense() then
         error("nupp: browser GPU download buffer is unavailable in this context", 2)
     end
     if count ~= buffer.count then

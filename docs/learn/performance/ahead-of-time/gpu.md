@@ -146,7 +146,8 @@ checked layout values without allocating. A layout answers `dimensions()`,
 `strides()`, `offset()`, `extent()`, `isDense()` and `isInjective()` as
 methods, the way a buffer does.
 
-`gpu.view` applies a layout while preserving the buffer element type.
+`buffer:view(layout)` applies a layout while preserving the buffer element type, and
+`buffer:isDense()` and `buffer:isInjective()` answer for the buffer or view.
 
 Host transfers and dispatch-indexed spans require dense layouts. Cursor-indexed
 kernels may consume other input layouts by passing dimensions and strides as

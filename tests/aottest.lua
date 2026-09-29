@@ -401,23 +401,36 @@ local context = gpu.open()
 local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
 local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
-local tensorLayout: gpu.Layout = gpu.bufferLayout(tensor)
+local tensorLayout: gpu.Layout = tensor:layout()
 local layout = require("nupp.gpu.layout")
-local columns = gpu.view(tensor, layout.transpose(tensorLayout, {2, 1}))
-local repeated = gpu.view(row, layout.broadcast(gpu.bufferLayout(row), {4, 8}))
+local columns = tensor:view(layout.transpose(tensorLayout, {2, 1}))
+local repeated = row:view(layout.broadcast(row:layout(), {4, 8}))
 local gapped = tensor:subview({0, 0}, {4, 4})
 local dimensions = row:dimensions()
 local strides = row:strides()
 assert(row.count == 8 and bytes == nil and dimensions[1] == 1 and dimensions[2] == 8)
 assert(strides[1] == 8 and strides[2] == 1)
-assert(gpu.bufferIsDense(row) and gpu.bufferIsInjective(row))
-assert(not gpu.bufferIsDense(columns) and gpu.bufferIsInjective(columns))
-assert(not gpu.bufferIsDense(repeated) and not gpu.bufferIsInjective(repeated))
-assert(not gpu.bufferIsDense(gapped) and gpu.bufferIsInjective(gapped))
+assert(row:isDense() and row:isInjective())
+assert(not columns:isDense() and columns:isInjective())
+assert(not repeated:isDense() and not repeated:isInjective())
+assert(not gapped:isDense() and gapped:isInjective())
 return true
 ]],
         "",
         "resident tensors expose checked dense, strided, transposed, and broadcast views"
+    )
+    reportsGpu(
+        [[
+local gpu = require("nupp.gpu")
+local ffi = require("ffi")
+
+local context = gpu.open()
+local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
+print(gpu.bufferIsDense(tensor))
+return true
+]],
+        "NUPP2004 NUPP2611",
+        "a buffer answers for itself; the free-function duplicates are gone"
     )
 end
 

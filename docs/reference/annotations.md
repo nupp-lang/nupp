@@ -575,12 +575,12 @@ downloads remain explicit, so several generated bindings can share resident
 buffers without an intermediate CPU copy.
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
-`gpu.bufferLayout(buffer)` returns an element-independent layout.
+`buffer:layout()` returns an element-independent layout.
 The `nupp.gpu.layout` module (imported as `layout`) owns the
 `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided`
 operations, which are allocation-free;
-`gpu.view(buffer, layout)` applies it while preserving the buffer's element type.
+`buffer:view(layout)` applies it while preserving the buffer's element type.
 Each view retains logical dimensions separately from its bounded physical
 extent. Host transfers and dispatch-indexed span accesses require dense layout;
 cursor-indexed kernels may consume other inputs by passing `dimensions()` and
