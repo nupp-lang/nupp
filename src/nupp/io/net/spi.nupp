@@ -98,9 +98,9 @@ export interface Provider
     @readonly
     noDelay: function(self: Provider, stream: any, enable: boolean): (boolean, string?)
 
-    --- Configures TCP keepalive and its idle delay in seconds.
+    --- Configures TCP keepalive and its idle delay in milliseconds.
     @readonly
-    keepAlive: function(self: Provider, stream: any, enable: boolean, delaySeconds: integer): (boolean, string?)
+    keepAlive: function(self: Provider, stream: any, enable: boolean, delayMs: integer): (boolean, string?)
 
     --- Enables or disables sending broadcast datagrams.
     @readonly

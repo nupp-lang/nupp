@@ -149,8 +149,8 @@ local function fakeBackend(script)
         return true
     end
 
-    function self:keepAlive(stream, enabled, delaySeconds)
-        state.keepAlive = {enabled = enabled, delaySeconds = delaySeconds}
+    function self:keepAlive(stream, enabled, delayMs)
+        state.keepAlive = {enabled = enabled, delayMs = delayMs}
         return true
     end
 
@@ -589,6 +589,17 @@ function M.listenerBacklogsAndPumpDelaysAreChecked()
     ok = pcall(stream.setKeepAlive, stream, true, 4294967296)
     assertEq(ok, false, "a keepalive delay outside the native range is refused")
     assertEq(state.keepAlive, nil, "an invalid keepalive delay does not reach the provider")
+    stream:close()
+end
+
+function M.keepAliveDelayIsMilliseconds()
+    -- Every other duration in the io facades is milliseconds; this one used to be
+    -- seconds, so a caller who wrote 30000 asked for eight hours.
+    local backend, state = fakeBackend({})
+    install(backend)
+    local stream = assert(net.connect({host = "example", port = 80}))
+    assertTrue(stream:setKeepAlive(true, 1500), "the option was set")
+    assertEq(state.keepAlive.delayMs, 1500, "and the provider received milliseconds unchanged")
     stream:close()
 end
 

@@ -430,21 +430,22 @@ record net.Stream is Reader, Writer
     ---
     --- A peer that vanished without closing leaves a connection that looks open
     --- forever. Probing is what eventually notices, and the delay is how long
-    --- the connection may be idle before the first probe.
+    --- the connection may be idle before the first probe. The platform may round
+    --- it to its own granularity, which is whole seconds on most.
     --- @param self this connection
     --- @param enable whether to probe
-    --- @param delaySeconds idle seconds before the first probe
+    --- @param delayMs idle milliseconds before the first probe
     --- @return whether the option was set
     --- @return why it was not, when unsuccessful
     --- @raises string when the delay is not a positive integer no greater than
     ---     4,294,967,295
-    function setKeepAlive(self, enable: boolean, delaySeconds: integer): (boolean, string?)
+    function setKeepAlive(self, enable: boolean, delayMs: integer): (boolean, string?)
         if self._closed then
             return false, "the connection is closed"
         end
-        const delay = positive(delaySeconds, "net.Stream setKeepAlive delaySeconds", 2)
+        const delay = positive(delayMs, "net.Stream setKeepAlive delayMs", 2)
         if delay > MAX_UINT32 then
-            error("nupp: net.Stream setKeepAlive delaySeconds is too large", 2)
+            error("nupp: net.Stream setKeepAlive delayMs is too large", 2)
         end
 
         return self._provider:keepAlive(self._handle, enable, delay)

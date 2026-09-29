@@ -369,9 +369,9 @@ local function create(): contract.Provider
             self: contract.Provider,
             stream: any,
             enable: boolean,
-            delaySeconds: integer
+            delayMs: integer
         ): (boolean, string?)
-            if C.nuppNativeNetStreamSetKeepAliveMs(stream, enable and 1 or 0, delaySeconds * 1000) ~= 0 then
+            if C.nuppNativeNetStreamSetKeepAliveMs(stream, enable and 1 or 0, delayMs) ~= 0 then
                 return false, reason("nupp: could not set the keepalive option")
             end
 
