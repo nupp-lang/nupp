@@ -209,6 +209,52 @@ function M.subtypingRules()
     assert(not isA(takesInt, takesNum))
 end
 
+-- An exported function is in scope from the top of its module, so one declared after
+-- a binding of the same name would overwrite that binding rather than stand beside it:
+-- the local read by the code between them became the function at run time.
+function M.anExportedFunctionMayNotRedeclareAnEarlierName()
+    assertEq(
+        diagsOf(table.concat({
+            "module shadowed",
+            "local fired: integer = 0",
+            "export function bump(): nil",
+            "    fired = fired + 1",
+            "end",
+            "export function fired(): integer",
+            "    return 1",
+            "end",
+        }, "\n")),
+        "NUPP2008:6"
+    )
+    assertEq(
+        diagsOf(table.concat({
+            "module shadowed",
+            "local record fired",
+            "    n: integer",
+            "end",
+            "export function fired(): integer return 1 end",
+        }, "\n")),
+        "NUPP2008:5"
+    )
+    assertEq(
+        diagsOf(table.concat({
+            "module shadowed",
+            "export function fired(): integer return 1 end",
+            "export function fired(): integer return 2 end",
+        }, "\n")),
+        "NUPP2008:3",
+        "two exports are reported once"
+    )
+    assertClean(table.concat({
+        "module shadowed",
+        "local count: integer = 0",
+        "export function fired(): integer",
+        "    count = count + 1",
+        "    return count",
+        "end",
+    }, "\n"))
+end
+
 -- An absent member satisfies an optional one only when the source is known to lack
 -- it: a fresh literal, a record or a struct, or a read indexer whose value fits. An
 -- open shape may be a widened view of a value holding the member under another type,

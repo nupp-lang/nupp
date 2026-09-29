@@ -350,6 +350,73 @@ local function reportModuleLocals(c: state.Checker, root: any, declaredModule: b
     end
 end
 
+--- Reports an exported function that re-declares a name the module's top level
+--- bound before it.
+---
+--- An exported function is const and in scope from the top of the module, since a
+--- function declared earlier may call it; declaring another binding of its name after
+--- it is already NUPP2008. Declared first and exported after, the earlier binding is
+--- what the code between them reads, and the export would overwrite it rather than
+--- stand beside it, so a `local fired` and `export function fired()` checked clean and
+--- then read the function where the integer was meant.
+local function reportRedeclaredExports(c: state.Checker, root: any): nil
+    local declared: {[string]: any} = {}
+    -- Two exports of one name are already NUPP2008 where the second is bound.
+    local exported: {[any]: boolean} = {}
+
+    local function bind(token: any): nil
+        if token and token.text and declared[token.text] == nil then
+            declared[token.text] = token
+        end
+    end
+
+    for _, block in ipairs(root.blocks or {}) do
+        for _, statement in ipairs(block.stats or {}) do
+            local actual = statement
+            while actual and (actual.kind == "exportStmt" or actual.kind == "pragmaStmt") do
+                actual = actual.stat
+            end
+            local exportedName = nil
+            if actual and actual.exported and not actual.comptimeTok and not actual.comptimeFunction then
+                if actual.kind == "localFuncStmt" then
+                    exportedName = actual.name
+                elseif actual.kind == "funcStmt" and actual.name and actual.name.kind == "funcname" then
+                    exportedName = actual.name.base
+                end
+            end
+            if exportedName then
+                local earlier = declared[exportedName.text]
+                if earlier and not exported[earlier] then
+                    c.diag(
+                        "NUPP2008",
+                        exportedName,
+                        (
+                            "cannot re-declare %s as an exported function; the module already declares it"
+                        ):format(exportedName.text),
+                        nil,
+                        {related = {c.related(earlier, "declared here first")}, help = "rename one of the two"}
+                    )
+                end
+                bind(exportedName)
+                exported[declared[exportedName.text]] = true
+            elseif actual and actual.kind == "localStmt" then
+                for _, name in ipairs(actual.names or {}) do
+                    bind(name)
+                end
+            elseif actual
+                and (
+                    actual.kind == "localFuncStmt"
+                    or actual.kind == "cdefStruct"
+                    or actual.kind == "cdefFunc"
+                    or actual.kind == "recordDecl" and (actual.declKind == "record" or actual.declKind == "struct")
+                )
+            then
+                bind(actual.name)
+            end
+        end
+    end
+end
+
 ----------------------------------------------------------------------------
 -- Yielding
 ----------------------------------------------------------------------------
@@ -3157,6 +3224,9 @@ function checkMod.check(
     end
     if not opts.declarationFile then
         reportModuleLocals(c, result.root, declaredModuleName ~= nil)
+    end
+    if declaredModuleName then
+        reportRedeclaredExports(c, result.root)
     end
     if declaredModuleName then
         local assignment = cst.exportAssignment(result.root)
