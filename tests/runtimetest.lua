@@ -344,7 +344,7 @@ local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
 local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 value:writeJSON(writer)
 writer:close()
 print(out:tostring())

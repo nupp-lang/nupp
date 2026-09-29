@@ -91,7 +91,7 @@ leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
 local out = nupp.text.newBuffer()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
 writer:close()
 ```
@@ -164,7 +164,7 @@ end
 ---
 --- Declared here rather than aliased out of the host boundary, because this is the
 --- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
---- below names the incremental encoder returned by `writer()`.
+--- below names the incremental encoder returned by `newWriter()`.
 ---
 --- ```nupp
 --- local record Money is nupp.codec.json.JSONEncodable
@@ -186,7 +186,7 @@ end
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.writer(out)
+--- local writer = nupp.codec.json.newWriter(out)
 --- writer:startObject():key("ok"):write(true):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
@@ -197,7 +197,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startArray():write("first"):endArray()
     --- writer:close()
     --- assert(out:tostring() == "[\"first\"]")
@@ -210,7 +210,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startObject():endObject()
     --- writer:close()
     --- assert(out:tostring() == "{}")
@@ -223,7 +223,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startObject():key("answer"):write(42):endObject()
     --- writer:close()
     --- assert(out:tostring() == [[{"answer":42}]])
@@ -238,7 +238,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startArray():write({id = 41}):endArray()
     --- writer:close()
     --- assert(out:tostring() == "[{\"id\":41}]")
@@ -259,7 +259,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startArray():null():endArray()
     --- writer:close()
     --- assert(out:tostring() == "[null]")
@@ -272,7 +272,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startArray():startObject():endObject():endArray()
     --- writer:close()
     --- assert(out:tostring() == "[{}]")
@@ -285,7 +285,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startObject():key("items"):startArray():endArray():endObject()
     --- writer:close()
     --- assert(out:tostring() == [[{"items":[]}]])
@@ -298,7 +298,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:startArray():write(1)
     --- writer:flush()
     --- assert(out:tostring() == "[1")
@@ -311,7 +311,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- writer:write({ok = true})
     --- writer:close()
     --- assert(out:tostring() == [[{"ok":true}]])
@@ -608,7 +608,7 @@ end
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.writer(out)
+--- local writer = nupp.codec.json.newWriter(out)
 --- writer:startObject():key("id"):write(41):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
@@ -617,7 +617,7 @@ end
 --- @param nullValue an additional value treated as JSON null
 --- @return a new writer
 --- @export
-export function writer(exclusive out: Buffer, nullValue: any?): Writer
+export function newWriter(exclusive out: Buffer, nullValue: any?): Writer
     if nullValue == nil then
         return new WriterImpl(raw = native.writer(out))
     end
@@ -654,7 +654,7 @@ end
 --- end
 ---
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.writer(out)
+--- local writer = nupp.codec.json.newWriter(out)
 --- nupp.codec.json.writeAs(User, new User(id = 41), writer)
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
@@ -677,7 +677,7 @@ end
 --- end
 ---
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.writer(out)
+--- local writer = nupp.codec.json.newWriter(out)
 --- nupp.codec.json.writeRecord(new User(id = 41), writer)
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])

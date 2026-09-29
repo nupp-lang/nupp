@@ -4429,7 +4429,7 @@ local record Model
 end
 local model = new Model()
 local out = string.buffer.new()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 model:writeJSON(writer)
 writer:close()
 local json = out:tostring()

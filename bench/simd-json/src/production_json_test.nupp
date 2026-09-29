@@ -174,7 +174,7 @@ function test.run(): nil
     assert(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
 
     local out = newBuffer()
-    local writer = json.writer(out)
+    local writer = json.newWriter(out)
     writer:startObject():key(json.encodedString('a"b')):write(json.verified("42")):endObject()
     writer:close()
     assert(out:tostring() == [[{"a\"b":42}]])

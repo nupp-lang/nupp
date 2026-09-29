@@ -1825,7 +1825,7 @@ export record JsonCodec
             -- with ordinary encode/decode.
             fallbackEncode = function(value: any): string
                 local buffer = require("nupp.text").newBuffer()
-                local writer = json.writer(buffer)
+                local writer = json.newWriter(buffer)
                 writeDocument(writer, value, schema, self.profile, access, {active = {},}, 0)
                 writer:close()
 

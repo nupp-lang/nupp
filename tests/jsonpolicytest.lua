@@ -91,7 +91,7 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
         assert(not pcall(json.encodedString, value), "encodedString accepted invalid UTF-8")
     end
     local output = require("nupp.text").newBuffer()
-    local writer = json.writer(output)
+    local writer = json.newWriter(output)
     writer:startObject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
     writer:key("valid"):write(1):endObject()

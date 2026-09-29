@@ -92,7 +92,7 @@ local bytes = {}
 local accepted = true
 local out = require("nupp.text").newBuffer()
 for index, value in ipairs(corpora) do
-    local writer = nupp.codec.json.writer(out)
+    local writer = nupp.codec.json.newWriter(out)
     value:writeJSON(writer)
     writer:close()
     bytes[index] = out:get()
@@ -157,7 +157,7 @@ local bytes, debugged = {}, {}
 local accepted = true
 local out = require("nupp.text").newBuffer()
 for index, request in ipairs(corpus) do
-    local writer = nupp.codec.json.writer(out)
+    local writer = nupp.codec.json.newWriter(out)
     request:writeJSON(writer)
     writer:close()
     bytes[index] = out:get()

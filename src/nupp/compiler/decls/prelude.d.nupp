@@ -1007,7 +1007,7 @@ record nupp.derive
     ---
     --- local user = new User(id = 7, name = "ada")
     --- local out = string.buffer.new()
-    --- local writer = nupp.codec.json.writer(out)
+    --- local writer = nupp.codec.json.newWriter(out)
     --- user:writeJSON(writer)
     --- writer:close()
     --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')

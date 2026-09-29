@@ -1,3 +1,6 @@
+const {type EncodedString} = require("nupp.codec.json")
+const {type Buffer} = require("string.buffer")
+
 local m = {}
 
 local json = require("nupp.codec.json")
@@ -11,7 +14,7 @@ local record Member
     index: integer
     name: string
     kind: FieldKind
-    jsonKey: nupp.codec.json.EncodedString
+    jsonKey: EncodedString
 end
 
 local record Schema
@@ -30,7 +33,7 @@ local interface Serializer
 end
 
 local record JsonSerializer is Serializer
-    out: string.buffer.Buffer
+    out: Buffer
     -- This benchmark keeps its pre-nupp.Closeable callback harness intentionally
     -- untyped; the production prepared path below uses the affine API normally.
     writer: any
@@ -80,7 +83,7 @@ end
 
 local function serializer(): JsonSerializer
     local out = buffer.new()
-    return new JsonSerializer(out = out, writer = json.writer(out))
+    return new JsonSerializer(out = out, writer = json.newWriter(out))
 end
 
 local function genericEncode(value: any, description: Schema, slots: boolean): string
@@ -137,9 +140,8 @@ legacyDebugValue = function(value: any, spec: any, state: any): string
         or spec.kind == "number"
         or spec.kind == "integer"
         or spec.kind == "float"
-        or (
-        spec.kind as string
-    ):match("^u?int") ~= nil then
+        or (spec.kind as string):match("^u?int") ~= nil
+    then
         return tostring(value)
     end
     if type(value) ~= "table" then
@@ -502,7 +504,7 @@ end
 
 function m.preparedWriterSmall(): integer
     preparedOutput:reset()
-    local writer = json.writer(preparedOutput)
+    local writer = json.newWriter(preparedOutput)
     preparedSmall:write(smallValue, writer)
     writer:close()
 
@@ -611,7 +613,7 @@ end
 
 function m.preparedWriterPayload64KiB(): integer
     preparedOutput:reset()
-    local writer = json.writer(preparedOutput)
+    local writer = json.newWriter(preparedOutput)
     preparedPayload:write(payload64KiB, writer)
     writer:close()
 
@@ -634,7 +636,7 @@ end
 
 function m.preparedWriterNested(): integer
     preparedOutput:reset()
-    local writer = json.writer(preparedOutput)
+    local writer = json.newWriter(preparedOutput)
     preparedNested:write(nestedValue, writer)
     writer:close()
 
@@ -668,7 +670,7 @@ function m.currentDecodeSmall(): Small
 end
 
 function m.documentDecodeSmall(): any
-    return json.decode(smallJson)
+    return (assert(json.decode(smallJson)))
 end
 
 function m.nativeDecodeSmall(): Small
@@ -692,7 +694,7 @@ function m.currentDecodeMedium(): Medium
 end
 
 function m.documentDecodeMedium(): any
-    return json.decode(mediumJson)
+    return (assert(json.decode(mediumJson)))
 end
 
 function m.nativeDecodeMedium(): Medium

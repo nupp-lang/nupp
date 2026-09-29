@@ -26,7 +26,7 @@ end
 
 local user = new User()
 local out = string.buffer.new()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
 print(user:debug(), out:tostring())
@@ -250,7 +250,7 @@ end
 
 local user = new User(id = 7, name = "ada")
 local out = string.buffer.new()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
 print(out:tostring())
@@ -320,7 +320,7 @@ end
 
 local user = new User(id = 7, tags = {})
 local out = string.buffer.new()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
 local text = out:tostring()

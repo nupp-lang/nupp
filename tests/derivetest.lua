@@ -87,7 +87,7 @@ local user: User = new User()
 local printable: nupp.Debug = user
 local encodable: nupp.codec.json.JSONEncodable = user
 local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 encodable:writeJSON(writer)
 writer:close()
 local text = out:tostring()
@@ -123,7 +123,7 @@ end
 local decoded, problem = Message.fromJSON('{"value":"forwarded"}')
 assert(decoded ~= nil and problem == nil)
 local buffer = text.newBuffer()
-local writer = nupp.codec.json.writer(buffer)
+local writer = nupp.codec.json.newWriter(buffer)
 local restored = decoded as Message
 restored:writeJSON(writer)
 writer:close()
@@ -143,7 +143,7 @@ local record User
 end
 
 local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 local userKey = nupp.codec.json.encodedString("user")
 local cached = nupp.codec.json.verified('{"ok":true,"items":[1,2]}')
 writer:startObject():key(userKey)
@@ -206,7 +206,7 @@ local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
 local payload = new Payload(name = "x", secret = "hidden", labels = {})
 local keyed = codec:encode(payload)
 local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 payload:writeJSON(writer)
 writer:close()
 return {
@@ -264,7 +264,7 @@ local dynamic = invalid as any
 dynamic.signed = 2147483648
 local encoded, encodeError = pcall(function(): nil
     local out = require("nupp.text").newBuffer()
-    local writer = nupp.codec.json.writer(out)
+    local writer = nupp.codec.json.newWriter(out)
     invalid:writeJSON(writer)
     writer:close()
 end)
@@ -310,7 +310,7 @@ root.next = root
 local debugged = root:debug()
 local out = require("nupp.text").newBuffer()
 local encoded, cycle = pcall(function(): nil
-    local writer = nupp.codec.json.writer(out)
+    local writer = nupp.codec.json.newWriter(out)
     root:writeJSON(writer)
     writer:close()
 end)
@@ -380,7 +380,7 @@ end
 
 local envelope = new Envelope(pet = new Cat(kind = "cat", lives = 9))
 local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 envelope:writeJSON(writer)
 writer:close()
 local text = out:tostring()

@@ -142,11 +142,11 @@ end
 
 local user = new User(id = 7, name = "ada")
 local out = string.buffer.new()
-local writer = nupp.codec.json.writer(out)
+local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
 local text = out:get()
-writer = nupp.codec.json.writer(out)
+writer = nupp.codec.json.newWriter(out)
 nupp.codec.json.writeAs(User, user, writer)
 writer:close()
 local sameText = out:get()

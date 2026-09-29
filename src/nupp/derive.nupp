@@ -825,7 +825,7 @@ end
 local function encodeJSON<T is table>(value: T, entry: derive.Entry): string
     local out = newBuffer()
     local json = require("nupp.codec.json")
-    local writer = json.writer(out)
+    local writer = json.newWriter(out)
     derive.writeJSON(value, entry, writer)
     writer:close()
 
