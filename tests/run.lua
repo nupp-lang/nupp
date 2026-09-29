@@ -49,16 +49,24 @@ package.preload.testjson = package.preload.testjson or function()
         asObject = native.asObject,
         isArray = native.isArray,
         encode = native.encode,
-        serialize = native.serialize,
-        writer = native.writer,
+        newWriter = native.newWriter,
     }
 
+    -- The facade answers a reason now; the runner's callers want a raise.
     function json.decode(text)
-        return native.decode(text, native.NULL)
+        local value, reason = native.decode(text, native.NULL)
+        if reason ~= nil then
+            error(reason, 2)
+        end
+        return value
     end
 
     function json.pull(text, shape)
-        return native.pull(text, shape, native.NULL)
+        local value, reason = native.pull(text, shape, native.NULL)
+        if reason ~= nil then
+            error(reason, 2)
+        end
+        return value
     end
 
     return json
