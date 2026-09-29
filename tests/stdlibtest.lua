@@ -127,6 +127,13 @@ function M.twoLiveReadersOverOneCursorAreRefused()
     )
 end
 
+function M.aLineReaderReadTakesNoArguments()
+    local source = "local lines = nupp.io.newLines(nupp.io.newStringReader('a'))\nprint(lines:read(1))"
+    local got = diagsOf(source)
+    assert(got:find("NUPP", 1, true), "Lines:read takes nothing but the reader: " .. got)
+    assertClean("local lines = nupp.io.newLines(nupp.io.newStringReader('a'))\nprint(lines:read())")
+end
+
 function M.formerResultClosesAnswerNothing()
     local io = require("nupp.io")
     local buffer = io.newBuffer("abc")

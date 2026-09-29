@@ -22,7 +22,7 @@ export sealed interface Lines is nupp.Closeable
     --- @param self this line reader
     --- @return the line, or nil at the end
     --- @return why it could not read, when unsuccessful
-    read: function(self: Lines, ...: integer?): (string?, string?)
+    read: function(self: Lines): (string?, string?)
 
     --- Whether this reader has been released.
     isReleased: function(self: Lines): boolean
@@ -49,7 +49,7 @@ local record LineReader is Lines
         return self._closed
     end
 
-    function read(self, ...: integer?): (string?, string?)
+    function read(self): (string?, string?)
         if self._closed then
             return nil, "the line reader is closed"
         end
