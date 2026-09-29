@@ -831,7 +831,7 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         end,
     })
     local context = provider.open()
-    local element = ffi.typeof("uint32_t")
+    local element = require("nupp.mem.array").uint32
     for _, count in ipairs({1.5, math.huge, 0 / 0}) do
         local ok, problem = pcall(context.buffer, context, element, count)
         assert(not ok and tostring(problem):find("buffer count", 1, true), tostring(problem))
@@ -1130,7 +1130,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     }
     local browser = require("providerstate").browserGpu(host)
     local context = browser.open()
-    local element = require("ffi").typeof("uint32_t")
+    local element = require("nupp.mem.array").uint32
     for _, malformed in ipairs({false, {}, {buffer = 0}, {buffer = 1.5}, {buffer = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(context.buffer, context, element, 1)
@@ -1230,7 +1230,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local cancelledBrowser = require("providerstate").browserGpu(cancelledHost)
     local cancelledContext = cancelledBrowser.open()
-    local element = require("ffi").typeof("uint32_t")
+    local element = require("nupp.mem.array").uint32
     local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
     assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
     local compiled, kernelProblem = pcall(
@@ -1284,7 +1284,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local context = browser.open()
     local ffi = require("ffi")
     local spans = require("nupp.mem.span")
-    element = ffi.typeof("uint32_t")
+    element = require("nupp.mem.array").uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
     local source = ffi.new("uint32_t[1]", 7)

@@ -45,10 +45,11 @@ binds buffers in parameter order, and dispatches scalar uniforms separately:
 local gpu = require("nupp.gpu")
 local kernels = require("kernels")
 local span = require("nupp.mem.span")
+local array = nupp.mem.array
 
 local context = gpu.open()
-local input = context:buffer(ffi.typeof<float>(), 1024)
-local output = context:buffer(ffi.typeof<float>(), 1024)
+local input = context:buffer(array.float, 1024)
+local output = context:buffer(array.float, 1024)
 local binding = kernels.scale:compile(context):bind(output, input)
 local sourceStorage = carray(float, 1024)
 local outputStorage = carray(float, 1024)

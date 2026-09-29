@@ -54,8 +54,8 @@ end
 local function device(invocation)
     local state = host(invocation)
     state.context = gpu.open()
-    state.inputBuffer = state.context:buffer(ffi.typeof("uint32_t"), state.count)
-    state.outputBuffer = state.context:buffer(ffi.typeof("uint32_t"), state.count)
+    state.inputBuffer = state.context:buffer(require("nupp.mem.array").uint32, state.count)
+    state.outputBuffer = state.context:buffer(require("nupp.mem.array").uint32, state.count)
     state.kernel = kernels.device:compile(state.context)
     state.binding = state.kernel:bind(state.outputBuffer, state.inputBuffer)
     -- Each sample gets a fresh context; first dispatch belongs to setup.

@@ -33,6 +33,7 @@ local {type Span, type WriteSpan} = require("nupp.mem.span")
 local shared = require("nupp.gpu.types")
 local api = require("nupp.gpu.api")
 local operations = require("nupp.gpu.operations")
+local {type Scalar} = require("nupp.mem.array")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local gpu = {}
 type gpu.Buffer<T> = shared.Buffer<T>
@@ -121,10 +122,27 @@ record gpu.Context is api.KernelContext
     driver: function(borrows self: Context): string
 
     --- Allocates a typed resident device buffer.
-    buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): api.Buffer<T> borrows (self)
+    buffer: function<T>(
+        borrows self: Context,
+        element: Scalar<T> | Type<T>,
+        count: integer
+    ): api.Buffer<T> borrows (self)
 
     --- Allocates a dense row-major resident tensor.
-    tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): api.Buffer<T> borrows (self)
+    tensor: function<T>(
+        borrows self: Context,
+        element: Scalar<T> | Type<T>,
+        shape: {integer}
+    ): api.Buffer<T> borrows (self)
+
+    --- A tensor passes its dense dimensions and strides; a buffer is one row.
+    _allocate: function<T>(
+        borrows self: Context,
+        element: any,
+        count: integer,
+        dimensions: {integer}?,
+        strides: {integer}?
+    ): api.Buffer<T> borrows (self)
 
     --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
     --- The selected provider chooses its source member from this set.
@@ -270,13 +288,32 @@ end
 
 function gpu.Context.buffer<T>(
     borrows self: gpu.Context,
-    element: ctype<T>,
+    element: Scalar<T> | Type<T>,
     count: integer
+): api.Buffer<T> borrows (self)
+    return self:_allocate<T>(operations.elementType(element), count)
+end
+
+function gpu.Context.tensor<T>(
+    borrows self: gpu.Context,
+    element: Scalar<T> | Type<T>,
+    shape: {integer}
+): api.Buffer<T> borrows (self)
+    local count, strides, dimensions = operations.denseShape(shape)
+    return self:_allocate<T>(operations.elementType(element), count, dimensions, strides)
+end
+
+function gpu.Context._allocate<T>(
+    borrows self: gpu.Context,
+    element: any,
+    count: integer,
+    dimensions: {integer}?,
+    strides: {integer}?
 ): shared.Buffer<T> borrows (self)
     local width = storage.sizeOf(element)
     live(self)
     if count < 1 or count > 268435456 // width or count % 1 ~= 0 then
-        error("nupp: browser GPU buffer count is outside the portable limit", 2)
+        error("nupp: browser GPU buffer count is outside the portable limit", 3)
     end
     local answer = response.await(
         "gpu",
@@ -297,8 +334,8 @@ function gpu.Context.buffer<T>(
         _offset = 0,
         _capacity = count,
         _root = true,
-        _shape = {count},
-        _strides = {1},
+        _shape = dimensions or {count},
+        _strides = strides or {1},
         count = count
     )
 end
@@ -636,14 +673,6 @@ end
 function gpu.Context.drop(takes self: gpu.Context): nil
     local state = @unsafe nupp.release(self)
     state._destroy(state)
-end
-
-function gpu.Context.tensor<T>(
-    borrows self: gpu.Context,
-    element: ctype<T>,
-    shape: {integer}
-): api.Buffer<T> borrows (self)
-    return operations.tensor(self, element, shape)
 end
 
 function gpu.open(): affine(api.KernelContext, api.destroyContext)

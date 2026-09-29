@@ -23,6 +23,7 @@ module initialization; resource methods operate on the resulting context.
 ]]
 local {type Span, type WriteSpan} = require("nupp.mem.span")
 local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local {type Scalar} = require("nupp.mem.array")
 local gpu = {}
 
 --- Typed resident device storage or a view borrowing its owning context.
@@ -154,13 +155,23 @@ interface gpu.Context is gpu.ContextToken
     @readonly
     driver: function(borrows self: gpu.Context): string
 
-    --- Allocates a typed resident device buffer.
+    --- Allocates a typed resident device buffer. The element is named by its
+    --- array witness, such as `nupp.mem.array.float`, or by a struct declaration.
     @readonly
-    buffer: function<T>(borrows self: gpu.Context, element: ctype<T>, count: integer): gpu.Buffer<T> borrows (self)
+    buffer: function<T>(
+        borrows self: gpu.Context,
+        element: Scalar<T> | Type<T>,
+        count: integer
+    ): gpu.Buffer<T> borrows (self)
 
-    --- Allocates typed storage with the requested logical shape.
+    --- Allocates typed storage with the requested logical shape, its element
+    --- named as `buffer` names it.
     @readonly
-    tensor: function<T>(borrows self: gpu.Context, element: ctype<T>, shape: {integer}): gpu.Buffer<T> borrows (self)
+    tensor: function<T>(
+        borrows self: gpu.Context,
+        element: Scalar<T> | Type<T>,
+        shape: {integer}
+    ): gpu.Buffer<T> borrows (self)
 
     --- Releases a same-context root buffer's device allocation.
     --- The root and every dependent view become unavailable afterward.

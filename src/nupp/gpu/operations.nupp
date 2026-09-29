@@ -6,7 +6,25 @@ local types = require("nupp.gpu.types")
 local tensorlayout = require("nupp.gpu.layout")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local array = require("nupp.mem.array")
 local gpu = {}
+
+--- The storage kind each scalar array witness names.
+const SCALAR_KINDS: {
+    [any]: string
+} = {
+    [array.uint8] = "uint8",
+    [array.int8] = "int8",
+    [array.uint16] = "uint16",
+    [array.int16] = "int16",
+    [array.uint32] = "uint32",
+    [array.int32] = "int32",
+    [array.uint64] = "uint64",
+    [array.int64] = "int64",
+    [array.float] = "float",
+    [array.number] = "number",
+}
+
 type gpu.Buffer<T> = types.Buffer<T>
 gpu.Buffer = types.Buffer
 type gpu.Shared<T> = types.Shared<T>
@@ -16,7 +34,19 @@ gpu.Phases = types.Phases
 type gpu.Context = api.Context
 gpu.PORTABLE_WORKGROUP_THREADS = types.PORTABLE_WORKGROUP_THREADS
 
-local function denseShape(shape: {integer}): (integer, {integer})
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
+
+--- The element count, dense row-major strides and a copy of a tensor shape.
+--- Errors name the caller of the method that asked.
+--- @raises string when the shape has no elements or does not fit uint32
+function gpu.denseShape(shape: {integer}): (integer, {integer}, {integer})
     if #shape < 1 or #shape > 4 then
         error("nupp: GPU tensors take one through four dimensions", 3)
     end
@@ -31,16 +61,7 @@ local function denseShape(shape: {integer}): (integer, {integer})
         count = count * dimension
     end
 
-    return count, strides
-end
-
-local function copied(values: {integer}): {integer}
-    local out: {integer} = {}
-    for index, value in ipairs(values) do
-        out[index] = value
-    end
-
-    return out
+    return count, strides, copied(shape)
 end
 
 local function liveBuffer<T>(borrows buffer: gpu.Buffer<T>): nil
@@ -193,14 +214,15 @@ function gpu.workgroups(groups: uint32, size: uint32, scoped controller: functio
     end
 end
 
-function gpu.tensor<T>(borrows self: gpu.Context, element: ctype<T>, shape: {integer}): api.Buffer<T> borrows (self)
-    local count, strides = denseShape(shape)
-    local value = self:buffer(element, count)
-    local out = value as types.Buffer<T>
-    out._shape = copied(shape)
-    out._strides = strides
+--- The C type a buffer element names: the scalar an array witness stands for,
+--- or a struct declaration, which is its own C type.
+function gpu.elementType(element: any): any
+    local kind = SCALAR_KINDS[element]
+    if kind ~= nil then
+        return require("nupp.runtime.storage").scalar(kind)
+    end
 
-    return value
+    return element
 end
 
 function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}

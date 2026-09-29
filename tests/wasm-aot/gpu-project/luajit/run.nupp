@@ -18,10 +18,9 @@ do
 end
 local output = array.scalar(array.uint32, 2)
 local gpu = require("nupp.gpu")
-local ffi = require("ffi")
 local context = gpu.open()
-local gpuInput = context:buffer(ffi.typeof<uint32>(), 2)
-local gpuOutput = context:buffer(ffi.typeof<uint32>(), 2)
+local gpuInput = context:buffer(array.uint32, 2)
+local gpuOutput = context:buffer(array.uint32, 2)
 local binding = addMask:compile(context):bind(gpuOutput, gpuInput)
 context:upload(gpuInput, input:read())
 binding:dispatch(nupp.math.u32.wrap(3))

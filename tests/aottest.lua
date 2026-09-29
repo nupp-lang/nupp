@@ -334,7 +334,7 @@ function M.gpuTargetBindsACompilerGeneratedTypedObject()
         [[
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
-local ffi = require("ffi")
+local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
 local function scale(
@@ -347,8 +347,8 @@ local function scale(
 end
 
 local context = gpu.open()
-local input = context:buffer(ffi.typeof<float>(), 16)
-local output = context:buffer(ffi.typeof<float>(), 16)
+local input = context:buffer(array.float, 16)
+local output = context:buffer(array.float, 16)
 local kernel = scale:compile(context)
 local invocation = kernel:bind(output, input)
 invocation:dispatch(2.0)
@@ -395,10 +395,10 @@ function M.gpuBuffersExposeCheckedTensorLayouts()
     reportsGpu(
         [[
 local gpu = require("nupp.gpu")
-local ffi = require("ffi")
+local array = require("nupp.mem.array")
 
 local context = gpu.open()
-local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
+local tensor = context:tensor(array.float, {4, 8})
 local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
 local tensorLayout: gpu.Layout = tensor:layout()
@@ -422,15 +422,42 @@ return true
     reportsGpu(
         [[
 local gpu = require("nupp.gpu")
-local ffi = require("ffi")
+local array = require("nupp.mem.array")
 
 local context = gpu.open()
-local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
+local tensor = context:tensor(array.float, {4, 8})
 print(gpu.bufferIsDense(tensor))
 return true
 ]],
         "NUPP2004 NUPP2611",
         "a buffer answers for itself; the free-function duplicates are gone"
+    )
+    reportsGpu(
+        [[
+local gpu = require("nupp.gpu")
+local array = require("nupp.mem.array")
+
+local struct Pair
+    left: float
+    right: float
+end
+
+local function pairCount(borrows buffer: gpu.Buffer<Pair>): integer
+    return buffer.count
+end
+
+local function wordCount(borrows buffer: gpu.Buffer<uint32>): integer
+    return buffer.count
+end
+
+local context = gpu.open()
+local couples = context:buffer(Pair, 4)
+local words = context:tensor(array.uint32, {2, 2})
+print(pairCount(couples), wordCount(words))
+return true
+]],
+        "",
+        "an array witness names a scalar element and a struct declaration names itself"
     )
 end
 

@@ -47,12 +47,12 @@ for batch = 0, batches - 1 do
 end
 
 local context = gpu.open()
-local aBuffer = context:tensor(ffi.typeof("float"), {batches, rows, inner})
-local storedB = context:tensor(ffi.typeof("float"), {1, columns, inner})
+local aBuffer = context:tensor(require("nupp.mem.array").float, {batches, rows, inner})
+local storedB = context:tensor(require("nupp.mem.array").float, {1, columns, inner})
 local transposedB = gpu.transposeLayout(storedB:layout(), {1, 3, 2})
 local logicalBLayout = gpu.broadcastLayout(transposedB, {batches, inner, columns})
 local logicalB = storedB:view(logicalBLayout)
-local output = context:tensor(ffi.typeof("float"), {batches, rows, columns})
+local output = context:tensor(require("nupp.mem.array").float, {batches, rows, columns})
 assert(not logicalB:isDense() and not logicalB:isInjective())
 local bShape, bStrides = logicalB:dimensions(), logicalB:strides()
 assert(bShape[1] == batches and bShape[2] == inner and bShape[3] == columns)

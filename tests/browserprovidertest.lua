@@ -381,7 +381,7 @@ local function gpuContext()
     }
     local browser = providerstate.browserGpu(host)
     local context = browser.open()
-    local element = require("ffi").typeof("uint32_t")
+    local element = require("nupp.mem.array").uint32
     local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
 
     return context, element, kernel

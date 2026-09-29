@@ -54,6 +54,7 @@ int32_t nuppNativeGpuDownloadRead(
 local shared = require("nupp.gpu.types")
 local api = require("nupp.gpu.api")
 local operations = require("nupp.gpu.operations")
+local {type Scalar} = require("nupp.mem.array")
 local gpu = {}
 type gpu.Buffer<T> = shared.Buffer<T>
 gpu.Buffer = shared.Buffer
@@ -144,10 +145,27 @@ record gpu.Context is api.KernelContext
     driver: function(borrows self: Context): string
 
     --- Allocates a typed resident device buffer.
-    buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): api.Buffer<T> borrows (self)
+    buffer: function<T>(
+        borrows self: Context,
+        element: Scalar<T> | Type<T>,
+        count: integer
+    ): api.Buffer<T> borrows (self)
 
     --- Allocates a dense row-major resident tensor.
-    tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): api.Buffer<T> borrows (self)
+    tensor: function<T>(
+        borrows self: Context,
+        element: Scalar<T> | Type<T>,
+        shape: {integer}
+    ): api.Buffer<T> borrows (self)
+
+    --- A tensor passes its dense dimensions and strides; a buffer is one row.
+    _allocate: function<T>(
+        borrows self: Context,
+        element: any,
+        count: integer,
+        dimensions: {integer}?,
+        strides: {integer}?
+    ): api.Buffer<T> borrows (self)
 
     --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
     --- The selected provider chooses its source member from this set.
@@ -346,16 +364,35 @@ end
 
 function gpu.Context.buffer<T>(
     borrows self: gpu.Context,
-    element: ctype<T>,
+    element: Scalar<T> | Type<T>,
     count: integer
+): api.Buffer<T> borrows (self)
+    return self:_allocate<T>(operations.elementType(element), count)
+end
+
+function gpu.Context.tensor<T>(
+    borrows self: gpu.Context,
+    element: Scalar<T> | Type<T>,
+    shape: {integer}
+): api.Buffer<T> borrows (self)
+    local count, strides, dimensions = operations.denseShape(shape)
+    return self:_allocate<T>(operations.elementType(element), count, dimensions, strides)
+end
+
+function gpu.Context._allocate<T>(
+    borrows self: gpu.Context,
+    element: any,
+    count: integer,
+    dimensions: {integer}?,
+    strides: {integer}?
 ): shared.Buffer<T> borrows (self)
     count = whole(count, "buffer count", 0, 4294967295)
     local width = ffi.sizeof(element) as integer
     if width <= 0 or count == 0 or count > 4294967295 // width then
-        error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
+        error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 3)
     end
     local output = ffi.new("uint64_t[1]")
-    native.succeeded(C.nuppNativeGpuBufferCreate(live(self), width * count, output), 2)
+    native.succeeded(C.nuppNativeGpuBufferCreate(live(self), width * count, output), 3)
     local handle = output[0]
     costMetadata(live(self), handle, false, {format = tostring(element), elementBytes = width, shape = {count}})
 
@@ -369,8 +406,8 @@ function gpu.Context.buffer<T>(
         _capacity = count,
         _root = true,
         _state = {released = false},
-        _shape = {count},
-        _strides = {1},
+        _shape = dimensions or {count},
+        _strides = strides or {1},
         count = count
     )
 end
@@ -761,14 +798,6 @@ end
 function gpu.Context.drop(takes self: gpu.Context): nil
     local state = @unsafe nupp.release(self)
     state._destroy(state)
-end
-
-function gpu.Context.tensor<T>(
-    borrows self: gpu.Context,
-    element: ctype<T>,
-    shape: {integer}
-): api.Buffer<T> borrows (self)
-    return operations.tensor(self, element, shape)
 end
 
 function gpu.open(): affine(api.KernelContext, api.destroyContext)

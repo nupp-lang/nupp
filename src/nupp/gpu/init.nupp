@@ -10,12 +10,12 @@ is live. Uploads, dispatches, and downloads only enqueue commands;
 
 ```nupp
 local gpu = nupp.gpu
+local array = nupp.mem.array
 local kernels = require("kernels")
-local ffi = require("ffi")
 
 local context = gpu.open()
-local input = context:buffer(ffi.typeof<float>(), 1024)
-local output = context:buffer(ffi.typeof<float>(), 1024)
+local input = context:buffer(array.float, 1024)
+local output = context:buffer(array.float, 1024)
 local scale = kernels.scale:compile(context):bind(output, input)
 context:upload(input, values:read())
 scale:dispatch(2.0)

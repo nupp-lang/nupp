@@ -58,11 +58,11 @@ transformer.mixCpu(
     span.fromCarray(v, elements), tokens, width)
 
 local context = gpu.open()
-local inputBuffer = context:tensor(ffi.typeof("float"), {tokens, width})
-local qWeightsBuffer = context:tensor(ffi.typeof("float"), {width, width})
-local kWeightsBuffer = context:tensor(ffi.typeof("float"), {width, width})
-local vWeightsBuffer = context:tensor(ffi.typeof("float"), {width, width})
-local workspace = context:tensor(ffi.typeof("float"), {6, elements})
+local inputBuffer = context:tensor(require("nupp.mem.array").float, {tokens, width})
+local qWeightsBuffer = context:tensor(require("nupp.mem.array").float, {width, width})
+local kWeightsBuffer = context:tensor(require("nupp.mem.array").float, {width, width})
+local vWeightsBuffer = context:tensor(require("nupp.mem.array").float, {width, width})
+local workspace = context:tensor(require("nupp.mem.array").float, {6, elements})
 local qView = workspace:subview({0, 0}, {1, elements})
 local kView = workspace:subview({1, 0}, {1, elements})
 local vView = workspace:subview({2, 0}, {1, elements})
@@ -82,7 +82,7 @@ assert(transposedStrides[1] == 1 and transposedStrides[2] == elements)
 assert(not broadcast:isDense() and not broadcast:isInjective())
 assert(not pcall(function() context:upload(gapped, inputSpan) end),
     "a non-dense tensor upload was admitted")
-assert(not pcall(function() context:tensor(ffi.typeof("float"), {tokens, 0}) end),
+assert(not pcall(function() context:tensor(require("nupp.mem.array").float, {tokens, 0}) end),
     "a zero-stride broadcasting shape was admitted")
 
 context:upload(inputBuffer, inputSpan)

@@ -1429,8 +1429,8 @@ end
 local function run(kernel, count, added)
     local values = ffi.new("uint32_t[?]", count)
     for index = 0, count - 1 do values[index] = index end
-    local input = context:buffer(ffi.typeof("uint32_t"), count)
-    local output = context:buffer(ffi.typeof("uint32_t"), count)
+    local input = context:buffer(require("nupp.mem.array").uint32, count)
+    local output = context:buffer(require("nupp.mem.array").uint32, count)
     context:upload(input, span.fromCarray(values, count))
     kernel:compile(context):bind(output, input):dispatch()
     context:synchronize()
