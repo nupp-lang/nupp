@@ -15,6 +15,17 @@ function M.runsThePublicOptionStream()
     assert(output == "cli parser ok\n", output)
 end
 
+function M.runsAProgramRequiringTheProcessModuleFromTheRepositoryRoot()
+    -- ER-011: the repository root is a project whose sources include
+    -- nupp.io.process itself, so the runner compiles that copy on demand. A
+    -- compile path that required the same module mid-load reported "loop or
+    -- previous error loading module".
+    local status, output = process.capture({NUPP, "run", HERE .. "/fixtures/processrequire.nupp"}, {cwd = ROOT})
+    assert(status == 0, output)
+    output = output:gsub("^nupp: sources changed, building the compiler\n", "")
+    assert(output == "process module loaded\n", output)
+end
+
 function M.rejectsInvalidDerivedSchemasDuringChecking()
     local cases = {
         cliconflictinvalid = "CLI name same is duplicated",

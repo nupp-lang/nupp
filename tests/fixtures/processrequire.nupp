@@ -1,0 +1,7 @@
+-- ER-011: a program that requires nupp.io.process, run by `nupp run` from the
+-- repository root, where the runner compiles the repository's own copy of the
+-- module on demand.
+local process = require("nupp.io.process")
+
+assert(type(process.spawn) == "function")
+print("process module loaded")
