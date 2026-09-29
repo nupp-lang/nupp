@@ -209,6 +209,78 @@ function M.subtypingRules()
     assert(not isA(takesInt, takesNum))
 end
 
+-- An absent member satisfies an optional one only when the source is known to lack
+-- it: a fresh literal, a record or a struct, or a read indexer whose value fits. An
+-- open shape may be a widened view of a value holding the member under another type,
+-- so reading it through `{name: string?}` would hand back a number (CHECKER-04).
+function M.absentOptionalMemberNeedsAClosedSource()
+    assertEq(
+        diagsOf(table.concat({
+            "local full = {id = 1, name = 5}",
+            "local narrow: {id: integer} = full",
+            "local view: {@readonly name: string?} = narrow",
+            "return view",
+        }, "\n")),
+        "NUPP2001:3"
+    )
+    local record = table.concat({
+        "local record User",
+        "    id: integer",
+        "    name: integer",
+        "end",
+        "local function show(v: {@readonly name: string?}): nil",
+        "    if v.name then print(v.name:upper()) end",
+        "end",
+    }, "\n")
+    assertEq(
+        diagsOf(table.concat({
+            record,
+            "local function forward(h: {@readonly id: integer}): nil show(h) end",
+            "forward(new User(id = 1, name = 5))",
+        }, "\n")),
+        "NUPP2006:8"
+    )
+    local _, diags = diagsOf(record .. "\nlocal function forward(h: {@readonly id: integer}): nil show(h) end")
+    assert(diags[1].msg:find("only a fresh table, a record or a struct may omit", 1, true), diags[1].msg)
+    assertEq(
+        diagsOf(table.concat({
+            "local interface Named",
+            "    id: integer",
+            "end",
+            "local function show(v: {@readonly name: string?}): nil end",
+            "local function forward(h: Named): nil show(h) end",
+            "return forward",
+        }, "\n")),
+        "NUPP2006:5"
+    )
+    assertEq(
+        diagsOf(table.concat({
+            "local function show(v: {@readonly name: string?}): nil end",
+            "local function forward(h: {id: integer} & {[string]: number}): nil show(h) end",
+            "return forward",
+        }, "\n")),
+        "NUPP2006:2"
+    )
+    assertClean(table.concat({
+        "local record User",
+        "    id: integer",
+        "end",
+        "local struct Point",
+        "    x: number",
+        "end",
+        "local function show(v: {@readonly name: string?}): nil",
+        "    if v.name then print(v.name:upper()) end",
+        "end",
+        "show({id = 1})",
+        "show(new User(id = 1))",
+        "local u: User = new User(id = 2)",
+        "show(u)",
+        "show(new Point(1))",
+        "local function viaIndexer(h: {id: integer} & {[string]: string}): nil show(h) end",
+        "return viaIndexer",
+    }, "\n"))
+end
+
 -- The extra parameters of a callable stand where the target's extra arguments
 -- arrive, so they compare against its vararg element type and mode the way any
 -- parameter position does; an untyped `...` promises nothing about them.

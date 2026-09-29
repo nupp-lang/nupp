@@ -30,6 +30,20 @@ required, and a plain table shape works the same way:
 local n: Named = {name = "anonymous"}
 ```
 
+An optional member may be left out only where the value is known not to carry
+it: a fresh table literal, a record, a struct, or a module's own table. Any other
+shape may be a narrowed view of a value that holds the member under another
+type, so it has to declare the member to fit:
+
+```nupp
+local type Labelled = {@readonly label: string?}
+
+local full = {id = 1, label = 5}
+local narrowed: {id: integer} = full
+local fresh: Labelled = {id = 2} -- a fresh literal carries no label
+local view: Labelled = narrowed -- NUPP2001: narrowed may hold a label of another type
+```
+
 A member the interface implements with a body counts as one of its members
 here. The body is installed only on a declaration that names the interface
 with `is`, so a shape or an undeclared record has to carry that member itself

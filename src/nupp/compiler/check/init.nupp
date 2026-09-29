@@ -563,7 +563,8 @@ local function finalizeBoundary(c: state.Checker)
             end
         end
         if #fields > 0 then
-            c.moduleType = T.shape(fields)
+            -- The table the compiler builds from the exports holds nothing else.
+            c.moduleType = T.shape(fields, nil, nil, true)
         end
         return
     end
@@ -2581,7 +2582,7 @@ function checkMod.check(
                     end
                 end
                 if #fields > 0 then
-                    c.moduleType = T.shape(fields)
+                    c.moduleType = T.shape(fields, nil, nil, true)
                     c.moduleTypeFromFields = true
                 end
             end
@@ -3103,7 +3104,8 @@ function checkMod.check(
             table.sort(fields, function(a, b)
                 return a.name < b.name
             end)
-            c.moduleType = T.shape(fields)
+            -- The table the compiler builds from the exports holds nothing else.
+            c.moduleType = T.shape(fields, nil, nil, true)
             c.moduleTypeFromFields = true
         else
             for name, t in pairs(c.moduleFields) do

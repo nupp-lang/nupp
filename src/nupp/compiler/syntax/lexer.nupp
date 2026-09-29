@@ -262,7 +262,11 @@ type lexer.LexError = {
     col: integer,
     msg: string,
     filename: string?,
-    help: string?
+    help: string?,
+
+    --- Always absent: a syntax error is an error. Declared so a lexical error reads
+    --- as a diagnostic that carries no severity of its own.
+    severity: nil
 }
 
 local KEYWORDS: {[string]: boolean} = {}

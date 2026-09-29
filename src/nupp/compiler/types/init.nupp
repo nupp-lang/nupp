@@ -125,6 +125,11 @@ record types.Shape
     --- A table literal being contextually checked. Once bound without an annotation it
     --- widens to `table`, so this marker cannot grant writes through a stored view.
     fresh: boolean?
+
+    --- Every member the value carries is listed: a module table built from its
+    --- exports, which has nothing else. Only such a shape, a fresh literal or a
+    --- record may omit an optional member the target asks for.
+    closed: boolean?
 end
 
 --- Any one of several types.
@@ -1377,7 +1382,8 @@ end
 --- Fields are sorted by name, so the same shape written two ways interns to one type.
 ---
 --- @param fields the fields, in any order
-function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: boolean?): types.Type
+--- @param closed whether the value carries no member beyond these
+function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: boolean?, closed: boolean?): types.Type
     local sorted: {types.Field} = {}
     for j, f in ipairs(fields) do
         sorted[j] = f
@@ -1418,7 +1424,10 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     ] = "[r=" .. (
         irk and irk.id or "-"
     ) .. ":" .. (irv and irv.id or "-") .. ":w=" .. (iwk and iwk.id or "-") .. ":" .. (iwv and iwv.id or "-") .. "]"
-    local key = "shape(" .. table.concat(parts, ",") .. ")" .. (fresh and "!fresh" or "")
+    local key = "shape(" .. table.concat(
+        parts,
+        ","
+    ) .. ")" .. (fresh and "!fresh" or "") .. (closed and "!closed" or "")
 
     local existing = interned(key)
     if existing then
@@ -1436,7 +1445,8 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
             indexReadValue = irv,
             indexWriteKey = iwk,
             indexWriteValue = iwv,
-            fresh = fresh or nil
+            fresh = fresh or nil,
+            closed = closed or nil
         )
     )
 end

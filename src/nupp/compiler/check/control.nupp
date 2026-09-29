@@ -1269,7 +1269,7 @@ function control.install(c: state.Checker): state.StatHandlers
                     end
                 end
                 if #fields > 0 then
-                    c.moduleType = T.shape(fields)
+                    c.moduleType = T.shape(fields, nil, nil, true)
                     -- Boundary finalization rebuilds this shape once effects are known,
                     -- and only this one: a module returning something it annotated, or
                     -- a nominal, said its own surface and is not re-derived.

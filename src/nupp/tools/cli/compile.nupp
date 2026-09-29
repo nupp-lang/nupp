@@ -295,7 +295,10 @@ function compile.module(
         return nil, readErr
     end
     local parser = require("nupp.compiler.syntax.parser")
-    local result = parser.parse(source, path)
+    -- The checker writes what the passes after it read (the module's name, its
+    -- dialect and compat, the analysis) onto the parse itself, so the parse is held
+    -- open to those members rather than as the shape the parser answered.
+    local result = parser.parse(source, path) as parser.ParseResult & {[string]: any}
     if #result.errors > 0 then
         say(result.errors)
         return nil, "syntax errors"

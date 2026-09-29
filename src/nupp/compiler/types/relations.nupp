@@ -712,8 +712,33 @@ local function intersectionSurface(t: T.Intersection): T.Shape
     return shape
 end
 
+--- Whether `a` may lack an optional member. A fresh literal, a module's own table, and
+--- a record or struct list every member they carry, and a read indexer over strings
+--- answers for every name; anything else may be a widened view of a value holding the
+--- member under another type.
+local function mayOmit(a: PropertyType, owner: Type, fresh: boolean, want: Type): boolean
+    if fresh or a.tag == "shape" and a.closed then
+        return true
+    end
+    -- A `type?` member belongs to a comptime descriptor, which exists only while
+    -- compiling and which the builder reading it validates, so what it lacks cannot
+    -- reach run time; the guide lets a descriptor shape leave `write` out.
+    if want == T.optional(T.type_) then
+        return true
+    end
+    if owner.tag == "nominal" then
+        local kind = (owner as T.Nominal).declKind
+        if kind == "record" or kind == "struct" then
+            return true
+        end
+    end
+
+    return a.indexReadValue ~= nil and optionalIsA(T.string, a.indexReadKey) and optionalIsA(a.indexReadValue, want)
+end
+
 --- Read capabilities compare covariantly; write capabilities compare contravariantly.
---- Requiring both therefore makes an ordinary property invariant.
+--- Requiring both therefore makes an ordinary property invariant. An absent member
+--- satisfies an optional one only where `mayOmit` says the source vouches for it.
 local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     local aReads = a.byname or {}
     local aWrites = a.writeByname or {}
@@ -725,6 +750,10 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
         if not have then
             if not admitsNil(want) then
                 return false, ("%s is not a %s (no readable member %q)"):format(T.tostring(a), T.tostring(b), name)
+            elseif not mayOmit(a, aOwner, fresh, want) then
+                return false, (
+                    "%s is not a %s (no readable member %q; only a fresh table, a record or a struct may omit an optional member)"
+                ):format(T.tostring(a), T.tostring(b), name)
             end
         elseif not memberIsA(have, want, aOwner, bOwner) then
             return false, ("%s is not a %s (read member %q does not match)"):format(T.tostring(a), T.tostring(b), name)

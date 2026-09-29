@@ -172,6 +172,12 @@ exactly one string is a property with that name instead, so `{["a"]: T}` and
 `{a: T}` are the same shape and `{["a b"]: T}` is how a property whose name is
 not an identifier is written.
 
+A shape accepts anything carrying its members, so a wider shape fits a narrower
+one. An optional member may be missing only where the value is known to lack it:
+a fresh table literal, a record, a struct, a module's own table, or a shape whose
+string indexer fits the member. An open shape or an interface may be a narrowed view of a value that
+holds the member under another type, so it has to declare the member.
+
 Arithmetic on `integer` widens to `number`; annotate a result `number` unless
 you have narrowed it back.
 ]=],
