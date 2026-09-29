@@ -65,6 +65,61 @@ package.preload.testjson = package.preload.testjson or function()
 end
 
 local testJson = require("testjson")
+
+-- A failure message may quote whatever bytes a case produced, and a JSON report
+-- cannot carry bytes that are not UTF-8: one such message used to lose the whole
+-- report. Each byte outside a well-formed sequence is written as `\xNN` instead.
+local function utf8Text(text)
+    if not text:find("[\128-\255]") then
+        return text
+    end
+    local out = {}
+    local i, n = 1, #text
+    while i <= n do
+        local c = text:byte(i)
+        local length = c < 0x80 and 1 or c >= 0xC2 and c <= 0xDF and 2 or c >= 0xE0 and c <= 0xEF and 3
+            or c >= 0xF0 and c <= 0xF4 and 4 or 0
+        local valid = length > 0 and i + length - 1 <= n
+        for k = i + 1, valid and i + length - 1 or i do
+            local b = text:byte(k)
+            if b < 0x80 or b > 0xBF then
+                valid = false
+            end
+        end
+        if valid and length >= 3 then
+            local b = text:byte(i + 1)
+            valid = not (c == 0xE0 and b < 0xA0) and not (c == 0xED and b > 0x9F) and not (c == 0xF0 and b < 0x90)
+                and not (c == 0xF4 and b > 0x8F)
+        end
+        if valid then
+            out[#out + 1] = text:sub(i, i + length - 1)
+            i = i + length
+        else
+            out[#out + 1] = ("\\x%02X"):format(c)
+            i = i + 1
+        end
+    end
+    return table.concat(out)
+end
+
+local function utf8Strings(value, seen)
+    if type(value) == "string" then
+        return utf8Text(value)
+    elseif type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return value
+    end
+    seen[value] = true
+    for key, item in pairs(value) do
+        if type(item) == "string" or type(item) == "table" then
+            value[key] = utf8Strings(item, seen)
+        end
+    end
+    return value
+end
 local embedded = rawget(_G, "__NUPP_TEST_EMBEDDED") == true
 local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 
@@ -3324,6 +3379,7 @@ if embedded then
     return report
 elseif asJson then
     local json = testJson
+    utf8Strings(results)
     io.write(
         json.encode({
             ok = report.ok,
