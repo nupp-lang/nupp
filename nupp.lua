@@ -150,6 +150,7 @@ local RESOURCES = {
     {source = "src/nupp/cli/internal/optparser.nupp", output = "nupp/compiler/nupp/cli/internal/optparser.nupp"},
     {source = "src/nupp/cli/internal/decode.g.nupp", output = "nupp/compiler/nupp/cli/internal/decode.g.nupp"},
     {source = "src/nupp/cli/internal/terminal.nupp", output = "nupp/compiler/nupp/cli/internal/terminal.nupp"},
+    {source = "src/nupp/cli/internal/table.nupp", output = "nupp/compiler/nupp/cli/internal/table.nupp"},
     {
         source = "src/nupp/cli/internal/application.g.nupp",
         output = "nupp/compiler/nupp/cli/internal/application.g.nupp"
