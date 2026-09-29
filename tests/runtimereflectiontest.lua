@@ -92,6 +92,29 @@ return User
     assertEq(entry.codec, first, "JSON extension owns codec allocation")
 end
 
+-- The JSON codec's extension key is a typed key like any other, so reading
+-- it back through a descriptor answers the codec, and an untyped token with a
+-- `build` of its own is refused rather than given a slot.
+function M.jsonExtensionKeyIsTyped()
+    local User = run([[
+@derive(nupp.derive.JSON)
+local record User
+    id: integer
+end
+return User
+]])
+    local key = _G.nupp.__reflect.json
+    assertEq(type(key.id), "number", "the JSON extension key has no typed id")
+    local info = User:reflect()
+    local codec = info:extension(key)
+    assertEq(codec, _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec, "the key read back the codec")
+    local ok, problem = pcall(info.extension, info, {build = function()
+        return "untyped"
+    end})
+    assertEq(ok, false, "an untyped extension token was resolved")
+    assert(tostring(problem):find("not an extension key", 1, true), tostring(problem))
+end
+
 -- `fieldCodec` was the one member of the derived runtime whose answer depended on what
 -- had run before it. The codec is allocated on demand and memoized into `entry.codec`,
 -- and one of the two implementations read that field rather than asking for the codec,

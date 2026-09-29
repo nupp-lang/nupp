@@ -885,7 +885,7 @@ function derive.install(namespace: any): nil
     if reflect == nil then
         return
     end
-    reflect.json.build = function(info: any): any
+    reflect.buildJson = function(info: any): any
         local mt = info.type
         local entry = mt and derived[rawget(mt, "__nuppDeriveKey")]
         if not entry then

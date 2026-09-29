@@ -16,7 +16,6 @@ local store = require("nupp.util.internal.store")
 
 local extensions = {}
 local states: any = setmetatable({}, {__mode = "k"})
-local legacySlots: any = setmetatable({}, {__mode = "k"})
 -- The provider behind each key, by id. A key is an anonymous `nupp.util.Key`:
 -- its id identifies the extension only inside this process, may change when
 -- module initialization order changes, and must never become a persistent or
@@ -45,29 +44,21 @@ end
 ---
 --- Failures are cached too. Re-entering the same key while it is initializing is an
 --- error rather than unbounded recursion.
---- @raises string when the host is foreign, initialization recurs, or the provider
----     fails
+--- @raises string when the host is foreign, the key is not an extension key,
+---     initialization recurs, or the provider fails
 --- @internal
 function extensions.resolve<T>(host: any, key: nupp.reflect.ExtensionKey<T>): T
     local state = states[host]
     if state == nil then
         error("nupp: value is not an extension host", 2)
     end
-    -- Reflection extensions predate typed keys and remain ordinary identity
-    -- tables. Assign those a slot lazily so every host cache still has one dense
-    -- representation while old extension providers retain their identity.
     local token: any = key
     local slot = token.id as integer?
-    if slot == nil then
-        slot = legacySlots[token]
-        if slot == nil then
-            local reserved: store.Key<any> = store.newKey(nil)
-            slot = reserved.id
-            legacySlots[token] = slot
-        end
+    if slot == nil or providers[slot] == nil then
+        error("nupp: value is not an extension key", 2)
     end
     local index = slot as integer
-    local build = providers[index] or token.build
+    local build = providers[index]
     local cached: any = state.values[index]
     if cached ~= nil then
         if cached.state == "ready" then
