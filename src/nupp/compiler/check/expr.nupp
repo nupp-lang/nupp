@@ -896,6 +896,12 @@ function expr.install(c: state.Checker): nil
     -- Switch expressions
     ---------------------------------------------------------------------
 
+    --- Whether a case covers every value the residue still admits. Gradual `any` fits
+    --- every case without being covered by one, so a switch over it keeps its `else`.
+    local function coveredBy(residue: Type, case: Type): boolean
+        return residue ~= T.never and residue ~= T.any and isA(residue, case)
+    end
+
     local function inferSwitch(node: cst.SwitchExpr): Type
         local selector = node.selector
         local selectorT = selector and c.infer(selector) or T.any
@@ -991,7 +997,7 @@ function expr.install(c: state.Checker): nil
                             c.diag("NUPP2139", value, "this case value is not admitted by the selector type")
                         end
                         if not guarded then
-                            residue = residue ~= T.never and isA(residue, exact) and T.never or subtract(residue, exact)
+                            residue = coveredBy(residue, exact) and T.never or subtract(residue, exact)
                         end
                     end
                 end
@@ -1048,7 +1054,7 @@ function expr.install(c: state.Checker): nil
                     end
                 end
                 if not guarded then
-                    residue = residue ~= T.never and isA(residue, target) and T.never or subtract(residue, target)
+                    residue = coveredBy(residue, target) and T.never or subtract(residue, target)
                 end
             end
             if not armReachable then

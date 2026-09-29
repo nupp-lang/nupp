@@ -281,7 +281,7 @@ local function returningCondition(): number
 end
 @aot
 local function nilBlock(): number
-    local value = do yield nil end
+    local value: nil = do yield nil end
     return switch value do case nil -> 67 end
 end
 @aot

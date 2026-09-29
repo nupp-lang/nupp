@@ -61,6 +61,32 @@ end
 
 local M = {}
 
+-- `any` fits every case without any case covering it, so a switch over an `any`
+-- selector keeps its `else` and needs one, as the reference says of open types.
+function M.aGradualSelectorNeedsItsElse()
+    local record = "local record R\n    v: integer\nend\n"
+    assertEq(
+        run(record .. table.concat({
+            "local function f(x: any): integer",
+            "    return switch x do",
+            "        case is R as r -> r.v",
+            "        else -> 0",
+            "    end",
+            "end",
+            "return f(new R(v = 3)) + f(2)",
+        }, "\n")),
+        3
+    )
+    assertEq(
+        run("local function g(x: any): string\n    return switch x do\n        case 1 -> 'one'\n        else -> 'other'\n    end\nend\nreturn g(1) .. g(2)"),
+        "oneother"
+    )
+    assertEq(
+        (diagnosticCodes(record .. "local function f(x: any): integer\n    return switch x do\n        case is R as r -> r.v\n    end\nend\nreturn f")),
+        "NUPP2140"
+    )
+end
+
 function M.staticCasesAreExhaustiveAndRun()
     local first, second, third = run(
         table.concat(
