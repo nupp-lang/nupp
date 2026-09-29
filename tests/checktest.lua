@@ -1934,6 +1934,28 @@ function M.aUnionOfFunctionsIsCallableWhenEveryMemberAccepts()
     )
 end
 
+-- A `.lua` file is run by LuaJIT unchanged, so the typed layer is refused there
+-- exactly where LuaJIT would refuse it: the ternary is its own syntax, while floor
+-- division, `??=` and interpolated strings are not.
+function M.plainLuaRefusesWhatLuaJITDoesNotRun()
+    local function plain(source)
+        local tree = parser.parse(source, "plain.lua")
+        assertEq(#tree.errors, 0, "syntax: " .. (tree.errors[1] and tree.errors[1].msg or ""))
+        local out = {}
+        for _, diag in ipairs(check.check(tree, "plain.lua", nil, {})) do
+            if diag.code == "NUPP1006" then
+                out[#out + 1] = diag.code .. ":" .. diag.line
+            end
+        end
+        return table.concat(out, " ")
+    end
+    assertEq(plain("local a = true\nlocal x = a ? 1 : 2\nreturn x"), "")
+    assertEq(plain("local y = 7 // 2\nreturn y"), "NUPP1006:1")
+    assertEq(plain("local z = 7\nz //= 2\nreturn z"), "NUPP1006:2")
+    assertEq(plain("local w = nil\nw ??= 1\nreturn w"), "NUPP1006:2")
+    assertEq(plain("local n = 1\nlocal s = `n is ${n}`\nreturn s"), "NUPP1006:2")
+end
+
 -- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
 -- the type of `x`. Keeping it as a member made every field read fail.
 function M.neverAddsNothingToAUnion()

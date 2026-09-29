@@ -248,7 +248,7 @@ local TYPED_LAYER: {
     tborrows = "a type annotation",
     tpreserves = "a type annotation",
     tpredicate = "a type annotation",
-    ternary = "a type annotation",
+    istring = "an interpolated string",
     switchExpr = "a switch expression",
     doExpr = "a do expression",
     orExitExpr = "an exit suffix",
@@ -275,6 +275,14 @@ local function reportTypedLayer(c: state.Checker, node: any)
     end
     if (node.kind == "ifClause" or node.kind == "elseifClause") and node.binding then
         c.diag("NUPP1006", node.binding, "an `if NAME = EXPR then` binding is not plain Lua")
+    end
+    -- LuaJIT runs `c ? a : b` itself, but has no floor division and no `??=`, so a
+    -- `.lua` file holding one of those does not load where it is promised to.
+    if node.kind == "binop" and node.op and node.op.kind == "//" then
+        c.diag("NUPP1006", node.op, "`//` is not plain Lua")
+    end
+    if node.kind == "compoundAssign" and node.op and (node.op.kind == "//=" or node.op.kind == "??=") then
+        c.diag("NUPP1006", node.op, "`" .. node.op.kind .. "` is not plain Lua")
     end
     for _, child in ipairs(node) do
         reportTypedLayer(c, child)
