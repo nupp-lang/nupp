@@ -594,32 +594,6 @@ function files.pendingTransfers(): integer
     return pending
 end
 
-function files.lines(path: any): (messages.LineIterator?, string?)
-    local bytes, reason = wholeRead(path)
-    if bytes == nil then
-        return nil, reason
-    end
-    local at: integer = 1
-
-    return function(): string?
-        if at > #bytes then
-            return nil
-        end
-        local stop = bytes:find("\n", at, true)
-        local line: string
-        if stop == nil then
-            line, at = bytes:sub(at), #bytes + 1
-        else
-            line, at = bytes:sub(at, stop - 1), stop + 1
-        end
-        if line:sub(-1) == "\r" then
-            line = line:sub(1, -2)
-        end
-
-        return line
-    end, nil
-end
-
 function files.createTemporaryFile(options: messages.TemporaryOptions?): (nil, string?)
     return nil, unavailable("temporary paths")
 end

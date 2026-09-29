@@ -20,7 +20,7 @@ local function write(path, text)
     file:close()
 end
 
-function M.buildsFilesAndLineIteratorsInAColdComponent()
+function M.buildsFilesAndLineReadersInAColdComponent()
     local directory = os.tmpname()
     if package.config:sub(1, 1) == "\\" then
         directory = directory:gsub("^/([A-Za-z])/", "%1:/")
@@ -40,11 +40,16 @@ return {include = {"src"}, build = {kind = "component", outDir = "build",
 module fixture
 local files = require("nupp.io.files")
 export function read(path: string): string
-    local iterator = assert(files.lines(path))
+    local lines = assert(files.lines(path, 1048576))
     local text = ""
-    for line in iterator do
+    while true do
+        local line, reason = lines:read()
         collectgarbage("collect")
-        text = text .. assert(line) .. "\n"
+        if line == nil then
+            assert(reason == nil, reason)
+            break
+        end
+        text = text .. line .. "\n"
     end
     return text
 end

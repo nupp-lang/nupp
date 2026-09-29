@@ -164,17 +164,25 @@ leaving it behind.
 
 A NUL byte is content, not a terminator, in every direction.
 
+`lines` opens a file as a [line reader](nupp.io.Lines), which takes the file
+and closes it when it closes:
+
 ```nupp
-for line in assert(files.lines("access.log")) do
+local log = assert(files.lines("access.log"))
+while true do
+    local line, reason = log:read()
+    if line == nil then
+        assert(reason == nil, reason)
+        break
+    end
     print(line)
 end
 ```
 
-`lines` closes the file when it reaches the end. A trailing carriage return is
-removed, so a file written on either platform reads the same. Abandoning the
-iterator early leaves the file open until it is collected; open it yourself when
-you mean to stop. A read that fails once iteration has begun raises, because the
-iterator has no failure channel to answer through.
+A line comes back without its terminator, `\n` or `\r\n`, so a file written on
+either platform reads the same. A read that fails partway through answers nil
+and the reason rather than ending the lines early, which is what tells a broken
+file apart from a finished one.
 
 ## Reading and writing through a cursor
 
@@ -464,10 +472,6 @@ export type Mode = messages.Mode
 --- @export
 export type Origin = messages.Origin
 
---- Answers each line in turn, and nil at the end of the file.
---- @export
-export type LineIterator = messages.LineIterator
-
 --- One resolved path's attributes.
 --- @export
 export type Info = messages.Info
@@ -557,8 +561,7 @@ local function answer(status: integer, output: any): (string?, string?)
     return native.bytes(output[0]), nil
 end
 
--- Reads through a caller-owned native buffer. File and the line iterator
--- share this crossing; the iterator owns its file rather than borrowing a view.
+-- Reads through a caller-owned native buffer.
 local function readBytes(handle: any, into: any, count: integer): (string?, string?)
     local output = ffi.new("size_t[1]")
     local status = C.nuppNativeFileRead(handle, into, count, output)
@@ -851,18 +854,6 @@ function File.close(takes self: File): nil
     state._handle = nil
     state._scratch = nil
     state._capacity = 0
-    C.nuppNativeFileRelease(handle)
-end
-
--- Closes a file without consuming an owner, which is what the line iterator needs: it
--- holds a file the caller never sees and closes it from inside a closure.
-local function closeFile(file: any): nil
-    if file._closed then
-        return
-    end
-    file._closed = true
-    local handle = file._handle
-    file._handle = nil
     C.nuppNativeFileRelease(handle)
 end
 
@@ -1615,80 +1606,6 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?), st
     end
 
     return new File(_handle = output[0], _closed = false, _scratch = nil, _capacity = 0), nil
-end
-
---- Iterates a file's lines, closing it at the end.
----
---- A trailing carriage return is removed, so a file written on either platform reads
---- the same. The iterator stops at the end of the file; abandoning it early leaves the
---- file open until it is collected.
---- @param path the file to read
---- @return an iterator answering each line, or nil on failure
---- @return a failure reason, when unsuccessful
---- @raises string when a read fails once iteration has begun, since the iterator has no
---- failure channel to answer through
---- @export
-export function lines(path: string | paths.Path): (LineIterator?, string?)
-    -- The file is opened here rather than through `open`, because `open` hands back an
-    -- obligation and this function has nobody to hand it to: the iterator is what owns
-    -- the file, and closes it when it reaches the end. Releasing an owner the caller
-    -- never sees would leave the discharge the scope machine already wrote behind it,
-    -- closing the file before the first line is read.
-    local text = named(path, "path", 2)
-    local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeFileOpen(slice(text), MODES.r, output)
-    if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeLastError())
-    end
-    local opened = @unsafe nupp.release(new File(_handle = output[0], _closed = false, _scratch = nil, _capacity = 0))
-    local into = ffi.new<uint8[?]>(READ_SIZE)
-    local held = ""
-    local finished = false
-
-    local function trimmed(line: string): string
-        if line:sub(-1) == "\r" then
-            return line:sub(1, -2)
-        end
-
-        return line
-    end
-
-    return function(): string?
-        if finished then
-            return nil
-        end
-        while true do
-            local stop = held:find("\n", 1, true)
-            if stop ~= nil then
-                local line = held:sub(1, (stop as integer) - 1)
-                held = held:sub((stop as integer) + 1)
-
-                return trimmed(line)
-            end
-            local chunk, why = readBytes(opened._handle, into, READ_SIZE)
-            if chunk == nil then
-                -- A failed read is not the end of the file, and the iterator has no
-                -- error channel to answer through, so finishing cleanly here would
-                -- silently truncate the file. The file is closed and the reason
-                -- raised instead.
-                finished = true
-                closeFile(opened)
-                error("nupp: io.files lines could not read: " .. (why ?? "unknown reason"), 2)
-            elseif chunk == "" then
-                finished = true
-                closeFile(opened)
-                if #held > 0 then
-                    local line = held
-                    held = ""
-
-                    return trimmed(line)
-                end
-
-                return nil
-            end
-            held = held .. (chunk as string)
-        end
-    end, nil
 end
 
 --- Creates a uniquely named empty file and hands over the obligation to remove or

@@ -64,9 +64,6 @@ export type Mode = messages.Mode
 --- The base used by a file seek.
 export type Origin = messages.Origin
 
---- An iterator that returns one line at a time.
-export type LineIterator = messages.LineIterator
-
 --- Metadata about one filesystem object.
 export type Info = messages.Info
 
@@ -346,12 +343,35 @@ export function open(path: Path, mode: messages.Mode?): (affine(contracts.File?)
     return provider.open(path, mode)
 end
 
---- Iterates a file's lines without retaining line endings.
+--- Opens a file as a line reader, which takes the file and closes it with itself.
+---
+--- A line is read without its terminator, `\n` or `\r\n`. A read that fails
+--- partway through answers nil and the reason from `Lines:read`, which is what
+--- tells it apart from the end of the file, where the reason is nil.
+---
+--- ```nupp
+--- local log = assert(nupp.io.files.lines("access.log"))
+--- while true do
+---     local line, reason = log:read()
+---     if line == nil then
+---         assert(reason == nil, reason)
+---         break
+---     end
+---     print(line)
+--- end
+--- ```
 --- @param path the file to read
---- @return the line iterator, or nil on failure
+--- @param limit the most bytes one line may hold, or 65536
+--- @return the line reader, or nil when the file cannot be opened
 --- @return a failure reason, when unsuccessful
-export function lines(path: Path): (messages.LineIterator?, string?)
-    return provider.lines(path)
+--- @raises string when limit is not a positive integer
+export function lines(path: Path, limit: integer?): (affine(io.Lines)?, string?)
+    local file, reason = provider.open(path, "r")
+    if file == nil then
+        return nil, reason
+    end
+
+    return io.newLines(file, limit), nil
 end
 
 --- Creates a native temporary file owner when the provider supports one.

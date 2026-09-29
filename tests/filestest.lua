@@ -497,48 +497,87 @@ function M.aBufferWritesIntoAFileFromItsOwnStorage()
     )
 end
 
+-- Every line a line reader answers, and the reason it stopped.
+local function readLines(lines)
+    local seen = {}
+    while true do
+        local line, reason = lines:read()
+        if line == nil then
+            lines:close()
+            return seen, reason
+        end
+        seen[#seen + 1] = line
+    end
+end
+
 function M.linesSplitOnEitherPlatformsEnding()
     local files = ready()
     assert(files.createDirectory(inRoot("lines")))
     assert(files.write(inRoot("lines/mixed.txt"), "one\ntwo\r\nthree"))
-    local seen = {}
-    for line in assert(files.lines(inRoot("lines/mixed.txt"))) do
-        seen[#seen + 1] = line
-    end
+    local seen, reason = readLines(assert(files.lines(inRoot("lines/mixed.txt"))))
     test.equal(table.concat(seen, "|"), "one|two|three")
+    test.equal(reason, nil, "the end of the file has no reason")
 
     assert(files.write(inRoot("lines/trailing.txt"), "only\n"))
-    local counted = 0
-    for line in assert(files.lines(inRoot("lines/trailing.txt"))) do
-        counted = counted + 1
-        test.equal(line, "only")
-    end
-    test.equal(counted, 1, "a trailing newline does not make an empty line")
+    local trailing = readLines(assert(files.lines(inRoot("lines/trailing.txt"))))
+    test.equal(#trailing, 1, "a trailing newline does not make an empty line")
+    test.equal(trailing[1], "only")
 
     assert(files.write(inRoot("lines/empty.txt"), ""))
-    for _ in assert(files.lines(inRoot("lines/empty.txt"))) do
-        error("an empty file has no lines")
-    end
+    test.equal(#readLines(assert(files.lines(inRoot("lines/empty.txt")))), 0, "an empty file has no lines")
 
-    local missing, reason = files.lines(inRoot("lines/absent"))
+    assert(files.write(inRoot("lines/long.txt"), ("x"):rep(20) .. "\n"))
+    local long, longReason = readLines(assert(files.lines(inRoot("lines/long.txt"), 8)))
+    test.equal(#long, 0)
+    assert(type(longReason) == "string", "a line past the limit answers a reason")
+
+    local missing, missingReason = files.lines(inRoot("lines/absent"))
     test.equal(missing, nil)
-    assert(type(reason) == "string")
+    assert(type(missingReason) == "string")
 end
 
--- A read that fails once iteration has begun is not the end of the file, and the
--- iterator has no failure channel, so it must raise rather than end cleanly and
--- silently truncate what it was reading. A directory is the deterministic way to
--- make the first read fail on a handle that opened: POSIX opens one for reading
--- and refuses to read it.
-function M.aFailingReadRaisesRatherThanEndingTheLines()
+-- A directory is the deterministic way to make the first read fail on a handle
+-- that opened: POSIX opens one for reading and refuses to read it.
+function M.aFailingReadAnswersAReasonRatherThanEndingTheLines()
     local files = ready()
     assert(files.createDirectory(inRoot("lines")))
-    local iterate = files.lines(inRoot("lines"))
-    if iterate ~= nil then
-        local ok, why = pcall(iterate)
-        assert(not ok, "a failed read must raise rather than read as a clean end")
-        assert(type(why) == "string" and #why > 0, "and it answers the platform's reason")
+    local lines = files.lines(inRoot("lines"))
+    if lines ~= nil then
+        local seen, reason = readLines(lines)
+        test.equal(#seen, 0)
+        assert(type(reason) == "string" and #reason > 0, "a failed read answers the platform's reason")
     end
+end
+
+-- A read that fails partway through a file is not its end. The line reader is
+-- composed from the provider's open file, so a provider cannot answer a failure
+-- as a clean stop: it arrives as nil and the reason, after the lines before it.
+function M.aReadThatFailsMidFileSurfacesFromTheLineReader()
+    local closed = 0
+    local fixture = require("providerstate").load("files", {
+        open = function()
+            local reads = 0
+            return {
+                read = function(_, count)
+                    reads = reads + 1
+                    if reads == 1 then
+                        return ("one\ntw"):sub(1, count)
+                    end
+                    return nil, "the disk went away"
+                end,
+                close = function()
+                    closed = closed + 1
+                end,
+            }
+        end,
+    })
+    local lines = assert(fixture.lines("anything"))
+    test.equal(lines:read(), "one")
+    local line, reason = lines:read()
+    test.equal(line, nil, "a failed read is not a line")
+    test.equal(reason, "the disk went away", "and it is not the end of the file either")
+    lines:close()
+    test.equal(closed, 1, "closing the lines closes the file they took")
 end
 
 function M.pathsAndFoldersAnswerTheEnvironment()

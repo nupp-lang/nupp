@@ -93,8 +93,6 @@ export interface Provider
     @readonly
     open: function(path: any, mode: messages.Mode?): (affine(File?), string?)
     @readonly
-    lines: function(path: any): (messages.LineIterator?, string?)
-    @readonly
     createTemporaryFile: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
     @readonly
     createTemporaryDirectory: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)

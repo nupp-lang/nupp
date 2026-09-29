@@ -6,7 +6,6 @@ export type Kind = "file" | "directory" | "symlink" | "other"
 export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
 export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
 export type Origin = "set" | "current" | "end"
-export type LineIterator = function(): string?
 
 --- Metadata about one resolved filesystem object.
 export record Info
