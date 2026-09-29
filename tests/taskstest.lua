@@ -290,8 +290,9 @@ function M.aSpawnParkedForASlotDropsItsBodyWhenASiblingFails()
 end
 
 function M.aLimitCountsAChildSpawningIntoItsOwnScope()
-   -- A child that spawns siblings while the scope is full parks, and is resumed
-   -- when a sibling settles, so the bound holds whoever is spawning.
+   -- A child that spawns siblings while the scope is full lends its slot to the
+   -- one it starts and parks until a sibling settles, so the bound holds whoever
+   -- is spawning: the spawner runs only while it holds a slot.
    local live, peak = 0, 0
    scoped({limit = 2}, function(scope)
       scope:spawn(function()
@@ -302,10 +303,40 @@ function M.aLimitCountsAChildSpawningIntoItsOwnScope()
                time.sleep(10)
                live = live - 1
             end)
+            assertTrue(live <= 1, "the spawner ran beside two siblings under a limit of two")
          end
       end)
    end)
-   assertEq(peak, 1, "the spawning child and one sibling were the only two slots, so siblings ran one at a time")
+   assertEq(peak, 2, "the parked spawner's slot was not lent to a sibling")
+end
+
+function M.aChildStartingOnAFullScopeLendsItsSlotRatherThanDeadlocking()
+   -- Every slot is held by a child that starts one of its own on the scope and
+   -- waits for it. Waiting for a slot only a sibling could free left every child
+   -- parked and the scope with nothing to run; the child lends the slot it holds
+   -- to the one it starts instead, and parks until it can hold one again.
+   local total, live, peak = 0, 0, 0
+   scoped({limit = 2}, function(scope)
+      for index = 1, 5 do
+         scope:spawn(function()
+            local nested = scope:spawn(function()
+               live = live + 1
+               if live > peak then peak = live end
+               time.sleep(5)
+               live = live - 1
+
+               return index * 10
+            end)
+            -- The spawner runs again only once it holds a slot, so at most one
+            -- other child is live beside it here.
+            assertTrue(live <= 1, "a spawner ran beside a full scope")
+            local value = nested:await()
+            total = total + value
+         end)
+      end
+   end)
+   assertEq(total, 150, "every nested child answered")
+   assertTrue(peak <= 2, "more children ran at once than the limit")
 end
 
 function M.aScopeWithADeadlineCancelsWhatOutlivesIt()

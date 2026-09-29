@@ -152,6 +152,7 @@ local type Child = {
     entered: boolean,
     runnable: boolean,
     release: (function())?,
+    lending: boolean,
     waiters: {function(boolean)}
 }
 
@@ -170,6 +171,7 @@ local type ScopeState = {
     settleHook: any,
     limit: integer?,
     forks: integer,
+    lent: integer,
     slotWaiters: {function(boolean)},
     closed: boolean,
     deliberate: boolean,
@@ -383,6 +385,12 @@ local function settleChild(owner: ScopeState, child: Child, status: string): nil
     child.thread = nil
     child.runnable = false
     owner.live = owner.live - 1
+    -- A child that unwound while it had lent its slot has nothing left to take it
+    -- back into.
+    if child.lending then
+        child.lending = false
+        owner.lent = owner.lent - 1
+    end
     local waiting = child.waiters
     child.waiters = {}
     for index = 1, #waiting do
@@ -841,6 +849,12 @@ end
 -- Scope surface
 ----------------------------------------------------------------------------
 
+--- How many of the scope's slots are held: every live child and outstanding worker
+--- task, less the slots children have lent to the ones they started.
+local function occupied(owner: ScopeState): integer
+    return owner.live + owner.forks - owner.lent
+end
+
 --- Waits until the scope has room for one more child, where it has a limit.
 ---
 --- Room is what makes the bound a bound: the loop that spawns is the source, and a
@@ -849,17 +863,67 @@ end
 --- observer; when only lanes are outstanding there is no coroutine to drive, so the
 --- oldest unsettled one is waited on directly.
 ---
+--- A child of this scope starting one beside itself does not wait here. It holds a
+--- slot, and every other slot may be held by a sibling doing the same, so a slot only
+--- a sibling could free would never come. It answers true instead, and the caller
+--- lends the new child its own slot once the child is registered (`lendSlot`).
+---
 --- @raises any the scope's failure
---- @raises tasks.Cancellation the scope's cancellation, or the waiting child's own
-local function awaitSlot(owner: ScopeState, operation: string): nil
+--- @raises tasks.Cancellation the scope's cancellation
+local function awaitSlot(owner: ScopeState, operation: string): boolean
     const limit = owner.limit
     if limit == nil then
-        return
+        return false
     end
 
     const function roomOrNothingToDrive(): boolean
-        return owner.live + owner.forks < limit or owner.failed or owner.live == 0
+        return occupied(owner) < limit or owner.failed or owner.live == 0
     end
+
+    while occupied(owner) >= limit and not owner.failed do
+        if owner.live > 0 then
+            if drivesScope(owner) then
+                pump(owner, operation, roomOrNothingToDrive)
+            else
+                settleAgainstScope(owner)
+
+                return true
+            end
+        else
+            const workerScope = owner.workerScope
+            if workerScope == nil then
+                return false
+            end
+            local pending: any = nil
+            for _, task in ipairs(workerScope._tasks as {any}) do
+                if not task:isDone() then
+                    pending = task
+
+                    break
+                end
+            end
+            if pending == nil then
+                return false
+            end
+            (owner.settleHook as function(any): (string, {any}?, integer, any))(pending)
+        end
+    end
+    settleAgainstScope(owner)
+
+    return false
+end
+
+--- Lends the running child's slot to the child it has just started on a full scope,
+--- then parks until the scope has room for it to hold one again.
+---
+--- The lender is parked while its slot is lent, so the children running never
+--- outnumber the limit. The slot comes back when the borrower settles, or sooner
+--- where a sibling frees another.
+---
+--- @raises tasks.Cancellation the lending child's own
+local function lendSlot(owner: ScopeState, operation: string): nil
+    const child = activeChild as Child
+    const limit = owner.limit as integer
 
     const function subscribe(resume: function(boolean), _: suspension.Context): function()
         owner.slotWaiters[#owner.slotWaiters + 1] = resume
@@ -875,47 +939,30 @@ local function awaitSlot(owner: ScopeState, operation: string): nil
         end
     end
 
-    while owner.live + owner.forks >= limit and not owner.failed do
-        if owner.live > 0 then
-            if drivesScope(owner) then
-                pump(owner, operation, roomOrNothingToDrive)
-            else
-                const waitingChild = activeChild as Child
-                suspension.suspend(operation, subscribe)
-                if waitingChild.requested then
-                    error(waitingChild.cancelled as any, 0)
-                end
-            end
-        else
-            const workerScope = owner.workerScope
-            if workerScope == nil then
-                return
-            end
-            local pending: any = nil
-            for _, task in ipairs(workerScope._tasks as {any}) do
-                if not task:isDone() then
-                    pending = task
-
-                    break
-                end
-            end
-            if pending == nil then
-                return
-            end
-            (owner.settleHook as function(any): (string, {any}?, integer, any))(pending)
+    child.lending = true
+    owner.lent = owner.lent + 1
+    while occupied(owner) >= limit and not owner.failed do
+        suspension.suspend(operation, subscribe)
+        if child.requested then
+            break
         end
     end
-    settleAgainstScope(owner)
+    child.lending = false
+    owner.lent = owner.lent - 1
+    if child.requested then
+        error(child.cancelled as any, 0)
+    end
 end
 
 --- What stands between a `spawn` and its child running: what the scope already owns,
---- and room under its limit.
+--- and room under its limit. True where the spawning child lends its slot instead.
 ---
 --- @raises any the scope's failure
---- @raises tasks.Cancellation the scope's cancellation, or the waiting child's own
-local function admit(owner: ScopeState, name: string): nil
+--- @raises tasks.Cancellation the scope's cancellation
+local function admit(owner: ScopeState, name: string): boolean
     settleAgainstScope(owner)
-    awaitSlot(owner, name)
+
+    return awaitSlot(owner, name)
 end
 
 local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: Packed?): Child
@@ -937,6 +984,7 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         entered = false,
         runnable = false,
         release = nil,
+        lending = false,
         waiters = {},
     }
     child.release = function(): nil
@@ -949,10 +997,10 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         releaseUncalled(child)
         error("nupp: the task scope is closed", 2)
     end
-    const admitted, problem = pcall(admit, owner, name)
+    const admitted, lends = pcall(admit, owner, name)
     if not admitted then
         releaseUncalled(child)
-        error(problem, 0)
+        error(lends, 0)
     end
     const co = suspension.create(function(): Packed
         -- Cancelled between being spawned and first being resumed: there is no
@@ -987,6 +1035,9 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         child.cancelled = cancelled
     end
     markRunnable(owner, child)
+    if lends == true then
+        lendSlot(owner, name)
+    end
 
     return child
 end
@@ -1070,10 +1121,13 @@ local function forkImpl(scope: any, fn: any, ...: any): any
     end
     settleAgainstScope(owner)
     const workerScope = workersImpl(owner)
-    awaitSlot(owner, "a worker task")
+    const lends = awaitSlot(owner, "a worker task")
     -- The provider's runtime keeps the callable first; the source order that puts it
     -- last is the checker's view, restored before lowering.
     const task = workerScope:spawn(fn, ...)
+    if lends then
+        lendSlot(owner, "a worker task")
+    end
 
     return setmetatable({_owner = owner, _task = task,}, ForkMT)
 end
@@ -1133,7 +1187,10 @@ end
 --- it is started on, which settles every child before it closes.
 ---
 --- Where the scope was opened with a `limit`, this parks while that many children
---- are live, so the loop that spawns is what the bound throttles.
+--- are live, so the loop that spawns is what the bound throttles. A child of this
+--- scope that spawns beside itself on a full scope lends its own slot to the new
+--- child and parks until it can hold one again, rather than waiting for a slot
+--- only a sibling could free.
 ---
 --- A body that takes no arguments may be given a name instead, which is what a stuck
 --- host reports for the child and what its cancellation renders. A name and an
@@ -1299,6 +1356,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         settleHook = nil,
         limit = limit,
         forks = 0,
+        lent = 0,
         slotWaiters = {},
         closed = false,
         deliberate = false,
@@ -1487,7 +1545,10 @@ end
 ---
 --- With a `limit`, `spawn` and `fork` park while that many children are live, so a
 --- loop that fans out over a source is bounded by the loop itself: nothing is pulled
---- from the source until there is room to run it. With a `timeoutMs`, the scope's
+--- from the source until there is room to run it. A child that starts one beside
+--- itself on a full scope lends it the slot it holds and parks until it has one
+--- again, so children forking inside children cannot deadlock the bound. With a
+--- `timeoutMs`, the scope's
 --- deadline is that many milliseconds from now on the monotonic clock, and expiry
 --- requests ordinary cancellation. A scope opened inside another takes the earlier
 --- of the two deadlines: a child may bound itself more tightly than its parent did,

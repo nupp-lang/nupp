@@ -84,11 +84,21 @@ child that awaits it, which is the child that occupies the slot:
 with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
-            total = total + scope:fork(name, path, jobs.compress):await()
+            const size = scope:fork(name, path, jobs.compress):await()
+            total = total + size
         end)
     end
 end
 ```
+
+When every slot is held, a child that forks or spawns on its own scope lends
+the new child the slot it holds and parks until it can hold one again, which
+happens when that child settles or a sibling does. A slot a sibling would have
+to free is never what a child waits for, so this pattern cannot deadlock however
+many items outnumber the slots, and the children running still never outnumber
+the limit. Read `total` after the `await`, not in the same expression:
+`total + task:await()` reads it before parking and loses whatever a sibling
+added meanwhile.
 
 ## Cancellation
 
