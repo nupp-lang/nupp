@@ -30,11 +30,18 @@ typedef struct nupp_handle nupp_handle;
 typedef struct nupp_error nupp_error;
 typedef struct nupp_reload nupp_reload;
 
-enum {
-    NUPP_EMBED_ABI_VERSION = 2,
+/* The version nupp_config.abi_version names. */
+enum { NUPP_EMBED_ABI_VERSION = 2 };
+
+/* Bits of nupp_config.flags. */
+typedef enum nupp_config_flags {
     NUPP_CONFIG_OPEN_LIBRARIES = 1,
+} nupp_config_flags;
+
+/* Bits of nupp_reload_config.flags. */
+typedef enum nupp_reload_flags {
     NUPP_RELOAD_STRICT = 1,
-};
+} nupp_reload_flags;
 
 typedef enum nupp_status {
     NUPP_STATUS_OK = 0,
@@ -248,6 +255,9 @@ NUPP_API nupp_status nupp_reload_find(
     nupp_error **error
 );
 
+/* The three steps below write a nupp_reload_verdict to `verdict`, which is a
+ * uint32_t because an enum's width is the compiler's choice. */
+
 /* Checks what changed and stages a patch. Nothing that is running changes here,
  * so a host may prepare away from its safe point: `NUPP_RELOAD_PREPARED` says a
  * complete patch is waiting for `nupp_reload_apply`, and a second prepare
@@ -288,6 +298,10 @@ NUPP_API nupp_status nupp_reload_poll(
  * replaced by the next poll. */
 NUPP_API const char *nupp_reload_message(const nupp_reload *reload);
 
+/* Retires the session. `ok` is nonzero when the program the session ran came
+ * to a good end. A session nupp_reload_open started records a zero `ok` as a
+ * failed run and discards the entry's recorded load, as the watch build does
+ * when a run fails; a session attached to components ignores it. */
 NUPP_API nupp_status nupp_reload_close(
     nupp_runtime *runtime,
     nupp_reload *reload,
@@ -308,8 +322,10 @@ NUPP_API nupp_status nupp_component_release(
  * the runtime's Lua state returns. */
 NUPP_API void nupp_runtime_free(nupp_runtime *runtime);
 
-NUPP_API int nupp_error_status(const nupp_error *error);
-NUPP_API int nupp_error_category(const nupp_error *error);
+/* The status the failing call returned; NUPP_STATUS_OK for a null error. */
+NUPP_API nupp_status nupp_error_status(const nupp_error *error);
+/* Where the failure came from; 0 for a null error. */
+NUPP_API nupp_error_category_code nupp_error_category(const nupp_error *error);
 NUPP_API const char *nupp_error_message(const nupp_error *error);
 NUPP_API size_t nupp_error_message_length(const nupp_error *error);
 NUPP_API void nupp_error_free(nupp_error *error);

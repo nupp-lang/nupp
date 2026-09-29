@@ -646,9 +646,12 @@ entirely to the host.
 ### Closing
 
 `nupp_reload_close` retires the session and `nupp_reload_free` releases the
-handle to it. A session still open when its runtime shuts down is closed then,
-as a failed one, so a runtime attached to the same state later can open its
-own. The program's own values survive both, and every function it handed
+handle to it. Its `ok` argument says whether the program came to a good end:
+for a session `nupp_reload_open` started, zero records a failed run and
+discards the entry's recorded load, as a failed watch run does, and a session
+attached to components ignores it. A session still open when its runtime shuts
+down is closed then, as a failed one, so a runtime attached to the same state
+later can open its own. The program's own values survive both, and every function it handed
 out keeps answering; what stops is reloading them. A process holds one session at
 a time: opening a second before the first closes is refused.
 
