@@ -7,6 +7,10 @@
 /* These records are read and written directly across the C/Rust boundary.
  * Keep the offsets explicit so every platform's smoke build checks the layout
  * LuaJIT's FFI and the Rust repr(C) facade agree on. */
+_Static_assert(offsetof(NuppNativeSlice, data) == 0
+        && offsetof(NuppNativeSlice, length) == sizeof(void *)
+        && sizeof(NuppNativeSlice) == 2 * sizeof(void *),
+    "the byte slice has an unexpected layout");
 _Static_assert(offsetof(NuppNativeHttpSlice, data) == 0,
     "HTTP slice data moved");
 _Static_assert(offsetof(NuppNativeHttpSlice, length) == sizeof(void *),

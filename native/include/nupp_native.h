@@ -71,6 +71,14 @@
 extern "C" {
 #endif
 
+/* A borrowed byte range, read only for the call that takes it. Each family
+ * once declared its own identical struct; those names remain as aliases of
+ * this one, and new calls take NuppNativeSlice. */
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeSlice;
+
 NUPP_NATIVE_EXPORT uint32_t nuppNativeAbiVersion(void);
 NUPP_NATIVE_EXPORT uint64_t nuppNativeFeatures(void);
 /* The message of the last call on this thread that failed. A call that
@@ -127,10 +135,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderRelease(
  * length-delimited platform-native bytes and variable outputs are owned byte
  * handles. NUPP_NATIVE_FEATURE_FILE_TRANSFER adds the bounded shared whole-file
  * transfer lane. */
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-} NuppNativeFilesSlice;
+typedef NuppNativeSlice NuppNativeFilesSlice;
 
 typedef struct {
     uint32_t kind;
@@ -211,10 +216,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferPending(
 /* Present when NUPP_NATIVE_FEATURE_NET is set. Rust owns the resolver,
  * sockets and worker tasks. Host names and write bytes are copied during the
  * call; listeners, connects and streams are distinct generational handles. */
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-} NuppNativeNetSlice;
+typedef NuppNativeSlice NuppNativeNetSlice;
 
 typedef struct {
     NuppNativeNetSlice host;
@@ -382,7 +384,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamLocalEndpoint(
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamPeerEndpoint(
     uint64_t stream, NuppNativeNetEndpoint *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetEndpointParse(
-    NuppNativeNetSlice host, uint16_t port, NuppNativeNetEndpoint *output);
+    NuppNativeSlice host, uint16_t port, NuppNativeNetEndpoint *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetEndpointText(
     const NuppNativeNetEndpoint *endpoint, uint8_t *output,
     size_t capacity, size_t *length);
@@ -467,10 +469,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeUriPort(
 /* Present when NUPP_NATIVE_FEATURE_HTTP is set. Rust owns every client,
  * transfer, body and worker task; the ABI carries generational handles and
  * copies request/response bytes at each synchronous call boundary. */
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-} NuppNativeHttpSlice;
+typedef NuppNativeSlice NuppNativeHttpSlice;
 
 typedef struct {
     NuppNativeHttpSlice name;
@@ -559,10 +558,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeHttpClientWait(
 /* Present when NUPP_NATIVE_FEATURE_PROCESS is set. The complete spawn
  * descriptor is copied synchronously. Child and stream values are opaque
  * generational handles; absent streams are zero. */
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-} NuppNativeProcessSlice;
+typedef NuppNativeSlice NuppNativeProcessSlice;
 
 typedef struct {
     NuppNativeProcessSlice name;
