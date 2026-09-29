@@ -366,6 +366,20 @@ local function cDeclarations(text: string): {string}
     return found
 end
 
+--- Each top-level declaration of a C header as a one-line Lua literal. One name for
+--- the emitter to capture rather than two: it already captures close to the 60 a Lua
+--- function can hold.
+local function quotedCDeclarations(text: string): {string}
+    local quoted: {string} = {}
+    for _, declaration in ipairs(cDeclarations(text)) do
+        if declaration:find("%S") then
+            quoted[#quoted + 1] = quoteLine(declaration)
+        end
+    end
+
+    return quoted
+end
+
 --- A long-string token's runtime bytes after `dedent` removes incidental indentation.
 --- The closing delimiter's indentation is the margin when it is on its own line;
 --- otherwise the longest common content indentation is used. Lua already ignores the
@@ -7164,12 +7178,7 @@ function gen.generate(
             -- pcall: a header may be declared twice in one process, and redeclaring a
             -- type is an error rather than a no-op. Each declaration goes in on its
             -- own, or the first repeated one would drop every declaration after it.
-            local quoted: {string} = {}
-            for _, declaration in ipairs(cDeclarations(x.cheaderCdef)) do
-                if declaration:find("%S") then
-                    quoted[#quoted + 1] = quoteLine(declaration)
-                end
-            end
+            local quoted = quotedCDeclarations(x.cheaderCdef)
             pluck.loweredFunction(
                 (
                     "(function() local d,p,c=__nuppFfi.cdef,_G.pcall,{%s} for i=1,#c do p(d,c[i]) end return %s end)()"
