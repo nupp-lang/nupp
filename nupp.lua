@@ -375,7 +375,7 @@ for _, resource in ipairs({
     "src/nupp/gpu/layoutfacts.nupp",
     "src/nupp/runtime/browser/webgpu/internal.nupp",
     "src/nupp/runtime/browser/uri.nupp",
-    "src/nupp/io/uri/pathtext.nupp",
+    "src/nupp/io/uri/whatwg.nupp",
     "src/nupp/io/uri/provider.nupp",
     "src/nupp/runtime/browser/init.nupp",
     "src/nupp/compiler/init.nupp",
