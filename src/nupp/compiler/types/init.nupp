@@ -2235,11 +2235,7 @@ local function regionSegments(path: string?): {{
     local at = 1
     while at <= #path do
         if path:sub(at, at) ~= "/" then
-            -- Old cached binary paths are interpreted as partition segments. They are
-            -- accepted only during cache migration and are never produced anew.
-            local legacy = path:sub(at, at)
-            result[#result + 1] = {kind = "P", value = legacy == "L" and "left" or "right"}
-            at = at + 1
+            return {{kind = "U", value = ""}}
         else
             local kind = path:sub(at + 1, at + 1)
             local colon = path:find(":", at + 2, true)
