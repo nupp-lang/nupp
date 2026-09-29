@@ -658,6 +658,27 @@ a time: opening a second before the first closes is refused.
 Watch builds are development builds: always `-O0`, and carrying slot dispatch the
 ordinary build has no trace of. Measure and ship the ordinary build.
 
+## ABI evolution
+
+The header and the library carry `NUPP_EMBED_ABI_VERSION`, and the library
+refuses a `nupp_config` whose `abi_version` is not its own with
+`NUPP_STATUS_INCOMPATIBLE`. Within one version the ABI only grows, so a host
+built against it keeps working against a later library of the same version:
+
+- Functions, status codes, error categories and value kinds may be added. A
+  host treats a status, category or kind it does not recognize as a failure it
+  cannot act on, and reads the message for the rest.
+- A config struct grows only at its tail. Its `size` says how much of it the
+  host allocated, and a size smaller than the struct's first version is
+  refused.
+- `nupp_value` is frozen, because hosts allocate arrays of it.
+- Anything else, such as a changed signature, moves the version.
+
+`host/include/nupp.exports` lists everything the dynamic library exports, so a
+change to that file is a change to the ABI. The native provider the library
+carries follows its own rules, in
+[Provider ABI evolution](../../reference/native-runtime.md#provider-abi-evolution).
+
 ## Authority and limits
 
 Embedding is not a hostile-code sandbox. Standard libraries, LuaJIT FFI,
