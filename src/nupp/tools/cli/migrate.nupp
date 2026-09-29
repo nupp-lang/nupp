@@ -9,7 +9,7 @@ local REPORT_SCHEMA = {
     type = "object",
     properties = {
         ok = {type = "boolean"},
-        check = {type = "boolean"},
+        dryRun = {type = "boolean"},
         migrations = {
             type = "array",
             items = {
@@ -28,7 +28,7 @@ local REPORT_SCHEMA = {
         },
         errors = {type = "array", items = {type = "string"}},
     },
-    required = {"ok", "check", "migrations", "errors"},
+    required = {"ok", "dryRun", "migrations", "errors"},
 }
 
 local function publicPlan(plan: any, written: boolean, includeText: boolean): any
@@ -50,7 +50,7 @@ local function run(options: any): integer
         return usageError("at least one source file is required")
     end
     local asJson = options.format == "json"
-    local asking = options.check and true or false
+    local asking = options.dryRun and true or false
     local dialect = options.dialect or "auto"
     local fs = require("nupp.compiler.fs")
     local planner = require("nupp.tools.migrate")
@@ -134,7 +134,7 @@ local function run(options: any): integer
     if asJson then
         require("nupp.tools.cli.report").write({
             ok = #errors == 0,
-            check = asking,
+            dryRun = asking,
             migrations = public,
             errors = errors,
         })
@@ -161,19 +161,19 @@ end
 
 --- Migrate typed foreign source into gradual Nupp.
 ---
---- Without --check, each destination is checked and written atomically before
+--- Without --dry-run, each destination is checked and written atomically before
 --- its source is removed. Existing destinations are never replaced.
 ---
 --- Examples:
 ---
----     nupp migrate --check src/legacy.lua
+---     nupp migrate --dry-run src/legacy.lua
 ---     nupp migrate src/legacy.lua
 ---     nupp migrate --dialect luacats src/one.lua src/two.lua
 @cli("migrate")
 @derive(cliModule.Command)
 local record Migrate
     --- Print the migration plan without changing files.
-    check: boolean = false
+    dryRun: boolean = false
 
     --- Resolve ambiguous comment annotations for this migration.
     @cli(value = "DIALECT")

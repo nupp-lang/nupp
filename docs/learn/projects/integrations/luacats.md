@@ -272,11 +272,11 @@ The `migrate` command dispatches by file extension, and for annotated `.lua` the
 destination is the same module at `.g.nupp`:
 
 ```bash
-nupp migrate --check --json src/users.lua
+nupp migrate --dry-run --json src/users.lua
 nupp migrate src/users.lua
 ```
 
-`--check` returns the destination, complete text, edits, and warnings without
+`--dry-run` returns the destination, complete text, edits, and warnings without
 writing. The writing form refuses an existing destination, writes the
 destination atomically, parses and checks it, then removes the source only after
 that check succeeds. `--dialect` accepts `auto`, `luacats`, `emmy`, or `luadoc`

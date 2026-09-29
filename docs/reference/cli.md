@@ -2006,12 +2006,12 @@ emitted C, ownership refinements, and supported limits.
 ```text [nupp migrate --help]
 Migrate typed foreign source into gradual Nupp.
 
-Without --check, each destination is checked and written atomically before
+Without --dry-run, each destination is checked and written atomically before
 its source is removed. Existing destinations are never replaced.
 
 Examples:
 
-    nupp migrate --check src/legacy.lua
+    nupp migrate --dry-run src/legacy.lua
     nupp migrate src/legacy.lua
     nupp migrate --dialect luacats src/one.lua src/two.lua
 
@@ -2022,7 +2022,7 @@ Arguments:
   FILE  Files to migrate.
 
 Options:
-  --check            Print the migration plan without changing files.
+  --dry-run          Print the migration plan without changing files.
   --dialect DIALECT  Resolve ambiguous comment annotations for this migration.
   --format FORMAT, --json, --text
                      Select the report representation.
@@ -2034,7 +2034,7 @@ Options:
 
 The annotated-Lua guide describes [always-on comment
 ingestion](../learn/projects/integrations/luacats.md) and the shared command/editor migration
-planner. `--check` reports the complete plan without writing or removing files.
+planner. `--dry-run` reports the complete plan without writing or removing files.
 
 ### `export-c`
 

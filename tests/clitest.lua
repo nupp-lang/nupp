@@ -385,9 +385,13 @@ function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
         return true
     end
 
-    local preview, previewed = captureAt(dir, "migrate --check legacy.lua")
+    local preview, previewed = captureAt(dir, "migrate --dry-run legacy.lua")
     assert(previewed, "migration preview succeeds: " .. preview)
-    assert(exists(path) and not exists(dir .. "/legacy.g.nupp"), "--check changes neither source nor destination")
+    assert(exists(path) and not exists(dir .. "/legacy.g.nupp"), "--dry-run changes neither source nor destination")
+    local planned = captureJsonAt(dir, "migrate --dry-run --json legacy.lua")
+    assert(planned:find('"dryRun":true', 1, true), "the JSON report says the run was a preview: " .. planned)
+    local _, refused = captureStatusAt(dir, "migrate --check legacy.lua")
+    assert(refused == 2, "--check is not a migrate option")
 
     local output, migrated = captureAt(dir, "migrate legacy.lua")
     assert(migrated, "migration succeeds: " .. output)
