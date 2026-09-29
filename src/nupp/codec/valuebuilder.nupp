@@ -343,8 +343,9 @@ end
 
 --- Parses and publishes one JSON number without returning to source-level
 --- byte loops. The low 31 bits are the stopping position; bit 31 says whether
---- the token was valid. This is an AOT lowering boundary, not a portable
---- parser API.
+--- the token was valid. A token whose value is not finite is invalid, and its
+--- stopping position is its own first byte. This is an AOT lowering boundary,
+--- not a portable parser API.
 ---
 --- The ordinary body below is the executable semantics of that boundary, not
 --- an API anything outside a codec should reach for. It exists because an
@@ -412,6 +413,11 @@ function valuebuilder.numberToken(builder: any, borrows source: any, start: uint
     local value = tonumber(text:sub(start + 1, at))
     if value == nil then
         return nupp.math.u32.wrap(at + 1)
+    end
+    -- A token too large for binary64 is refused at its first byte rather than
+    -- read as an infinity no encoder writes back. Underflow to zero stands.
+    if value == math.huge or value == -math.huge then
+        return nupp.math.u32.wrap(start + 1)
     end
     valuebuilder.number(builder, value)
 

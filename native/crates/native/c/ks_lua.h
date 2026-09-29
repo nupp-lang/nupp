@@ -1435,6 +1435,12 @@ static inline __attribute__((always_inline)) int ks_json_eight_digits(const unsi
     uint64_t word; memcpy(&word, source, sizeof(word)); if (((word & UINT64_C(0xf0f0f0f0f0f0f0f0)) | (((word + UINT64_C(0x0606060606060606)) & UINT64_C(0xf0f0f0f0f0f0f0f0)) >> 4u)) != UINT64_C(0x3333333333333333)) { return 0; }
     word = (word & UINT64_C(0x0f0f0f0f0f0f0f0f)) * UINT64_C(2561) >> 8u; word = (word & UINT64_C(0x00ff00ff00ff00ff)) * UINT64_C(6553601) >> 16u; *value = (uint32_t)((word & UINT64_C(0x0000ffff0000ffff)) * UINT64_C(42949672960001) >> 32u); return 1;
 }
+static double ks_lua_number_token_value(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int64_t explicit_exponent, uint32_t fraction_digits, int negative, int exact, int integer_token) {
+    if (integer_token && exact) { double value = (double)magnitude; return negative ? -value : value; }
+    if (integer_token) { return ks_lua_number_slice(L, source, source_length, start, length, "value stream integer"); }
+    int64_t decimal_exponent = explicit_exponent - (int64_t)fraction_digits; int exponent_fits = decimal_exponent >= INT32_MIN && decimal_exponent <= INT32_MAX;
+    return ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent_fits ? (int32_t)decimal_exponent : 0, negative, exact && exponent_fits);
+}
 static uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t limit, int eager) {
     uint32_t at = start, magnitude_digits = 0u, fraction_digits = 0u; uint64_t magnitude = 0u; int negative = 0, exact = 1, integer_token = 1; int64_t explicit_exponent = 0;
     if ((size_t)limit > source_length || limit >= UINT32_C(2147483648) || start >= limit) { return start + 1u; } if (source[at] == '-') { negative = 1; at += 1u; if (at >= limit) { return at + 1u; } }
@@ -1454,7 +1460,16 @@ static uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder,
         while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (explicit_exponent < INT64_C(1000000)) { explicit_exponent = explicit_exponent * 10 + (int64_t)(source[at] - '0'); } at += 1u; }
         if (at == exponent_start) { return at + 1u; } if (exponent_negative) { explicit_exponent = -explicit_exponent; }
     }
-    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { uint32_t length = at - start; double value; if (integer_token && exact) { value = (double)magnitude; if (negative) { value = -value; } } else if (integer_token) { value = ks_lua_number_slice(L, source, source_length, start, length, "value stream integer"); } else { int64_t decimal_exponent = explicit_exponent - (int64_t)fraction_digits; int exponent_fits = decimal_exponent >= INT32_MIN && decimal_exponent <= INT32_MAX; value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent_fits ? (int32_t)decimal_exponent : 0, negative, exact && exponent_fits); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); }
+    /* The digits are below 10^magnitude_digits, so the value is below 10^scale
+     * and only a token past 10^308 has to be read to know whether it is finite.
+     * One that is not is refused at its first byte, skipped or not: the encoder
+     * would refuse the infinity. Underflow to zero stands. */
+    uint32_t length = at - start; double value = 0.0; int have_value = 0;
+    if (!(integer_token && exact) && explicit_exponent + (int64_t)magnitude_digits - (int64_t)fraction_digits > 308) {
+        value = ks_lua_number_token_value(L, source, source_length, start, length, magnitude, explicit_exponent, fraction_digits, negative, exact, integer_token); have_value = 1;
+        if (!isfinite(value)) { return start + 1u; }
+    }
+    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { if (!have_value) { value = ks_lua_number_token_value(L, source, source_length, start, length, magnitude, explicit_exponent, fraction_digits, negative, exact, integer_token); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); }
     ks_lua_builder_complete(L, builder, wanted, eager); return UINT32_C(2147483648) | at;
 }
 static inline __attribute__((always_inline)) int ks_lua_builder_pushed_scalar(lua_State *L, KsLuaBuilder *builder, int eager) {

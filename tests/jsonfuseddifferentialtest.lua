@@ -56,6 +56,7 @@ local WELL_FORMED = {
     "-1.7976931348623157e308",
     "5e-324",
     "-5e-324",
+    "1e-400",
     "2.2250738585072014e-308",
     "1e-323",
     "9007199254740991",
@@ -155,6 +156,12 @@ local MALFORMED = {
     "1.2.3",
     "Infinity",
     "NaN",
+    -- A number past binary64 is refused rather than read as an infinity.
+    "1e400",
+    "-1e400",
+    "[1e309]",
+    '{"a":0.1e400}',
+    "123456789012345678901234567890e290",
     "[",
     "]",
     "{",
@@ -446,6 +453,13 @@ function M.theFusedDecoderRejectsEveryDocumentLunajsonRejects()
             theirError ~= nil,
             string.format("lunajson accepted the malformed %s as %s", show(text), tostring(theirs))
         )
+        -- An out-of-range number is named alike, at the token's first byte.
+        if tostring(theirError):find("out of range", 1, true) then
+            assert(
+                myError == theirError,
+                string.format("%s: fused says %s but lunajson says %s", show(text), myError, theirError)
+            )
+        end
     end
 
     local deepest = nested("[", "]", 1024)

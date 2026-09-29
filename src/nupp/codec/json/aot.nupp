@@ -62,11 +62,21 @@ json.NULL = setmetatable({}, {
 json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
 json.EMPTY_OBJECT = setmetatable({}, OBJECT_MARKER)
 
-local function failDecode(code: uint32, position: uint32): never
+-- The decoder stops at a number token's first byte when its value is not
+-- finite. Only the failure path asks which syntax error that was.
+local function outOfRange(text: string, position: uint32): boolean
+    local token = text:match("^%-?%d+%.?%d*[eE]?[-+]?%d*", position)
+    local value = token ~= nil and tonumber(token) or nil
+
+    return value == math.huge or value == -math.huge
+end
+
+local function failDecode(code: uint32, position: uint32, source: string): never
     local message = code == 2 and "invalid UTF-8"
         or code == 3 and "unescaped control byte"
         or code == 4 and "backslash outside a string"
         or code == 5 and "structural index overflow"
+        or code == 1 and outOfRange(source, position) and "number is out of range"
         or "invalid syntax"
     error("invalid JSON at byte " .. tostring(position) .. ": " .. message, 0)
 end
@@ -82,7 +92,7 @@ function json.decode(text: string, nullValue: any?): any
         SERDE_MARKERS
     )
     if code ~= 0 then
-        failDecode(code, position)
+        failDecode(code, position, text)
     end
 
     return value
@@ -353,7 +363,7 @@ function json.pull(text: string, shape: any, nullValue: any?): any
         nil
     )
     if code ~= 0 then
-        failDecode(code, position)
+        failDecode(code, position, text)
     end
 
     return value
@@ -630,7 +640,7 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
         SERDE_MARKERS
     )
     if code ~= 0 then
-        failDecode(code, position)
+        failDecode(code, position, text)
     end
 
     return value, nil
@@ -647,7 +657,7 @@ function json.decodeSerdeBuffer(schema: any, exclusive input: Buffer): (any?, st
         SERDE_MARKERS
     )
     if code ~= 0 then
-        failDecode(code, position)
+        failDecode(code, position, code == 1 and input:tostring() or "")
     end
 
     return value, nil

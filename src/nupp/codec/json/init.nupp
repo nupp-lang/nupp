@@ -13,7 +13,10 @@ assert(decoded.name == "Nupp")
 ```
 
 The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
-sparse arrays, mixed-key containers, cycles, and excessive nesting.
+sparse arrays, mixed-key containers, cycles, and excessive nesting. A number too
+large for binary64, such as `1e400`, is refused with its byte position rather
+than read as an infinity the encoder would refuse to write back; one too small,
+such as `1e-400`, is zero.
 `serialize` is an alias of `encode`.
 
 ## Empty containers

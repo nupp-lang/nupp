@@ -1,5 +1,7 @@
 -- Vendored from Lunajson 1.2.3. The assertions below preserve its runtime
 -- behavior while making successful pattern matches explicit to Nupp's checker.
+-- Nupp's JSON policy adds what the codec refuses: a number token whose value is
+-- not finite.
 local setmetatable, tonumber, tostring = setmetatable, tonumber, tostring
 local floor, inf = math.floor, math.huge
 -- Lua 5.1 coalesces literal -0.0 and +0 in one prototype's constant table.
@@ -95,6 +97,14 @@ local function newdecoder()
         return decode_error('invalid number')
     end
 
+    -- Nupp: a token whose value is not finite is refused at its first byte,
+    -- since the encoder refuses the infinity it would otherwise decode to.
+    local function finite(value, start)
+        if value == inf or value == -inf then
+            _decode_error(start, 'number is out of range')
+        end
+    end
+
     -- `0(\.[0-9]*)?([eE][+-]?[0-9]*)?`
     local function f_zro(mns)
         local num, c = match(json, '^(%.?[0-9]*)([-+.A-Za-z]?)', pos) -- skipping 0
@@ -142,8 +152,9 @@ local function newdecoder()
             end
         end
 
-        pos = pos + #num
         c = assert(fixedtonumber(num))
+        finite(c, mns and pos - 2 or pos - 1)
+        pos = pos + #num
 
         if mns then
             c = -c
@@ -172,8 +183,9 @@ local function newdecoder()
             num, c = assert(num), assert(c)
         end
 
-        pos = pos + #num
         c = assert(fixedtonumber(num))
+        finite(c, mns and pos - 1 or pos)
+        pos = pos + #num
 
         if mns then
             c = -c

@@ -188,6 +188,27 @@ return problems
     end
 end
 
+-- A member past binary64 is refused where the document says it, like any other
+-- decode, and a value too small for binary64 decodes to zero.
+function M.nonFiniteMembersAreRefused()
+    local result = run(
+        [=[
+@derive(nupp.derive.Serde)
+local record Reading
+    value: number
+end
+
+local prepared = nupp.serde.json():prepare(nupp.serde.of(Reading))
+local refused, problem = prepared:decode([[{"value":1e400}]])
+local tiny = prepared:decode([[{"value":1e-400}]])
+return {refused = refused == nil, problem = tostring(problem), tiny = tiny and tiny.value}
+]=]
+    )
+    assert(result.refused, "1e400 decoded")
+    assert(result.problem == "invalid JSON at byte 10: number is out of range", result.problem)
+    assert(result.tiny == 0, tostring(result.tiny))
+end
+
 function M.profilesRenameKeysAndIgnoreUnknownValues()
     local result = run(
         [=[

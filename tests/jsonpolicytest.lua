@@ -2,6 +2,7 @@
 -- build options. These checks exercise the shipped Nupp provider directly.
 
 local json = require("nupp.codec.json")
+local test = require("assert")
 
 local M = {}
 
@@ -134,6 +135,54 @@ function M.decodeProblemsNameTheTextNotTheDecoder()
     end
     local ok, problem = pcall(require("nupp.runtime.provider.lunajson").encode, math.huge)
     assert(not ok and not tostring(problem):find("%.lua:%d"), tostring(problem))
+end
+
+-- A number token whose value is not finite is refused, because the encoder
+-- refuses what it would decode to: a document that decodes must round-trip.
+-- Underflow is not an overflow, and a value too small for binary64 is zero.
+local NON_FINITE = {
+    {"1e400", 1},
+    {"-1e400", 1},
+    {"[1e309]", 2},
+    {"[1, -1e309]", 5},
+    {"{\"a\":0.1e400}", 6},
+    {"123456789012345678901234567890e290", 1},
+    {"1.7976931348623159e308", 1},
+    {"[0.000001e315, 1]", 2},
+}
+
+function M.nonFiniteNumbersAreRefusedByEveryProvider()
+    local providers = {
+        lunajson = require("nupp.runtime.provider.lunajson"),
+        aot = require("nupp.codec.json.aot"),
+    }
+    for name, provider in pairs(providers) do
+        for _, row in ipairs(NON_FINITE) do
+            local decoders = {
+                function(text) return provider.decode(text) end,
+                function(text) return provider.decode(text, provider.NULL) end,
+                function(text) return provider.verified(text) end,
+            }
+            -- The AOT pull builder exists only in the compiled artifact, which
+            -- the fused-json native differential runs; this oracle cannot.
+            if name == "lunajson" then
+                decoders[#decoders + 1] = function(text) return provider.pull(text, true) end
+            end
+            for _, decode in ipairs(decoders) do
+                local ok, problem = pcall(decode, row[1])
+                assert(not ok, ("%s accepted %q"):format(name, row[1]))
+                test.equal(
+                    tostring(problem),
+                    ("invalid JSON at byte %d: number is out of range"):format(row[2]),
+                    name .. " " .. row[1]
+                )
+            end
+        end
+        test.equal(provider.decode("1e-400"), 0, name .. " underflow")
+        test.equal(1 / provider.decode("-1e-400"), -math.huge, name .. " negative underflow")
+        test.equal(provider.decode("[1.7976931348623157e308]")[1], 1.7976931348623157e308, name .. " largest double")
+        test.equal(provider.decode("1e308"), 1e308, name .. " 1e308")
+    end
 end
 
 return M
