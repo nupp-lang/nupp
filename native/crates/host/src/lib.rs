@@ -1,9 +1,8 @@
 //! Rust-owned Nupp host and LuaJIT embedding boundary.
 //!
-//! The host owns one LuaJIT state and one native lane on the creating thread.
-//! Native work never enters Lua. Shutdown begins the lane's shutdown before it
-//! closes LuaJIT and finishes it after; no provider registers work on the lane
-//! yet, so there is nothing for it to drain. Appended payload discovery is Rust-owned, and all Lua
+//! The host owns one LuaJIT state on the creating thread. Native work never
+//! enters Lua: each provider reports its own readiness, which a suspension
+//! source polls. Appended payload discovery is Rust-owned, and all Lua
 //! operations that may fail remain beneath the protected C shim so LuaJIT
 //! cannot unwind through Rust.
 
@@ -27,7 +26,6 @@ pub use workers::{
 pub use lua::{LuaFunction, LuaState};
 
 use lua::{Lua, LuaAnswer, LuaArgument};
-use nupp_native_runtime::NativeLane;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -38,7 +36,6 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, ThreadId};
 
-const HOST_LANE_CAPACITY: usize = 64;
 const COMPONENT_MAGIC: &[u8] = b"-- NUPP-COMPONENT 1\n";
 static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -145,9 +142,7 @@ pub enum HostError {
         path: PathBuf,
         source: std::io::Error,
     },
-    Lane(String),
     Lua(String),
-    PendingDuringShutdown(usize),
 }
 
 impl fmt::Display for HostError {
@@ -157,14 +152,7 @@ impl fmt::Display for HostError {
             Self::Closed => write!(out, "the Nupp host has shut down"),
             Self::InvalidChunkName => write!(out, "the Lua chunk name contains a NUL byte"),
             Self::Io { path, source } => write!(out, "cannot read {}: {source}", path.display()),
-            Self::Lane(message) => write!(out, "native lane: {message}"),
             Self::Lua(message) => write!(out, "{message}"),
-            Self::PendingDuringShutdown(count) => {
-                write!(
-                    out,
-                    "native lane still owns {count} operations during shutdown"
-                )
-            }
         }
     }
 }
@@ -189,7 +177,6 @@ enum Phase {
 /// callback may call back into the runtime that is calling it, so the tables
 /// live in cells, and no borrow of one is held across a call into Lua.
 pub struct HostRuntime {
-    lane: NativeLane,
     lua: Option<Lua>,
     owner: ThreadId,
     phase: Cell<Phase>,
@@ -202,8 +189,8 @@ pub struct HostRuntime {
     reloads: RefCell<HashMap<u64, ReloadState>>,
     frozen: Cell<bool>,
     worker_host: Option<Box<worker_adapter::WorkersHost>>,
-    // Neither the raw LuaJIT state nor the lane-facing scheduler contract may
-    // move to or be observed from another thread.
+    // The raw LuaJIT state may not move to or be observed from another
+    // thread.
     _thread_affine: PhantomData<Rc<()>>,
 }
 
@@ -246,8 +233,6 @@ impl HostRuntime {
         // production build retains dead code and exports dynamic symbols so
         // LuaJIT FFI can resolve the provider's remaining C ABI by name.
         let _ = nupp_native::nuppNativeAbiVersion();
-        let lane = NativeLane::new(HOST_LANE_CAPACITY)
-            .map_err(|error| HostError::Lane(error.to_string()))?;
         let lua = Lua::new(open_libraries).map_err(HostError::Lua)?;
         lua.install_host_record().map_err(HostError::Lua)?;
         lua.install_compiled_features(open_libraries)
@@ -256,7 +241,7 @@ impl HostRuntime {
             lua.set_executable(&path_bytes(executable))
                 .map_err(HostError::Lua)?;
         }
-        Ok(Self::from_lua(lane, lua))
+        Ok(Self::from_lua(lua))
     }
 
     /// Attaches Nupp to a caller-owned LuaJIT state.
@@ -266,18 +251,15 @@ impl HostRuntime {
     /// `state` must be a live compatible LuaJIT state owned by this thread and
     /// must outlive this runtime.
     pub unsafe fn attach(state: *mut LuaState, open_libraries: bool) -> Result<Self, HostError> {
-        let lane = NativeLane::new(HOST_LANE_CAPACITY)
-            .map_err(|error| HostError::Lane(error.to_string()))?;
         let lua = unsafe { Lua::attach(state, open_libraries) }.map_err(HostError::Lua)?;
         lua.install_host_record().map_err(HostError::Lua)?;
         lua.install_compiled_features(open_libraries)
             .map_err(HostError::Lua)?;
-        Ok(Self::from_lua(lane, lua))
+        Ok(Self::from_lua(lua))
     }
 
-    fn from_lua(lane: NativeLane, lua: Lua) -> Self {
+    fn from_lua(lua: Lua) -> Self {
         Self {
-            lane,
             lua: Some(lua),
             owner: thread::current().id(),
             phase: Cell::new(Phase::Running),
@@ -313,12 +295,6 @@ impl HostRuntime {
             source,
         })?;
         self.run_buffer(&chunk, &format!("@{}", path.display()), arguments)
-    }
-
-    #[cfg(test)]
-    pub fn lane(&self) -> Result<&NativeLane, HostError> {
-        self.lua()?;
-        Ok(&self.lane)
     }
 
     pub fn lua_state(&self) -> *mut LuaState {
@@ -937,25 +913,9 @@ impl HostRuntime {
             self.components.get_mut().clear();
             self.handles.get_mut().clear();
             self.reloads.get_mut().clear();
-            let cancelled = self
-                .lane
-                .begin_shutdown()
-                .map_err(|error| HostError::Lane(error.to_string()))?;
-            for handle in cancelled {
-                self.lane
-                    .retire(handle)
-                    .map_err(|error| HostError::Lane(error.to_string()))?;
-            }
             if let Some(error) = release_error {
                 return Err(error);
             }
-        }
-        let pending = self
-            .lane
-            .pending()
-            .map_err(|error| HostError::Lane(error.to_string()))?;
-        if pending != 0 {
-            return Err(HostError::PendingDuringShutdown(pending));
         }
 
         // An attached runtime does not close its caller's Lua state, so its C
@@ -968,14 +928,8 @@ impl HostRuntime {
             lua.clear_worker_context().map_err(HostError::Lua)?;
         }
 
-        // No native completion can now enqueue back to this state. Closing Lua
-        // before the lane's terminal transition keeps the ownership order
-        // explicit and makes a future provider drain the only place to wait.
         drop(self.lua.take());
         self.worker_host = None;
-        self.lane
-            .finish_shutdown()
-            .map_err(|error| HostError::Lane(error.to_string()))?;
         self.phase.set(Phase::Closed);
         Ok(())
     }
@@ -1005,8 +959,9 @@ impl HostRuntime {
 impl Drop for HostRuntime {
     fn drop(&mut self) {
         if self.shutdown().is_err() {
-            // Closing Lua while native work could still target its lane is less
-            // safe than leaking the state. Explicit shutdown reports the cause.
+            // A shutdown that failed may have left roots or worker state
+            // behind, and closing Lua under them is less safe than leaking the
+            // state. Explicit shutdown reports the cause.
             if let Some(lua) = self.lua.take() {
                 std::mem::forget(lua);
             }
@@ -1166,7 +1121,6 @@ return setmetatable({}, {__index=function() error('descriptor trap') end})"#,
     #[test]
     fn shutdown_is_ordered_and_idempotent() {
         let mut runtime = runtime();
-        assert_eq!(runtime.lane().expect("lane").pending(), Ok(0));
         runtime.shutdown().expect("first shutdown");
         runtime.shutdown().expect("second shutdown");
         assert!(matches!(

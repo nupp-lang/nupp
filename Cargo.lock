@@ -1083,7 +1083,6 @@ dependencies = [
 name = "nupp-native-runtime"
 version = "0.1.0"
 dependencies = [
- "nupp-native-abi",
  "tokio",
 ]
 
