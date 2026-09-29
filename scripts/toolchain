@@ -39,7 +39,6 @@ Components: luajit luarocks lpeg lpeg-source stage0 llvm
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
-            host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
             kit FEATURES, kit-archive FEATURES OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
@@ -1428,90 +1427,6 @@ EOF
     HOST_OUT="$out"
 }
 
-# Relinks the Rust application host with application-owned static archives. The
-# archive list comes before `--`; everything after it is an ordinary trailing
-# linker argument. Application archives are force-loaded because FFI gives them
-# no relocations. The Rust host is force-loaded where safe; Windows selects its
-# one-codegen-unit export surfaces normally after the application archives.
-link_host() {
-    features=${1:-}
-    output=${2:-}
-    [ -n "$output" ] || die "host-link needs an output path"
-    shift 2
-
-    build_host stub "$features"
-    host_out=$HOST_OUT
-    archives=""
-    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
-        archives="$archives
-$1"
-        shift
-    done
-    [ "$#" -eq 0 ] || shift
-    flags_file="$output.nupp-link-flags.$$"
-    trap 'rm -f "$flags_file"' EXIT HUP INT TERM
-    : > "$flags_file"
-    while [ "$#" -gt 0 ]; do
-        printf '%s\n' "$1" >> "$flags_file"
-        shift
-    done
-
-    # Construct argv with `set --` so cache and project paths containing spaces
-    # remain one linker argument.
-    set -- "$CC" -o "$output"
-    case "$PLATFORM" in
-        darwin) set -- "$@" "-Wl,-force_load,$host_out/libnupp-host.a" ;;
-        windows) ;;
-        *) set -- "$@" -Wl,--whole-archive "$host_out/libnupp-host.a" -Wl,--no-whole-archive ;;
-    esac
-
-    if [ -n "$archives" ]; then
-        case "$PLATFORM" in
-            darwin)
-                while IFS= read -r archive; do
-                    [ -z "$archive" ] || set -- "$@" "-Wl,-force_load,$archive"
-                done <<EOF
-$archives
-EOF
-                ;;
-            *)
-                set -- "$@" -Wl,--whole-archive
-                while IFS= read -r archive; do
-                    [ -z "$archive" ] || set -- "$@" "$archive"
-                done <<EOF
-$archives
-EOF
-                set -- "$@" -Wl,--no-whole-archive
-                ;;
-        esac
-    fi
-    if [ "$PLATFORM" = windows ]; then
-        # Ordinary archives are one-pass. Application/AOT archives come first
-        # so every host and LuaJIT reference exists before this archive scan.
-        set -- "$@" "$host_out/libnupp-host.a"
-    fi
-    while IFS= read -r flag; do
-        set -- "$@" "$flag"
-    done < "$flags_file"
-    while IFS= read -r flag; do
-        set -- "$@" "$flag"
-    done <<EOF
-$(host_system_flags "$features")
-EOF
-    case "$PLATFORM" in
-        darwin) set -- "$@" -Wl,-export_dynamic ;;
-        windows)
-            set -- "$@" "$host_out/libnupp-host-imports.a"
-            set -- "$@" -Wl,--export-all-symbols
-            ;;
-        *) set -- "$@" -Wl,-E ;;
-    esac
-    "$@" >&2
-    rm -f "$flags_file"
-    trap - EXIT HUP INT TERM
-    native_path "$output"
-}
-
 # --- Link kits ----------------------------------------------------------------
 
 # What AOT objects may reference from the C library beyond what the runtime
@@ -1995,13 +1910,6 @@ case "$1" in
     host-library)
         build_host library "${2:-}"
         native_path "$HOST_OUT"
-        exit 0
-        ;;
-    host-link)
-        host_link_features=${2:-}
-        host_link_output=${3:-}
-        shift 3
-        link_host "$host_link_features" "$host_link_output" "$@"
         exit 0
         ;;
     kit)

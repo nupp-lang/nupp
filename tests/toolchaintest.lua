@@ -457,14 +457,15 @@ function M.staticHostsRetainTheRustApplicationArchive()
         hasOneCodegenUnit("nupp-native") and hasOneCodegenUnit("nupp-native-host"),
         "the ordinary Windows host archive can split name-resolved Rust exports across codegen units"
     )
-    local applications = assert(driver:find('if [ -n "$archives" ]; then', 1, true))
-    local windowsHost = assert(driver:find('set -- "$@" "$host_out/libnupp-host.a"', applications, true))
+    local windowsHost = assert(
+        driver:find('set -- "$CC" -v -o "$probe.exe" "$probe-aot.o" "$out/libnupp-runtime.a"', 1, true)
+    )
     assert(
         driver:find('-lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll', 1, true),
         "the Windows system flags omit canonical imports"
     )
     local systemImports = assert(driver:find('$(host_system_flags "$features")', windowsHost, true))
-    local hostImports = assert(driver:find('set -- "$@" "$host_out/libnupp-host-imports.a"', systemImports, true))
+    local hostImports = assert(driver:find('set -- "$@" "$out/lib/libnupp-host-imports.a"', systemImports, true))
     assert(
         windowsHost < systemImports and systemImports < hostImports,
         "the Windows import companion can preempt MinGW's canonical system imports"
@@ -474,8 +475,8 @@ function M.staticHostsRetainTheRustApplicationArchive()
         "the import companion can preempt canonical kernel, security, or cryptography imports"
     )
     assert(
-        not driver:find('-Wl,--whole-archive "$host_out/libnupp-host-imports.a"', 1, true),
-        "the Windows application linker explicitly force-loads Rust std's import companion"
+        not driver:find('--whole-archive "$out/lib/libnupp-host-imports.a"', 1, true),
+        "the Windows link kit explicitly force-loads Rust std's import companion"
     )
 end
 
