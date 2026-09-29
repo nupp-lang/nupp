@@ -3223,8 +3223,7 @@ function M.siteMatchesTheNuppdocPageModel()
     -- it holds no declarations, and nothing ever suggested it would
     assert(not namespace:find("No public declarations", 1, true), namespace)
     assert(not namespace:find("Module contents", 1, true), namespace)
-    -- and it is a page this generator started writing, so no former URL points at
-    -- it and it gets no redirect stub
+    -- and no page gets a redirect stub from a former URL
     local stub = io.open(dir .. "/site/modules/engine/gpu.html")
     if stub then
         stub:close()
@@ -3330,8 +3329,12 @@ function M.siteMatchesTheNuppdocPageModel()
     -- and the source is what answers that.
     assert(css:find("calc(var(--nuppdoc-header-height) + 1.4rem)", 1, true), css)
 
-    local legacy = readFile(dir .. "/site/modules/math.html")
-    assert(legacy:find("math/index.html", 1, true), legacy)
+    -- The site is pre-release, so a module page leaves no stub at a former URL.
+    local legacy = io.open(dir .. "/site/modules/math.html", "rb")
+    if legacy then
+        legacy:close()
+    end
+    assert(not legacy, "a module was given a redirect stub")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

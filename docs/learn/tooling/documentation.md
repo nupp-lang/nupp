@@ -716,8 +716,8 @@ route keeps answering at an address a handwritten page used to have, by carrying
 ## Output
 
 **`site`** writes a page per route, `assets/style.css`, `assets/site.js`, a
-JavaScript search index, and redirect stubs for the former `modules/name.html`
-URLs. The header search opens with Ctrl-K or Command-K and searches page titles
+JavaScript search index, and a stub at each route a page's `redirects` lists.
+The header search opens with Ctrl-K or Command-K and searches page titles
 and headings together with modules, declarations, and members.
 
 **`markdown`** writes one file: a section per module, with signature blocks and

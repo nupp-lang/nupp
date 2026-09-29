@@ -1450,18 +1450,6 @@ local function renderSite(root, outDir, modules, title, settings)
             end
         end
         allMarkdown[#allMarkdown + 1] = {page = candidate, text = markdown}
-        -- A namespace gets no redirect stub: it is a page this generator started
-        -- writing, so no former URL ever pointed at it.
-        if candidate.module and not candidate.module.namespace then
-            local legacy = "modules/" .. candidate.module.name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. ".html"
-            ok, err = writeFile(
-                join(outDir, legacy),
-                redirectHtml((candidate.module.name:match("([^.]+)$") or candidate.module.name) .. "/index.html")
-            )
-            if not ok then
-                return nil, err
-            end
-        end
     end
 
     local llms = {"# " .. (settings.name or title), ""}
