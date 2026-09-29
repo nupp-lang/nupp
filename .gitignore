@@ -1,5 +1,7 @@
 .nupp/
 /build/
+# A project's build cache, wherever the project sits.
+**/build/cache/
 /editors/playground/node_modules
 /.rocks
 /.nupp-cache/
