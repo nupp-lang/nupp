@@ -2149,8 +2149,7 @@ publishing one.
 ```text [nupp lsp --help]
 Language-server and semantic source operations.
 
-With no operation, or with only a root, runs the language server over stdio.
-Use `nupp lsp serve [root]` to name that mode explicitly. Semantic
+`nupp lsp serve [root]` runs the language server over stdio. Semantic
 operations are `nupp lsp inspect`, `nupp lsp definition`,
 `nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
 `nupp lsp rename`, `nupp lsp actions`, and `nupp lsp trace-check`.
@@ -2165,13 +2164,13 @@ previews by default and changes files only with `--write`.
 
 Examples:
 
-    nupp lsp
+    nupp lsp serve
     nupp lsp inspect src/main.nupp 12 8
     nupp lsp references --include-declaration src/main.nupp 12 8
     nupp lsp artifact --kind lua -O2 src/main.nupp
 
 Usage:
-  nupp lsp [ROOT]
+  nupp lsp
 
 Commands:
   serve           Run the language server over stdio.
@@ -2185,9 +2184,6 @@ Commands:
   trace-check     Check the function at a position for LuaJIT trace blockers.
   artifacts       List the compiled artifacts available at a position.
   artifact        Print what a file compiles to.
-
-Arguments:
-  ROOT  Project root.
 
 Options:
   -h, --help      Show this help

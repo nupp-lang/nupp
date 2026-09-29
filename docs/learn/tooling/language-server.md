@@ -12,9 +12,9 @@ your code means.
 nupp lsp serve [root]
 ```
 
-`nupp lsp` with no arguments serves the current directory, and `nupp lsp
-<path>` is a legacy form kept for editor clients that already send it. See
-[editors.md](editors.md) for the clients that start it.
+With no root it serves the current directory. `nupp lsp` alone prints the
+operations it offers. See [editors.md](editors.md) for the clients that start
+it.
 
 ## LSP features
 

@@ -1300,8 +1300,7 @@ end
 
 --- Language-server and semantic source operations.
 ---
---- With no operation, or with only a root, runs the language server over stdio.
---- Use `nupp lsp serve [root]` to name that mode explicitly. Semantic
+--- `nupp lsp serve [root]` runs the language server over stdio. Semantic
 --- operations are `nupp lsp inspect`, `nupp lsp definition`,
 --- `nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
 --- `nupp lsp rename`, `nupp lsp actions`, and `nupp lsp trace-check`.
@@ -1316,20 +1315,13 @@ end
 ---
 --- Examples:
 ---
----     nupp lsp
+---     nupp lsp serve
 ---     nupp lsp inspect src/main.nupp 12 8
 ---     nupp lsp references --include-declaration src/main.nupp 12 8
 ---     nupp lsp artifact --kind lua -O2 src/main.nupp
-@cli("lsp")
+@cli(name = "lsp", group = true)
 @derive(cliModule.Command)
 local record Lsp
-    --- Project root.
-    @cli(positional = "ROOT")
-    root: string?
-
-    function run(self): integer
-        return require("nupp.tools.lsp").run(self.root or ".")
-    end
 end
 
 --- Run the language server over stdio.
@@ -1338,7 +1330,7 @@ end
 ---
 ---     nupp lsp serve
 ---     nupp lsp serve ./examples/greeter
-@cli(name = "serve", aliases = {"server"})
+@cli("serve")
 @derive(cliModule.Command)
 local record Serve
     --- Project root.

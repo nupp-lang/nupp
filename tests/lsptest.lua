@@ -339,6 +339,27 @@ end
 
 local M = {}
 
+-- The bare group answers like every other group, with its help, rather than
+-- starting a server that waits on stdin; serving is `lsp serve [ROOT]`, spelled
+-- one way.
+function M.bareLspPrintsHelpAndServingIsSpelledServe()
+    local function run(arguments)
+        local pipe = assert(
+            io.popen(("'%s/bin/nupp' %s < /dev/null 2>&1; echo \"__exit__:$?\""):format(ROOT, arguments))
+        )
+        local out = pipe:read("*a")
+        pipe:close()
+        return out
+    end
+    local bare = run("lsp")
+    assert(bare:find("__exit__:0", 1, true), "bare lsp exits cleanly: " .. bare)
+    assert(bare:find("Commands:", 1, true) and bare:find("serve", 1, true), "bare lsp prints help: " .. bare)
+    local alias = run("lsp server")
+    assert(alias:find("__exit__:2", 1, true), "server is not a spelling of serve: " .. alias)
+    local rooted = run("lsp .")
+    assert(rooted:find("__exit__:2", 1, true), "a root belongs to lsp serve: " .. rooted)
+end
+
 function M.readerRejectsATruncatedFrame()
     local lsp = require("nupp.tools.lsp")
     local originalInput, originalOutput = io.stdin, io.stdout

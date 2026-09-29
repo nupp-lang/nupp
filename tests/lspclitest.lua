@@ -607,7 +607,7 @@ function M.artifactOperationsPublishTheirSchemas()
    contains(help, "artifact only:", "and attributes the options only it takes")
 end
 
-function M.explicitServeAndLegacyHelpRemainAvailable()
+function M.groupHelpNamesServeAndTheOperations()
    local help = capture(HERE .. "/..", "lsp --help")
    contains(help, "nupp lsp serve", "explicit server help")
    contains(help, "nupp lsp rename", "rename help")

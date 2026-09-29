@@ -173,7 +173,7 @@ One binary provides the project tools:
 - `nupp run` compiles and runs, with a profiler behind a flag.
 - `nupp fmt` applies fixed rules with width and method-parentheses controls.
 - `nupp doc` generates an API site from the parse tree.
-- `nupp lsp` serves hover, rename, and code actions.
+- `nupp lsp serve` serves hover, rename, and code actions.
 - `nupp test` ships assertions and a parallel runner, and still accepts another harness.
 - `nupp explain` describes a diagnostic code, with worked examples.
 - `nupp import-c` turns a C header into typed declarations.
