@@ -291,14 +291,6 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/scalarsimd.nupp",
         output = "nupp/compiler/nupp/runtime/provider/scalarsimd.nupp",
     },
-    {
-        source = "src/nupp/runtime/provider/wasmstoragefactory.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/wasmstoragefactory.nupp",
-    },
-    {
-        source = "src/nupp/runtime/provider/wasmstorage.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/wasmstorage.nupp",
-    },
     {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
     {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},

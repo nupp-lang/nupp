@@ -116,10 +116,6 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
                     target.name .. " carries " .. name
                 )
             end
-            assert(
-                not exists(output .. "/nupp/runtime/provider/wasmstorage.lua"),
-                target.name .. " excludes retired storage"
-            )
             assertEq(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
                 target.host == "native",

@@ -130,9 +130,6 @@ function surface.supports(moduleName: string, dialect: string, host: string?): b
     if BROWSER_IMPLEMENTATIONS[moduleName] then
         return selectedHost == "browser"
     end
-    if moduleName == "nupp.runtime.provider.wasmstorage" then
-        return false
-    end
     if moduleName == "nupp.runtime.provider.nativebuffer"
         or moduleName == "nupp.runtime.provider.nativestorage"
         or moduleName == "bit"
