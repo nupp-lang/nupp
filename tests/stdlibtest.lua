@@ -45,9 +45,9 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = nupp.digest.create('sha256')",
+                    "local rolling = nupp.digest.newDigest('sha256')",
                     "local result = rolling:" .. finalizer,
-                    "rolling:update('too late')",
+                    "rolling:write('too late')",
                 },
                 "\n"
             )
@@ -63,9 +63,9 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = nupp.checksum.create('crc32c')",
+                "local sum = nupp.checksum.newChecksum('crc32c')",
                 "local before = sum:value()",
-                "sum:update('still open')",
+                "sum:write('still open')",
                 "local after = sum:value()",
             },
             "\n"
@@ -376,8 +376,8 @@ function M.digestUsesPortableBitops()
         table.concat(
             {
                 "local digest = require('nupp.digest')",
-                "local rolling = digest.create('sha256')",
-                "rolling:update('message')",
+                "local rolling = digest.newDigest('sha256')",
+                "rolling:write('message')",
                 "return rolling:hexDigest()",
             },
             "\n"
@@ -1852,8 +1852,8 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
         {
             "local digest = require('nupp.digest')",
             "local mac = require('nupp.mac')",
-            "local rolling = digest.create('sha256')",
-            "rolling:update('message')",
+            "local rolling = digest.newDigest('sha256')",
+            "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
             "assert(#mac.hexDigest('hmac-sha256', 'key', 'message') == 64)",
         },

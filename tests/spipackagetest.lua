@@ -379,10 +379,10 @@ return {
             "src/main.nupp"
         ] = [[
 local mac = require("nupp.mac")
-local rolling = mac.create("hmac-sha256", "key")
+local rolling = mac.newMac("hmac-sha256", "key")
 assert(rolling:digestSize() == 32)
-rolling:update("The quick brown fox ")
-rolling:update("jumps over the lazy dog")
+rolling:write("The quick brown fox ")
+rolling:write("jumps over the lazy dog")
 return rolling:hexDigest()
 ]],
         [

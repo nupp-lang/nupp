@@ -10,16 +10,17 @@ const mac = nupp.mac
 
 print(mac.hexDigest("hmac-sha256", key, "hello"))
 
-local running = mac.create("hmac-sha256", key)
+local running = mac.newMac("hmac-sha256", key)
 
-running:update("hel")
-running:update("lo")
+running:write("hel")
+running:write("lo")
 
 print(running:hexDigest())
 ```
 
-The key is raw bytes. Finalizing consumes the context; create another context
-to authenticate another message.
+The key is raw bytes. A context is an [`io.Writer`](nupp.io.Writer), as a
+digest is. Finalizing consumes the context; create another context to
+authenticate another message.
 
 ## Built-in algorithms
 
@@ -55,7 +56,7 @@ export record Algorithm
     --- Creates independent owned state initialized with the raw-byte key.
     --- @return the unfinished keyed context
     --- @raises string when provider initialization fails
-    function create(self, key: string): Mac
+    function newMac(self, key: string): Mac
         return context.wrap(self.implementation:create(key), self.name, self.digestSize)
     end
 end
@@ -142,8 +143,8 @@ end
 --- @param key the raw-byte secret key
 --- @return an unfinished keyed context
 --- @raises string when lookup or provider initialization fails
-export function create(name: string, key: string): Mac
-    return algorithm(name):create(key)
+export function newMac(name: string, key: string): Mac
+    return algorithm(name):newMac(key)
 end
 
 --- Lists available canonical MAC names in ascending order.
@@ -164,8 +165,8 @@ end
 --- @return the raw fixed-size authentication code
 --- @raises string when lookup or a provider operation fails
 export function digest(name: string, key: string, bytes: string): string
-    local mac = create(name, key)
-    mac:update(bytes)
+    local mac = newMac(name, key)
+    mac:write(bytes)
     return mac:digest()
 end
 
@@ -176,7 +177,7 @@ end
 --- @return the lowercase hexadecimal authentication code
 --- @raises string when lookup or a provider operation fails
 export function hexDigest(name: string, key: string, bytes: string): string
-    local mac = create(name, key)
-    mac:update(bytes)
+    local mac = newMac(name, key)
+    mac:write(bytes)
     return mac:hexDigest()
 end

@@ -10,13 +10,17 @@ const digest = nupp.digest
 
 print(digest.hexDigest("sha256", "hello"))
 
-local running = digest.create("sha256")
+local running = digest.newDigest("sha256")
 
-running:update("hel")
-running:update("lo")
+running:write("hel")
+running:write("lo")
 
 print(running:hexDigest())
 ```
+
+A context is an [`io.Writer`](nupp.io.Writer), so anything that fills a writer
+fills a digest: `reader:transferTo(running)` hashes a whole file or response
+body without holding it.
 
 Finalizing consumes the context, so a digest is taken once and the binding is
 spent afterward. Create another context to digest another message. `digest()`
@@ -59,7 +63,7 @@ export record Algorithm
     --- Creates independent owned state for this algorithm.
     --- @return the unfinished digest context
     --- @raises string when provider initialization fails
-    function create(self): Digest
+    function newDigest(self): Digest
         local state = self.implementation:create()
         return contexts.wrap(state, self.name, self.digestSize)
     end
@@ -146,8 +150,8 @@ end
 --- @param name the canonical algorithm name
 --- @return an owned unfinished digest
 --- @raises string when the algorithm is unavailable or cannot be initialized
-export function create(name: string): Digest
-    return algorithm(name):create()
+export function newDigest(name: string): Digest
+    return algorithm(name):newDigest()
 end
 
 --- Lists canonical available names in ascending order.
@@ -167,8 +171,8 @@ end
 --- @return the raw fixed-size digest bytes
 --- @raises string when lookup or a provider operation fails
 export function digest(name: string, bytes: string): string
-    local context = create(name)
-    context:update(bytes)
+    local context = newDigest(name)
+    context:write(bytes)
     return context:digest()
 end
 
@@ -178,7 +182,7 @@ end
 --- @return the lowercase hexadecimal digest
 --- @raises string when lookup or a provider operation fails
 export function hexDigest(name: string, bytes: string): string
-    local context = create(name)
-    context:update(bytes)
+    local context = newDigest(name)
+    context:write(bytes)
     return context:hexDigest()
 end

@@ -14,15 +14,15 @@ Base64 and hexadecimal are reversible codecs.
 ```nupp
 local algorithm = nupp.digest.algorithm("sha256")
 assert(algorithm.digestSize == 32)
-local rolling = algorithm:create()
-rolling:update("first chunk")
-rolling:update("second chunk")
+local rolling = algorithm:newDigest()
+rolling:write("first chunk")
+rolling:write("second chunk")
 local raw: string = rolling:digest()
 ```
 
-`nupp.digest.create(name)` is shorthand for `algorithm(name):create()`.
+`nupp.digest.newDigest(name)` is shorthand for `algorithm(name):newDigest()`.
 `lookup(name)` returns nil when an algorithm is unavailable; `algorithm` and
-`create` raise instead. `algorithms()` returns sorted canonical names.
+`newDigest` raise instead. `algorithms()` returns sorted canonical names.
 Descriptors expose `name` and `digestSize` before construction; a created
 digest exposes `algorithm()` and `digestSize()`.
 
@@ -30,8 +30,11 @@ The built-ins are `md5` (16 bytes), `sha1` (20), `sha256` (32), and
 `sha512` (64). MD5 and SHA-1 are legacy interoperability algorithms and
 must not be used where collision resistance is required.
 
-`update(string)` and `updateSpan(ByteSpan)` accept chunks without retaining
-input views. The state stays bounded as the message grows.
+A digest is an [`io.Writer`](nupp.io.Writer): `write(string)` and
+`writeSpan(ByteSpan)` accept chunks without retaining input views, and the state
+stays bounded as the message grows. Anything that fills a writer fills a digest,
+so `reader:transferTo(rolling)` hashes a file or a response body a window at a
+time.
 
 ## Finalization and caller storage
 
@@ -41,8 +44,8 @@ Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished provider context.
 
 ```nupp
-local rolling = nupp.digest.create("sha256")
-rolling:update("payload")
+local rolling = nupp.digest.newDigest("sha256")
+rolling:write("payload")
 local bytes = nupp.mem.array.bytes(rolling:digestSize())
 local output = bytes:write()
 local written: integer = rolling:digest(output)
@@ -64,23 +67,24 @@ One-shot conveniences are `nupp.digest.digest(name, bytes)` and
 ## Checksums and MACs
 
 ```nupp
-local sum = nupp.checksum.create("crc32c")
+local sum = nupp.checksum.newChecksum("crc32c")
 assert(sum:width() == 32)
-sum:update("1234")
+sum:write("1234")
 local partial = sum:value()
-sum:update("56789")
+sum:write("56789")
 assert(sum:value() == 0xe3069283ULL)
 ```
 
-`value()` is a non-consuming numeric snapshot, returned as `uint64`.
+A checksum is an `io.Writer` too. `value()` is a non-consuming numeric
+snapshot, returned as `uint64`.
 `width()`, and the descriptor's `width` field, specify meaningful bits.
 Built-ins are `adler32`, `crc32-ieee`, `crc32c` and `crc64-ecma`.
 CRC64 uses ECMA-182 with no reflection, zero initialization and zero final xor.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
-`nupp.mac.create("hmac-sha256", key)` accepts a raw-byte key and returns the
-same consuming update/finalization vocabulary as a digest. Its descriptor has
+`nupp.mac.newMac("hmac-sha256", key)` accepts a raw-byte key and returns the
+same writer and consuming finalization as a digest. Its descriptor has
 `digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)`
 and `mac.hexDigest(name, key, bytes)`.
 
@@ -109,7 +113,7 @@ Dependency order does not decide which catalog wins.
 The compiler checks the export against `Provider`, including its owned state
 signatures. Lua providers need a `.d.nupp` declaration or typed adapter.
 Descriptors are retained during module initialization. Lookup, listing, context
-creation, updates, and finalization make no SPI calls.
+creation, writes, and finalization make no SPI calls.
 
 Descriptors must agree with their map keys and report a positive fixed output
 size, or a checksum width from 1 through 64. Built-in names retain their standard

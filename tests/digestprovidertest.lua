@@ -177,12 +177,15 @@ function M.failedLoadFailsTheFacadeInitialization()
     assert(not ok and tostring(problem):find("loader failure", 1, true))
 end
 
+local FACTORIES = {digest = "newDigest", checksum = "newChecksum", mac = "newMac"}
+
 function M.emptyDiscoveryRetainsBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load = state.family(kind)
         local api = load("nupp." .. kind)
         assert(api.lookup("not-installed") == nil)
-        assert(not pcall(api.create, "not-installed", "key"))
+        local factory = assert(api[FACTORIES[kind]], kind .. " names its factory after what it makes")
+        assert(not pcall(factory, "not-installed", "key"))
         local names = api.algorithms()
         assert(#names > 0)
         names[1] = "mutated"

@@ -73,9 +73,9 @@ function M.independentBoundaryVectors(): nil
         end
         local input = table.concat(bytes)
         assert(digest.hexDigest(name, input) == expected, name .. " length " .. length)
-        local rolling = digest.create(name)
+        local rolling = digest.newDigest(name)
         for index = 1, length, 13 do
-            rolling:update(input:sub(index, index + 12))
+            rolling:write(input:sub(index, index + 12))
         end
         assert(rolling:hexDigest() == expected, name .. " chunked length " .. length)
     end

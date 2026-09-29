@@ -87,23 +87,23 @@ function M.metadataAndIndependentContexts(): nil
     assert(digest.lookup("unknown") == nil)
     local algorithm = digest.algorithm("sha256")
     assert(algorithm.name == "sha256" and algorithm.digestSize == 32)
-    local first = algorithm:create()
-    local second = algorithm:create()
+    local first = algorithm:newDigest()
+    local second = algorithm:newDigest()
     assert(first:algorithm() == "sha256" and first:digestSize() == 32)
-    first:update("a")
-    second:update("abc")
-    first:update("bc")
+    first:write("a")
+    second:write("abc")
+    first:write("bc")
     assert(first:digest() == second:digest())
 
     assert(table.concat(mac.algorithms(), ",") == "hmac-sha256")
     assert(mac.lookup("unknown") == nil)
     local macAlgorithm = mac.algorithm("hmac-sha256")
     assert(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestSize == 32)
-    local firstMac = macAlgorithm:create("key")
-    local secondMac = macAlgorithm:create("key")
-    firstMac:update("a")
-    secondMac:update("abc")
-    firstMac:update("bc")
+    local firstMac = macAlgorithm:newMac("key")
+    local secondMac = macAlgorithm:newMac("key")
+    firstMac:write("a")
+    secondMac:write("abc")
+    firstMac:write("bc")
     assert(firstMac:digest() == secondMac:digest())
 end
 
@@ -115,10 +115,10 @@ function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
         output[1] = 0xa5
         output[#output] = 0x5a
         local region = output:slice(2, algorithm.digestSize + 1)
-        local rolling = algorithm:create()
+        local rolling = algorithm:newDigest()
         local source = "abc"
         local input = span.fromString(source)
-        rolling:updateSpan(input)
+        rolling:writeSpan(input)
         local written: integer = rolling:digest(region)
         assert(written == algorithm.digestSize)
         nupp.drop(region)
@@ -135,8 +135,8 @@ function M.shortDestinationIsRejected(): nil
         function(): nil
             local bytes = array.bytes(31)
             local output = bytes:write()
-            local rolling = digest.create("sha256")
-            rolling:update("abc")
+            local rolling = digest.newDigest("sha256")
+            rolling:write("abc")
             rolling:digest(output)
         end,
         "digest destination needs 32 bytes"
@@ -147,9 +147,9 @@ function M.chunkingAndBinaryInput(): nil
     for _, name in ipairs(digest.algorithms()) do
         for length = 0, 260 do
             local input = string.rep("a\0b\255c", 53):sub(1, length)
-            local rolling = digest.create(name)
+            local rolling = digest.newDigest(name)
             for index = 1, #input, 7 do
-                rolling:update(input:sub(index, index + 6))
+                rolling:write(input:sub(index, index + 6))
             end
             assert(rolling:hexDigest() == digest.hexDigest(name, input), name .. " length " .. length)
         end
@@ -178,9 +178,9 @@ function M.hmacRfc4231AndBinaryInput(): nil
             "Test Using Larger Than Block-Size Key - Hash Key First"
         ) == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
     )
-    local rolling = mac.create("hmac-sha256", "k\0ey")
-    rolling:update("one\0")
-    rolling:update("two\255")
+    local rolling = mac.newMac("hmac-sha256", "k\0ey")
+    rolling:write("one\0")
+    rolling:write("two\255")
     assert(rolling:digest() == mac.digest("hmac-sha256", "k\0ey", "one\0two\255"))
 end
 
@@ -207,20 +207,20 @@ function M.checksumVectorsAndNonConsumingReads(): nil
     assert(checksum.algorithm("crc64-ecma").width == 64)
     for _, name in ipairs(checksum.algorithms()) do
         assert(checksum.lookup(name) == checksum.algorithm(name))
-        local rolling = checksum.create(name)
+        local rolling = checksum.newChecksum(name)
         assert(rolling:algorithm() == name)
         assert(rolling:width() == checksum.algorithm(name).width)
-        rolling:update("1234")
+        rolling:write("1234")
         assert(rolling:value() == checksum.value(name, "1234"))
         local source = "56789"
         local tail = span.fromString(source)
-        rolling:updateSpan(tail)
+        rolling:writeSpan(tail)
         assert(rolling:value() == checksum.value(name, "123456789"))
 
-        local chunked = checksum.create(name)
+        local chunked = checksum.newChecksum(name)
         local message = string.rep("a\0b\255c", 53)
         for index = 1, #message, 7 do
-            chunked:update(message:sub(index, index + 6))
+            chunked:write(message:sub(index, index + 6))
         end
         assert(chunked:value() == checksum.value(name, message))
     end
@@ -243,6 +243,25 @@ function M.hexCodecIsStrictAndRoundTripsBytes(): nil
     assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
     decoded, reason = hex.decode("00 1")
     assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
+end
+
+-- A digest and a checksum are writers, so a reader can fill either, and the
+-- answer is the one writing the same bytes by hand gives.
+function M.aReaderTransfersIntoADigestAndAChecksum(): nil
+    local message = string.rep("a\0b\255c", 20000)
+    local byHand = digest.newDigest("sha256")
+    byHand:write(message)
+    local expected = byHand:hexDigest()
+
+    local rolling = digest.newDigest("sha256")
+    local source = io.newStringReader(message)
+    assert(source:transferTo(rolling) == #message)
+    assert(rolling:hexDigest() == expected)
+
+    local sum = checksum.newChecksum("crc32c")
+    local again = io.newStringReader(message)
+    assert(again:transferTo(sum) == #message)
+    assert(sum:value() == checksum.value("crc32c", message))
 end
 
 return M

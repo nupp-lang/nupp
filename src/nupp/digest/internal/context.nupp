@@ -3,8 +3,8 @@ module nupp.digest.internal.context
 
 --[[Owned public digest contexts over canonical provider state.
 
-A context retains its algorithm name, output size, and one affine State. Updates
-borrow input only for the duration of the call. Both digest overloads and hexDigest
+A context retains its algorithm name, output size, and one affine State. It is an
+io.Writer: writes borrow input only for the duration of the call. Both digest overloads and hexDigest
 consume the context; finalization closes state exactly once on success or failure.
 An undersized destination is rejected before bytes are written, and the caller
 retains ownership of its destination. Dropping an unfinished context also closes
@@ -16,8 +16,9 @@ const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")
 const hex = require("nupp.codec.hex")
 const provider = require("nupp.digest.spi")
+const {type Writer} = require("nupp.io")
 
-export interface Digest is nupp.Closeable
+export interface Digest is Writer
     --- Consumes an unfinished context and releases provider state without suspension.
     close: @nosuspend function(takes self: Digest): nil
 
@@ -27,11 +28,16 @@ export interface Digest is nupp.Closeable
     --- Returns the fixed output size in bytes.
     digestSize: function(self: Digest): integer
 
-    --- Processes raw bytes without retaining a borrowed input.
-    update: function(exclusive self: Digest, bytes: string): nil
+    --- Absorbs raw bytes without retaining a borrowed input.
+    --- @return true, since a digest takes every byte it is given
+    write: function(exclusive self: Digest, bytes: string): (boolean, string?)
 
-    --- Processes a borrowed byte view without retaining it.
-    updateSpan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): nil
+    --- Absorbs a borrowed byte view without retaining it.
+    --- @return how many bytes it absorbed, which is all of them
+    writeSpan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): (integer?, string?)
+
+    --- Nothing is buffered behind a digest, so this only answers true.
+    flush: function(self: Digest): (boolean, string?)
 
     --- Consumes this context and returns raw bytes, or writes the fixed-size
     --- prefix of destination and returns its byte count. Always closes state.
@@ -69,13 +75,24 @@ local record Context is Digest
         return self.size
     end
 
-    function update(exclusive self, bytes: string): nil
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if type(bytes) ~= "string" then
+            error("nupp: Digest:write bytes must be a string", 2)
+        end
         local view = span.fromString(bytes)
         self.state:update(view)
+
+        return true, nil
     end
 
-    function updateSpan(exclusive self, borrows bytes: span.ByteSpan): nil
+    function writeSpan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
         self.state:update(bytes)
+
+        return #bytes, nil
+    end
+
+    function flush(self): (boolean, string?)
+        return true, nil
     end
 
     function digest(takes self, exclusive destination: span.ByteWriteSpan): integer
