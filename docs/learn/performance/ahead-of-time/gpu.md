@@ -44,21 +44,20 @@ binds buffers in parameter order, and dispatches scalar uniforms separately:
 ```nupp
 local gpu = require("nupp.gpu")
 local kernels = require("kernels")
-local span = require("nupp.mem.span")
 local array = nupp.mem.array
 
 local context = gpu.open()
 local input = context:buffer(array.float, 1024)
 local output = context:buffer(array.float, 1024)
 local binding = kernels.scale:compile(context):bind(output, input)
-local sourceStorage = carray(float, 1024)
-local outputStorage = carray(float, 1024)
+local source = array.scalar(array.float, 1024)
+local result = array.scalar(array.float, 1024)
 
-context:upload(input, span.fromCarray(sourceStorage, 1024))
+context:upload(input, source:read())
 binding:dispatch(2.0)
 context:enqueueDownload(output)
 context:synchronize()
-context:readDownloaded(output, span.writeCarray(outputStorage, 1024))
+context:readDownloaded(output, result:write())
 ```
 
 Uploads, dispatches, and downloads enqueue work. `synchronize()` is the explicit
