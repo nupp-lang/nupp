@@ -567,6 +567,11 @@ end
 local given = {...}
 local repeats = tonumber(given[1] or "") or 40
 for _ = 1, repeats do hot(2000000) end
+-- LuaJIT counts loops toward a trace in 64 counters shared by bytecode address,
+-- and a penalty the compiler's own aborted loops left in the one stepper's loop
+-- lands on can hold it off for up to 30,000 iterations. Setting hotloop reseeds
+-- every counter, and 1 makes the first back-edge record the FNEW that aborts.
+jit.opt.start("hotloop=1")
 stepper(3000)
 io.write("ran\n")
 ]]
