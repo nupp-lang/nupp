@@ -622,24 +622,6 @@ printf '%s\n' 'C:/staged'
     assert(forPath((selected:gsub("%s+$", ""))) == wanted, ("selected %q, wanted %q"):format(selected, wanted))
 end
 
--- `NUPP_NATIVE_CC` named the C compiler before the toolchain names were
--- unified. It keeps working, and the primary name wins.
-function M.theOldCCompilerNameStillSelects()
-    local directory = temporary()
-    local named = fakeCompiler(directory, "named-cc", "named")
-    local aliased = fakeCompiler(directory, "aliased-cc", "aliased")
-    local environment = {NUPP_TOOLCHAIN_DIR = directory .. "/cache", PATH = "$PATH", NUPP_NATIVE_CC = aliased,}
-
-    local status, viaAlias = run(environment, "--prefix")
-    assert(status == 0, viaAlias)
-
-    environment.NUPP_CC = named
-    local primaryStatus, viaPrimary = run(environment, "--prefix")
-    assert(primaryStatus == 0, viaPrimary)
-
-    assert(viaAlias ~= viaPrimary, "the primary names did not win over the aliases: " .. viaAlias)
-end
-
 -- Test a checkout copy: changing patch bytes must change both the native prefix
 -- and the source fingerprint used by host artifacts, without rebuilding C.
 function M.luaJitPatchContentChangesNativeAndHostKeys()

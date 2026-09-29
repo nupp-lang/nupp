@@ -97,7 +97,7 @@ def prepare_group(source_path, names, build):
                 invocation = "bench_sink = " + invocation
             wrappers.append(f"KS_API double {call}(size_t repeats, {params}) {{ {result} (*volatile fn)({params}) = {selected}; double start = bench_clock(); for(size_t i=0;i<repeats;i++) {{ {invocation}; }} return bench_clock()-start; }}")
     wrappers.append("KS_API double bench_control(size_t repeats) { volatile uint32_t value=17; double start=bench_clock(); for(size_t i=0;i<repeats;i++) value=value*1664525u+1013904223u; bench_sink=value; return bench_clock()-start; }")
-    compiler = os.environ.get("NUPP_NATIVE_CC", "clang")
+    compiler = os.environ.get("NUPP_CC", "clang")
     version = run([compiler, "--version"])
     is_clang = "clang" in version.lower()
     flags = ["-std=c11", "-O3", "-ffp-contract=off", "-fno-fast-math", "-fPIC", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror"]

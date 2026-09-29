@@ -68,8 +68,6 @@ die() { printf 'toolchain: %s\n' "$*" >&2; exit 1; }
 
 # --- toolchain selection ----------------------------------------------------
 
-# `NUPP_NATIVE_CC` named the C compiler before the toolchain names were unified.
-# It remains an alias and is read only where the primary name is unset.
 probe() {
     for candidate in "$@"; do
         [ -n "$candidate" ] || continue
@@ -89,7 +87,7 @@ case "$UNAME" in
     *)                    PLATFORM=posix ;;
 esac
 
-CC=${NUPP_CC:-${NUPP_NATIVE_CC:-}}
+CC=${NUPP_CC:-}
 CXX=${NUPP_CXX:-}
 case "$PLATFORM" in
     # This driver uses the dependencies' GNU make builds. The hosted Windows

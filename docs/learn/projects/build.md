@@ -528,8 +528,9 @@ target's link kit (see [distribution](../../reference/distribution.md)). A pack
 still serves C dependencies, whose sources need a C compiler. `NUPP_COMPILER_PACK_DIR`
 names a pack tree containing `<host>/<target>/pack.json`; Nupp verifies the
 recorded size and SHA-256 of its compiler and archiver before running them.
-Without one, a C dependency uses its own `cc`, `NUPP_NATIVE_CC`, or the first of
-`clang`, `cc` and `gcc` on `PATH`.
+A C dependency compiles with its own `cc` when it names one, then with the
+pack's compiler, and otherwise with `cc` from `PATH`. Without a pack, its
+archiver is the one that compiler names, or `ar`.
 
 `pack.json` has `schemaVersion = 1`, `host`, `target`, `version`, authenticated
 `cc` and `ar` tool records, and `compileFlags`/`linkFlags` arrays for its

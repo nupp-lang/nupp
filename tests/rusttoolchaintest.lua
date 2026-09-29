@@ -623,20 +623,23 @@ function M.hostArtifactFollowsTheLuaJitCompilerIdentity()
     assert(answer(firstOutput) ~= answer(secondOutput), "two LuaJIT compiler identities shared one Rust host")
 end
 
--- The driver can select its compiler through the compatibility alias or by
--- probing PATH. Cargo does not inherit the driver's private shell variable, so
--- pass the resolved answer explicitly to the host crate's C-shim build script.
+-- With NUPP_CC unset the driver selects its compiler by probing PATH. Cargo
+-- does not inherit the driver's private shell variable, so pass the resolved
+-- answer explicitly to the host crate's C-shim build script.
 function M.hostShimUsesTheResolvedLuaJitCompiler()
     local directory = temporary()
     local env = environment(directory)
-    local compiler = env.NUPP_CC
+    local probed = package.config:sub(1, 1) == "\\" and "gcc" or "clang"
+    local bin = directory .. "/probed"
+    assert(os.execute("mkdir -p " .. quote(bin)) == 0)
+    fakeCompiler(bin, probed)
     env.NUPP_CC = nil
-    env.NUPP_NATIVE_CC = compiler
+    env.PATH = shellPath(bin) .. ":$PATH"
     local status, output = run(env, "host-rust")
 
     assert(status == 0, output)
     assert(
-        readLines(env.NUPP_TEST_CARGO_CC_RECORD) == shellPath(compiler) .. "\n",
+        readLines(env.NUPP_TEST_CARGO_CC_RECORD) == probed .. "\n",
         "the Rust host build did not receive the compiler selected for LuaJIT"
     )
     local driver = read(DRIVER)
