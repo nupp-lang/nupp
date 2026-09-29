@@ -52,10 +52,6 @@ export interface JsonProvider
     @readonly
     encode: function(value: any, nullValue: any?): string
 
-    --- Serializes with the same semantics as encode.
-    @readonly
-    serialize: function(value: any, nullValue: any?): string
-
     --- Creates a validated encoded-value fragment for subsequent composition.
     @readonly
     encoded: function(value: any, nullValue: any?): any

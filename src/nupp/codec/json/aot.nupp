@@ -316,8 +316,6 @@ function json.encode(value: any, nullValue: any?): string
     return encodeValue(value, nullValue, {}, 0)
 end
 
-json.serialize = json.encode
-
 function json.isArray(value: any): boolean
     if type(value) ~= "table" then
         return false
@@ -876,7 +874,6 @@ local checked: contracts.JsonProvider = {
     isArray = json.isArray,
     decode = json.decode,
     encode = json.encode,
-    serialize = json.serialize,
     encoded = json.encoded,
     encodedString = json.encodedString,
     pull = json.pull,

@@ -19,7 +19,6 @@ requires, even when the first held a null that decoding drops. A number too
 large for binary64, such as `1e400`, is refused with its byte position rather
 than read as an infinity the encoder would refuse to write back; one too small,
 such as `1e-400`, is zero.
-`serialize` is an alias of `encode`.
 
 ## Empty containers
 
@@ -533,22 +532,6 @@ export function encode(value: any, nullValue: any?): string
         return native.encode(value)
     end
     return native.encode(value, nullValue)
-end
-
---- Serializes one Lua value as JSON; an alias of `encode`.
----
---- ```nupp
---- assert(nupp.codec.json.serialize({ok = true}) == [[{"ok":true}]])
---- ```
---- @param value the value to serialize
---- @param nullValue an additional value treated as JSON null
---- @return the JSON document
---- @export
-export function serialize(value: any, nullValue: any?): string
-    if nullValue == nil then
-        return native.serialize(value)
-    end
-    return native.serialize(value, nullValue)
 end
 
 --- Encodes a Lua value once for trusted raw insertion by a `Writer`.

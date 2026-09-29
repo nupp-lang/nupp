@@ -247,8 +247,6 @@ function json.encode(value: any, nullValue: any?): string
     return encoded
 end
 
-json.serialize = json.encode
-
 function json.decode(text: string, nullValue: any?): any
     if not validUtf8(text) then
         error("invalid UTF-8 in JSON", 0)
@@ -521,7 +519,6 @@ local checked: contracts.JsonProvider = {
     isArray = json.isArray,
     decode = json.decode,
     encode = json.encode,
-    serialize = json.serialize,
     encoded = json.encoded,
     encodedString = json.encodedString,
     pull = json.pull,
