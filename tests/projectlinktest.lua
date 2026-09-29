@@ -1147,10 +1147,8 @@ end
 -- exported type rather than in this file's summaries, and the key both sides
 -- compare under has to be the declaring module's.
 function M.aTerminalIsNamedThroughAModuleAlias()
-   -- This case sat inside an unterminated string until the worker cases above were
-   -- restored, and it fails with or without the alias: `affine(gate.Ticket,
-   -- gate.release)` does not match the type `gate.issue` exports.
-   require("assert").skip("a qualified affine terminal does not match its own export")
+   -- A qualified affine annotation, `affine(gate.Ticket, gate.release)`, names the
+   -- same cleanup as the type `gate.issue` exports, through the alias or without.
    withProject({
       ["src/gate.nupp"] = [[
 module gate
