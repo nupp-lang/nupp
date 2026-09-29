@@ -2,7 +2,7 @@
 
 use nupp_native_abi::{Arena, Handle, Status, boundary, set_last_error};
 use nupp_native_net as transport;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV6};
 use std::ptr;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, ThreadId};
@@ -1118,6 +1118,69 @@ pub unsafe extern "C" fn nuppNativeNetDatagramPort(raw: u64, output: *mut u16) -
     })
 }
 
+/// Takes one queued UDP message without blocking, handing its peer to `peer`,
+/// or `None` when nothing is queued. Every output was checked by the caller.
+unsafe fn receive(
+    raw: u64,
+    output: *mut u8,
+    capacity: usize,
+    state: *mut u32,
+    length: *mut usize,
+    truncated: *mut i32,
+    peer: impl FnOnce(Option<SocketAddr>),
+) -> i32 {
+    let (_, datagram) = match datagram(raw) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let message = match datagram.try_receive(capacity) {
+        transport::DatagramRead::Message(message) => Some(message),
+        transport::DatagramRead::Pending => None,
+        transport::DatagramRead::Failed(error) => {
+            return super::failed(Status::Internal, &error);
+        }
+    };
+    if let Some(message) = message {
+        if !message.bytes.is_empty() {
+            debug_assert!(message.bytes.len() <= capacity);
+            // SAFETY: output has capacity bytes and the core respected it.
+            unsafe {
+                ptr::copy_nonoverlapping(message.bytes.as_ptr(), output, message.bytes.len())
+            };
+        }
+        // SAFETY: the caller checked every scalar output.
+        unsafe {
+            state.write(DATAGRAM_MESSAGE);
+            length.write(message.bytes.len());
+            truncated.write(i32::from(message.truncated));
+        }
+        peer(Some(message.address));
+    } else {
+        // SAFETY: the caller checked every scalar output.
+        unsafe {
+            state.write(PENDING);
+            length.write(0);
+            truncated.write(0);
+        }
+        peer(None);
+    }
+    Status::Ok.code()
+}
+
+fn receive_outputs_valid(
+    output: *mut u8,
+    capacity: usize,
+    state: *mut u32,
+    length: *mut usize,
+    truncated: *mut i32,
+) -> bool {
+    capacity != 0
+        && !output.is_null()
+        && !state.is_null()
+        && !length.is_null()
+        && !truncated.is_null()
+}
+
 #[unsafe(no_mangle)]
 /// Takes one queued UDP message without blocking.
 ///
@@ -1134,55 +1197,52 @@ pub unsafe extern "C" fn nuppNativeNetDatagramReceive(
     truncated: *mut i32,
 ) -> i32 {
     boundary(|| {
-        if capacity == 0
-            || output.is_null()
-            || state.is_null()
-            || length.is_null()
-            || address.is_null()
-            || truncated.is_null()
-        {
+        if address.is_null() || !receive_outputs_valid(output, capacity, state, length, truncated) {
             return super::failed(
                 Status::InvalidArgument,
                 "network datagram output is invalid",
             );
         }
-        let (_, datagram) = match datagram(raw) {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
-        let message = match datagram.try_receive(capacity) {
-            transport::DatagramRead::Message(message) => Some(message),
-            transport::DatagramRead::Pending => None,
-            transport::DatagramRead::Failed(error) => {
-                return super::failed(Status::Internal, &error);
-            }
-        };
-        if let Some(message) = message {
-            if !message.bytes.is_empty() {
-                debug_assert!(message.bytes.len() <= capacity);
-                // SAFETY: output has capacity bytes and the core respected it.
-                unsafe {
-                    ptr::copy_nonoverlapping(message.bytes.as_ptr(), output, message.bytes.len())
-                };
-            }
-            // SAFETY: scalar outputs were checked above.
-            unsafe {
-                state.write(DATAGRAM_MESSAGE);
-                length.write(message.bytes.len());
-                address.write(net_address(message.address));
-                truncated.write(i32::from(message.truncated));
-            }
-        } else {
-            // SAFETY: scalar outputs were checked above.
-            unsafe {
-                state.write(PENDING);
-                length.write(0);
-                address.write(no_address());
-                truncated.write(0);
-            }
+        // SAFETY: every output was checked above.
+        unsafe {
+            receive(raw, output, capacity, state, length, truncated, |peer| {
+                address.write(peer.map_or_else(no_address, net_address))
+            })
         }
-        Status::Ok.code()
     })
+}
+
+/// Attempts one nonqueued UDP send to a checked peer.
+unsafe fn send(
+    raw: u64,
+    address: SocketAddr,
+    input_data: *const u8,
+    input_length: usize,
+    state: *mut u32,
+    sent: *mut usize,
+) -> i32 {
+    let input = match super::input(input_data, input_length) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let (_, datagram) = match datagram(raw) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let (kind, count) = match datagram.try_send_to(address, input) {
+        transport::DatagramWrite::Sent(count) => (DATAGRAM_SENT, count),
+        transport::DatagramWrite::Pending => (PENDING, 0),
+        transport::DatagramWrite::Closed => (WRITE_CLOSED, 0),
+        transport::DatagramWrite::Failed(error) => {
+            return super::failed(Status::Internal, &error);
+        }
+    };
+    // SAFETY: the caller checked both outputs.
+    unsafe {
+        state.write(kind);
+        sent.write(count);
+    }
+    Status::Ok.code()
 }
 
 #[unsafe(no_mangle)]
@@ -1206,33 +1266,13 @@ pub unsafe extern "C" fn nuppNativeNetDatagramSend(
                 "network datagram send output is null",
             );
         }
-        let input = match super::input(input_data, input_length) {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
         // SAFETY: address was checked above.
         let address = match socket_address(unsafe { *address }, "network datagram peer") {
             Ok(value) => value,
             Err(status) => return status,
         };
-        let (_, datagram) = match datagram(raw) {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
-        let (kind, count) = match datagram.try_send_to(address, input) {
-            transport::DatagramWrite::Sent(count) => (DATAGRAM_SENT, count),
-            transport::DatagramWrite::Pending => (PENDING, 0),
-            transport::DatagramWrite::Closed => (WRITE_CLOSED, 0),
-            transport::DatagramWrite::Failed(error) => {
-                return super::failed(Status::Internal, &error);
-            }
-        };
-        // SAFETY: outputs were checked above.
-        unsafe {
-            state.write(kind);
-            sent.write(count);
-        }
-        Status::Ok.code()
+        // SAFETY: both outputs were checked above.
+        unsafe { send(raw, address, input_data, input_length, state, sent) }
     })
 }
 
@@ -1382,9 +1422,368 @@ pub unsafe extern "C" fn nuppNativeNetWait(
     })
 }
 
+/// The size of the first `NuppNativeNetEndpoint`. A caller's `size` may be
+/// larger, from a header that has grown the struct since; only these fields are
+/// read or written.
+const ENDPOINT_SIZE: u32 = std::mem::size_of::<NetEndpoint>() as u32;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NetEndpoint {
+    pub size: u32,
+    pub family: u8,
+    pub port: u16,
+    pub scope_id: u32,
+    pub flowinfo: u32,
+    pub address: [u8; 16],
+}
+
+/// Checks a caller-owned endpoint's `size` before anything is read or written.
+unsafe fn endpoint_size(endpoint: *const NetEndpoint, what: &str) -> Result<(), i32> {
+    if endpoint.is_null() {
+        return Err(super::failed(
+            Status::InvalidArgument,
+            &format!("{what} is null"),
+        ));
+    }
+    // SAFETY: the pointer is non-null and the ABI promises at least `size`.
+    if unsafe { (*endpoint).size } < ENDPOINT_SIZE {
+        return Err(super::failed(
+            Status::InvalidArgument,
+            &format!("{what} size is smaller than NuppNativeNetEndpoint"),
+        ));
+    }
+    Ok(())
+}
+
+/// Writes every field this provider knows, leaving the caller's `size`.
+unsafe fn write_endpoint(endpoint: *mut NetEndpoint, value: Option<SocketAddr>) {
+    let (family, port, scope_id, flowinfo, address) = match value {
+        Some(SocketAddr::V4(value)) => {
+            let mut address = [0; 16];
+            address[..4].copy_from_slice(&value.ip().octets());
+            (ADDRESS_V4, value.port(), 0, 0, address)
+        }
+        Some(SocketAddr::V6(value)) => (
+            ADDRESS_V6,
+            value.port(),
+            value.scope_id(),
+            value.flowinfo(),
+            value.ip().octets(),
+        ),
+        None => (ADDRESS_NONE, 0, 0, 0, [0; 16]),
+    };
+    // SAFETY: the caller checked the pointer and its size.
+    unsafe {
+        (*endpoint).family = family;
+        (*endpoint).port = port;
+        (*endpoint).scope_id = scope_id;
+        (*endpoint).flowinfo = flowinfo;
+        (*endpoint).address = address;
+    }
+}
+
+unsafe fn read_endpoint(endpoint: *const NetEndpoint, what: &str) -> Result<SocketAddr, i32> {
+    // SAFETY: the caller's pointer obeys the ABI; `endpoint_size` checks it.
+    unsafe { endpoint_size(endpoint, what) }?;
+    // SAFETY: checked above.
+    let value = unsafe { *endpoint };
+    match value.family {
+        ADDRESS_V4 => Ok(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(
+                value.address[0],
+                value.address[1],
+                value.address[2],
+                value.address[3],
+            )),
+            value.port,
+        )),
+        ADDRESS_V6 => Ok(SocketAddr::V6(SocketAddrV6::new(
+            value.address.into(),
+            value.port,
+            value.flowinfo,
+            value.scope_id,
+        ))),
+        _ => Err(super::failed(
+            Status::InvalidArgument,
+            &format!("{what} has no valid address family"),
+        )),
+    }
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn if_nametoindex(name: *const std::ffi::c_char) -> std::ffi::c_uint;
+}
+
+/// The index of the network interface an IPv6 zone names, such as `lo0`.
+///
+/// A numeric zone is its own index on every platform; an interface name is
+/// looked up where the platform has `if_nametoindex`.
+fn interface_index(zone: &str) -> Option<u32> {
+    if let Ok(index) = zone.parse::<u32>() {
+        return Some(index);
+    }
+    #[cfg(unix)]
+    {
+        let name = std::ffi::CString::new(zone).ok()?;
+        // SAFETY: `name` is a NUL-terminated string that outlives the call.
+        let index = unsafe { if_nametoindex(name.as_ptr()) };
+        (index != 0).then_some(index)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// An IP literal, with an optional `%zone` on an IPv6 address.
+fn parse_endpoint(host: &str, port: u16) -> Result<SocketAddr, String> {
+    let (literal, zone) = match host.split_once('%') {
+        Some((literal, zone)) => (literal, Some(zone)),
+        None => (host, None),
+    };
+    let address = literal
+        .parse::<IpAddr>()
+        .map_err(|_| "network address is not an IPv4 or IPv6 literal".to_owned())?;
+    match (address, zone) {
+        (IpAddr::V4(_), Some(_)) => Err("an IPv4 network address has no zone".to_owned()),
+        (IpAddr::V4(_), None) => Ok(SocketAddr::new(address, port)),
+        (IpAddr::V6(address), None) => Ok(SocketAddr::V6(SocketAddrV6::new(address, port, 0, 0))),
+        (IpAddr::V6(address), Some(zone)) => {
+            let scope = interface_index(zone)
+                .ok_or_else(|| format!("network address zone {zone} names no interface"))?;
+            Ok(SocketAddr::V6(SocketAddrV6::new(address, port, 0, scope)))
+        }
+    }
+}
+
+/// An endpoint's address as text, with its zone when it has one.
+fn endpoint_text(address: SocketAddr) -> String {
+    match address {
+        SocketAddr::V6(value) if value.scope_id() != 0 => {
+            format!("{}%{}", value.ip(), value.scope_id())
+        }
+        _ => address.ip().to_string(),
+    }
+}
+
+unsafe fn write_stream_endpoint(
+    raw: u64,
+    output: *mut NetEndpoint,
+    get: impl FnOnce(&transport::Stream) -> Result<Option<SocketAddr>, String>,
+) -> i32 {
+    // SAFETY: the caller's pointer obeys the ABI; `endpoint_size` checks it.
+    if let Err(status) = unsafe { endpoint_size(output, "network endpoint output") } {
+        return status;
+    }
+    let (_, stream) = match stream(raw) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    match get(&stream) {
+        // SAFETY: the output was checked above.
+        Ok(value) => unsafe { write_endpoint(output, value) },
+        Err(error) => return super::failed(Status::Closed, &error),
+    }
+    Status::Ok.code()
+}
+
+#[unsafe(no_mangle)]
+/// Writes the stream's local endpoint, with the IPv6 scope and flow label.
+///
+/// # Safety
+/// `output` must be writable for its own `size` bytes.
+pub unsafe extern "C" fn nuppNativeNetStreamLocalEndpoint(
+    raw: u64,
+    output: *mut NetEndpoint,
+) -> i32 {
+    boundary(|| {
+        // SAFETY: write_stream_endpoint validates the caller-owned output.
+        unsafe { write_stream_endpoint(raw, output, transport::Stream::local_address) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Writes the stream's peer endpoint, with the IPv6 scope and flow label.
+///
+/// # Safety
+/// `output` must be writable for its own `size` bytes.
+pub unsafe extern "C" fn nuppNativeNetStreamPeerEndpoint(
+    raw: u64,
+    output: *mut NetEndpoint,
+) -> i32 {
+    boundary(|| {
+        // SAFETY: write_stream_endpoint validates the caller-owned output.
+        unsafe { write_stream_endpoint(raw, output, transport::Stream::peer_address) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Parses an IP literal, and an IPv6 literal's `%zone`, into an endpoint.
+///
+/// # Safety
+/// The host slice must remain readable, and `output` must be writable for its
+/// own `size` bytes.
+pub unsafe extern "C" fn nuppNativeNetEndpointParse(
+    host: NetSlice,
+    port: u16,
+    output: *mut NetEndpoint,
+) -> i32 {
+    boundary(|| {
+        // SAFETY: the caller's pointer obeys the ABI; `endpoint_size` checks it.
+        if let Err(status) = unsafe { endpoint_size(output, "network endpoint output") } {
+            return status;
+        }
+        // SAFETY: the caller promises the nested slice remains readable.
+        let host = match unsafe { text(host, "network address") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match parse_endpoint(host, port) {
+            // SAFETY: the output was checked above.
+            Ok(value) => unsafe { write_endpoint(output, Some(value)) },
+            Err(message) => return super::failed(Status::InvalidArgument, &message),
+        }
+        Status::Ok.code()
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Formats an endpoint's address, with `%scope` when it has one.
+///
+/// # Safety
+/// `endpoint` must be readable for its own `size` bytes, `length` writable,
+/// and `output` writable for `capacity` bytes when capacity is nonzero.
+pub unsafe extern "C" fn nuppNativeNetEndpointText(
+    endpoint: *const NetEndpoint,
+    output: *mut u8,
+    capacity: usize,
+    length: *mut usize,
+) -> i32 {
+    boundary(|| {
+        if length.is_null() || (capacity != 0 && output.is_null()) {
+            return super::failed(
+                Status::InvalidArgument,
+                "network endpoint text output is null",
+            );
+        }
+        // SAFETY: the caller's pointer obeys the ABI; `read_endpoint` checks it.
+        let value = match unsafe { read_endpoint(endpoint, "network endpoint") } {
+            Ok(value) => endpoint_text(value),
+            Err(status) => return status,
+        };
+        // SAFETY: length was checked above.
+        unsafe { length.write(value.len()) };
+        if capacity < value.len() {
+            return super::failed(
+                Status::BufferTooSmall,
+                "network endpoint text output is too small",
+            );
+        }
+        // SAFETY: output is writable for capacity bytes, which is sufficient.
+        unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
+        Status::Ok.code()
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Takes one queued UDP message without blocking, and its peer's endpoint.
+///
+/// # Safety
+/// `output` must be writable for `capacity` bytes, `endpoint` for its own
+/// `size` bytes, and every scalar output must be caller-owned storage.
+pub unsafe extern "C" fn nuppNativeNetDatagramReceiveEndpoint(
+    raw: u64,
+    output: *mut u8,
+    capacity: usize,
+    state: *mut u32,
+    length: *mut usize,
+    endpoint: *mut NetEndpoint,
+    truncated: *mut i32,
+) -> i32 {
+    boundary(|| {
+        if !receive_outputs_valid(output, capacity, state, length, truncated) {
+            return super::failed(
+                Status::InvalidArgument,
+                "network datagram output is invalid",
+            );
+        }
+        // SAFETY: the caller's pointer obeys the ABI; `endpoint_size` checks it.
+        if let Err(status) = unsafe { endpoint_size(endpoint, "network datagram peer output") } {
+            return status;
+        }
+        // SAFETY: every output was checked above.
+        unsafe {
+            receive(raw, output, capacity, state, length, truncated, |peer| {
+                write_endpoint(endpoint, peer)
+            })
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Attempts one nonqueued UDP send to an endpoint, keeping its IPv6 scope.
+///
+/// # Safety
+/// `endpoint` must be readable for its own `size` bytes, `state` and `sent`
+/// writable, and `input_data` readable for `input_length` bytes.
+pub unsafe extern "C" fn nuppNativeNetDatagramSendEndpoint(
+    raw: u64,
+    endpoint: *const NetEndpoint,
+    input_data: *const u8,
+    input_length: usize,
+    state: *mut u32,
+    sent: *mut usize,
+) -> i32 {
+    boundary(|| {
+        if state.is_null() || sent.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network datagram send output is null",
+            );
+        }
+        // SAFETY: the caller's pointer obeys the ABI; `read_endpoint` checks it.
+        let address = match unsafe { read_endpoint(endpoint, "network datagram peer") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: both outputs were checked above.
+        unsafe { send(raw, address, input_data, input_length, state, sent) }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_endpoint_keeps_its_ipv6_zone_through_text() {
+        let zoned = parse_endpoint("fe80::1%7", 9).unwrap();
+        let SocketAddr::V6(value) = zoned else {
+            panic!("an IPv6 literal parsed as {zoned}");
+        };
+        assert_eq!((value.scope_id(), value.port()), (7, 9));
+        assert_eq!(endpoint_text(zoned), "fe80::1%7");
+        assert_eq!(endpoint_text(parse_endpoint("::1", 1).unwrap()), "::1");
+        assert!(parse_endpoint("127.0.0.1%1", 1).is_err());
+        assert!(parse_endpoint("fe80::1%no-such-interface", 1).is_err());
+        let mut endpoint = NetEndpoint {
+            size: ENDPOINT_SIZE,
+            family: 0,
+            port: 0,
+            scope_id: 0,
+            flowinfo: 0,
+            address: [0; 16],
+        };
+        // SAFETY: the endpoint is live and carries its own size.
+        unsafe { write_endpoint(&mut endpoint, Some(zoned)) };
+        // SAFETY: as above.
+        assert_eq!(unsafe { read_endpoint(&endpoint, "endpoint") }, Ok(zoned));
+        endpoint.size = 8;
+        // SAFETY: as above; the short size is refused before any field is read.
+        assert!(unsafe { read_endpoint(&endpoint, "endpoint") }.is_err());
+    }
 
     #[test]
     fn arena_rejects_wrong_kind_and_stale_handles() {

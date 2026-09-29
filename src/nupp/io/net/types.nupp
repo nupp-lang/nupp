@@ -5,7 +5,9 @@ module nupp.io.net.types
 local net = {}
 
 type net.Address = {
-    --- The peer's address, as a literal.
+    --- The peer's address, as a literal. A link-local IPv6 address carries the
+    --- zone it arrived through, as in `fe80::1%4`, so a reply reaches it; a
+    --- zone may also name an interface, as in `fe80::1%lo0`.
     host: string,
 
     --- The peer's port.

@@ -1,6 +1,9 @@
-/* The versioned Rust-native ABI. Legacy nupp_native symbols are intentionally
- * absent: a migration must select this provider rather than accidentally link
- * half of each ownership model. */
+/* The versioned Rust-native provider ABI, an internal boundary between the
+ * compiler's runtime and the provider built from the same checkout. The pinned
+ * stage-zero compiler also loads it and requires this version exactly, so the
+ * ABI grows only by addition: see "Provider ABI evolution" in
+ * docs/reference/native-runtime.md. A call that returns an int32_t status
+ * answers NUPP_NATIVE_INTERNAL for a panic inside it rather than aborting. */
 
 #ifndef NUPP_NATIVE_H
 #define NUPP_NATIVE_H
@@ -54,6 +57,8 @@
  * them itself; this header does not. */
 #define NUPP_NATIVE_FEATURE_CODEGEN (UINT64_C(1) << 11)
 #define NUPP_NATIVE_FEATURE_AOT_RUNTIME (UINT64_C(1) << 12)
+/* The endpoint calls of the network family, which carry an IPv6 scope. */
+#define NUPP_NATIVE_FEATURE_NET_ENDPOINT (UINT64_C(1) << 13)
 
 #ifdef __cplusplus
 extern "C" {
@@ -233,11 +238,29 @@ typedef struct {
     int32_t reuse_port;
 } NuppNativeNetDatagramOptions;
 
+/* Superseded by NuppNativeNetEndpoint, which can carry a link-local peer's
+ * scope. It and the calls taking it stay while the pinned stage-zero bundle
+ * names them. */
 typedef struct {
     uint8_t address[16];
     uint16_t port;
     uint8_t family;
 } NuppNativeNetAddress;
+
+/* Present when NUPP_NATIVE_FEATURE_NET_ENDPOINT is set. The caller sets `size`
+ * to sizeof(NuppNativeNetEndpoint) before any call reads or writes one. A call
+ * refuses a size smaller than this first version's with INVALID_ARGUMENT, and
+ * reads or writes only the fields it knows, leaving `size` as it was. `family`
+ * is one of the NUPP_NATIVE_NET_ADDRESS values; an IPv4 address fills the
+ * first four bytes of `address` and carries no scope or flow label. */
+typedef struct {
+    uint32_t size;
+    uint8_t family;
+    uint16_t port;
+    uint32_t scope_id;
+    uint32_t flowinfo;
+    uint8_t address[16];
+} NuppNativeNetEndpoint;
 
 #define NUPP_NATIVE_NET_ADDRESS_NONE 0u
 #define NUPP_NATIVE_NET_ADDRESS_V4 4u
@@ -247,6 +270,7 @@ typedef struct {
 #define NUPP_NATIVE_NET_ACCEPTED 0u
 #define NUPP_NATIVE_NET_PENDING 1u
 #define NUPP_NATIVE_NET_READ_DATA 0u
+#define NUPP_NATIVE_NET_READ_PENDING 1u
 #define NUPP_NATIVE_NET_READ_EOF 2u
 #define NUPP_NATIVE_NET_WRITE_ACCEPTED 0u
 #define NUPP_NATIVE_NET_WRITE_CLOSED 2u
@@ -335,6 +359,26 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramMembership(
     uint8_t interface_kind, int32_t join);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramRelease(
     uint64_t datagram);
+/* The endpoint twins of the address calls above. Text is an IP literal, and an
+ * IPv6 endpoint with a scope prints and parses it as `%scope`; parsing also
+ * takes an interface name there, such as `fe80::1%lo0`, where the platform can
+ * look one up. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamLocalEndpoint(
+    uint64_t stream, NuppNativeNetEndpoint *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamPeerEndpoint(
+    uint64_t stream, NuppNativeNetEndpoint *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetEndpointParse(
+    NuppNativeNetSlice host, uint16_t port, NuppNativeNetEndpoint *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetEndpointText(
+    const NuppNativeNetEndpoint *endpoint, uint8_t *output,
+    size_t capacity, size_t *length);
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramReceiveEndpoint(
+    uint64_t datagram, uint8_t *output, size_t capacity,
+    uint32_t *state, size_t *length, NuppNativeNetEndpoint *endpoint,
+    int32_t *truncated);
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramSendEndpoint(
+    uint64_t datagram, const NuppNativeNetEndpoint *endpoint,
+    const uint8_t *data, size_t length, uint32_t *state, size_t *sent);
 /* Poll snapshots a monotonic activity generation. Recheck resource state
  * before waiting from that generation so no readiness edge can be lost. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetPoll(uint64_t *generation);

@@ -717,4 +717,40 @@ function M.aPartiallyConsumedStreamStillDeliversEverything()
    listener:close()
 end
 
+-- A link-local IPv6 address this machine holds, as `address%interface`, or nil.
+local function linkLocalAddress()
+   local command = jit.os == "OSX" and "ifconfig lo0 inet6 2>/dev/null"
+      or "ip -o -6 addr show scope link 2>/dev/null"
+   local pipe = io.popen(command)
+   if not pipe then return nil end
+   local text = pipe:read("*a")
+   pipe:close()
+   if jit.os == "OSX" then
+      return text:find("fe80::1%lo0", 1, true) and "fe80::1%lo0" or nil
+   end
+   local interface, address = text:match("%d+:%s+(%S+)%s+inet6%s+(fe80:[%x:]+)")
+   return interface and (address .. "%" .. interface) or nil
+end
+
+function M.aLinkLocalPeerCanBeAnswered()
+   -- N-4: a datagram from a link-local peer names its interface only through
+   -- the scope it arrived with, so the reply has to carry it back.
+   local zoned = linkLocalAddress()
+   if not zoned then test.skip("this machine holds no link-local IPv6 address") end
+   local a = assert(net.bind({host = "::", port = 0}))
+   local b = assert(net.bind({host = "::", port = 0}))
+   local buffer = io_.newBuffer(64)
+   assertTrue(a:sendTo({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
+   local message = assert(b:receiveFrom(buffer, 64))
+   assertEq(buffer:getString(0, message.length), "ping", "b receives it")
+   assertTrue(message.address.host:find("%", 1, true) ~= nil, "the peer arrives with its scope")
+   local replied, why = b:sendTo(message.address, "pong")
+   assertTrue(replied, "b answers the peer it heard from: " .. tostring(why))
+   local answer = assert(a:receiveFrom(buffer, 64))
+   assertEq(buffer:getString(0, answer.length), "pong", "and a receives the answer")
+   buffer:close()
+   b:close()
+   a:close()
+end
+
 return M

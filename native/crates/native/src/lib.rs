@@ -44,6 +44,7 @@ const FEATURE_TLS: u64 = 1 << 9;
 const FEATURE_COMPRESSION: u64 = 1 << 10;
 const FEATURE_CODEGEN: u64 = 1 << 11;
 const FEATURE_AOT_RUNTIME: u64 = 1 << 12;
+const FEATURE_NET_ENDPOINT: u64 = 1 << 13;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -150,6 +151,11 @@ pub extern "C" fn nuppNativeFeatures() -> u64 {
             }
             | if cfg!(nupp_aot_runtime) {
                 FEATURE_AOT_RUNTIME
+            } else {
+                0
+            }
+            | if cfg!(feature = "net") {
+                FEATURE_NET_ENDPOINT
             } else {
                 0
             }
@@ -423,6 +429,7 @@ mod tests {
             ("COMPRESSION", FEATURE_COMPRESSION),
             ("CODEGEN", FEATURE_CODEGEN),
             ("AOT_RUNTIME", FEATURE_AOT_RUNTIME),
+            ("NET_ENDPOINT", FEATURE_NET_ENDPOINT),
         ] {
             let define = format!(
                 "#define NUPP_NATIVE_FEATURE_{name} (UINT64_C(1) << {})",

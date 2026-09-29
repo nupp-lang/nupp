@@ -1,9 +1,18 @@
+#ifndef _WIN32
+/* getifaddrs is outside strict C11 on glibc. */
+#define _DEFAULT_SOURCE 1
+#endif
+
 #include "nupp_native.h"
 
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #ifndef _WIN32
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #endif
 
@@ -13,6 +22,18 @@ _Static_assert(offsetof(NuppNativeNetAddress, port) == 16,
     "network address port has an unexpected offset");
 _Static_assert(offsetof(NuppNativeNetAddress, family) == 18,
     "network address family has an unexpected offset");
+_Static_assert(offsetof(NuppNativeNetEndpoint, family) == 4,
+    "network endpoint family has an unexpected offset");
+_Static_assert(offsetof(NuppNativeNetEndpoint, port) == 6,
+    "network endpoint port has an unexpected offset");
+_Static_assert(offsetof(NuppNativeNetEndpoint, scope_id) == 8,
+    "network endpoint scope has an unexpected offset");
+_Static_assert(offsetof(NuppNativeNetEndpoint, flowinfo) == 12,
+    "network endpoint flow label has an unexpected offset");
+_Static_assert(offsetof(NuppNativeNetEndpoint, address) == 16,
+    "network endpoint address has an unexpected offset");
+_Static_assert(sizeof(NuppNativeNetEndpoint) == 32,
+    "network endpoint has an unexpected size");
 
 static int failed(const char *operation, int32_t status) {
     fprintf(stderr, "%s: status %d: %s\n", operation, status,
@@ -233,6 +254,176 @@ static int test_datagrams(uint64_t wrong_kind) {
     return 0;
 }
 
+static int receive_endpoint(uint64_t socket, uint8_t *bytes, size_t capacity,
+        const char *expected, NuppNativeNetEndpoint *peer) {
+    size_t attempts;
+
+    for (attempts = 0; attempts != 100; ++attempts) {
+        uint32_t state = 0;
+        size_t length = 0;
+        int32_t truncated = 0;
+        uint64_t generation = 0;
+        int32_t status = nuppNativeNetDatagramReceiveEndpoint(
+            socket, bytes, capacity, &state, &length, peer, &truncated);
+        if (status != NUPP_NATIVE_OK) {
+            return failed("endpoint datagram receive", status);
+        }
+        if (state == NUPP_NATIVE_NET_DATAGRAM_MESSAGE) {
+            if (length != strlen(expected)
+                || memcmp(bytes, expected, length) != 0) {
+                fprintf(stderr, "endpoint datagram changed its payload\n");
+                return 1;
+            }
+            return 0;
+        }
+        status = nuppNativeNetPoll(&generation);
+        if (status != NUPP_NATIVE_OK) return failed("datagram poll", status);
+        status = nuppNativeNetWait(generation, 50, &generation);
+        if (status != NUPP_NATIVE_OK) return failed("datagram wait", status);
+    }
+    fprintf(stderr, "endpoint datagram did not become ready\n");
+    return 1;
+}
+
+#ifndef _WIN32
+/* A link-local IPv6 address this machine holds, written as `address%zone`
+ * with its interface's name. Zero when it has none. */
+static int link_local_address(char *text, size_t capacity) {
+    struct ifaddrs *all = NULL;
+    struct ifaddrs *each;
+    int found = 0;
+
+    if (getifaddrs(&all) != 0) return 0;
+    for (each = all; each && !found; each = each->ifa_next) {
+        struct sockaddr_in6 address;
+        char literal[INET6_ADDRSTRLEN];
+        if (!each->ifa_addr || each->ifa_addr->sa_family != AF_INET6
+            || !(each->ifa_flags & IFF_UP)) {
+            continue;
+        }
+        memcpy(&address, each->ifa_addr, sizeof address);
+        if (!IN6_IS_ADDR_LINKLOCAL(&address.sin6_addr)) continue;
+        /* BSD kernels embed the interface index in the second word. */
+        address.sin6_addr.s6_addr[2] = 0;
+        address.sin6_addr.s6_addr[3] = 0;
+        if (!inet_ntop(AF_INET6, &address.sin6_addr, literal, sizeof literal)) {
+            continue;
+        }
+        snprintf(text, capacity, "%s%%%s", literal, each->ifa_name);
+        found = 1;
+    }
+    freeifaddrs(all);
+    return found;
+}
+#endif
+
+/* N-4: a datagram from a link-local IPv6 peer can be answered. An address
+ * without a scope names no interface, so the reply has to carry the one the
+ * datagram arrived with. */
+static int test_link_local_reply(void) {
+    NuppNativeNetDatagramOptions options = {0};
+    NuppNativeNetEndpoint destination = {0};
+    NuppNativeNetEndpoint peer = {0};
+    NuppNativeNetEndpoint reply = {0};
+    NuppNativeNetSlice host;
+    char zoned[INET6_ADDRSTRLEN + IF_NAMESIZE + 2];
+    uint8_t text[96];
+    uint8_t bytes[16];
+    size_t length = 0;
+    size_t sent = 0;
+    uint64_t sender = 0;
+    uint64_t receiver = 0;
+    uint16_t port = 0;
+    uint32_t state = 0;
+    int32_t status;
+
+    if ((nuppNativeFeatures() & NUPP_NATIVE_FEATURE_NET_ENDPOINT) == 0) {
+        fprintf(stderr, "network endpoint feature bit is absent\n");
+        return 1;
+    }
+    destination.size = 8;
+    host.data = (const uint8_t *)"::1";
+    host.length = 3;
+    if (nuppNativeNetEndpointParse(host, 1, &destination)
+            != NUPP_NATIVE_INVALID_ARGUMENT) {
+        fprintf(stderr, "a short endpoint size was accepted\n");
+        return 1;
+    }
+    destination.size = sizeof destination;
+    host.data = (const uint8_t *)"127.0.0.1%1";
+    host.length = sizeof "127.0.0.1%1" - 1;
+    if (nuppNativeNetEndpointParse(host, 1, &destination)
+            != NUPP_NATIVE_INVALID_ARGUMENT) {
+        fprintf(stderr, "an IPv4 address with a zone was accepted\n");
+        return 1;
+    }
+#ifdef _WIN32
+    (void)zoned;
+    return 0;
+#else
+    if (!link_local_address(zoned, sizeof zoned)) {
+        fprintf(stderr, "no link-local IPv6 address; skipping the reply\n");
+        return 0;
+    }
+    options.host.data = (const uint8_t *)"::";
+    options.host.length = 2;
+    status = nuppNativeNetDatagramCreate(&options, &receiver);
+    if (status != NUPP_NATIVE_OK) return failed("IPv6 receiver create", status);
+    status = nuppNativeNetDatagramCreate(&options, &sender);
+    if (status != NUPP_NATIVE_OK) return failed("IPv6 sender create", status);
+    status = nuppNativeNetDatagramPort(receiver, &port);
+    if (status != NUPP_NATIVE_OK) return failed("IPv6 receiver port", status);
+
+    host.data = (const uint8_t *)zoned;
+    host.length = strlen(zoned);
+    status = nuppNativeNetEndpointParse(host, port, &destination);
+    if (status != NUPP_NATIVE_OK) return failed("zoned endpoint parse", status);
+    if (destination.family != NUPP_NATIVE_NET_ADDRESS_V6
+        || destination.scope_id == 0 || destination.port != port
+        || destination.size != sizeof destination) {
+        fprintf(stderr, "%s parsed without its scope\n", zoned);
+        return 1;
+    }
+    status = nuppNativeNetEndpointText(&destination, text, sizeof text, &length);
+    if (status != NUPP_NATIVE_OK) return failed("endpoint text", status);
+    if (!memchr(text, '%', length)) {
+        fprintf(stderr, "endpoint text dropped its scope\n");
+        return 1;
+    }
+    if (nuppNativeNetEndpointText(&destination, text, 2, &length)
+            != NUPP_NATIVE_BUFFER_TOO_SMALL || length <= 2) {
+        fprintf(stderr, "a short endpoint text output was not too small\n");
+        return 1;
+    }
+
+    status = nuppNativeNetDatagramSendEndpoint(sender, &destination,
+        (const uint8_t *)"ping", 4, &state, &sent);
+    if (status != NUPP_NATIVE_OK) return failed("link-local send", status);
+    peer.size = sizeof peer;
+    if (receive_endpoint(receiver, bytes, sizeof bytes, "ping", &peer) != 0) {
+        return 1;
+    }
+    if (peer.family != NUPP_NATIVE_NET_ADDRESS_V6 || peer.scope_id == 0) {
+        fprintf(stderr, "the link-local peer arrived without its scope\n");
+        return 1;
+    }
+    status = nuppNativeNetDatagramSendEndpoint(receiver, &peer,
+        (const uint8_t *)"pong", 4, &state, &sent);
+    if (status != NUPP_NATIVE_OK) return failed("link-local reply", status);
+    if (state != NUPP_NATIVE_NET_DATAGRAM_SENT || sent != 4) {
+        fprintf(stderr, "the link-local reply was not sent\n");
+        return 1;
+    }
+    reply.size = sizeof reply;
+    if (receive_endpoint(sender, bytes, sizeof bytes, "pong", &reply) != 0) {
+        return 1;
+    }
+    nuppNativeNetDatagramRelease(sender);
+    nuppNativeNetDatagramRelease(receiver);
+    return 0;
+#endif
+}
+
 #ifndef _WIN32
 static int test_path_stream(void) {
     static const uint8_t payload[] = "path";
@@ -432,6 +623,7 @@ int main(void) {
     if (wait_for_stream_flag(client, NUPP_NATIVE_NET_STREAM_WRITE_CLOSED,
             "stream state missed the local half-close") != 0) return 1;
     if (test_datagrams(listener) != 0) return 1;
+    if (test_link_local_reply() != 0) return 1;
     if (test_path_stream() != 0) return 1;
 
     status = nuppNativeNetStreamRelease(server);

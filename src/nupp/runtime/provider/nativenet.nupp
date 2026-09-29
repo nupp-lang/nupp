@@ -62,10 +62,13 @@ typedef struct {
     int32_t reuse_port;
 } NuppNativeNetDatagramOptions;
 typedef struct {
-    uint8_t address[16];
-    uint16_t port;
+    uint32_t size;
     uint8_t family;
-} NuppNativeNetAddress;
+    uint16_t port;
+    uint32_t scope_id;
+    uint32_t flowinfo;
+    uint8_t address[16];
+} NuppNativeNetEndpoint;
 
 int32_t nuppNativeNetListenerCreate(const NuppNativeNetListenOptions *, uint64_t *);
 int32_t nuppNativeNetPathListenerCreate(const NuppNativeNetPathListenOptions *, uint64_t *);
@@ -82,19 +85,19 @@ int32_t nuppNativeNetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, 
 int32_t nuppNativeNetStreamPendingWrite(uint64_t, size_t *);
 int32_t nuppNativeNetStreamState(uint64_t, uint32_t *);
 int32_t nuppNativeNetStreamShutdownWrite(uint64_t);
-int32_t nuppNativeNetStreamLocalAddress(uint64_t, NuppNativeNetAddress *);
-int32_t nuppNativeNetStreamPeerAddress(uint64_t, NuppNativeNetAddress *);
+int32_t nuppNativeNetStreamLocalEndpoint(uint64_t, NuppNativeNetEndpoint *);
+int32_t nuppNativeNetStreamPeerEndpoint(uint64_t, NuppNativeNetEndpoint *);
 int32_t nuppNativeNetStreamSetNoDelay(uint64_t, int32_t);
 int32_t nuppNativeNetStreamSetKeepAlive(uint64_t, int32_t, uint32_t);
 int32_t nuppNativeNetStreamRelease(uint64_t);
-int32_t nuppNativeNetAddressParse(NuppNativeNetSlice, uint16_t, NuppNativeNetAddress *);
-int32_t nuppNativeNetAddressText(const NuppNativeNetAddress *, uint8_t *, size_t, size_t *);
+int32_t nuppNativeNetEndpointParse(NuppNativeNetSlice, uint16_t, NuppNativeNetEndpoint *);
+int32_t nuppNativeNetEndpointText(const NuppNativeNetEndpoint *, uint8_t *, size_t, size_t *);
 int32_t nuppNativeNetDatagramCreate(const NuppNativeNetDatagramOptions *, uint64_t *);
 int32_t nuppNativeNetDatagramPort(uint64_t, uint16_t *);
-int32_t nuppNativeNetDatagramReceive(
-    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeNetAddress *, int32_t *);
-int32_t nuppNativeNetDatagramSend(
-    uint64_t, const NuppNativeNetAddress *, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeNetDatagramReceiveEndpoint(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeNetEndpoint *, int32_t *);
+int32_t nuppNativeNetDatagramSendEndpoint(
+    uint64_t, const NuppNativeNetEndpoint *, const uint8_t *, size_t, uint32_t *, size_t *);
 int32_t nuppNativeNetDatagramSetBroadcast(uint64_t, int32_t);
 int32_t nuppNativeNetDatagramSetMulticastTtl(uint64_t, uint32_t);
 int32_t nuppNativeNetDatagramSetMulticastLoop(uint64_t, int32_t);
@@ -107,6 +110,7 @@ int32_t nuppNativeNetWait(uint64_t, uint64_t, uint64_t *);
 
 const C = native.C
 const NET_FEATURE = 256
+const NET_ENDPOINT_FEATURE = 8192
 const PENDING = 1
 const READ_EOF = 2
 const CONNECT_READY = 1
@@ -122,6 +126,7 @@ const STREAM_WRITE_FAILED = 32
 local scratch: any = nil
 
 native.requireFeature(NET_FEATURE, "net")
+native.requireFeature(NET_ENDPOINT_FEATURE, "network endpoints")
 
 local function slice(text: string): any
     local value = native.ffi.new("NuppNativeNetSlice")
@@ -156,7 +161,9 @@ local function create(): contract.Provider
     const count = native.ffi.new("size_t[1]")
     const portOutput = native.ffi.new("uint16_t[1]")
     const scalar = native.ffi.new("int32_t[1]")
-    const addressOutput = native.ffi.new("NuppNativeNetAddress[1]")
+    -- An endpoint carries an IPv6 scope, so a link-local peer can be answered.
+    const endpoint = native.ffi.new("NuppNativeNetEndpoint[1]")
+    endpoint[0].size = native.ffi.sizeof("NuppNativeNetEndpoint")
     const hostOutput = native.ffi.new("uint8_t[?]", HOST_SIZE)
     const generation = native.ffi.new("uint64_t[1]")
     const nextGeneration = native.ffi.new("uint64_t[1]")
@@ -174,7 +181,7 @@ local function create(): contract.Provider
         if value[0].family == 0 then
             return nil
         end
-        const status = C.nuppNativeNetAddressText(value, hostOutput, HOST_SIZE, count)
+        const status = C.nuppNativeNetEndpointText(value, hostOutput, HOST_SIZE, count)
         if status ~= 0 then
             return nil
         end
@@ -337,12 +344,12 @@ local function create(): contract.Provider
         end,
 
         address = function(self: contract.Provider, stream: any, peer: boolean): shared.Address?
-            const status = peer and C.nuppNativeNetStreamPeerAddress(stream, addressOutput)
-            or C.nuppNativeNetStreamLocalAddress(stream, addressOutput)
+            const status = peer and C.nuppNativeNetStreamPeerEndpoint(stream, endpoint)
+            or C.nuppNativeNetStreamLocalEndpoint(stream, endpoint)
             if status ~= 0 then
                 return nil
             end
-            const host, port = textAddress(addressOutput)
+            const host, port = textAddress(endpoint)
             if host == nil or port == nil then
                 return nil
             end
@@ -454,14 +461,14 @@ local function create(): contract.Provider
         ): (string?, string?, integer?, boolean?, string?)
             const taking = maximum < READ_SIZE and maximum or READ_SIZE
             const into = readBuffer()
-            if C.nuppNativeNetDatagramReceive(socket, into, taking, state, count, addressOutput, scalar) ~= 0 then
+            if C.nuppNativeNetDatagramReceiveEndpoint(socket, into, taking, state, count, endpoint, scalar) ~= 0 then
                 return nil, nil, nil, nil, reason("nupp: could not receive")
             end
             if state[0] ~= DATAGRAM_MESSAGE then
                 return nil
             end
             const landed = tonumber(count[0]) as integer
-            const host, port = textAddress(addressOutput)
+            const host, port = textAddress(endpoint)
             if host == nil or port == nil then
                 return nil, nil, nil, nil, "nupp: could not read the datagram peer"
             end
@@ -476,10 +483,10 @@ local function create(): contract.Provider
             port: integer,
             bytes: string
         ): (boolean, string?)
-            if C.nuppNativeNetAddressParse(slice(host), port, addressOutput) ~= 0 then
+            if C.nuppNativeNetEndpointParse(slice(host), port, endpoint) ~= 0 then
                 return false, reason("nupp: could not address the datagram")
             end
-            if C.nuppNativeNetDatagramSend(socket, addressOutput, bytes, #bytes, state, count) ~= 0 then
+            if C.nuppNativeNetDatagramSendEndpoint(socket, endpoint, bytes, #bytes, state, count) ~= 0 then
                 return false, reason("nupp: could not send")
             end
 

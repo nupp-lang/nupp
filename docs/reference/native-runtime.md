@@ -60,6 +60,41 @@ not an extension ABI for applications. The public C embedding API in
 `host/include/nupp.h` has its own version and opaque types; its implementation
 is Rust even though C and C++ applications call it.
 
+### Provider ABI evolution
+
+The provider has one consumer built from a different checkout: the pinned
+stage-zero compiler. A fresh checkout's first build runs the previous release's
+compiler against the provider this checkout has just built, and that compiler
+requires version 2 exactly. Every other caller is built from the same checkout
+as the provider. So the version stays at 2, and the ABI grows by addition:
+
+- A minor change never renumbers. It adds exports, a feature bit, or an enum
+  value an older caller never receives. It does not change a signature, a
+  struct layout, or the meaning of a status or state value in place.
+- A replacement is named for the capability it adds, as
+  `nuppNativeNetStreamPeerEndpoint` is for an IPv6 scope, never with a version
+  suffix.
+- A new struct that crosses by pointer starts with `uint32_t size`, which the
+  caller sets to the size it was compiled with. The provider refuses a size
+  smaller than the struct's first version and touches only the fields it knows,
+  so the struct can grow at its tail.
+- A symbol can be deleted once no provider module uses it and the pinned
+  stage-zero bundle does not name it. `rustabitest` checks that every
+  `nuppNative*` name in the pinned bundle is still declared in
+  `native/include/nupp_native.h`, and that the header's version is the one the
+  bundle requires.
+- Status codes and their meanings are part of the ABI. `nuppNativeBytesCopy`
+  still answers `CAPACITY` for a short output, where every other call answers
+  `BUFFER_TOO_SMALL`, because the pinned bundle reads that code as the answer
+  to its size probe.
+- A major bump takes two releases. The first ships a loader that accepts both
+  versions, the stage-zero pin moves to it, and only then does the provider
+  bump.
+
+Every export catches a Rust panic, so a panic never ends the process that
+called it. A call that returns a status answers `NUPP_NATIVE_INTERNAL`, with the
+panic's text as the last error.
+
 ## Native implementations
 
 The current implementation choices are:
