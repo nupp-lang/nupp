@@ -65,8 +65,7 @@ call only after the original native entry returns. Every named probe must be cal
 Merely finding a compiled file or a wrapper does not satisfy execution proof.
 A second process forwards those same probe wrappers to the emitted unoptimized
 scalar twins (`_forced_scalar`) and runs the unchanged oracle again; its calls
-and result are recorded separately. The route is still named `scalar-c` in
-reports, after the C lowering that first emitted the twins.
+and result are recorded separately, under the route name `scalar-c`.
 
 `simdwasmtimeconformancetest` consumes the same two compact pack definitions
 through Wasmtime 48, compiled by nupp's own LLVM. Its species case covers every public type and

@@ -928,13 +928,12 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2202",
         summary = "A declaration is built with 'new'",
-        rule = "Records and structs are constructed with `new`. Calling a "
-        .. "declaration used to be the construction, which meant the call "
-        .. "was never the program's own: a record's `__call` was shadowed "
-        .. "whenever the argument was a table, and a struct's ctype call "
-        .. "was claimed outright. Saying construction in the source gives "
-        .. "those hooks back. A record that does declare a `__call` "
-        .. "contract is called, not reported.",
+        rule = "Records and structs are constructed with `new`, so calling a "
+        .. "declaration is never a construction and the call stays the "
+        .. "program's own: a record's `__call` is not shadowed when the "
+        .. "argument is a table, and a struct's ctype call is not claimed. "
+        .. "A record that does declare a `__call` contract is called, not "
+        .. "reported.",
         wrong = "local record Point\n    x: integer\nend\n\n" .. "local p = Point{x = 1}\n\nreturn p\n",
         right = "local record Point\n    x: integer\nend\n\n" .. "local p = new Point(x = 1)\n\nreturn p\n",
         related = {"NUPP2206"},
@@ -1293,9 +1292,8 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2207",
         summary = "A binding is read before it holds a value",
-        rule = "`local v: Vec2` used to construct one where it was declared, "
-        .. "which was a construction the source did not say. It no longer "
-        .. "does, so the binding holds nil until something assigns to it, "
+        rule = "`local v: Vec2` declares a binding and constructs nothing, "
+        .. "so the binding holds nil until something assigns to it, "
         .. "and reading it before that indexes nil at run time rather than "
         .. "yielding a value of the declared type. Strict code holds every "
         .. "annotation that does not admit nil to this, and a binding is "

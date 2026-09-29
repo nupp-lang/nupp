@@ -2384,8 +2384,8 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     end
     assert(out:find("fmul.4s", 1, true), "binary32 multiplication remains a vector operation: " .. out)
     assert(out:find("fadd.4s", 1, true), "binary32 addition remains a vector operation: " .. out)
-    -- The C lowering's oracle walked lanes one at a time. The LLVM route's is
-    -- the same IR left unoptimized, and the Lua body is the reference.
+    -- The scalar oracle is the same IR left unoptimized, and the Lua body is
+    -- the reference.
     if not out:find("; codegen ", 1, true) then
         assert(
             out:find("0 vector", 1, true),

@@ -330,7 +330,7 @@ withbinding    = bindname "=" exp
 
 ; Declared modules and typed declaration visibility are contextual [CS-5].
 ; `local` is file-private, `export` publishes from a declared module, and
-; `global` enters the legacy project globals.
+; `global` enters the project's globals.
 stat           =/ modulestat
 stat           =/ exportstat
 modulestat     = %s"module" Name *("." Name)
