@@ -5,22 +5,9 @@ local io = require("nupp.io")
 local messages = require("nupp.io.files.messages")
 local appPaths = require("nupp.io.files.path")
 
---- A forward-only byte reader sharing an open file's cursor.
-export interface FileReader is io.Reader
-end
-
---- A forward-only byte writer sharing an open file's cursor.
-export interface FileWriter is io.Writer
-end
-
---- An affine open file and its exclusive platform handle.
-export interface File is nupp.Closeable
-    --- Opens a reader at the shared cursor.
-    newReader: function(borrows self: File): affine(FileReader) borrows (self)
-
-    --- Opens a writer at the shared cursor.
-    newWriter: function(borrows self: File): affine(FileWriter) borrows (self)
-
+--- An affine open file and its exclusive platform handle. The file is itself the
+--- byte stream: every read and write moves its one cursor.
+export interface File is io.Reader, io.Writer
     --- Returns the file's byte length without moving its cursor.
     size: function(borrows self: File): (integer?, string?)
 

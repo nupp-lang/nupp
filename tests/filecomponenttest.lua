@@ -20,7 +20,7 @@ local function write(path, text)
     file:close()
 end
 
-function M.buildsFileReadersAndLineIteratorsInAColdComponent()
+function M.buildsFilesAndLineIteratorsInAColdComponent()
     local directory = os.tmpname()
     if package.config:sub(1, 1) == "\\" then
         directory = directory:gsub("^/([A-Za-z])/", "%1:/")

@@ -405,7 +405,7 @@ function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
 
     local file = assert(files.open(inRoot("handles/source.txt")))
     test.equal(assert(file:size()), 12)
-    local reader = file:newReader()
+    local reader = file
     test.equal(reader:read(5), "hello")
     test.equal(assert(file:position()), 5)
     test.equal(reader:read(64), " world!")
@@ -425,10 +425,10 @@ function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     test.equal(assert(file:position()), 9007199254740991, "a refused seek leaves the cursor unchanged")
     file:close()
     assert(file:isReleased())
-    test.equal(select(2, reader:read(1)), "the file is closed", "a reader over a closed file says so")
+    test.equal(select(2, reader:read(1)), "the file is closed", "a read from a closed file says so")
 
     local out = assert(files.open(inRoot("handles/sink.txt"), "w"))
-    local writer = out:newWriter()
+    local writer = out
     assert(writer:write("prefix:"))
     assert(writer:flush())
     test.equal(select("#", out:close()), 0, "a file's close answers nothing; flush reports failures")
@@ -453,14 +453,14 @@ function M.transfersMoveBytesWithoutAStringInBetween()
 
     local source = assert(files.open(inRoot("transfer/big.bin")))
     local sink = assert(files.open(inRoot("transfer/copy.bin"), "w"))
-    test.equal(source:newReader():transferTo(sink:newWriter()), #payload)
+    test.equal(source:transferTo(sink), #payload)
     source:close()
     sink:close()
     test.equal(assert(files.read(inRoot("transfer/copy.bin"))), payload)
 
     local file = assert(files.open(inRoot("transfer/big.bin")))
     local buffer = buffers.newBuffer()
-    local reader = file:newReader()
+    local reader = file
     test.equal(reader:readInto(buffer, 0, 5), 5)
     test.equal(buffer:getString(), "chunk")
     test.equal(reader:readInto(buffer, 8, 5), 5, "a read lands where it is told")
@@ -473,7 +473,7 @@ function M.aBufferWritesIntoAFileFromItsOwnStorage()
     assert(files.createDirectory(inRoot("frombuffer")))
     local buffer = buffers.newBuffer("prefix:body")
     local file = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
-    local writer = file:newWriter()
+    local writer = file
     local bytes = buffer:readSpan()
     test.equal(writer:writeSpan(bytes:slice(1, 7)), 7)
     test.equal(writer:writeSpan(bytes:slice(8)), 4)
@@ -485,7 +485,7 @@ function M.aBufferWritesIntoAFileFromItsOwnStorage()
     test.raises(
         function()
             local other = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
-            other:newWriter():writeSpan(bytes:slice(9, 48))
+            other:writeSpan(bytes:slice(9, 48))
         end,
         "out of bounds"
     )
@@ -601,14 +601,12 @@ function M.argumentsAreCheckedAtTheCallSite()
         end,
         "must be an integer"
     )
-    local reader = file:newReader()
     test.raises(
         function()
-            reader:read(math.huge)
+            file:read(math.huge)
         end,
         "must be an integer"
     )
-    reader:close()
     file:close()
 end
 

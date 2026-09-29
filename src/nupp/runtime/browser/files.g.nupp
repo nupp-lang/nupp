@@ -111,9 +111,6 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
     return answer.value, nil
 end
 
-local newReaderOver: function(borrows file: File): affine(FileReader) borrows (file)
-local newWriterOver: function(borrows file: File): affine(FileWriter) borrows (file)
-
 function files.capabilities(): messages.Capabilities
     local value = effect("capabilities", nil)
     local available = type(value) == "table" and value.available == true
@@ -269,24 +266,149 @@ function files.glob(path: any): ({string}?, string?)
     return nil, unavailable("glob")
 end
 
-local record File is nupp.Closeable
+local record File is io.Reader, io.Writer
     @private
     _handle: integer
     @private
     _closed: boolean
 
-    function newReader(borrows self): affine(FileReader) borrows (self)
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            return nil, "the file is closed"
         end
-        return newReaderOver(self)
+        local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
+        local destination = io.newBuffer(wanted)
+        local lease = destination:reserveWrite(0, wanted)
+        local got: integer?
+        local reason: string?
+        do
+            local output = lease:span()
+            got, reason = self:readSpan(output)
+            nupp.drop(output)
+        end
+        lease:commit(got or 0)
+        if got == nil then
+            return nil, reason
+        end
+
+        return destination:getString(), nil
     end
 
-    function newWriter(borrows self): affine(FileWriter) borrows (self)
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            return nil, "the file is closed"
         end
-        return newWriterOver(self)
+        local pointer, capacity = destination:ref()
+        local count = positive(math.min(capacity, READ_SIZE), "File:readSpan destination length", 2)
+        local leaseRead = memory.lease as function(
+            exclusive pointer: uint8[?],
+            count: integer,
+            writable: boolean?
+        ): integer
+        local lease = leaseRead(pointer, count, true)
+        local value, reason = effect("file-read", nil, {handle = self._handle, lease = lease, count = count,})
+        memory.releaseLease(lease)
+        if value == nil then
+            return nil, reason
+        end
+        local got, invalid = protocol(value, "bytes", 0)
+        if got ~= nil and got > count then
+            return nil, "browser file host returned an invalid byte count"
+        end
+
+        return got, invalid
+    end
+
+    function readInto(
+        exclusive self,
+        exclusive destination: io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        local from = counted(offset or 0, "File:readInto offset", 2)
+        local wanted = math.min(positive(count or READ_SIZE, "File:readInto count", 2), READ_SIZE)
+        local lease = destination:reserveWrite(from, wanted)
+        local got: integer?
+        local reason: string?
+        do
+            local output = lease:span()
+            got, reason = self:readSpan(output)
+            nupp.drop(output)
+        end
+        if got == nil then
+            lease:commit(0)
+            return nil, reason
+        end
+        lease:commit(got)
+
+        return got, nil
+    end
+
+    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+        local total: integer = 0
+        while true do
+            local chunk, reason = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, reason
+            end
+            if #chunk == 0 then
+                return total, nil
+            end
+            local wrote, failure = destination:write(chunk)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #chunk
+        end
+    end
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the file is closed"
+        end
+        local source = span.fromString(bytes)
+        local wrote, reason = self:writeSpan(source)
+        if wrote == nil then
+            return false, reason
+        end
+        if wrote ~= #bytes then
+            return false, "browser file host performed a short write"
+        end
+
+        return true, nil
+    end
+
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the file is closed"
+        end
+        local total: integer = 0
+        while total < #source do
+            local count = math.min(READ_SIZE, #source - total)
+            local chunk = source:slice(total + 1, total + count)
+            local pointer = chunk:ref()
+            local leaseWrite = memory.lease as function(
+                borrows pointer: const uint8[?],
+                count: integer,
+                writable: boolean?
+            ): integer
+            local lease = leaseWrite(pointer, count, false)
+            local value, reason = effect("file-write", nil, {handle = self._handle, lease = lease, count = count,})
+            memory.releaseLease(lease)
+            if value == nil then
+                return nil, reason
+            end
+            local wrote, invalid = protocol(value, "bytes", 0)
+            if wrote == nil then
+                return nil, invalid
+            end
+            if wrote ~= count then
+                return nil, "browser file host performed a short write"
+            end
+            total = total + wrote
+        end
+
+        return total, nil
     end
 
     function size(borrows self): (integer?, string?)
@@ -328,7 +450,7 @@ local record File is nupp.Closeable
 
     function flush(borrows self): (boolean, string?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            return false, "the file is closed"
         end
         local value, reason = effect("file-flush", nil, {handle = self._handle,})
         if value == nil then
@@ -348,186 +470,6 @@ local record File is nupp.Closeable
     close: @nosuspend function(takes self: File): nil
 end
 
-local record FileReader is io.Reader
-    @private
-    _file: any
-    @private
-    _closed: boolean
-
-    function read(exclusive self, count: integer): (string?, string?)
-        if self._closed then
-            return nil, "the reader is closed"
-        end
-        local wanted = math.min(positive(count, "FileReader:read count", 2), READ_SIZE)
-        local file = self._file
-        if file._closed then
-            return nil, "the file is closed"
-        end
-        local destination = io.newBuffer(wanted)
-        local lease = destination:reserveWrite(0, wanted)
-        local got: integer?
-        local reason: string?
-        do
-            local output = lease:span()
-            got, reason = self:readSpan(output)
-            nupp.drop(output)
-        end
-        lease:commit(got or 0)
-        if got == nil then
-            return nil, reason
-        end
-
-        return destination:getString(), nil
-    end
-
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        if self._closed then
-            return nil, "the reader is closed"
-        end
-        local file = self._file
-        if file._closed then
-            return nil, "the file is closed"
-        end
-        local pointer, capacity = destination:ref()
-        local count = positive(math.min(capacity, READ_SIZE), "FileReader:readSpan destination length", 2)
-        local leaseRead = memory.lease as function(
-            exclusive pointer: uint8[?],
-            count: integer,
-            writable: boolean?
-        ): integer
-        local lease = leaseRead(pointer, count, true)
-        local value, reason = effect("file-read", nil, {handle = file._handle, lease = lease, count = count,})
-        memory.releaseLease(lease)
-        if value == nil then
-            return nil, reason
-        end
-        local got, invalid = protocol(value, "bytes", 0)
-        if got ~= nil and got > count then
-            return nil, "browser file host returned an invalid byte count"
-        end
-
-        return got, invalid
-    end
-
-    function readInto(
-        exclusive self,
-        exclusive destination: io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        local from = counted(offset or 0, "FileReader:readInto offset", 2)
-        local wanted = math.min(positive(count or READ_SIZE, "FileReader:readInto count", 2), READ_SIZE)
-        local lease = destination:reserveWrite(from, wanted)
-        local got: integer?
-        local reason: string?
-        do
-            local output = lease:span()
-            got, reason = self:readSpan(output)
-            nupp.drop(output)
-        end
-        if got == nil then
-            lease:commit(0)
-            return nil, reason
-        end
-        lease:commit(got)
-
-        return got, nil
-    end
-
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        local total: integer = 0
-        while true do
-            local chunk, reason = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, reason
-            end
-            if #chunk == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #chunk
-        end
-    end
-
-    close: @nosuspend function(takes self: FileReader): nil
-end
-
-local record FileWriter is io.Writer
-    @private
-    _file: any
-    @private
-    _closed: boolean
-
-    function write(exclusive self, bytes: string): (boolean, string?)
-        if self._closed then
-            return false, "the writer is closed"
-        end
-        local file = self._file
-        if file._closed then
-            return false, "the file is closed"
-        end
-        local source = span.fromString(bytes)
-        local wrote, reason = self:writeSpan(source)
-        if wrote == nil then
-            return false, reason
-        end
-        if wrote ~= #bytes then
-            return false, "browser file host performed a short write"
-        end
-
-        return true, nil
-    end
-
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
-        if self._closed then
-            return nil, "the writer is closed"
-        end
-        local file = self._file
-        if file._closed then
-            return nil, "the file is closed"
-        end
-        local total: integer = 0
-        while total < #source do
-            local count = math.min(READ_SIZE, #source - total)
-            local chunk = source:slice(total + 1, total + count)
-            local pointer = chunk:ref()
-            local leaseWrite = memory.lease as function(
-                borrows pointer: const uint8[?],
-                count: integer,
-                writable: boolean?
-            ): integer
-            local lease = leaseWrite(pointer, count, false)
-            local value, reason = effect("file-write", nil, {handle = file._handle, lease = lease, count = count,})
-            memory.releaseLease(lease)
-            if value == nil then
-                return nil, reason
-            end
-            local wrote, invalid = protocol(value, "bytes", 0)
-            if wrote == nil then
-                return nil, invalid
-            end
-            if wrote ~= count then
-                return nil, "browser file host performed a short write"
-            end
-            total = total + wrote
-        end
-
-        return total, nil
-    end
-
-    function flush(self): (boolean, string?)
-        if self._closed then
-            return false, "the writer is closed"
-        end
-        return (self._file as File):flush()
-    end
-
-    close: @nosuspend function(takes self: FileWriter): nil
-end
-
 function File.close(takes self: File): nil
     local state = @unsafe nupp.release(self)
     if state._closed then
@@ -536,24 +478,6 @@ function File.close(takes self: File): nil
     state._closed = true
     effects.request("files", {operation = "file-close", handle = state._handle,}, function(): nil
     end)
-end
-
-function FileReader.close(takes self: FileReader): nil
-    local state = @unsafe nupp.release(self)
-    state._closed = true
-end
-
-function FileWriter.close(takes self: FileWriter): nil
-    local state = @unsafe nupp.release(self)
-    state._closed = true
-end
-
-newReaderOver = function(borrows file: File): affine(FileReader) borrows (file)
-    return new FileReader(_file = file, _closed = false)
-end
-
-newWriterOver = function(borrows file: File): affine(FileWriter) borrows (file)
-    return new FileWriter(_file = file, _closed = false)
 end
 
 -- An open cancelled after it shipped still opened a file over in the host, and an
@@ -600,9 +524,7 @@ local function wholeRead(path: any): (string?, string?)
     local file = opened as File
     local pieces: {string} = {}
     while true do
-        local reader = file:newReader()
-        local chunk, failure = reader:read(READ_SIZE)
-        reader:close()
+        local chunk, failure = file:read(READ_SIZE)
         if chunk == nil then
             file:close()
             pending = pending - 1
@@ -635,9 +557,7 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
         return false, reason
     end
     local file = opened as File
-    local writer = file:newWriter()
-    local wrote, failure = writer:write(text)
-    writer:close()
+    local wrote, failure = file:write(text)
     file:close()
     pending = pending - 1
 

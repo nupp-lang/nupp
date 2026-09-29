@@ -375,7 +375,7 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     client:close()
 end
 
--- A file writer satisfies the same checked span contract as every other destination.
+-- A file satisfies the same checked span contract as every other destination.
 function M.aBodyTransfersIntoAFileThroughCheckedSpans()
     local client = ready()
     local response, reason = client:send({url = endpoint("/large")})
@@ -384,11 +384,9 @@ function M.aBodyTransfersIntoAFileThroughCheckedSpans()
     local target = root .. "/downloaded.bin"
     local file, openReason = files.open(target, "w")
     assert(file, openReason)
-    local writer = file:newWriter()
-    local copied, copyReason = response.body:transferTo(writer)
+    local copied, copyReason = response.body:transferTo(file)
     assert(copied, copyReason)
     test.equal(copied, 4 * 1024 * 1024)
-    writer:close()
     file:close()
 
     local handle = assert(io.open(target, "rb"))

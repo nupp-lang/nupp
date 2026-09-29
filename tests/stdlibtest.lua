@@ -83,8 +83,6 @@ local FORMER_DROP_OWNERS = {
     "local owner = nupp.io.newScalarWriter()",
     "local owner = nupp.io.newLines(nupp.io.newStringReader('one'))",
     "local owner = assert(nupp.io.files.open('input.bin'))",
-    "local file = assert(nupp.io.files.open('input.bin'))\nlocal owner = file:newReader()",
-    "local file = assert(nupp.io.files.open('input.bin', 'w'))\nlocal owner = file:newWriter()",
     "local owner = assert(nupp.io.files.createTemporaryFile())",
     "local owner = nupp.mem.heap.allocate(ffi.typeof<int32>(), 4)",
     "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.allocate(ffi.typeof<Row>(), 4)",
@@ -522,15 +520,11 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
         local sought, invalidOffset = pcall(file.seek, file, math.huge, "set")
         assert(not sought and tostring(invalidOffset):find("must be an integer", 1, true), tostring(invalidOffset))
         assertEq(#calls, validCalls, "an invalid seek must not reach the host")
-        local reader = file:newReader()
-        local read, invalidCount = pcall(reader.read, reader, math.huge)
+        local read, invalidCount = pcall(file.read, file, math.huge)
         assert(not read and tostring(invalidCount):find("must be an integer", 1, true), tostring(invalidCount))
-        assertEq(assert(reader:read(3)), "abc")
-        reader:close()
-        local writer = file:newWriter()
-        assert(writer:write("xy"))
+        assertEq(assert(file:read(3)), "abc")
+        assert(file:write("xy"))
         assertEq(written, "xy")
-        writer:close()
         assert(next(leases) == nil, "file transfers must release memory leases")
 
         response["file-size"] = {size = math.huge}
@@ -2015,13 +2009,16 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         table.concat(
             {
                 "const files = require('nupp.io.files')",
+                "local function drain(exclusive source: nupp.io.Reader, exclusive sink: nupp.io.Writer): (integer?, string?)",
+                "    return source:transferTo(sink)",
+                "end",
                 "do",
                 "    local file, reason = files.open('input.txt')",
                 "    if file == nil then error(reason) end",
-                "    local reader = file:newReader()",
-                "    local writer = file:newWriter()",
-                "    local bytes: string? = reader:read(16)",
-                "    local wrote: boolean = writer:write('x')",
+                "    local bytes: string? = file:read(16)",
+                "    local wrote: boolean = file:write('x')",
+                "    local copy = assert(files.open('copy.txt', 'w'))",
+                "    local copied: integer? = drain(file, copy)",
                 "end",
             },
             "\n"

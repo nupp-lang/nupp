@@ -179,23 +179,23 @@ iterator has no failure channel to answer through.
 ```nupp
 do
     local file = assert(files.open("image.png"))
-    local reader = file:newReader()
-    print(reader:read(8))
+    print(file:read(8))
 end
 ```
 
-The reader and writer satisfy `nupp.io.Reader` and `nupp.io.Writer`, so `read`,
-`readSpan`, `readInto`, `transferTo`, `write`, `writeSpan` and `flush` mean
-what they mean over a buffer. Native callers can read and write through checked
-spans without separating a pointer from its bound. `readInto` commits the
-destination buffer only after a successful read, and `transferTo` streams a
-file of any size through a fixed window:
+A file is itself a `nupp.io.Reader` and a `nupp.io.Writer`, the same shape as a
+network stream or a TLS session, so `read`, `readSpan`, `readInto`,
+`transferTo`, `write`, `writeSpan` and `flush` mean what they mean over a
+buffer, and all of them move the one cursor the file has. Native callers can
+read and write through checked spans without separating a pointer from its
+bound. `readInto` commits the destination buffer only after a successful read,
+and `transferTo` streams a file of any size through a fixed window:
 
 ```nupp
 do
     local source = assert(files.open("input.bin"))
     local sink = assert(files.open("output.bin", "w"))
-    print(source:newReader():transferTo(sink:newWriter()))
+    print(source:transferTo(sink))
 end
 ```
 
@@ -203,8 +203,8 @@ end
 Lua. `seek(offset, origin)` moves the cursor, with `origin` one of `set`,
 `current` or `end`; `position` and `size` answer where it is and how long the
 file is. A seek before the start or beyond the exact integer range fails without
-moving the cursor. A reader or writer over a closed file answers a reason rather
-than raising.
+moving the cursor. `close` answers nothing, so a write that failed to land is
+reported by `flush`, which is the call to make first when it matters.
 
 ## Platform directories
 
@@ -486,11 +486,7 @@ export type TemporaryOptions = messages.TemporaryOptions
 
 -- Declared ahead of the records because their methods reach them, and defined below
 -- because they name the records. The types are the contract either way.
-local newReaderOver: function(borrows file: File): affine(FileReader) borrows (file)
-local newWriterOver: function(borrows file: File): affine(FileWriter) borrows (file)
-local scratch: function(borrows self: FileReader, count: integer): any
-local usable: function(borrows self: FileReader): (any, string?)
-local writable: function(borrows self: FileWriter): (any, string?)
+local scratch: function(borrows self: File, count: integer): any
 
 --- @raises string when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
@@ -557,7 +553,7 @@ local function answer(status: integer, output: any): (string?, string?)
     return native.bytes(output[0]), nil
 end
 
--- Reads through a caller-owned native buffer. FileReader and the line iterator
+-- Reads through a caller-owned native buffer. File and the line iterator
 -- share this crossing; the iterator owns its file rather than borrowing a view.
 local function readBytes(handle: any, into: any, count: integer): (string?, string?)
     local output = ffi.new("size_t[1]")
@@ -581,35 +577,184 @@ end
 ----------------------------------------------------------------------------
 
 --- An open file, and the obligation to close it.
+---
+--- A file is itself a `Reader` and a `Writer`, both moving one shared cursor, so
+--- it goes wherever a byte stream does.
 --- @export
-export record File is nupp.Closeable
+export record File is io.Reader, io.Writer
     @private
     _handle: any
     @private
     _closed: boolean
+    @private
+    _scratch: any
+    @private
+    _capacity: integer
 
-    --- Opens a forward-only reader at the file's current position.
+    --- Reads up to `count` bytes at the cursor.
+    ---
+    --- An empty answer is the end of the file.
     --- @param self this file
-    --- @return the new reader
-    --- @raises string when the file is closed
-    function newReader(borrows self): affine(FileReader) borrows (self)
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the file is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises string when count is not a positive integer
+    function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            return nil, "the file is closed"
         end
+        local wanted = positive(count, "File:read count", 2)
+        local into = scratch(self, wanted)
 
-        return newReaderOver(self)
+        return readBytes(self._handle, into, wanted)
     end
 
-    --- Opens a forward-only writer at the file's current position.
+    --- Reads at the cursor directly into a checked writable span.
     --- @param self this file
-    --- @return the new writer
-    --- @raises string when the file is closed
-    function newWriter(borrows self): affine(FileWriter) borrows (self)
+    --- @param destination the positive-sized range to fill
+    --- @return how many bytes were read, or nil when the file is closed
+    --- @return why it could not read, when unsuccessful
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            return nil, "the file is closed"
+        end
+        local wanted = positive(#destination, "File:readSpan destination length", 2)
+        local pointer = destination:ref()
+        local output = ffi.new("size_t[1]")
+        local status = fileRead(self._handle, pointer, wanted, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeLastError())
         end
 
-        return newWriterOver(self)
+        local got = tonumber(output[0]) as integer
+        if got < 0 or got > wanted then
+            return nil, "the native files provider returned an invalid read count"
+        end
+
+        return got, nil
+    end
+
+    --- Reads at the cursor into a buffer.
+    ---
+    --- A zero answer is the end of the file.
+    --- @param self this file
+    --- @param destination the buffer to write into
+    --- @param offset where in the destination to start, or the beginning
+    --- @param count the most bytes to read
+    --- @return how many bytes were read, or nil on failure
+    --- @return why it could not read, when unsuccessful
+    function readInto(
+        exclusive self,
+        exclusive destination: io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        if self._closed then
+            return nil, "the file is closed"
+        end
+        local from = counted(offset or 0, "File:readInto offset", 2)
+        local wanted = positive(count or READ_SIZE, "File:readInto count", 2)
+        local chunk, failure = self:read(wanted)
+        if chunk == nil then
+            return nil, failure
+        end
+        local taking = #(chunk as string)
+        if taking == 0 then
+            return 0, nil
+        end
+        local input = span.fromString(chunk as string)
+        local lease = destination:reserveWrite(from, wanted)
+        do
+            local output = lease:span()
+            for index = 1, taking do
+                output[index] = input[index]
+            end
+            nupp.drop(output)
+        end
+        lease:commit(taking)
+
+        return taking, nil
+    end
+
+    --- Reads the rest of the file into a writer.
+    --- @param self this file
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+        if self._closed then
+            return nil, "the file is closed"
+        end
+        local total: integer = 0
+        while true do
+            local chunk, why = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, why
+            end
+            if #(chunk as string) == 0 then
+                return total, nil
+            end
+            local wrote, failure = destination:write(chunk as string)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #(chunk as string)
+        end
+    end
+
+    --- Writes bytes at the cursor.
+    --- @param self this file
+    --- @param bytes the bytes to write
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
+    --- @raises string when bytes is not a string
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the file is closed"
+        end
+        if type(bytes) ~= "string" then
+            error("nupp: io.files File:write needs a string", 2)
+        end
+        local output = ffi.new("size_t[1]")
+        local status = C.nuppNativeFileWrite(self._handle, bytes, #bytes, output)
+        if status ~= 0 then
+            return false, ffi.string(C.nuppNativeLastError())
+        end
+
+        local wrote = tonumber(output[0]) as integer
+        if wrote ~= #bytes then
+            return false, "the native files provider performed a short write"
+        end
+
+        return true, nil
+    end
+
+    --- Writes bytes from a checked shared span at the cursor.
+    --- @param self this file
+    --- @param source bytes valid for the duration of the call
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the file is closed"
+        end
+        local count = #source
+        if count == 0 then
+            return 0, nil
+        end
+        local pointer = source:ref()
+        local output = ffi.new("size_t[1]")
+        local status = fileWrite(self._handle, pointer, count, output)
+        if status ~= 0 then
+            return nil, ffi.string(C.nuppNativeLastError())
+        end
+
+        local wrote = tonumber(output[0]) as integer
+        if wrote < 0 or wrote > count then
+            return nil, "the native files provider returned an invalid write count"
+        end
+
+        return wrote, nil
     end
 
     --- Answers the file's byte length without moving the cursor.
@@ -662,14 +807,14 @@ export record File is nupp.Closeable
         return self:seek(0, "current")
     end
 
-    --- Pushes buffered writes at the operating system.
+    --- Pushes buffered writes at the operating system, and reports a write that
+    --- failed to land.
     --- @param self this file
     --- @return whether the flush succeeded
     --- @return a failure reason, when unsuccessful
-    --- @raises string when the file is closed
     function flush(borrows self): (boolean, string?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            return false, "the file is closed"
         end
 
         return done(C.nuppNativeFileFlush(self._handle))
@@ -700,6 +845,8 @@ function File.close(takes self: File): nil
     state._closed = true
     local handle = state._handle
     state._handle = nil
+    state._scratch = nil
+    state._capacity = 0
     C.nuppNativeFileRelease(handle)
 end
 
@@ -713,221 +860,6 @@ local function closeFile(file: any): nil
     local handle = file._handle
     file._handle = nil
     C.nuppNativeFileRelease(handle)
-end
-
-----------------------------------------------------------------------------
--- Readers and writers
-----------------------------------------------------------------------------
-
---- A forward-only reader over an open file.
---- @export
-export record FileReader is io.Reader
-    @private
-    _file: any
-    @private
-    _scratch: any
-    @private
-    _capacity: integer
-    @private
-    _closed: boolean
-
-    --- Reads up to `count` bytes.
-    ---
-    --- An empty answer is the end of the file.
-    --- @param self this reader
-    --- @param count the most bytes to read
-    --- @return the bytes, or nil when the reader or its file is closed
-    --- @return why it could not read, when unsuccessful
-    --- @raises string when count is not a positive integer
-    function read(exclusive self, count: integer): (string?, string?)
-        local file, reason = usable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local wanted = positive(count, "FileReader:read count", 2)
-        local into = scratch(self, wanted)
-
-        return readBytes((file as File)._handle, into, wanted)
-    end
-
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        local file, reason = usable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local wanted = positive(#destination, "FileReader:readSpan destination length", 2)
-        local pointer = destination:ref()
-        local output = ffi.new("size_t[1]")
-        local status = fileRead((file as File)._handle, pointer, wanted, output)
-        if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeLastError())
-        end
-
-        local got = tonumber(output[0]) as integer
-        if got < 0 or got > wanted then
-            return nil, "the native files provider returned an invalid read count"
-        end
-
-        return got, nil
-    end
-
-    --- Reads into a buffer.
-    ---
-    --- A zero answer is the end of the file.
-    --- @param self this reader
-    --- @param destination the buffer to write into
-    --- @param offset where in the destination to start, or the beginning
-    --- @param count the most bytes to read
-    --- @return how many bytes were read, or nil on failure
-    --- @return why it could not read, when unsuccessful
-    function readInto(
-        exclusive self,
-        exclusive destination: io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        local file, reason = usable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local from = counted(offset or 0, "FileReader:readInto offset", 2)
-        local wanted = positive(count or READ_SIZE, "FileReader:readInto count", 2)
-        local chunk, failure = self:read(wanted)
-        if chunk == nil then
-            return nil, failure
-        end
-        local taking = #(chunk as string)
-        if taking == 0 then
-            return 0, nil
-        end
-        local input = span.fromString(chunk as string)
-        local lease = destination:reserveWrite(from, wanted)
-        do
-            local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
-            nupp.drop(output)
-        end
-        lease:commit(taking)
-
-        return taking, nil
-    end
-
-    --- Reads the rest of the file into a writer.
-    --- @param self this reader
-    --- @param destination the writer to fill
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        local file, reason = usable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local total: integer = 0
-        while true do
-            local chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #(chunk as string) == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk as string)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #(chunk as string)
-        end
-    end
-
-    --- Closes the reader without closing the file behind it.
-    ---
-    --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `@nosuspend`, and an inline method cannot carry one.
-    --- @param self this reader, spent by the call
-    close: @nosuspend function(takes self: FileReader): nil
-end
-
---- An appending writer over an open file.
---- @export
-export record FileWriter is io.Writer
-    @private
-    _file: any
-    @private
-    _closed: boolean
-
-    --- Writes bytes at the file's current position.
-    --- @param self this writer
-    --- @param bytes the bytes to write
-    --- @return whether they were written
-    --- @return why they were not, when unsuccessful
-    --- @raises string when bytes is not a string
-    function write(exclusive self, bytes: string): (boolean, string?)
-        local file, reason = writable(self)
-        if file == nil then
-            return false, reason
-        end
-        if type(bytes) ~= "string" then
-            error("nupp: io.files FileWriter:write needs a string", 2)
-        end
-        local output = ffi.new("size_t[1]")
-        local status = C.nuppNativeFileWrite((file as File)._handle, bytes, #bytes, output)
-        if status ~= 0 then
-            return false, ffi.string(C.nuppNativeLastError())
-        end
-
-        local wrote = tonumber(output[0]) as integer
-        if wrote ~= #bytes then
-            return false, "the native files provider performed a short write"
-        end
-
-        return true, nil
-    end
-
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
-        local file, reason = writable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local count = #source
-        if count == 0 then
-            return 0, nil
-        end
-        local pointer = source:ref()
-        local output = ffi.new("size_t[1]")
-        local status = fileWrite((file as File)._handle, pointer, count, output)
-        if status ~= 0 then
-            return nil, ffi.string(C.nuppNativeLastError())
-        end
-
-        local wrote = tonumber(output[0]) as integer
-        if wrote < 0 or wrote > count then
-            return nil, "the native files provider returned an invalid write count"
-        end
-
-        return wrote, nil
-    end
-
-    --- Pushes the file's buffered writes at the operating system.
-    --- @param self this writer
-    --- @return whether the flush succeeded
-    --- @return why it did not, when it did not
-    function flush(self): (boolean, string?)
-        local file, reason = writable(self)
-        if file == nil then
-            return false, reason
-        end
-
-        return (file as File):flush()
-    end
-
-    --- Closes the writer without closing the file behind it.
-    ---
-    --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `@nosuspend`, and an inline method cannot carry one.
-    --- @param self this writer, spent by the call
-    close: @nosuspend function(takes self: FileWriter): nil
 end
 
 ----------------------------------------------------------------------------
@@ -1010,29 +942,9 @@ end
     return self:toString()
 end
 
-function FileReader.close(takes self: FileReader): nil
-    local state = @unsafe nupp.release(self)
-    state._closed = true
-    state._scratch = nil
-    state._capacity = 0
-end
-
-function FileWriter.close(takes self: FileWriter): nil
-    local state = @unsafe nupp.release(self)
-    state._closed = true
-end
-
-newReaderOver = function(borrows file: File): affine(FileReader) borrows (file)
-    return new FileReader(_file = file, _scratch = nil, _capacity = 0, _closed = false)
-end
-
-newWriterOver = function(borrows file: File): affine(FileWriter) borrows (file)
-    return new FileWriter(_file = file, _closed = false)
-end
-
 -- Grown by doubling with a floor at one read, so a caller that asks for one byte at a
 -- time does not reallocate for each of them.
-scratch = function(borrows self: FileReader, count: integer): any
+scratch = function(borrows self: File, count: integer): any
     local state = self as any
     if count > (state._capacity as integer) then
         local size = (state._capacity as integer) * 2
@@ -1047,34 +959,6 @@ scratch = function(borrows self: FileReader, count: integer): any
     end
 
     return state._scratch
-end
-
--- A reader and its file are closed independently, and either being closed is an
--- ordinary answer rather than a failure.
-usable = function(borrows self: FileReader): (any, string?)
-    local state = self as any
-    if state._closed then
-        return nil, "the reader is closed"
-    end
-    local file = state._file
-    if (file as any)._closed then
-        return nil, "the file is closed"
-    end
-
-    return file, nil
-end
-
-writable = function(borrows self: FileWriter): (any, string?)
-    local state = self as any
-    if state._closed then
-        return nil, "the writer is closed"
-    end
-    local file = state._file
-    if (file as any)._closed then
-        return nil, "the file is closed"
-    end
-
-    return file, nil
 end
 
 --- Describes one path, following symbolic links unless asked not to.
@@ -1689,7 +1573,7 @@ end
 --- ```nupp
 --- do
 ---     local file = assert(nupp.io.files.open("image.png"))
----     print(file:newReader():read(8))
+---     print(file:read(8))
 --- end
 --- ```
 --- @param path the file to open
@@ -1710,7 +1594,7 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?), st
         return nil, ffi.string(C.nuppNativeLastError())
     end
 
-    return new File(_handle = output[0], _closed = false), nil
+    return new File(_handle = output[0], _closed = false, _scratch = nil, _capacity = 0), nil
 end
 
 --- Iterates a file's lines, closing it at the end.
@@ -1736,7 +1620,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
     if status ~= 0 then
         return nil, ffi.string(C.nuppNativeLastError())
     end
-    local opened = @unsafe nupp.release(new File(_handle = output[0], _closed = false))
+    local opened = @unsafe nupp.release(new File(_handle = output[0], _closed = false, _scratch = nil, _capacity = 0))
     local into = ffi.new<uint8[?]>(READ_SIZE)
     local held = ""
     local finished = false

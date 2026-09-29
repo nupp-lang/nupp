@@ -85,14 +85,8 @@ export type ApplicationPath = appPaths.ApplicationPath
 --- A native path or an opaque application-owned path.
 export type Path = string | paths.Path | appPaths.ApplicationPath
 
---- An affine open file with one shared cursor.
+--- An affine open file, which is itself a reader and a writer over its one cursor.
 export type File = contracts.File
-
---- A forward-only reader over an open file's cursor.
-export type FileReader = contracts.FileReader
-
---- A forward-only writer over an open file's cursor.
-export type FileWriter = contracts.FileWriter
 
 --- A native temporary path removed when its owner closes unless persisted.
 export type TemporaryPath = contracts.TemporaryPath

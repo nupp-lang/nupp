@@ -115,7 +115,7 @@ end
 --- A forward-only byte source.
 ---
 --- An interface rather than the concrete things that satisfy it. A buffer's
---- reader, a file's reader and an HTTP response body are all one of these, so
+--- reader, an open file and an HTTP response body are all one of these, so
 --- code written against the contract works over any of them without knowing
 --- which it has.
 --- @export

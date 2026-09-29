@@ -23,22 +23,16 @@ do
     if file == nil then
         error(reason or "w failed", 0)
     end
-    local reader = file:newReader()
-    local denied = reader:read(1)
-    reader:close()
+    local denied = file:read(1)
     assert(denied == nil)
-    local writer = file:newWriter()
-    assert(writer:write("old"))
-    writer:close()
+    assert(file:write("old"))
 end
 do
     local file, reason = files.open(modes, "r")
     if file == nil then
         error(reason or "r failed", 0)
     end
-    local writer = file:newWriter()
-    assert(not writer:write("denied"))
-    writer:close()
+    assert(not file:write("denied"))
 end
 do
     local file, reason = files.open(modes, "w+")
@@ -46,18 +40,12 @@ do
         error(reason or "w+ failed", 0)
     end
     assert(file:size() == 0)
-    local writer = file:newWriter()
-    assert(writer:write("xy"))
-    writer:close()
+    assert(file:write("xy"))
     assert(file:seek(5) == 5)
-    writer = file:newWriter()
-    assert(writer:write("q"))
-    writer:close()
+    assert(file:write("q"))
     assert(file:size() == 6)
     assert(file:seek(0) == 0)
-    local reader = file:newReader()
-    assert(reader:read(6) == "xy\0\0\0q")
-    reader:close()
+    assert(file:read(6) == "xy\0\0\0q")
 end
 do
     local file, reason = files.open(modes, "a+")
@@ -65,13 +53,9 @@ do
         error(reason or "a+ failed", 0)
     end
     assert(file:seek(0) == 0)
-    local writer = file:newWriter()
-    assert(writer:write("z"))
-    writer:close()
+    assert(file:write("z"))
     assert(file:seek(0) == 0)
-    local reader = file:newReader()
-    assert(reader:read(7) == "xy\0\0\0qz")
-    reader:close()
+    assert(file:read(7) == "xy\0\0\0qz")
 end
 
 local locked: boolean
@@ -81,9 +65,7 @@ do
         error(openReason or "could not open file", 0)
     end
     assert(file:seek(4) == 4)
-    local reader = file:newReader()
-    assert(reader:read(3) == "def")
-    reader:close()
+    assert(file:read(3) == "def")
     assert(file:seek(0, "end") == 12)
     local second, reason = files.open(path, "r")
     locked = second == nil and type(reason) == "string"
