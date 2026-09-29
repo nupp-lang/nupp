@@ -19,16 +19,10 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-dialect=${1:-luajit}
-case "$dialect" in
-    luajit)
-        image_dir=build/browser-luajit
-        bootstrap_dir=build/browser-luajit/bootstrap
-        bootstrap_target=browserLuaJITCompilerWithoutPrelude
-        compiler_target=browserLuaJITCompiler
-        ;;
-    *) echo "usage: scripts/prelude-image [luajit]" >&2; exit 2 ;;
-esac
+image_dir=build/browser-luajit
+bootstrap_dir=build/browser-luajit/bootstrap
+bootstrap_target=browserLuaJITCompilerWithoutPrelude
+compiler_target=browserLuaJITCompiler
 IMAGE="$ROOT/$image_dir/preludeimage.bin"
 GENERATOR="$ROOT/editors/playground/tools/generate-prelude-image.lua"
 
@@ -43,14 +37,14 @@ fi
 
 mkdir -p "$(dirname "$IMAGE")"
 "$LUA" "$GENERATOR" \
-    "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$IMAGE" source "$dialect"
+    "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$IMAGE" source
 
 # A fresh checker process must reproduce the graph, including interned IDs.
 # A hydrate/write round trip alone cannot detect unordered source traversal.
 roundtrip=$(mktemp)
 trap 'rm -f "$roundtrip"' EXIT
 "$LUA" "$GENERATOR" \
-    "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$roundtrip" source "$dialect"
+    "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$roundtrip" source
 cmp "$IMAGE" "$roundtrip" \
     || { echo "prelude-image: fresh generation is not byte-reproducible" >&2; exit 1; }
 
@@ -61,6 +55,6 @@ cmp "$IMAGE" "$roundtrip" \
 # stood in for: what the checker produced and what a host reads back are the
 # same graph.
 "$LUA" "$GENERATOR" \
-    "$ROOT/$image_dir/nupp-compiler.lua" "$roundtrip" image "$dialect"
+    "$ROOT/$image_dir/nupp-compiler.lua" "$roundtrip" image
 cmp "$IMAGE" "$roundtrip" \
     || { echo "prelude-image: the image does not survive a round trip" >&2; exit 1; }

@@ -7,7 +7,7 @@ rm -rf "$work"
 mkdir -p "$work"
 
 cd "$root"
-./scripts/prelude-image luajit
+./scripts/prelude-image
 luajit_dir=$(./scripts/toolchain luajit)
 "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua \
   build/browser-luajit/nupp-compiler.lua "$work"

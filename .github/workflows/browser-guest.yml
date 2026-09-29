@@ -75,7 +75,7 @@ jobs:
           ./scripts/toolchain --all
           ./bin/nupp build
           ./bin/nupp build --target bootstrapCompiler
-          ./scripts/prelude-image luajit
+          ./scripts/prelude-image
           ./bin/nupp build --target browserLuaJITApplicationRuntime --host browser
           node tests/luajit-browser/prepare-application.mjs build/browser-guest
           luajit_dir=$(./scripts/toolchain luajit)
