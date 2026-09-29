@@ -462,10 +462,7 @@ function annotate.install(c: state.Checker): annotate.Ops
             end
 
             for _, arg in ipairs(application.annotationArgs or {}) do
-                -- Keep the established derive path explicit while the stage-zero
-                -- compiler learns the registry flag that generalizes it.
-                local qualifiedProvider = (annotation.qualifiedNames or application.name.text == "derive")
-                    and derivePath(arg.expr)
+                local qualifiedProvider = annotation.qualifiedNames and derivePath(arg.expr)
                 if arg.name
                     or not arg.expr
                     or (arg.expr.kind ~= "name" and arg.expr.kind ~= "string" and not qualifiedProvider)
