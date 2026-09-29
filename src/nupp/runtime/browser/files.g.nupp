@@ -2,7 +2,6 @@
 module nupp.runtime.browser.files
 
 local effects = require("nupp.runtime.browser.effects")
-local contracts = require("nupp.io.files.spi")
 local messages = require("nupp.io.files.messages")
 local appPaths = require("nupp.io.files.path")
 local io = require("nupp.io")
@@ -270,7 +269,7 @@ function files.glob(path: any): ({string}?, string?)
     return nil, unavailable("glob")
 end
 
-local record File
+local record File is nupp.Closeable
     @private
     _handle: integer
     @private
@@ -346,12 +345,7 @@ local record File
         return self._closed
     end
 
-    drop: @nosuspend function(takes self: File): nil
-
-    function close(takes self): boolean
-        self:drop()
-        return true
-    end
+    close: @nosuspend function(takes self: File): nil
 end
 
 local record FileReader is io.Reader
@@ -365,7 +359,7 @@ local record FileReader is io.Reader
             return nil, "the reader is closed"
         end
         local wanted = math.min(positive(count, "FileReader:read count", 2), READ_SIZE)
-        local file = self._file as File
+        local file = self._file
         if file._closed then
             return nil, "the file is closed"
         end
@@ -390,7 +384,7 @@ local record FileReader is io.Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local file = self._file as File
+        local file = self._file
         if file._closed then
             return nil, "the file is closed"
         end
@@ -453,10 +447,7 @@ local record FileReader is io.Reader
         end
     end
 
-    drop: @nosuspend function(takes self: FileReader): nil
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: FileReader): nil
 end
 
 local record FileWriter is io.Writer
@@ -469,7 +460,7 @@ local record FileWriter is io.Writer
         if self._closed then
             return false, "the writer is closed"
         end
-        local file = self._file as File
+        local file = self._file
         if file._closed then
             return false, "the file is closed"
         end
@@ -489,7 +480,7 @@ local record FileWriter is io.Writer
         if self._closed then
             return nil, "the writer is closed"
         end
-        local file = self._file as File
+        local file = self._file
         if file._closed then
             return nil, "the file is closed"
         end
@@ -529,13 +520,10 @@ local record FileWriter is io.Writer
         return (self._file as File):flush()
     end
 
-    drop: @nosuspend function(takes self: FileWriter): nil
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: FileWriter): nil
 end
 
-function File.drop(takes self: File): nil
+function File.close(takes self: File): nil
     local state = @unsafe nupp.release(self)
     if state._closed then
         return
@@ -545,12 +533,12 @@ function File.drop(takes self: File): nil
     end)
 end
 
-function FileReader.drop(takes self: FileReader): nil
+function FileReader.close(takes self: FileReader): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
 end
 
-function FileWriter.drop(takes self: FileWriter): nil
+function FileWriter.close(takes self: FileWriter): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
 end
@@ -580,7 +568,7 @@ local function closeOrphan(response: any): nil
     end
 end
 
-function files.open(path: any, mode: messages.Mode?): (affine(File?, contracts.destroyOwner), string?)
+function files.open(path: any, mode: messages.Mode?): (affine(File?), string?)
     local selected = mode or "r"
     if MODES[selected] == nil then
         error("nupp: io.files has no mode named " .. tostring(mode), 2)
@@ -609,9 +597,9 @@ local function wholeRead(path: any): (string?, string?)
     while true do
         local reader = file:newReader()
         local chunk, failure = reader:read(READ_SIZE)
-        reader:drop()
+        reader:close()
         if chunk == nil then
-            file:drop()
+            file:close()
             pending = pending - 1
             return nil, failure
         end
@@ -620,7 +608,7 @@ local function wholeRead(path: any): (string?, string?)
         end
         pieces[#pieces + 1] = chunk
     end
-    file:drop()
+    file:close()
     pending = pending - 1
 
     return table.concat(pieces), nil
@@ -644,8 +632,8 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
     local file = opened as File
     local writer = file:newWriter()
     local wrote, failure = writer:write(text)
-    writer:drop()
-    file:drop()
+    writer:close()
+    file:close()
     pending = pending - 1
 
     return wrote, failure

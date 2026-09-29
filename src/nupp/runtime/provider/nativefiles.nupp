@@ -302,7 +302,6 @@ const io = require("nupp.io")
 const span = require("nupp.mem.span")
 const messages = require("nupp.io.files.messages")
 const appPaths = require("nupp.io.files.path")
-const contracts = require("nupp.io.files.spi")
 
 -- The record is declared here rather than in the runtime cdef below, because
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
@@ -490,8 +489,8 @@ export type TemporaryOptions = messages.TemporaryOptions
 local newReaderOver: function(borrows file: File): affine(FileReader) borrows (file)
 local newWriterOver: function(borrows file: File): affine(FileWriter) borrows (file)
 local scratch: function(borrows self: FileReader, count: integer): any
-local usable: function(borrows self: FileReader): (File?, string?)
-local writable: function(borrows self: FileWriter): (File?, string?)
+local usable: function(borrows self: FileReader): (any, string?)
+local writable: function(borrows self: FileWriter): (any, string?)
 
 --- @raises string when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
@@ -583,7 +582,7 @@ end
 
 --- An open file, and the obligation to close it.
 --- @export
-export record File
+export record File is nupp.Closeable
     @private
     _handle: any
     @private
@@ -685,25 +684,15 @@ export record File
 
     --- Closes the file as an ownership terminal.
     ---
-    --- Repeated calls are safe. Declared rather than written inline because the
-    --- cleanup contract needs the `@nosuspend`, and an inline method cannot carry
-    --- one.
+    --- Repeated calls are safe. A write that failed to land is reported by `flush`,
+    --- which is the call to make before closing when that matters. Declared rather
+    --- than written inline because the cleanup contract needs the `@nosuspend`, and
+    --- an inline method cannot carry one.
     --- @param self this file, spent by the call
-    drop: @nosuspend function(takes self: File): nil
-
-    --- Closes the file and reports whether it succeeded.
-    ---
-    --- Repeated calls are safe.
-    --- @param self this file, spent by the call
-    --- @return whether the close succeeded
-    function close(takes self): boolean
-        self:drop()
-
-        return true
-    end
+    close: @nosuspend function(takes self: File): nil
 end
 
-function File.drop(takes self: File): nil
+function File.close(takes self: File): nil
     local state = @unsafe nupp.release(self)
     if state._closed then
         return
@@ -716,7 +705,7 @@ end
 
 -- Closes a file without consuming an owner, which is what the line iterator needs: it
 -- holds a file the caller never sees and closes it from inside a closure.
-local function closeFile(file: File): nil
+local function closeFile(file: any): nil
     if file._closed then
         return
     end
@@ -741,13 +730,6 @@ export record FileReader is io.Reader
     _capacity: integer
     @private
     _closed: boolean
-
-    --- Releases it as an ownership terminal.
-    ---
-    --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `@nosuspend`, and an inline method cannot carry one.
-    --- @param self this owner, spent by the call
-    drop: @nosuspend function(takes self: FileReader): nil
 
     --- Reads up to `count` bytes.
     ---
@@ -855,10 +837,11 @@ export record FileReader is io.Reader
     end
 
     --- Closes the reader without closing the file behind it.
+    ---
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this reader, spent by the call
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: FileReader): nil
 end
 
 --- An appending writer over an open file.
@@ -868,13 +851,6 @@ export record FileWriter is io.Writer
     _file: any
     @private
     _closed: boolean
-
-    --- Releases it as an ownership terminal.
-    ---
-    --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `@nosuspend`, and an inline method cannot carry one.
-    --- @param self this owner, spent by the call
-    drop: @nosuspend function(takes self: FileWriter): nil
 
     --- Writes bytes at the file's current position.
     --- @param self this writer
@@ -942,10 +918,11 @@ export record FileWriter is io.Writer
     end
 
     --- Closes the writer without closing the file behind it.
+    ---
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this writer, spent by the call
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: FileWriter): nil
 end
 
 ----------------------------------------------------------------------------
@@ -958,7 +935,7 @@ end
 --- the obligation, which is the whole reason to make one: write to a name nobody else
 --- can take, then put it where it belongs.
 --- @export
-export record TemporaryPath
+export record TemporaryPath is nupp.Closeable
     @private
     _text: string
     @private
@@ -1005,31 +982,16 @@ export record TemporaryPath
     --- rather than written inline because the cleanup contract needs the `@nosuspend`,
     --- and an inline method cannot carry one.
     --- @param self this temporary path, spent by the call
-    drop: @nosuspend function(takes self: TemporaryPath): nil
+    close: @nosuspend function(takes self: TemporaryPath): nil
 
-    --- Removes the path and reports whether it succeeded.
-    ---
-    --- Repeated calls, and a call after `persist`, are safe and do nothing.
-    --- @param self this temporary path, spent by the call
-    --- @return whether the removal succeeded
-    function close(takes self): boolean
-        local state = @unsafe nupp.release(self)
-        if state._closed then
-            return true
-        end
-        state._closed = true
-
-        return C.nuppNativeFilesRemove(slice(state._text), state._directory and 1 or 0) == 0
-    end
-
-    metamethod __tostring: function(self): string
+    metamethod __tostring: function(borrows self: TemporaryPath): string
 end
 
 ----------------------------------------------------------------------------
--- Dropping
+-- Closing
 ----------------------------------------------------------------------------
 
-function TemporaryPath.drop(takes self: TemporaryPath): nil
+function TemporaryPath.close(takes self: TemporaryPath): nil
     local state = @unsafe nupp.release(self)
     if state._closed then
         return
@@ -1039,18 +1001,18 @@ function TemporaryPath.drop(takes self: TemporaryPath): nil
 end
 
     ;
-(TemporaryPath as {[string]: any}).__tostring = function(self: TemporaryPath): string
+(TemporaryPath as {[string]: any}).__tostring = function(borrows self: TemporaryPath): string
     return self:toString()
 end
 
-function FileReader.drop(takes self: FileReader): nil
+function FileReader.close(takes self: FileReader): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
     state._scratch = nil
     state._capacity = 0
 end
 
-function FileWriter.drop(takes self: FileWriter): nil
+function FileWriter.close(takes self: FileWriter): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
 end
@@ -1084,12 +1046,12 @@ end
 
 -- A reader and its file are closed independently, and either being closed is an
 -- ordinary answer rather than a failure.
-usable = function(borrows self: FileReader): (File?, string?)
+usable = function(borrows self: FileReader): (any, string?)
     local state = self as any
     if state._closed then
         return nil, "the reader is closed"
     end
-    local file = state._file as File
+    local file = state._file
     if (file as any)._closed then
         return nil, "the file is closed"
     end
@@ -1097,12 +1059,12 @@ usable = function(borrows self: FileReader): (File?, string?)
     return file, nil
 end
 
-writable = function(borrows self: FileWriter): (File?, string?)
+writable = function(borrows self: FileWriter): (any, string?)
     local state = self as any
     if state._closed then
         return nil, "the writer is closed"
     end
-    local file = state._file as File
+    local file = state._file
     if (file as any)._closed then
         return nil, "the file is closed"
     end
@@ -1333,11 +1295,11 @@ local function temporary(options: TemporaryOptions?, directory: boolean, level: 
 end
 
 --- @raises string when value is neither bytes nor a byte view
-local function payload(value: any, what: string, level: integer): string
+local function payload(borrows value: string | io.ByteView, what: string, level: integer): string
     if type(value) == "string" then
-        return value as string
+        return tostring(value)
     end
-    if type(value) == "table" and (value as any).getString ~= nil then
+    if type(value) == "table" and (value as io.ByteView).getString ~= nil then
         return (value as io.ByteView):getString()
     end
     error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
@@ -1618,7 +1580,7 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function write(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
+export function write(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
@@ -1637,7 +1599,7 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function append(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
+export function append(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
@@ -1660,7 +1622,7 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function writeAtomic(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
+export function writeAtomic(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
     local text = named(path, "path", 2)
     local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
@@ -1731,7 +1693,7 @@ end
 --- @return a failure reason, when unsuccessful
 --- @raises string when mode names no open mode
 --- @export
-export function open(path: string | paths.Path, mode: Mode?): (affine(File?, contracts.destroyOwner), string?)
+export function open(path: string | paths.Path, mode: Mode?): (affine(File?), string?)
     local text = named(path, "path", 2)
     local selected = MODES[mode or "r"]
     if selected == nil then
@@ -1769,7 +1731,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
     if status ~= 0 then
         return nil, ffi.string(C.nuppNativeLastError())
     end
-    local opened = new File(_handle = output[0], _closed = false)
+    local opened = @unsafe nupp.release(new File(_handle = output[0], _closed = false))
     local into = ffi.new<uint8[?]>(READ_SIZE)
     local held = ""
     local finished = false
@@ -1844,9 +1806,7 @@ end
 --- @return the created path, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function createTemporaryFile(
-    options: TemporaryOptions?
-): (affine(TemporaryPath?, contracts.destroyOwner), string?)
+export function createTemporaryFile(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
     local text, reason = temporary(options, false, 2)
     if text == nil then
         return nil, reason
@@ -1861,9 +1821,7 @@ end
 --- @return the created path, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function createTemporaryDirectory(
-    options: TemporaryOptions?
-): (affine(TemporaryPath?, contracts.destroyOwner), string?)
+export function createTemporaryDirectory(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
     local text, reason = temporary(options, true, 2)
     if text == nil then
         return nil, reason

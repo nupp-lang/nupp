@@ -15,8 +15,6 @@ local positive = bytes.validatePositive
 --- each see half of them.
 --- @export
 export sealed interface Lines is nupp.Closeable
-    drop: @nosuspend function(takes self: Lines): nil
-
     --- Reads the next line, without its terminator.
     ---
     --- Both `\n` and `\r\n` end a line. Bytes left after the last terminator are
@@ -46,8 +44,6 @@ local record LineReader is Lines
     _closed: boolean
     @private
     _ended: boolean
-
-    drop: @nosuspend function(takes self: LineReader): nil
 
     function isReleased(self): boolean
         return self._closed
@@ -135,10 +131,6 @@ local record LineReader is Lines
         self._closed = true
         self._source:close()
     end
-end
-
-function LineReader.drop(takes self: LineReader): nil
-    self:close()
 end
 
 --- Takes a reader apart into lines.

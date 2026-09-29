@@ -204,7 +204,7 @@ function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     assert(result, reason)
     test.equal(result.output, "buffer input")
     assert(child:close())
-    assert(input:close())
+    input:close()
 
     local noisy = assert(startProcess({args = shell("printf 12345; printf 67890 >&2"),}))
     local limited, limitReason = noisy:communicate({maxOutputBytes = 6})

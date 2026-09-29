@@ -105,10 +105,6 @@ local record MemoryReader is Reader
     end
 
     function close(takes self): nil
-        self:drop()
-    end
-
-    function drop(takes self): nil
         local state = @unsafe nupp.release(self)
         state._closed = true
         state._length = 0

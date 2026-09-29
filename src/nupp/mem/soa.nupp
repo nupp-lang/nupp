@@ -218,7 +218,7 @@ end
 --- Frees a slab, which is what every SoA array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
+--- scope boundary or an explicit `nupp.drop` reaches it.
 ---
 --- @param self the array, spent by this call
 --- @export
@@ -229,7 +229,7 @@ end
 --- Ends a row writer, which is what every writable row view's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
+--- scope boundary or an explicit `nupp.drop` reaches it.
 ---
 --- @param self the writer, spent by this call
 --- @export
@@ -563,15 +563,13 @@ record soa.Array<T> is soa.ArrayToken
     --- Borrows the rows as an exclusive checked view.
     ---
     --- Exclusive for as long as the writer is live, and affine, so a scope
-    --- boundary or an explicit `drop` is what ends it.
+    --- boundary or an explicit `nupp.drop` is what ends it.
     write: function(
         exclusive self: Array<T>
     ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
 
-    --- Frees the slab. `drop` and scope exit both reach this.
+    --- Frees the slab. `nupp.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
-
-    drop: @nosuspend function(takes self: Array<T>): nil
 end
 
 function soa.Array.read<T>(borrows self: soa.Array<T>): soa.Span<T> borrows (self)
@@ -611,10 +609,6 @@ local finishArrayNosuspend = finishArray as @nosuspend function(takes self: any)
 
 function soa.Array.close<T>(takes self: soa.Array<T>): nil
     finishArrayNosuspend(self)
-end
-
-function soa.Array.drop<T>(takes self: soa.Array<T>): nil
-    self:close()
 end
 
 --- Compiler lowering target for `soa.allocate`.

@@ -71,8 +71,8 @@ so appending through a writer costs amortized constant time per byte and
 `capacity()` reports bytes that are actually held. `ensureCapacity` reserves at
 least the minimum asked for.
 
-`close()` releases the buffer's storage, and an operation on a released buffer
-raises rather than answering a reason.
+`close()` releases the buffer's storage and answers nothing, and an operation on
+a released buffer raises rather than answering a reason.
 
 `readSpan()` borrows the buffer's initialized bytes without separating its
 pointer from its length. Native producers write through `reserveWrite(offset,
@@ -211,8 +211,8 @@ assert(reader:remaining() == 4)
 A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
 read a field at a time. It cannot say how much is left, so `remaining()`
 answers nil and `atEnd()` is the question to ask instead. The scalar adapter
-takes that reader: closing or dropping the adapter closes or drops the reader
-exactly once.
+takes that reader: closing the adapter, by hand or at the end of its scope,
+closes the reader exactly once.
 
 ### Scalar destinations
 
@@ -227,8 +227,8 @@ assert(destination:getString() == "header:!")
 ```
 
 A writer pointed at somebody else's `Writer` answers nil from `buffer()`, since
-the bytes are already gone. That writer is taken, so closing or dropping the
-scalar adapter closes or drops it exactly once. A buffer supplied by the caller
+the bytes are already gone. That writer is taken, so closing the scalar adapter
+closes it exactly once. A buffer supplied by the caller
 is only borrowed. The buffer created by the no-argument form belongs to the
 scalar writer; `buffer()` borrows it for as long as the scalar writer remains
 live.

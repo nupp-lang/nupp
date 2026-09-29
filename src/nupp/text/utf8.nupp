@@ -104,9 +104,10 @@ local stringByte = string.byte
 
 local REPLACEMENT: integer = 65533
 
-local function bytes(value: string | ByteView): string
+local function bytes(borrows value: string | ByteView): string
     if type(value) == "string" then
-        return value as string
+        -- The same string, answered as a value of its own rather than the borrow.
+        return tostring(value)
     end
 
     return (value as ByteView):getString()
@@ -235,7 +236,7 @@ local utf8 = {}
 ---
 --- @param value the bytes to measure
 --- @return the codepoint count
-function utf8.length(value: string | ByteView): integer
+function utf8.length(borrows value: string | ByteView): integer
     local source = bytes(value)
     local count: integer = 0
     local at: integer = 1
@@ -269,7 +270,7 @@ end
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
 --- @raises string when byteOffset is not an integer, or is outside the value
-function utf8.decodeAt(value: string | ByteView, byteOffset: integer): (integer?, integer)
+function utf8.decodeAt(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
 
     return decode(source, offset(source, byteOffset, true))
@@ -295,7 +296,7 @@ end
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
 --- @raises string when byteOffset is not an integer, or is outside the value
-function utf8.decodeBefore(value: string | ByteView, byteOffset: integer): (integer?, integer)
+function utf8.decodeBefore(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
     local at = offset(source, byteOffset, true)
     if at == 1 then
@@ -368,7 +369,7 @@ end
 ---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
-function utf8.isValid(value: string | ByteView): boolean
+function utf8.isValid(borrows value: string | ByteView): boolean
     local source = bytes(value)
 
     return scan(source, #source) == #source
@@ -388,7 +389,7 @@ end
 --- @param maxBytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
 --- @raises string when maxBytes is not an integer
-function utf8.validPrefixLength(value: string | ByteView, maxBytes: integer): integer
+function utf8.validPrefixLength(borrows value: string | ByteView, maxBytes: integer): integer
     local source = bytes(value)
     if maxBytes ~= math.floor(maxBytes) or maxBytes == math.huge or maxBytes == -math.huge then
         error("nupp: UTF-8 byte limit must be an integer", 2)

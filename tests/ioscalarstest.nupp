@@ -68,6 +68,10 @@ local record ProbeWriter is Writer
     end
 
     function flush(self): (boolean, string?)
+        if self.state.flushFailure ~= nil then
+            return false, self.state.flushFailure
+        end
+
         return true
     end
 
@@ -371,7 +375,7 @@ function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil
     local readerClose = {drops = 0, closes = 0}
     do
         local scalar = io2.newScalarReader(new ProbeReader(state = readerClose))
-        assert(scalar:close())
+        scalar:close()
     end
     assert(readerClose.closes == 1)
 
@@ -384,9 +388,24 @@ function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil
     local writerClose = {drops = 0, closes = 0}
     do
         local scalar = io2.newScalarWriter(new ProbeWriter(state = writerClose))
-        assert(scalar:close())
+        scalar:close()
     end
     assert(writerClose.closes == 1)
+end
+
+-- `close` answers nothing, so a destination that failed to take its bytes has to
+-- say so earlier: `flush` is where it does, and closing afterwards still runs.
+function M.flushReportsAFailedDestinationBeforeClose(): nil
+    local state = {closes = 0, flushFailure = "disk full"}
+    do
+        local scalar = io2.newScalarWriter(new ProbeWriter(state = state))
+        scalar:writeUint8(1)
+        local flushed, reason = scalar:flush()
+        assert(flushed == false)
+        assert(reason == "disk full")
+        scalar:close()
+    end
+    assert(state.closes == 1)
 end
 
 return M

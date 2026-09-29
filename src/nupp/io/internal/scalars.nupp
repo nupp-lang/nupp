@@ -12,35 +12,9 @@ local newBuffer = storage.newBuffer
 local integer_ = storage.validateInteger
 local physical = require("nupp.runtime.storage")
 
--- A terminal has to be a declared function wherever a contract names it, and these
--- records hand each other out: a buffer answers a reader, and a snapshot answers
--- another snapshot. Written one per record, each terminal would have to follow the
--- record it takes and precede the record that hands it out, and no such order exists.
--- One generic terminal over the shape they all share is written once, ahead of them.
-local interface Owner
-    drop: @nosuspend function(takes self: Owner): nil
-end
-
---- Releases any of this module's owners. Every one of them is handed out under this
---- exact cleanup, which is why a caller never names it.
-local function destroyOwner<T is Owner>(takes self: T): nil
-    self:drop()
-end
-
-local fill: function(self: ScalarReader, need: integer): (integer, string?)
-local taken: function(self: ScalarReader, need: integer): string
-local put: function(self: ScalarWriter, bytes: string): ScalarWriter
-
 --- Reads fixed-width numbers from a source of bytes.
 --- @export
-export interface ScalarReader
-
-    --- Releases it as an ownership terminal.
-    ---
-    --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `@nosuspend`, and an inline method cannot carry one.
-    --- @param self this owner, spent by the call
-    drop: @nosuspend function(takes self: ScalarReader): nil
+export interface ScalarReader is nupp.Closeable
 
     --- How many bytes are left, when that is knowable.
     --- @param self this reader
@@ -59,7 +33,7 @@ export interface ScalarReader
     --- @param count how many to discard
     --- @return this reader
     --- @raises string when there are not that many
-    skip: function(self: ScalarReader, count: integer): ScalarReader
+    skip: function(borrows self: ScalarReader, count: integer): ScalarReader borrows (self)
 
     --- Reads bytes as they are.
     --- @param self this reader
@@ -129,11 +103,16 @@ export interface ScalarReader
     readFloat64: function(self: ScalarReader): number
 
     --- Closes the reader, and the reader it was built over when there was one.
+    ---
+    --- Repeated calls are safe.
     --- @param self this reader, spent by the call
-    --- @return whether the underlying source closed cleanly
-    --- @return why it did not, when it did not
-    close: function(takes self: ScalarReader): (boolean, string?)
+    close: @nosuspend function(takes self: ScalarReader): nil
 end
+
+-- Declared after the interface they take, so a reader here is the owner it names, and
+-- defined below.
+local fill: function(borrows self: ScalarReader, need: integer): (integer, string?)
+local taken: function(borrows self: ScalarReader, need: integer): string
 
 ----------------------------------------------------------------------------
 -- Scalars
@@ -149,7 +128,7 @@ local record Scalars is ScalarReader
     _queue: any
     @private
     _closed: boolean
-    drop: @nosuspend function(takes self: Scalars): nil
+    close: @nosuspend function(takes self: Scalars): nil
 
     function remaining(self): integer?
         if self._closed then
@@ -177,7 +156,7 @@ local record Scalars is ScalarReader
         return have < 1
     end
 
-    function skip(self, count: integer): ScalarReader
+    function skip(borrows self, count: integer): ScalarReader borrows (self)
         taken(self, integer_(count, "io.ScalarReader count", 2))
 
         return self
@@ -257,99 +236,78 @@ local record Scalars is ScalarReader
         return value as number
     end
 
-    function close(takes self): (boolean, string?)
-        local state = @unsafe nupp.release(self)
-        local reader = state._reader
-        state._reader = nil
-        state._queue = nil
-        state._pending = ""
-        state._closed = true
-        if reader then
-            reader:close()
-        end
-
-        return true, nil
-    end
-
 end
 
 --- Writes fixed-width numbers into a destination.
 --- @export
-export interface ScalarWriter
-
-    --- Releases it as an ownership terminal.
-    ---
-    --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `@nosuspend`, and an inline method cannot carry one.
-    --- @param self this owner, spent by the call
-    drop: @nosuspend function(takes self: ScalarWriter): nil
+export interface ScalarWriter is nupp.Closeable
 
     --- Writes bytes as they are.
     --- @param self this writer
     --- @param bytes the bytes to write
     --- @return this writer
     --- @raises string when bytes is not a string
-    writeBytes: function(self: ScalarWriter, bytes: string): ScalarWriter
+    writeBytes: function(borrows self: ScalarWriter, bytes: string): ScalarWriter borrows (self)
 
     --- Writes one unsigned 8-bit integer.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeUint8: function(self: ScalarWriter, value: uint32): ScalarWriter
+    writeUint8: function(borrows self: ScalarWriter, value: uint32): ScalarWriter borrows (self)
 
     --- Writes one signed 8-bit integer.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeInt8: function(self: ScalarWriter, value: int32): ScalarWriter
+    writeInt8: function(borrows self: ScalarWriter, value: int32): ScalarWriter borrows (self)
 
     --- Writes one unsigned 16-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeUint16: function(self: ScalarWriter, value: uint32): ScalarWriter
+    writeUint16: function(borrows self: ScalarWriter, value: uint32): ScalarWriter borrows (self)
 
     --- Writes one signed 16-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeInt16: function(self: ScalarWriter, value: int32): ScalarWriter
+    writeInt16: function(borrows self: ScalarWriter, value: int32): ScalarWriter borrows (self)
 
     --- Writes one unsigned 32-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeUint32: function(self: ScalarWriter, value: uint32): ScalarWriter
+    writeUint32: function(borrows self: ScalarWriter, value: uint32): ScalarWriter borrows (self)
 
     --- Writes one signed 32-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeInt32: function(self: ScalarWriter, value: int32): ScalarWriter
+    writeInt32: function(borrows self: ScalarWriter, value: int32): ScalarWriter borrows (self)
 
     --- Writes one unsigned 64-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeUint64: function(self: ScalarWriter, value: uint64): ScalarWriter
+    writeUint64: function(borrows self: ScalarWriter, value: uint64): ScalarWriter borrows (self)
 
     --- Writes one signed 64-bit integer in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeInt64: function(self: ScalarWriter, value: int64): ScalarWriter
+    writeInt64: function(borrows self: ScalarWriter, value: int64): ScalarWriter borrows (self)
 
     --- Writes one 32-bit float in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeFloat32: function(self: ScalarWriter, value: float): ScalarWriter
+    writeFloat32: function(borrows self: ScalarWriter, value: float): ScalarWriter borrows (self)
 
     --- Writes one 64-bit float in the machine's byte order.
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeFloat64: function(self: ScalarWriter, value: number): ScalarWriter
+    writeFloat64: function(borrows self: ScalarWriter, value: number): ScalarWriter borrows (self)
 
     --- The buffer this writer fills, when it has one of its own.
     --- @param self this writer
@@ -357,17 +315,23 @@ export interface ScalarWriter
     buffer: function(borrows self: ScalarWriter): Buffer? borrows (self)
 
     --- Flushes the destination, when there is one to flush.
+    ---
+    --- This is where a destination that failed to take its bytes says so: `close`
+    --- answers nothing, so a caller that needs to know flushes first.
     --- @param self this writer
     --- @return whether it flushed
     --- @return why it did not, when it did not
     flush: function(self: ScalarWriter): (boolean, string?)
 
     --- Closes the writer, and the writer it was built over when there was one.
+    ---
+    --- Repeated calls are safe.
     --- @param self this writer, spent by the call
-    --- @return whether the underlying destination closed cleanly
-    --- @return why it did not, when it did not
-    close: function(takes self: ScalarWriter): (boolean, string?)
+    close: @nosuspend function(takes self: ScalarWriter): nil
 end
+
+-- Declared after the interface it takes and answers, and defined below.
+local put: function(borrows self: ScalarWriter, bytes: string): nil
 
 --- The storage behind a scalar writer.
 local record ScalarSink is ScalarWriter
@@ -379,58 +343,80 @@ local record ScalarSink is ScalarWriter
     _ownsBuffer: boolean
     @private
     _closed: boolean
-    drop: @nosuspend function(takes self: ScalarSink): nil
+    close: @nosuspend function(takes self: ScalarSink): nil
 
-    function writeBytes(self, bytes: string): ScalarWriter
+    function writeBytes(borrows self, bytes: string): ScalarWriter borrows (self)
         if type(bytes) ~= "string" then
             error("nupp: io.ScalarWriter bytes must be a string", 2)
         end
 
-        return put(self, bytes)
+        put(self, bytes)
+
+        return self
     end
 
-    function writeUint8(self, value: uint32): ScalarWriter
-        return put(self, physical.encodeUint8(value))
+    function writeUint8(borrows self, value: uint32): ScalarWriter borrows (self)
+        put(self, physical.encodeUint8(value))
+
+        return self
     end
 
-    function writeInt8(self, value: int32): ScalarWriter
-        return put(self, physical.encodeInt8(value))
+    function writeInt8(borrows self, value: int32): ScalarWriter borrows (self)
+        put(self, physical.encodeInt8(value))
+
+        return self
     end
 
-    function writeUint16(self, value: uint32): ScalarWriter
-        return put(self, physical.encodeUint16(value))
+    function writeUint16(borrows self, value: uint32): ScalarWriter borrows (self)
+        put(self, physical.encodeUint16(value))
+
+        return self
     end
 
-    function writeInt16(self, value: int32): ScalarWriter
-        return put(self, physical.encodeInt16(value))
+    function writeInt16(borrows self, value: int32): ScalarWriter borrows (self)
+        put(self, physical.encodeInt16(value))
+
+        return self
     end
 
-    function writeUint32(self, value: uint32): ScalarWriter
-        return put(self, physical.encodeUint32(value))
+    function writeUint32(borrows self, value: uint32): ScalarWriter borrows (self)
+        put(self, physical.encodeUint32(value))
+
+        return self
     end
 
-    function writeInt32(self, value: int32): ScalarWriter
-        return put(self, physical.encodeInt32(value))
+    function writeInt32(borrows self, value: int32): ScalarWriter borrows (self)
+        put(self, physical.encodeInt32(value))
+
+        return self
     end
 
-    function writeUint64(self, value: uint64): ScalarWriter
-        return put(self, physical.encodeUint64(value))
+    function writeUint64(borrows self, value: uint64): ScalarWriter borrows (self)
+        put(self, physical.encodeUint64(value))
+
+        return self
     end
 
-    function writeInt64(self, value: int64): ScalarWriter
-        return put(self, physical.encodeInt64(value))
+    function writeInt64(borrows self, value: int64): ScalarWriter borrows (self)
+        put(self, physical.encodeInt64(value))
+
+        return self
     end
 
-    function writeFloat32(self, value: float): ScalarWriter
-        return put(self, physical.encodeFloat32(value))
+    function writeFloat32(borrows self, value: float): ScalarWriter borrows (self)
+        put(self, physical.encodeFloat32(value))
+
+        return self
     end
 
-    function writeFloat64(self, value: number): ScalarWriter
-        return put(self, physical.encodeFloat64(value))
+    function writeFloat64(borrows self, value: number): ScalarWriter borrows (self)
+        put(self, physical.encodeFloat64(value))
+
+        return self
     end
 
     function buffer(borrows self): Buffer? borrows (self)
-        return self._buffer as Buffer?
+        return self._buffer
     end
 
     function flush(self): (boolean, string?)
@@ -444,28 +430,9 @@ local record ScalarSink is ScalarWriter
         return true, nil
     end
 
-    function close(takes self): (boolean, string?)
-        local state = @unsafe nupp.release(self)
-        local writer = state._writer
-        local buffer = state._buffer
-        local ownsBuffer = state._ownsBuffer
-        state._writer = nil
-        state._buffer = nil
-        state._closed = true
-        if writer then
-            writer:close()
-            return true, nil
-        end
-        if ownsBuffer and buffer then
-            buffer:drop()
-        end
-
-        return true, nil
-    end
-
 end
 
-function Scalars.drop(takes self: Scalars): nil
+function Scalars.close(takes self: Scalars): nil
     local state = @unsafe nupp.release(self)
     local reader = state._reader
     state._closed = true
@@ -477,7 +444,7 @@ function Scalars.drop(takes self: Scalars): nil
     end
 end
 
-function ScalarSink.drop(takes self: ScalarSink): nil
+function ScalarSink.close(takes self: ScalarSink): nil
     local state = @unsafe nupp.release(self)
     local writer = state._writer
     local buffer = state._buffer
@@ -488,14 +455,14 @@ function ScalarSink.drop(takes self: ScalarSink): nil
     if writer then
         writer:close()
     elseif ownsBuffer and buffer then
-        buffer:drop()
+        buffer:close()
     end
 end
 
 -- Pulls from whichever source this reader was built over until `need` bytes are
 -- pending or the source stops answering. A reader that reports a failure stops the
 -- fill; the caller decides whether that is fatal.
-fill = function(self: ScalarReader, need: integer): (integer, string?)
+fill = function(borrows self: ScalarReader, need: integer): (integer, string?)
     local state = self as any
     local failure: string? = nil
     if state._reader then
@@ -531,7 +498,7 @@ fill = function(self: ScalarReader, need: integer): (integer, string?)
 end
 
 --- @raises string when the reader is closed, its source failed, or it is short
-taken = function(self: ScalarReader, need: integer): string
+taken = function(borrows self: ScalarReader, need: integer): string
     local state = self as any
     if state._closed then
         error("nupp: io.ScalarReader is closed", 3)
@@ -550,23 +517,23 @@ taken = function(self: ScalarReader, need: integer): string
 end
 
 --- @raises string when the writer is closed, or its destination failed
-put = function(self: ScalarWriter, bytes: string): ScalarWriter
+put = function(borrows self: ScalarWriter, bytes: string): nil
     local state = self as any
     if state._closed then
         error("nupp: io.ScalarWriter is closed", 3)
     end
     if state._buffer then
-        local buffer = state._buffer as Buffer
+        -- Kept untyped: a local typed as the buffer would be an owner of it, and
+        -- would close it on the way out.
+        local buffer = state._buffer
         buffer:setString(bytes, buffer:length())
 
-        return self
+        return
     end
     local ok, reason = state._writer:write(bytes)
     if not ok then
         error("nupp: io.ScalarWriter destination failed: " .. tostring(reason), 3)
     end
-
-    return self
 end
 
 local function queueLike(value: any): boolean
@@ -607,41 +574,43 @@ end
 -- One parameter cannot say three things, so the surface is an intersection of three
 -- signatures over one body.
 local function openScalarReader(source: any): ScalarReader
-    local self = new Scalars(_pending = "", _reader = nil, _queue = nil, _closed = false)
-    local state = self as any
+    local pending = ""
+    local reader: any = nil
+    local queue: any = nil
     local kind = type(source)
     if kind == "string" then
-        state._pending = source
+        pending = source
     elseif readerLike(source) then
-        state._reader = source
+        reader = source
     elseif kind == "table" and source.getString ~= nil then
-        state._pending = source:getString()
+        pending = source:getString()
     elseif queueLike(source) then
-        state._queue = source
+        queue = source
     else
         error("nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue", 2)
     end
 
-    return self
+    return new Scalars(_pending = pending, _reader = reader, _queue = queue, _closed = false)
 end
 
 local function openScalarWriter(destination: any): ScalarWriter
-    local self = new ScalarSink(_buffer = nil, _writer = nil, _ownsBuffer = false, _closed = false)
-    local state = self as any
+    local buffer: any = nil
+    local writer: any = nil
+    local ownsBuffer = false
     if destination == nil then
         -- The scalar writer owns this buffer. `buffer()` only borrows it, and scalar
         -- teardown discharges the buffer obligation with the writer's own.
-        state._buffer = @unsafe nupp.release(newBuffer(nil))
-        state._ownsBuffer = true
+        buffer = @unsafe nupp.release(newBuffer(nil))
+        ownsBuffer = true
     elseif type(destination) == "table" and destination.write ~= nil then
-        state._writer = destination
+        writer = destination
     elseif type(destination) == "table" and destination.setString ~= nil then
-        state._buffer = destination
+        buffer = destination
     else
         error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing", 2)
     end
 
-    return self
+    return new ScalarSink(_buffer = buffer, _writer = writer, _ownsBuffer = ownsBuffer, _closed = false)
 end
 
 --- Opens a cursor for sized integer and float reads.
@@ -666,9 +635,9 @@ end
 --- @return the new reader, owned by the caller
 --- @raises string when source is none of those
 --- @export
-export const newScalarReader: function(source: string | ByteQueue): affine(ScalarReader, destroyOwner)
-    & function(borrows source: ByteView | Buffer): affine(ScalarReader, destroyOwner)
-    & function(takes source: Reader): affine(ScalarReader, destroyOwner) = openScalarReader as any
+export const newScalarReader: function(source: string | ByteQueue): affine(ScalarReader)
+    & function(borrows source: ByteView | Buffer): affine(ScalarReader)
+    & function(takes source: Reader): affine(ScalarReader) = openScalarReader as any
 
 --- Opens a cursor for sized integer and float writes.
 ---
@@ -689,6 +658,6 @@ export const newScalarReader: function(source: string | ByteQueue): affine(Scala
 --- @return the new writer, owned by the caller
 --- @raises string when destination is neither a buffer nor a writer
 --- @export
-export const newScalarWriter: function(): affine(ScalarWriter, destroyOwner)
-    & function(borrows destination: Buffer): affine(ScalarWriter, destroyOwner) borrows (destination)
-    & function(takes destination: Writer): affine(ScalarWriter, destroyOwner) = openScalarWriter as any
+export const newScalarWriter: function(): affine(ScalarWriter)
+    & function(borrows destination: Buffer): affine(ScalarWriter) borrows (destination)
+    & function(takes destination: Writer): affine(ScalarWriter) = openScalarWriter as any

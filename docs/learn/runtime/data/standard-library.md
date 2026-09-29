@@ -159,8 +159,12 @@ convention; do not pass a `string.find` position to a buffer method.
 
 An operation that can fail because of the environment returns `nil, reason`. An
 invalid argument or a malformed programmer-owned value raises at the call site.
-Buffers and views implement `close` and report use after release, and a reader
-or writer returns a reason once it has been closed. See
+Every owner the library hands out, from a buffer to an open file, is a
+`nupp.Closeable`: `close` consumes it and answers nothing, `nupp.drop` closes it
+early, and the end of its scope closes it otherwise. A destination that buffers
+writes reports a failure through `flush`, so a caller that has to know flushes
+before it closes. Buffers and views report use after release, and a reader or
+writer returns a reason once it has been closed. See
 [ownership.md](../ownership/index.md) for the cleanup obligation an affine result
 carries.
 

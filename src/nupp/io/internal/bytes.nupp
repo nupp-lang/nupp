@@ -81,21 +81,6 @@ end
 -- Owners
 ----------------------------------------------------------------------------
 
--- A terminal has to be a declared function wherever a contract names it, and these
--- records hand each other out: a buffer answers a reader, and a snapshot answers
--- another snapshot. Written one per record, each terminal would have to follow the
--- record it takes and precede the record that hands it out, and no such order exists.
--- One generic terminal over the shape they all share is written once, ahead of them.
-local interface Owner
-    drop: @nosuspend function(takes self: Owner): nil
-end
-
---- Releases any of this module's owners. Every one of them is handed out under this
---- exact cleanup, which is why a caller never names it.
-local function destroyOwner<T is Owner>(takes self: T): nil
-    self:drop()
-end
-
 --- An appending byte sink.
 ---
 --- The counterpart of `Reader`, and an interface for the same reason: a buffer,
@@ -178,11 +163,23 @@ export interface Reader is nupp.Closeable
 
 end
 
+-- A lease is handed out by the buffer it borrows, so its terminal has to be declared
+-- ahead of both. One generic terminal over the shape the lease record shares with its
+-- interface is written once, ahead of them.
+local interface LeaseOwner
+    drop: @nosuspend function(takes self: LeaseOwner): nil
+end
+
+--- Aborts a buffer write lease. Every lease is handed out under this exact cleanup,
+--- which is why a caller never names it.
+local function destroyLease<T is LeaseOwner>(takes self: T): nil
+    self:drop()
+end
+
 -- Declared ahead of the records because their methods call them, and defined below
 -- because they name the records. The types are the contract either way.
 local reserve: function(borrows self: Buffer, minimum: integer): nil
 local bytesAt: function(borrows self: Buffer, offset: integer, count: integer): string
-local newView: function(bytes: string): affine(ByteView, destroyOwner)
 local newReaderOver: function(bytes: string): Reader
 local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
 
@@ -241,16 +238,19 @@ end
 
 --- A snapshot of bytes that cannot be written through.
 --- @export
-export sealed interface ByteView
-    drop: @nosuspend function(takes self: ByteView): nil
+export sealed interface ByteView is nupp.Closeable
     length: function(borrows self: ByteView): integer
     getString: function(borrows self: ByteView): string
     readSpan: function(borrows self: ByteView): span.ByteSpan borrows (self)
     newReader: function(self: ByteView): Reader
-    view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+    view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView)
     isReleased: function(self: ByteView): boolean
-    close: function(takes self: ByteView): (boolean, string?)
+    close: @nosuspend function(takes self: ByteView): nil
 end
+
+-- Declared after the view it answers, so that its result carries the view's own
+-- `close` rather than a transfer-only obligation, and defined below.
+local newView: function(bytes: string): affine(ByteView)
 
 ----------------------------------------------------------------------------
 -- Views and buffers
@@ -262,7 +262,7 @@ local record Snapshot is ByteView
     @private
     _closed: boolean
 
-    drop: @nosuspend function(takes self: Snapshot): nil
+    close: @nosuspend function(takes self: Snapshot): nil
 
     function length(borrows self): integer
         opened(self._closed, "io.ByteView", 2)
@@ -284,7 +284,7 @@ local record Snapshot is ByteView
         return newReaderOver(self._bytes)
     end
 
-    function view(self, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+    function view(self, offset: integer?, count: integer?): affine(ByteView)
         opened(self._closed, "io.ByteView", 2)
         local from, taking = range(#self._bytes, offset, count, "io.ByteView", 2)
         return newView(self._bytes:sub(from + 1, from + taking))
@@ -292,11 +292,6 @@ local record Snapshot is ByteView
 
     function isReleased(self): boolean
         return self._closed
-    end
-
-    function close(takes self): (boolean, string?)
-        self:drop()
-        return true, nil
     end
 end
 
@@ -312,8 +307,7 @@ end
 
 --- Growable byte storage whose pointer and logical length never escape separately.
 --- @export
-export sealed interface Buffer
-    drop: @nosuspend function(takes self: Buffer): nil
+export sealed interface Buffer is nupp.Closeable
     length: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
@@ -326,19 +320,19 @@ export sealed interface Buffer
         exclusive self: Buffer,
         offset: integer,
         count: integer
-    ): affine(BufferWriteLease, destroyOwner) borrows (self)
-    view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+    ): affine(BufferWriteLease, destroyLease) borrows (self)
+    view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView)
     newReader: function(self: Buffer): Reader
     newWriter: function(exclusive self: Buffer): affine(Writer) borrows (self)
     isReleased: function(borrows self: Buffer): boolean
-    close: function(takes self: Buffer): (boolean, string?)
+    close: @nosuspend function(takes self: Buffer): nil
 end
 
 local newWriteLease: function(
     borrows buffer: Buffer,
     offset: integer,
     count: integer
-): affine(BufferWriteLease, destroyOwner) borrows (buffer)
+): affine(BufferWriteLease, destroyLease) borrows (buffer)
 
 local record HeapBuffer is Buffer
     @private
@@ -350,7 +344,7 @@ local record HeapBuffer is Buffer
     @private
     _closed: boolean
 
-    drop: @nosuspend function(takes self: HeapBuffer): nil
+    close: @nosuspend function(takes self: HeapBuffer): nil
 
     function length(borrows self): integer
         opened(self._closed, "io.Buffer", 2)
@@ -428,7 +422,7 @@ local record HeapBuffer is Buffer
         exclusive self,
         offset: integer,
         count: integer
-    ): affine(BufferWriteLease, destroyOwner) borrows (self)
+    ): affine(BufferWriteLease, destroyLease) borrows (self)
         opened(self._closed, "io.Buffer", 2)
         local from = integer_(offset, "io.Buffer write offset", 2)
         local available = integer_(count, "io.Buffer write count", 2)
@@ -437,7 +431,7 @@ local record HeapBuffer is Buffer
         return newWriteLease(self, from, available)
     end
 
-    function view(self, offset: integer?, count: integer?): affine(ByteView, destroyOwner)
+    function view(self, offset: integer?, count: integer?): affine(ByteView)
         opened(self._closed, "io.Buffer", 2)
         local from, taking = range(self._length, offset, count, "io.Buffer", 2)
         return newView(bytesAt(self, from, taking))
@@ -456,11 +450,6 @@ local record HeapBuffer is Buffer
 
     function isReleased(borrows self): boolean
         return self._closed
-    end
-
-    function close(takes self): (boolean, string?)
-        self:drop()
-        return true, nil
     end
 end
 
@@ -519,7 +508,7 @@ newWriteLease = function(
     borrows buffer: Buffer,
     offset: integer,
     count: integer
-): affine(BufferWriteLease, destroyOwner) borrows (buffer)
+): affine(BufferWriteLease, destroyLease) borrows (buffer)
     local state = buffer as any
     return new WriteLease(
         anchor = buffer,
@@ -616,9 +605,7 @@ local record BufferWriter is Writer
 
     --- Closes the writer.
     --- @param self this writer, spent by the call
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: BufferWriter): nil
 end
 
 ----------------------------------------------------------------------------
@@ -739,9 +726,7 @@ local record StringReader is Reader
     ---
     --- Repeated calls are safe.
     --- @param self this reader, spent by the call
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: StringReader): nil
 end
 
 --- A reader over anything answering `get`.
@@ -835,31 +820,25 @@ local record QueueReader is Reader
         return #rest, nil
     end
 
-    --- Releases it as an ownership terminal.
+    --- Closes the reader without closing the queue behind it.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this reader, spent by the call
-    drop: @nosuspend function(takes self: QueueReader): nil
-
-    --- Closes the reader without closing the queue behind it.
-    --- @param self this reader, spent by the call
-    function close(takes self): nil
-        self:drop()
-    end
+    close: @nosuspend function(takes self: QueueReader): nil
 end
 
 ----------------------------------------------------------------------------
--- Dropping
+-- Closing
 ----------------------------------------------------------------------------
 
-function Snapshot.drop(takes self: Snapshot): nil
+function Snapshot.close(takes self: Snapshot): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
     state._bytes = ""
 end
 
-function HeapBuffer.drop(takes self: HeapBuffer): nil
+function HeapBuffer.close(takes self: HeapBuffer): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
     state._length = 0
@@ -875,18 +854,18 @@ function WriteLease.drop(takes self: WriteLease): nil
     end
 end
 
-function BufferWriter.drop(takes self: BufferWriter): nil
+function BufferWriter.close(takes self: BufferWriter): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
 end
 
-function StringReader.drop(takes self: StringReader): nil
+function StringReader.close(takes self: StringReader): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
     state._bytes = ""
 end
 
-function QueueReader.drop(takes self: QueueReader): nil
+function QueueReader.close(takes self: QueueReader): nil
     local state = @unsafe nupp.release(self)
     state._closed = true
     state._source = nil
@@ -925,7 +904,7 @@ bytesAt = function(borrows self: Buffer, offset: integer, count: integer): strin
     return physical.string((self as any)._data + offset, count)
 end
 
-newView = function(bytes: string): affine(ByteView, destroyOwner)
+newView = function(bytes: string): affine(ByteView)
     return new Snapshot(_bytes = bytes, _closed = false)
 end
 
@@ -979,25 +958,18 @@ end
 --- @return the buffer, owned by the caller
 --- @raises string when initial is neither bytes nor a capacity
 --- @export
-export function newBuffer(initial: integer | string?): affine(Buffer, destroyOwner)
+export function newBuffer(initial: integer | string?): affine(Buffer)
     if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
         error("nupp: io.newBuffer initial value must be bytes or a capacity", 2)
     end
     local bytes = type(initial) == "string" and initial as string or ""
     local capacity = type(initial) == "number" and integer_(initial, "io.newBuffer capacity", 2) or #bytes
-    local self = new HeapBuffer(
-        _data = physical.allocateBytes(math.max(capacity, 1)),
-        _length = 0,
-        _capacity = capacity,
-        _closed = false
-    )
+    local data = physical.allocateBytes(math.max(capacity, 1))
     if #bytes > 0 then
-        local state = self as any
-        physical.copy(state._data, bytes, #bytes)
-        state._length = #bytes
+        physical.copy(data, bytes, #bytes)
     end
 
-    return self
+    return new HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _closed = false)
 end
 
 --- Opens a reader over bytes held as a string.
@@ -1045,4 +1017,4 @@ end
 export const validatePositive = positive
 export const validateInteger = integer_
 
-export type OwnedBuffer = affine(Buffer, destroyOwner)
+export type OwnedBuffer = affine(Buffer)

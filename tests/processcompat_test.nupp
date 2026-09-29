@@ -8,7 +8,7 @@ local process = require("nupp.io.process")
 
 local M = {}
 
-local function tecsCallSites(options: process.Options, buffer: nupp.io.Buffer): nil
+local function tecsCallSites(options: process.Options, exclusive buffer: nupp.io.Buffer): nil
     local child = new process.Process(options)
 
     local pid: integer = child.pid

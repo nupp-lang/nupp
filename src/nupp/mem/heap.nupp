@@ -64,7 +64,7 @@ end
 --- Frees an allocation, which is what every heap array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
+--- scope boundary or an explicit `nupp.drop` reaches it.
 ---
 --- @param self the array, spent by this call
 --- @export
@@ -83,10 +83,7 @@ record heap.Array<T> is heap.ArrayToken
     @readonly
     count: integer
 
-    --- Releases the allocation. Scope exit invokes this automatically.
-    drop: @nosuspend function(takes self: Array<T>): nil
-
-    --- Frees the allocation. `drop` and scope exit both reach this.
+    --- Frees the allocation. `nupp.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
@@ -108,10 +105,6 @@ end
 
 function heap.Array.close<T>(takes self: heap.Array<T>): nil
     finish_array_nosuspend(self)
-end
-
-function heap.Array.drop<T>(takes self: heap.Array<T>): nil
-    self:close()
 end
 
 function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> borrows (self)

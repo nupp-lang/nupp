@@ -73,10 +73,49 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     )
 end
 
+-- Every owner the standard library hands out has one cleanup shape: it is a
+-- `nupp.Closeable` whose `close` answers nothing, so `nupp.drop` is the one early
+-- terminal and no second public `drop` stands beside it.
+local FORMER_DROP_OWNERS = {
+    "local owner = nupp.io.newBuffer('bytes')",
+    "local source = nupp.io.newBuffer('bytes')\nlocal owner = source:view()",
+    "local owner = nupp.io.newScalarReader('abcd')",
+    "local owner = nupp.io.newScalarWriter()",
+    "local owner = nupp.io.newLines(nupp.io.newStringReader('one'))",
+    "local owner = assert(nupp.io.files.open('input.bin'))",
+    "local file = assert(nupp.io.files.open('input.bin'))\nlocal owner = file:newReader()",
+    "local file = assert(nupp.io.files.open('input.bin', 'w'))\nlocal owner = file:newWriter()",
+    "local owner = assert(nupp.io.files.createTemporaryFile())",
+    "local owner = nupp.mem.heap.allocate(ffi.typeof<int32>(), 4)",
+    "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.allocate(ffi.typeof<Row>(), 4)",
+}
+
+function M.everyStandardOwnerClosesThroughNuppDropAlone()
+    for _, acquire in ipairs(FORMER_DROP_OWNERS) do
+        assertClean(acquire .. "\nnupp.drop(owner)")
+        -- Read as a field rather than called: a method call on an owner is not
+        -- checked for the member's existence, and a field read is.
+        local got = diagsOf(acquire .. "\nprint(owner.drop)")
+        assert(got:find("NUPP2004", 1, true), "a public drop must not resolve beside close:\n" .. acquire)
+    end
+end
+
+function M.formerResultClosesAnswerNothing()
+    local io = require("nupp.io")
+    local buffer = io.newBuffer("abc")
+    assertEq(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
+    assertEq(select("#", io.newScalarReader("abcd"):close()), 0, "ScalarReader:close answers nothing")
+    assertEq(select("#", io.newScalarWriter():close()), 0, "ScalarWriter:close answers nothing")
+    assertEq(select("#", io.newScalarWriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
+    assertEq(buffer:isReleased(), false, "a borrowing scalar writer leaves its buffer open")
+    assertEq(select("#", buffer:close()), 0, "Buffer:close answers nothing")
+    assertEq(select("#", buffer:close()), 0, "a second close is safe")
+end
+
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
     local buffer = require("nupp.io").newBuffer(string.rep("x", 1048576))
     local allocation = setmetatable({buffer._data}, {__mode = "v"})
-    buffer:drop()
+    buffer:close()
     collectgarbage("collect")
     collectgarbage("collect")
     assert(buffer._closed, "the closed buffer metadata remains observable")
@@ -481,7 +520,7 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
         assert(not persisted)
         assert(tostring(persistReason):find("invalid persistence result", 1, true), tostring(persistReason))
 
-        assert(file:close())
+        file:close()
         assertEq(calls[#calls].operation, "file-close")
     end)
     effects.request = prior
@@ -2307,8 +2346,8 @@ function M.utf8ByteViewsAndBudgetsMatchStrings()
     assertEq(utf8.length(view), 3, "byte-view length")
     assertEq(utf8.isValid(view), true, "byte-view validation")
     assertEq(utf8.validPrefixLength(view, 4), 4, "byte-view prefix")
-    view:drop()
-    buffer:drop()
+    view:close()
+    buffer:close()
 
     assertEq(utf8.validPrefixLength("A", -1), 0, "a negative budget is empty")
     assertEq(utf8.validPrefixLength("A", 0), 0, "a zero budget is empty")

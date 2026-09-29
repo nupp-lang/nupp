@@ -5,22 +5,16 @@ local io = require("nupp.io")
 local messages = require("nupp.io.files.messages")
 local appPaths = require("nupp.io.files.path")
 
-export interface Owner
-    drop: @nosuspend function(takes self: Owner): nil
-end
-
 --- A forward-only byte reader sharing an open file's cursor.
 export interface FileReader is io.Reader
-    drop: @nosuspend function(takes self: FileReader): nil
 end
 
 --- A forward-only byte writer sharing an open file's cursor.
 export interface FileWriter is io.Writer
-    drop: @nosuspend function(takes self: FileWriter): nil
 end
 
 --- An affine open file and its exclusive platform handle.
-export interface File is nupp.Affine<self.drop>
+export interface File is nupp.Closeable
     --- Opens a reader at the shared cursor.
     newReader: function(borrows self: File): affine(FileReader) borrows (self)
 
@@ -36,21 +30,18 @@ export interface File is nupp.Affine<self.drop>
     --- Returns the shared cursor position.
     position: function(exclusive self: File): (integer?, string?)
 
-    --- Publishes buffered file writes.
+    --- Publishes buffered file writes, and reports a write that failed to land.
     flush: function(borrows self: File): (boolean, string?)
 
     --- Reports whether the file has already been closed.
     isReleased: function(borrows self: File): boolean
 
-    --- Closes the file and spends its ownership.
-    close: function(takes self: File): boolean
-
-    --- Releases the platform handle during lexical cleanup.
-    drop: @nosuspend function(takes self: File): nil
+    --- Closes the file and spends its ownership. Repeated calls are safe.
+    close: @nosuspend function(takes self: File): nil
 end
 
 --- A native temporary path removed on close unless persisted.
-export interface TemporaryPath is nupp.Affine<self.drop>
+export interface TemporaryPath is nupp.Closeable
     --- Returns the native path text.
     toString: function(self: TemporaryPath): string
 
@@ -60,15 +51,9 @@ export interface TemporaryPath is nupp.Affine<self.drop>
     --- Reports whether the temporary owner has been closed or persisted.
     isReleased: function(self: TemporaryPath): boolean
 
-    --- Removes the temporary path and spends its ownership.
-    close: function(takes self: TemporaryPath): boolean
-
-    --- Removes the path during lexical cleanup.
-    drop: @nosuspend function(takes self: TemporaryPath): nil
-end
-
-export function destroyOwner<T is Owner>(takes value: T): nil
-    value:drop()
+    --- Removes the temporary path and spends its ownership. Repeated calls, and a
+    --- call after `persist`, are safe and do nothing.
+    close: @nosuspend function(takes self: TemporaryPath): nil
 end
 
 export interface Provider
@@ -105,11 +90,11 @@ export interface Provider
     @readonly
     read: function(path: any): (string?, string?)
     @readonly
-    write: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    write: function(path: any, borrows bytes: string | io.ByteView): (boolean, string?)
     @readonly
-    append: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    append: function(path: any, borrows bytes: string | io.ByteView): (boolean, string?)
     @readonly
-    writeAtomic: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    writeAtomic: function(path: any, borrows bytes: string | io.ByteView): (boolean, string?)
     @readonly
     copy: function(from: any, to: any): (boolean, string?)
     @readonly

@@ -299,7 +299,7 @@ end
 --- @param bytes the byte string or view to write
 --- @return whether the bytes were written
 --- @return a failure reason, when unsuccessful
-export function write(path: Path, bytes: string | io.ByteView): (boolean, string?)
+export function write(path: Path, borrows bytes: string | io.ByteView): (boolean, string?)
     return provider.write(path, bytes)
 end
 
@@ -308,7 +308,7 @@ end
 --- @param bytes the byte string or view to append
 --- @return whether the bytes were written
 --- @return a failure reason, when unsuccessful
-export function append(path: Path, bytes: string | io.ByteView): (boolean, string?)
+export function append(path: Path, borrows bytes: string | io.ByteView): (boolean, string?)
     return provider.append(path, bytes)
 end
 
@@ -317,7 +317,7 @@ end
 --- @param bytes the byte string or view to write
 --- @return whether the file was replaced
 --- @return a failure reason, when unsuccessful
-export function writeAtomic(path: Path, bytes: string | io.ByteView): (boolean, string?)
+export function writeAtomic(path: Path, borrows bytes: string | io.ByteView): (boolean, string?)
     return provider.writeAtomic(path, bytes)
 end
 

@@ -399,7 +399,7 @@ end
         end
     end
     local code = gen.generate(parsed, "files-owner")
-    assert(code:find("__nuppV:drop()", 1, true), "the public File terminal runs at lexical scope exit")
+    assert(code:find("__nuppV:close()", 1, true), "the public File terminal runs at lexical scope exit")
 end
 
 return M
