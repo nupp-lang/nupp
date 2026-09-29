@@ -222,7 +222,7 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
     do
         local handling = suspension.install(handler)
         time.sleep(25)
-        handling:drop()
+        handling:close()
     end
 
     assertEq(parked, 1, "the sleep did not reach the installed handler")

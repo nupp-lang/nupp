@@ -443,13 +443,13 @@ once per frame instead of using this standalone loop.
 
 ## Cancellation unwinds the parked stack
 
-`suspension.install(handler)` returns an owned handler installation. When its extent
-ends, the runtime restores the previous handler, cancels outstanding
+`suspension.install(handler)` returns an owned handler installation, a
+`nupp.Closeable`. When its extent ends and it is closed, the runtime restores the previous handler, cancels outstanding
 subscriptions, wakes their coroutines, and invokes `shutdown`. A cancelled
 `suspend` raises inside its parked coroutine, so lexical resource drops run as
 the stack unwinds.
 
-Structured exits leave the region only after its installation has been released.
+Structured exits leave the region only after its installation has been closed.
 `return` preserves all values, `break` and `continue` reach the loop that owns
 them, and `goto` may reach a label outside:
 
@@ -466,8 +466,8 @@ print(choose())
 ```
 
 The lowering uses the same completion protocol as automatic resource cleanup,
-which preserves a body failure as the primary error when releasing the handler
-fails too, while still reporting the release failure.
+which preserves a body failure as the primary error when closing the
+installation fails too, while still reporting the close failure.
 
 Control cannot jump *into* a handled region, because such a jump would bypass
 handler installation and the lexical state before the label:

@@ -411,7 +411,7 @@ function M.abandoningAConnectReleasesItsRequest()
         end,
     })
     local connected, why = pcall(net.connect, {host = "example", port = 80})
-    installation:release()
+    installation:close()
     assertEq(connected, false, "a forbidden park refuses the connect")
     assertTrue(tostring(why):find("cannot suspend", 1, true) ~= nil, "and reports the refused suspension")
     assertTrue(state.closedConnect, "and releases the in-flight connection request")

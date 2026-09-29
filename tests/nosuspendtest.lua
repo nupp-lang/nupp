@@ -492,7 +492,7 @@ function M.aHandleRegionInstallsAndRestores()
     end
     local code = gen.generate(result, "test")
     assertTrue(code:find("install", 1, true) ~= nil, "it elaborates to installing a handler: " .. code)
-    assertTrue(code:find("destroyInstalled", 1, true) ~= nil, "and to discharging it: " .. code)
+    assertTrue(code:find("__nuppV:close()", 1, true) ~= nil, "and to closing it: " .. code)
     assertEq(code:find("handle suspension", 1, true), nil, "with nothing of the construct surviving: " .. code)
 end
 

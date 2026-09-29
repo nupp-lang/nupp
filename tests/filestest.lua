@@ -355,7 +355,7 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     }
     local installation = suspension.install(handler)
     local answers = {pcall(files.read, inRoot("parking/payload.bin"))}
-    installation:release()
+    installation:close()
     assert(answers[1], answers[2])
     test.equal(#answers[2], 160000, "the parked read answered its bytes")
     if parked ~= nil then

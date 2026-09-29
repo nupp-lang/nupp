@@ -57,13 +57,13 @@ local turnGeneration: integer = -1
 type suspension.Source = contract.Source
 suspension.Source = contract.Source
 
-local function sourcerelease(self: contract.Source): nil
+local sourcerelease: @nosuspend function(contract.Source): nil = function(self: contract.Source): nil
     if self.released then
         return
     end
     self.released = true
     for index = 1, #sources do
-        if sources[index] == self then
+        if rawequal(sources[index], self) then
             table.remove(sources, index)
             sourcesVersion = sourcesVersion + 1
             break
@@ -138,7 +138,7 @@ suspension.Handler = contract.Handler
 type suspension.Installed = contract.Installed
 suspension.Installed = contract.Installed
 
-local function installedrelease(self: contract.Installed): nil
+local function closeInstallation(self: any): nil
     if self.released then
         return
     end
@@ -354,7 +354,7 @@ function suspension.source(
 ): suspension.Source
     sourceSequence = sourceSequence + 1
     local source = new contract.Source(
-        releaseImpl = sourcerelease,
+        release = sourcerelease,
         name = name,
         priority = priority,
         sequence = sourceSequence,
@@ -536,36 +536,30 @@ function suspension.suspend<T>(
     return state.value as T
 end
 
---- Releases an installation, which is what an install's contract names.
----
---- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
----
---- @param self the installation, spent by this call
-suspension.destroyInstalled = contract.destroyInstalled
-
 --- Installs `value` for suspensions performed on this coroutine.
-function suspension.install(
-    value: suspension.Handler,
-    transparent: boolean?
-): affine(contract.Installed, contract.destroyInstalled)
+function suspension.install(value: suspension.Handler, transparent: boolean?): affine(contract.Installed)
     local coroutine = running()
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
-    local installed = new contract.Installed(
-        release = installedrelease,
+    -- The close runs the handler's shutdown and the pumps, which the checker cannot
+    -- prove non-suspending; the contract promises it, as it does for any provider.
+    local owned = new contract.Installed(
+        close = closeInstallation as any,
         co = coroutine,
         previous = previous,
         handler = value,
         transparent = transparent == true,
         released = false
     )
+    -- The coroutine's slot keeps the record as well as the caller, who holds the one
+    -- obligation to close it.
+    local installed: any = @unsafe nupp.release(owned)
     if coroutine == nil then
         suspension._main = installed
     else
         suspension._installed[coroutine] = installed
     end
 
-    return installed
+    return installed as contract.Installed
 end
 
 function suspension.create<A..., R...>(body: function(A...): R...): thread

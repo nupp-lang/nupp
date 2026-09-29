@@ -1432,7 +1432,7 @@ local function closeScope(owner: ScopeState): nil
     const frame = owner.frame
     if frame ~= nil then
         owner.frame = nil
-        frame:release()
+        frame:close()
     end
     if not drained then
         error(problem, 0)

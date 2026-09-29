@@ -77,7 +77,6 @@ suspension.install = provider.install
 suspension.create = provider.create
 suspension.handled = provider.handled
 suspension.canSuspend = provider.canSuspend
-suspension.destroyInstalled = contract.destroyInstalled
 local providerRuntime = provider as any
 local turnAvailable = providerRuntime.__turnAvailable
 local consumeTurn = providerRuntime.__consumeTurn

@@ -194,7 +194,7 @@ local function addSource(
     sourceSequence = sourceSequence + 1
     local source = setmetatable(
         {
-            releaseImpl = SourceMT.release,
+            release = SourceMT.release,
             name = name,
             priority = priority,
             poll = poll,
@@ -599,7 +599,7 @@ type suspension.Installed = contract.Installed
 
 suspension.Installed = contract.Installed
 
-local function installedrelease(self: suspension.Installed): nil
+local function closeInstallation(self: any): nil
     if self.released then
         return
     end
@@ -681,14 +681,6 @@ local function installedrelease(self: suspension.Installed): nil
     self.released = true
 end
 
---- Releases an installation, which is what an install's contract names.
----
---- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
----
---- @param self the installation, spent by this call
-suspension.destroyInstalled = contract.destroyInstalled
-
 --- Installs `handler` for suspensions performed on this coroutine.
 ---
 --- A scope rather than a callback, deliberately. Wrapping a body would make the
@@ -714,10 +706,7 @@ suspension.destroyInstalled = contract.destroyInstalled
 --- @param handler what answers suspensions inside the scope
 --- @param transparent whether this extent is a driver in front of the host, not a host
 --- @return the installation, owned by the caller
-function suspension.install(
-    handler: suspension.Handler,
-    transparent: boolean?
-): affine(contract.Installed, contract.destroyInstalled)
+function suspension.install(handler: suspension.Handler, transparent: boolean?): affine(contract.Installed)
     local co = running()
     local previous
     if co == nil then
@@ -727,8 +716,11 @@ function suspension.install(
     end
     -- What is stored is the installation, not the handler: a park belongs to the extent
     -- that accepted it, and one handler may be installed by two of them.
-    local installation = new contract.Installed(
-        release = installedrelease,
+    --
+    -- The close runs the handler's shutdown and the pumps, which the checker cannot
+    -- prove non-suspending; the contract promises it, as it does for any provider.
+    local owned = new contract.Installed(
+        close = closeInstallation as any,
         co = co,
         previous = previous,
         handler = handler,
@@ -737,13 +729,16 @@ function suspension.install(
         released = false,
         parks = {}
     )
+    -- The coroutine's slot keeps the record as well as the caller, who holds the one
+    -- obligation to close it.
+    local installation: any = @unsafe nupp.release(owned)
     if co == nil then
         mainInstalled = installation
     else
         installed[co] = installation
     end
 
-    return installation
+    return installation as contract.Installed
 end
 
 --- Creates a coroutine that inherits the handler installed where it was created.

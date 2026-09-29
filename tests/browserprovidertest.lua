@@ -280,7 +280,7 @@ function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
                 end)
             end)
         end)
-        installed:release()
+        installed:close()
 
         return "finished"
     end, 100)

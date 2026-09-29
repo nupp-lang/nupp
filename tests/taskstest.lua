@@ -467,7 +467,7 @@ function M.aScopeNestsInsideAHostHandlerWithoutAnsweringItsOwnWaits()
          local child = scope:spawn(function() time.sleep(25) return "parked" end)
          answer = child:await()
       end)
-      handling:drop()
+      handling:close()
    end
    assertEq(answer, "parked", "the scope did not answer under a host handler")
    assertTrue(polls > 0, "the scope answered its own waits instead of the host's")
@@ -492,7 +492,7 @@ function M.aNamedChildIsTheOperationAStuckHostSees()
          end, "load the atlas")
          child:await()
       end)
-      handling:drop()
+      handling:close()
    end
    assertTrue(table.concat(operations, "\n"):find("load the atlas", 1, true) ~= nil,
       "the named child never reached the host: " .. table.concat(operations, ", "))
@@ -526,7 +526,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
       assertEq(boundaries[1], 64,
          "sequential scopes replenished a budget the host had not replenished")
 
-      handling:drop()
+      handling:close()
    end
 
    do
@@ -542,7 +542,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
             end)
          end)
       end)
-      handling:drop()
+      handling:close()
    end
    -- The outer child is one activation; 63 inner children fit beside it.
    assertEq(boundaries[1], 63,
@@ -567,7 +567,7 @@ function M.aHostBarrierStaysVisibleThroughAScope()
             child:await()
          end)
       end)
-      handling:drop()
+      handling:close()
    end
    assertTrue(tostring(problem):find("cannot suspend here", 1, true) ~= nil,
       "the barrier was not visible inside the scope: " .. tostring(problem))
@@ -621,7 +621,7 @@ end
 local function handled(handler, body, ...)
    local installation = suspension.install(handler)
    local answers = {pcall(body, ...)}
-   installation:release()
+   installation:close()
    if not answers[1] then error(answers[2], 0) end
    return unpack(answers, 2, table.maxn(answers))
 end

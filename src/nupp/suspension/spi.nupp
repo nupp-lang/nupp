@@ -10,7 +10,7 @@ satisfy their exact signatures without replacing their nominal identities.
 
 A subscription may resume synchronously or later. It must settle a Waiting only
 once and run returned cleanup when the wait ends, including cancellation. Source
-release and Installed.drop must not suspend. Nested installation restores the
+release and Installed close must not suspend. Nested installation restores the
 captured handler, and transparent handlers preserve delegation to the outer
 scheduler. `create` propagates the suspension context into a new coroutine.
 
@@ -31,11 +31,9 @@ not copied into worker lanes.
 --- Readiness registration shared with callers and handlers.
 --- release must be idempotent and non-suspending; provider state tracks its lifetime.
 export record Source
-    --- Unregisters this source without suspending; repeated calls are harmless.
+    --- Unregisters this source without suspending; repeated calls are harmless. The
+    --- provider supplies it with the registration.
     release: @nosuspend function(Source): nil
-
-    --- Provider callback used by the canonical release method.
-    releaseImpl: function(Source): nil
 
     --- Diagnostic identity of the readiness source.
     name: string
@@ -60,10 +58,6 @@ export record Source
 
     --- Whether the registration has already been released.
     released: boolean = false
-end
-
-function Source.release(self: Source): nil
-    self.releaseImpl(self)
 end
 
 --- Subscription context used to register or associate readiness sources.
@@ -115,13 +109,12 @@ export record Handler
 end
 
 --- Handler restoration state owned by one installation.
---- Its affine drop restores the outer context and releases registration state.
-export record Installed
-    --- Canonical non-suspending affine cleanup for the installation.
-    drop: @nosuspend function(takes self: Installed): nil
-
-    --- Restores the outer handler and releases this installation.
-    release: function(self: Installed): nil
+--- Closing it restores the outer context and releases registration state.
+export record Installed is nupp.Closeable
+    --- Restores the outer handler and settles every park this installation accepted,
+    --- without suspending. The provider supplies it with the installation; a drain
+    --- that fails leaves the installation to be closed again.
+    close: @nosuspend function(takes self: Installed): nil
 
     --- Coroutine whose handler is installed, or the provider's main-state key.
     co: any
@@ -143,15 +136,6 @@ export record Installed
 
     --- Provider bookkeeping for waits owned by this installation.
     parks: any
-end
-
-function Installed.drop(takes self: Installed): nil
-    self:release()
-end
-
---- Canonical affine cleanup for a handler installation.
-export function destroyInstalled(takes value: Installed): nil
-    value:drop()
 end
 
 --- Typed subscription operation preserving the result type T.
@@ -186,7 +170,7 @@ export interface Provider
 
     --- Installs a handler and returns affine restoration state.
     @readonly
-    install: function(handler: Handler, transparent: boolean?): affine(Installed, destroyInstalled)
+    install: function(handler: Handler, transparent: boolean?): affine(Installed)
 
     --- Creates a coroutine preserving the active suspension context and result pack.
     @readonly

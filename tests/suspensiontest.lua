@@ -20,7 +20,7 @@ end
 local function handled(handler, body, ...)
    local installation = suspension.install(handler)
    local answers = {pcall(body, ...)}
-   installation:release()
+   installation:close()
    if not answers[1] then error(answers[2], 0) end
    return unpack(answers, 2, table.maxn(answers))
 end
@@ -550,7 +550,7 @@ function M.inheritanceIsFixedAtCreationNotResumption()
       coroutine.resume(co)
       return nil
    end)
-   outerInstallation:release()
+   outerInstallation:close()
    assertEq(seen, true, "it kept what it was created with")
 end
 
@@ -564,7 +564,7 @@ function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
    local co = suspension.create(function()
       seen = suspension.handled()
    end)
-   installation:release()
+   installation:close()
    coroutine.resume(co)
    assertEq(seen, false, "a closed extent no longer answers for it")
 end
@@ -630,7 +630,7 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
    coroutine.resume(parked)
    assertEq(cleanedUp, false, "it is genuinely parked, not finished")
 
-   installation:release()
+   installation:close()
 
    assertEq(unsubscribed, true, "release unsubscribed the library")
    assertEq(cleanedUp, true,
@@ -664,9 +664,9 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
    coroutine.resume(parked)
    -- The same handler again, and then gone.
    local inner = suspension.install(handler)
-   inner:release()
+   inner:close()
    assertEq(cancels, 0, "the inner extent left the outer's park alone")
-   outer:release()
+   outer:close()
    assertEq(cancels, 1, "and the extent that accepted it cancelled it")
 end
 
@@ -683,7 +683,7 @@ function M.aFinishedParkIsNotCancelledLater()
          cancels = cancels + 1
       end
    end)
-   installation:release()
+   installation:close()
    assertEq(cancels, 0, "a subscription that completed has nothing to cancel")
 end
 
@@ -708,7 +708,7 @@ function M.releaseRefusesToSucceedWithAParkStillUnfinished()
       end)
    end)
    coroutine.resume(parked)
-   local ok, err = pcall(installation.release, installation)
+   local ok, err = pcall(installation.close, installation)
    assertEq(ok, false, "closing the scope on an unfinished park would be a lie")
    assertTrue(tostring(err):find("unfinished", 1, true) ~= nil,
       "and it names them: " .. tostring(err))
@@ -745,7 +745,7 @@ function M.releaseAttemptsEveryCleanupBeforeReporting()
    -- `suspend` cancelled its own subscription and raised. What is left for release is
    -- the shutdown, which fails, and that failure has to surface rather than vanish.
    assertEq(cancelled, 2, "each suspend took its own subscription down")
-   local ok, err = pcall(installation.release, installation)
+   local ok, err = pcall(installation.close, installation)
    assertEq(ok, false, "the shutdown failure is reported rather than swallowed")
    assertTrue(tostring(err):find("shutdown blew up", 1, true) ~= nil,
       "and it is the one that failed: " .. tostring(err))
@@ -764,7 +764,7 @@ function M.aFailingParkStillUnsubscribes()
          unsubscribed = true
       end
    end)
-   installation:release()
+   installation:close()
    assertEq(ok, false, "the park failed")
    assertEq(unsubscribed, true,
       "and the subscription was taken down rather than left live")
@@ -819,13 +819,13 @@ function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
    end)
    coroutine.resume(parked)
 
-   firstRelease = select(2, pcall(installation.release, installation))
+   firstRelease = select(2, pcall(installation.close, installation))
    assertTrue(firstRelease ~= nil, "the first release failed on the wake")
    assertEq(cancels, 1, "unsubscribed once")
    assertEq(wakes, 1, "and attempted the wake once")
 
    failWake = false
-   secondRelease = select(2, pcall(installation.release, installation))
+   secondRelease = select(2, pcall(installation.close, installation))
    assertEq(cancels, 1, "the retry did not unsubscribe a second time")
    assertEq(wakes, 2, "but did deliver the wake it had kept")
    assertEq(secondRelease, nil, "and closed the scope: " .. tostring(secondRelease))
