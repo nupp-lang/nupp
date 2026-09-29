@@ -38,7 +38,7 @@ const FEATURE_URI: u64 = 1 << 3;
 const FEATURE_HTTP: u64 = 1 << 4;
 const FEATURE_PROCESS: u64 = 1 << 5;
 const FEATURE_FILESYSTEM: u64 = 1 << 6;
-const FEATURE_FILES: u64 = 1 << 7;
+const FEATURE_FILE_TRANSFER: u64 = 1 << 7;
 const FEATURE_NET: u64 = 1 << 8;
 const FEATURE_TLS: u64 = 1 << 9;
 const FEATURE_COMPRESSION: u64 = 1 << 10;
@@ -125,7 +125,7 @@ pub extern "C" fn nuppNativeFeatures() -> u64 {
                 0
             }
             | if cfg!(feature = "files") {
-                FEATURE_FILES
+                FEATURE_FILE_TRANSFER
             } else {
                 0
             }
@@ -423,7 +423,7 @@ mod tests {
             ("HTTP", FEATURE_HTTP),
             ("PROCESS", FEATURE_PROCESS),
             ("FILESYSTEM", FEATURE_FILESYSTEM),
-            ("FILES", FEATURE_FILES),
+            ("FILE_TRANSFER", FEATURE_FILE_TRANSFER),
             ("NET", FEATURE_NET),
             ("TLS", FEATURE_TLS),
             ("COMPRESSION", FEATURE_COMPRESSION),

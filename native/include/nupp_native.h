@@ -49,7 +49,7 @@
 #define NUPP_NATIVE_FEATURE_HTTP (UINT64_C(1) << 4)
 #define NUPP_NATIVE_FEATURE_PROCESS (UINT64_C(1) << 5)
 #define NUPP_NATIVE_FEATURE_FILESYSTEM (UINT64_C(1) << 6)
-#define NUPP_NATIVE_FEATURE_FILES (UINT64_C(1) << 7)
+#define NUPP_NATIVE_FEATURE_FILE_TRANSFER (UINT64_C(1) << 7)
 #define NUPP_NATIVE_FEATURE_NET (UINT64_C(1) << 8)
 #define NUPP_NATIVE_FEATURE_TLS (UINT64_C(1) << 9)
 #define NUPP_NATIVE_FEATURE_COMPRESSION (UINT64_C(1) << 10)
@@ -118,7 +118,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderRelease(
 
 /* Present when NUPP_NATIVE_FEATURE_FILESYSTEM is set. Path values are
  * length-delimited platform-native bytes and variable outputs are owned byte
- * handles. NUPP_NATIVE_FEATURE_FILES adds the bounded shared whole-file
+ * handles. NUPP_NATIVE_FEATURE_FILE_TRANSFER adds the bounded shared whole-file
  * transfer lane. */
 typedef struct {
     const uint8_t *data;
