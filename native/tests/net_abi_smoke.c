@@ -317,10 +317,10 @@ static int link_local_address(char *text, size_t capacity) {
 }
 #endif
 
-/* N-4: a datagram from a link-local IPv6 peer can be answered. An address
- * without a scope names no interface, so the reply has to carry the one the
- * datagram arrived with. */
-static int test_link_local_reply(void) {
+#ifndef _WIN32
+/* The POSIX half of N-4: send from a link-local IPv6 address and answer the
+ * peer the datagram arrived from, which needs the scope it carried. */
+static int link_local_round_trip(void) {
     NuppNativeNetDatagramOptions options = {0};
     NuppNativeNetEndpoint destination = {0};
     NuppNativeNetEndpoint peer = {0};
@@ -337,36 +337,7 @@ static int test_link_local_reply(void) {
     uint32_t state = 0;
     int32_t status;
 
-    if ((nuppNativeFeatures() & NUPP_NATIVE_FEATURE_NET_ENDPOINT) == 0) {
-        fprintf(stderr, "network endpoint feature bit is absent\n");
-        return 1;
-    }
-    destination.size = 8;
-    host.data = (const uint8_t *)"::1";
-    host.length = 3;
-    if (nuppNativeNetEndpointParse(host, 1, &destination)
-            != NUPP_NATIVE_INVALID_ARGUMENT) {
-        fprintf(stderr, "a short endpoint size was accepted\n");
-        return 1;
-    }
     destination.size = sizeof destination;
-    host.data = (const uint8_t *)"127.0.0.1%1";
-    host.length = sizeof "127.0.0.1%1" - 1;
-    if (nuppNativeNetEndpointParse(host, 1, &destination)
-            != NUPP_NATIVE_INVALID_ARGUMENT) {
-        fprintf(stderr, "an IPv4 address with a zone was accepted\n");
-        return 1;
-    }
-#ifdef _WIN32
-    (void)options;
-    (void)peer;
-    (void)reply;
-    (void)zoned;
-    (void)text;
-    (void)bytes;
-    (void)length;
-    return 0;
-#else
     if (!link_local_address(zoned, sizeof zoned)) {
         fprintf(stderr, "no link-local IPv6 address; skipping the reply\n");
         return 0;
@@ -427,6 +398,40 @@ static int test_link_local_reply(void) {
     nuppNativeNetDatagramRelease(sender);
     nuppNativeNetDatagramRelease(receiver);
     return 0;
+}
+#endif
+
+/* N-4: a datagram from a link-local IPv6 peer can be answered. An address
+ * without a scope names no interface, so the reply has to carry the one the
+ * datagram arrived with. */
+static int test_link_local_reply(void) {
+    NuppNativeNetEndpoint destination = {0};
+    NuppNativeNetSlice host;
+
+    if ((nuppNativeFeatures() & NUPP_NATIVE_FEATURE_NET_ENDPOINT) == 0) {
+        fprintf(stderr, "network endpoint feature bit is absent\n");
+        return 1;
+    }
+    destination.size = 8;
+    host.data = (const uint8_t *)"::1";
+    host.length = 3;
+    if (nuppNativeNetEndpointParse(host, 1, &destination)
+            != NUPP_NATIVE_INVALID_ARGUMENT) {
+        fprintf(stderr, "a short endpoint size was accepted\n");
+        return 1;
+    }
+    destination.size = sizeof destination;
+    host.data = (const uint8_t *)"127.0.0.1%1";
+    host.length = sizeof "127.0.0.1%1" - 1;
+    if (nuppNativeNetEndpointParse(host, 1, &destination)
+            != NUPP_NATIVE_INVALID_ARGUMENT) {
+        fprintf(stderr, "an IPv4 address with a zone was accepted\n");
+        return 1;
+    }
+#ifdef _WIN32
+    return 0;
+#else
+    return link_local_round_trip();
 #endif
 }
 
