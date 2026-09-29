@@ -4,11 +4,13 @@
 -- reaching the nonblocking `poll` and `offer` operations the implementation uses for
 -- `communicate`.  If either public surface drifts, this module stops compiling before
 -- its one runtime assertion can run.
+const {type Buffer} = require("nupp.io")
+
 local process = require("nupp.io.process")
 
 local M = {}
 
-local function tecsCallSites(options: process.Options, exclusive buffer: nupp.io.Buffer): nil
+local function tecsCallSites(options: process.Options, exclusive buffer: Buffer): nil
     local child = new process.Process(options)
 
     local pid: integer = child.pid
