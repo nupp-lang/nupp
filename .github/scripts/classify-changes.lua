@@ -61,6 +61,7 @@ local rules = {
     {"^src/nupp/codec/valuebuilder%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/aot%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/internal/decoder/fused%.nupp$", {"library", "simd"}},
+    {"^src/nupp/codec/json/internal/builder%.nupp$", {"library", "simd"}},
     {"^src/nupp/gpu/", {"library", "gpu"}},
     {"^src/nupp/bench/", {"library", "measurement"}},
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
