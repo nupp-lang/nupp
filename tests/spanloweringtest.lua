@@ -851,24 +851,17 @@ return work
     assert(code:find("output.pointer[output.offset+index-1].value=7", 1, true), code)
 end
 
-function M.removedSpanMembersHaveMigrationDiagnostics()
-    local _, diagnostics = checked(
-        HEADER
-        .. [[
-local function old(borrows values: span.Span<Cell>): nil
-    print(values.count, values:get(1).value)
-    span.range(1, 1, values)
-end
-]]
-    )
-    local text = {}
-    for _, diagnostic in ipairs(diagnostics or {}) do
-        text[#text + 1] = diagnostic.msg or diagnostic.message
+function M.removedSpanMembersAreUnknownMembers()
+    for _, line in ipairs({
+        "print(values.count)",
+        "print(values:get(1).value)",
+        "span.range(1, 1, values)",
+    }) do
+        local _, diagnostics = checked(
+            HEADER .. "local function old(borrows values: span.Span<Cell>): nil\n    " .. line .. "\nend\n"
+        )
+        assert(diagnostics and #diagnostics > 0, line)
     end
-    text = table.concat(text, "\n")
-    assert(text:find("use #view", 1, true), text)
-    assert(text:find("use view[index]", 1, true), text)
-    assert(text:find("indexed.range", 1, true), text)
 end
 
 function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()

@@ -819,15 +819,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argStr = callArgs.str
             argTable = callArgs.table
         end
-        if baseName ~= "" and memberName == "range" then
-            local holder = c.lookupEntry(baseName)
-            if holder and holder.requiredModule == "nupp.mem.span" then
-                c.diag("NUPP2403", node, "span.range was replaced by indexed.range", nil, {
-                    help = "require nupp.mem.indexed and call indexed.range(first, last, view, ...)"
-                })
-                return T.any
-            end
-        end
         local deriveIntrinsic = callee and cst.textOf(callee):gsub("%s+", ""):match("^nupp%.derive%.[%w_]+$")
         if deriveIntrinsic and (c.comptimeFunctionDepth or 0) == 0 then
             c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
@@ -2221,24 +2212,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.indexedViewOperation = {kind = "slice", descriptor = indexedView,}
         elseif indexedView and member.text == "shared" then
             node.indexedViewOperation = {kind = "shared", descriptor = indexedView,}
-        end
-        if indexedView and (member.text == "get" or member.text == "getMut" or member.text == "set") then
-            local replacement = member.text == "set" and "use view[index] = value"
-                or member.text == "getMut" and "use view[index].field as the writable place"
-                or "use view[index]"
-            c.diag(
-                "NUPP2004",
-                member,
-                ("indexed views no longer expose %q; %s"):format(member.text, replacement),
-                nil,
-                {help = replacement}
-            )
-            local args = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
-            for _, argument in ipairs(args) do
-                c.infer(argument)
-            end
-            node.valuePack = T.pack({T.any})
-            return T.any
         end
         local staticOwner = (rawReceiver.tag == "metatable" or rawReceiver.tag == "typeobject")
             and rawType(rawReceiver.of)

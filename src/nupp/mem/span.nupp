@@ -47,17 +47,6 @@ Indexes start at one. `view[index]` raises unless the index is an integer from
 `slice(first, last)` includes both endpoints and borrows the parent; omitting
 `last` extends through the end. An empty slice uses `first, first - 1`.
 
-The operator surface replaces the former element methods and public count
-field. Each former member is a migration error, not a deprecated alternative:
-
-| Removed | Replacement |
-| --- | --- |
-| `view.count` | `#view` |
-| `view:get(index)` | `view[index]` |
-| `view:set(index, value)` | `view[index] = value` |
-| `view:getMut(index).field` | `view[index].field` |
-| `span.range(first, last, ...)` | `indexed.range(first, last, ...)` |
-
 ::: deepdive Nonescaping spans allocate nothing at -O1
 When the complete use of an exact standard Span constructor is static and
 nonescaping, Nupp keeps its anchor, pointer, offset, count, and capability as

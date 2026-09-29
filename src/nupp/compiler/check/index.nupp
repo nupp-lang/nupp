@@ -422,18 +422,6 @@ function index.install(c: state.Checker): state.ExprHandlers
         local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
         base = rawType(base)
         local indexedView = indexedViews.describe(base)
-        if indexedView
-            and (memberName == "get" or memberName == "getMut" or memberName == "set" or memberName == "count")
-        then
-            local replacement = memberName == "count" and "use #view"
-                or memberName == "set" and "use view[index] = value"
-                or memberName == "getMut" and "use view[index].field as the writable place"
-                or "use view[index]"
-            c.diag("NUPP2004", member, ("indexed views no longer expose %q; %s"):format(memberName, replacement), nil, {
-                help = replacement
-            })
-            return T.any
-        end
         if base.tag == "ptr" and not c.ownershipKind(trackedObject) then
             if c.unsafeDepth == 0 then
                 c.diag(
