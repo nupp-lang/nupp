@@ -473,9 +473,9 @@ end
 --- @export
 export function newWriter(exclusive out: Buffer, nullValue: any?): Writer
     if nullValue == nil then
-        return new WriterImpl(raw = native.writer(out))
+        return new WriterImpl(raw = native.newWriter(out))
     end
-    return new WriterImpl(raw = native.writer(out, nullValue))
+    return new WriterImpl(raw = native.newWriter(out, nullValue))
 end
 
 --- Creates a schema-driven JSON codec with one immutable wire profile.

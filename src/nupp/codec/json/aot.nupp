@@ -723,7 +723,7 @@ function json.verifiedString(text: string): any
     return result
 end
 
-function json.writer(exclusive out: Buffer, nullValue: any?): any
+function json.newWriter(exclusive out: Buffer, nullValue: any?): any
     local parts: {string} = {}
     local bytes: integer = 0
     local stack: {any} = {}
@@ -879,7 +879,7 @@ local checked: contracts.Provider = {
     pull = json.pull,
     verified = json.verified,
     verifiedString = json.verifiedString,
-    writer = json.writer,
+    newWriter = json.newWriter,
     NULL = json.NULL,
     EMPTY_ARRAY = json.EMPTY_ARRAY,
     EMPTY_OBJECT = json.EMPTY_OBJECT,

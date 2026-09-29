@@ -71,7 +71,7 @@ end
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
         local output = require("nupp.text").newBuffer()
-        local writer = provider.writer(output)
+        local writer = provider.newWriter(output)
         writer:startArray():write(1)
         assert(
             not pcall(writer.write, writer, function()

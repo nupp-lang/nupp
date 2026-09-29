@@ -29,7 +29,7 @@ end
 
 local function writerFor(provider: any): (any, any)
     local output = tableBuffer()
-    local opened, writer = pcall(provider.writer, output, provider.NULL)
+    local opened, writer = pcall(provider.newWriter, output, provider.NULL)
     if opened then
         return output, writer
     end
@@ -41,7 +41,7 @@ local function writerFor(provider: any): (any, any)
     end
     output = nativeBuffer.new()
 
-    return output, provider.writer(output, provider.NULL)
+    return output, provider.newWriter(output, provider.NULL)
 end
 
 --- Runs the behavioral contract against one structurally valid implementation.

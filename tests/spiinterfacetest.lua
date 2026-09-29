@@ -107,8 +107,8 @@ local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
     return nil
 end
 local checked: function(exclusive out: Buffer, nullValue: any?): any = writer
-local provider: contracts.Provider = {writer = writer} as any
-local canonical: function(exclusive out: Buffer, nullValue: any?): any = provider.writer
+local provider: contracts.Provider = {newWriter = writer} as any
+local canonical: function(exclusive out: Buffer, nullValue: any?): any = provider.newWriter
 return checked, canonical
 ]]
         )

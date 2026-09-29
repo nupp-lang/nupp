@@ -256,7 +256,7 @@ export interface Provider
 
     --- Creates a JSON writer over exclusive access to the canonical buffer.
     @readonly
-    writer: function(exclusive out: SharedBuffer, nullValue: any?): any
+    newWriter: function(exclusive out: SharedBuffer, nullValue: any?): any
 
     --- Stable explicit null marker owned by this loaded implementation.
     @readonly
