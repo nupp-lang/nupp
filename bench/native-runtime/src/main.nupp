@@ -224,7 +224,7 @@ end
 local function netSlowWriter(port: integer): never
     io.stdout:setvbuf("no")
     local stream = assert(net.connect({host = "127.0.0.1", port = port, receiveHighWater = CHUNK_BYTES}))
-    local reader = net.asReader(stream)
+    local reader = stream:asReader()
     print("READY net-slow-writer")
     while true do
         const chunk, why = reader:read(CHUNK_BYTES)

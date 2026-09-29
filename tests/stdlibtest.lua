@@ -104,7 +104,7 @@ function M.twoLiveReadersOverOneCursorAreRefused()
     local source = table.concat(
         {
             "local stream = assert(nupp.io.net.connect({host = '127.0.0.1', port = 9}))",
-            "local view = nupp.io.net.asReader(stream)",
+            "local view = stream:asReader()",
             "local first = stream:read(1)",
             "print(view:read(1), first)",
         },
@@ -117,7 +117,7 @@ function M.twoLiveReadersOverOneCursorAreRefused()
             {
                 "local stream = assert(nupp.io.net.connect({host = '127.0.0.1', port = 9}))",
                 "do",
-                "    local view = nupp.io.net.asReader(stream)",
+                "    local view = stream:asReader()",
                 "    print(view:read(1))",
                 "end",
                 "print(stream:read(1))",

@@ -85,7 +85,7 @@ end
 function M.aReaderViewReadsARealConnection()
    local listener, client, served = pair()
    assertTrue(client:write("through the contract"), "the client writes")
-   local reader = net.asReader(served)
+   local reader = served:asReader()
    assertEq(assert(reader:read(64)), "through the contract",
       "a borrowed view reads through the shared Reader contract")
    reader:close()
@@ -96,7 +96,7 @@ end
 
 function M.closingTheWriterViewEndsOneDirection()
    local listener, client, served = pair()
-   local writer = net.asWriter(client)
+   local writer = client:asWriter()
    assertTrue(writer:write("last"), "the view writes")
    writer:close()
    assertEq(assert(served:read(64)), "last", "the bytes still arrived")
@@ -471,7 +471,7 @@ function M.linesComeOffAConnectionThroughTheSharedReader()
       "the client writes three lines, two of them terminated")
    assertTrue(client:shutdownWrite(), "and ends its sending half")
 
-   local lines = io_.newLines(net.asReader(served))
+   local lines = io_.newLines(served:asReader())
    assertEq(assert(lines:read()), "first", "CRLF ends a line and is not part of it")
    assertEq(assert(lines:read()), "second", "and so does a bare LF")
    assertEq(assert(lines:read()), "third without a terminator",
@@ -489,7 +489,7 @@ function M.anOverlongLineIsRefusedRatherThanBuffered()
    -- peer takes the process down.
    local listener, client, served = pair()
    assertTrue(client:write(("x"):rep(4096)), "the client sends a very long line")
-   local lines = io_.newLines(net.asReader(served), 64)
+   local lines = io_.newLines(served:asReader(), 64)
    local line, why = lines:read()
    assertEq(line, nil, "the read is refused")
    assertTrue(why ~= nil and why:find("longer than the limit", 1, true) ~= nil,
@@ -506,7 +506,7 @@ function M.anOverlongLineIsRefusedEvenWhenItsTerminatorArrivesWithIt()
    -- otherwise walk straight past it.
    local listener, client, served = pair()
    assertTrue(client:write(("x"):rep(100) .. "\n"), "a 100-byte line arrives whole")
-   local lines = io_.newLines(net.asReader(served), 64)
+   local lines = io_.newLines(served:asReader(), 64)
    local line, why = lines:read()
    assertEq(line, nil, "and is still refused against a 64-byte limit")
    assertTrue(why ~= nil and why:find("longer than the limit", 1, true) ~= nil,
@@ -614,7 +614,7 @@ function M.aLineOfExactlyTheLimitIsAccepted()
    -- length.
    local listener, client, served = pair()
    assertTrue(client:write(("y"):rep(64) .. "\r\n"), "a 64-byte line ends with CRLF")
-   local lines = io_.newLines(net.asReader(served), 64)
+   local lines = io_.newLines(served:asReader(), 64)
    assertEq(assert(lines:read()), ("y"):rep(64), "and is accepted at a 64-byte limit")
    lines:close()
    served:close()
@@ -682,7 +682,7 @@ function M.aBorrowedWriterFlushesTheSameQueue()
    -- reads. Reading first would pump the reactor and let the shutdown complete
    -- on its own, which hides whether closing the view actually waited for it.
    local listener, client, served = pair()
-   local writer = net.asWriter(client)
+   local writer = client:asWriter()
    assertTrue(writer:write("through the view"), "the view writes")
    assertTrue(writer:flush(), "and can wait for it to leave")
    assertEq(client:pending(), 0, "so nothing is left held")

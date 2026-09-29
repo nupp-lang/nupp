@@ -339,6 +339,167 @@ end
 -- Streams
 ----------------------------------------------------------------------------
 
+--- A borrowed view of one direction of a connection.
+---
+--- Closing one ends that direction rather than the connection: the writing view
+--- half-closes, and the reading view stops this side reading. Neither is the
+--- cleanup obligation, which stays with the connection.
+record net.DirectionView is Reader, Writer
+    --- The same platform and handle the connection has. Not the connection
+    --- itself: a view that held one would own it, and closing the view would
+    --- release a socket somebody else is still using.
+    @private
+    @readonly
+    _provider: contract.Provider
+
+    @private
+    @readonly
+    _handle: any
+    @private
+    @readonly
+    _writing: boolean
+    @private
+    _ended: boolean
+    @private
+    _highWater: integer
+
+    --- @raises string when count is not a positive integer
+    function read(exclusive self, count: integer): (string?, string?)
+        if self._ended then
+            return nil, "the reader is closed"
+        end
+        if self._writing then
+            return nil, "the view is write-only"
+        end
+
+        return readOnce(self._provider, self._handle, positive(count, "net.DirectionView read count", 2))
+    end
+
+    --- @raises string when the destination is empty
+    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk as integer
+    end
+
+    --- @raises string when count is not a positive integer
+    function readInto(
+        exclusive self,
+        exclusive destination: Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const landed = #chunk as integer
+        if landed > 0 then
+            const input = span.fromString(chunk)
+            const lease = destination:reserveWrite(offset or 0, landed)
+            do
+                const output = lease:span()
+                for index = 1, landed do
+                    output[index] = input[index]
+                end
+                nupp.drop(output)
+            end
+            lease:commit(landed)
+        end
+
+        return landed
+    end
+
+    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+        local moved: integer = 0
+        while true do
+            const chunk, why = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, why
+            end
+            if #chunk == 0 then
+                return moved
+            end
+            const wrote, wroteWhy = destination:write(chunk)
+            if not wrote then
+                return nil, wroteWhy
+            end
+            moved = moved + (#chunk as integer)
+        end
+    end
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._ended then
+            return false, "the writer is closed"
+        end
+        if not self._writing then
+            return false, "the view is read-only"
+        end
+
+        return writeAll(self._provider, self._handle, self._highWater, bytes)
+    end
+
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        const bytes = spanString(source)
+        const wrote, why = self:write(bytes)
+        if not wrote then
+            return nil, why
+        end
+
+        return #bytes as integer
+    end
+
+    --- Waits until nothing this view wrote is still held by the platform.
+    ---
+    --- The same queue the connection has, because it is the same connection.
+    function flush(self): (boolean, string?)
+        if self._ended then
+            return false, "the writer is closed"
+        end
+        if not self._writing then
+            return false, "the view is read-only"
+        end
+
+        return drain(self._provider, self._handle)
+    end
+
+    --- Ends this direction and leaves the connection alone.
+    ---
+    --- The writing view half-closes, so the peer sees end of stream. The reading
+    --- view stops this side reading, which is deliberately not the platform's
+    --- receive shutdown: its behaviour varies enough between stacks to be worth
+    --- not depending on.
+    function close(takes self): nil
+        if self._ended then
+            return
+        end
+        self._ended = true
+        if self._writing then
+            -- Everything written goes before the end of the direction does, and
+            -- the end is waited for rather than only submitted: releasing the
+            -- connection next would cancel both, and the peer would see a
+            -- stream that stopped rather than one that finished.
+            --
+            -- The second wait is on the shutdown itself and not on the byte
+            -- count, which the shutdown request never enters: waiting on bytes
+            -- would return the moment the writes landed and leave the alert
+            -- exactly as cancellable as before.
+            local _, _drained = drain(self._provider, self._handle)
+            local _, _why = self._provider:shutdownWrite(self._handle)
+            local _, _sent = drain(self._provider, self._handle)
+        end
+    end
+end
+
 --- One connection.
 ---
 --- The owner of the socket, and the only cleanup obligation: a direction view
@@ -634,6 +795,37 @@ record net.Stream is Reader, Writer
         return drain(self._provider, self._handle)
     end
 
+    --- Borrows this connection's reading half through the shared contract.
+    ---
+    --- Closing the view stops this side reading and leaves the connection open.
+    --- @param self the connection to view
+    --- @return the view, which may not outlive it
+    function asReader(borrows self): affine(Reader) borrows (self)
+        return new net.DirectionView(
+            _provider = self._provider,
+            _handle = self._handle,
+            _writing = false,
+            _ended = false,
+            _highWater = self._highWater
+        )
+    end
+
+    --- Borrows this connection's writing half through the shared contract.
+    ---
+    --- Closing the view half-closes the connection, so the peer sees the end of
+    --- the stream, and leaves the connection open for reading.
+    --- @param self the connection to view
+    --- @return the view, which may not outlive it
+    function asWriter(borrows self): affine(Writer) borrows (self)
+        return new net.DirectionView(
+            _provider = self._provider,
+            _handle = self._handle,
+            _writing = true,
+            _ended = false,
+            _highWater = self._highWater
+        )
+    end
+
     --- Releases the connection in both directions.
     ---
     --- Idempotent, and terminal: this is the cleanup obligation the owner carries.
@@ -644,195 +836,6 @@ record net.Stream is Reader, Writer
         self._closed = true
         self._provider:closeStream(self._handle)
     end
-end
-
---- A borrowed view of one direction of a connection.
----
---- Closing one ends that direction rather than the connection: the writing view
---- half-closes, and the reading view stops this side reading. Neither is the
---- cleanup obligation, which stays with the connection.
-record net.DirectionView is Reader, Writer
-    --- The same platform and handle the connection has. Not the connection
-    --- itself: a view that held one would own it, and closing the view would
-    --- release a socket somebody else is still using.
-    @private
-    @readonly
-    _provider: contract.Provider
-
-    @private
-    @readonly
-    _handle: any
-    @private
-    @readonly
-    _writing: boolean
-    @private
-    _ended: boolean
-    @private
-    _highWater: integer
-
-    --- @raises string when count is not a positive integer
-    function read(exclusive self, count: integer): (string?, string?)
-        if self._ended then
-            return nil, "the reader is closed"
-        end
-        if self._writing then
-            return nil, "the view is write-only"
-        end
-
-        return readOnce(self._provider, self._handle, positive(count, "net.DirectionView read count", 2))
-    end
-
-    --- @raises string when the destination is empty
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
-        end
-        const input = span.fromString(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
-
-        return #chunk as integer
-    end
-
-    --- @raises string when count is not a positive integer
-    function readInto(
-        exclusive self,
-        exclusive destination: Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
-        end
-        const landed = #chunk as integer
-        if landed > 0 then
-            const input = span.fromString(chunk)
-            const lease = destination:reserveWrite(offset or 0, landed)
-            do
-                const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
-                nupp.drop(output)
-            end
-            lease:commit(landed)
-        end
-
-        return landed
-    end
-
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
-        local moved: integer = 0
-        while true do
-            const chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #chunk == 0 then
-                return moved
-            end
-            const wrote, wroteWhy = destination:write(chunk)
-            if not wrote then
-                return nil, wroteWhy
-            end
-            moved = moved + (#chunk as integer)
-        end
-    end
-
-    function write(exclusive self, bytes: string): (boolean, string?)
-        if self._ended then
-            return false, "the writer is closed"
-        end
-        if not self._writing then
-            return false, "the view is read-only"
-        end
-
-        return writeAll(self._provider, self._handle, self._highWater, bytes)
-    end
-
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
-        const bytes = spanString(source)
-        const wrote, why = self:write(bytes)
-        if not wrote then
-            return nil, why
-        end
-
-        return #bytes as integer
-    end
-
-    --- Waits until nothing this view wrote is still held by the platform.
-    ---
-    --- The same queue the connection has, because it is the same connection.
-    function flush(self): (boolean, string?)
-        if self._ended then
-            return false, "the writer is closed"
-        end
-        if not self._writing then
-            return false, "the view is read-only"
-        end
-
-        return drain(self._provider, self._handle)
-    end
-
-    --- Ends this direction and leaves the connection alone.
-    ---
-    --- The writing view half-closes, so the peer sees end of stream. The reading
-    --- view stops this side reading, which is deliberately not the platform's
-    --- receive shutdown: its behaviour varies enough between stacks to be worth
-    --- not depending on.
-    function close(takes self): nil
-        if self._ended then
-            return
-        end
-        self._ended = true
-        if self._writing then
-            -- Everything written goes before the end of the direction does, and
-            -- the end is waited for rather than only submitted: releasing the
-            -- connection next would cancel both, and the peer would see a
-            -- stream that stopped rather than one that finished.
-            --
-            -- The second wait is on the shutdown itself and not on the byte
-            -- count, which the shutdown request never enters: waiting on bytes
-            -- would return the moment the writes landed and leave the alert
-            -- exactly as cancellable as before.
-            local _, _drained = drain(self._provider, self._handle)
-            local _, _why = self._provider:shutdownWrite(self._handle)
-            local _, _sent = drain(self._provider, self._handle)
-        end
-    end
-end
-
---- Borrows a connection's reading half through the shared contract.
---- @param source the connection to view
---- @return the view, which may not outlive it
---- @export
-function net.asReader(borrows source: net.Stream): affine(Reader) borrows (source)
-    return new net.DirectionView(
-        _provider = source._provider,
-        _handle = source._handle,
-        _writing = false,
-        _ended = false,
-        _highWater = source._highWater
-    )
-end
-
---- Borrows a connection's writing half through the shared contract.
---- @param source the connection to view
---- @return the view, which may not outlive it
---- @export
-function net.asWriter(borrows source: net.Stream): affine(Writer) borrows (source)
-    return new net.DirectionView(
-        _provider = source._provider,
-        _handle = source._handle,
-        _writing = true,
-        _ended = false,
-        _highWater = source._highWater
-    )
 end
 
 ----------------------------------------------------------------------------

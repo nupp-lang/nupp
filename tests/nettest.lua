@@ -294,11 +294,11 @@ function M.pendingIsALocalFact()
 end
 
 function M.closingTheWriterViewHalfCloses()
-    -- The departure from process.asWriter that the proposal records: a socket has
+    -- The departure from a process stream's asWriter that the proposal records: a socket has
     -- one handle with two halves, so closing the writing view ends a direction
     -- rather than returning a resource.
     local stream, state = connected({})
-    local writer = net.asWriter(stream)
+    local writer = stream:asWriter()
     writer:close()
     assertTrue(state.shutdown, "closing the writer view half-closes")
     assertEq(state.closedStreams, 0, "and leaves the connection open")
@@ -308,7 +308,7 @@ end
 
 function M.closingTheReaderViewLeavesTheConnection()
     local stream, state = connected({arriving = {"ab"}})
-    local reader = net.asReader(stream)
+    local reader = stream:asReader()
     assertEq(assert(reader:read(4)), "ab", "the view reads")
     reader:close()
     local got, why = reader:read(4)
@@ -321,7 +321,7 @@ end
 
 function M.directionViewsExposeOnlyTheirOwnHalf()
     local stream = connected({arriving = {"readable"}})
-    local reader = net.asReader(stream)
+    local reader = stream:asReader()
     local wrote, writeWhy = reader:write("wrong way")
     assertEq(wrote, false, "a reading view cannot write")
     assertTrue(tostring(writeWhy):find("read-only", 1, true) ~= nil, "and says which direction it has")
@@ -330,7 +330,7 @@ function M.directionViewsExposeOnlyTheirOwnHalf()
     assertTrue(tostring(flushWhy):find("read-only", 1, true) ~= nil, "and gives the same direction reason")
     reader:close()
 
-    local writer = net.asWriter(stream)
+    local writer = stream:asWriter()
     local bytes, readWhy = writer:read(1)
     assertEq(bytes, nil, "a writing view cannot read")
     assertTrue(tostring(readWhy):find("write-only", 1, true) ~= nil, "and says which direction it has")
@@ -340,7 +340,7 @@ end
 
 function M.aViewReadsThroughTheSharedContract()
     local stream = connected({arriving = {"shared"}})
-    local reader = net.asReader(stream)
+    local reader = stream:asReader()
     assertEq(assert(reader:read(6)), "shared", "a view is a Reader")
     reader:close()
     stream:close()
@@ -537,7 +537,7 @@ function M.closingAWritingViewWaitsForTheDirectionToEnd()
     local backend, state = fakeBackend({shutdownPends = true})
     install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
-    local writer = net.asWriter(stream)
+    local writer = stream:asWriter()
     assertTrue(writer:write("last"), "the view writes")
     writer:close()
     assertTrue(state.shutdown, "the direction was ended")
