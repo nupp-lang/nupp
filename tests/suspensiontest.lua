@@ -507,6 +507,32 @@ function M.reportsAWaitNothingCanCompleteEvenAfterATimerHasRun()
       "and it says so rather than hanging: " .. tostring(err))
 end
 
+-- A pump registered through a subscription's context takes the same activity
+-- predicate as one registered outside any, so an idle one does not keep a wait
+-- nothing can complete alive. The poll gives up after a bound so a predicate that
+-- was dropped shows as a wrong answer rather than a hang.
+function M.aContextSourceTakesAnActivityPredicate()
+   local asked, polls = 0, 0
+   local ok, err = pcall(suspension.suspend, "waiting on an idle pump", function(resume, context)
+      context:source("idle", 1, function()
+         polls = polls + 1
+         if polls > 1000 then
+            resume("gave up")
+         end
+         return 0
+      end, nil, function()
+         asked = asked + 1
+         return false
+      end)
+      return function()
+      end
+   end)
+   assertEq(ok, false, "an idle context pump is not something that can make progress: " .. tostring(err))
+   assertTrue(tostring(err):find("no readiness source", 1, true) ~= nil,
+      "and it says so rather than hanging: " .. tostring(err))
+   assertTrue(asked > 0, "the predicate was asked")
+end
+
 function M.aCreatedCoroutineInheritsTheHandler()
    local handler = {park = function() end}
    local inside = nil

@@ -33,7 +33,7 @@ not copied into worker lanes.
 export record Source
     --- Unregisters this source without suspending; repeated calls are harmless. The
     --- provider supplies it with the registration.
-    release: @nosuspend function(Source): nil
+    release: @nosuspend function(self: Source): nil
 
     --- Diagnostic identity of the readiness source.
     name: string
@@ -45,7 +45,7 @@ export record Source
     wait: (function(integer): integer)?
 
     --- Optional predicate deciding whether the source has outstanding work.
-    active: (function(Source): boolean)?
+    active: (function(source: Source): boolean)?
 
     --- Stable registration-order tie breaker used by the provider.
     sequence: integer = 0
@@ -63,14 +63,22 @@ end
 --- Subscription context used to register or associate readiness sources.
 --- A subscription may use an existing Source or create a scoped one.
 export record Context
-    --- Registers a source associated with this subscription.
-    source: function(Context, string, integer, function(): integer, (function(integer): integer)?): Source
+    --- Registers a source associated with this subscription, as
+    --- [](nupp.suspension.spi.Provider.source) registers one outside any.
+    source: function(
+        self: Context,
+        name: string,
+        priority: integer,
+        poll: function(): integer,
+        wait: (function(integer): integer)?,
+        active: (function(source: Source): boolean)?
+    ): Source
 
     --- Associates an existing source with this wait without changing its identity.
-    uses: function(Context, Source): nil
+    uses: function(self: Context, source: Source): nil
 
     --- Reports whether the current handler can park this subscription.
-    canPark: function(Context): boolean
+    canPark: function(self: Context): boolean
 
     --- Provider-owned active handler state.
     handler: any
@@ -83,10 +91,10 @@ end
 --- ready is monotonic once resumed; onResume installs the handler's wake callback.
 export record Waiting
     --- Reports whether the subscription has settled.
-    ready: function(Waiting): boolean
+    ready: function(self: Waiting): boolean
 
     --- Registers a wake callback for the waiting scheduler.
-    onResume: function(Waiting, function(): nil): nil
+    onResume: function(self: Waiting, wake: function(): nil): nil
 
     --- Diagnostic operation name supplied to suspend.
     operation: string
@@ -98,14 +106,14 @@ end
 --- Scheduler integration operations with explicit Handler receivers.
 --- park drives or yields a wait; shutdown releases handler-owned scheduling state.
 export record Handler
-    --- Parks or drives this Waiting; the callback performs subscription cleanup.
-    park: function(Handler, Waiting, function(): nil): nil
+    --- Parks or drives this Waiting; `cleanup` cancels the subscription.
+    park: function(self: Handler, waiting: Waiting, cleanup: function(): nil): nil
 
     --- Reports whether this handler can park the current execution.
-    canPark: function(Handler): boolean
+    canPark: function(self: Handler): boolean
 
     --- Releases scheduling state owned by this handler.
-    shutdown: function(Handler): nil
+    shutdown: function(self: Handler): nil
 end
 
 --- Handler restoration state owned by one installation.

@@ -79,9 +79,10 @@ local function contextsource(
     name: string,
     priority: integer,
     poller: function(): integer,
-    waiter: (function(integer): integer)?
+    waiter: (function(integer): integer)?,
+    active: (function(suspension.Source): boolean)?
 ): suspension.Source
-    local source = suspension.source(name, priority, poller, waiter)
+    local source = suspension.source(name, priority, poller, waiter, active)
     local associated = assert(self.associated)
     associated[#associated + 1] = source
     local owned = ownedSources[self]

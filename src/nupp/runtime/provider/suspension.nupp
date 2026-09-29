@@ -362,9 +362,10 @@ function ContextMT.source(
     name: string,
     priority: integer,
     poll: function(): integer,
-    wait: (function(integer): integer)?
+    wait: (function(integer): integer)?,
+    active: (function(suspension.Source): boolean)?
 ): any
-    local source = addSource(name, priority, poll, wait)
+    local source = addSource(name, priority, poll, wait, active)
     -- Built on first use. Most waits register no pump at all, and a list allocated for
     -- every one of them would be paid on the path this design exists to keep cheap.
     local owned = self.owned
