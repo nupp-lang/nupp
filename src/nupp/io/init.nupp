@@ -125,6 +125,11 @@ given no count; an explicit count must be positive. A failed or EOF read does
 not extend the destination. `transferTo(writer)` copies the entire remaining
 source and returns the byte count.
 
+A read moves the reader's cursor as a write moves a writer's, so all four take
+the reader exclusively. Two readers over one cursor, such as a stream and a
+borrowed view of it, cannot both be reading at once; the checker refuses the
+second while the first is live.
+
 `readAll(reader, maxBytes)` takes a reader and answers everything left in it as
 one string, closing the reader on the way out. A limit is checked as the bytes
 arrive, so a source larger than it answers a reason rather than a string:
@@ -134,11 +139,6 @@ assert(nupp.io.readAll(nupp.io.newStringReader("whole")) == "whole")
 local text, reason = nupp.io.readAll(nupp.io.newStringReader("too long"), 3)
 assert(text == nil and reason ~= nil)
 ```
-
-A read moves the reader's cursor as a write moves a writer's, so all four take
-the reader exclusively. Two readers over one cursor, such as a stream and a
-borrowed view of it, cannot both be reading at once; the checker refuses the
-second while the first is live.
 
 ## Writers
 
@@ -165,8 +165,9 @@ assert(destination:getString() == "prefix:body")
 reason when the writer is closed or the destination was released. The span is
 the common zero-copy input contract for buffers, views, files, processes, and
 HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
-does nothing for memory and is part of the contract so that a later file or
-socket writer implements the same interface.
+does nothing for memory. It is part of the contract because a file or socket
+buffers, and `flush` is where one reports a write that failed to land: `close`
+answers nothing, so a caller that has to know flushes first.
 
 ## Lines
 
