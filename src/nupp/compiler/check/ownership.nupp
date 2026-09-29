@@ -282,14 +282,20 @@ function ownership.install(c: state.Checker): ownership.Ops
         if not definition then
             return base
         end
-        local known = cleanupKeys[definition]
+        -- One declaration can reach here as more than one definition record -- the
+        -- one its hoisted export carries and the one its binding does -- and each
+        -- used to take the next number, so `issue(): affine(T, release)` and the
+        -- declaration of `release` beside it disagreed. The declaring token is the
+        -- declaration.
+        local identity = definition.token or definition
+        local known = cleanupKeys[identity]
         if known then
             return known
         end
         local seen = cleanupOrdinals[base] or 0
         cleanupOrdinals[base] = seen + 1
         local key = seen == 0 and base or ("%s#%d"):format(base, seen)
-        cleanupKeys[definition] = key
+        cleanupKeys[identity] = key
 
         return key
     end

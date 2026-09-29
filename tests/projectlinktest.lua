@@ -1341,4 +1341,43 @@ return shape
     )
 end
 
+-- A terminal is keyed once per declaration, however many definition records reach
+-- it. The declaring module used to number the one its hoisted export carried apart
+-- from the one its binding carried, so `issue(): affine(Ticket, release)` there and
+-- `affine(gate.Ticket, gate.release)` in a consumer never compared equal.
+function M.aConsumerNamesAnotherModulesTerminal()
+    withProject({
+        ["src/gate.nupp"] = [[
+module gate
+
+export record Ticket
+    id: integer
+end
+
+export function release(takes self: Ticket): nil
+    print(self.id)
+end
+
+export function issue(): affine(Ticket, release)
+    return nil as any
+end
+]],
+        ["src/hall.nupp"] = [[
+module hall
+
+local gate = require("gate")
+
+export function admit(): nil
+    local ticket: affine(gate.Ticket, gate.release) = gate.issue()
+    print(ticket.id)
+end
+]],
+    }, function(dir)
+        local path = dir .. "/src/hall.nupp"
+        local parsed = parser.parse(readFile(path), path)
+        local diags = check.check(parsed, path, projectEnv(dir))
+        assertEq(#diags, 0, "the consumer's terminal is the declaring module's: " .. (diags[1] and diags[1].msg or ""))
+    end)
+end
+
 return M
