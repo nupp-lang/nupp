@@ -1582,7 +1582,7 @@ execStatement = function(state, stat)
         error(BREAK, 0)
     elseif kind == "callStmt" then
         evalExpr(state, stat.expr)
-    elseif kind == "doStmt" or kind == "unsafeStmt" then
+    elseif kind == "doStmt" then
         execBlock(state, stat.body)
     elseif kind == "ifStmt" then
         for _, clause in ipairs(stat.clauses or {}) do

@@ -1557,7 +1557,7 @@ local function foldStatement(stat, current)
             foldBlock(stat.body, inner)
         end
         foldExpr(stat.cond, inner)
-    elseif kind == "doStmt" or kind == "unsafeStmt" then
+    elseif kind == "doStmt" then
         if stat.body then
             foldBlock(stat.body, scope(current))
         end

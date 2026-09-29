@@ -1765,14 +1765,6 @@ function control.install(c: state.Checker): state.StatHandlers
         c.popScope()
     end
 
-    handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
-        c.withUnsafe(true, function()
-            c.pushScope()
-            c.checkBlock(stat.body, true)
-            c.popScope()
-        end)
-    end
-
     handlers.fornumStmt = function(stat: cst.FornumStmt)
         local from, to, var = stat.start, stat.stop, stat.var
         if not from or not to or not var then

@@ -75,7 +75,7 @@ local function leavesFirstPass(body: any): boolean
     local kind = last.kind
     if kind == "returnStmt" or kind == "breakStmt" then
         return true
-    elseif kind == "doStmt" or kind == "unsafeStmt" or kind == "withStmt" then
+    elseif kind == "doStmt" or kind == "withStmt" then
         return leavesFirstPass(last.body)
     elseif kind == "ifStmt" and last.elseClause then
         for _, clause in ipairs(last.clauses or {}) do

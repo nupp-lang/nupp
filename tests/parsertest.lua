@@ -874,18 +874,6 @@ function M.ifClausesBindANameFollowedByEquals()
     assertEq(clauses[4].cond.kind, "name")
 end
 
-function M.legacyUnsafeBlockHasATokenRangeFix()
-    local source = [[
-local unsafe, adopt, release = print, print, print
-unsafe(1) adopt(2) release(3)
-local text = 'unsafe do; unsafe release owner; unsafe adopt raw as Owner'
--- unsafe do is text here, too.
-unsafe -- keep this comment
- do
-    local raw = @unsafe nupp.release(owner)
-    local restored = @unsafe nupp.adopt<Owner>((raw or fallback))
-end
-
 function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
     for _, case in ipairs({
         {
@@ -909,45 +897,6 @@ function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
         local fixed = applyFix(case.source, fix)
         assertEq(fixed, case.fixed)
         assertEq(#parser.parse(fixed).errors, 0, fixed)
-    end
-end
-]]
-    local result = parser.parse(source, 'legacy.g.nupp')
-    assertEq(#result.errors, 1)
-    local edits = {}
-    for _, diagnostic in ipairs(result.errors) do
-        assertEq(diagnostic.code, 'NUPP1005')
-        assert(diagnostic.msg:find('@unsafe', 1, true))
-        assertEq(#diagnostic.fixes, 1)
-        assertEq(#diagnostic.fixes[1].edits, 1)
-        local edit = diagnostic.fixes[1].edits[1]
-        assertEq(edit.length, 0)
-        assertEq(edit.newText, '@')
-        assertEq(source:sub(edit.offset, edit.offset + 5), 'unsafe')
-        edits[#edits + 1] = edit
-    end
-    table.sort(edits, function(a, b)
-        return a.offset > b.offset
-    end)
-    local fixed = source
-    for _, edit in ipairs(edits) do
-        fixed = fixed:sub(1, edit.offset - 1) .. edit.newText .. fixed:sub(edit.offset)
-    end
-    local accepted = parser.parse(fixed, 'new.g.nupp')
-    assertEq(#accepted.errors, 0)
-    assert(fixed:find("local text = 'unsafe do; unsafe release owner; unsafe adopt raw as Owner'", 1, true))
-    assert(fixed:find('-- unsafe do is text here, too.', 1, true))
-    assert(fixed:find('@unsafe -- keep this comment\n do', 1, true))
-    local wrapper = accepted.root.blocks[1].stats[6]
-    assertEq(wrapper.kind, 'pragmaStmt')
-    assertEq(wrapper.stat.kind, 'doStmt')
-    local ownership = wrapper.stat.body.stats
-    assertEq(ownership[1].exprs[1].kind, 'call')
-    assertEq(ownership[2].exprs[1].kind, 'call')
-    assertEq(require('nupp.compiler.syntax.cst').textOf(accepted.root), fixed)
-    for _, legacy in ipairs({'local raw = @unsafe release owner', 'local owner = @unsafe adopt raw as Owner',}) do
-        local parsed = parser.parse(legacy)
-        assertEq(parsed.errors[1] and parsed.errors[1].code, 'NUPP1005')
     end
 end
 

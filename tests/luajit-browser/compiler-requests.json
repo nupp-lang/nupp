@@ -68,14 +68,6 @@
   },
   {
     "kind": "compile",
-    "filename": "ffi.nupp",
-    "source": "local ffi = require(\"ffi\")\nlocal values = ffi.new<int32[3]>()\nunsafe do values[0] = 41; print(values[0] + 1) end",
-    "options": {
-      "strict": true
-    }
-  },
-  {
-    "kind": "compile",
     "filename": "layout.nupp",
     "source": "local struct Point\n x: int32\n y: int32\nend\nlocal value = new Point(x = 2, y = 3)\nprint(value.x + value.y)\nreturn layoutof(Point)",
     "options": {

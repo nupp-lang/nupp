@@ -556,7 +556,7 @@ function expr.install(c: state.Checker): nil
             end
             local otherwise = stat.elseClause as cst.ElseClause
             return blockCompletesSwitch(otherwise.body)
-        elseif kind == "doStmt" or kind == "withStmt" or kind == "unsafeStmt" then
+        elseif kind == "doStmt" or kind == "withStmt" then
             return blockCompletesSwitch(stat.body)
         elseif kind == "pragmaStmt" and stat.stat then
             return statCompletesSwitch(stat.stat)

@@ -214,7 +214,7 @@ local function run(options: any): integer
                     }
                 end
             end
-        elseif node.kind == "unsafeStmt" or (node.kind == "pragmaStmt" and node.name.text == "unsafe") then
+        elseif node.kind == "pragmaStmt" and node.name.text == "unsafe" then
             local token = firstToken(node)
             unsafeSites[
                 #unsafeSites + 1

@@ -750,7 +750,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
             return fallsThrough(last.elseClause.body)
-        elseif kind == "doStmt" or kind == "withStmt" or kind == "unsafeStmt" then
+        elseif kind == "doStmt" or kind == "withStmt" then
             return fallsThrough(last.body)
         elseif kind == "pragmaStmt" and last.stat then
             return fallsThrough({kind = "block", stats = {last.stat}})

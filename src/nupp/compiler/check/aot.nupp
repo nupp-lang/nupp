@@ -64,7 +64,7 @@ local DECLINED: {
     safeBracket = "an optional index",
     newExpr = "a constructor call",
     withStmt = "an owned scope",
-    unsafeStmt = "an `@unsafe` construct",
+    unsafe = "an `@unsafe` construct",
 }
 
 --- Why each declined construct is declined, in the terms the AOT contract uses. The
@@ -86,7 +86,7 @@ local BECAUSE: {
     safeBracket = "an AOT body indexes only spans, structs, and fixed arrays",
     newExpr = "an AOT body creates no owner and allocates nothing",
     withStmt = "an AOT function creates no owner and has no cleanup region",
-    unsafeStmt = "`@aot` is a checked contract and does not admit unsafe operations",
+    unsafe = "`@aot` is a checked contract and does not admit unsafe operations",
 }
 
 --- Installs the AOT subset walk on one run.
@@ -301,7 +301,7 @@ function aot.install(c: state.Checker): aot.Ops
             end
             local kind = (current as Node).kind
             if current.expressionAnnotations or (kind == "pragmaStmt" and current.name.text == "unsafe") then
-                decline(current as Node, "unsafeStmt")
+                decline(current as Node, "unsafe")
                 return
             end
             if kind == "call" then

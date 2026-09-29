@@ -123,7 +123,6 @@ local COVERAGE_STATEMENTS = {
     continueStmt = true,
     gotoStmt = true,
     withStmt = true,
-    unsafeStmt = true,
     yieldStmt = true,
 }
 
@@ -3266,7 +3265,6 @@ function gen.generate(
                         or child.kind == "elseClause"
                         or child.kind == "doStmt"
                         or child.kind == "withStmt"
-                        or child.kind == "unsafeStmt"
                         or child.kind == "pragmaStmt"
                     then
                         lowerSwitches(child, lazy)
@@ -8863,13 +8861,6 @@ function gen.generate(
                 emit(x.stat)
             end
             pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x), true)
-
-        elseif kind == "unsafeStmt" then
-            e("do", x.unsafeTok and x.unsafeTok.line or nil)
-            if x.body then
-                emit(x.body)
-            end
-            e("end", x.endTok and x.endTok.line or nil)
 
         elseif kind == "tableExpr" and x.presizeFields and not coverageOn then
             -- OPT-1: a consecutive run of named writes can be the constructor itself.

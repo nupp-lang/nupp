@@ -2227,7 +2227,7 @@ function checkMod.check(
             return false
         elseif kind == "callStmt" then
             return not neverReturns(stat.expr)
-        elseif kind == "doStmt" or kind == "unsafeStmt" or kind == "withStmt" then
+        elseif kind == "doStmt" or kind == "withStmt" then
             return fallsThrough(stat.body)
         elseif kind == "ifStmt" then
             if not stat.elseClause then
