@@ -25,12 +25,18 @@ appropriate report type:
 ```nupp:playground
 local profile = nupp.profile
 
-local function finish<S is profile.Session>(session: S): S.Report
+local function finish<S is profile.Session>(borrows session: S): S.Report
     return session:stop()
 end
 
-local samples: profile.SampleReport = finish(profile.sample())
-local aborts: profile.TraceReport = finish(profile.trace())
+with sampling = profile.sample() do
+    local samples: profile.SampleReport = finish(sampling)
+    print(samples.samples)
+end
+with tracing = profile.trace() do
+    local aborts: profile.TraceReport = finish(tracing)
+    print(aborts.totalAborts)
+end
 ```
 
 See [Associated types](../language/types/associated-types.md) for details on
@@ -254,11 +260,12 @@ request, or the work after warm-up:
 ```nupp
 local profile = nupp.profile
 
-local session = profile.sample({intervalMs = 2, zone = "frame/render"})
-renderEverything()
-local report = session:stop("render.out")
+with session = profile.sample({intervalMs = 2, zone = "frame/render"}) do
+    renderEverything()
+    local report = session:stop("render.out")
 
-print(report.samples, report.stacks)
+    print(report.samples, report.stacks)
+end
 ```
 
 `stop` ends the session and returns a report. `tostring(report)` gives the same
@@ -274,12 +281,13 @@ the session starts and cannot be widened afterwards.
 Use `profile.trace()` to collect trace aborts:
 
 ```nupp
-local session = profile.trace()
-runTheWorkload()
-local report = session:stop()
+with session = profile.trace() do
+    runTheWorkload()
+    local report = session:stop()
 
-if report.blacklisted > 0 then
-    print(tostring(report))
+    if report.blacklisted > 0 then
+        print(tostring(report))
+    end
 end
 ```
 
@@ -287,7 +295,9 @@ end
 
 Profiling hooks apply to the whole process. One sampling session and one trace
 session can run at a time; starting a second session of either kind is an error.
-Always call `stop`: dropping the session handle leaves its timer or hook active.
+A session is a `nupp.Closeable`, so a `with` ends it where the block ends: a
+session nothing stopped is closed without a report, and closing one that `stop`
+already ended does nothing.
 
 Each sample requires a timer interrupt, a stack walk, and a table write. Trace
 profiling runs a callback on each abort. Keep captures short to limit overhead.

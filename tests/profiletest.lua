@@ -391,6 +391,24 @@ function M.aStoppedSampleSessionRefusesEverything()
     )
 end
 
+-- Closing is what leaving a `with` does: it ends a session nothing stopped, without a
+-- report, so the next one can start, and it is free once `stop` has run.
+function M.closingEndsASessionWithoutAReport()
+    local sampling = profile.sample({intervalMs = 10})
+    assertEq(sampling:close(), nil, "close answers no report")
+    local again = profile.sample({intervalMs = 10})
+    assertMatch(tostring(select(2, pcall(sampling.stop, sampling))), "already stopped", "a closed session is over")
+    again:stop()
+    again:close()
+
+    local tracing = profile.trace()
+    assertEq(tracing:close(), nil, "close answers no report")
+    local next = profile.trace()
+    assertMatch(tostring(select(2, pcall(tracing.stop, tracing))), "already stopped", "a closed session is over")
+    next:stop()
+    next:close()
+end
+
 function M.sampleRefusesAnIntervalItCannotHonour()
     assert(not pcall(profile.sample, {intervalMs = 0}), "zero milliseconds")
     assert(not pcall(profile.sample, {intervalMs = 2147483648}), "interval exceeds LuaJIT's signed range")

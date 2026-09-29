@@ -7,10 +7,11 @@ there compiled.
 ```nupp
 local profile = nupp.profile
 
-local session = profile.sample({intervalMs = 5})
-render()
-local report = session:stop("profile.out")
-print(report.samples, report.stacks)
+with session = profile.sample({intervalMs = 5}) do
+    render()
+    local report = session:stop("profile.out")
+    print(report.samples, report.stacks)
+end
 ```
 
 `profile.sample` is the statistical sampler. A timer interrupts the program and
@@ -31,8 +32,9 @@ runs at a time.
 
 Neither is free. A sample session pays a timer interrupt, a stack walk and a
 table write at every interval; a trace session pays a callback at every abort,
-inside the compiler. Stop a session once the question it was opened for has an
-answer.
+inside the compiler. A session is a `nupp.Closeable`, so a `with` ends it where
+its block does: `stop` answers the report, and a session nothing stopped is
+closed without one.
 
 See [profiling.md](docs/learn/performance/profiling.md) for reading a report, and
 [jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for finding the same aborts without running
@@ -92,7 +94,11 @@ type profile.TraceOptions = {
 --- A running profiling session whose declaration chooses the report `stop` returns.
 ---
 --- Sampling and trace-abort sessions share this lifecycle. Generic helpers can use
---- `S.Report` to preserve the concrete report chosen by a session declaration.
+--- `S.Report` to preserve the concrete report chosen by a session declaration, and
+--- take the session `borrows`. Each session is also a `nupp.Closeable`: `close`, which
+--- leaving a `with` calls, ends one that nothing stopped without building a report,
+--- and does nothing after `stop`. The two are separate so a helper bounded by this
+--- one can still name `S.Report`.
 interface profile.Session
     --- What `stop` answers, chosen by the session declaration rather than here.
     associated type Report
@@ -178,9 +184,9 @@ end
 
 --- A running sampler, as `profile.sample` returns it.
 ---
---- Live until `stop`, and there is at most one at a time. Dropping the handle without
---- stopping leaves the timer running for the rest of the process.
-record profile.SampleSession is profile.Session
+--- Live until `stop` or `close`, and there is at most one at a time. Held by a `with`,
+--- it is closed where the block ends, so the timer never outlives the question.
+record profile.SampleSession is profile.Session, nupp.Closeable
     associated type Report = profile.SampleReport
 
     --- The interval it was started at.
@@ -209,6 +215,7 @@ record profile.SampleSession is profile.Session
     pause: function(self)
     resume: function(self)
     stop: function(self, filename: string?): self.Report
+    close: function(takes self: profile.SampleSession): nil
 end
 
 --- One place the JIT gave up, and how often it did.
@@ -312,9 +319,9 @@ end
 
 --- A running trace-abort collector, as `profile.trace` returns it.
 ---
---- Live until `stop`, and there is at most one at a time. Dropping the handle without
---- stopping leaves the event hook attached for the rest of the process.
-record profile.TraceSession is profile.Session
+--- Live until `stop` or `close`, and there is at most one at a time. Held by a `with`,
+--- it is closed where the block ends, so the event hook never outlives the question.
+record profile.TraceSession is profile.Session, nupp.Closeable
     associated type Report = profile.TraceReport
 
     --- Whether the benign trace-formation events are being counted.
@@ -347,6 +354,7 @@ record profile.TraceSession is profile.Session
     pause: function(self)
     resume: function(self)
     stop: function(self, filename: string?): self.Report
+    close: function(takes self: profile.TraceSession): nil
 end
 
 -------------------------------------------------------------------------------
@@ -545,13 +553,26 @@ do
     end
 end
 
+-- Ends a sample session's recording: what `stop` does before it builds the report,
+-- and all that `close` does.
+local function haltSampling(borrows session: profile.SampleSession): nil
+    session.stopped = true
+    jitProfile.stop()
+    if restoreSignal ~= nil then
+        restoreSignal()
+    end
+    sampling = false
+    zone.release()
+end
+
 --- Starts sampling.
 ---
 --- ```nupp
---- local session = profile.sample({intervalMs = 5, zone = "frame/render"})
---- render()
---- local report = session:stop("render.collapsed")
---- print(report.samples, report.stacks)
+--- with session = profile.sample({intervalMs = 5, zone = "frame/render"}) do
+---     render()
+---     local report = session:stop("render.collapsed")
+---     print(report.samples, report.stacks)
+--- end
 --- ```
 ---
 --- @param options omitted samples every zone at 10 ms to a depth of 16
@@ -572,7 +593,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         error("profile.sample: stackDepth must be between 1 and 2147483647", 2)
     end
 
-    local session = new profile.SampleSession(
+    local owned = new profile.SampleSession(
         intervalMs = intervalMs,
         zoneFilter = opts.zone,
         root = opts.root,
@@ -581,6 +602,9 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         aggregate = {},
         sourceSamples = {}
     )
+    -- The sampler's callback reads the session for as long as it runs, while the
+    -- caller holds the one obligation to close it.
+    local session: any = @unsafe nupp.release(owned)
 
     -- Negative, so the walk runs outermost frame first: that is the order a collapsed
     -- stack is written in, and reversing it here would mean building a list per sample
@@ -663,7 +687,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     jitProfile.start("li" .. string.format("%d", intervalMs), record)
     sampling = true
 
-    return session
+    return session as profile.SampleSession
 end
 
 --- Stops recording without ending the session. The timer keeps firing, at the cost of
@@ -700,13 +724,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     if self.stopped then
         error("SampleSession:stop: the session has already stopped", 2)
     end
-    self.stopped = true
-    jitProfile.stop()
-    if restoreSignal ~= nil then
-        restoreSignal()
-    end
-    sampling = false
-    zone.release()
+    haltSampling(self)
 
     local prefix = self.zoneFilter
     -- The filter names a subtree, so a match has to end at a path component:
@@ -889,13 +907,34 @@ end
 
 local tracing = false
 
+--- Ends the session without a report, which is what leaving its `with` does.
+---
+--- Does nothing once `stop` has run, so a block that stopped its session to read the
+--- report closes it for free.
+function profile.SampleSession.close(takes self: profile.SampleSession): nil
+    if not self.stopped then
+        haltSampling(self)
+    end
+end
+
+-- Ends a trace session's counting: what `stop` does before it builds the report, and
+-- all that `close` does.
+local function haltTracing(borrows session: profile.TraceSession): nil
+    session.stopped = true
+    -- No event names the handler to remove.
+    jit.attach(session.callback)
+    tracing = false
+    zone.release()
+end
+
 --- Starts collecting trace aborts.
 ---
 --- ```nupp
---- local session = profile.trace()
---- render()
---- local report = session:stop("aborts.csv")
---- print(report.blacklisted, report.totalAborts)
+--- with session = profile.trace() do
+---     render()
+---     local report = session:stop("aborts.csv")
+---     print(report.blacklisted, report.totalAborts)
+--- end
 --- ```
 ---
 --- @param options omitted leaves the benign trace-formation events out
@@ -908,7 +947,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
 
     local opts: profile.TraceOptions = options or {}
     local selected = traceRegistry.profile()
-    local session = new profile.TraceSession(
+    local owned = new profile.TraceSession(
         includeBenign = opts.includeBenign or false,
         startedAt = os.time() as integer,
         paused = false,
@@ -929,6 +968,9 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         callback = function()
         end
     )
+    -- The hook reads the session for as long as it is attached, while the caller holds
+    -- the one obligation to close it.
+    local session: any = @unsafe nupp.release(owned)
 
     -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
     -- event's are what this unpacks. Trace numbers connect side traces to their
@@ -994,7 +1036,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     jit.attach(onTraceEvent, "trace")
     tracing = true
 
-    return session
+    return session as profile.TraceSession
 end
 
 --- Stops counting without ending the session. The hook stays attached, at the cost of
@@ -1029,11 +1071,7 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
     if self.stopped then
         error("TraceSession:stop: the session has already stopped", 2)
     end
-    self.stopped = true
-    -- No event names the handler to remove.
-    jit.attach(self.callback)
-    tracing = false
-    zone.release()
+    haltTracing(self)
 
     local sites: {profile.AbortSite} = {}
     for _, site in pairs(self.sites) do
@@ -1068,6 +1106,16 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
     end
 
     return report
+end
+
+--- Ends the session without a report, which is what leaving its `with` does.
+---
+--- Does nothing once `stop` has run, so a block that stopped its session to read the
+--- report closes it for free.
+function profile.TraceSession.close(takes self: profile.TraceSession): nil
+    if not self.stopped then
+        haltTracing(self)
+    end
 end
 
 export = profile

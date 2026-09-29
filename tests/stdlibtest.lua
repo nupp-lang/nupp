@@ -2923,11 +2923,15 @@ function M.profileSessionProtocolPreservesItsReportType()
         table.concat(
             {
                 "local profile = require('nupp.profile')",
-                "local function finish<S is profile.Session>(session: S): S.Report",
+                "local function finish<S is profile.Session>(borrows session: S): S.Report",
                 "   return session:stop()",
                 "end",
-                "local sample: profile.SampleReport = finish(profile.sample())",
-                "local trace: profile.TraceReport = finish(profile.trace())",
+                "with sampling = profile.sample() do",
+                "   local sample: profile.SampleReport = finish(sampling)",
+                "end",
+                "with tracing = profile.trace() do",
+                "   local trace: profile.TraceReport = finish(tracing)",
+                "end",
             },
             "\n"
         )
@@ -2939,16 +2943,18 @@ function M.profileSessionProtocolPreservesItsReportType()
                 table.concat(
                     {
                         "local profile = require('nupp.profile')",
-                        "local function finish<S is profile.Session>(session: S): S.Report",
+                        "local function finish<S is profile.Session>(borrows session: S): S.Report",
                         "   return session:stop()",
                         "end",
-                        "local wrong: profile.TraceReport = finish(profile.sample())",
+                        "with sampling = profile.sample() do",
+                        "   local wrong: profile.TraceReport = finish(sampling)",
+                        "end",
                     },
                     "\n"
                 )
             )
         ),
-        "NUPP2001:5"
+        "NUPP2001:6"
     )
 end
 

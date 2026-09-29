@@ -5512,6 +5512,29 @@ function M.aTaskScopeTakesItsTimeoutInMilliseconds()
     assert(refused:find("NUPP2125", 1, true) == 1, "the old name is not an argument: " .. refused)
 end
 
+-- A profiling session is a Closeable, so a `with` holds it and ends it with the block,
+-- and a helper bounded by `profile.Session` still names the session's report.
+function M.aProfileSessionIsHeldByAWith()
+    assertClean(
+        table.concat(
+            {
+                "local profile = require('nupp.profile')",
+                "local function finish<S is profile.Session>(borrows session: S): S.Report",
+                "   return session:stop()",
+                "end",
+                "with sampling = profile.sample() do",
+                "   local report: profile.SampleReport = finish(sampling)",
+                "   print(report.samples)",
+                "end",
+                "with tracing = profile.trace() do",
+                "   print(tracing)",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
 -- `gather` takes the same two contracts `race` does: a borrowed family runs and is
 -- left with its owner, and an owned family is called or dropped exactly once.
 function M.gatherCallsEveryTakingBranchOnce()

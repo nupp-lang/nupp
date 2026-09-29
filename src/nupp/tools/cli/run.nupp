@@ -298,6 +298,7 @@ local function run(options: any): integer
     -- the samples.
     if sampling then
         local summary = sampling:stop(profileOut)
+        nupp.drop(sampling)
         compile.attachSamples(settings, summary.sourceSamples, summary.samples, summary.intervalMs)
         if sampledRemarks then
             require(
@@ -317,6 +318,7 @@ local function run(options: any): integer
         -- formats then use the checked atomic writer below, so a failed CSV write is
         -- handled the same way as JSON rather than raising out of TraceSession:stop.
         local summary = tracing:stop()
+        nupp.drop(tracing)
         local content: string
         if values.json then
             local sites = {}

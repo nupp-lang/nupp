@@ -645,7 +645,9 @@ local function openTrace(): any?
         return nil
     end
 
-    return session
+    -- The harness stops every session it opens, on each case's own schedule.
+
+    return @unsafe nupp.release(session)
 end
 
 --- Opens the optional sampler paused. Setup, teardown and harness bookkeeping stay
@@ -659,7 +661,7 @@ local function openSample(): any?
     local session = profile.sample({intervalMs = options.sampleIntervalMs, zone = options.sampleZone, root = root,})
     session:pause()
 
-    return session
+    return @unsafe nupp.release(session)
 end
 
 --- Announces work before it starts, so calibration or an application-owned frame
