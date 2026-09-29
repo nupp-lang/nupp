@@ -7,7 +7,6 @@ module nupp.runtime.browser.playground
 
 local json = require("nupp.runtime.provider.lunajson")
 local utf8 = require("nupp.text.utf8")
-local browserCompute = require("nupp.browser")
 -- The derive runtime and the two libraries a derived binding reaches, for the
 -- same reason: a program that derives `Serde` lowers to
 -- `require("nupp.derive")`, and a module the bundle does not carry is a program
@@ -86,9 +85,6 @@ _G.print = function(...: any): nil
 end
 
 _G.__nuppPlaygroundRun = function(source: string): string
-    if browserCompute == nil then
-        error("nupp: browser GPU runtime did not load", 0)
-    end
     if derive == nil or serde == nil or dataJson == nil then
         error("nupp: derive runtime did not load", 0)
     end

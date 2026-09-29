@@ -40,15 +40,6 @@ type native.Feature = {
 
 local FEATURES: {[string]: native.Feature} = {
     [
-        "runtime.browser_gpu"
-    ] = {
-        name = "browser_gpu",
-        module = "nupp.browser",
-        runtimeModule = "nupp.browser",
-        portableRuntime = true,
-        requires = {"runtime.suspension"}
-    },
-    [
         "runtime.crypto"
     ] = {name = "crypto_runtime", module = "nupp.random", runtimeModule = "nupp.random", portableRuntime = true},
     [

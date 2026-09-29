@@ -204,25 +204,6 @@ provider gives.
 See [wasm.md](wasm.md#browser-package) for the application package and Worker
 host around this kernel.
 
-## Browser convenience operation
-
-The ordinary `nupp.browser` module provides `xorU32` for a program
-that needs one checked WebGPU operation without owning a generated kernel binding:
-
-```nupp:playground
-local gpu = require("nupp.browser")
-local u32 = nupp.math.u32.wrap
-
-local values = {u32(0), u32(0x00ff00ff), u32(0xffffffff)}
-local output = gpu.xorU32(values, u32(0xa5a5a5a5))
-print(output[1], output[2], output[3])
-```
-
-The effect enqueues one invocation per value and returns after the Worker copies
-the result back. It accepts at most 262,144 `uint32` values. Generated kernels
-are the surface for resident buffers, multiple operations, and source-defined
-compute.
-
 ## Inspection and limits
 
 `nupp aot --emit spirv FILE` writes the native WGPU module. On macOS WGPU

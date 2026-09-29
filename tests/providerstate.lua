@@ -147,18 +147,6 @@ function M.browserGpu(response, memory)
     })(name)
 end
 
-function M.browserXor(response)
-    local name = "nupp.browser"
-    return instance({[name] = true}, {
-        ["nupp.codec.json.provider"] = {
-            asArray = function(value)
-                return value
-            end
-        },
-        ["nupp.runtime.browser.response"] = response,
-    })(name)
-end
-
 function M.nativeHttp(native)
     local name = "nupp.io.http.internal.transport"
     return instance({[name] = true}, {["nupp.runtime.native"] = native})(name)

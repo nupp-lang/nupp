@@ -19,7 +19,7 @@ import CONSTRAINED from "./examples/constrained.nupp";
 import OWNERSHIP from "./examples/ownership.nupp";
 import SYNTAX from "./examples/syntax.nupp";
 import OPTIMIZER from "./examples/optimizer.nupp";
-import GPU_XOR from "./examples/gpu-xor.nupp";
+import U32_XOR from "./examples/u32-xor.nupp";
 import COMPTIME from "./examples/comptime.nupp";
 import CUSTOM_DERIVE from "./examples/custom-derive.nupp";
 import TYPE_LEVEL_DSL from "./examples/type-level-dsl.nupp";
@@ -39,7 +39,7 @@ export const EXAMPLES = [
   { id: "ownership", label: "Ownership", source: OWNERSHIP },
   { id: "syntax", label: "LuaJIT 3.0 syntax", source: SYNTAX },
   { id: "optimizer", label: "Optimizing compiler", source: OPTIMIZER },
-  { id: "gpu-xor", label: "WebGPU compute", source: GPU_XOR },
+  { id: "u32-xor", label: "Unsigned words", source: U32_XOR },
   { id: "comptime", label: "Compile-time evaluation", source: COMPTIME },
   { id: "custom-derive", label: "Defining a custom derive", source: CUSTOM_DERIVE },
   {

@@ -390,7 +390,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/http.g.nupp",
     "src/nupp/runtime/browser/files.g.nupp",
     "src/nupp/runtime/browser/path.nupp",
-    "src/nupp/browser/init.nupp",
     "src/nupp/runtime/browser/suspension.g.nupp",
     "src/nupp/runtime/browser/time.g.nupp",
     "src/nupp/runtime/browser/workers.g.nupp",
