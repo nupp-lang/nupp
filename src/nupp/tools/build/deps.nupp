@@ -249,7 +249,7 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
     for _, warning in ipairs(warnings or {}) do
         io.stderr:write("nupp: warning: " .. warning .. "\n")
     end
-    local output = join(root, binding.out or join(outDir, "generated/" .. name .. ".nupp"))
+    local output = join(root, binding.output or join(outDir, "generated/" .. name .. ".nupp"))
     local current = readFile(output)
     if current ~= text then
         local ok, err = writeFile(output, text)
@@ -356,12 +356,14 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             return destination, nil
         end
 
-        local sharedOutput = buildsShared and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
+        local sharedOutput = buildsShared and join(root, dep.output or join(outDir, "lib/" .. sharedLibraryName(name)))
             or nil
         local staticOutput = buildsStatic
             and join(
                 root,
-                dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
+                dep.staticOutput
+                or (linkage == "static" and dep.output)
+                or join(outDir, "lib/" .. staticLibraryName(name))
             )
             or nil
         local problem
@@ -489,13 +491,13 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     local wantsLibrary = #sources > 0 or (configuredBinding and configuredBinding.bridge) or hasMacroBridge
     local sharedOutput = wantsLibrary
         and buildsShared
-        and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
+        and join(root, dep.output or join(outDir, "lib/" .. sharedLibraryName(name)))
         or nil
     local staticOutput = wantsLibrary
         and buildsStatic
         and join(
             root,
-            dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
+            dep.staticOutput or (linkage == "static" and dep.output) or join(outDir, "lib/" .. staticLibraryName(name))
         )
         or nil
     if sharedOutput ~= nil and staticOutput ~= nil and normalize(sharedOutput) == normalize(staticOutput) then
@@ -744,7 +746,7 @@ local function buildCargo(root, outDir, name, dep, previous)
     local crateName = (dep.library or name):gsub("%-", "_")
     local targetPart = dep.target and (dep.target .. "/") or ""
     local artifact = dep.artifactPath or join(targetDir, targetPart .. profile .. "/" .. sharedLibraryName(crateName))
-    local output = join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(crateName)))
+    local output = join(root, dep.output or join(outDir, "lib/" .. sharedLibraryName(crateName)))
     if not previous or previous.key ~= key or not exists(output) then
         local argv = {cargo, "build", "--manifest-path", manifest, "--target-dir", targetDir}
         if profile == "release" then

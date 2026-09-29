@@ -636,13 +636,13 @@ return {dependencies = {native = {kind = "c", linkage = "dynamic"}},
         [
             "nupp.lua"
         ] = [[
-return {dependencies = {native = {kind = "c", staticOut = "native.a"}},
+return {dependencies = {native = {kind = "c", staticOutput = "native.a"}},
    build = {entries = {"main"}}}
 ]]
     })
     config, err = project.loadManifest(strayOutput)
     assertEq(config, nil, "a static output without static linkage rejects the manifest")
-    assert(err:find('staticOut requires linkage = "static" or "both"', 1, true), err)
+    assert(err:find('staticOutput requires linkage = "static" or "both"', 1, true), err)
     remove(strayOutput)
 end
 
@@ -1134,6 +1134,16 @@ function M.retiredManifestKeysFailAsUnknownKeys()
         'return {include = {"src"}, build = {targets = {app = {kind = "modules", aot = "require", '
             .. 'aotFeatures = "avx2"}}}}\n',
         "aotFeatures must be a table"
+    )
+    -- A produced path is `output` everywhere a manifest names one.
+    reject(
+        'return {include = {"src"}, dependencies = {native = {kind = "c", out = "lib/native.so"}}}\n',
+        'has no key "out"'
+    )
+    reject(
+        'return {include = {"src"}, dependencies = {native = {kind = "c", bindings = '
+            .. '{header = "native.h", out = "src/native.nupp"}}}}\n',
+        'has no key "out"'
     )
 end
 

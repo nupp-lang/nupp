@@ -477,7 +477,7 @@ local CARGO_KEYS = {
     "features",
     "locked",
     "offline",
-    "out",
+    "output",
     "load",
     "header",
     "bindings",
@@ -502,8 +502,8 @@ local DEPENDENCY_KEYS: {
         "ldflags",
         "pkgConfig",
         "linkage",
-        "out",
-        "staticOut",
+        "output",
+        "staticOutput",
         "artifacts",
         "load",
         "header",
@@ -530,7 +530,7 @@ local DEPENDENCY_KEYS: {
 }
 
 -- The generated FFI binding a C or Cargo dependency asks for by naming a header.
-local BINDING_KEYS = {"header", "library", "out", "bridge", "macros", "cbindgen", "command", "ownership"}
+local BINDING_KEYS = {"header", "library", "output", "bridge", "macros", "cbindgen", "command", "ownership"}
 local NATIVE_ARTIFACT_KEYS = {"path", "sha256", "size"}
 local NATIVE_ARTIFACT_SET_KEYS = {"shared", "static"}
 
@@ -1298,12 +1298,12 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         then
             return nil, "dependencies." .. name .. ".linkage must be \"shared\", \"static\", or \"both\""
         end
-        if dep.kind == "c" and dep.staticOut ~= nil then
-            if type(dep.staticOut) ~= "string" or dep.staticOut == "" then
-                return nil, "dependencies." .. name .. ".staticOut must be a non-empty string"
+        if dep.kind == "c" and dep.staticOutput ~= nil then
+            if type(dep.staticOutput) ~= "string" or dep.staticOutput == "" then
+                return nil, "dependencies." .. name .. ".staticOutput must be a non-empty string"
             end
             if dep.linkage ~= "static" and dep.linkage ~= "both" then
-                return nil, "dependencies." .. name .. ".staticOut requires linkage = \"static\" or \"both\""
+                return nil, "dependencies." .. name .. ".staticOutput requires linkage = \"static\" or \"both\""
             end
         end
         if dep.kind == "c" and dep.artifacts ~= nil then

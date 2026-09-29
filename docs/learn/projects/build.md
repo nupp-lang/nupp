@@ -885,9 +885,9 @@ will link the archive into its own shared library. A static archive becomes
 part of a binary only when that target selects `standalone`; ordinary binary
 targets retain the shared-library sidecar path.
 
-`out` renames the sole artifact for `shared` or `static`; with `both`, it names
-the shared artifact. `staticOut` independently renames the archive and is most
-useful with `both`. Both default paths are under `outDir/lib`.
+`output` renames the sole artifact for `shared` or `static`; with `both`, it
+names the shared artifact. `staticOutput` independently renames the archive and
+is most useful with `both`. Both default paths are under `outDir/lib`.
 
 A configured header is passed through `import-c`, and the resulting Nupp module
 is placed under `outDir/generated` so it participates in normal module
@@ -965,7 +965,7 @@ The binding keys have separate jobs:
 | --- | --- |
 | `header` | Header to preprocess and import; required for generated bindings |
 | `library` | Override the library name or path written into generated `cdef` declarations |
-| `out` | Override the generated Nupp module path |
+| `output` | Override the generated Nupp module path |
 | `bridge` | Wrap eligible named `static inline` definitions from `header` |
 | `macros` | Wrap only the listed function-like macros using explicit signatures |
 
