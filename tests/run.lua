@@ -1485,7 +1485,7 @@ if not queueDir and #shard == 0 then
                 local cutoff = os.time() - FIXTURE_LEASE_SECONDS
                 local information = not created and files.info(path) or nil
                 local stale = created and created <= cutoff
-                    or information ~= nil and tonumber(information.modified) <= cutoff
+                    or information ~= nil and tonumber(information.modified) / 1000 <= cutoff
                 if stale then
                     fixtureSerial = fixtureSerial + 1
                     local claimed = path .. ".stale-" .. shardSalt .. "-" .. fixtureSerial
