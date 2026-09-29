@@ -642,8 +642,8 @@ nupp.drop(writable)
 ## C unions and bitfields
 
 `cdef union` shares the same typed field surface as `cdef struct` while emitting
-the correct C tag and ABI layout, and a second colon gives an integer field its
-C bit width:
+the correct C tag and ABI layout, and a second colon gives an integer or boolean
+field its C bit width (a boolean's is 1):
 
 ```nupp
 cdef union Value
