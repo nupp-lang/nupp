@@ -2142,7 +2142,7 @@ Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
 
 Operation-only options: references only: `--include-declaration`;
 symbols only: `--file`; rename only: `--write`; actions only: `--only`;
-artifact only: `--kind`, `--opt-level`.
+artifact only: `--kind`, `-O0`, `-O1`, `-O2`.
 Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 Source positions are one-based byte line and column numbers. Rename
 previews by default and changes files only with `--write`.
@@ -2152,7 +2152,7 @@ Examples:
     nupp lsp
     nupp lsp inspect src/main.nupp 12 8
     nupp lsp references --include-declaration src/main.nupp 12 8
-    nupp lsp artifact --kind lua -O 2 src/main.nupp
+    nupp lsp artifact --kind lua -O2 src/main.nupp
 
 Usage:
   nupp lsp [ROOT]

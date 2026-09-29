@@ -481,6 +481,17 @@ function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()
    assert(decoded["function"].range.start.line == 1, "and positioned in source coordinates")
 end
 
+function M.artifactTakesTheOptimizationLevelEveryCommandSpells()
+   local dir = tempProject(ARTIFACT_PROJECT)
+   local optimized = json.decode(captureJson(dir, "lsp artifact --kind lua -O2 --json sample.nupp"))
+   local spaced = capture(dir, "lsp artifact --kind lua -O 2 sample.nupp; echo \"__exit__:$?\"")
+   local long = capture(dir, "lsp artifact --kind lua --opt-level 2 sample.nupp; echo \"__exit__:$?\"")
+   os.execute("rm -rf '" .. dir .. "'")
+   assert(optimized.available, "-O2 resolves an artifact")
+   contains(spaced, "__exit__:2", "-O takes its level attached, as build and run do")
+   contains(long, "__exit__:2", "--opt-level is not an option")
+end
+
 function M.artifactPrintsGeneratedLuaLineForLine()
    local dir = tempProject(ARTIFACT_PROJECT)
    local text = captureJson(dir, "lsp artifact --kind lua sample.nupp")

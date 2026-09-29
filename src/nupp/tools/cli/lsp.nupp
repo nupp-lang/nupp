@@ -414,11 +414,9 @@ local OPERATION_SCHEMAS: {
                 help = "Which artifact to resolve",
             },
             {
-                names = {"-O", "--opt-level"},
+                names = {"-O0", "-O1", "-O2"},
                 key = "artifactOptLevel",
-                value = "LEVEL",
-                choices = {"0", "1", "2"},
-                help = "Optimization level to resolve the artifact at (default: 0)",
+                help = "Optimization level to resolve the artifact at (default: -O0)",
             },
         },
         {
@@ -1311,7 +1309,7 @@ end
 ---
 --- Operation-only options: references only: `--include-declaration`;
 --- symbols only: `--file`; rename only: `--write`; actions only: `--only`;
---- artifact only: `--kind`, `--opt-level`.
+--- artifact only: `--kind`, `-O0`, `-O1`, `-O2`.
 --- Ask `nupp lsp <operation> --schema` for an operation's JSON schema.
 --- Source positions are one-based byte line and column numbers. Rename
 --- previews by default and changes files only with `--write`.
@@ -1321,7 +1319,7 @@ end
 ---     nupp lsp
 ---     nupp lsp inspect src/main.nupp 12 8
 ---     nupp lsp references --include-declaration src/main.nupp 12 8
----     nupp lsp artifact --kind lua -O 2 src/main.nupp
+---     nupp lsp artifact --kind lua -O2 src/main.nupp
 @cli("lsp")
 @derive(cliModule.Command)
 local record Lsp
@@ -1701,7 +1699,7 @@ end
 ---
 --- Examples:
 ---
----     nupp lsp artifact --kind lua -O 2 src/main.nupp
+---     nupp lsp artifact --kind lua -O2 src/main.nupp
 ---     nupp lsp artifact --kind bytecode --json src/main.nupp
 @cli("artifact")
 @derive(cliModule.Command)
@@ -1719,8 +1717,15 @@ local record Artifact
     kind: string
 
     --- Optimization level to resolve the artifact at.
-    @cli(name = "opt-level", short = "O", value = "LEVEL", choices = {"0", "1", "2"})
-    optLevel: string = "0"
+    @cli(
+        name = "O",
+        long = false,
+        pattern = "^%-O([0-2])$",
+        choices = {"0", "1", "2"},
+        display = "-O0, -O1, -O2",
+        value = "LEVEL"
+    )
+    optLevel: string?
 
     --- Print the JSON Schema of JSON output and exit.
     schema: boolean = false

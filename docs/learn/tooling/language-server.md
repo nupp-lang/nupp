@@ -277,7 +277,7 @@ nupp lsp rename            FILE LINE COLUMN NEW_NAME
 nupp lsp actions     --json [--only quickfix|refactor] FILE LINE COLUMN
 nupp lsp trace-check --json FILE LINE COLUMN
 nupp lsp artifacts   --json FILE LINE COLUMN
-nupp lsp artifact    --json --kind lua|bytecode [-O 0|1|2] FILE
+nupp lsp artifact    --json --kind lua|bytecode [-O0|-O1|-O2] FILE
 ```
 
 Every operation takes `--root DIR` (default `.`), the format group, and
