@@ -9581,32 +9581,6 @@ function gen.generate(
                     #recordDefinitions + 1
                 ] = ("%s[%s]=%q;"):format(registry, record.path, declaredModuleName .. "\0" .. record.path)
             end
-            -- A record whose stored fields are all primitive also publishes its
-            -- ordered layout keyed by the record table itself, so the runtime can
-            -- give a value that is exactly this record the native schema path even
-            -- when its signature only said `any`.
-            local schemaRegistry = reservedName("__nuppWorkerRecordSchemas")
-            local schemaDefinitions: {string} = {}
-            for _, record in ipairs(exportedRecords) do
-                local plan = record.type ~= nil and recordWorkerTransfer(record.type) or nil
-                if plan ~= nil then
-                    schemaDefinitions[
-                        #schemaDefinitions + 1
-                    ] = ("%s[%s]=%s;"):format(schemaRegistry, record.path, workerTransferLiteral(plan))
-                end
-            end
-            if #schemaDefinitions > 0 then
-                recordDefinitions[
-                    #recordDefinitions + 1
-                ] = (
-                    "local %s=_G.rawget(_G.nupp,\"__workerRecordSchemas\");"
-                    .. "if _G.type(%s)~=\"table\" then %s=_G.setmetatable({},{__mode=\"k\"});"
-                    .. "_G.rawset(_G.nupp,\"__workerRecordSchemas\",%s) end;"
-                ):format(schemaRegistry, schemaRegistry, schemaRegistry, schemaRegistry)
-                for _, definition in ipairs(schemaDefinitions) do
-                    recordDefinitions[#recordDefinitions + 1] = definition
-                end
-            end
         end
         local workerDefinitions = {}
         if #preparedFunctions > 0 then
