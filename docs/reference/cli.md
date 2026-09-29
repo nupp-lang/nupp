@@ -1920,9 +1920,10 @@ Options:
   --no-color           Never color output
 ```
 
-It writes a committed, hand-editable module of `cdef` declarations. Without
-`-o` it writes `<header basename>.nupp` into the current directory. Given
-`native/mini.h`:
+It writes a committed, hand-editable module of `cdef` declarations, formatted as
+`nupp fmt` formats it. The output path names the module, so it must sit beneath
+an include root and spell each module segment in lowercase luacase; without
+`-o` it is the header's basename in that spelling. Given `native/mini.h`:
 
 ```c
 struct mini_point {
@@ -1945,15 +1946,17 @@ src/mini.nupp
 -- committed and hand-editable: fix or extend freely, re-import
 -- only when the header changes.
 
+module mini
+
 cdef struct mini_point
-   x: number
-   y: number
+    x: number
+    y: number
 end
 
-cdef function mini_length(point: const mini_point*?): number from "mini"
-cdef function mini_version(): int32 from "mini"
+cdef function mini_length(point: mini_point*?): number from"mini"
+cdef function mini_version(): int32 from"mini"
 
-return { mini_point = mini_point, mini_length = mini_length, mini_version = mini_version }
+export = {mini_point = mini_point, mini_length = mini_length, mini_version = mini_version}
 ```
 
 Every imported pointer is nullable unless you edit the generated module to add

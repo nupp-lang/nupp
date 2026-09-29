@@ -94,9 +94,12 @@ nupp import-c native/mini.h --lib mini -o src/native/mini.nupp
 Write it to a `.nupp` file rather than a `.d.nupp` one. A declaration file is
 excluded from runtime module resolution, so the `cdef` statements would never
 execute and no binding would exist. Without `-o`, the output is the header's
-basename with a `.nupp` extension, in the current directory.
+basename in lowercase luacase with a `.nupp` extension, in the current directory.
+An output path whose module segments are not luacase is refused, since it would
+name a module no build accepts.
 
-The generated file declares the canonical module derived from its output path,
+The generated file is formatted as `nupp fmt` formats it, declares the canonical
+module derived from its output path,
 holds `cdef struct` and `cdef function` declarations, and exports the resulting
 binding table with `export =`. It is deliberately hand-editable: review it,
 remove declarations your program does not use, and add the contracts the header
@@ -178,8 +181,8 @@ int32_t (*get_row(void))[4];
 
 ```nupp [complete.nupp]
 cdef struct context
-   matrix: float[3][2]
-   callback: function(int32)?
+    matrix: float[3][2]
+    callback: function(int32)?
 end
 
 cdef function use_context(value: context*?)

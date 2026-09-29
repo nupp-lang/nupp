@@ -466,6 +466,46 @@ function M.theOutputFlagIsSpelledLikeEveryOtherCommands()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A generated module is committed and hand-edited, so it lands in the one spelling
+-- `nupp fmt` produces rather than failing the project's format check.
+function M.theWrittenModuleIsAlreadyFormatted()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write('return {include = {"src"}}\n')
+   manifest:close()
+   local output, ok = runCli(dir, ("-l mini -o src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
+   assert(ok, "import-c writes the module: " .. output)
+   local text = readFile(dir .. "/src/mini.nupp")
+   assert(not text:find("\n   [^ ]"), "the module is indented as fmt indents it:\n" .. text)
+   for line in text:gmatch("[^\n]+") do
+      assert(#line <= 120, "a line runs past fmt's width: " .. line:sub(1, 80))
+   end
+   local status = os.execute(("cd %q && %q fmt --check src/mini.nupp > /dev/null 2>&1"):format(dir, NUPP))
+   assert(status == 0, "fmt --check accepts what import-c wrote:\n" .. text)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- The output path names the module, so a path whose name is not luacase would write a
+-- module that no build accepts.
+function M.anOutputPathThatIsNotLuacaseIsRefused()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write('return {include = {"src"}}\n')
+   manifest:close()
+   local status = os.execute(("cd %q && %q import-c -o src/My_Header.nupp %q > %q 2>&1"):format(
+      dir, NUPP, HERE .. "/fixtures/mini.h", dir .. "/out.txt"))
+   local output = readFile(dir .. "/out.txt")
+   assert(status ~= 0 and status ~= true, "the path is refused")
+   assertContains(output, "lowercase luacase, such as src/myheader.nupp")
+   assertContains(output, "Try 'nupp help import-c'")
+   assert(not io.open(dir .. "/src/My_Header.nupp", "rb"), "and nothing is written")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.bridgeWriteFailureDoesNotRestyleEarlierWarningsAsErrors()
    if package.config:sub(1, 1) == "\\" then
       require("assert").skip("POSIX directory permissions provide this failure seam")

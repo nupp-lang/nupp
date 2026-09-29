@@ -57,12 +57,27 @@ local function run(options: any): integer
     local asJson = options.format == "json"
     local reportMod = require("nupp.tools.cli.report")
     local importc = require("nupp.compiler.cinterop.importc")
-    local out = options.output or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local out = options.output or (headerModuleName(header) .. ".nupp")
     local config = require("nupp.tools.build.manifest").load(".")
     local envMod = require("nupp.compiler.project.env")
     local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
     if not options.inspect and not moduleName then
         return usageError("output must be a .nupp file beneath the project root or an include root")
+    end
+    -- The path names the module, and a module segment is lowercase luacase, so a path
+    -- that spells anything else names a module no build accepts.
+    if not options.inspect then
+        for segment in (moduleName as string):gmatch("[^.]+") do
+            if not segment:match("^[a-z][a-z0-9]*$") then
+                local escaped = segment:gsub("%p", "%%%0")
+                local suggested = out:gsub(escaped .. "(%.g%.nupp)$", headerModuleName(segment) .. "%1")
+                suggested = suggested:gsub(escaped .. "(%.nupp)$", headerModuleName(segment) .. "%1")
+                local problem = (
+                    "%s names module segment %q; module segments are lowercase luacase"
+                ):format(out, segment)
+                return usageError(suggested ~= out and problem .. ", such as " .. suggested or problem)
+            end
+        end
     end
     local text, warnings, details = importc.import(header, {
         module = moduleName or headerModuleName(header),
@@ -141,6 +156,18 @@ local function run(options: any): integer
         if stopped then
             return stopped
         end
+    end
+    -- Written in the one spelling `nupp fmt` produces, so the module passes the
+    -- project's own format check from the moment it lands.
+    local fmt = require("nupp.tools.fmt")
+    local env = envMod.new(".", {config = config})
+    local formatted, formatErrors = fmt.format(text, out, {
+        environment = env,
+        annotations = env.annotations,
+        methodParens = envMod.fmtMethodParensDefault(env)
+    })
+    if #formatErrors == 0 then
+        text = formatted
     end
     local stopped = write(out, text)
     if stopped then
