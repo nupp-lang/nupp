@@ -622,10 +622,13 @@ do
     groups.stores = cases
 end
 
--- string indexes a byte exists at, however they are written
+-- string indexes a byte exists at, however they are written. LuaJIT converts an
+-- index to int32 with the platform's own instruction, so one outside that range
+-- answers differently on x86-64 (INT_MIN) and arm64 (saturated); the cases stay
+-- within it, at both ends.
 do
     local S = {"a", "hello", "a\0b", "h\195\169llo"}
-    local I = {1, 2, -1, -2, 1.5, -1.5, 2.9, 0, 100, -100, 0/0, 2^53, -2^53}
+    local I = {1, 2, -1, -2, 1.5, -1.5, 2.9, 0, 100, -100, 0/0, 2^31 - 1, -2^31}
     local cases = {}
     for _, s in ipairs(S) do
         for _, i in ipairs(I) do
