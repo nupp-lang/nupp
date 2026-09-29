@@ -569,6 +569,21 @@ function M.artifactPrintsGeneratedLuaThatDoesNotLoad()
    assert(decoded.text:find("local function f", 1, true), "and the text")
 end
 
+-- A line or column that is not a positive integer is an argument the command
+-- cannot use, which the page defines as status 2, the same as an unknown option.
+-- A position the file does not have is work that was attempted, status 1.
+function M.positionArgumentsThatAreNotPositionsAreUsageErrors()
+   local dir = tempProject({["main.nupp"] = "local x = 1\nreturn x\n"})
+   for _, arguments in ipairs({"0 0", "1 abc", "1.5 2", "1"}) do
+      local output = capture(dir, "lsp inspect main.nupp " .. arguments .. " 2>&1; echo \"__exit__:$?\"")
+      contains(output, "__exit__:2", arguments .. " is a usage error")
+      contains(output, "Try 'nupp help lsp inspect' for usage.", arguments .. " points at the help")
+   end
+   contains(capture(dir, "lsp inspect main.nupp 99 1 2>&1; echo \"__exit__:$?\""), "__exit__:1",
+      "a line past the end is a failed attempt")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.artifactOperationsPublishTheirSchemas()
    local root = HERE .. "/.."
    local discovery = json.decode(captureJson(root, "lsp artifacts --schema"))

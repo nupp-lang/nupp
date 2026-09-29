@@ -657,10 +657,17 @@ local function jsonOutput(value)
     io.write(json.encode(value) .. "\n")
 end
 
+-- An argument the command cannot use, as opposed to a file or position it could not
+-- answer about. The first is a usage error, status 2, like any other the option
+-- parser reports; the second is work that was attempted and failed.
+local function usage(message: string): any
+    return {usage = message}
+end
+
 local function parsePositive(value, label)
     local number = tonumber(value)
     if not number or number < 1 or number ~= math.floor(number) then
-        return nil, label .. " must be a positive integer"
+        return nil, usage(label .. " must be a positive integer")
     end
 
     return number
@@ -668,7 +675,7 @@ end
 
 local function target(client, opts)
     if #opts.positional ~= 3 then
-        return nil, nil, nil, "expected FILE LINE COLUMN"
+        return nil, nil, nil, usage("expected FILE LINE COLUMN")
     end
     local path = resolvePath(opts.root, opts.positional[1])
     local source, readErr = client.open(path)
@@ -1004,7 +1011,7 @@ end
 
 local function runRename(client, opts)
     if #opts.positional ~= 4 then
-        return nil, "expected FILE LINE COLUMN NEW_NAME"
+        return nil, usage("expected FILE LINE COLUMN NEW_NAME")
     end
     local newName = opts.positional[4]
     local targetOpts = {positional = {opts.positional[1], opts.positional[2], opts.positional[3]}, root = opts.root}
@@ -1215,10 +1222,10 @@ end
 --- A caller that has a cursor asks `artifacts` first; this is what it does next.
 local function runArtifact(client, opts)
     if #opts.positional ~= 1 then
-        return nil, "expected FILE"
+        return nil, usage("expected FILE")
     end
     if not opts.kind then
-        return nil, "--kind names the artifact to resolve: lua or bytecode"
+        return nil, usage("--kind names the artifact to resolve: lua or bytecode")
     end
     local path = resolvePath(opts.root, opts.positional[1])
     local _, readErr = client.open(path)
@@ -1283,7 +1290,9 @@ local function typedOperation(name: string, self: any, positional: {string}): in
     end
     local run = assert(OPERATIONS[name])
     local ok, runErr = run(client, opts)
-    if not ok then
+    if not ok and type(runErr) == "table" and runErr.usage then
+        return require("nupp.tools.cli.error").forCommand("lsp " .. name)(runErr.usage)
+    elseif not ok then
         io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
         return 1
     end
