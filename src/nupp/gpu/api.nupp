@@ -10,11 +10,12 @@ owns their common nominal identities. Implementations use private records that
 satisfy these interfaces rather than defining alternative public buffer, kernel,
 or context types.
 
-A context owns its device resources. Buffers, kernels, and bindings may only be
-used with that context; views retain their source relationship and share the
-root buffer's released state. Upload and download preserve host-span borrowing
-and exclusive output access. Context teardown consumes its owner without
-suspension through the canonical destroyContext function.
+A context owns its device resources. Buffers, kernels, and bindings are
+closeable children that borrow the context, so the checker refuses a context
+close while one is live and any use of a child after it is closed. Closing a
+root buffer releases its allocation; closing a view ends only the view, which
+borrows its root. Upload and download preserve host-span borrowing and exclusive
+output access. Every close consumes its owner without suspending.
 
 KernelContext adds generated-artifact compilation and binding operations.
 Providers must honor the supplied layout, buffer-slot counts, uniform byte size,
@@ -27,7 +28,10 @@ local {type Scalar} = require("nupp.mem.array")
 local gpu = {}
 
 --- Typed resident device storage or a view borrowing its owning context.
-interface gpu.Buffer<T>
+interface gpu.Buffer<T> is nupp.Closeable
+    --- Releases a root buffer's allocation, or ends a view, without suspending.
+    close: @nosuspend function(takes self: gpu.Buffer<T>): nil
+
     --- Holds the element type in place, so a buffer of one element is not a
     --- buffer of another. Always nil; nothing reads or writes it. It is named
     --- through a span, where a narrow storage width is a meaningful element.
@@ -48,7 +52,11 @@ interface gpu.Buffer<T>
     --- Creates a context-borrowed view at a zero-based origin with the requested
     --- shape.
     @readonly
-    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
+    subview: function(
+        borrows self: gpu.Buffer<T>,
+        origin: {integer},
+        shape: {integer}
+    ): affine(gpu.Buffer<T>) borrows (self)
 
     --- Returns the canonical tensor layout for this view.
     @readonly
@@ -66,11 +74,15 @@ interface gpu.Buffer<T>
     --- Creates a view using the supplied checked layout without copying storage.
     --- The layout must fit within the root allocation.
     @readonly
-    view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
+    view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (self)
 end
 
---- Opaque compiled kernel borrowing the context that created it.
+--- Compiled kernel borrowing the context that created it. The generated
+--- kernel wrapper owns one and closes it.
 interface gpu.Kernel
+    --- Releases the compiled kernel without suspending.
+    @readonly
+    close: @nosuspend function(borrows self: gpu.Kernel): nil
 end
 
 --- Generated shader representations and their entry point.
@@ -102,8 +114,14 @@ record gpu.ArtifactSet
     writableNames: {string}?
 end
 
---- Bound kernel invocation retaining its context and attached buffers.
+--- Bound kernel invocation retaining its context and attached buffers. The
+--- generated binding wrapper owns one and closes it.
 interface gpu.Binding
+    --- Releases the binding's attachments without suspending. The kernel and
+    --- buffers it named remain their owners'.
+    @readonly
+    close: @nosuspend function(borrows self: gpu.Binding): nil
+
     --- Number of logical elements dispatched.
     @readonly
     count: integer
@@ -138,23 +156,10 @@ interface gpu.Binding
     dispatchPacked: function(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
 end
 
---- Canonical non-suspending teardown obligation for a device context.
-interface gpu.ContextToken
-    --- Consumes the context and makes its resources unavailable without suspending.
-    @readonly
-    drop: @nosuspend function(takes self: ContextToken): nil
-end
-
---- Canonical affine cleanup identity used by every GPU provider.
-function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
-    context:drop()
-end
-
 --- Device operations shared by application and provider contexts.
-interface gpu.Context is gpu.ContextToken
+interface gpu.Context is nupp.Closeable
     --- Consumes the context and releases all device resources without suspending.
-    @readonly
-    drop: @nosuspend function(takes self: gpu.Context): nil
+    close: @nosuspend function(takes self: gpu.Context): nil
 
     --- Returns a diagnostic name for the selected device implementation.
     @readonly
@@ -167,7 +172,7 @@ interface gpu.Context is gpu.ContextToken
         borrows self: gpu.Context,
         element: Scalar<T> | Type<T>,
         count: integer
-    ): gpu.Buffer<T> borrows (self)
+    ): affine(gpu.Buffer<T>) borrows (self)
 
     --- Allocates typed storage with the requested logical shape, its element
     --- named as `buffer` names it.
@@ -176,12 +181,7 @@ interface gpu.Context is gpu.ContextToken
         borrows self: gpu.Context,
         element: Scalar<T> | Type<T>,
         shape: {integer}
-    ): gpu.Buffer<T> borrows (self)
-
-    --- Releases a same-context root buffer's device allocation.
-    --- The root and every dependent view become unavailable afterward.
-    @readonly
-    releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    ): affine(gpu.Buffer<T>) borrows (self)
 
     --- Copies borrowed host-span data into a same-sized dense buffer or view.
     @readonly
@@ -234,15 +234,6 @@ interface gpu.KernelContext is gpu.Context
         borrows kernel: gpu.Kernel,
         count: integer
     ): gpu.Binding borrows (self)
-
-    --- Releases a same-context compiled kernel.
-    --- Dependent bindings become unavailable afterward.
-    @readonly
-    releaseKernel: function(borrows self: gpu.KernelContext, borrows kernel: gpu.Kernel): nil
-
-    --- Releases a same-context binding while holding exclusive access to it.
-    @readonly
-    releaseBinding: function(borrows self: gpu.KernelContext, exclusive binding: gpu.Binding): nil
 end
 
 interface gpu.Shared<T>

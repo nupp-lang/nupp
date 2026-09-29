@@ -85,4 +85,4 @@ end
 
 io.write(("Batched GEMM: %d x %dx%dx%d with transposed broadcast B agrees element-exact\n"):format(
     batches, rows, columns, inner))
-context:drop()
+context:close()

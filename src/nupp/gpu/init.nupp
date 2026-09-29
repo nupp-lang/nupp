@@ -3,25 +3,29 @@ module nupp.gpu
 --[[
 `nupp.gpu` manages resident compute buffers over the selected GPU provider.
 
-The context owns every buffer and compiled kernel created from it. Buffers and
-kernels borrow that context, so checked code cannot close the device while one
-is live. Uploads, dispatches, and downloads only enqueue commands;
-`synchronize()` is the explicit CPU boundary.
+The context owns every buffer, compiled kernel and binding made from it. Each
+is closeable and borrows the context, so checked code cannot close the device
+while one is live, or use one after closing it. Uploads, dispatches, and
+downloads only enqueue commands; `synchronize()` is the explicit CPU boundary.
 
 ```nupp
 local gpu = nupp.gpu
 local array = nupp.mem.array
 local kernels = require("kernels")
 
-local context = gpu.open()
-local input = context:buffer(array.float, 1024)
-local output = context:buffer(array.float, 1024)
-local scale = kernels.scale:compile(context):bind(output, input)
-context:upload(input, values:read())
-scale:dispatch(2.0)
-context:enqueueDownload(output)
-context:synchronize()
-context:readDownloaded(output, result:write())
+with context = gpu.open() do
+    with input = context:buffer(array.float, 1024), output = context:buffer(array.float, 1024) do
+        with kernel = kernels.scale:compile(context) do
+            with scale = kernel:bind(output, input) do
+                context:upload(input, values:read())
+                scale:dispatch(2.0)
+            end
+        end
+        context:enqueueDownload(output)
+        context:synchronize()
+        context:readDownloaded(output, result:write())
+    end
+end
 ```
 
 Here `kernels.scale` is generated from an `@aot(target = "gpu")` function by a
@@ -70,11 +74,9 @@ export const Layout = tensorlayout.Layout
 export type Buffer<T> = api.Buffer<T>
 export type Shared<T> = api.Shared<T>
 export type Phases = api.Phases
-export type ContextToken = api.ContextToken
 export type Context = api.Context
 export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
 export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
-export const destroyContext = implementation.destroyContext
 export const workgroups: function(
     groups: uint32,
     size: uint32,
@@ -82,4 +84,4 @@ export const workgroups: function(
 ): nil = operations.workgroups
 
 --- Opens a compute device through the selected provider.
-export const open: function(): affine(api.Context, api.destroyContext) = provider.open
+export const open: function(): api.Context = provider.open

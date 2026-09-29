@@ -4064,9 +4064,7 @@ function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
             for _, member in ipairs(item.members) do
                 assert(
                     member.name ~= "compileGenerated"
-                    and member.name ~= "bindKernel"
-                    and member.name ~= "releaseKernel"
-                    and member.name ~= "releaseBinding",
+                    and member.name ~= "bindKernel",
                     "generated binding hooks are private Context fields"
                 )
             end

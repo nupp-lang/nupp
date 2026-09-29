@@ -27,6 +27,8 @@ const SCALAR_KINDS: {
 
 type gpu.Buffer<T> = types.Buffer<T>
 gpu.Buffer = types.Buffer
+type gpu.Kernel = types.Kernel
+gpu.Kernel = types.Kernel
 type gpu.Shared<T> = types.Shared<T>
 gpu.Shared = types.Shared
 type gpu.Phases = types.Phases
@@ -64,8 +66,8 @@ function gpu.denseShape(shape: {integer}): (integer, {integer}, {integer})
     return count, strides, copied(shape)
 end
 
-local function liveBuffer<T>(borrows buffer: gpu.Buffer<T>): nil
-    if buffer._state.released then
+local function liveBuffer(state: {released: boolean}): nil
+    if state.released then
         error("nupp: GPU buffer was released", 3)
     end
 end
@@ -226,12 +228,12 @@ function gpu.elementType(element: any): any
 end
 
 function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}
-    liveBuffer(self)
+    liveBuffer(self._state)
     return copied(self._shape)
 end
 
 function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
-    liveBuffer(self)
+    liveBuffer(self._state)
     return copied(self._strides)
 end
 
@@ -243,35 +245,35 @@ end
 --- it is bound, the same way by every provider.
 ---
 --- @param bound the allocation states already bound on the other side of the binding
---- @param buffer the buffer being bound
+--- @param state the allocation state of the buffer being bound
 --- @raises string where the buffer's allocation is already bound on the other side
-function gpu.refuseReadWriteAlias<T>(bound: {any}, borrows buffer: gpu.Buffer<T>): nil
+function gpu.refuseReadWriteAlias(bound: {any}, state: any): nil
     for _, other in pairs(bound) do
-        if rawequal(other, buffer._state) then
+        if rawequal(other, state) then
             error("nupp: a GPU buffer cannot be bound for both reading and writing in one dispatch", 3)
         end
     end
 end
 
 function gpu.Buffer.isDense<T>(borrows buffer: gpu.Buffer<T>): boolean
-    liveBuffer(buffer)
+    liveBuffer(buffer._state)
     local _, _, dense = layoutFacts(buffer._shape, buffer._strides, 2)
     return dense
 end
 
 function gpu.Buffer.isInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
-    liveBuffer(buffer)
+    liveBuffer(buffer._state)
     local _, _, _, injective = layoutFacts(buffer._shape, buffer._strides, 2)
     return injective
 end
 
 function gpu.Buffer.layout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
-    liveBuffer(buffer)
+    liveBuffer(buffer._state)
     return tensorlayout.new(buffer._shape, buffer._strides, buffer._offset)
 end
 
-function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
-    liveBuffer(buffer)
+function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (buffer)
+    liveBuffer(buffer._state)
     local offset = layout:offset()
     local extent = layout:extent()
     if offset > buffer._capacity or extent > buffer._capacity - offset then
@@ -298,8 +300,8 @@ function gpu.Buffer.subview<T>(
     borrows self: gpu.Buffer<T>,
     origin: {integer},
     shape: {integer}
-): gpu.Buffer<T> borrows (self)
-    liveBuffer(self)
+): affine(gpu.Buffer<T>) borrows (self)
+    liveBuffer(self._state)
     if #origin ~= #self._shape or #shape ~= #self._shape then
         error("nupp: GPU tensor subview rank does not match its buffer", 2)
     end

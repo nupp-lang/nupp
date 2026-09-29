@@ -1978,6 +1978,8 @@ a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
+The kernel `compile` answers borrows its context and the binding `bind`
+answers borrows its kernel; both are closeable.
 The generated `compile(...)` call carries the target provider's artifact and
 entrypoint: SPIR-V for native WGPU, or WGSL for browser WebGPU.
 The Wasm policies refuse GPU IR, and `aot = "off"` retains the ordinary

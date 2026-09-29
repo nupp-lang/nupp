@@ -852,7 +852,7 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         not fractionalDispatch and tostring(dispatchProblem):find("dispatch count", 1, true),
         tostring(dispatchProblem)
     )
-    context:drop()
+    context:close()
 end
 
 function M.browserCryptoRejectsMalformedHostValues()
@@ -1154,7 +1154,10 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     )
     returned = {buffer = 7}
     local releasedBuffer = context:buffer(element, 1)
-    context:releaseBuffer(releasedBuffer)
+    releasedBuffer:close()
+    local destroyed = host.requests[#host.requests].payload
+    assert(destroyed.operation == "runtime-destroy-buffer" and destroyed.buffer == 7, "closing queues its destruction")
+    assert(releasedBuffer._state.released, "a closed buffer is unavailable")
     for _, malformed in ipairs({false, {}, {kernel = 0}, {kernel = 1.5}, {kernel = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(
@@ -1194,8 +1197,8 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     )
     returned = {kernel = 8}
     local releasedKernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
-    context:releaseKernel(releasedKernel)
-    context:drop()
+    releasedKernel:close()
+    context:close()
     assert(host.closed.kind == "gpu")
     assert(host.closed.payload.operation == "runtime-close")
     assert(host.closed.payload.buffers[1] == buffer._handle)
@@ -1247,7 +1250,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     assertEq(cancelledHost.requests[1].payload.buffer, 41)
     assertEq(cancelledHost.requests[2].payload.operation, "runtime-destroy-kernel")
     assertEq(cancelledHost.requests[2].payload.kernel, 42)
-    cancelledContext:drop()
+    cancelledContext:close()
 
     local nextBuffer, nextKernel = 0, 0
     local failure
@@ -1315,19 +1318,29 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     assert(not dispatched and dispatchProblem == "fixture runtime-dispatch", tostring(dispatchProblem))
     assert(next(leases) == nil, "a failed dispatch must release its transfer lease")
 
+    -- Closing a child queues its destruction without waiting on the host, so a
+    -- failing host cannot leave the child half-released or the close suspended.
     failure = "runtime-destroy-buffer"
-    local releasedBuffer, releaseBufferProblem = pcall(context.releaseBuffer, context, input)
-    assert(not releasedBuffer and releaseBufferProblem == "fixture runtime-destroy-buffer")
-    assert(input._state.released, "an ambiguous buffer release must not leave a usable local value")
-    assertEq(context._buffers[1], input._handle, "failed release remains in context cleanup")
+    input:close()
+    assert(input._state.released, "a closed buffer is unavailable")
+    for _, handle in ipairs(context._buffers) do
+        assert(handle ~= input._handle, "a closed buffer leaves context cleanup")
+    end
 
     failure = "runtime-destroy-kernel"
-    local releasedKernel, releaseKernelProblem = pcall(context.releaseKernel, context, kernel)
-    assert(not releasedKernel and releaseKernelProblem == "fixture runtime-destroy-kernel")
-    assert(kernel._released, "an ambiguous kernel release must not leave a usable local value")
-    assertEq(context._kernels[1], kernel._handle, "failed release remains in context cleanup")
+    kernel:close()
+    assert(kernel._released, "a closed kernel is unavailable")
+    for _, handle in ipairs(context._kernels) do
+        assert(handle ~= kernel._handle, "a closed kernel leaves context cleanup")
+    end
+    local queued = {}
+    for _, request in ipairs(host.requests) do
+        queued[request.payload.operation] = request.payload
+    end
+    assertEq(queued["runtime-destroy-buffer"].buffer, input._handle)
+    assertEq(queued["runtime-destroy-kernel"].kernel, kernel._handle)
     failure = nil
-    context:drop()
+    context:close()
 end
 
 function M.browserEffectsHandCancelledResourcesToTheirDiscard()

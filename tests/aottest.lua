@@ -60,6 +60,17 @@ local function reports(source, want, label)
     assertEq(codesOf(source), want, label)
 end
 
+local function diagnosticCodes(source)
+    local out = {}
+    for _, environment in ipairs({gpuEnv, browserGpuEnv}) do
+        local result = parser.parse(source, "test.nupp")
+        for _, diagnostic in ipairs(check.check(result, "test.nupp", environment)) do
+            out[#out + 1] = diagnostic.code
+        end
+    end
+    return table.concat(out, " ")
+end
+
 local function reportsGpu(source, want, label)
     for _, environment in ipairs({gpuEnv, browserGpuEnv}) do
         local result = parser.parse(source, "test.nupp")
@@ -389,6 +400,75 @@ return wrong
         "NUPP2006 NUPP2006",
         "the generated binding rejects buffers in the wrong positions"
     )
+end
+
+function M.gpuResourcesAreClosableChildrenOfTheirContext()
+    local header = [[
+local span = require("nupp.mem.span")
+local gpu = require("nupp.gpu")
+local array = require("nupp.mem.array")
+
+@aot(target = "gpu")
+local function double(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do output[i] = input[i] * 2.0 end
+end
+]]
+    reportsGpu(
+        header .. [[
+local function run(): integer
+    with context = gpu.open() do
+        with input = context:buffer(array.float, 16), output = context:buffer(array.float, 16) do
+            with kernel = double:compile(context) do
+                with binding = kernel:bind(output, input) do
+                    binding:dispatch()
+                end
+            end
+            context:synchronize()
+            return output.count
+        end
+    end
+end
+return run
+]],
+        "",
+        "a context, its buffers, its kernel and its binding each have one exact extent"
+    )
+    reportsGpu(
+        header .. [[
+local context = gpu.open()
+local buffer = context:buffer(array.float, 16)
+nupp.drop(buffer)
+print(buffer.count)
+return true
+]],
+        "NUPP2601",
+        "a buffer used after it was closed is refused"
+    )
+    reportsGpu(
+        header .. [[
+local context = gpu.open()
+local input = context:buffer(array.float, 16)
+local output = context:buffer(array.float, 16)
+local kernel = double:compile(context)
+nupp.drop(kernel)
+local binding = kernel:bind(output, input)
+binding:dispatch()
+return true
+]],
+        "NUPP2601",
+        "a kernel used after it was closed is refused"
+    )
+    local closedContext = diagnosticCodes(header .. [[
+local function run(): nil
+    local context = gpu.open()
+    local buffer = context:buffer(array.float, 16)
+    nupp.drop(context)
+    print(buffer.count)
+end
+return run
+]])
+    assert(closedContext ~= "", "closing a context while a buffer borrows it is refused")
 end
 
 function M.gpuBuffersExposeCheckedTensorLayouts()

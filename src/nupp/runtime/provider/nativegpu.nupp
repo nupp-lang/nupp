@@ -11,9 +11,9 @@ dispatch; this module does not choose the compiler's target representation.
 
 Context, buffer, kernel, and binding operations implement [](nupp.gpu.api).
 Provider records retain native handles privately while exported values preserve
-the canonical public identities and context borrows. The affine context uses the
-shared `destroyContext` cleanup contract; explicit release and context teardown
-must not leave dependent handles usable.
+the canonical public identities and context borrows. The context, its buffers,
+kernels and bindings are closeable; closing a child or the context must not leave
+a dependent handle usable.
 
 Applications require [](nupp.gpu), which resolves the provider once and exports
 its `open` function directly. Uploads, dispatches, synchronization, and readback
@@ -68,12 +68,25 @@ gpu.Shared = shared.Shared
 type gpu.Phases = shared.Phases
 gpu.Phases = shared.Phases
 
-gpu.destroyContext = shared.destroyContext
+--- What a binding reads from the kernel it was made from, including whether
+--- that kernel has since been closed.
+local type KernelView = {
+    @readonly _handle: any,
+    @readonly _released: boolean,
+    @readonly _readonlyBuffers: integer,
+    @readonly _writableBuffers: integer,
+    @readonly _uniformBytes: integer,
+    @readonly _threads: integer
+}
+
 record gpu.Binding is api.Binding
     @readonly
     _anchor: any
+
+    --- The kernel's state, which the binding reads but does not own.
     @readonly
-    _kernel: gpu.Kernel
+    _kernel: KernelView
+
     @readonly
     _read: {integer}
     @readonly
@@ -99,6 +112,10 @@ record gpu.Binding is api.Binding
     _spanCounts: {integer}
     _spanOffsets: {integer}
     _released: boolean
+
+    --- Releases the binding's host-side attachment without suspending. The
+    --- kernel and buffers it named remain their owners'.
+    close: @nosuspend function(borrows self: gpu.Binding): nil
 
     --- Number of elements dispatched by this binding.
     @readonly
@@ -137,7 +154,7 @@ record gpu.Context is api.KernelContext
     _closed: boolean
 
     --- Releases the device, compiled kernels, and resident buffers.
-    drop: @nosuspend function(takes self: Context): nil
+    close: @nosuspend function(takes self: Context): nil
 
     _destroy: @nosuspend function(state: any): nil
 
@@ -149,23 +166,25 @@ record gpu.Context is api.KernelContext
         borrows self: Context,
         element: Scalar<T> | Type<T>,
         count: integer
-    ): api.Buffer<T> borrows (self)
+    ): affine(api.Buffer<T>) borrows (self)
 
     --- Allocates a dense row-major resident tensor.
     tensor: function<T>(
         borrows self: Context,
         element: Scalar<T> | Type<T>,
         shape: {integer}
-    ): api.Buffer<T> borrows (self)
+    ): affine(api.Buffer<T>) borrows (self)
 
     --- A tensor passes its dense dimensions and strides; a buffer is one row.
+    --- `elementType` only carries the element type; `element` is its C type.
     _allocate: function<T>(
         borrows self: Context,
+        elementType: T?,
         element: any,
         count: integer,
         dimensions: {integer}?,
         strides: {integer}?
-    ): api.Buffer<T> borrows (self)
+    ): affine(api.Buffer<T>) borrows (self)
 
     --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
     --- The selected provider chooses its source member from this set.
@@ -185,19 +204,11 @@ record gpu.Context is api.KernelContext
     --- @internal
     bindKernel: function(borrows self: Context, borrows kernel: api.Kernel, count: integer): api.Binding borrows (self)
 
-    --- Releases one root buffer's device storage without closing the context.
-    --- Refused while commands are queued; synchronize first. Any view of the
-    --- buffer is invalid afterwards, and using one raises.
-    releaseBuffer: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>): nil
+    --- Releases one root buffer's device storage; a closed context already has.
+    _releaseBuffer: function(borrows self: Context, buffer: any): nil
 
-    --- Releases a compiled kernel no binding uses any more.
-    --- @internal
-    releaseKernel: function(borrows self: Context, borrows kernel: api.Kernel): nil
-
-    --- Releases a binding's host-side attachment. The kernel and buffers it
-    --- named remain the context's.
-    --- @internal
-    releaseBinding: function(borrows self: Context, exclusive binding: api.Binding): nil
+    --- Releases one compiled kernel; a closed context already has.
+    _releaseKernel: function(borrows self: Context, handle: any): nil
 
     --- Copies a complete shared span into a resident buffer or view and
     --- enqueues its transfer. It does not wait.
@@ -335,16 +346,24 @@ local function costMetadata(context: any, handle: any, kernel: boolean, metadata
     native.succeeded(C.nuppNativeGpuCostMetadata(context, handle, kernel and 1 or 0, encoded, #encoded), 2)
 end
 
-local function costLayout<T>(context: any, borrows buffer: gpu.Buffer<T>): nil
+local function costLayout(
+    context: any,
+    handle: any,
+    shape: {integer},
+    strides: {integer},
+    width: integer,
+    offset: integer,
+    count: integer
+): nil
     if C.nuppNativeGpuCostsEnabled() == 0 then
         return
     end
-    costMetadata(context, buffer._handle, false, {
-        shape = buffer._shape,
-        strides = buffer._strides,
-        elementBytes = buffer._width,
-        elementOffset = buffer._offset,
-        count = buffer.count,
+    costMetadata(context, handle, false, {
+        shape = shape,
+        strides = strides,
+        elementBytes = width,
+        elementOffset = offset,
+        count = count,
         conversion = "none: typed span bytes preserved"
     })
 end
@@ -366,26 +385,27 @@ function gpu.Context.buffer<T>(
     borrows self: gpu.Context,
     element: Scalar<T> | Type<T>,
     count: integer
-): api.Buffer<T> borrows (self)
-    return self:_allocate<T>(operations.elementType(element), count)
+): affine(api.Buffer<T>) borrows (self)
+    return self:_allocate(nil as T, operations.elementType(element), count)
 end
 
 function gpu.Context.tensor<T>(
     borrows self: gpu.Context,
     element: Scalar<T> | Type<T>,
     shape: {integer}
-): api.Buffer<T> borrows (self)
+): affine(api.Buffer<T>) borrows (self)
     local count, strides, dimensions = operations.denseShape(shape)
-    return self:_allocate<T>(operations.elementType(element), count, dimensions, strides)
+    return self:_allocate(nil as T, operations.elementType(element), count, dimensions, strides)
 end
 
 function gpu.Context._allocate<T>(
     borrows self: gpu.Context,
+    elementType: T?,
     element: any,
     count: integer,
     dimensions: {integer}?,
     strides: {integer}?
-): shared.Buffer<T> borrows (self)
+): affine(shared.Buffer<T>) borrows (self)
     count = whole(count, "buffer count", 0, 4294967295)
     local width = ffi.sizeof(element) as integer
     if width <= 0 or count == 0 or count > 4294967295 // width then
@@ -419,7 +439,7 @@ function gpu.Context.compileGenerated(
     writableBuffers: integer,
     uniformBytes: integer,
     threads: integer?
-): gpu.Kernel borrows (self)
+): api.Kernel borrows (self)
     readonlyBuffers = whole(readonlyBuffers, "read buffer count", 0, 16)
     writableBuffers = whole(writableBuffers, "write buffer count", 1, 16)
     uniformBytes = whole(uniformBytes, "uniform byte count", 0, 128)
@@ -476,41 +496,31 @@ function gpu.Context.compileGenerated(
     )
 end
 
-function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
-    local buffer = bufferValue as gpu.Buffer<T>
-    if buffer._context ~= self then
-        error("nupp: GPU buffer belongs to another context", 2)
+function gpu.Context._releaseBuffer(borrows self: gpu.Context, buffer: any): nil
+    if self._closed or self._handle == nil then
+        return
     end
-    if buffer._state.released then
-        error("nupp: GPU buffer was released", 2)
-    elseif not buffer._root then
-        error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
-    end
-    native.succeeded(C.nuppNativeGpuBufferRelease(live(self), buffer._handle), 2)
-    buffer._state.released = true
+    native.succeeded(C.nuppNativeGpuBufferRelease(self._handle, buffer._handle), 3)
 end
 
-function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernelValue: api.Kernel): nil
-    local kernel = kernelValue as gpu.Kernel
-    if kernel._anchor ~= self then
-        error("nupp: GPU kernel belongs to another context", 2)
-    elseif kernel._released then
-        error("nupp: GPU kernel was released", 2)
+function gpu.Context._releaseKernel(borrows self: gpu.Context, handle: any): nil
+    if self._closed or self._handle == nil then
+        return
     end
-    native.succeeded(C.nuppNativeGpuKernelRelease(live(self), kernel._handle), 2)
-    kernel._released = true
+    native.succeeded(C.nuppNativeGpuKernelRelease(self._handle, handle), 3)
 end
 
-function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive bindingValue: api.Binding): nil
-    local binding = bindingValue as gpu.Binding
-    if binding._anchor ~= self then
-        error("nupp: GPU binding belongs to another context", 2)
-    end
+function gpu.Binding.close(borrows self: gpu.Binding): nil
+    local binding = self
     if binding._released then
         return
     end
-    native.succeeded(C.nuppNativeGpuBindingsRelease(live(self), binding._handle), 2)
     binding._released = true
+    local context = binding._anchor
+    if context._closed or context._handle == nil then
+        return
+    end
+    native.succeeded(C.nuppNativeGpuBindingsRelease(context._handle, binding._handle), 2)
 end
 
 --- The allocation states bound on one side of a binding: its read slots or its
@@ -536,7 +546,7 @@ function gpu.Binding.setRead<T>(
     borrows bufferValue: api.Buffer<T>,
     matchCount: boolean
 ): nil
-    local buffer = bufferValue as gpu.Buffer<T>
+    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
     slot = whole(slot, "read binding slot", 0, 15)
     if self._released or self._kernel._released then
         error("nupp: GPU binding was released", 2)
@@ -554,8 +564,16 @@ function gpu.Binding.setRead<T>(
     if slot < 0 or slot >= self._readonlyBuffers then
         error("nupp: read binding slot is outside the compiled kernel", 2)
     end
-    operations.refuseReadWriteAlias(boundStates(self, true), buffer)
-    costLayout(self._context, buffer)
+    operations.refuseReadWriteAlias(boundStates(self, true), buffer._state)
+    costLayout(
+        self._context,
+        buffer._handle,
+        buffer._shape,
+        buffer._strides,
+        buffer._width,
+        buffer._offset,
+        buffer.count
+    )
     native.succeeded(
         C.nuppNativeGpuBindingsSetBuffer(
             self._context,
@@ -580,7 +598,7 @@ function gpu.Binding.setWrite<T>(
     borrows bufferValue: api.Buffer<T>,
     matchCount: boolean
 ): nil
-    local buffer = bufferValue as gpu.Buffer<T>
+    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
     slot = whole(slot, "write binding slot", 0, 15)
     if self._released or self._kernel._released then
         error("nupp: GPU binding was released", 2)
@@ -602,8 +620,16 @@ function gpu.Binding.setWrite<T>(
     if slot < 0 or slot >= writable then
         error("nupp: write binding slot is outside the compiled kernel", 2)
     end
-    operations.refuseReadWriteAlias(boundStates(self, false), buffer)
-    costLayout(self._context, buffer)
+    operations.refuseReadWriteAlias(boundStates(self, false), buffer._state)
+    costLayout(
+        self._context,
+        buffer._handle,
+        buffer._shape,
+        buffer._strides,
+        buffer._width,
+        buffer._offset,
+        buffer.count
+    )
     native.succeeded(
         C.nuppNativeGpuBindingsSetBuffer(
             self._context,
@@ -667,7 +693,7 @@ function gpu.Context.upload<T>(
     borrows bufferValue: api.Buffer<T>,
     borrows source: span.Span<T>
 ): nil
-    local buffer = bufferValue as gpu.Buffer<T>
+    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
     if buffer._context ~= self or buffer._state.released then
         error("nupp: GPU upload buffer is unavailable in this context", 2)
     end
@@ -677,7 +703,7 @@ function gpu.Context.upload<T>(
     if #source ~= buffer.count then
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
-    costLayout(live(self), buffer)
+    costLayout(live(self), buffer._handle, buffer._shape, buffer._strides, buffer._width, buffer._offset, buffer.count)
     local pointer, count = source:ref()
     native.succeeded(
         uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
@@ -686,14 +712,14 @@ function gpu.Context.upload<T>(
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
-    local buffer = bufferValue as gpu.Buffer<T>
+    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
     if buffer._context ~= self or buffer._state.released then
         error("nupp: GPU download buffer is unavailable in this context", 2)
     end
     if not buffer:isDense() then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
-    costLayout(live(self), buffer)
+    costLayout(live(self), buffer._handle, buffer._shape, buffer._strides, buffer._width, buffer._offset, buffer.count)
     native.succeeded(
         C.nuppNativeGpuDownloadQueue(
             live(self),
@@ -714,7 +740,7 @@ function gpu.Context.readDownloaded<T>(
     borrows bufferValue: api.Buffer<T>,
     exclusive destination: span.WriteSpan<T>
 ): nil
-    local buffer = bufferValue as gpu.Buffer<T>
+    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
     if buffer._context ~= self or buffer._state.released then
         error("nupp: GPU download buffer is unavailable in this context", 2)
     end
@@ -736,7 +762,7 @@ function gpu.Context.download<T>(
     borrows bufferValue: api.Buffer<T>,
     exclusive destination: span.WriteSpan<T>
 ): nil
-    local buffer = bufferValue as gpu.Buffer<T>
+    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
     self:enqueueDownload(buffer)
     self:synchronize()
     self:readDownloaded(buffer, destination)
@@ -754,7 +780,7 @@ function gpu.Context.bindKernel(
     borrows self: gpu.Context,
     borrows kernelValue: api.Kernel,
     count: integer
-): gpu.Binding borrows (self)
+): api.Binding borrows (self)
     local kernel = kernelValue as gpu.Kernel
     if kernel._anchor ~= self then
         error("nupp: GPU kernel belongs to another context", 2)
@@ -776,7 +802,7 @@ function gpu.Context.bindKernel(
 
     return new gpu.Binding(
         _anchor = self,
-        _kernel = kernel,
+        _kernel = kernel as any as KernelView,
         _read = {},
         _write = {},
         _readCounts = {},
@@ -795,12 +821,12 @@ function gpu.Context.bindKernel(
     )
 end
 
-function gpu.Context.drop(takes self: gpu.Context): nil
+function gpu.Context.close(takes self: gpu.Context): nil
     local state = @unsafe nupp.release(self)
     state._destroy(state)
 end
 
-function gpu.open(): affine(api.KernelContext, api.destroyContext)
+function gpu.open(): api.KernelContext
     native.requireFeature(4, "GPU support")
     local output = ffi.new("uint64_t[1]")
     native.succeeded(C.nuppNativeGpuContextCreate(output), 2)

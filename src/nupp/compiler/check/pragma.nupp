@@ -38,11 +38,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
     local handlers = {}
 
     local function nominalValue(value: T.Type?): T.Nominal?
+        if value ~= nil then
+            value = T.unwrapOwnership(value as T.Type)
+        end
         if value ~= nil and (value.tag == "typeobject" or value.tag == "metatable") then
             value = value.of
         end
         if value ~= nil and value.tag == "genericAlias" then
-            value = value.body
+            value = T.unwrapOwnership(value.body)
             if value.tag == "nominal" then
                 value = value.origin or value
             end
@@ -78,6 +81,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
         local spec = T.nominal("GpuSpec<" .. suffix .. ">", "record")
         local kernel = T.nominal("GpuKernel<" .. suffix .. ">", "record")
         local binding = T.nominal("GpuBinding<" .. suffix .. ">", "record")
+        -- The generated kernel and binding are closeable children, as the
+        -- context's own are: a kernel borrows the context and a binding borrows
+        -- the kernel, and each is released by its close.
+        local close = T.methodCleanup("close")
+        for _, child in ipairs({kernel, binding}) do
+            child.inherentCleanup = close
+            child.byname.close = T.func({child}, {T.nil_}, false, {"takes"})
+        end
         local bindParams: {T.Type} = {kernel}
         local bindModes: {string} = {"borrows"}
         local bindNames: {string} = {"self"}
@@ -99,7 +110,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
         end
         spec.byname.compile = T.func(
             {spec, context},
-            {T.borrowed(kernel)},
+            {
+                T.affine(kernel, {
+                    close
+                })
+            },
             false,
             {"borrows", "borrows"},
             nil,
@@ -121,7 +136,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
         )
         kernel.byname.bind = T.func(
             bindParams,
-            {T.borrowed(binding)},
+            {
+                T.affine(binding, {
+                    close
+                })
+            },
             false,
             bindModes,
             nil,

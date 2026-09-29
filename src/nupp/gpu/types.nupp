@@ -6,6 +6,10 @@ local api = require("nupp.gpu.api")
 local {type Span} = require("nupp.mem.span")
 local gpu = {}
 
+--- The provider's release of one root allocation or one compiled kernel's
+--- handle. Each context carries its own, and none of them suspends.
+local type Release = @nosuspend function(context: any, resource: any): nil
+
 --- A checked logical tensor layout independent of its element and allocation.
 --- @export
 type gpu.Layout = TensorLayout
@@ -49,6 +53,20 @@ record gpu.Buffer<T> is api.Buffer<T>
     @readonly
     count: integer
 
+    --- Releases a root buffer's allocation through its context, or ends a
+    --- view, without suspending. A buffer whose context already closed has
+    --- nothing left to release.
+    function close(takes self): nil
+        local buffer = @unsafe nupp.release(self)
+        if not buffer._root or buffer._state.released then
+            return
+        end
+        buffer._state.released = true
+        local context = buffer._context
+        local release = context._releaseBuffer as Release
+        release(context, buffer)
+    end
+
     --- Logical tensor dimensions. The returned table is a copy.
     dimensions: function(borrows self: gpu.Buffer<T>): {integer}
 
@@ -63,10 +81,14 @@ record gpu.Buffer<T> is api.Buffer<T>
     --- Reports whether every logical element maps to a distinct storage element.
     isInjective: function(borrows self: gpu.Buffer<T>): boolean
 
-    view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (self)
+    view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (self)
 
     --- Creates an allocation-free checked subview.
-    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
+    subview: function(
+        borrows self: gpu.Buffer<T>,
+        origin: {integer},
+        shape: {integer}
+    ): affine(gpu.Buffer<T>) borrows (self)
 end
 
 --- One compiled compute entry owned by its context.
@@ -85,6 +107,18 @@ record gpu.Kernel is api.Kernel
     @readonly
     _threads: integer
     _released: boolean
+
+    --- Releases the compiled kernel through its context without suspending.
+    --- Bindings that name it refuse to dispatch afterwards.
+    function close(borrows self): nil
+        if self._released then
+            return
+        end
+        self._released = true
+        local context = self._anchor
+        local release = context._releaseKernel as Release
+        release(context, self._handle)
+    end
 end
 
 --- The canonical shader artifact emitted for one verified GPU kernel.
@@ -134,12 +168,6 @@ record gpu.Phases is api.Phases
         exclusive temporary: api.Shared<uint32>
     ): nil
 end
-
-type gpu.ContextToken = api.ContextToken
-gpu.destroyContext = api.destroyContext
-
---- A WGPU compute device and its current asynchronous command stream.
---- @export
 
 function gpu.markClosed(state: any): nil
     state._closed = true

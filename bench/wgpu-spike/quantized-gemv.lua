@@ -78,4 +78,4 @@ local operations = 2 * rows * width
 io.write(("Quantized GEMV %dx%d: int8 and packed int4 agree element-exact with CPU AOT\n"):format(rows, width))
 io.write(("%-16s %12.3f us  %8.2f GOP/s\n"):format("int8", elapsed8 * 1e6, operations / elapsed8 / 1e9))
 io.write(("%-16s %12.3f us  %8.2f GOP/s\n"):format("packed int4", elapsed4 * 1e6, operations / elapsed4 / 1e9))
-context:drop()
+context:close()

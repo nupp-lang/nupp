@@ -72,4 +72,4 @@ end
 io.write(("Stable compaction: %d selected from %d values in original order\n"):format(#expected, count))
 io.write(("%-16s %12.3f us  %8.2f million values/s\n"):format(
     "three kernels", elapsed * 1e6, count / elapsed / 1e6))
-context:drop()
+context:close()

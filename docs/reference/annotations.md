@@ -531,6 +531,8 @@ with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
+The kernel `compile` answers borrows its context and the binding `bind`
+answers borrows its kernel; both are closeable.
 
 With `aot = "require-wasm"`, the same declaration emits WGSL for a browser
 WebGPU application. Browser GPU storage uses `nupp.mem.span.Span` and

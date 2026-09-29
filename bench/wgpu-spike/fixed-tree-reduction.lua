@@ -105,4 +105,4 @@ assert(output[0] == expected, ("reduction mismatch: got %.9g, want %.9g"):format
 io.write(("Fixed 256-lane exp-sum tree: GPU and CPU agree at %.9g\n"):format(expected))
 io.write(("%-16s %12.3f us  %8.2f million values/s\n"):format(
     "two GPU levels", elapsed * 1e6, count / elapsed / 1e6))
-context:drop()
+context:close()

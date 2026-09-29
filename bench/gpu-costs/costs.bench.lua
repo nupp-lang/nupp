@@ -76,7 +76,7 @@ if command == "--smoke" then
     check(native)
     runGpu(native)
     check(native)
-    native.context:drop()
+    native.context:close()
     print("compiled CPU/GPU outputs agree for " .. invocation.parameters.count .. " elements")
     return
 end
@@ -92,7 +92,7 @@ bench.suite({
             run = runGpu,
             teardown = function(state)
                 check(state)
-                state.context:drop()
+                state.context:close()
             end
         },
     },

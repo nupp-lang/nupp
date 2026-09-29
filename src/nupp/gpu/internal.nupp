@@ -19,10 +19,7 @@ export function compileGenerated(
     ):compileGenerated(artifacts, readonlyBuffers, writableBuffers, uniformBytes, threads)
 end
 
-export function bindKernel(
-    borrows context: api.Context,
-    borrows kernel: api.Kernel,
-    count: integer
-): api.Binding borrows (context)
-    return (context as api.KernelContext):bindKernel(kernel, count)
+--- Binds a kernel for `count` elements through the context that compiled it.
+export function bindKernel(borrows kernel: api.Kernel, count: integer): api.Binding borrows (kernel)
+    return ((kernel as any)._anchor as api.KernelContext):bindKernel(kernel, count)
 end

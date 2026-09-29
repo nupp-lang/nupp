@@ -46,24 +46,33 @@ local gpu = require("nupp.gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array
 
-local context = gpu.open()
-local input = context:buffer(array.float, 1024)
-local output = context:buffer(array.float, 1024)
-local binding = kernels.scale:compile(context):bind(output, input)
 local source = array.scalar(array.float, 1024)
 local result = array.scalar(array.float, 1024)
 
-context:upload(input, source:read())
-binding:dispatch(2.0)
-context:enqueueDownload(output)
-context:synchronize()
-context:readDownloaded(output, result:write())
+with context = gpu.open() do
+    with input = context:buffer(array.float, 1024), output = context:buffer(array.float, 1024) do
+        with kernel = kernels.scale:compile(context) do
+            with binding = kernel:bind(output, input) do
+                context:upload(input, source:read())
+                binding:dispatch(2.0)
+            end
+        end
+        context:enqueueDownload(output)
+        context:synchronize()
+        context:readDownloaded(output, result:write())
+    end
+end
 ```
 
 Uploads, dispatches, and downloads enqueue work. `synchronize()` is the explicit
 CPU boundary, so a chain of kernels can keep intermediate buffers resident.
-The context owns its buffers and compiled kernels; their borrows prevent the
-context from closing while one remains live.
+The context, its buffers, compiled kernels and bindings are all closeable, and
+each child borrows what it was made from: a binding its kernel, a kernel and a
+buffer the context. The checker therefore refuses a close while something still
+borrows the closed value, and any use after a close. `with` gives each one exact
+extent; `nupp.drop(buffer)` releases a buffer early. Closing a root buffer
+releases its allocation, and closing a view ends only the view. No close
+suspends.
 
 ## Map kernels
 

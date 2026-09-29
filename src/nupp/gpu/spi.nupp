@@ -4,13 +4,12 @@ module nupp.gpu.spi
 Shared interfaces for resident GPU implementations.
 
 The [](nupp.gpu) module selects a device implementation during initialization.
-`open` is a receiver-free function; it returns an affine `KernelContext` using
-the canonical `destroyContext` cleanup identity exported here.
+`open` is a receiver-free function; it returns a closeable `KernelContext`.
 
 Implementations define private records satisfying the shared context, buffer,
 kernel, and binding interfaces. Reuse the exported types here rather than
 creating nominal substitutes. Context-bound buffers and kernels preserve their
-borrows, and cleanup preserves its non-suspending guarantees.
+borrows, and every close keeps its non-suspending guarantee.
 
 Generated artifacts and layout facts constrain binding formats, counts, scalar
 uniforms, and target features. A provider may choose a compatible device, but it
@@ -24,17 +23,14 @@ export interface Provider
     @readonly
     priority: integer?
 
-    --- Opens an owned device context using the canonical destroyContext cleanup.
+    --- Opens an owned, closeable device context.
     --- Raises if the host cannot provide a compatible device.
     @readonly
-    open: function(): affine(types.KernelContext, types.destroyContext)
+    open: function(): types.KernelContext
 end
 
 --- Complete shared context protocol, including generated-kernel operations.
 export type Context = types.KernelContext
-
---- Shared non-suspending context cleanup obligation.
-export type ContextToken = types.ContextToken
 
 --- Canonical typed resident buffer/view borrowing its context.
 export type Buffer<T> = types.Buffer<T>
@@ -47,6 +43,3 @@ export type Binding = types.Binding
 
 --- Generated shader formats and entrypoint accepted by provider compilation.
 export type ArtifactSet = types.ArtifactSet
-
---- Shared affine cleanup identity; provider returns must preserve it.
-export const destroyContext = types.destroyContext

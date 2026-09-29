@@ -1441,8 +1441,8 @@ local function run(kernel, count, added)
         if values[index] ~= index + added then wrong = wrong + 1 end
     end
     print(("%d of %d wrong, last %d"):format(wrong, count, tonumber(values[count - 1])))
-    context:releaseBuffer(input)
-    context:releaseBuffer(output)
+    input:close()
+    output:close()
 end
 run(gpucheck.increment, 16776961, 1)
 run(gpucheck.tiled, 65537 * 256, 2)

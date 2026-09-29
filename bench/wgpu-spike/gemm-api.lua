@@ -209,4 +209,4 @@ io.write(
 )
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format("Nupp CPU scalar", cpuElapsed * 1e3, flops / cpuElapsed / 1e9))
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format("WGPU resident", gpuElapsed * 1e3, flops / gpuElapsed / 1e9))
-context:drop()
+context:close()

@@ -88,4 +88,4 @@ io.write(("Mandelbrot GPU API: %dx%d, %d max iterations, checksum %d\n"):format(
     width, height, maxIterations, checksum))
 io.write(("%-16s %10.0f ns/frame  %8.2f MPix/s\n"):format(
     "WGPU resident", elapsed * 1e9, count / elapsed / 1e6))
-context:drop()
+context:close()

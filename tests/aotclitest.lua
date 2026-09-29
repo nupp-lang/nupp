@@ -1270,7 +1270,7 @@ return {reduce = reduce}
 
     local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
     test.equal(bindingCode, 0, binding)
-    assert(binding:find("bindKernel(self._context, self._kernel, input.count)", 1, true), binding)
+    assert(binding:find("bindKernel(self._kernel, input.count)", 1, true), binding)
     assert(binding:find("raw:setRead(0, input, false)", 1, true), binding)
     assert(binding:find(", 4)", 1, true), binding)
 end

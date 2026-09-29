@@ -181,16 +181,18 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         .. specType
         .. ", borrows context: "
         .. runtime
-        .. ".Context): "
+        .. ".Context): affine("
         .. kernelType
-        .. " borrows (context)"
+        .. ") borrows (context)"
     )
     append(lines, "end")
     append(lines, "")
 
-    append(lines, recordDeclaration .. kernelType)
-    append(lines, "    @private @readonly _context: " .. runtime .. ".Context")
-    append(lines, "    @private @readonly _kernel: " .. implementation .. ".Kernel borrows (_context)")
+    append(lines, recordDeclaration .. kernelType .. " is nupp.Closeable")
+    append(lines, "    @private _kernel: " .. implementation .. ".Kernel")
+    append(lines, "    function close(takes self): nil")
+    append(lines, "        self._kernel:close()")
+    append(lines, "    end")
     local bindParams: {string} = {"borrows self: " .. kernelType}
     for _, param in ipairs(program.params) do
         if param.kind == "read_span" or param.kind == "write_span" then
@@ -206,13 +208,15 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     for position, param in ipairs(bindParams) do
         append(lines, "        " .. param .. (position < #bindParams and "," or ""))
     end
-    append(lines, "    ): " .. bindingType .. " borrows (self)")
+    append(lines, "    ): affine(" .. bindingType .. ") borrows (self)")
     append(lines, "end")
     append(lines, "")
 
-    append(lines, recordDeclaration .. bindingType)
-    append(lines, "    @private @readonly _context: " .. runtime .. ".Context")
-    append(lines, "    @private @readonly _binding: " .. implementation .. ".Binding borrows (_context)")
+    append(lines, recordDeclaration .. bindingType .. " is nupp.Closeable")
+    append(lines, "    @private _binding: " .. implementation .. ".Binding")
+    append(lines, "    function close(takes self): nil")
+    append(lines, "        self._binding:close()")
+    append(lines, "    end")
     local dispatchParams: {string} = {"borrows self: " .. bindingType}
     for _, param in ipairs(artifact.uniforms) do
         dispatchParams[#dispatchParams + 1] = parameterName(names, param.name) .. ": " .. sourceType(param)
@@ -233,9 +237,9 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         .. specType
         .. ", borrows context: "
         .. runtime
-        .. ".Context): "
+        .. ".Context): affine("
         .. kernelType
-        .. " borrows (context)"
+        .. ") borrows (context)"
     )
     append(lines, "    local artifacts = new " .. implementation .. ".ArtifactSet(")
     if browser then
@@ -252,15 +256,21 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "        writableNames = " .. parameterNames(artifact.writable) .. ",")
     append(lines, "        entrypoint = " .. string.format("%q", artifact.entrypoint))
     append(lines, "    )")
+    -- The kernel is acquired inside the construction rather than bound to a
+    -- local first, so ownership passes straight into the field.
     append(
         lines,
-        "    local compiled = " .. implementation .. ".compileGenerated(context, artifacts, " .. tostring(
+        "    return new "
+        .. kernelType
+        .. "(_kernel = "
+        .. implementation
+        .. ".compileGenerated(context, artifacts, "
+        .. tostring(
             #artifact.readonly
         ) .. ", " .. tostring(
             #artifact.writable
-        ) .. ", " .. tostring(artifact.uniformBytes) .. ", " .. tostring(artifact.threads) .. ")"
+        ) .. ", " .. tostring(artifact.uniformBytes) .. ", " .. tostring(artifact.threads) .. "))"
     )
-    append(lines, "    return new " .. kernelType .. "(_context = context, _kernel = compiled)")
     append(lines, "end")
     append(lines, "")
 
@@ -268,18 +278,13 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     for position, param in ipairs(bindParams) do
         append(lines, "    " .. param .. (position < #bindParams and "," or ""))
     end
-    append(lines, "): " .. bindingType .. " borrows (self)")
+    append(lines, "): affine(" .. bindingType .. ") borrows (self)")
     for _, line in ipairs(relationChecks(program, names)) do
         append(lines, line)
     end
     append(
         lines,
-        "    local "
-        .. rawBinding
-        .. " = "
-        .. implementation
-        .. ".bindKernel(self._context, self._kernel, "
-        .. parameterName(
+        "    local " .. rawBinding .. " = " .. implementation .. ".bindKernel(self._kernel, " .. parameterName(
             names,
             artifact.countSpan
         ) .. ".count)"
@@ -306,7 +311,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
             ) .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
         )
     end
-    append(lines, "    return new " .. bindingType .. "(_context = self._context, _binding = " .. rawBinding .. ")")
+    append(lines, "    return new " .. bindingType .. "(_binding = " .. rawBinding .. ")")
     append(lines, "end")
     append(lines, "")
 

@@ -54,4 +54,4 @@ io.write(("%-16s %12.3f us  %8.2f million values/s\n"):format(
     "exact polynomial", exactElapsed * 1e6, count / exactElapsed / 1e6))
 io.write(("%-16s %12.3f us  %8.2f million values/s\n"):format(
     "native granted", nativeElapsed * 1e6, count / nativeElapsed / 1e6))
-context:drop()
+context:close()

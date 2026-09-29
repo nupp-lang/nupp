@@ -86,4 +86,4 @@ io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format(
     "naive generated", naiveElapsed * 1e3, flops / naiveElapsed / 1e9))
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format(
     "16x16 phases", tiledElapsed * 1e3, flops / tiledElapsed / 1e9))
-context:drop()
+context:close()

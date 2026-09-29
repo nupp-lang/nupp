@@ -146,4 +146,4 @@ end
 
 io.write("Tiny transformer: 6 chained kernels and 6 resident views agree element-exact with CPU AOT\n")
 io.write(("%-16s %12.3f us per 8-token block\n"):format("WGPU chain", elapsed * 1e6))
-context:drop()
+context:close()

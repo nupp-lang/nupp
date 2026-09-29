@@ -76,5 +76,5 @@ for _, range in ipairs(cases) do
 end
 check(generated.snapshots, 1, 4, 1004)
 check(generated.snapshots, 3, 2, 1000)
-context:drop()
+context:close()
 print(("counted GPU loops: %d cases, %d output values checked"):format(checked, checked * size))
