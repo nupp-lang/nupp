@@ -14,9 +14,6 @@ local record native
     channelPushNumberReply: @nosuspend function(any, integer, number): boolean
     channelPushStringTask: @nosuspend function(any, integer, string, string, string): boolean
     channelPushStringReply: @nosuspend function(any, integer, string): boolean
-    channelSchemaRegister: @nosuspend function(any, string, string, {string}, {string}): integer?
-    channelPushRecordTask: @nosuspend function(any, integer, string, string, integer, any): integer
-    channelPushRecordReply: @nosuspend function(any, integer, integer, any): integer
     channelDictRegister: @nosuspend function(any, string): integer?
     channelDictCount: @nosuspend function(any): integer
     channelDictAddress: @nosuspend function(any, integer): string?

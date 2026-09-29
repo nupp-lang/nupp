@@ -1,14 +1,15 @@
 //! Bounded isolated-worker ownership.
 //!
-//! The Nupp layer owns scheduling, serialization, and language semantics. This
-//! module owns the native thread, bounded ingress/result queues, task state,
-//! cancellation, and deterministic shutdown. A worker initializer runs on the
-//! worker thread so a LuaJIT state can be created and remain there for its
-//! entire lifetime; no worker ever enters its parent's Lua state.
+//! The Nupp layer owns scheduling, serialization, cancellation, and language
+//! semantics; a task observes cancellation through `tasks.checkpoint()`. This
+//! module owns the native thread, bounded ingress/result queues, and
+//! deterministic shutdown. A worker initializer runs on the worker thread so a
+//! LuaJIT state can be created and remain there for its entire lifetime; no
+//! worker ever enters its parent's Lua state.
 
 use crate::mcode;
 use crate::sharedbytes::SharedBytes;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -32,15 +33,12 @@ pub struct WorkerJob {
 pub enum WorkerEvent {
     Completed { id: TaskId, bytes: SharedBytes },
     Failed { id: TaskId, error: String },
-    Cancelled { id: TaskId, deadline: bool },
 }
 
 impl WorkerEvent {
     pub fn id(&self) -> TaskId {
         match self {
-            Self::Completed { id, .. } | Self::Failed { id, .. } | Self::Cancelled { id, .. } => {
-                *id
-            }
+            Self::Completed { id, .. } | Self::Failed { id, .. } => *id,
         }
     }
 
@@ -48,146 +46,12 @@ impl WorkerEvent {
         match self {
             Self::Completed { bytes, .. } => bytes.len(),
             Self::Failed { error, .. } => error.len(),
-            Self::Cancelled { .. } => 0,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TaskState {
-    Queued,
-    Running,
-    CancellationRequested,
-    Cancelled,
-    Finished,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Cancellation {
-    pub cancelled: bool,
-    pub deadline: bool,
-}
-
-struct TaskControl {
-    state: Mutex<TaskState>,
-    deadline: Option<Instant>,
-}
-
-impl TaskControl {
-    fn new(deadline: Option<Instant>) -> Self {
-        Self {
-            state: Mutex::new(TaskState::Queued),
-            deadline,
-        }
-    }
-
-    fn state(&self) -> TaskState {
-        *lock(&self.state)
-    }
-
-    fn cancellation(&self) -> Cancellation {
-        let deadline = self.deadline.is_some_and(|at| Instant::now() >= at);
-        let state = self.state();
-        Cancellation {
-            cancelled: deadline
-                || matches!(
-                    state,
-                    TaskState::CancellationRequested | TaskState::Cancelled
-                ),
-            deadline,
-        }
-    }
-
-    fn start(&self) -> Cancellation {
-        // Read and transition under one lock: a cancel that lands between a
-        // separate read and the transition would be missed, and the queued
-        // work shutdown believed it had prevented would run.
-        let deadline = self.deadline.is_some_and(|at| Instant::now() >= at);
-        let mut state = lock(&self.state);
-        let cancelled = deadline
-            || matches!(
-                *state,
-                TaskState::CancellationRequested | TaskState::Cancelled
-            );
-        if cancelled {
-            *state = TaskState::Cancelled;
-        } else if *state == TaskState::Queued {
-            *state = TaskState::Running;
-        }
-        Cancellation {
-            cancelled,
-            deadline,
-        }
-    }
-
-    fn cancel(&self) -> bool {
-        let mut state = lock(&self.state);
-        match *state {
-            TaskState::Queued => {
-                *state = TaskState::Cancelled;
-                true
-            }
-            TaskState::Running => {
-                *state = TaskState::CancellationRequested;
-                true
-            }
-            TaskState::CancellationRequested | TaskState::Cancelled | TaskState::Finished => false,
-        }
-    }
-
-    fn finish(&self) -> Cancellation {
-        let cancellation = self.cancellation();
-        *lock(&self.state) = if cancellation.cancelled {
-            TaskState::Cancelled
-        } else {
-            TaskState::Finished
-        };
-        cancellation
-    }
-}
-
-#[derive(Clone)]
-pub struct CancellationToken {
-    control: Arc<TaskControl>,
-}
-
-impl CancellationToken {
-    pub fn checkpoint(&self) -> Cancellation {
-        self.control.cancellation()
-    }
-}
-
-#[derive(Clone)]
-pub struct TaskHandle {
-    id: TaskId,
-    control: Arc<TaskControl>,
-}
-
-impl TaskHandle {
-    pub fn id(&self) -> TaskId {
-        self.id
-    }
-
-    pub fn state(&self) -> TaskState {
-        self.control.state()
-    }
-
-    /// Requests cooperative cancellation. Queued work will not run; running
-    /// work observes the request through its `CancellationToken`.
-    pub fn cancel(&self) -> bool {
-        self.control.cancel()
-    }
-}
-
-struct Command {
-    job: WorkerJob,
-    control: Arc<TaskControl>,
-}
-
-impl Command {
-    fn measured_bytes(&self) -> usize {
-        self.job.bytes.len()
-    }
+fn job_bytes(job: &WorkerJob) -> usize {
+    job.bytes.len()
 }
 
 struct QueueState<T> {
@@ -308,6 +172,16 @@ impl<T> BoundedQueue<T> {
         self.space.notify_all();
     }
 
+    /// Closes the queue and drops what it still held.
+    fn close_and_discard(&self) {
+        let mut state = lock(&self.state);
+        state.closed = true;
+        state.entries.clear();
+        state.bytes = 0;
+        self.arrived.notify_all();
+        self.space.notify_all();
+    }
+
     fn len(&self) -> usize {
         lock(&self.state).entries.len()
     }
@@ -378,18 +252,15 @@ impl std::error::Error for WorkerError {
     }
 }
 
-type Tasks = Arc<Mutex<HashMap<TaskId, Arc<TaskControl>>>>;
-
 /// One isolated native worker lane.
 ///
-/// The handle is deliberately `!Send` and dynamically owner-checked. Task
-/// handles and cancellation tokens are `Send + Sync`, so cancellation may race
-/// safely with execution without moving the lane or its Lua state.
+/// The handle is deliberately `!Send` and dynamically owner-checked, so the
+/// lane and its Lua state never move.
 pub struct Worker {
     owner: ThreadId,
-    input: Arc<BoundedQueue<Command>>,
+    input: Arc<BoundedQueue<WorkerJob>>,
     output: Arc<BoundedQueue<WorkerEvent>>,
-    tasks: Tasks,
+    tasks: Mutex<HashSet<TaskId>>,
     thread: Option<JoinHandle<Result<(), WorkerError>>>,
     limits: WorkerLimits,
     terminal: Option<WorkerError>,
@@ -404,20 +275,16 @@ impl Worker {
     ) -> Result<Self, WorkerError>
     where
         I: FnOnce() -> Result<R, String> + Send + 'static,
-        R: FnMut(WorkerJob, CancellationToken) -> Result<SharedBytes, String> + 'static,
+        R: FnMut(WorkerJob) -> Result<SharedBytes, String> + 'static,
     {
         let limits = limits.validate()?;
-        let input = Arc::new(BoundedQueue::new(
-            limits.messages,
-            limits.bytes,
-            Command::measured_bytes,
-        ));
+        let input = Arc::new(BoundedQueue::new(limits.messages, limits.bytes, job_bytes));
         let output = Arc::new(BoundedQueue::new(
             limits.messages,
             limits.bytes,
             WorkerEvent::measured_bytes,
         ));
-        let tasks = Arc::new(Mutex::new(HashMap::new()));
+        let tasks = Mutex::new(HashSet::new());
         let thread_input = Arc::clone(&input);
         let thread_output = Arc::clone(&output);
         let (started_send, started_receive) = std::sync::mpsc::sync_channel(1);
@@ -446,35 +313,15 @@ impl Worker {
                         return Ok(());
                     }
                 };
-                while let Some(command) = thread_input.pop(None) {
-                    let cancellation = command.control.start();
-                    let id = command.job.id;
-                    let event = if cancellation.cancelled {
-                        WorkerEvent::Cancelled {
+                while let Some(job) = thread_input.pop(None) {
+                    let id = job.id;
+                    let event = match catch_unwind(AssertUnwindSafe(|| runner(job))) {
+                        Ok(Ok(bytes)) => WorkerEvent::Completed { id, bytes },
+                        Ok(Err(error)) => WorkerEvent::Failed { id, error },
+                        Err(_) => WorkerEvent::Failed {
                             id,
-                            deadline: cancellation.deadline,
-                        }
-                    } else {
-                        let token = CancellationToken {
-                            control: Arc::clone(&command.control),
-                        };
-                        let answer = catch_unwind(AssertUnwindSafe(|| runner(command.job, token)));
-                        let cancellation = command.control.finish();
-                        if cancellation.cancelled {
-                            WorkerEvent::Cancelled {
-                                id,
-                                deadline: cancellation.deadline,
-                            }
-                        } else {
-                            match answer {
-                                Ok(Ok(bytes)) => WorkerEvent::Completed { id, bytes },
-                                Ok(Err(error)) => WorkerEvent::Failed { id, error },
-                                Err(_) => WorkerEvent::Failed {
-                                    id,
-                                    error: "worker task panicked".to_owned(),
-                                },
-                            }
-                        }
+                            error: "worker task panicked".to_owned(),
+                        },
                     };
                     let event = bound_event(event, limits.bytes);
                     if thread_output.push_wait(event).is_err() {
@@ -510,18 +357,13 @@ impl Worker {
         }
     }
 
-    pub fn submit(
-        &mut self,
-        id: TaskId,
-        bytes: SharedBytes,
-        deadline: Option<Instant>,
-    ) -> Result<TaskHandle, WorkerError> {
+    pub fn submit(&mut self, id: TaskId, bytes: SharedBytes) -> Result<(), WorkerError> {
         self.check_owner()?;
         if self.thread.is_none() || self.terminal.is_some() {
             return Err(WorkerError::Closed);
         }
         let mut tasks = lock(&self.tasks);
-        if tasks.contains_key(&id) {
+        if tasks.contains(&id) {
             return Err(WorkerError::DuplicateTask(id));
         }
         // One outstanding-task bound covers both the command and result queues.
@@ -529,15 +371,10 @@ impl Worker {
         if tasks.len() >= self.limits.messages {
             return Err(WorkerError::QueueFull);
         }
-        let control = Arc::new(TaskControl::new(deadline));
-        let command = Command {
-            job: WorkerJob { id, bytes },
-            control: Arc::clone(&control),
-        };
-        match self.input.try_push(command) {
+        match self.input.try_push(WorkerJob { id, bytes }) {
             Ok(()) => {
-                tasks.insert(id, Arc::clone(&control));
-                Ok(TaskHandle { id, control })
+                tasks.insert(id);
+                Ok(())
             }
             Err(QueuePushError::Closed(_)) => Err(WorkerError::Closed),
             Err(QueuePushError::Full(_)) => Err(WorkerError::QueueFull),
@@ -569,9 +406,6 @@ impl Worker {
         Ok(self.output.len())
     }
 
-    /// Closes ingress, cancels outstanding tasks, drains results, and joins the
-    /// native thread. A running task is cancelled cooperatively: shutdown waits
-    /// for a runner that ignores its token rather than detaching a live state.
     /// Whether the worker's thread has ended.
     pub(crate) fn is_finished(&self) -> bool {
         self.thread
@@ -579,12 +413,12 @@ impl Worker {
             .is_none_or(|thread| thread.is_finished())
     }
 
+    /// Closes ingress, drops queued tasks, drains results, and joins the
+    /// native thread. A running task finishes: shutdown waits for it rather
+    /// than detaching a live state.
     pub fn shutdown(&mut self) -> Result<(), WorkerError> {
         self.check_owner()?;
-        self.input.close();
-        for task in lock(&self.tasks).values() {
-            task.cancel();
-        }
+        self.input.close_and_discard();
         // Draining results while joining prevents teardown from depending on a
         // consumer having polled promptly, even if an internal invariant is
         // changed later.
@@ -671,11 +505,11 @@ mod tests {
     use super::*;
     use std::sync::Barrier;
 
-    type TestRunner = fn(WorkerJob, CancellationToken) -> Result<SharedBytes, String>;
+    type TestRunner = fn(WorkerJob) -> Result<SharedBytes, String>;
 
     fn echo_worker(limits: WorkerLimits) -> Worker {
         Worker::spawn("nupp.worker.test", limits, || {
-            Ok(|job: WorkerJob, _token: CancellationToken| Ok(job.bytes))
+            Ok(|job: WorkerJob| Ok(job.bytes))
         })
         .unwrap()
     }
@@ -683,7 +517,7 @@ mod tests {
     #[test]
     fn worker_delivers_results_and_failures_with_their_ids() {
         let mut worker = Worker::spawn("nupp.worker.answers", WorkerLimits::default(), || {
-            Ok(|job: WorkerJob, _token: CancellationToken| {
+            Ok(|job: WorkerJob| {
                 if job.bytes.as_slice() == b"fail" {
                     Err("deliberate failure".to_owned())
                 } else {
@@ -693,10 +527,10 @@ mod tests {
         })
         .unwrap();
         worker
-            .submit(7, SharedBytes::new(b"answer".to_vec()), None)
+            .submit(7, SharedBytes::new(b"answer".to_vec()))
             .unwrap();
         worker
-            .submit(8, SharedBytes::new(b"fail".to_vec()), None)
+            .submit(8, SharedBytes::new(b"fail".to_vec()))
             .unwrap();
         assert_eq!(
             worker.poll(None).unwrap(),
@@ -716,80 +550,19 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_races_safely_with_a_running_task() {
-        let entered = Arc::new(Barrier::new(2));
-        let release = Arc::new(Barrier::new(2));
-        let thread_entered = Arc::clone(&entered);
-        let thread_release = Arc::clone(&release);
-        let mut worker = Worker::spawn("nupp.worker.cancel", WorkerLimits::default(), move || {
-            Ok(move |_job: WorkerJob, token: CancellationToken| {
-                thread_entered.wait();
-                thread_release.wait();
-                assert!(token.checkpoint().cancelled);
-                Ok(SharedBytes::default())
-            })
-        })
-        .unwrap();
-        let task = worker.submit(1, SharedBytes::default(), None).unwrap();
-        entered.wait();
-        let canceller = task.clone();
-        let cancelled = thread::spawn(move || canceller.cancel()).join().unwrap();
-        assert!(cancelled);
-        release.wait();
-        assert_eq!(
-            worker.poll(None).unwrap(),
-            Some(WorkerEvent::Cancelled {
-                id: 1,
-                deadline: false
-            })
-        );
-        worker.shutdown().unwrap();
-    }
-
-    #[test]
-    fn expired_queued_work_never_enters_the_runner() {
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let thread_calls = Arc::clone(&calls);
-        let mut worker =
-            Worker::spawn("nupp.worker.deadline", WorkerLimits::default(), move || {
-                Ok(move |_job: WorkerJob, _token: CancellationToken| {
-                    thread_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    Ok(SharedBytes::default())
-                })
-            })
-            .unwrap();
-        worker
-            .submit(
-                1,
-                SharedBytes::default(),
-                Some(Instant::now() - Duration::from_millis(1)),
-            )
-            .unwrap();
-        assert_eq!(
-            worker.poll(None).unwrap(),
-            Some(WorkerEvent::Cancelled {
-                id: 1,
-                deadline: true
-            })
-        );
-        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 0);
-        worker.shutdown().unwrap();
-    }
-
-    #[test]
     fn initialization_and_execution_share_the_worker_thread() {
         let owner = thread::current().id();
         let mut worker =
             Worker::spawn("nupp.worker.affinity", WorkerLimits::default(), move || {
                 let initialized = thread::current().id();
                 assert_ne!(initialized, owner);
-                Ok(move |_job: WorkerJob, _token: CancellationToken| {
+                Ok(move |_job: WorkerJob| {
                     assert_eq!(thread::current().id(), initialized);
                     Ok(SharedBytes::default())
                 })
             })
             .unwrap();
-        worker.submit(1, SharedBytes::default(), None).unwrap();
+        worker.submit(1, SharedBytes::default()).unwrap();
         assert!(matches!(
             worker.poll(None).unwrap(),
             Some(WorkerEvent::Completed { id: 1, .. })
@@ -806,7 +579,7 @@ mod tests {
         let gate = Arc::new(Barrier::new(2));
         let thread_gate = Arc::clone(&gate);
         let mut worker = Worker::spawn("nupp.worker.bound", limits, move || {
-            Ok(move |job: WorkerJob, _token: CancellationToken| {
+            Ok(move |job: WorkerJob| {
                 if job.id == 1 {
                     thread_gate.wait();
                 }
@@ -814,15 +587,15 @@ mod tests {
             })
         })
         .unwrap();
-        worker.submit(1, SharedBytes::new(vec![1]), None).unwrap();
-        worker.submit(2, SharedBytes::new(vec![2]), None).unwrap();
+        worker.submit(1, SharedBytes::new(vec![1])).unwrap();
+        worker.submit(2, SharedBytes::new(vec![2])).unwrap();
         assert!(matches!(
-            worker.submit(3, SharedBytes::new(vec![3]), None),
+            worker.submit(3, SharedBytes::new(vec![3])),
             Err(WorkerError::QueueFull)
         ));
         gate.wait();
         worker.poll(None).unwrap();
-        worker.submit(3, SharedBytes::new(vec![3]), None).unwrap();
+        worker.submit(3, SharedBytes::new(vec![3])).unwrap();
         worker.shutdown().unwrap();
     }
 
@@ -834,10 +607,10 @@ mod tests {
                 messages: 2,
                 bytes: 64,
             },
-            || Ok(|_job: WorkerJob, _token: CancellationToken| Ok(SharedBytes::new(vec![0; 65]))),
+            || Ok(|_job: WorkerJob| Ok(SharedBytes::new(vec![0; 65]))),
         )
         .unwrap();
-        worker.submit(1, SharedBytes::default(), None).unwrap();
+        worker.submit(1, SharedBytes::default()).unwrap();
         assert!(matches!(
             worker.poll(None).unwrap(),
             Some(WorkerEvent::Failed { id: 1, error }) if error.contains("queue bound")
@@ -846,27 +619,18 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_cancels_and_joins_every_queued_task() {
+    fn shutdown_drops_and_joins_every_queued_task() {
         let limits = WorkerLimits {
             messages: 64,
             bytes: 1024,
         };
         let mut worker = echo_worker(limits);
-        let tasks = (0..64)
-            .map(|id| {
-                worker
-                    .submit(id, SharedBytes::new(vec![id as u8]), None)
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
+        for id in 0..64 {
+            worker.submit(id, SharedBytes::new(vec![id as u8])).unwrap();
+        }
         worker.shutdown().unwrap();
         assert_eq!(worker.outstanding().unwrap(), 0);
         assert_eq!(worker.queued_results().unwrap(), 0);
-        assert!(
-            tasks
-                .iter()
-                .all(|task| matches!(task.state(), TaskState::Cancelled | TaskState::Finished))
-        );
     }
 
     #[test]
@@ -878,7 +642,7 @@ mod tests {
             });
             for id in 0..8 {
                 worker
-                    .submit(id, SharedBytes::new(vec![generation, id as u8]), None)
+                    .submit(id, SharedBytes::new(vec![generation, id as u8]))
                     .unwrap();
             }
             for _ in 0..8 {
@@ -909,20 +673,15 @@ mod tests {
         )
         .unwrap();
         worker
-            .submit(1, SharedBytes::new(b"workerValue = 41".to_vec()), None)
+            .submit(1, SharedBytes::new(b"workerValue = 41".to_vec()))
             .unwrap();
         worker
-            .submit(
-                2,
-                SharedBytes::new(b"error('worker failure', 0)".to_vec()),
-                None,
-            )
+            .submit(2, SharedBytes::new(b"error('worker failure', 0)".to_vec()))
             .unwrap();
         worker
             .submit(
                 3,
                 SharedBytes::new(b"assert(workerValue == 41); workerValue = 42".to_vec()),
-                None,
             )
             .unwrap();
         assert!(matches!(

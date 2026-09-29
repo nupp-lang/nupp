@@ -467,11 +467,6 @@ static int push_buffer_reply(lua_State *state) {
     return push_buffer(state, MESSAGE_BUFFER_REPLY, 0);
 }
 
-/* Native record frames are an optimization. Returning nil/zero selects the
- * existing buffer codec, keeping the wire contract smaller and safer. */
-static int schema_register(lua_State *state) { lua_pushnil(state); return 1; }
-static int push_record(lua_State *state) { lua_pushinteger(state, 0); return 1; }
-
 static int dict_register(lua_State *state) {
     void *channel = light(state, 1);
     size_t length = 0;
@@ -865,9 +860,6 @@ int nupp_luaopen_workers(lua_State *state) {
     field(state, "channelPushNumberReply", push_number_reply);
     field(state, "channelPushStringTask", push_string_task);
     field(state, "channelPushStringReply", push_string_reply);
-    field(state, "channelSchemaRegister", schema_register);
-    field(state, "channelPushRecordTask", push_record);
-    field(state, "channelPushRecordReply", push_record);
     field(state, "channelDictRegister", dict_register);
     field(state, "channelDictCount", dict_count);
     field(state, "channelDictAddress", dict_address);

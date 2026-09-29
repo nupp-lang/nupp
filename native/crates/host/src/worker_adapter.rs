@@ -10,8 +10,7 @@
 
 use crate::workers::DEFAULT_QUEUE_BYTES;
 use crate::{
-    CancellationToken, HostRuntime, SharedBytes, SharedBytesBuilder, Worker, WorkerEvent,
-    WorkerJob, WorkerLimits,
+    HostRuntime, SharedBytes, SharedBytesBuilder, Worker, WorkerEvent, WorkerJob, WorkerLimits,
 };
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_char, c_int, c_void};
@@ -1022,7 +1021,7 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
                         Arc::as_ptr(&thread_tasks).cast(),
                     )
                     .map_err(|problem| problem.to_string())?;
-                Ok(move |job: WorkerJob, _cancel: CancellationToken| {
+                Ok(move |job: WorkerJob| {
                     let answer = runtime
                         .run_buffer(job.bytes.as_slice(), "=nupp-worker", &[])
                         .map(|()| SharedBytes::default())
@@ -1040,7 +1039,7 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
                 return ptr::null_mut();
             }
         };
-        if let Err(problem) = worker.submit(1, host.payload.clone(), None) {
+        if let Err(problem) = worker.submit(1, host.payload.clone()) {
             let _ = worker.shutdown();
             write_error(error, error_capacity, &problem.to_string());
             return ptr::null_mut();
@@ -1086,9 +1085,6 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_join(
         let (status, problem) = match event {
             Ok(Some(WorkerEvent::Completed { .. })) => (0, None),
             Ok(Some(WorkerEvent::Failed { error, .. })) => (1, Some(error)),
-            Ok(Some(WorkerEvent::Cancelled { .. })) => {
-                (1, Some("worker scheduler was cancelled".to_owned()))
-            }
             Ok(None) => (
                 1,
                 Some("worker scheduler ended without a result".to_owned()),
@@ -1582,7 +1578,7 @@ mod tests {
         let tasks = AdapterTasks::new();
         let worker = AdapterWorker {
             worker: Worker::spawn("adapter.test", WorkerLimits::default(), || {
-                Ok(|job: WorkerJob, _cancel: CancellationToken| Ok(job.bytes))
+                Ok(|job: WorkerJob| Ok(job.bytes))
             })
             .unwrap(),
             tasks: Arc::new(tasks),

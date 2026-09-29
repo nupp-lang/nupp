@@ -50,9 +50,6 @@ local type Native = {
     channelPushNumberReply: @nosuspend function(any, integer, number): boolean,
     channelPushStringTask: @nosuspend function(any, integer, string, string, string): boolean,
     channelPushStringReply: @nosuspend function(any, integer, string): boolean,
-    channelSchemaRegister: @nosuspend function(any, string, string, {string}, {string}): integer?,
-    channelPushRecordTask: @nosuspend function(any, integer, string, string, integer, any): integer,
-    channelPushRecordReply: @nosuspend function(any, integer, integer, any): integer,
     channelDictRegister: @nosuspend function(any, string): integer?,
     channelDictCount: @nosuspend function(any): integer,
     channelDictAddress: @nosuspend function(any, integer): string?,
@@ -189,7 +186,6 @@ local record Lane
     replies: {[integer]: Frame}
     waiters: {[integer]: {function(boolean)}}
     tasks: {[integer]: any}
-    schemaIds: {[any]: any}
 end
 
 local record Scheduler
@@ -830,67 +826,6 @@ local function packedValue(encoding: string?, bytes: string?, value: any): Packe
     return {values = {}, count = 0}
 end
 
-local function preparedRecord(plan: any, value: any): any
-    if type(plan) ~= "table"
-        or plan.kind ~= "record"
-        or type(plan.schema) ~= "string"
-        or type(plan.address) ~= "string"
-        or type(plan.record) ~= "table"
-        or type(plan.fields) ~= "table"
-        or type(plan.types) ~= "table"
-        or type(value) ~= "table"
-        or getmetatable(value) ~= plan.record
-    then
-        return nil
-    end
-
-    return plan
-end
-
---- The published layout for a value that is an exact exported record, whatever
---- the signature it travels under says. A record reaching a worker through
---- `any` carries the same layout its declaration published, so it can use the
---- native schema path; anything mutated away from that layout is rejected by
---- the native shape guards and returns to the dynamic copy.
-local function dynamicRecordPlan(value: any): any
-    if type(value) ~= "table" then
-        return nil
-    end
-    local metatable = getmetatable(value)
-    if metatable == nil then
-        return nil
-    end
-    local namespace = _G.nupp and rawget(_G.nupp, "__workerRecordSchemas")
-    if type(namespace) ~= "table" then
-        return nil
-    end
-
-    return (namespace as {[any]: any})[metatable]
-end
-
--- A channel schema crosses into C once and is addressed by its short native id
--- on every later push. False remembers a refusal, so a layout the channel
--- cannot hold does not retry registration per call. The weak keys do not
--- retain a plan whose module a hot reload replaced.
-local function channelSchemaId(cache: {[any]: any}, handle: any, plan: any): integer?
-    local known = cache[plan]
-    if known ~= nil then
-        if known == false then
-            return nil
-        end
-
-        return known as integer
-    end
-    local id = native.channelSchemaRegister(handle, plan.schema, plan.address, plan.fields, plan.types)
-    cache[plan] = id == nil and false or id
-
-    return id
-end
-
--- Worker replies all leave through the one outbox this Lua state was started
--- with, so its schema ids are cached per state rather than per lane.
-local replySchemaIds: {[any]: any} = setmetatable({}, {__mode = "k"}) as {[any]: any}
-
 ----------------------------------------------------------------------------
 -- Frames on the wire
 ----------------------------------------------------------------------------
@@ -1192,8 +1127,7 @@ local function startLane(): Lane
         pending = {},
         replies = {},
         waiters = {},
-        tasks = {},
-        schemaIds = setmetatable({}, {__mode = "k"}) as {[any]: any}
+        tasks = {}
     )
 end
 
@@ -1473,16 +1407,11 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     local captures = descriptor and descriptor.captures or pack()
     local arguments = pack(...)
     local preparedInput = descriptor and descriptor.input or nil
-    local recordInput = captures.count == 0
-        and arguments.count == 1
-        and (preparedRecord(preparedInput, arguments.values[1]) or dynamicRecordPlan(arguments.values[1]))
-        or nil
     local prepared = captures.count == 0
         and arguments.count == 1
         and (
             preparedInput == "number" and type(arguments.values[1]) == "number"
             or preparedInput == "string" and type(arguments.values[1]) == "string"
-            or recordInput ~= nil
         )
     local transfer: TransferState? = nil
     if not prepared then
@@ -1544,48 +1473,6 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
                 arguments.values[1] as string
             ) then
                 error("nupp: a worker queue is closed or full", 3)
-            end
-        elseif recordInput ~= nil and prepared then
-            local schemaId = channelSchemaId(lane.schemaIds, lane.inbox.handle, recordInput)
-            local status = 0
-            if schemaId ~= nil then
-                status = native.channelPushRecordTask(
-                    lane.inbox.handle,
-                    id,
-                    moduleName,
-                    member,
-                    schemaId,
-                    arguments.values[1]
-                )
-            end
-            if status < 0 then
-                error("nupp: a worker queue is closed or full", 3)
-            elseif status == 0 then
-                transfer = validatedTaskTransfer(captures, arguments)
-                registerTransferRecords(lane.inbox, transfer as TransferState)
-                local outgoing = submittedArguments
-                local attachments: any = nil
-                if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
-                    outgoing, attachments, movedPointers = packAttachments(
-                        submittedArguments,
-                        transfer as TransferState
-                    )
-                end
-                local count, bytes = encodePacked(lane.inbox, outgoing)
-                -- The native push owns moved allocations from the call on,
-                -- success or refusal, so a refusal must not free them here.
-                movedPointers = nil
-                if not native.channelPushBufferTask(
-                    lane.inbox.handle,
-                    id,
-                    moduleName,
-                    member,
-                    count,
-                    bytes,
-                    attachments
-                ) then
-                    error("nupp: a worker queue is closed or full", 3)
-                end
             end
         else
             registerTransferRecords(lane.inbox, transfer as TransferState)
@@ -1845,14 +1732,10 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
         return
     end
     local packed = answer as Packed
-    local recordOutput = packed.count == 1
-        and (preparedRecord(preparedOutput, packed.values[1]) or dynamicRecordPlan(packed.values[1]))
-        or nil
     local prepared = packed.count == 1
         and (
             preparedOutput == "number" and type(packed.values[1]) == "number"
             or preparedOutput == "string" and type(packed.values[1]) == "string"
-            or recordOutput ~= nil
         )
     local transfer: TransferState? = nil
     local rejected: string? = nil
@@ -1870,44 +1753,6 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
     elseif preparedOutput == "string" and prepared then
         if not native.channelPushStringReply(outbox.handle, id, packed.values[1] as string) then
             error("nupp: a worker queue is closed or full", 3)
-        end
-    elseif recordOutput ~= nil and prepared then
-        local schemaId = channelSchemaId(replySchemaIds, outbox.handle, recordOutput)
-        local status = 0
-        if schemaId ~= nil then
-            status = native.channelPushRecordReply(outbox.handle, id, schemaId, packed.values[1])
-        end
-        if status < 0 then
-            error("nupp: a worker queue is closed or full", 3)
-        elseif status == 0 then
-            transfer = {seen = {}, records = nil, addresses = nil}
-            rejected = unsendable(answer, "results", 0, transfer)
-            if rejected ~= nil then
-                releasePlantedMoved(packed.values, 0)
-                push(outbox, {kind = "reply", id = id, ok = false, error = "results cannot be copied: " .. rejected,})
-            else
-                registerTransferRecords(outbox, transfer as TransferState)
-                local outgoing = packed
-                local attachments: any = nil
-                local movedPointers: {string}? = nil
-                if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
-                    outgoing, attachments, movedPointers = packAttachments(packed, transfer as TransferState)
-                end
-                local encoded, count, bytes = pcall(encodePacked, outbox, outgoing)
-                if not encoded then
-                    releaseMoved(movedPointers)
-                    error(count, 0)
-                end
-                if not native.channelPushBufferReply(
-                    outbox.handle,
-                    id,
-                    count as number,
-                    bytes as string,
-                    attachments
-                ) then
-                    error("nupp: a worker queue is closed or full", 3)
-                end
-            end
         end
     else
         registerTransferRecords(outbox, transfer as TransferState)

@@ -18,10 +18,7 @@ mod workers;
 
 pub use payload::{Error as PayloadError, Payload, read as read_payload};
 pub use sharedbytes::{BuilderError as SharedBytesBuilderError, SharedBytes, SharedBytesBuilder};
-pub use workers::{
-    Cancellation, CancellationToken, TaskHandle, TaskId, TaskState, Worker, WorkerError,
-    WorkerEvent, WorkerJob, WorkerLimits,
-};
+pub use workers::{TaskId, Worker, WorkerError, WorkerEvent, WorkerJob, WorkerLimits};
 
 pub use lua::{LuaFunction, LuaState};
 
@@ -219,7 +216,7 @@ impl HostRuntime {
         Worker::spawn(name, limits, move || {
             let runtime = HostRuntime::owned(true, executable.as_deref())
                 .map_err(|error| error.to_string())?;
-            Ok(move |job: WorkerJob, _cancellation: CancellationToken| {
+            Ok(move |job: WorkerJob| {
                 match runtime.run_buffer(job.bytes.as_slice(), "=nupp-worker-task", &[]) {
                     Ok(()) => Ok(SharedBytes::default()),
                     Err(error) => Err(error.to_string()),
