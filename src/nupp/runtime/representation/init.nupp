@@ -4,17 +4,7 @@ local spi = require("nupp.spi")
 local contracts = require("nupp.runtime.representation.spi")
 
 export const storage: contracts.CstorageProvider? = do
-    local chosen: contracts.CstorageProvider?
-    local tied = false
-    for candidate in spi.load(contracts.CstorageProvider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.runtime.representation: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contracts.CstorageProvider))
     if chosen ~= nil then
         yield chosen
     end

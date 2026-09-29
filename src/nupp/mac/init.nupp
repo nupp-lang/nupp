@@ -83,23 +83,7 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = do
-    local chosen: provider.Provider?
-    local tied = false
-    for candidate in spi.load(provider.Provider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.mac: multiple implementations have the highest priority")
-    if chosen ~= nil then
-        yield chosen
-    end
-    yield standard
-end
+local selected: provider.Provider = spi.select(spi.load(provider.Provider)) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do

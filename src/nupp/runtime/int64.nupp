@@ -11,23 +11,7 @@ local representation = require("nupp.runtime.representation")
 -- carries it on stock Lua 5.1, which has no integer provider at all. Loading the
 -- bundle there has to work; calling `nupp.math.u64` is the part that cannot, so
 -- absence is held until a member is actually read.
-local provider: contracts.Int64Provider? = do
-    local chosen: contracts.Int64Provider?
-    local tied = false
-    for candidate in spi.load(contracts.Int64Provider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.runtime.int64: multiple implementations have the highest priority")
-    if chosen ~= nil then
-        yield chosen
-    end
-    yield representation.integers
-end
+local provider: contracts.Int64Provider? = spi.select(spi.load(contracts.Int64Provider)) ?? representation.integers
 if provider ~= nil and representation.integers ~= nil then
     assert(
         provider == representation.integers,

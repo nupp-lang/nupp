@@ -53,6 +53,9 @@ local function application(options)
                     return nil
                 end
             end,
+            select = function()
+                return nil
+            end,
         },
         ["nupp.runtime.browser.memory"] = options.memory or {},
         ["nupp.runtime.timeprovider"] = setmetatable({}, {

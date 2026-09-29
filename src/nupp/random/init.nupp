@@ -33,17 +33,7 @@ local target = require("nupp.runtime.target")
 
 local contracts = require("nupp.random.spi")
 local provider: contracts.CryptoProvider = do
-    local chosen: contracts.CryptoProvider?
-    local tied = false
-    for candidate in spi.load(contracts.CryptoProvider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.random: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contracts.CryptoProvider))
     if chosen ~= nil then
         yield chosen
     end

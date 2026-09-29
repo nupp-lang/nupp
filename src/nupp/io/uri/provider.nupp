@@ -6,17 +6,7 @@ local target = require("nupp.runtime.target")
 local contracts = require("nupp.io.uri.spi")
 
 local provider: contracts.UriTextProvider = do
-    local chosen: contracts.UriTextProvider?
-    local tied = false
-    for candidate in spi.load(contracts.UriTextProvider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.io.uri.provider: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contracts.UriTextProvider))
     if chosen ~= nil then
         yield chosen
     end

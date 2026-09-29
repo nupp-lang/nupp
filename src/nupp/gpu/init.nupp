@@ -49,17 +49,7 @@ local api = require("nupp.gpu.api")
 local implementation = require("nupp.gpu.types")
 local contract = require("nupp.gpu.spi")
 local provider: contract.Provider = do
-    local chosen: contract.Provider?
-    local tied = false
-    for candidate in spi.load(contract.Provider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.gpu: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contract.Provider))
     if chosen ~= nil then
         yield chosen
     end

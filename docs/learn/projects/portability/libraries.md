@@ -79,8 +79,9 @@ Importing a declaration loads no implementation. Packages advertise their module
 in `nupp/spi.json`; `nupp.spi.load(Interface)` lazily iterates them in dependency
 order. The consumer decides what wins.
 
-Standard-library facades choose the unique highest `priority`, with an omitted
-priority counting as zero. A highest-priority tie fails initialization. Empty
+Standard-library facades choose with `nupp.spi.select`: the unique highest
+`priority`, with an omitted priority counting as zero. A highest-priority tie
+fails initialization. Empty
 discovery uses the facade's explicit target-dependent fallback. Each facade binds
 its actual operations during module initialization, so calls perform no SPI lookup.
 

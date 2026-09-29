@@ -25,17 +25,7 @@ local function available(name: string): contracts.Provider?
 end
 
 export const provider: contracts.Provider? = do
-    local chosen: contracts.Provider?
-    local tied = false
-    for candidate in spi.load(contracts.Provider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.runtime.workersprovider: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contracts.Provider))
     if chosen ~= nil then
         yield chosen
     end

@@ -13,17 +13,7 @@ local spi = require("nupp.spi")
 local contracts = require("nupp.runtime.bitops.spi")
 
 local provider: contracts.BitopsProvider = do
-    local chosen: contracts.BitopsProvider?
-    local tied = false
-    for candidate in spi.load(contracts.BitopsProvider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.runtime.bitops: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contracts.BitopsProvider))
     if chosen ~= nil then
         yield chosen
     end

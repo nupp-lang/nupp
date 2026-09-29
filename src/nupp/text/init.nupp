@@ -27,17 +27,7 @@ local spi = require("nupp.spi")
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 local contracts = require("nupp.text.spi")
 local provider: contracts.TextBufferProvider = do
-    local chosen: contracts.TextBufferProvider?
-    local tied = false
-    for candidate in spi.load(contracts.TextBufferProvider) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "nupp.text: multiple implementations have the highest priority")
+    const chosen = spi.select(spi.load(contracts.TextBufferProvider))
     if chosen ~= nil then
         yield chosen
     end

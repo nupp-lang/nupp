@@ -6,7 +6,8 @@ title: SPI
 # SPI
 
 `nupp.spi.load(Interface)` iterates the implementations a package advertises.
-A module chooses one while it initializes, and the choosing is ordinary code.
+A module chooses one while it initializes, usually with `nupp.spi.select`, and
+the choosing is ordinary code.
 
 The interface is an exported declaration in a module that does not initialize
 its consumer:
@@ -87,28 +88,23 @@ module example.codec
 local spi = require("nupp.spi")
 local {type Codec} = require("example.codec.spi")
 
-local impl: Codec = do
-    local chosen: Codec?
-    local tied = false
-    for candidate in spi.load(Codec) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "multiple codec implementations have the highest priority")
-    yield chosen ?? require("example.defaultcodec")
-end
+local impl: Codec = spi.select(spi.load(Codec)) ?? require("example.defaultcodec")
 
 export const encode = impl.encode
 ```
 
-`priority` belongs to this interface and its consumer, and SPI knows nothing
-about it. Another consumer can compare capabilities, read configuration,
-combine implementations, or reject duplicates instead. Discovery order assigns
-no preference: the use site decides what wins.
+`nupp.spi.select` reads each candidate's `priority`, counting a missing one as
+0, and answers the one with the highest. A higher priority supersedes a tie
+below it; a tie for the highest raises, naming the interface and the two
+modules, rather than letting discovery order decide. It answers nil when
+nothing is advertised, so the fallback after `??` is loaded only when it is
+used. Every standard library facade selects its provider this way.
+
+`priority` is a convention between an interface and `select`, and `load` knows
+nothing about it. Another consumer can iterate `load` itself to compare
+capabilities, read configuration, combine implementations, or reject
+duplicates instead. Discovery order assigns no preference: the use site decides
+what wins.
 
 Initialization selects once, so a later call through `encode` performs no SPI
 lookup.
@@ -150,10 +146,10 @@ project's own. Editing a descriptor invalidates the generated index.
 
 ## Standard-library providers
 
-A standard-library consumer chooses the unique highest `priority`, counts an
-omitted one as zero, and fails initialization on equal highest priorities.
-Without an external implementation it chooses its built-in fallback under
-ordinary target and host conditions.
+A standard-library consumer chooses with `nupp.spi.select`: the unique highest
+`priority`, an omitted one counting as zero, and initialization fails on equal
+highest priorities. Without an external implementation it chooses its built-in
+fallback under ordinary target and host conditions.
 
 | Interface module | Implementation interface |
 | --- | --- |

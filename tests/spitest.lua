@@ -435,20 +435,7 @@ function M.selectionUsesOrdinaryModuleInitialization()
         [[module main
 local spi = require("nupp.spi")
 local {type Codec} = require("example.api")
-local selected: Codec = do
-    local chosen: Codec?
-    local tied = false
-    for candidate in spi.load(Codec) do
-        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
-            chosen = candidate
-            tied = false
-        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
-            tied = true
-        end
-    end
-    assert(not tied, "highest priority is tied")
-    yield chosen ?? require("example.first")
-end
+local selected: Codec = spi.select(spi.load(Codec)) ?? require("example.first")
 export const encode = selected.encode
 assert(encode("x") == "second:x")
 print("ok")]]
@@ -465,6 +452,56 @@ end]]
         local _, output = run(dir)
         assert(output == "ok\n", output)
     end)
+end
+
+-- `select` over a plain iterator: the rule without discovery.
+local function candidates(priorities)
+    local position = 0
+    return function()
+        position = position + 1
+        if position > #priorities then
+            return nil
+        end
+        local priority = priorities[position]
+
+        return {priority = priority or nil, position = position}
+    end
+end
+
+function M.selectTakesTheUniqueHighestPriorityAndRefusesATieForIt()
+    local spi = require("nupp.spi")
+    assert(spi.select(candidates({})) == nil, "nothing advertised selects nothing")
+    assert(spi.select(candidates({false})).position == 1, "a lone provider without a priority is chosen")
+    assert(spi.select(candidates({5, 5, 10})).position == 3, "a higher priority supersedes a tie below it")
+    assert(spi.select(candidates({10, 5, 5})).position == 1, "a tie below the highest does not matter")
+    assert(spi.select(candidates({-1, false})).position == 2, "no priority counts as 0")
+    for _, priorities in ipairs({{5, 5}, {5, 10, 10}, {false, 0}}) do
+        local ok, problem = pcall(spi.select, candidates(priorities))
+        assert(not ok, "a tie for the highest priority was settled")
+        assert(tostring(problem):find("^nupp: multiple implementations have the highest priority"), tostring(problem))
+    end
+end
+
+function M.selectNamesTheInterfaceAndTheModulesThatTied()
+    local saved = {}
+    for _, name in ipairs({"nupp.spi", "nupp.spi.index", "spitest.low", "spitest.left", "spitest.right"}) do
+        saved[name] = package.loaded[name]
+    end
+    package.loaded["nupp.spi"] = nil
+    package.loaded["nupp.spi.index"] = {["example.api.Codec"] = {"spitest.low", "spitest.left", "spitest.right"}}
+    package.loaded["spitest.low"] = {priority = 1}
+    package.loaded["spitest.left"] = {priority = 7}
+    package.loaded["spitest.right"] = {priority = 7}
+    local spi = require("nupp.spi")
+    local ok, problem = pcall(spi.select, spi.load("example.api.Codec"))
+    for _, name in ipairs({"nupp.spi", "nupp.spi.index", "spitest.low", "spitest.left", "spitest.right"}) do
+        package.loaded[name] = saved[name]
+    end
+    assert(not ok, "the tie was settled")
+    assert(
+        tostring(problem):find("for example.api.Codec: spitest.left and spitest.right, at 7", 1, true),
+        tostring(problem)
+    )
 end
 
 function M.onlyExportedConcreteInterfacesCanBeLoaded()
@@ -867,10 +904,11 @@ function M.browserMemoryIsTheActiveGuestTransport()
     end
 end
 
--- Every facade that picks a provider copies the same rule: the unique highest
--- priority wins, and a tie for it is refused rather than settled by discovery
--- order. Loosening one copy's comparison let the later provider win a tie
--- silently and no suite noticed, so every copy is held to the rule here. The
+-- Every facade that picks a provider applies the same rule through
+-- `nupp.spi.select`: the unique highest priority wins, and a tie for it is
+-- refused rather than settled by discovery order. When each facade carried its
+-- own copy, loosening one copy's comparison let the later provider win a tie
+-- silently and no suite noticed, so every facade is held to the rule here. The
 -- table is the consumer inventory; a new facade that selects a provider
 -- belongs in it.
 local SELECTING_FACADES = {
