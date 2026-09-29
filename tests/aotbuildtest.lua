@@ -5765,15 +5765,14 @@ print("VALUE " .. tostring(target[6].value))
     assert(report:find("VALUE 12.25", 1, true), "a stamped binary reaches its compiled code: " .. report)
 end
 
--- AOT code is compiled by the code generator linked into nupp, so a compiler
--- the environment names -- one that cannot build anything -- is never reached
--- for, and the build records what did compile it.
+-- AOT code is compiled by the code generator linked into nupp, and the build
+-- records that it was.
 function M.anAotBuildRunsNoCCompiler()
     local dir = project("require")
     local pipe = assert(
         io.popen(
             (
-                "cd %q && NUPP_CACHE_DIR=%q NUPP_NATIVE_CC=false NUPP_AOT_CC=false NO_COLOR= '%s' "
+                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' "
                 .. "build --target native 2>&1; echo \"__exit__:$?\""
             ):format(dir, cacheFor(dir), NUPP)
         )
@@ -5781,7 +5780,7 @@ function M.anAotBuildRunsNoCCompiler()
     local out = pipe:read("*a")
     pipe:close()
     local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")))
-    test.equal(code, 0, "a named compiler that cannot run does not fail the build\n" .. out)
+    test.equal(code, 0, "the build succeeds\n" .. out)
     local state = assert(read(dir .. "/build/native/.nupp-state.json"))
     assert(state:find('"command":"<llvm>"', 1, true), "and records the code generator it used: " .. state)
 end

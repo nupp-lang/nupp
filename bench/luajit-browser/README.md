@@ -471,13 +471,6 @@ as a consumer input: it packages the guest-native AOT fixture, whose checks pass
 in Chromium, Firefox and Playwright WebKit. This is a distribution smoke test,
 not a startup-performance measurement.
 
-Fresh Linux CI exposed a host/target compiler collision hidden by this Mac's
-installed LuaJIT: `NUPP_NATIVE_CC` also controls host toolchain provisioning.
-Application cross-compilation now uses `NUPP_AOT_CC`, leaving host `NUPP_CC`
-and the pinned LuaJIT/LPeg cache unchanged. Browser packaging translates
-`NUPP_BROWSER_NATIVE_CC` into that application-only setting. The legacy alias
-remains accepted for existing direct builds.
-
 See [legacy-removal.md](legacy-removal.md) for the deletion units, live provider
 consumers, preserved shared semantic fixtures and the required cold-build gate.
 Nothing here authorizes deleting the old backend or merging this branch.
