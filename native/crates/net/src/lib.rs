@@ -6,12 +6,13 @@
 
 #![forbid(unsafe_code)]
 
+use nupp_native_runtime::activity;
 use socket2::{Domain, Protocol, SockAddr, SockRef, Socket, TcpKeepalive, Type};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::{
     TcpListener as TokioTcpListener, TcpStream as TokioTcpStream, UdpSocket as TokioUdpSocket,
@@ -29,61 +30,15 @@ pub const DATAGRAM_QUEUE_MAX: usize = 256;
 pub const DATAGRAM_MAX: usize = 65_536;
 const DEFAULT_BACKLOG: u32 = 128;
 
-struct Activity {
-    generation: Mutex<u64>,
-    changed: Condvar,
-}
-
-impl Activity {
-    fn generation(&self) -> u64 {
-        *self
-            .generation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-    }
-
-    fn notify(&self) {
-        let mut generation = self
-            .generation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        *generation = generation.wrapping_add(1);
-        self.changed.notify_all();
-    }
-
-    fn wait_since(&self, seen: u64, timeout: Duration) -> u64 {
-        let generation = self
-            .generation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let generation = if *generation == seen && !timeout.is_zero() {
-            self.changed
-                .wait_timeout_while(generation, timeout, |current| *current == seen)
-                .unwrap_or_else(|error| error.into_inner())
-                .0
-        } else {
-            generation
-        };
-        *generation
-    }
-}
-
-fn activity() -> &'static Activity {
-    static ACTIVITY: OnceLock<Activity> = OnceLock::new();
-    ACTIVITY.get_or_init(|| Activity {
-        generation: Mutex::new(0),
-        changed: Condvar::new(),
-    })
-}
-
-/// Returns the generation of the most recent network state change.
+/// Returns the process-wide readiness generation, which every network state
+/// change advances along with every other native family's.
 pub fn poll_activity() -> u64 {
-    activity().generation()
+    activity::generation()
 }
 
 /// Waits until activity advances past `seen`, or until `timeout` elapses.
 pub fn wait_activity_since(seen: u64, timeout: Duration) -> u64 {
-    activity().wait_since(seen, timeout)
+    activity::wait_since(seen, timeout)
 }
 
 /// Waits for activity occurring after this call starts.
@@ -377,7 +332,7 @@ impl Stream {
         // then perform the socket half-close. This cannot be blocked by a full
         // command queue and preserves write ordering.
         drop(writer);
-        activity().notify();
+        activity::advance();
         Ok(())
     }
 
@@ -478,7 +433,7 @@ impl Stream {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .take();
-        activity().notify();
+        activity::advance();
     }
 
     /// Ends the sending half, keeps the read half alive long enough for the
@@ -562,7 +517,7 @@ async fn read_stream(socket: Arc<SocketKind>, shared: Arc<StreamShared>) {
                 state.bytes.extend(&scratch[..count]);
                 debug_assert!(state.bytes.len() <= RECEIVE_HIGH_WATER);
                 drop(state);
-                activity().notify();
+                activity::advance();
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
             Err(error) => {
@@ -585,7 +540,7 @@ fn finish_read(shared: &StreamShared, error: Option<String>, eof: bool) {
         }
     }
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 async fn write_stream(
@@ -604,7 +559,7 @@ async fn write_stream(
             .unwrap_or_else(|error| error.into_inner());
         state.pending_write = state.pending_write.saturating_sub(bytes.len());
         drop(state);
-        activity().notify();
+        activity::advance();
     }
     let result = socket.shutdown_write();
     let mut state = shared
@@ -617,7 +572,7 @@ async fn write_stream(
         state.write_error = Some(error.to_string());
     }
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 async fn write_all(
@@ -654,7 +609,7 @@ fn fail_writer(shared: &StreamShared, error: io::Error) {
     state.shutting_down = false;
     state.writer.take();
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 struct ListenerState {
@@ -775,7 +730,7 @@ impl Listener {
         for stream in queued {
             stream.close();
         }
-        activity().notify();
+        activity::advance();
     }
 }
 
@@ -942,7 +897,7 @@ fn enqueue_accepted(shared: &ListenerShared, stream: Arc<Stream>) -> bool {
         return true;
     }
     drop(state);
-    activity().notify();
+    activity::advance();
     true
 }
 
@@ -1044,7 +999,7 @@ fn set_listener_error(shared: &ListenerShared, error: String) {
         state.error = Some(error);
     }
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 enum ConnectState {
@@ -1121,7 +1076,7 @@ impl Connect {
         if let Some(stream) = stream {
             stream.close();
         }
-        activity().notify();
+        activity::advance();
     }
 }
 
@@ -1194,7 +1149,7 @@ async fn resolve_and_connect(
         Err(error) => ConnectState::Failed(error),
     };
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 fn numeric_address(host: &str, port: u16) -> Option<SocketAddr> {
@@ -1256,7 +1211,7 @@ fn finish_connect(shared: &ConnectShared, result: Result<Arc<Stream>, String>) {
         Err(error) => ConnectState::Failed(error),
     };
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 async fn before_connect_deadline<T, F>(timeout: Duration, operation: F) -> Result<T, String>
@@ -1544,7 +1499,7 @@ impl Datagram {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .take();
-        activity().notify();
+        activity::advance();
     }
 }
 
@@ -1674,7 +1629,7 @@ async fn receive_datagrams(socket: Arc<TokioUdpSocket>, shared: Arc<DatagramShar
                     continue;
                 }
                 drop(state);
-                activity().notify();
+                activity::advance();
             }
             Err(error) => {
                 let mut state = shared
@@ -1685,7 +1640,7 @@ async fn receive_datagrams(socket: Arc<TokioUdpSocket>, shared: Arc<DatagramShar
                     state.error = Some(error.to_string());
                 }
                 drop(state);
-                activity().notify();
+                activity::advance();
                 return;
             }
         }
@@ -2104,7 +2059,7 @@ mod tests {
     #[test]
     fn activity_wait_observes_changes_without_losing_the_generation() {
         let seen = poll_activity();
-        activity().notify();
+        activity::advance();
         assert_ne!(wait_activity_since(seen, Duration::from_secs(1)), seen);
     }
 

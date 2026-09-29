@@ -67,6 +67,11 @@ local function fixture()
         requireFeature = function(bit, name)
             assert(bit == 32 and name == "process")
         end,
+        snapshot = function()
+        end,
+        sleep = function()
+            return 0
+        end,
     }
     local load = providerstate.instance({["nupp.runtime.provider.nativeprocess"] = true}, {
         ["nupp.runtime.native"] = native,

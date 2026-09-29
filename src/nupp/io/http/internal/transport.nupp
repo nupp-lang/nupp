@@ -20,7 +20,7 @@ export interface NativeTransfer
 end
 
 export interface NativeClient
-    poll: function(self: NativeClient, waitMs: integer): integer
+    poll: function(self: NativeClient): integer
     onAdmission: function(self: NativeClient, wake: function()): function()
     now: function(self: NativeClient): number
     send: function(self: NativeClient, descriptor: any): (NativeTransfer?, string?, boolean?)
@@ -89,8 +89,6 @@ int32_t nuppNativeHttpBodyRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *
 int32_t nuppNativeHttpBodyError(uint64_t, uint8_t *, size_t, size_t *);
 int32_t nuppNativeHttpClientPoll(
     uint64_t, NuppNativeHttpReady *, size_t, size_t *, int32_t *);
-int32_t nuppNativeHttpClientWait(
-    uint64_t, uint64_t, NuppNativeHttpReady *, size_t, size_t *, int32_t *);
 ]]
 
 local ffi = native.ffi
@@ -565,7 +563,7 @@ local record Client is NativeClient
         return transfer, nil, nil
     end
 
-    --- Collects readiness events and wakes what they moved.
+    --- Collects readiness events and wakes what they moved, without blocking.
     ---
     --- A wake is run under `pcall` so that one waiter raising still lets every event
     --- in the batch be released and its waiters woken; the native transport is
@@ -573,15 +571,10 @@ local record Client is NativeClient
     --- would outlast the error. The first raise is kept and re-raised at the end.
     --- @raises any whatever a woken waiter raised first, once the whole batch has
     ---     been released
-    function poll(self: Client, waitMs: integer): integer
+    function poll(self: Client): integer
         local count = ffi.new("size_t[1]")
         local moved: integer = 0
-        local status: integer
-        if waitMs > 0 then
-            status = C.nuppNativeHttpClientWait(raw(self._handle), waitMs, self._ready, READY_SLOTS, count, self._more)
-        else
-            status = C.nuppNativeHttpClientPoll(raw(self._handle), self._ready, READY_SLOTS, count, self._more)
-        end
+        local status = C.nuppNativeHttpClientPoll(raw(self._handle), self._ready, READY_SLOTS, count, self._more)
         if status ~= 0 then
             error("nupp: " .. lastError(), 2)
         end

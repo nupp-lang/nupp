@@ -8,7 +8,8 @@ Native reactor implementation used as a built-in module fallback.
 The table returned by this module implements the receiver-based protocol in
 [](nupp.io.net.spi). Listener, connection-request, stream, and datagram
 handles belong to the native runtime. The implementation retains scratch buffers
-and reactor generation state within the current Lua state.
+within the current Lua state, and sleeps on the process-wide readiness
+generation every native family shares.
 
 Operations report readiness without running a private event loop. The public
 [](nupp.io.net) facade coordinates suspension and calls `run` through its `pump`
@@ -104,8 +105,6 @@ int32_t nuppNativeNetDatagramSetMulticastLoop(uint64_t, int32_t);
 int32_t nuppNativeNetDatagramMembership(
     uint64_t, NuppNativeNetSlice, NuppNativeNetSlice, uint32_t, uint8_t, int32_t);
 int32_t nuppNativeNetDatagramRelease(uint64_t);
-int32_t nuppNativeNetPoll(uint64_t *);
-int32_t nuppNativeNetWait(uint64_t, uint64_t, uint64_t *);
 ]]
 
 const C = native.C
@@ -165,9 +164,6 @@ local function create(): contract.Provider
     const endpoint = native.ffi.new("NuppNativeNetEndpoint[1]")
     endpoint[0].size = native.ffi.sizeof("NuppNativeNetEndpoint")
     const hostOutput = native.ffi.new("uint8_t[?]", HOST_SIZE)
-    const generation = native.ffi.new("uint64_t[1]")
-    const nextGeneration = native.ffi.new("uint64_t[1]")
-    local generationReady = false
 
     local function streamFlags(stream: any): integer
         if C.nuppNativeNetStreamState(stream, flags) ~= 0 then
@@ -498,18 +494,15 @@ local function create(): contract.Provider
         end,
 
         run = function(self: contract.Provider, timeoutMs: integer): nil
-
-            if timeoutMs == 0 or not generationReady then
-                if C.nuppNativeNetPoll(generation) == 0 then
-                    generationReady = true
-                end
+            -- A zero timeout is the check's half: the snapshot a later sleep waits
+            -- from. Any native family's change since then ends the sleep, so a
+            -- program waiting on a socket and a child at once wakes for either.
+            if timeoutMs == 0 then
+                native.snapshot()
 
                 return
             end
-            if C.nuppNativeNetWait(generation[0], timeoutMs, nextGeneration) ~= 0 then
-                return
-            end
-            generation[0] = nextGeneration[0]
+            native.sleep(timeoutMs)
         end
     }
 end

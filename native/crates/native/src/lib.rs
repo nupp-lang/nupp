@@ -45,6 +45,7 @@ const FEATURE_COMPRESSION: u64 = 1 << 10;
 const FEATURE_CODEGEN: u64 = 1 << 11;
 const FEATURE_AOT_RUNTIME: u64 = 1 << 12;
 const FEATURE_NET_ENDPOINT: u64 = 1 << 13;
+const FEATURE_READINESS: u64 = 1 << 14;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -94,6 +95,7 @@ pub extern "C" fn nuppNativeAbiVersion() -> u32 {
 pub extern "C" fn nuppNativeFeatures() -> u64 {
     guard(0, || {
         FEATURE_BASE
+            | FEATURE_READINESS
             | if cfg!(feature = "uuid") {
                 FEATURE_UUID
             } else {
@@ -290,6 +292,55 @@ pub extern "C" fn nuppNativeSleepMs(milliseconds: f64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+/// Snapshots the process-wide readiness generation.
+///
+/// # Safety
+///
+/// `generation` must be writable.
+pub unsafe extern "C" fn nuppNativePoll(generation: *mut u64) -> i32 {
+    boundary(|| {
+        if generation.is_null() {
+            return failed(
+                Status::InvalidArgument,
+                "readiness generation output is null",
+            );
+        }
+        // SAFETY: the output was checked above.
+        unsafe { generation.write(nupp_native_runtime::activity::generation()) };
+        Status::Ok.code()
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Sleeps until the process-wide readiness generation moves past
+/// `generation`, or `timeout_ms` passes, and writes the generation it found.
+///
+/// # Safety
+///
+/// `output_generation` must be writable.
+pub unsafe extern "C" fn nuppNativeWait(
+    generation: u64,
+    timeout_ms: u64,
+    output_generation: *mut u64,
+) -> i32 {
+    boundary(|| {
+        if output_generation.is_null() {
+            return failed(
+                Status::InvalidArgument,
+                "readiness generation output is null",
+            );
+        }
+        let found = nupp_native_runtime::activity::wait_since(
+            generation,
+            std::time::Duration::from_millis(timeout_ms),
+        );
+        // SAFETY: the output was checked above.
+        unsafe { output_generation.write(found) };
+        Status::Ok.code()
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Writes the two-seed, lowercase XXH64 cache digest.
 ///
 /// # Safety
@@ -430,6 +481,7 @@ mod tests {
             ("CODEGEN", FEATURE_CODEGEN),
             ("AOT_RUNTIME", FEATURE_AOT_RUNTIME),
             ("NET_ENDPOINT", FEATURE_NET_ENDPOINT),
+            ("READINESS", FEATURE_READINESS),
         ] {
             let define = format!(
                 "#define NUPP_NATIVE_FEATURE_{name} (UINT64_C(1) << {})",
@@ -487,6 +539,25 @@ mod tests {
             0
         );
         assert_eq!(&output[..16], b"ef46db3751d8e999");
+    }
+
+    #[test]
+    fn one_readiness_generation_answers_poll_and_wait() {
+        let mut seen = 0;
+        assert_eq!(unsafe { nuppNativePoll(&mut seen) }, 0);
+        nupp_native_runtime::activity::advance();
+        let mut found = seen;
+        assert_eq!(unsafe { nuppNativeWait(seen, 5_000, &mut found) }, 0);
+        assert_ne!(found, seen);
+        assert!(nuppNativeFeatures() & FEATURE_READINESS != 0);
+        assert_eq!(
+            unsafe { nuppNativePoll(ptr::null_mut()) },
+            Status::InvalidArgument.code()
+        );
+        assert_eq!(
+            unsafe { nuppNativeWait(0, 0, ptr::null_mut()) },
+            Status::InvalidArgument.code()
+        );
     }
 
     #[test]

@@ -68,9 +68,9 @@ static int wait_for_pair(uint64_t listener, uint64_t connect,
             if (state == NUPP_NATIVE_NET_ACCEPTED) *server = stream;
         }
         if (*client == 0 || *server == 0) {
-            status = nuppNativeNetPoll(&generation);
+            status = nuppNativePoll(&generation);
             if (status != NUPP_NATIVE_OK) return failed("network poll", status);
-            status = nuppNativeNetWait(generation, 50, &generation);
+            status = nuppNativeWait(generation, 50, &generation);
             if (status != NUPP_NATIVE_OK) return failed("network wait", status);
         }
     }
@@ -99,9 +99,9 @@ static int read_exact(uint64_t stream, const uint8_t *expected, size_t count) {
             }
             return 0;
         }
-        status = nuppNativeNetPoll(&generation);
+        status = nuppNativePoll(&generation);
         if (status != NUPP_NATIVE_OK) return failed("network poll", status);
-        status = nuppNativeNetWait(generation, 50, &generation);
+        status = nuppNativeWait(generation, 50, &generation);
         if (status != NUPP_NATIVE_OK) return failed("network wait", status);
     }
     fprintf(stderr, "network read did not become ready\n");
@@ -120,9 +120,9 @@ static int wait_for_eof(uint64_t stream) {
             stream, &byte, 1, &state, &length);
         if (status != NUPP_NATIVE_OK) return failed("EOF read", status);
         if (state == NUPP_NATIVE_NET_READ_EOF) return 0;
-        status = nuppNativeNetPoll(&generation);
+        status = nuppNativePoll(&generation);
         if (status != NUPP_NATIVE_OK) return failed("network poll", status);
-        status = nuppNativeNetWait(generation, 50, &generation);
+        status = nuppNativeWait(generation, 50, &generation);
         if (status != NUPP_NATIVE_OK) return failed("EOF wait", status);
     }
     fprintf(stderr, "half-close did not reach EOF\n");
@@ -136,14 +136,14 @@ static int wait_for_stream_flag(uint64_t stream, uint32_t expected,
     for (attempts = 0; attempts != 100; ++attempts) {
         uint32_t flags = 0;
         uint64_t generation = 0;
-        int32_t status = nuppNativeNetPoll(&generation);
+        int32_t status = nuppNativePoll(&generation);
         if (status != NUPP_NATIVE_OK) return failed("network poll", status);
         status = nuppNativeNetStreamState(stream, &flags);
         if (status != NUPP_NATIVE_OK) return failed("stream state", status);
         if ((flags & expected) != 0) return 0;
         if ((flags & (NUPP_NATIVE_NET_STREAM_CLOSED
                 | NUPP_NATIVE_NET_STREAM_WRITE_FAILED)) != 0) break;
-        status = nuppNativeNetWait(generation, 50, &generation);
+        status = nuppNativeWait(generation, 50, &generation);
         if (status != NUPP_NATIVE_OK) return failed("stream state wait", status);
     }
     fprintf(stderr, "%s\n", message);
@@ -170,9 +170,9 @@ static int receive_datagram(uint64_t socket, uint8_t *bytes, size_t capacity,
             }
             return 0;
         }
-        status = nuppNativeNetPoll(&generation);
+        status = nuppNativePoll(&generation);
         if (status != NUPP_NATIVE_OK) return failed("datagram poll", status);
-        status = nuppNativeNetWait(generation, 50, &generation);
+        status = nuppNativeWait(generation, 50, &generation);
         if (status != NUPP_NATIVE_OK) return failed("datagram wait", status);
     }
     fprintf(stderr, "datagram did not become ready\n");
@@ -277,9 +277,9 @@ static int receive_endpoint(uint64_t socket, uint8_t *bytes, size_t capacity,
             }
             return 0;
         }
-        status = nuppNativeNetPoll(&generation);
+        status = nuppNativePoll(&generation);
         if (status != NUPP_NATIVE_OK) return failed("datagram poll", status);
-        status = nuppNativeNetWait(generation, 50, &generation);
+        status = nuppNativeWait(generation, 50, &generation);
         if (status != NUPP_NATIVE_OK) return failed("datagram wait", status);
     }
     fprintf(stderr, "endpoint datagram did not become ready\n");
@@ -610,9 +610,9 @@ int main(void) {
                 fprintf(stderr, "loopback stream closed before its write\n");
                 return 1;
             }
-            status = nuppNativeNetPoll(&generation);
+            status = nuppNativePoll(&generation);
             if (status != NUPP_NATIVE_OK) return failed("network poll", status);
-            status = nuppNativeNetWait(generation, 50, &generation);
+            status = nuppNativeWait(generation, 50, &generation);
             if (status != NUPP_NATIVE_OK) return failed("write wait", status);
         }
         if (state != NUPP_NATIVE_NET_WRITE_ACCEPTED) {

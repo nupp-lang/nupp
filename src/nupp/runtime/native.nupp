@@ -19,6 +19,8 @@ int32_t nuppNativeBytesCopy(
     size_t *outputLength
 );
 int32_t nuppNativeBytesRelease(uint64_t handle);
+int32_t nuppNativePoll(uint64_t *generation);
+int32_t nuppNativeWait(uint64_t generation, uint64_t timeout_ms, uint64_t *output_generation);
 ]]
 
 local native = {}
@@ -144,6 +146,76 @@ function native.bytes(handle: any): string
     native.succeeded(released, 3)
 
     return ffi.string(buffer, count)
+end
+
+----------------------------------------------------------------------------
+-- Readiness
+----------------------------------------------------------------------------
+
+-- Every native family advances one process-wide generation when something a
+-- caller could be waiting for changes, so every native wait sleeps on it: a
+-- program waiting on a socket, a file transfer, an HTTP response, a child and
+-- GPU work at once wakes for whichever moves first.
+--
+-- One snapshot serves every native readiness check in a pass. The first check
+-- after a sleep takes it, before it looks at anything, and the next sleep
+-- waits from it, so an edge any family reports after the first check of the
+-- pass returns the sleep at once. A snapshot older than that only wakes the
+-- sleep early, which costs one more pass and loses nothing.
+const snapshot = ffi.new("uint64_t[1]")
+const found = ffi.new("uint64_t[1]")
+local snapshotTaken = false
+
+--- Where a native readiness source runs in a pass.
+--- @export
+native.READINESS_PRIORITY = 20
+
+--- Records the readiness generation ahead of a readiness check, unless a check
+--- since the last sleep already did.
+--- @export
+function native.snapshot(): nil
+    if not snapshotTaken and native.C.nuppNativePoll(snapshot) == 0 then
+        snapshotTaken = true
+    end
+end
+
+--- Sleeps until any native family reports a change since the snapshot, or
+--- `waitMs` passes. Without a snapshot it takes one and returns at once, since
+--- a check has to come between the two.
+--- @export
+--- @param waitMs the longest sleep, in milliseconds
+--- @return zero: a sleep settles nothing, the check after it does
+function native.sleep(waitMs: integer): integer
+    if not snapshotTaken then
+        native.snapshot()
+
+        return 0
+    end
+    snapshotTaken = false
+    if waitMs > 0 then
+        native.C.nuppNativeWait(snapshot[0], waitMs, found)
+    end
+
+    return 0
+end
+
+--- A native family's readiness pump, as the poll and wait of a suspension
+--- source: the poll snapshots the generation and then checks, and the wait
+--- sleeps on the generation.
+---
+--- ```nupp
+--- context:source("nupp-files", native.READINESS_PRIORITY, native.pump(harvest))
+--- ```
+--- @export
+--- @param check answers how many waits it settled, without blocking
+--- @return the source's poll
+--- @return the source's wait
+function native.pump(check: function(): integer): (function(): integer, function(integer): integer)
+    return function(): integer
+        native.snapshot()
+
+        return check()
+    end, native.sleep
 end
 
 const AOT_RUNTIME_FEATURE = 4096

@@ -33,6 +33,7 @@ local http = {}
 local redirectState: any = setmetatable({}, {__mode = "k"})
 
 const transport = require("nupp.io.http.internal.transport")
+const native = require("nupp.runtime.native")
 local type NativeTransfer = transport.NativeTransfer
 local type NativeClient = transport.NativeClient
 const newClient = transport.newClient
@@ -873,15 +874,14 @@ end
 function http.Client._retainSource(self: http.Client, context: suspension.Context): nil
     if self._source == nil then
         local backend = self._native
+        -- The client's events advance the readiness generation every native family
+        -- shares, so its waits sleep on that and drain the events when it moves.
         self._source = suspension.source(
             "nupp-http",
-            20,
-            function(): integer
-                return backend:poll(0)
-            end,
-            function(waitMs: integer): integer
-                return backend:poll(waitMs)
-            end
+            native.READINESS_PRIORITY,
+            native.pump(function(): integer
+                return backend:poll()
+            end)
         )
     end
     self._sourceUsers = self._sourceUsers + 1

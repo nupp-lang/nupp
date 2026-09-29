@@ -1,5 +1,7 @@
 //! The shared asynchronous executor native providers run their Lua-free work
-//! on.
+//! on, and the one readiness generation they all advance.
+
+pub mod activity;
 
 #[cfg(feature = "async")]
 use std::sync::OnceLock;

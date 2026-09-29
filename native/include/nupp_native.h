@@ -66,6 +66,8 @@
 #define NUPP_NATIVE_FEATURE_AOT_RUNTIME (UINT64_C(1) << 12)
 /* The endpoint calls of the network family, which carry an IPv6 scope. */
 #define NUPP_NATIVE_FEATURE_NET_ENDPOINT (UINT64_C(1) << 13)
+/* The process-wide readiness generation: nuppNativePoll and nuppNativeWait. */
+#define NUPP_NATIVE_FEATURE_READINESS (UINT64_C(1) << 14)
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,10 +99,26 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeBytesRelease(uint64_t handle);
 NUPP_NATIVE_EXPORT uint64_t nuppNativeMonotonicNs(void);
 NUPP_NATIVE_EXPORT uint64_t nuppNativeWallMs(void);
 NUPP_NATIVE_EXPORT int32_t nuppNativeSleepMs(double milliseconds);
+
 NUPP_NATIVE_EXPORT size_t nuppNativeAvailableParallelism(void);
 NUPP_NATIVE_EXPORT int32_t nuppNativeRandomBytes(uint8_t *output, size_t length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeXxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
+
+/* Present when NUPP_NATIVE_FEATURE_READINESS is set. One process-wide
+ * generation that every family advances when something a caller could be
+ * waiting for changes: a socket or TLS session moves, a file transfer
+ * settles, an HTTP client has events, or a child exits or a pipe moves. A
+ * caller waiting on any mix of them sleeps here once.
+ *
+ * Poll the generation first, then check the resources you are waiting for
+ * with their non-blocking calls, and wait from the generation you polled:
+ * any change after the poll returns the wait at once, so no edge is lost. A
+ * wake says only that something changed; check again after every wait. The
+ * family poll and wait calls marked superseded below predate this pair. */
+NUPP_NATIVE_EXPORT int32_t nuppNativePoll(uint64_t *generation);
+NUPP_NATIVE_EXPORT int32_t nuppNativeWait(
+    uint64_t generation, uint64_t timeout_ms, uint64_t *output_generation);
 
 /* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Input and output
  * ranges are borrowed only for one call. */
@@ -254,6 +272,9 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferCancel(
     uint64_t transfer);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferRelease(
     uint64_t transfer);
+/* Superseded by nuppNativePoll and nuppNativeWait with
+ * nuppNativeFilesTransferStatus: a settled transfer advances the process
+ * readiness generation. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferPoll(size_t *ready);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferWait(
     uint64_t timeout_ms, size_t *ready);
@@ -442,8 +463,9 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramReceiveEndpoint(
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramSendEndpoint(
     uint64_t datagram, const NuppNativeNetEndpoint *endpoint,
     const uint8_t *data, size_t length, uint32_t *state, size_t *sent);
-/* Poll snapshots a monotonic activity generation. Recheck resource state
- * before waiting from that generation so no readiness edge can be lost. */
+/* Superseded by nuppNativePoll and nuppNativeWait, which these now answer
+ * exactly: the network family's generation is the process readiness
+ * generation. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetPoll(uint64_t *generation);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetWait(
     uint64_t generation, uint64_t timeout_ms, uint64_t *output_generation);
@@ -623,6 +645,9 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeHttpBodyRead(
     uint32_t *state, size_t *length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpBodyError(
     uint64_t body, uint8_t *output, size_t capacity, size_t *length);
+/* Poll drains the client's ready events without blocking. Every event also
+ * advances the process readiness generation, so a caller sleeps in
+ * nuppNativeWait and then polls; Wait is superseded by that pair. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpClientPoll(
     uint64_t client, NuppNativeHttpReady *output, size_t capacity,
     size_t *count, int32_t *more);
@@ -690,7 +715,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamWrite(
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamRelease(uint64_t stream);
 /* Returns how many of the child and the listed streams are ready. The child
  * counts until nuppNativeProcessPollExit has reported its exit; after that a
- * wait is left to its streams, which a descendant may hold open. */
+ * wait is left to its streams, which a descendant may hold open. A zero
+ * timeout is the readiness probe; its sleeping form is superseded by
+ * nuppNativeWait, since every child and stream change advances the process
+ * readiness generation. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait(
     uint64_t process,
     const uint64_t *readable, size_t readable_count,

@@ -192,6 +192,8 @@ struct Activity {
 }
 
 impl Activity {
+    /// Wakes this client's own waiters, and every caller sleeping on the
+    /// process-wide readiness generation.
     fn notify(&self) {
         let mut generation = self
             .generation
@@ -199,6 +201,8 @@ impl Activity {
             .unwrap_or_else(|error| error.into_inner());
         *generation = generation.wrapping_add(1);
         self.changed.notify_all();
+        drop(generation);
+        nupp_native_runtime::activity::advance();
     }
 }
 
@@ -2317,6 +2321,40 @@ mod tests {
                 _ => String::new(),
             };
             assert!(reason.contains("refused"), "{reason}");
+            nuppHttpTransferDestroy(transfer);
+            nuppHttpClientDestroy(client);
+        }
+    }
+
+    #[test]
+    fn transfer_events_advance_the_process_readiness_generation() {
+        // Nothing listens on the discard port, so the transfer fails soon. It is
+        // waited for on the process-wide generation alone, never on this
+        // client's own wait, so an event that did not advance it would leave the
+        // wait to time out.
+        let options = options();
+        // SAFETY: descriptors and handles remain live until explicitly destroyed.
+        unsafe {
+            let client = nuppHttpClientCreate(&options);
+            let descriptor = request(b"http://127.0.0.1:9/");
+            let transfer = nuppHttpClientSend(client, &descriptor);
+            let mut head = NuppHttpResponseHead {
+                status: 0,
+                version: 0,
+                url: ptr::null(),
+                url_length: 0,
+                headers: ptr::null(),
+                headers_length: 0,
+            };
+            loop {
+                let seen = nupp_native_runtime::activity::generation();
+                if nuppHttpTransferPollHeaders(transfer, &mut head) != HEAD_PENDING {
+                    break;
+                }
+                let found =
+                    nupp_native_runtime::activity::wait_since(seen, Duration::from_secs(10));
+                assert_ne!(found, seen, "the transfer never advanced the generation");
+            }
             nuppHttpTransferDestroy(transfer);
             nuppHttpClientDestroy(client);
         }

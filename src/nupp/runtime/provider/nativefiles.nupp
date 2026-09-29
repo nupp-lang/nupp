@@ -374,8 +374,6 @@ int32_t nuppNativeFilesTransferStatus(uint64_t, uint32_t *);
 int32_t nuppNativeFilesTransferTakeBytes(uint64_t, uint64_t *);
 int32_t nuppNativeFilesTransferCancel(uint64_t);
 int32_t nuppNativeFilesTransferRelease(uint64_t);
-int32_t nuppNativeFilesTransferPoll(size_t *);
-int32_t nuppNativeFilesTransferWait(uint64_t, size_t *);
 int32_t nuppNativeFilesTransferPending(size_t *);
 ]]
 
@@ -444,10 +442,10 @@ local READY: integer = 1
 local FAILED: integer = 2
 local CANCELED: integer = 3
 
--- The readiness pump this module registers with whoever is handling suspensions. The
--- priority puts it with the other completion-oriented sources rather than ahead of
--- them; nothing here is latency-critical.
-local SOURCE, PRIORITY = "nupp-files", 20
+-- The readiness pump this module registers with whoever is handling suspensions. It
+-- sleeps on the readiness generation every native family shares, which a settled
+-- transfer advances.
+local SOURCE = "nupp-files"
 
 ----------------------------------------------------------------------------
 -- What the filesystem answers with
@@ -1035,20 +1033,6 @@ local function harvest(): integer
     return moved
 end
 
-local function polled(): integer
-    local output = ffi.new("size_t[1]")
-    C.nuppNativeFilesTransferPoll(output)
-
-    return harvest()
-end
-
-local function slept(waitMs: integer): integer
-    local output = ffi.new("size_t[1]")
-    C.nuppNativeFilesTransferWait(waitMs, output)
-
-    return harvest()
-end
-
 local function forget(entry: any): nil
     for index = 1, #waits do
         if waits[index] == entry then
@@ -1068,7 +1052,7 @@ local function await(handle: any): nil
     end
     suspension.suspend("file transfer", function(resume: function(boolean), context: any): function()?
         local entry = {handle = handle, resume = resume,}
-        context:source(SOURCE, PRIORITY, polled, slept)
+        context:source(SOURCE, native.READINESS_PRIORITY, native.pump(harvest))
         waits[#waits + 1] = entry
         -- Settled between the status check above and the subscription: resume now and
         -- answer no cancellation, which is what a subscription that did not park owes.

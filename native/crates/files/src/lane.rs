@@ -68,6 +68,8 @@ impl Activity {
             .unwrap_or_else(|error| error.into_inner())
     }
 
+    /// Wakes this lane's own waiters, and every caller sleeping on the
+    /// process-wide readiness generation.
     fn notify(&self) {
         let mut generation = self
             .generation
@@ -75,6 +77,8 @@ impl Activity {
             .unwrap_or_else(|error| error.into_inner());
         *generation = generation.wrapping_add(1);
         self.changed.notify_all();
+        drop(generation);
+        nupp_native_runtime::activity::advance();
     }
 
     fn wait(&self, seen: u64, timeout: Duration) -> u64 {
@@ -606,6 +610,32 @@ mod tests {
             assert!(Instant::now() < deadline, "file transfer timed out");
             generation = lane.wait(generation, Duration::from_millis(100));
         }
+    }
+
+    #[test]
+    fn a_settled_transfer_advances_the_process_readiness_generation() {
+        let root = root("readiness");
+        let lane = FileLane::new();
+        let path = root.join("value.bin");
+        fs::write(&path, b"value").unwrap();
+        let read = lane.submit_read(path).unwrap();
+        // Waited for on the process-wide generation alone, never on the lane's
+        // own, so a settle that did not advance it would leave the wait to time
+        // out.
+        loop {
+            let seen = nupp_native_runtime::activity::generation();
+            if read.status() != TransferStatus::Pending {
+                break;
+            }
+            let found = nupp_native_runtime::activity::wait_since(seen, Duration::from_secs(10));
+            assert_ne!(
+                found, seen,
+                "the settled transfer never advanced the generation"
+            );
+        }
+        assert_eq!(read.status(), TransferStatus::Ready);
+        drop(read);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

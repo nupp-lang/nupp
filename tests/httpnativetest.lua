@@ -576,6 +576,60 @@ function M.aTecsStyleHandlerOnlyNeedsNonblockingHostPolls()
     client:close()
 end
 
+-- A host that sleeps on the one native readiness generation between passes, the way
+-- an embedding event loop would: snapshot, drive the sources, and when nothing moved,
+-- wait from the snapshot. Activity the waiting family reports has to end that wait;
+-- a wait that ran to its timeout means the family never advanced the generation.
+local function generationHost()
+    local ffi = require("ffi")
+    local C = require("nupp.runtime.native").C
+    local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
+    return {
+        canPark = function()
+            return true
+        end,
+        shutdown = function()
+        end,
+        park = function(_self, waiting, cancel)
+            local sleeps = 0
+            while not waiting:ready() do
+                assert(C.nuppNativePoll(seen) == 0)
+                if suspension.poll() == 0 and not waiting:ready() then
+                    sleeps = sleeps + 1
+                    assert(C.nuppNativeWait(seen[0], 10000, found) == 0)
+                    if found[0] == seen[0] or sleeps > 1000 then
+                        cancel()
+                        error(waiting.operation .. " never advanced the readiness generation", 0)
+                    end
+                end
+            end
+        end,
+    }
+end
+
+function M.oneReadinessGenerationWakesHttpProcessAndFileWaiters()
+    local client = ready()
+    local installation = suspension.install(generationHost())
+    local ok, problem = pcall(function()
+        local response = assert(client:send({url = endpoint("/small")}))
+        test.equal(response.body:read(64), "small response\n")
+        response:close()
+
+        local child = startProcess({args = {"/bin/sh", "-c", "sleep 0.1"}, stdin = "null", stdout = "null"})
+        test.equal(child:wait().exitCode, 0)
+        child:close()
+
+        local path = root .. "/readiness.txt"
+        local handle = assert(io.open(path, "wb"))
+        handle:write("settled")
+        handle:close()
+        test.equal(assert(files.read(path)), "settled")
+    end)
+    installation:close()
+    client:close()
+    assert(ok, problem)
+end
+
 function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
     if unavailable then
         test.skip("the HTTP provider is unavailable: " .. unavailable)

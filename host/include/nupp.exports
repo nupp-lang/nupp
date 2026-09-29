@@ -210,6 +210,8 @@ nuppNativeBytesRelease
 nuppNativeMonotonicNs
 nuppNativeWallMs
 nuppNativeSleepMs
+nuppNativePoll
+nuppNativeWait
 nuppNativeAvailableParallelism
 nuppNativeRandomBytes
 nuppNativeXxh64Digest

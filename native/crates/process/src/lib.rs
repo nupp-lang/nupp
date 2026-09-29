@@ -2,16 +2,18 @@
 //!
 //! Tokio owns child reaping and pipe I/O on Nupp's shared native executor.
 //! Provider tasks operate only on Rust-owned state and wake synchronous ABI
-//! callers through one process-wide activity condition variable.
+//! callers through the process-wide readiness generation every native family
+//! shares.
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+use nupp_native_runtime::activity;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 #[cfg(not(unix))]
 use tokio::io::AsyncWriteExt;
@@ -61,50 +63,6 @@ pub enum Write {
     Accepted(usize),
     WouldBlock,
     Gone,
-}
-
-struct Activity {
-    generation: Mutex<u64>,
-    changed: Condvar,
-}
-
-impl Activity {
-    fn generation(&self) -> u64 {
-        *self
-            .generation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-    }
-
-    fn notify(&self) {
-        let mut generation = self
-            .generation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        *generation = generation.wrapping_add(1);
-        self.changed.notify_all();
-    }
-
-    fn wait(&self, seen: u64, timeout: Duration) {
-        let generation = self
-            .generation
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if *generation == seen {
-            let _ = self
-                .changed
-                .wait_timeout(generation, timeout)
-                .unwrap_or_else(|error| error.into_inner());
-        }
-    }
-}
-
-fn activity() -> &'static Activity {
-    static ACTIVITY: OnceLock<Activity> = OnceLock::new();
-    ACTIVITY.get_or_init(|| Activity {
-        generation: Mutex::new(0),
-        changed: Condvar::new(),
-    })
 }
 
 struct OutputState {
@@ -295,7 +253,7 @@ impl ProcessStream {
                 }
             }
         }
-        activity().notify();
+        activity::advance();
     }
 }
 
@@ -607,13 +565,13 @@ async fn write_input(
             state.sender.take();
         }
         drop(state);
-        activity().notify();
+        activity::advance();
         if result.is_err() {
             return;
         }
     }
     let _ = stdin.shutdown().await;
-    activity().notify();
+    activity::advance();
 }
 
 #[cfg(unix)]
@@ -665,7 +623,7 @@ async fn write_input(
             return;
         }
     }
-    activity().notify();
+    activity::advance();
 }
 
 fn finish_input_write(stream: &Arc<ProcessStream>, result: io::Result<()>) {
@@ -682,7 +640,7 @@ fn finish_input_write(stream: &Arc<ProcessStream>, result: io::Result<()>) {
         state.sender.take();
     }
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -857,7 +815,7 @@ where
                 }
                 state.bytes.extend(&scratch[..count]);
                 drop(state);
-                activity().notify();
+                activity::advance();
             }
             Err(error) => {
                 finish_output_source(output, Some(error.to_string()));
@@ -877,7 +835,7 @@ fn finish_output_source(output: &Output, error: Option<String>) {
         state.error = error;
     }
     drop(state);
-    activity().notify();
+    activity::advance();
 }
 
 async fn supervise_child(
@@ -903,7 +861,7 @@ async fn supervise_child(
                             child_state.exit = Some(Exit { code: 1, killed: true });
                         }
                         drop(child_state);
-                        activity().notify();
+                        activity::advance();
                         let _ = error;
                     }
                 }
@@ -934,7 +892,7 @@ async fn supervise_child(
         ..value
     };
     state.lock().unwrap_or_else(|error| error.into_inner()).exit = Some(value);
-    activity().notify();
+    activity::advance();
 }
 
 #[cfg(unix)]
@@ -998,13 +956,13 @@ pub fn wait_ready(
 ) -> usize {
     let started = Instant::now();
     loop {
-        let seen = activity().generation();
+        let seen = activity::generation();
         let ready = usize::from(child.is_some_and(|child| child.exit_uncollected()))
             + streams.iter().filter(|stream| stream.ready()).count();
         if ready != 0 || started.elapsed() >= timeout {
             return ready;
         }
-        activity().wait(seen, timeout.saturating_sub(started.elapsed()));
+        activity::wait_since(seen, timeout.saturating_sub(started.elapsed()));
     }
 }
 
@@ -1022,7 +980,7 @@ mod tests {
     fn wait_for_exit(child: &ChildProcess) -> Exit {
         let deadline = Instant::now() + Duration::from_secs(2);
         while child.poll_exit().is_none() && Instant::now() < deadline {
-            activity().wait(activity().generation(), Duration::from_millis(10));
+            activity::wait_since(activity::generation(), Duration::from_millis(10));
         }
         child.poll_exit().expect("child did not exit")
     }

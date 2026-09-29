@@ -330,21 +330,28 @@ local function create(): contract.Provider
                 timeout = INT32_MAX
             end
             local ready = native.ffi.new("size_t[1]")
-            configured(
-                C.nuppNativeProcessWait(
-                    interest.child.handle,
-                    readable,
-                    readCount,
-                    writable,
-                    writeCount,
-                    timeout,
-                    ready
-                ),
-                "wait for process readiness"
-            )
-            local count = tonumber(ready[0]) as integer
-            if count < 0 or count > readCount + writeCount + 1 then
-                error("nupp: native process provider returned an invalid readiness count", 0)
+
+            local function probe(): integer
+                configured(
+                    C.nuppNativeProcessWait(interest.child.handle, readable, readCount, writable, writeCount, 0, ready),
+                    "wait for process readiness"
+                )
+                local count = tonumber(ready[0]) as integer
+                if count < 0 or count > readCount + writeCount + 1 then
+                    error("nupp: native process provider returned an invalid readiness count", 0)
+                end
+
+                return count
+            end
+
+            -- Snapshot, check, then sleep from the snapshot: the child and its pipes
+            -- advance the readiness generation every native family shares, so a
+            -- change after the check ends the sleep, and so does any other family's.
+            native.snapshot()
+            local count = probe()
+            if count == 0 and timeout > 0 then
+                native.sleep(timeout)
+                count = probe()
             end
 
             return count

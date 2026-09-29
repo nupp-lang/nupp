@@ -173,6 +173,49 @@ static int malformed_spirv_answers_a_status(void) {
     return 0;
 }
 
+/* A settled whole-file read advances the one process-wide readiness
+ * generation, so a caller that polled it, found the transfer pending, and
+ * waits from it is woken by the transfer rather than by the timeout. */
+static int readiness_generation_wakes_waiters(void) {
+    NuppNativeFilesSlice cargo = {
+        (const uint8_t *)"Cargo.toml", sizeof "Cargo.toml" - 1};
+    uint64_t generation = 0, found = 0, transfer = 0;
+    uint32_t state = NUPP_NATIVE_FILES_TRANSFER_PENDING;
+    int waits = 0;
+    int32_t status;
+    if (nuppNativePoll(NULL) != NUPP_NATIVE_INVALID_ARGUMENT
+        || nuppNativeWait(0, 0, NULL) != NUPP_NATIVE_INVALID_ARGUMENT) {
+        fprintf(stderr, "a readiness output of NULL was accepted\n");
+        return 1;
+    }
+    if (!(nuppNativeFeatures() & NUPP_NATIVE_FEATURE_READINESS)) {
+        fprintf(stderr, "the readiness feature bit is absent\n");
+        return 1;
+    }
+    status = nuppNativeFilesTransferSubmitRead(cargo, &transfer);
+    if (status != NUPP_NATIVE_OK) return failed("file transfer", status);
+    for (;;) {
+        status = nuppNativePoll(&generation);
+        if (status != NUPP_NATIVE_OK) return failed("readiness poll", status);
+        status = nuppNativeFilesTransferStatus(transfer, &state);
+        if (status != NUPP_NATIVE_OK) return failed("transfer status", status);
+        if (state != NUPP_NATIVE_FILES_TRANSFER_PENDING) break;
+        /* Ten seconds is the timeout's answer; the transfer's is far sooner. */
+        if (++waits > 3) {
+            fprintf(stderr, "a settled transfer did not wake the wait\n");
+            return 1;
+        }
+        status = nuppNativeWait(generation, 10000, &found);
+        if (status != NUPP_NATIVE_OK) return failed("readiness wait", status);
+    }
+    nuppNativeFilesTransferRelease(transfer);
+    if (state != NUPP_NATIVE_FILES_TRANSFER_READY) {
+        fprintf(stderr, "the whole-file read did not succeed\n");
+        return 1;
+    }
+    return 0;
+}
+
 /* A backend no adapter on this platform answers to. */
 static const char *absent_gpu_backend(void) {
 #if defined(__APPLE__)
@@ -278,6 +321,7 @@ int main(void) {
         }
     }
     if (malformed_spirv_answers_a_status()) return 1;
+    if (readiness_generation_wakes_waiters()) return 1;
     status = nuppNativeFilesInfo(current, 1, &file_info);
     if (status != NUPP_NATIVE_OK) return failed("filesystem info", status);
     if (file_info.kind != NUPP_NATIVE_FILES_KIND_DIRECTORY) {
