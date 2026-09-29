@@ -77,48 +77,7 @@ local specializeReceiver = generics.specializeReceiver
 
 local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 
---- What one compiler-owned call surface asks of the checker and the generator.
-local type CompilerSurface = {
-    --- The feature effect calling it records, so a target packages the runtime it
-    --- needs.
-    effect: string?,
-
-    --- Whether the source form puts the callable last while the library signature
-    --- keeps it first, so the checker view is rotated and lowering restores the order.
-    rotate: boolean?,
-
-    --- Whether that trailing callable is a sendable position, so an inline literal
-    --- there is outlined for another Lua state without an annotation.
-    sendableLast: boolean?,
-
-    --- The runtime member each overload after the first lands on, indexed the way the
-    --- declaration writes them. Two overloads of one name are the same shape at run
-    --- time here -- a callable and one more value -- so routing the selected one is
-    --- what keeps a type test out of the emitted call.
-    overloadMembers: {[integer]: string}?,
-
-    --- The child body may borrow the scope it is started on. A scope joins every
-    --- child before it settles, so such a borrow cannot outlive what it borrows.
-    bodyMayBorrowScope: boolean?
-}
-
---- The call surfaces the compiler owns on the standard library's behalf, by public
---- module, nominal, and member. The member names here are the only ones lowering ever
---- interpolates into emitted Lua for a rotated call, so nothing user-written reaches
---- that path.
-local COMPILER_SURFACES: {
-    [string]: {[string]: {[string]: CompilerSurface}}
-} = {
-    ["nupp.workers.spi"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
-    [
-        "nupp.tasks"
-    ] = {
-        Scope = {
-            spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"}, bodyMayBorrowScope = true,},
-            fork = {effect = "runtime.workers", rotate = true, sendableLast = true,},
-        },
-    },
-}
+local COMPILER_SURFACES = require("nupp.compiler.check.surfaces").COMPILER_SURFACES
 
 --- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
 --- a local bound to the required module.

@@ -15,6 +15,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local docblock = require("nupp.compiler.syntax.docblock")
 local stringsMod = require("nupp.tools.doc.strings")
 local filesMod = require("nupp.tools.doc.files")
+local surfaces = require("nupp.compiler.check.surfaces")
 
 local trim = stringsMod.trim
 local normalize, join = filesMod.normalize, filesMod.join
@@ -605,6 +606,51 @@ local function typeFunction(node)
     return widest
 end
 
+-- `spawn` and `fork` are declared with the callable first and written with it last,
+-- and the compiler rotates the call. A reader wants the call, so a rotated member is
+-- printed with its second parameter moved to the end, overload by overload.
+local function rotatedFunctionText(fn): string
+    local params = fn.params or {}
+    if #params < 2 then
+        return trim(cst.textOf(fn))
+    end
+    local text = cst.textOf(fn)
+    local pieces: {string} = {trim(cst.textOf(params[1]))}
+    for index = 3, #params do
+        pieces[#pieces + 1] = trim(cst.textOf(params[index]))
+    end
+    pieces[#pieces + 1] = trim(cst.textOf(params[2]))
+    local first = text:find(trim(cst.textOf(params[1])), 1, true) as integer
+    local _, lastEnd = text:find(trim(cst.textOf(params[#params])), first, true)
+    local close = text:find(")", (lastEnd as integer) + 1, true) as integer
+    local head = trim(text:sub(1, first - 1))
+
+    return head .. table.concat(pieces, ", ") .. text:sub(close)
+end
+
+local function rotatedTypeText(node): string
+    local overloads = node.kind == "tintersection" and node.types or {node}
+    local rendered: {string} = {}
+    for index, fn in ipairs(overloads) do
+        rendered[index] = rotatedFunctionText(fn)
+    end
+
+    return withoutHiddenTerminals(table.concat(rendered, " & "))
+end
+
+local function rotatedParams(params: {any}): {any}
+    if #params < 2 then
+        return params
+    end
+    local order = {params[1]}
+    for index = 3, #params do
+        order[#order + 1] = params[index]
+    end
+    order[#order + 1] = params[2]
+
+    return order
+end
+
 -- Compiler-only function and type handles retain their ordinary declaration kind for
 -- sorting and grouping. This is the phase-qualified kind a renderer puts on the
 -- badge instead.
@@ -967,6 +1013,11 @@ local function buildMembers(
                 local details = typeFunctionDetails(fieldFunction, fieldInfo)
                 member.params, member.returns = details.params, details.returns
                 member.isFunction = true
+                local ownerModule, nominal = basePath:match("^(.*)%.([^.]+)$")
+                if ownerModule and surfaces.rotates(ownerModule, nominal, entry.name.text) then
+                    member.type = rotatedTypeText(entry.type)
+                    member.params = rotatedParams(member.params)
+                end
             end
             if entry.kind == "metamethodDecl" then
                 member.isMetamethod = true

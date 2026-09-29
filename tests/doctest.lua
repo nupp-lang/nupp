@@ -1980,6 +1980,32 @@ function M.documentsTheProjectSourcesRatherThanTheWholeTree()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- `scope:spawn(arguments..., f)` is what a caller writes, and the compiler rotates it
+-- into the declaration's callable-first order. The reference prints the call.
+function M.aRotatedCallSurfaceIsPrintedInCallOrder()
+    local path = HERE .. "/../src/nupp/tasks.nupp"
+    local module = assert(doc.extract(readFile(path), path, "nupp.tasks"))
+    local members = {}
+    for _, item in ipairs(module.items) do
+        for _, member in ipairs(item.members or {}) do
+            members[member.path] = member
+        end
+    end
+    local spawn = assert(members["nupp.tasks.Scope.spawn"], "Scope:spawn is documented")
+    assert(
+        spawn.type:find("(borrows self: tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
+        "the body comes after its arguments: " .. spawn.type
+    )
+    assert(spawn.type:find("(borrows self: tasks.Scope, name: string, takes body: F)", 1, true),
+        "and after the name in the named overload: " .. spawn.type)
+    assert(spawn.params[#spawn.params].name == "body", "the parameter table follows the same order")
+    local fork = assert(members["nupp.tasks.Scope.fork"], "Scope:fork is documented")
+    assert(fork.type:find("Submitted(F), F)", 1, true), "fork takes its callable last: " .. fork.type)
+    local cancel = assert(members["nupp.tasks.Scope.cancel"], "Scope:cancel is documented")
+    assert(cancel.type:find("(borrows self: tasks.Scope, reason: string?)", 1, true),
+        "an ordinary member keeps its order: " .. cancel.type)
+end
+
 -- What to produce is `--kind`, so every argument is a source path: a leading word
 -- that happens to name a format is a path like any other.
 function M.theKindIsAnOptionAndEveryArgumentIsAPath()
