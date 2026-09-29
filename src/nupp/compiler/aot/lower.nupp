@@ -2467,11 +2467,12 @@ local function call(
         return lower.rearrange("transpose", args, lower.site(node), kernel)
     elseif identity == "nupp.codec.valuebuilder.new"
         or identity == "nupp.codec.valuebuilder.newSized"
-        or identity == "nupp.codec.valuebuilder.newPull"
-        or identity == "nupp.codec.valuebuilder.newSerde"
+        or identity == "nupp.codec.json.internal.builder.newPull"
+        or identity == "nupp.codec.json.internal.builder.newSerde"
     then
         local sized = identity == "nupp.codec.valuebuilder.newSized"
-        local pulling = identity == "nupp.codec.valuebuilder.newPull" or identity == "nupp.codec.valuebuilder.newSerde"
+        local pulling = identity == "nupp.codec.json.internal.builder.newPull"
+            or identity == "nupp.codec.json.internal.builder.newSerde"
         if (not sized and not pulling and #args ~= 1 or sized and #args ~= 3 and #args ~= 5 or pulling and #args ~= 8)
             or args[1].type ~= "lua_value"
             or args[1].op ~= "local"
@@ -2494,14 +2495,16 @@ local function call(
             context.reject(
                 lower.site(node),
                 pulling
-                and "valuebuilder.newPull takes a rooted null replacement, uint32 depth and string capacity, container markers, a rooted shape, its array marker, and serde markers"
+                and "json builder.newPull takes a rooted null replacement, uint32 depth and string capacity, container markers, a rooted shape, its array marker, and serde markers"
                 or sized
                 and "valuebuilder.newSized takes a rooted null replacement, uint32 depth and string capacity, and optional container markers"
                 or "valuebuilder.new takes one rooted null replacement"
             )
         end
         markLua(kernel, lower.site(node))
-        local builderMode = identity == "nupp.codec.valuebuilder.newSerde" and "serde" or pulling and "pull" or "eager"
+        local builderMode = identity == "nupp.codec.json.internal.builder.newSerde" and "serde"
+            or pulling and "pull"
+            or "eager"
         if kernel.builderMode ~= nil and kernel.builderMode ~= builderMode then
             context.reject(lower.site(node), "one AOT entry cannot mix value stream modes")
         end
@@ -2563,7 +2566,7 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.scratchWord"
-        or identity == "nupp.codec.valuebuilder.scratchEscapeWord"
+        or identity == "nupp.codec.json.internal.builder.scratchEscapeWord"
     then
         if #args ~= 2 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.scratchWord takes a local scratch buffer and uint32 index")
@@ -2576,7 +2579,7 @@ local function call(
             fixedBound = identity == "nupp.codec.valuebuilder.scratchWord"
             and kernel.scratchBounds[(args[1] as scalarIR.Name).name]
             or nil,
-            op = identity == "nupp.codec.valuebuilder.scratchEscapeWord" and "lua_scratch_u32_escape_get"
+            op = identity == "nupp.codec.json.internal.builder.scratchEscapeWord" and "lua_scratch_u32_escape_get"
             or "lua_scratch_u32_get",
             scratch = args[1],
             index = args[2],
@@ -2586,14 +2589,14 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.scratchLength"
-        or identity == "nupp.codec.valuebuilder.scratchEscapeLength"
+        or identity == "nupp.codec.json.internal.builder.scratchEscapeLength"
     then
         if #args ~= 1 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder.scratchLength takes one local word scratch")
         end
         markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32Length(
-            op = identity == "nupp.codec.valuebuilder.scratchEscapeLength" and "lua_scratch_u32_escape_length"
+            op = identity == "nupp.codec.json.internal.builder.scratchEscapeLength" and "lua_scratch_u32_escape_length"
             or "lua_scratch_u32_length",
             scratch = args[1],
             type = "u32",
@@ -2791,7 +2794,7 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.codec.valuebuilder.numberToken" then
+    elseif identity == "nupp.codec.json.internal.builder.numberToken" then
         if #args ~= 4
             or args[1].type ~= "lua_builder"
             or args[1].op ~= "local"
@@ -2802,7 +2805,7 @@ local function call(
         then
             context.reject(
                 lower.site(node),
-                "valuebuilder.numberToken takes a local builder, rooted bytes, uint32 start, and uint32 limit"
+                "json builder.numberToken takes a local builder, rooted bytes, uint32 start, and uint32 limit"
             )
         end
         markLua(kernel, lower.site(node))
@@ -2816,8 +2819,14 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity ~= nil and identity:match("^nupp%.codec%.valuebuilder%.") ~= nil then
-        local action = tostring(identity):match("^nupp%.codec%.valuebuilder%.(.+)$")
+    elseif identity ~= nil
+        and (
+            identity:match("^nupp%.codec%.valuebuilder%.") ~= nil
+            or identity == "nupp.codec.json.internal.builder.keyEscapes"
+            or identity == "nupp.codec.json.internal.builder.stringEscapes"
+        )
+    then
+        local action = tostring(identity):match("^.*%.(.+)$")
         local operations: {
             [string]: string
         } = {
@@ -2839,6 +2848,9 @@ local function call(
             stringEscapes = "lua_builder_string_escapes",
         }
         local operation = operations[tostring(action)]
+        if (action == "keyEscapes" or action == "stringEscapes") ~= (identity:match("^nupp%.codec%.json%.") ~= nil) then
+            operation = nil
+        end
         if operation ~= nil then
             if #args < 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
                 context.reject(lower.site(node), "valuebuilder event needs one local builder")

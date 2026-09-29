@@ -62,6 +62,7 @@ and answers zeros, which is what a scan that has seen nothing needs.
 ]]
 
 local _valueBuilder = require("nupp.codec.valuebuilder")
+local _jsonBuilder = require("nupp.codec.json.internal.builder")
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 local {type Buffer} = require("nupp.text")
@@ -111,9 +112,9 @@ local function nibbleTable(
         :insert(16, e15)
 end
 
--- Variant 0 selects [](nupp.codec.valuebuilder.newPull): every token
+-- Variant 0 selects [](nupp.codec.json.internal.builder.newPull): every token
 -- observed, values allocated only where the pull shape selects them.
--- Variant 1 selects [](nupp.codec.valuebuilder.newSerde), the
+-- Variant 1 selects [](nupp.codec.json.internal.builder.newSerde), the
 -- schema-specialized stream, whose entry also reads buffers. Variant 2
 -- selects [](nupp.codec.valuebuilder.newSized), the eager builder that
 -- materializes the whole document. Written as literals because switch case
@@ -469,7 +470,7 @@ local function decodeFused<const Variant: integer>(
         builderDepth = 16
     end
     local values = switch variant as integer do
-        case 0 -> _valueBuilder.newPull(
+        case 0 -> _jsonBuilder.newPull(
             nullValue,
             builderDepth,
             sourceCount,
@@ -479,7 +480,7 @@ local function decodeFused<const Variant: integer>(
             arrayShapeMarker,
             serdeMarkers
         )
-        case 1 -> _valueBuilder.newSerde(
+        case 1 -> _jsonBuilder.newSerde(
             nullValue,
             builderDepth,
             sourceCount,
@@ -655,7 +656,7 @@ local function decodeFused<const Variant: integer>(
                 cursor = nupp.math.u32.add(cursor, 4)
             elseif byte == 45 or byte >= 48 and byte <= 57 then
                 tag = 3
-                local parsed = _valueBuilder.numberToken(values, source, cursor, sourceCount)
+                local parsed = _jsonBuilder.numberToken(values, source, cursor, sourceCount)
                 if parsed < 2147483648 then
                     return nullValue, 1, parsed
                 end

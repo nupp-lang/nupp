@@ -98,6 +98,12 @@ resolved calls inside an AOT builder lower to stack-rooted VM construction.
 An external codec can therefore keep one parser and select the execution mode
 at build time.
 
+Everything this page names is public. The JSON decoder also starts streams that
+materialize only a selected shape, publishes strings through the escape
+positions its structural scan kept, and tokenizes JSON numbers in native code.
+Those entry points mean nothing to another format, so they live in an internal
+module beside the decoder rather than here.
+
 ```nupp
 local valuebuilder = nupp.codec.valuebuilder
 

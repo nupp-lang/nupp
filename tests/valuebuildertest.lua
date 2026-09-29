@@ -1,4 +1,5 @@
 local valuebuilder = require("nupp.codec.valuebuilder")
+local jsonbuilder = require("nupp.codec.json.internal.builder")
 local test = require("nupp.test")
 local u32 = nupp.math.u32.wrap
 local M = {}
@@ -40,9 +41,30 @@ function M.sourceRangesAreExact()
     )
 end
 
+function M.jsonOnlyEntriesLiveBesideTheDecoder()
+    -- Byte readers, scratch buffers and stream events are public for any
+    -- codec; the pull and serde streams, the retained escape positions and
+    -- JSON's number grammar are the decoder's alone.
+    for _, name in ipairs({
+        "newPull",
+        "newSerde",
+        "stringEscapes",
+        "keyEscapes",
+        "scratchEscapeWord",
+        "scratchEscapeLength",
+        "numberToken",
+    }) do
+        test.equal(valuebuilder[name], nil, name .. " is not public")
+        test.equal(type(jsonbuilder[name]), "function", name .. " is beside the decoder")
+    end
+    for _, name in ipairs({"new", "newSized", "byte", "byteAt", "word", "length", "newByteScratch", "stringScratch"}) do
+        test.equal(type(valuebuilder[name]), "function", name .. " stays public")
+    end
+end
+
 function M.numberTokenRejectsLeadingZero()
     local builder = valuebuilder.new({})
-    local parsed = valuebuilder.numberToken(builder, "01", u32(0), u32(2))
+    local parsed = jsonbuilder.numberToken(builder, "01", u32(0), u32(2))
     assert(parsed == u32(2))
     test.raises(
         function()
@@ -52,7 +74,7 @@ function M.numberTokenRejectsLeadingZero()
     )
 
     local past = valuebuilder.new({})
-    assert(valuebuilder.numberToken(past, "1", u32(0), u32(2)) == u32(1))
+    assert(jsonbuilder.numberToken(past, "1", u32(0), u32(2)) == u32(1))
     test.raises(
         function()
             valuebuilder.finish(past)

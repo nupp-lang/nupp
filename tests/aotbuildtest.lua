@@ -1602,12 +1602,19 @@ end
 
 function M.constGenericSelectsValueStreamModePerVariant()
     local dir = constProject("require")
-    local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
+    -- The pull stream is internal to the standard library's package, so the
+    -- body lives in a module of that namespace and the entry re-exports it.
+    local entry = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
+    entry:write('module constkernel\nexport = require("nupp.constmodes")\n')
+    entry:close()
+    assert(os.execute("mkdir -p '" .. dir .. "/src/nupp'") == 0)
+    local source = assert(io.open(dir .. "/src/nupp/constmodes.nupp", "wb"))
     source:write(
         table.concat(
             {
-                "module constkernel",
+                "module nupp.constmodes",
                 'local _valueBuilder = require("nupp.codec.valuebuilder")',
+                'local _jsonBuilder = require("nupp.codec.json.internal.builder")',
                 "@aot",
                 "local function build<const Variant: integer>(",
                 "    source: string,",
@@ -1622,7 +1629,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
                 "    local count = _valueBuilder.length(source)",
                 "    local depth: uint32 = 16",
                 "    local values = switch variant as integer do",
-                "        case 0 -> _valueBuilder.newPull(",
+                "        case 0 -> _jsonBuilder.newPull(",
                 "            nullValue,",
                 "            depth,",
                 "            count,",
@@ -1667,7 +1674,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
     )
     -- Each entry is a `define internal i32 @<entry>_lua` whose runtime
     -- pointers are named for their slots.
-    local unit = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
+    local unit = assert(read(tieredUnit(dir, firstHostTier(), "nupp/constmodes")))
     local bodies = {}
     for symbol in unit:gmatch("define internal i32 @(ks_[%w_]+_lua)%(") do
         local from = assert(unit:find("\ndefine internal i32 @" .. symbol .. "(", 1, true))

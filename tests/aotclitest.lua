@@ -4550,16 +4550,23 @@ function M.valueStreamBuilderModesAreAotConstants()
         ] = [[
 local builder = {}
 function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
-function builder.newPull(nullValue: any, depth: uint32, bytes: uint32, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any return {} end
-function builder.newSerde(nullValue: any, depth: uint32, bytes: uint32, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any return {} end
 function builder.number(state: any, value: number): nil end
 function builder.finish(state: any): any return nil end
 return builder
 ]],
         [
-            "modes.nupp"
+            "nupp/codec/json/internal/builder.nupp"
+        ] = [[
+local stream = {}
+function stream.newPull(nullValue: any, depth: uint32, bytes: uint32, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any return {} end
+function stream.newSerde(nullValue: any, depth: uint32, bytes: uint32, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any return {} end
+return stream
+]],
+        [
+            "nupp/modes.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
+local stream = require("nupp.codec.json.internal.builder")
 
 @aot
 local function eager(nullValue: any): any
@@ -4570,14 +4577,14 @@ end
 
 @aot
 local function pull(nullValue: any, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any
-    local state = builder.newPull(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
+    local state = stream.newPull(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
     builder.number(state, 1)
     return builder.finish(state)
 end
 
 @aot
 local function serde(nullValue: any, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any
-    local state = builder.newSerde(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
+    local state = stream.newSerde(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
     builder.number(state, 1)
     return builder.finish(state)
 end
@@ -4589,7 +4596,7 @@ return {
 }
 ]],
     }
-    local out, code = run(dir, "--json modes.nupp")
+    local out, code = run(dir, "--json nupp/modes.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     assert(decoded.ir:find("lua.builder(eager", 1, true), decoded.ir)
