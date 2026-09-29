@@ -543,17 +543,6 @@ end
 
 workers.openScope = openScope
 
---- How many lanes the page's pool runs, which is what a caller sizes chunks against.
-local function parallelism(): integer
-    local answer: any = suspension.suspend("worker lanes", function(resume: function(any): nil): function()
-        return poolRequest({operation = "lanes",}, resume)
-    end)
-
-    return (answered(answer).lanes or 1) as integer
-end
-
-workers.parallelism = parallelism
-
 ----------------------------------------------------------------------------
 -- The lane
 ----------------------------------------------------------------------------

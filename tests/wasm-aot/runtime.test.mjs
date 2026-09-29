@@ -3,7 +3,7 @@ import { webcrypto } from "node:crypto";
 import test from "node:test";
 
 import { handleBrowserEffects } from "../../runtime/wasm/app-runtime.mjs";
-import { runNuppLuaJITApp, runPackagedNuppLuaJITApp } from "../../runtime/luajit/app-runtime.mjs";
+import { packagedEffectHandlers, runNuppLuaJITApp, runPackagedNuppLuaJITApp } from "../../runtime/luajit/app-runtime.mjs";
 import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
@@ -958,6 +958,16 @@ test("a worker lane refuses a manifest other than the one its page verified", as
     /manifest changed after the page loaded it/,
   );
   assert.deepEqual(fetched, ["https://example.test/nupp-browser-app.json"], "no asset of the other build is fetched");
+});
+
+test("a packaged application answers parallelism with its worker pool's lanes", () => {
+  const workers = pool({maxLanes: 3});
+  assert.ok(workers.lanes >= 1 && workers.lanes <= 3, "the pool is bounded by its lane limit");
+  assert.deepEqual(packagedEffectHandlers({}, {}, workers).system(), {availableParallelism: workers.lanes});
+  const supplied = packagedEffectHandlers({system: () => ({availableParallelism: 7})}, {}, workers);
+  assert.equal(supplied.system().availableParallelism, 7, "a caller's own answer wins");
+  assert.equal(packagedEffectHandlers({}, {}, undefined).system, undefined, "without a pool the browser answers");
+  workers.close();
 });
 
 test("a worker pool carries results, failures and cancellations back unchanged", async () => {

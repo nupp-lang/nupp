@@ -220,6 +220,9 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
   };
 
   return {
+    // How many lanes the pool runs, which the page answers `nupp.system`'s
+    // parallelism query with: it is what a caller sizing work can actually use.
+    lanes: capacity,
     perform(effect) {
       if (effect.operation === "submit") return submit(effect);
       if (effect.operation === "await") return settlement(effect);
@@ -228,7 +231,6 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
         if (task) requestCancel(task, false);
         return {started: drainStarted()};
       }
-      if (effect.operation === "lanes") return {lanes: capacity, started: drainStarted()};
       throw new Error(`unsupported browser worker operation ${effect.operation}`);
     },
     close() {

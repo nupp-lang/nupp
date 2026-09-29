@@ -297,25 +297,24 @@ function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
     check.assert(turns >= 2, "the turn budget was not spent: " .. turns .. " turn frames")
 end
 
+-- The parallelism query is `nupp.system`'s, and the page answers it; a task asks it
+-- the way any frame does.
 function M.parallelismAnswersInsideATask()
     local app = application({
-        owned = {"nupp.runtime.browser.workers"},
-        workers = true,
+        owned = {"nupp.runtime.browser.system", "nupp.runtime.browser.response"},
         handlers = {
-            workers = function(request)
-                if request.operation == "lanes" then
-                    return 0, {ok = true, value = {lanes = 4}}
-                end
+            system = function()
+                return 0, {ok = true, value = {availableParallelism = 4}}
             end,
         },
     })
-    local workers = app.load("nupp.runtime.browser.workers")
+    local system = app.load("nupp.runtime.browser.system")
     local tasks = app.tasks
     local ok, answer = app.run(function()
         local lanes
         scoped(tasks, function(scope)
             lanes = scope:spawn(function()
-                return workers.parallelism()
+                return system.availableParallelism()
             end):await()
         end)
 

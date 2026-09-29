@@ -81,7 +81,7 @@ in completion order by construction. A worker result comes back through the
 child that awaits it, which is the child that occupies the slot:
 
 ```nupp
-with scope = nupp.tasks.open(limit = nupp.workers.__parallelism()) do
+with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
             total = total + scope:fork(name, path, jobs.compress):await()

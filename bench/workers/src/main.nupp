@@ -1,8 +1,8 @@
+const system = require("nupp.system")
+
 const jobs = require("jobs")
 const ffi = require("ffi")
 const tasks = require("nupp.tasks")
-const workers = require("nupp.workers")
-local workerRuntime = workers as any
 
 ffi.cdef[[uint64_t nuppNativeMonotonicNs(void);]]
 const C = ffi.C
@@ -45,7 +45,7 @@ with scope = tasks.open() do
     sink = sink + scope:fork(0, jobs.identity):await()
 end
 const coldMs = now() - coldStarted
-const lanes = math.max(1, math.min(workerRuntime.__parallelism(), 64)) as integer
+const lanes = math.max(1, math.min(system.availableParallelism(), 64)) as integer
 print(("worker benchmark: %d lanes, median of %d samples"):format(lanes, SAMPLES))
 print(("cold scheduler     %9.2f ms       %9s  first fork"):format(coldMs, "-"))
 

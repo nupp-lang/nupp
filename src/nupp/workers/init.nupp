@@ -67,7 +67,6 @@ type workers.Submittable = contracts.Submittable
 
 rawset(workers, "__scope", provider.openScope)
 rawset(workers, "__settle", provider.settle)
-rawset(workers, "__parallelism", provider.parallelism)
 rawset(workers, "__runScheduler", provider.runScheduler)
 rawset(workers, "__defineSendable", provider.defineSendable)
 rawset(workers, "__sendable", provider.describeSendable)

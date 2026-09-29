@@ -559,8 +559,9 @@ lanes, so no Wasm threads, no `SharedArrayBuffer`, and no cross-origin isolation
 headers are involved.
 
 The page's pool is bounded by both the package's lane limit and
-`navigator.hardwareConcurrency`. Lanes boot as work arrives rather than when
-the first scope opens.
+`navigator.hardwareConcurrency`, and `nupp.system.availableParallelism()`
+answers that bound there. Lanes boot as work arrives rather than when the first
+fork is made.
 
 Three things a program can observe differ, because a browser gives two Workers no
 synchronous channel:

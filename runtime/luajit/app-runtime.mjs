@@ -127,6 +127,15 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
   }
 }
 
+// The handlers a packaged application adds to the caller's. With a worker pool, the
+// parallelism a caller can use is the pool's lane count rather than the browser's
+// core estimate, unless the caller answers `system` itself.
+export function packagedEffectHandlers(supplied, kernels, pool) {
+  if (!pool) return {...supplied, aot: kernels};
+  return {system: () => ({availableParallelism: pool.lanes}), ...supplied, aot: kernels,
+    workers: effect => pool.perform(effect)};
+}
+
 // A worker lane refetches the manifest by URL, so it is booted with the SHA-256 of
 // the one its page verified: a deploy between page load and lane start would
 // otherwise pair two builds, whose worker frames need not agree.
@@ -166,6 +175,6 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, {manifestDigest, ...
       manifestUrl: new URL(manifest.guest, base).href, limits,
       storageName: options.storageName || `nupp-${manifest.assets[manifest.app].sha256.slice(0,24)}`,
       requestPersistentStorage: options.requestPersistentStorage,
-      effectHandlers: {...options.effectHandlers, aot: kernels, ...(pool ? {workers: effect => pool.perform(effect)} : {})}});
+      effectHandlers: packagedEffectHandlers(options.effectHandlers, kernels, pool)});
   } finally { pool?.close(); }
 }

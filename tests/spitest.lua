@@ -633,9 +633,6 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         provider.settle = function()
                             return name
                         end
-                        provider.parallelism = function()
-                            return name
-                        end
                         provider.runScheduler = function()
                             return name
                         end
@@ -714,7 +711,6 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         local hooks = {
                             __scope = "openScope",
                             __settle = "settle",
-                            __parallelism = "parallelism",
                             __runScheduler = "runScheduler",
                             __defineSendable = "defineSendable",
                             __sendable = "describeSendable",

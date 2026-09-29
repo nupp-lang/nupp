@@ -5,7 +5,8 @@ module nupp.runtime.browser.system
 
 The fixed facts describe the guest instruction set with 32-bit little-endian
 pointers. The parallelism query suspends through the browser response protocol
-and returns the host's estimate, which is an integer of at least one. No worker
+and returns the host's estimate, an integer of at least one: the application's
+worker lane count where it has a pool, and the browser's core estimate otherwise. No worker
 pool is opened. The public system facade retains this query and these values at
 module load.
 ]]

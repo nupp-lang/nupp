@@ -81,8 +81,6 @@ rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
 
 local workers = {}
 
-workers.parallelism = native.workerParallelism
-
 ----------------------------------------------------------------------------
 -- What crosses a lane
 ----------------------------------------------------------------------------

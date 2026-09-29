@@ -298,10 +298,6 @@ interface workers.Provider
     @readonly
     settle: function(task: any): (string, {any}?, integer, any)
 
-    --- Reports the scheduler's available worker parallelism.
-    @readonly
-    parallelism: function(): integer
-
     --- Runs provider scheduler progress using its retained lane state.
     @readonly
     runScheduler: function(): nil
