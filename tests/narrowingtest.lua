@@ -1505,4 +1505,35 @@ function M.aUnionMethodTakesOnlyWhatEveryAlternativeAccepts()
     )
 end
 
+-- A call through a local alias of a function that clears a captured upvalue ends
+-- the narrowing the alias could not name: the call records the entries its callee
+-- writes, and those are what invalidate the fact (the `callMutatedEntries` path).
+function M.aCallThroughAnAliasEndsTheCalleesCapturedFact()
+    local prelude = table.concat({
+        "local function get(): string? return 'abc' end",
+        "local x: string? = get()",
+        "local function f(): nil x = nil end",
+    }, "\n")
+    assertEq(
+        diagsOf(table.concat({prelude, "local g = f", "if x ~= nil then", "    g()", "    print(#x)", "end",}, "\n")),
+        "NUPP2003:7"
+    )
+    assertEq(
+        diagsOf(table.concat({
+            prelude,
+            "if x ~= nil then",
+            "    do",
+            "        local x = 2",
+            "        local h = f",
+            "        h()",
+            "        print(x)",
+            "    end",
+            "    print(#x)",
+            "end",
+        }, "\n")),
+        "NUPP2003:11"
+    )
+    assertClean(table.concat({prelude, "local g = f", "if x ~= nil then", "    print(#x)", "    g()", "end",}, "\n"))
+end
+
 return M
