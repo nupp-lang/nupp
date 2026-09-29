@@ -160,10 +160,6 @@ end
 -- declares its own and the ones it does not declare are simply not its options.
 local reportMod = require("nupp.tools.cli.report")
 
-local function operationSpec(_name: string, _summary: string, _usage: string, _extra: {any}, schema: any): any
-    return schema
-end
-
 -- One symbol, as inspect describes it and as the symbol searches list it.
 local SYMBOL = {
     type = "object",
@@ -204,277 +200,197 @@ local EDIT = {
 local OPERATION_SCHEMAS: {
     [string]: any
 } = {
-    inspect = operationSpec(
-        "inspect",
-        "Describe the symbol at a position",
-        "nupp lsp inspect [options] <file> <line> <column>",
-        {},
-        {
-            type = "object",
-            description = "The symbol at the position, or null where there is " .. "nothing to describe.",
-            properties = {symbol = {["$ref"] = "#/definitions/symbol"}},
-            definitions = {symbol = SYMBOL},
-        }
-    ),
-    definition = operationSpec(
-        "definition",
-        "Find where the symbol at a position is defined",
-        "nupp lsp definition [options] <file> <line> <column>",
-        {},
-        {
-            type = "object",
-            properties = {
-                definition = reportMod.LOCATION,
-                definitions = {
-                    type = "array",
-                    items = reportMod.LOCATION,
-                    description = "Every declaration that contributes, when more than one does.",
-                },
-            },
-        }
-    ),
-    implementation = operationSpec(
-        "implementation",
-        "Find registered implementations of a service member",
-        "nupp lsp implementation [options] <file> <line> <column>",
-        {},
-        {
-            type = "object",
-            properties = {implementations = {type = "array", items = reportMod.LOCATION}},
-            required = {"implementations"},
-        }
-    ),
-    references = operationSpec(
-        "references",
-        "Find the semantic references to the symbol at a position",
-        "nupp lsp references [options] <file> <line> <column>",
-        {{name = "--include-declaration", help = "Include the declaration among the references"},},
-        {
-            type = "object",
-            properties = {
-                declarationIncluded = {type = "boolean"},
-                references = {type = "array", items = reportMod.LOCATION},
-            },
-            required = {"declarationIncluded", "references"},
-        }
-    ),
-    symbols = operationSpec(
-        "symbols",
-        "Search workspace or document symbols",
-        "nupp lsp symbols [options] [--file FILE] [pattern]",
-        {{name = "--file", value = "FILE", help = "Search one document instead of the workspace"},},
-        {
-            type = "object",
-            properties = {symbols = {type = "array", items = {["$ref"] = "#/definitions/symbol"}}},
-            required = {"symbols"},
-            definitions = {symbol = SYMBOL},
-        }
-    ),
-    rename = operationSpec(
-        "rename",
-        "Rename a symbol and every semantic reference to it",
-        "nupp lsp rename [options] <file> <line> <column> <new-name>",
-        {{names = {"-w", "--write"}, help = "Apply the rename instead of previewing it"},},
-        {
-            type = "object",
-            properties = {
-                oldName = {type = "string"},
-                newName = {type = "string"},
-                written = {type = "boolean", description = "False for a preview, which is the default."},
-                edits = {type = "array", items = EDIT},
-            },
-            required = {"newName", "written", "edits"},
-        }
-    ),
-    actions = operationSpec(
-        "actions",
-        "List the code actions available at a position",
-        "nupp lsp actions [options] <file> <line> <column>",
-        {
-            {
-                name = "--only",
-                value = "KIND",
-                choices = {"quickfix", "refactor"},
-                help = "Narrow the results to quickfix or refactor"
+    inspect = {
+        type = "object",
+        description = "The symbol at the position, or null where there is " .. "nothing to describe.",
+        properties = {symbol = {["$ref"] = "#/definitions/symbol"}},
+        definitions = {symbol = SYMBOL},
+    },
+    definition = {
+        type = "object",
+        properties = {
+            definition = reportMod.LOCATION,
+            definitions = {
+                type = "array",
+                items = reportMod.LOCATION,
+                description = "Every declaration that contributes, when more than one does.",
             },
         },
-        {
-            type = "object",
-            properties = {
-                actions = {
-                    type = "array",
-                    items = {
-                        type = "object",
-                        properties = {
-                            kind = {type = "string"},
-                            title = {type = "string"},
-                            diagnostic = {
-                                type = "object",
-                                properties = {code = {type = "string"}, message = {type = "string"}}
-                            },
-                            edits = {type = "array", items = EDIT},
+    },
+    implementation = {
+        type = "object",
+        properties = {implementations = {type = "array", items = reportMod.LOCATION}},
+        required = {"implementations"},
+    },
+    references = {
+        type = "object",
+        properties = {
+            declarationIncluded = {type = "boolean"},
+            references = {type = "array", items = reportMod.LOCATION},
+        },
+        required = {"declarationIncluded", "references"},
+    },
+    symbols = {
+        type = "object",
+        properties = {symbols = {type = "array", items = {["$ref"] = "#/definitions/symbol"}}},
+        required = {"symbols"},
+        definitions = {symbol = SYMBOL},
+    },
+    rename = {
+        type = "object",
+        properties = {
+            oldName = {type = "string"},
+            newName = {type = "string"},
+            written = {type = "boolean", description = "False for a preview, which is the default."},
+            edits = {type = "array", items = EDIT},
+        },
+        required = {"newName", "written", "edits"},
+    },
+    actions = {
+        type = "object",
+        properties = {
+            actions = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        kind = {type = "string"},
+                        title = {type = "string"},
+                        diagnostic = {
+                            type = "object",
+                            properties = {code = {type = "string"}, message = {type = "string"}}
                         },
-                        required = {"title", "edits"},
+                        edits = {type = "array", items = EDIT},
                     },
+                    required = {"title", "edits"},
                 },
             },
-            required = {"actions"},
-        }
-    ),
+        },
+        required = {"actions"},
+    },
     [
         "trace-check"
-    ] = operationSpec(
-        "trace-check",
-        "Check the function at a position for LuaJIT trace blockers",
-        "nupp lsp trace-check [options] <file> <line> <column>",
-        {},
-        {
-            type = "object",
-            properties = {
-                functionName = {type = "string"},
-                contract = {type = "string"},
-                range = reportMod.RANGE,
-                findings = {
-                    type = "array",
-                    items = {
-                        type = "object",
-                        properties = {
-                            reason = {type = "string"},
-                            class = {type = "string"},
-                            message = {type = "string"},
-                            help = {type = "string"},
-                            callPath = {type = "array", items = {type = "string"}},
-                            range = reportMod.RANGE,
-                        },
-                        required = {"reason", "class"},
-                    },
-                },
-                traceProfile = {type = "object"},
-                reasonCatalog = {type = "object"},
-                addContract = {type = "object", properties = {range = reportMod.RANGE, newText = {type = "string"}},},
-            },
-            required = {"findings"},
-        }
-    ),
-    artifacts = operationSpec(
-        "artifacts",
-        "List the compiled artifacts available at a position",
-        "nupp lsp artifacts [options] <file> <line> <column>",
-        {},
-        {
-            type = "object",
-            description = "What could be resolved here, without resolving any of it.",
-            properties = {
-                artifacts = {
-                    type = "array",
-                    items = {
-                        type = "object",
-                        properties = {
-                            kind = {type = "string", enum = {"lua", "bytecode"}},
-                            label = {type = "string"},
-                            languageId = {type = "string"},
-                            scope = {
-                                type = "string",
-                                enum = {"module", "function"},
-                                description = "Whether resolving this kind answers for the file or for one body.",
-                            },
-                        },
-                        required = {"kind", "label", "scope"},
-                    },
-                },
-                [
-                    "function"
-                ] = {
+    ] = {
+        type = "object",
+        properties = {
+            functionName = {type = "string"},
+            contract = {type = "string"},
+            range = reportMod.RANGE,
+            findings = {
+                type = "array",
+                items = {
                     type = "object",
-                    description = "The innermost function the position is in, absent outside one.",
                     properties = {
-                        name = {type = "string"},
-                        aotSymbol = {
-                            type = "string",
-                            description = "Logical AOT kernel symbol, before static archive qualification or tier suffixes."
-                        },
-                        aotSource = {type = "string"},
-                        range = reportMod.RANGE
+                        reason = {type = "string"},
+                        class = {type = "string"},
+                        message = {type = "string"},
+                        help = {type = "string"},
+                        callPath = {type = "array", items = {type = "string"}},
+                        range = reportMod.RANGE,
                     },
+                    required = {"reason", "class"},
                 },
             },
-            required = {"artifacts"},
-        }
-    ),
-    artifact = operationSpec(
-        "artifact",
-        "Print what a file compiles to",
-        "nupp lsp artifact [options] --kind lua|bytecode <file>",
-        {
-            {
-                name = "--kind",
-                key = "kind",
-                value = "KIND",
-                choices = {"lua", "bytecode"},
-                help = "Which artifact to resolve",
+            traceProfile = {type = "object"},
+            reasonCatalog = {type = "object"},
+            addContract = {type = "object", properties = {range = reportMod.RANGE, newText = {type = "string"}},},
+        },
+        required = {"findings"},
+    },
+    artifacts = {
+        type = "object",
+        description = "What could be resolved here, without resolving any of it.",
+        properties = {
+            artifacts = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        kind = {type = "string", enum = {"lua", "bytecode"}},
+                        label = {type = "string"},
+                        languageId = {type = "string"},
+                        scope = {
+                            type = "string",
+                            enum = {"module", "function"},
+                            description = "Whether resolving this kind answers for the file or for one body.",
+                        },
+                    },
+                    required = {"kind", "label", "scope"},
+                },
             },
-            {
-                names = {"-O0", "-O1", "-O2"},
-                key = "artifactOptLevel",
-                help = "Optimization level to resolve the artifact at (default: -O0)",
+            [
+                "function"
+            ] = {
+                type = "object",
+                description = "The innermost function the position is in, absent outside one.",
+                properties = {
+                    name = {type = "string"},
+                    aotSymbol = {
+                        type = "string",
+                        description = "Logical AOT kernel symbol, before static archive qualification or tier suffixes."
+                    },
+                    aotSource = {type = "string"},
+                    range = reportMod.RANGE
+                },
             },
         },
-        {
-            type = "object",
-            description = "One compiled artifact, or why there is not one.",
-            properties = {
-                id = {type = "string"},
-                kind = {type = "string"},
-                available = {type = "boolean"},
-                label = {type = "string"},
-                languageId = {type = "string"},
-                text = {type = "string"},
-                mapping = {
-                    type = "object",
-                    description = "How generated positions relate to source positions.",
-                    properties = {
-                        kind = {
-                            type = "string",
-                            enum = {"line-identity", "lines", "lines-collapsible"},
-                            description = "`line-identity` means generated line N is source line N "
-                            .. "for every N, which is what the Lua emitter guarantees. `lines` "
-                            .. "carries one entry per generated line that stands for source. "
-                            .. "`lines-collapsible` is the same, laid out so that folding every "
-                            .. "indented run leaves one row per source line.",
-                        },
-                        entries = {
-                            type = "array",
-                            items = {
-                                type = "object",
-                                properties = {
-                                    generatedLine = {type = "integer"},
-                                    sourceLine = {type = "integer"},
-                                    role = {type = "string", enum = {"exact", "source", "derived", "synthetic"}},
-                                },
-                                required = {"generatedLine", "sourceLine", "role"},
+        required = {"artifacts"},
+    },
+    artifact = {
+        type = "object",
+        description = "One compiled artifact, or why there is not one.",
+        properties = {
+            id = {type = "string"},
+            kind = {type = "string"},
+            available = {type = "boolean"},
+            label = {type = "string"},
+            languageId = {type = "string"},
+            text = {type = "string"},
+            mapping = {
+                type = "object",
+                description = "How generated positions relate to source positions.",
+                properties = {
+                    kind = {
+                        type = "string",
+                        enum = {"line-identity", "lines", "lines-collapsible"},
+                        description = "`line-identity` means generated line N is source line N "
+                        .. "for every N, which is what the Lua emitter guarantees. `lines` "
+                        .. "carries one entry per generated line that stands for source. "
+                        .. "`lines-collapsible` is the same, laid out so that folding every "
+                        .. "indented run leaves one row per source line.",
+                    },
+                    entries = {
+                        type = "array",
+                        items = {
+                            type = "object",
+                            properties = {
+                                generatedLine = {type = "integer"},
+                                sourceLine = {type = "integer"},
+                                role = {type = "string", enum = {"exact", "source", "derived", "synthetic"}},
                             },
+                            required = {"generatedLine", "sourceLine", "role"},
                         },
                     },
-                    required = {"kind"},
                 },
-                metadata = {type = "object"},
-                summary = {type = "object"},
-                unavailable = {
-                    type = "object",
-                    properties = {reason = {type = "string"}, detail = {type = "string"}},
-                    required = {"reason"},
-                },
-                problem = {
-                    type = "object",
-                    description = "Set when the artifact is available but is not a working program: "
-                    .. "generated Lua that does not load, handed over so the reason can be read in it.",
-                    properties = {reason = {type = "string"}, detail = {type = "string"}},
-                    required = {"reason"},
-                },
+                required = {"kind"},
             },
-            required = {"kind", "available"},
-        }
-    ),
+            metadata = {type = "object"},
+            summary = {type = "object"},
+            unavailable = {
+                type = "object",
+                properties = {reason = {type = "string"}, detail = {type = "string"}},
+                required = {"reason"},
+            },
+            problem = {
+                type = "object",
+                description = "Set when the artifact is available but is not a working program: "
+                .. "generated Lua that does not load, handed over so the reason can be read in it.",
+                properties = {reason = {type = "string"}, detail = {type = "string"}},
+                required = {"reason"},
+            },
+        },
+        required = {"kind", "available"},
+    },
 }
 
 ----------------------------------------------------------------------------
