@@ -431,9 +431,13 @@ function M.traceProfileDigestIsEightHexCharacters()
 end
 
 function M.traceRecordsWhereTheCompilerGaveUp()
+    -- The session also records real aborts anywhere in the process, so the
+    -- compiler stays off while it is open and only the emitted one can land.
+    jit.off()
     local session = profile.trace()
     emitFnewAbort(session)
     local report = session:stop()
+    jit.on()
 
     assertEq(report.totalAborts, 1, "the emitted abort is counted")
     assertEq(#report.sites, 1, "the emitted abort has one site")
