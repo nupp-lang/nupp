@@ -70,7 +70,7 @@ with a reason when it does.
 ```nupp
 const path = nupp.io.path
 
-local real, reason = path.newPath("src"):canonicalize()
+local real, reason = path.newPath("."):canonicalize()
 assert(real, reason)
 assert(real:isAbsolute())
 ```

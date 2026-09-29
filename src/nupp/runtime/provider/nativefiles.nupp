@@ -119,7 +119,7 @@ reason.
 answer a path:
 
 ```nupp
-local scratch, reason = files.createTemporaryDirectory({prefix = "build-"})
+local scratch, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = "build-"))
 assert(scratch, reason)
 ```
 
@@ -135,7 +135,7 @@ whether the block falls through, returns early, or raises.
 
 ```nupp
 do
-    local scratch = assert(files.createTemporaryFile({suffix = ".json"}))
+    local scratch = assert(files.createTemporaryFile(new files.TemporaryOptions(suffix = ".json")))
     assert(files.write(scratch:path(), encoded))
     assert(scratch:persist("out/report.json"))
 end
@@ -1623,7 +1623,8 @@ end
 ---
 --- ```nupp
 --- do
----     local scratch = assert(nupp.io.files.createTemporaryFile({directory = "build"}))
+---     local options = new nupp.io.files.TemporaryOptions(directory = "build")
+---     local scratch = assert(nupp.io.files.createTemporaryFile(options))
 ---     assert(nupp.io.files.write(scratch:path(), bytes))
 ---     assert(scratch:persist("build/output.bin"))
 --- end

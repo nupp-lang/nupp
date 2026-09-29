@@ -47,7 +47,7 @@ and that is what stops the walk:
 ```nupp
 const utf8 = nupp.text.utf8
 
-local at = 1
+local at: integer = 1
 while true do
     local codepoint, nextAt = utf8.decodeAt(text, at)
     if codepoint == nil then break end
@@ -257,7 +257,7 @@ end
 --- ```nupp
 --- const utf8 = nupp.text.utf8
 ---
---- local at = 1
+--- local at: integer = 1
 --- while true do
 ---     local codepoint, nextAt = utf8.decodeAt(text, at)
 ---     if codepoint == nil then break end

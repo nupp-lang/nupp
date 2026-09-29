@@ -26,15 +26,16 @@ disk. A qualified module path loads one only when the source uses it:
 ```nupp
 const span = nupp.mem.span
 
-local storage = carray(int32, 4)
-local values = span.fromCarray(storage, 4)
+const text = "four"
+local bytes = span.fromString(text)
 ```
 
 The full qualified form reaches the same declared file without the short
 binding:
 
 ```nupp
-local values = nupp.mem.span.fromCarray(storage, 4)
+const text = "four"
+local bytes = nupp.mem.span.fromString(text)
 ```
 
 It lowers to one hidden `require` in the containing module. It does not build a

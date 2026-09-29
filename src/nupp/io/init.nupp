@@ -144,16 +144,20 @@ second while the first is live.
 
 `buffer:newWriter()` clears the buffer and returns a forward-only writer
 targeting it. A writer likewise closes automatically; `flush()` publishes
-pending work without consuming that ownership.
+pending work without consuming that ownership. The writer holds its buffer
+exclusively for as long as it is live, so the buffer is read once the writer is
+gone:
 
 ```nupp
 local destination = nupp.io.newBuffer()
-local writer = destination:newWriter()
-assert(writer:write("prefix:"))
+do
+    local writer = destination:newWriter()
+    assert(writer:write("prefix:"))
 
-local payload = nupp.io.newBuffer("body")
-assert(writer:writeSpan(payload:readSpan()) == 4)
-assert(writer:flush())
+    local payload = nupp.io.newBuffer("body")
+    assert(writer:writeSpan(payload:readSpan()) == 4)
+    assert(writer:flush())
+end
 assert(destination:getString() == "prefix:body")
 ```
 
@@ -189,12 +193,12 @@ the missing piece, a sized integer or float landing on those bytes without an
 
 ```nupp
 local writer = nupp.io.newScalarWriter()
-writer:writeUint32(1447383632 as uint32):writeFloat64(1.5)
+writer:writeUint32(1447383632):writeFloat64(1.5)
 
 local stored = writer:buffer()
 assert(stored ~= nil)
-local reader = nupp.io.newScalarReader(stored as nupp.io.Buffer)
-assert(reader:readUint32() == (1447383632 as uint32))
+local reader = nupp.io.newScalarReader(stored)
+assert(reader:readUint32() == 1447383632)
 assert(reader:readFloat64() == 1.5)
 assert(reader:atEnd())
 ```
@@ -237,7 +241,10 @@ own, which `buffer()` hands back:
 
 ```nupp
 local destination = nupp.io.newBuffer("header:")
-nupp.io.newScalarWriter(destination):writeUint8(33 as uint32)
+do
+    local scalars = nupp.io.newScalarWriter(destination)
+    scalars:writeUint8(33)
+end
 assert(destination:getString() == "header:!")
 ```
 
@@ -250,22 +257,20 @@ live.
 
 ## Byte queues
 
-A `nupp.text` is a byte queue: `put` appends to the back and `get` consumes
-from the front. `newScalarReader` accepts one directly, so bytes assembled
-there are read without copying everything in it first, and the queue's own
-`get` stays usable over the same bytes.
+A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
+and `get` consumes from the front. `newScalarReader` accepts one directly, so
+bytes assembled there are read without copying everything in it first, and the
+queue's own `get` stays usable over the same bytes.
 
 ```nupp
-local buffer = nupp.text
-
-local queue = buffer.new()
+local queue = nupp.text.newBuffer()
 queue:put("header:")
 queue:put("!")
 
 local reader = nupp.io.newScalarReader(queue)
 assert(reader:readBytes(7) == "header:")
 assert(queue:tostring() == "!")
-assert(reader:readUint8() == (33 as uint8))
+assert(reader:readUint8() == 33)
 ```
 
 Reading drains the queue, and `remaining()` reports what it still holds.
@@ -274,12 +279,13 @@ Reading drains the queue, and `remaining()` reports what it still holds.
 contract already covers.
 
 ```nupp
-local buffer = nupp.text
-
 local destination = nupp.io.newBuffer()
-local queue = buffer.new()
+local queue = nupp.text.newBuffer()
 queue:put("payload")
-assert(nupp.io.newQueueReader(queue):transferTo(destination:newWriter()) == 7)
+do
+    local reader = nupp.io.newQueueReader(queue)
+    assert(reader:transferTo(destination:newWriter()) == 7)
+end
 assert(destination:getString() == "payload")
 ```
 
