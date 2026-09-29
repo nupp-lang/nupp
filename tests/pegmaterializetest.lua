@@ -98,9 +98,8 @@ function M.exposesMatcherAndSupportTypesOnTheRuntimeModule()
     local value = run(
         [[
 local backend: nupp.peg.Backend = "lpeg"
-local action: nupp.peg.Action = function(text: string): any return text:upper() end
-local actions: nupp.peg.Actions = {upper = action}
-local options: nupp.peg.CompileOptions = {backend = backend, actions = actions}
+local definitions: nupp.peg.Definitions = {upper = function(text: string): any return text:upper() end}
+local options: nupp.peg.CompileOptions = {backend = backend, definitions = definitions}
 local library = nupp.peg
 local matcher: nupp.peg.Peg<any> = library.compile("[a-z]+ -> upper !.", options)
 return matcher("hello")
@@ -1499,7 +1498,7 @@ function M.supportsRuntimeReCapturesCollectionsAndActions()
         [==[
 local words = nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 local number = nupp.peg.compile("%d+ -> number !.", {
-    actions = {
+    definitions = {
         number = function(text: string): any
             return tonumber(text)
         end,
@@ -1520,7 +1519,7 @@ const WordGrammar = "{ [a-z]+ } !."
 local ConstWord = nupp.peg.compile(WordGrammar)
 local Words = nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 local Number = nupp.peg.compile("%d+ -> number !.", {
-    actions = {
+    definitions = {
         number = function(text: string): integer
             return assert(tonumber(text)) as integer
         end,

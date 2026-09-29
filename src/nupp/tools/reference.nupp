@@ -2651,8 +2651,7 @@ caller supplies. A runtime grammar takes them in `{definitions = values}`. A
 static one cannot, because a `comptime` value closes over nothing, so it
 materializes as a factory whose parameter is a closed record holding exactly the
 names it used -- which makes a missing or misspelled one a compile error rather
-than a nil call mid-parse. `CompileOptions.actions` is a deprecated alias for
-`definitions`.
+than a nil call mid-parse.
 
 A rejected grammar is `NUPP2417`: a reference that resolves to nothing, a
 duplicate rule name, a repetition whose body can match the empty string, arms of

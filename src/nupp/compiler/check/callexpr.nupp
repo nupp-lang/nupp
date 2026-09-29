@@ -2097,7 +2097,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             if source then
                 local options = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
-                local definitions = readableField(options, "definitions") or readableField(options, "actions")
+                local definitions = readableField(options, "definitions")
                 local result = pegTyping.inferSourceResult(source, definitions)
                 local matcher = result and pegMatcher(result)
                 if matcher then

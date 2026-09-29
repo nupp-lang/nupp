@@ -1172,8 +1172,6 @@ function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
 
     local expected = {
         Backend = true,
-        Action = true,
-        Actions = true,
         Definitions = true,
         CompileOptions = true,
         Peg = true,

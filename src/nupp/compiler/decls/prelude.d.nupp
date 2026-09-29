@@ -1641,7 +1641,6 @@ end
 ---
 --- Every slot is required and an extra one is rejected, so a missing or misspelled
 --- name is a compile error rather than a nil call mid-parse.
---- `CompileOptions.actions` remains a deprecated alias for `definitions`.
 ---
 --- ### What is rejected
 ---
@@ -1711,19 +1710,6 @@ record nupp.peg
     --- matcher shell and identical capture semantics.
     type Backend = 'auto' | 'lpeg'
 
-    --- A legacy substring transformation callback.
-    ---
-    --- Prefer `Definitions`: LPeg `re` gives `->`, `=>`, `>>`, and `~>` distinct
-    --- callback contracts. This alias remains for source compatibility with Nupp's
-    --- earlier action-only grammar surface.
-    type Action = function(string): any
-
-    --- Legacy runtime transformation callbacks indexed by grammar name.
-    ---
-    --- Prefer `Definitions`. Every grammar slot must be present and unknown names are
-    --- rejected. Static grammars use a precisely typed factory record instead.
-    type Actions = {[string]: Action}
-
     --- Values referenced by LPeg `re` expressions.
     ---
     --- A `%name` primary uses a string, non-negative byte count, or boolean as a
@@ -1740,9 +1726,6 @@ record nupp.peg
     type CompileOptions = {
         --- Values named by `%name`, `-> name`, `=> name`, `>> name`, or `~> name`.
         definitions: Definitions?,
-
-        --- Deprecated alias for `definitions` retained for existing Nupp grammars.
-        actions: Actions?,
 
         --- Matcher implementation, `auto` when omitted.
         backend: Backend?

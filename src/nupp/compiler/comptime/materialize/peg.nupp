@@ -123,8 +123,8 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
         if backend ~= "auto" and backend ~= "lpeg" then
             return nil, failure("NUPP2417", "nupp.peg.compile backend must be 'auto' or 'lpeg'")
         end
-        if options and (options.actions ~= nil or options.definitions ~= nil) then
-            return nil, failure("NUPP2417", "comptime PEG actions are supplied to the materialized matcher factory")
+        if options and options.definitions ~= nil then
+            return nil, failure("NUPP2417", "comptime PEG definitions are supplied to the materialized matcher factory")
         end
 
         local function simpleTableCapture(pattern, seen)
