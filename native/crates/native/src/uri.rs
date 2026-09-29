@@ -1,7 +1,7 @@
 //! Immutable WHATWG URLs behind the versioned native handle ABI.
 
 use super::{failed, input};
-use nupp_native_abi::{Arena, Handle, Status};
+use nupp_native_abi::{Arena, Handle, Status, boundary};
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 use url::{Position, Url};
@@ -82,27 +82,29 @@ pub unsafe extern "C" fn nuppNativeUriParse(
     length: usize,
     output: *mut u64,
 ) -> i32 {
-    let source = match text(data, length, "URI") {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = match Url::parse(source) {
-        Ok(value) => value,
-        // The parser's own reason names the rule the text broke.
-        Err(error) => return failed(Status::InvalidArgument, &error.to_string()),
-    };
-    hold(value, output)
+    boundary(|| {
+        let source = match text(data, length, "URI") {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let value = match Url::parse(source) {
+            Ok(value) => value,
+            // The parser's own reason names the rule the text broke.
+            Err(error) => return failed(Status::InvalidArgument, &error.to_string()),
+        };
+        hold(value, output)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeUriRelease(raw: u64) -> i32 {
-    match uris().lock() {
+    boundary(|| match uris().lock() {
         Ok(mut arena) => match arena.remove(Handle::from_raw(raw)) {
             Ok(_) => Status::Ok.code(),
             Err(status) => failed(status, "URI handle is stale"),
         },
         Err(_) => failed(Status::Internal, "URI handle store is poisoned"),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -119,37 +121,39 @@ pub unsafe extern "C" fn nuppNativeUriPart(
     length: *mut usize,
     present: *mut i32,
 ) -> i32 {
-    if length.is_null() || present.is_null() || (capacity != 0 && output.is_null()) {
-        return failed(Status::InvalidArgument, "URI component output is null");
-    }
-    let arena = match uris().lock() {
-        Ok(arena) => arena,
-        Err(_) => return failed(Status::Internal, "URI handle store is poisoned"),
-    };
-    let value = match arena.get(Handle::from_raw(raw)) {
-        Ok(value) => value,
-        Err(status) => return failed(status, "URI handle is stale"),
-    };
-    let Some(found) = part(value, kind) else {
-        return failed(Status::InvalidArgument, "URI component kind is invalid");
-    };
-    let bytes = found.unwrap_or_default().as_bytes();
-    // SAFETY: both scalar outputs were checked above.
-    unsafe {
-        length.write(bytes.len());
-        present.write(i32::from(found.is_some()));
-    }
-    if capacity == 0 || found.is_none() {
-        return Status::Ok.code();
-    }
-    if capacity < bytes.len() {
-        return failed(Status::BufferTooSmall, "URI component output is too small");
-    }
-    if !bytes.is_empty() {
-        // SAFETY: the caller promised `capacity` writable bytes.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if length.is_null() || present.is_null() || (capacity != 0 && output.is_null()) {
+            return failed(Status::InvalidArgument, "URI component output is null");
+        }
+        let arena = match uris().lock() {
+            Ok(arena) => arena,
+            Err(_) => return failed(Status::Internal, "URI handle store is poisoned"),
+        };
+        let value = match arena.get(Handle::from_raw(raw)) {
+            Ok(value) => value,
+            Err(status) => return failed(status, "URI handle is stale"),
+        };
+        let Some(found) = part(value, kind) else {
+            return failed(Status::InvalidArgument, "URI component kind is invalid");
+        };
+        let bytes = found.unwrap_or_default().as_bytes();
+        // SAFETY: both scalar outputs were checked above.
+        unsafe {
+            length.write(bytes.len());
+            present.write(i32::from(found.is_some()));
+        }
+        if capacity == 0 || found.is_none() {
+            return Status::Ok.code();
+        }
+        if capacity < bytes.len() {
+            return failed(Status::BufferTooSmall, "URI component output is too small");
+        }
+        if !bytes.is_empty() {
+            // SAFETY: the caller promised `capacity` writable bytes.
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -158,16 +162,18 @@ pub unsafe extern "C" fn nuppNativeUriPart(
 /// # Safety
 /// `output` must be writable for one `i32`.
 pub unsafe extern "C" fn nuppNativeUriPort(raw: u64, output: *mut i32) -> i32 {
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "URI port output is null");
-    }
-    let value = match cloned(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: the output pointer was checked above.
-    unsafe { output.write(value.port().map_or(-1, i32::from)) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return failed(Status::InvalidArgument, "URI port output is null");
+        }
+        let value = match cloned(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: the output pointer was checked above.
+        unsafe { output.write(value.port().map_or(-1, i32::from)) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(test)]

@@ -7,11 +7,13 @@ edition = "2024"
 publish = false
 rust-version = "1.98"
 
-# No Rust panic may unwind through LuaJIT's C ABI. Individual crates still own
-# their optimization policy; this is the safety floor shared by native providers
-# and the host.
+# No Rust panic may unwind through LuaJIT's C ABI, and none may end the process
+# either: every native export catches a panic at its boundary and answers a
+# status. That catch is only live when panics unwind. An unwind that escaped an
+# `extern "C"` function would abort rather than cross it, so unwinding never
+# reaches LuaJIT's frames. Individual crates still own their optimization policy.
 [profile.release]
-panic = "abort"
+panic = "unwind"
 strip = false
 
 # The Windows static application host is linked as an ordinary archive. Keep

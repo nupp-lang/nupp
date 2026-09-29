@@ -2,7 +2,9 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
-use nupp_native_abi::{ABI_VERSION, Arena, Handle, Status, last_error_ptr, set_last_error};
+use nupp_native_abi::{
+    ABI_VERSION, Arena, Handle, Status, boundary, guard, last_error_ptr, set_last_error,
+};
 use std::ffi::c_char;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
@@ -25,6 +27,9 @@ mod process;
 mod tls;
 #[cfg(feature = "uri")]
 mod uri;
+
+/// What `nuppNativeLastError` answers if reading the last error panics.
+static PANICKED: &std::ffi::CStr = c"native provider panicked";
 
 const FEATURE_BASE: u64 = 1 << 0;
 const FEATURE_UUID: u64 = 1 << 1;
@@ -81,72 +86,74 @@ pub(crate) fn input<'a>(data: *const u8, length: usize) -> Result<&'a [u8], i32>
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeAbiVersion() -> u32 {
-    ABI_VERSION
+    guard(0, || ABI_VERSION)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeFeatures() -> u64 {
-    FEATURE_BASE
-        | if cfg!(feature = "uuid") {
-            FEATURE_UUID
-        } else {
-            0
-        }
-        | if cfg!(feature = "gpu") {
-            FEATURE_GPU
-        } else {
-            0
-        }
-        | if cfg!(feature = "uri") {
-            FEATURE_URI
-        } else {
-            0
-        }
-        | if cfg!(feature = "http") {
-            FEATURE_HTTP
-        } else {
-            0
-        }
-        | if cfg!(feature = "process") {
-            FEATURE_PROCESS
-        } else {
-            0
-        }
-        | if cfg!(feature = "filesystem") {
-            FEATURE_FILESYSTEM
-        } else {
-            0
-        }
-        | if cfg!(feature = "files") {
-            FEATURE_FILES
-        } else {
-            0
-        }
-        | if cfg!(feature = "net") {
-            FEATURE_NET
-        } else {
-            0
-        }
-        | if cfg!(feature = "tls") {
-            FEATURE_TLS
-        } else {
-            0
-        }
-        | if cfg!(feature = "compression") {
-            FEATURE_COMPRESSION
-        } else {
-            0
-        }
-        | if cfg!(feature = "codegen") {
-            FEATURE_CODEGEN
-        } else {
-            0
-        }
-        | if cfg!(nupp_aot_runtime) {
-            FEATURE_AOT_RUNTIME
-        } else {
-            0
-        }
+    guard(0, || {
+        FEATURE_BASE
+            | if cfg!(feature = "uuid") {
+                FEATURE_UUID
+            } else {
+                0
+            }
+            | if cfg!(feature = "gpu") {
+                FEATURE_GPU
+            } else {
+                0
+            }
+            | if cfg!(feature = "uri") {
+                FEATURE_URI
+            } else {
+                0
+            }
+            | if cfg!(feature = "http") {
+                FEATURE_HTTP
+            } else {
+                0
+            }
+            | if cfg!(feature = "process") {
+                FEATURE_PROCESS
+            } else {
+                0
+            }
+            | if cfg!(feature = "filesystem") {
+                FEATURE_FILESYSTEM
+            } else {
+                0
+            }
+            | if cfg!(feature = "files") {
+                FEATURE_FILES
+            } else {
+                0
+            }
+            | if cfg!(feature = "net") {
+                FEATURE_NET
+            } else {
+                0
+            }
+            | if cfg!(feature = "tls") {
+                FEATURE_TLS
+            } else {
+                0
+            }
+            | if cfg!(feature = "compression") {
+                FEATURE_COMPRESSION
+            } else {
+                0
+            }
+            | if cfg!(feature = "codegen") {
+                FEATURE_CODEGEN
+            } else {
+                0
+            }
+            | if cfg!(nupp_aot_runtime) {
+                FEATURE_AOT_RUNTIME
+            } else {
+                0
+            }
+    })
 }
 
 #[cfg(nupp_aot_runtime)]
@@ -161,16 +168,18 @@ unsafe extern "C" {
 #[cfg(nupp_aot_runtime)]
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppAotRuntime() -> *const std::ffi::c_void {
-    // SAFETY: binding only reads the loaded modules' export tables.
-    if unsafe { ks_rt_bind() } == 0 {
-        return std::ptr::null();
-    }
-    std::ptr::addr_of!(ks_rt_table).cast()
+    guard(std::ptr::null(), || {
+        // SAFETY: binding only reads the loaded modules' export tables.
+        if unsafe { ks_rt_bind() } == 0 {
+            return std::ptr::null();
+        }
+        std::ptr::addr_of!(ks_rt_table).cast()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeLastError() -> *const c_char {
-    last_error_ptr()
+    guard(PANICKED.as_ptr(), || last_error_ptr())
 }
 
 #[unsafe(no_mangle)]
@@ -186,52 +195,56 @@ pub unsafe extern "C" fn nuppNativeBytesCopy(
     capacity: usize,
     output_length: *mut usize,
 ) -> i32 {
-    if output_length.is_null() || (capacity != 0 && output_data.is_null()) {
-        return failed(Status::InvalidArgument, "byte copy output is null");
-    }
-    let arena = match bytes().lock() {
-        Ok(arena) => arena,
-        Err(_) => return failed(Status::Internal, "byte handle store is poisoned"),
-    };
-    let value = match arena.get(Handle::from_raw(raw)) {
-        Ok(value) => value,
-        Err(status) => return failed(status, "byte handle is stale"),
-    };
-    // SAFETY: `output_length` was checked above.
-    unsafe { output_length.write(value.len()) };
-    // CAPACITY rather than BUFFER_TOO_SMALL: the pinned stage-zero compiler
-    // reads this code as the answer to its size probe. It moves once a pinned
-    // release accepts both.
-    if capacity < value.len() {
-        return failed(Status::Capacity, "byte copy output is too small");
-    }
-    if !value.is_empty() {
-        // SAFETY: the caller promised `capacity` writable bytes and the check
-        // above proves the allocation fits.
-        unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output_data, value.len()) };
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if output_length.is_null() || (capacity != 0 && output_data.is_null()) {
+            return failed(Status::InvalidArgument, "byte copy output is null");
+        }
+        let arena = match bytes().lock() {
+            Ok(arena) => arena,
+            Err(_) => return failed(Status::Internal, "byte handle store is poisoned"),
+        };
+        let value = match arena.get(Handle::from_raw(raw)) {
+            Ok(value) => value,
+            Err(status) => return failed(status, "byte handle is stale"),
+        };
+        // SAFETY: `output_length` was checked above.
+        unsafe { output_length.write(value.len()) };
+        // CAPACITY rather than BUFFER_TOO_SMALL: the pinned stage-zero compiler
+        // reads this code as the answer to its size probe. It moves once a pinned
+        // release accepts both.
+        if capacity < value.len() {
+            return failed(Status::Capacity, "byte copy output is too small");
+        }
+        if !value.is_empty() {
+            // SAFETY: the caller promised `capacity` writable bytes and the check
+            // above proves the allocation fits.
+            unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output_data, value.len()) };
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeBytesRelease(raw: u64) -> i32 {
-    match bytes().lock() {
+    boundary(|| match bytes().lock() {
         Ok(mut arena) => match arena.remove(Handle::from_raw(raw)) {
             Ok(_) => Status::Ok.code(),
             Err(status) => failed(status, "byte handle is stale"),
         },
         Err(_) => failed(Status::Internal, "byte handle store is poisoned"),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeMonotonicNs() -> u64 {
-    nupp_native_platform::monotonic_ns()
+    guard(0, || nupp_native_platform::monotonic_ns())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeAvailableParallelism() -> usize {
-    std::thread::available_parallelism().map_or(1, usize::from)
+    guard(1, || {
+        std::thread::available_parallelism().map_or(1, usize::from)
+    })
 }
 
 /// Fills a caller-owned buffer with cryptographically secure random bytes.
@@ -241,31 +254,33 @@ pub extern "C" fn nuppNativeAvailableParallelism() -> usize {
 /// When length is nonzero, output must be writable for length bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeRandomBytes(output: *mut u8, length: usize) -> i32 {
-    if length == 0 {
-        return Status::Ok.code();
-    }
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "random byte output is null");
-    }
-    // SAFETY: the caller guarantees the checked non-null range is writable.
-    let destination = unsafe { std::slice::from_raw_parts_mut(output, length) };
-    match nupp_native_platform::random_bytes(destination) {
-        Ok(()) => Status::Ok.code(),
-        Err(message) => failed(Status::Internal, &message),
-    }
+    boundary(|| {
+        if length == 0 {
+            return Status::Ok.code();
+        }
+        if output.is_null() {
+            return failed(Status::InvalidArgument, "random byte output is null");
+        }
+        // SAFETY: the caller guarantees the checked non-null range is writable.
+        let destination = unsafe { std::slice::from_raw_parts_mut(output, length) };
+        match nupp_native_platform::random_bytes(destination) {
+            Ok(()) => Status::Ok.code(),
+            Err(message) => failed(Status::Internal, &message),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeWallMs() -> u64 {
-    nupp_native_platform::wall_ms()
+    guard(0, || nupp_native_platform::wall_ms())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeSleepMs(milliseconds: f64) -> i32 {
-    match nupp_native_platform::sleep_ms(milliseconds) {
+    boundary(|| match nupp_native_platform::sleep_ms(milliseconds) {
         Ok(()) => Status::Ok.code(),
         Err(message) => failed(Status::InvalidArgument, message),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -281,19 +296,21 @@ pub unsafe extern "C" fn nuppNativeXxh64Digest(
     output: *mut u8,
     capacity: usize,
 ) -> i32 {
-    if capacity < 32 {
-        return failed(Status::BufferTooSmall, "XXH64 digest output needs 32 bytes");
-    }
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "XXH64 digest output is null");
-    }
-    let value = match input(data, length) {
-        Ok(value) => nupp_native_platform::cache_digest(value),
-        Err(status) => return status,
-    };
-    // SAFETY: the output capacity was checked above.
-    unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
-    Status::Ok.code()
+    boundary(|| {
+        if capacity < 32 {
+            return failed(Status::BufferTooSmall, "XXH64 digest output needs 32 bytes");
+        }
+        if output.is_null() {
+            return failed(Status::InvalidArgument, "XXH64 digest output is null");
+        }
+        let value = match input(data, length) {
+            Ok(value) => nupp_native_platform::cache_digest(value),
+            Err(status) => return status,
+        };
+        // SAFETY: the output capacity was checked above.
+        unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(feature = "uuid")]
@@ -328,7 +345,7 @@ unsafe fn write_uuid(
 ///
 /// `output` must be writable for at least `capacity` bytes.
 pub unsafe extern "C" fn nuppNativeUuid4(output: *mut u8, capacity: usize) -> i32 {
-    unsafe { write_uuid(nupp_native_platform::uuid4, output, capacity) }
+    boundary(|| unsafe { write_uuid(nupp_native_platform::uuid4, output, capacity) })
 }
 
 #[cfg(feature = "uuid")]
@@ -339,7 +356,7 @@ pub unsafe extern "C" fn nuppNativeUuid4(output: *mut u8, capacity: usize) -> i3
 ///
 /// `output` must be writable for at least `capacity` bytes.
 pub unsafe extern "C" fn nuppNativeUuid7(output: *mut u8, capacity: usize) -> i32 {
-    unsafe { write_uuid(nupp_native_platform::uuid7, output, capacity) }
+    boundary(|| unsafe { write_uuid(nupp_native_platform::uuid7, output, capacity) })
 }
 
 #[cfg(test)]
@@ -359,6 +376,33 @@ mod tests {
                 Some(name.to_owned())
             })
             .collect()
+    }
+
+    /// Every export's body runs inside the panic boundary, so a panic beneath
+    /// any of them answers a status instead of aborting the process.
+    #[test]
+    fn every_export_runs_inside_the_panic_boundary() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut unguarded = Vec::new();
+        for entry in std::fs::read_dir(root.join("src")).unwrap() {
+            let source = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            for statement in source.split("extern \"C\" fn ").skip(1) {
+                let Some(name) = statement.split('(').next() else {
+                    continue;
+                };
+                if !name.starts_with("nupp") {
+                    continue;
+                }
+                let body = statement[statement.find('{').unwrap() + 1..].trim_start();
+                if !(body.starts_with("boundary(") || body.starts_with("guard(")) {
+                    unguarded.push(name.to_owned());
+                }
+            }
+        }
+        assert!(
+            unguarded.is_empty(),
+            "exports outside the boundary: {unguarded:?}"
+        );
     }
 
     #[test]

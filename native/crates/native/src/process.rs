@@ -1,6 +1,6 @@
 //! native ABI translation for the Rust child-process provider.
 
-use nupp_native_abi::{Arena, Handle, Status};
+use nupp_native_abi::{Arena, Handle, Status, boundary};
 use nupp_native_process as transport;
 use std::ffi::OsString;
 use std::ptr;
@@ -168,140 +168,142 @@ pub unsafe extern "C" fn nuppNativeProcessSpawn(
     descriptor: *const ProcessSpawn,
     output: *mut ProcessStarted,
 ) -> i32 {
-    if descriptor.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "process spawn input or output is null",
-        );
-    }
-    // SAFETY: both pointers were validated above.
-    let descriptor = unsafe { &*descriptor };
-    let arguments = match unsafe {
-        slices(
-            descriptor.args,
-            descriptor.arg_count,
-            "process argument array is null",
-        )
-    } {
-        Ok(values) => values,
-        Err(status) => return status,
-    };
-    if arguments.is_empty() {
-        return super::failed(Status::InvalidArgument, "a spawn needs a program to run");
-    }
-    let mut args = Vec::with_capacity(arguments.len());
-    for argument in arguments {
-        let value = match unsafe { bytes(*argument, "process argument is null") }
-            .and_then(|value| os_string(value, "process argument"))
-        {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
-        args.push(value);
-    }
-    let environment = match unsafe {
-        slices(
-            descriptor.env,
-            descriptor.env_count,
-            "process environment array is null",
-        )
-    } {
-        Ok(values) => values,
-        Err(status) => return status,
-    };
-    let mut env = Vec::with_capacity(environment.len());
-    for entry in environment {
-        let name = match unsafe { bytes(entry.name, "process environment name is null") }
-            .and_then(|value| os_string(value, "process environment name"))
-        {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
-        let value = match unsafe { bytes(entry.value, "process environment value is null") }
-            .and_then(|value| os_string(value, "process environment value"))
-        {
-            Ok(value) => value,
-            Err(status) => return status,
-        };
-        env.push((name, value));
-    }
-    let cwd = if descriptor.cwd_present != 0 {
-        match unsafe { bytes(descriptor.cwd, "process working directory is null") }
-            .and_then(|value| os_string(value, "process working directory"))
-        {
-            Ok(value) => Some(value),
-            Err(status) => return status,
+    boundary(|| {
+        if descriptor.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "process spawn input or output is null",
+            );
         }
-    } else {
-        None
-    };
-    let stdin_mode = match mode(descriptor.stdin_mode, false) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let stdout_mode = match mode(descriptor.stdout_mode, false) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let stderr_mode = match mode(descriptor.stderr_mode, true) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let started = match transport::spawn(transport::SpawnOptions {
-        args,
-        env,
-        clear_env: descriptor.clear_env != 0,
-        cwd,
-        modes: [stdin_mode, stdout_mode, stderr_mode],
-    }) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-
-    let pid = started.child.id();
-    let mut arena = match resources().lock() {
-        Ok(arena) => arena,
-        Err(_) => {
-            return super::failed(Status::Internal, "process resource store is poisoned");
-        }
-    };
-    let child_handle = match arena.insert(Resource::Child(started.child)) {
-        Ok(handle) => handle,
-        Err(status) => return super::failed(status, "process handle capacity is exhausted"),
-    };
-    let mut stream_handles = [Handle::INVALID; 3];
-    for (index, stream) in started.streams.into_iter().enumerate() {
-        let Some(stream) = stream else {
-            continue;
+        // SAFETY: both pointers were validated above.
+        let descriptor = unsafe { &*descriptor };
+        let arguments = match unsafe {
+            slices(
+                descriptor.args,
+                descriptor.arg_count,
+                "process argument array is null",
+            )
+        } {
+            Ok(values) => values,
+            Err(status) => return status,
         };
-        match arena.insert(Resource::Stream {
-            owner: child_handle,
-            value: stream,
+        if arguments.is_empty() {
+            return super::failed(Status::InvalidArgument, "a spawn needs a program to run");
+        }
+        let mut args = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let value = match unsafe { bytes(*argument, "process argument is null") }
+                .and_then(|value| os_string(value, "process argument"))
+            {
+                Ok(value) => value,
+                Err(status) => return status,
+            };
+            args.push(value);
+        }
+        let environment = match unsafe {
+            slices(
+                descriptor.env,
+                descriptor.env_count,
+                "process environment array is null",
+            )
+        } {
+            Ok(values) => values,
+            Err(status) => return status,
+        };
+        let mut env = Vec::with_capacity(environment.len());
+        for entry in environment {
+            let name = match unsafe { bytes(entry.name, "process environment name is null") }
+                .and_then(|value| os_string(value, "process environment name"))
+            {
+                Ok(value) => value,
+                Err(status) => return status,
+            };
+            let value = match unsafe { bytes(entry.value, "process environment value is null") }
+                .and_then(|value| os_string(value, "process environment value"))
+            {
+                Ok(value) => value,
+                Err(status) => return status,
+            };
+            env.push((name, value));
+        }
+        let cwd = if descriptor.cwd_present != 0 {
+            match unsafe { bytes(descriptor.cwd, "process working directory is null") }
+                .and_then(|value| os_string(value, "process working directory"))
+            {
+                Ok(value) => Some(value),
+                Err(status) => return status,
+            }
+        } else {
+            None
+        };
+        let stdin_mode = match mode(descriptor.stdin_mode, false) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let stdout_mode = match mode(descriptor.stdout_mode, false) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let stderr_mode = match mode(descriptor.stderr_mode, true) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let started = match transport::spawn(transport::SpawnOptions {
+            args,
+            env,
+            clear_env: descriptor.clear_env != 0,
+            cwd,
+            modes: [stdin_mode, stdout_mode, stderr_mode],
         }) {
-            Ok(handle) => stream_handles[index] = handle,
-            Err(status) => {
-                for handle in stream_handles {
-                    if handle.is_valid() {
-                        let _ = arena.remove(handle);
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+
+        let pid = started.child.id();
+        let mut arena = match resources().lock() {
+            Ok(arena) => arena,
+            Err(_) => {
+                return super::failed(Status::Internal, "process resource store is poisoned");
+            }
+        };
+        let child_handle = match arena.insert(Resource::Child(started.child)) {
+            Ok(handle) => handle,
+            Err(status) => return super::failed(status, "process handle capacity is exhausted"),
+        };
+        let mut stream_handles = [Handle::INVALID; 3];
+        for (index, stream) in started.streams.into_iter().enumerate() {
+            let Some(stream) = stream else {
+                continue;
+            };
+            match arena.insert(Resource::Stream {
+                owner: child_handle,
+                value: stream,
+            }) {
+                Ok(handle) => stream_handles[index] = handle,
+                Err(status) => {
+                    for handle in stream_handles {
+                        if handle.is_valid() {
+                            let _ = arena.remove(handle);
+                        }
                     }
+                    let _ = arena.remove(child_handle);
+                    return super::failed(status, "process stream capacity is exhausted");
                 }
-                let _ = arena.remove(child_handle);
-                return super::failed(status, "process stream capacity is exhausted");
             }
         }
-    }
-    drop(arena);
-    // SAFETY: output points to writable caller storage by contract.
-    unsafe {
-        output.write(ProcessStarted {
-            process: child_handle.raw(),
-            stdin_stream: stream_handles[0].raw(),
-            stdout_stream: stream_handles[1].raw(),
-            stderr_stream: stream_handles[2].raw(),
-            pid,
-        })
-    };
-    Status::Ok.code()
+        drop(arena);
+        // SAFETY: output points to writable caller storage by contract.
+        unsafe {
+            output.write(ProcessStarted {
+                process: child_handle.raw(),
+                stdin_stream: stream_handles[0].raw(),
+                stdout_stream: stream_handles[1].raw(),
+                stderr_stream: stream_handles[2].raw(),
+                pid,
+            })
+        };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -310,63 +312,69 @@ pub unsafe extern "C" fn nuppNativeProcessSpawn(
 /// # Safety
 /// `output` must be writable for one `ProcessExit`.
 pub unsafe extern "C" fn nuppNativeProcessPollExit(raw: u64, output: *mut ProcessExit) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "process exit output is null");
-    }
-    let (_, child) = match child(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let exit = child.collect_exit();
-    // SAFETY: output was validated above.
-    unsafe {
-        output.write(match exit {
-            Some(exit) => ProcessExit {
-                ready: 1,
-                code: exit.code,
-                killed: i32::from(exit.killed),
-            },
-            None => ProcessExit {
-                ready: 0,
-                code: 0,
-                killed: 0,
-            },
-        })
-    };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "process exit output is null");
+        }
+        let (_, child) = match child(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let exit = child.collect_exit();
+        // SAFETY: output was validated above.
+        unsafe {
+            output.write(match exit {
+                Some(exit) => ProcessExit {
+                    ready: 1,
+                    code: exit.code,
+                    killed: i32::from(exit.killed),
+                },
+                None => ProcessExit {
+                    ready: 0,
+                    code: 0,
+                    killed: 0,
+                },
+            })
+        };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeProcessKill(raw: u64, force: i32) -> i32 {
-    let (_, child) = match child(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    match child.kill(force != 0) {
-        Ok(()) => Status::Ok.code(),
-        Err(error) => super::failed(Status::Internal, &error),
-    }
+    boundary(|| {
+        let (_, child) = match child(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match child.kill(force != 0) {
+            Ok(()) => Status::Ok.code(),
+            Err(error) => super::failed(Status::Internal, &error),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeProcessRelease(raw: u64) -> i32 {
-    let (handle, child) = match child(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    if let Err(error) = child.reap() {
-        return super::failed(Status::InvalidArgument, &error);
-    }
-    match resources().lock() {
-        Ok(mut arena) => match arena.remove(handle) {
-            Ok(Resource::Child(_)) => Status::Ok.code(),
-            Ok(Resource::Stream { .. }) => {
-                super::failed(Status::InvalidArgument, "process handle names a stream")
-            }
-            Err(status) => super::failed(status, "process handle is stale"),
-        },
-        Err(_) => super::failed(Status::Internal, "process resource store is poisoned"),
-    }
+    boundary(|| {
+        let (handle, child) = match child(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        if let Err(error) = child.reap() {
+            return super::failed(Status::InvalidArgument, &error);
+        }
+        match resources().lock() {
+            Ok(mut arena) => match arena.remove(handle) {
+                Ok(Resource::Child(_)) => Status::Ok.code(),
+                Ok(Resource::Stream { .. }) => {
+                    super::failed(Status::InvalidArgument, "process handle names a stream")
+                }
+                Err(status) => super::failed(status, "process handle is stale"),
+            },
+            Err(_) => super::failed(Status::Internal, "process resource store is poisoned"),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -382,30 +390,32 @@ pub unsafe extern "C" fn nuppNativeProcessStreamRead(
     state: *mut u32,
     length: *mut usize,
 ) -> i32 {
-    if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
-        return super::failed(Status::InvalidArgument, "process read output is invalid");
-    }
-    let (_, _, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: the caller supplies capacity writable bytes.
-    let output_bytes = unsafe { std::slice::from_raw_parts_mut(output, capacity) };
-    let answer = match stream.try_read(output_bytes) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    let (kind, count) = match answer {
-        transport::Read::Data(count) => (READ_DATA, count),
-        transport::Read::WouldBlock => (READ_PENDING, 0),
-        transport::Read::Gone => (READ_EOF, 0),
-    };
-    // SAFETY: both outputs were checked above.
-    unsafe {
-        state.write(kind);
-        length.write(count);
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
+            return super::failed(Status::InvalidArgument, "process read output is invalid");
+        }
+        let (_, _, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: the caller supplies capacity writable bytes.
+        let output_bytes = unsafe { std::slice::from_raw_parts_mut(output, capacity) };
+        let answer = match stream.try_read(output_bytes) {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        let (kind, count) = match answer {
+            transport::Read::Data(count) => (READ_DATA, count),
+            transport::Read::WouldBlock => (READ_PENDING, 0),
+            transport::Read::Gone => (READ_EOF, 0),
+        };
+        // SAFETY: both outputs were checked above.
+        unsafe {
+            state.write(kind);
+            length.write(count);
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -420,52 +430,56 @@ pub unsafe extern "C" fn nuppNativeProcessStreamWrite(
     state: *mut u32,
     length: *mut usize,
 ) -> i32 {
-    if state.is_null() || length.is_null() {
-        return super::failed(Status::InvalidArgument, "process write output is null");
-    }
-    let input = match super::input(input_data, input_length) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (_, _, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let answer = match stream.try_write(input) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    let (kind, count) = match answer {
-        transport::Write::Accepted(count) => (WRITE_ACCEPTED, count),
-        transport::Write::WouldBlock => (WRITE_PENDING, 0),
-        transport::Write::Gone => (WRITE_GONE, 0),
-    };
-    // SAFETY: both outputs were checked above.
-    unsafe {
-        state.write(kind);
-        length.write(count);
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() || length.is_null() {
+            return super::failed(Status::InvalidArgument, "process write output is null");
+        }
+        let input = match super::input(input_data, input_length) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (_, _, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let answer = match stream.try_write(input) {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        let (kind, count) = match answer {
+            transport::Write::Accepted(count) => (WRITE_ACCEPTED, count),
+            transport::Write::WouldBlock => (WRITE_PENDING, 0),
+            transport::Write::Gone => (WRITE_GONE, 0),
+        };
+        // SAFETY: both outputs were checked above.
+        unsafe {
+            state.write(kind);
+            length.write(count);
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeProcessStreamRelease(raw: u64) -> i32 {
-    let (handle, _, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    stream.close();
-    match resources().lock() {
-        Ok(mut arena) => match arena.remove(handle) {
-            Ok(Resource::Stream { .. }) => Status::Ok.code(),
-            Ok(Resource::Child(_)) => super::failed(
-                Status::InvalidArgument,
-                "process stream handle names a child",
-            ),
-            Err(status) => super::failed(status, "process stream handle is stale"),
-        },
-        Err(_) => super::failed(Status::Internal, "process resource store is poisoned"),
-    }
+    boundary(|| {
+        let (handle, _, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        stream.close();
+        match resources().lock() {
+            Ok(mut arena) => match arena.remove(handle) {
+                Ok(Resource::Stream { .. }) => Status::Ok.code(),
+                Ok(Resource::Child(_)) => super::failed(
+                    Status::InvalidArgument,
+                    "process stream handle names a child",
+                ),
+                Err(status) => super::failed(status, "process stream handle is stale"),
+            },
+            Err(_) => super::failed(Status::Internal, "process resource store is poisoned"),
+        }
+    })
 }
 
 unsafe fn wait_streams(
@@ -509,26 +523,29 @@ pub unsafe extern "C" fn nuppNativeProcessWait(
     timeout_ms: u64,
     ready: *mut usize,
 ) -> i32 {
-    if ready.is_null() {
-        return super::failed(Status::InvalidArgument, "process wait output is null");
-    }
-    let (owner, child) = match child(child_raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let mut streams = match unsafe { wait_streams(readable, readable_count, owner, true) } {
-        Ok(values) => values,
-        Err(status) => return status,
-    };
-    let writes = match unsafe { wait_streams(writable, writable_count, owner, false) } {
-        Ok(values) => values,
-        Err(status) => return status,
-    };
-    streams.extend(writes);
-    let count = transport::wait_ready(Some(&child), &streams, Duration::from_millis(timeout_ms));
-    // SAFETY: ready was checked above.
-    unsafe { ptr::write(ready, count) };
-    Status::Ok.code()
+    boundary(|| {
+        if ready.is_null() {
+            return super::failed(Status::InvalidArgument, "process wait output is null");
+        }
+        let (owner, child) = match child(child_raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let mut streams = match unsafe { wait_streams(readable, readable_count, owner, true) } {
+            Ok(values) => values,
+            Err(status) => return status,
+        };
+        let writes = match unsafe { wait_streams(writable, writable_count, owner, false) } {
+            Ok(values) => values,
+            Err(status) => return status,
+        };
+        streams.extend(writes);
+        let count =
+            transport::wait_ready(Some(&child), &streams, Duration::from_millis(timeout_ms));
+        // SAFETY: ready was checked above.
+        unsafe { ptr::write(ready, count) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(test)]

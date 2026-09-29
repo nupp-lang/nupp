@@ -1,7 +1,7 @@
 //! native ABI translation for Rustls sessions over Rust-owned network streams.
 
 use super::net::NetSlice;
-use nupp_native_abi::{Arena, Handle, Status};
+use nupp_native_abi::{Arena, Handle, Status, boundary};
 use nupp_native_tls as transport;
 use std::ptr;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -135,106 +135,110 @@ pub unsafe extern "C" fn nuppNativeTlsCreate(
     options: *const TlsOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "TLS create input or output is null",
-        );
-    }
-    // SAFETY: output was checked above.
-    unsafe { output.write(0) };
-    let stream = match super::net::take_stream(raw_stream) {
-        Ok(stream) => stream,
-        Err(status) => return status,
-    };
-    // SAFETY: options was checked above.
-    let options = unsafe { &*options };
-    // SAFETY: the ABI promises nested slices remain readable for this call.
-    let hostname = match unsafe { text(options.hostname, "TLS hostname") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: the ABI promises nested slices remain readable for this call.
-    let certificate = match unsafe { bytes(options.certificate, "TLS certificate") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: the ABI promises nested slices remain readable for this call.
-    let private_key = match unsafe { bytes(options.private_key, "TLS private key") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: the ABI promises nested slices remain readable for this call.
-    let authority = match unsafe { bytes(options.authority, "TLS authority") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: the ABI promises nested slices remain readable for this call.
-    let packed_protocols = match unsafe { bytes(options.protocols, "TLS protocols") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let protocols = match protocols(packed_protocols) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = if options.server != 0 {
-        if options.verify != 0 || options.authority_present != 0 {
+    boundary(|| {
+        if options.is_null() || output.is_null() {
             return super::failed(
                 Status::InvalidArgument,
-                "TLS client-certificate verification is not supported",
+                "TLS create input or output is null",
             );
         }
-        transport::Session::server(
-            stream,
-            transport::ServerOptions {
-                certificate,
-                private_key,
-                protocols: &protocols,
-            },
-        )
-    } else {
-        if !certificate.is_empty() || !private_key.is_empty() {
-            return super::failed(
-                Status::InvalidArgument,
-                "TLS client certificates are not supported",
-            );
+        // SAFETY: output was checked above.
+        unsafe { output.write(0) };
+        let stream = match super::net::take_stream(raw_stream) {
+            Ok(stream) => stream,
+            Err(status) => return status,
+        };
+        // SAFETY: options was checked above.
+        let options = unsafe { &*options };
+        // SAFETY: the ABI promises nested slices remain readable for this call.
+        let hostname = match unsafe { text(options.hostname, "TLS hostname") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: the ABI promises nested slices remain readable for this call.
+        let certificate = match unsafe { bytes(options.certificate, "TLS certificate") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: the ABI promises nested slices remain readable for this call.
+        let private_key = match unsafe { bytes(options.private_key, "TLS private key") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: the ABI promises nested slices remain readable for this call.
+        let authority = match unsafe { bytes(options.authority, "TLS authority") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: the ABI promises nested slices remain readable for this call.
+        let packed_protocols = match unsafe { bytes(options.protocols, "TLS protocols") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let protocols = match protocols(packed_protocols) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let value = if options.server != 0 {
+            if options.verify != 0 || options.authority_present != 0 {
+                return super::failed(
+                    Status::InvalidArgument,
+                    "TLS client-certificate verification is not supported",
+                );
+            }
+            transport::Session::server(
+                stream,
+                transport::ServerOptions {
+                    certificate,
+                    private_key,
+                    protocols: &protocols,
+                },
+            )
+        } else {
+            if !certificate.is_empty() || !private_key.is_empty() {
+                return super::failed(
+                    Status::InvalidArgument,
+                    "TLS client certificates are not supported",
+                );
+            }
+            transport::Session::client(
+                stream,
+                transport::ClientOptions {
+                    hostname,
+                    authority: (options.authority_present != 0).then_some(authority),
+                    protocols: &protocols,
+                    verify: options.verify != 0,
+                },
+            )
+        };
+        match value {
+            Ok(value) => insert(value, output),
+            Err(error) => super::failed(Status::InvalidArgument, &error),
         }
-        transport::Session::client(
-            stream,
-            transport::ClientOptions {
-                hostname,
-                authority: (options.authority_present != 0).then_some(authority),
-                protocols: &protocols,
-                verify: options.verify != 0,
-            },
-        )
-    };
-    match value {
-        Ok(value) => insert(value, output),
-        Err(error) => super::failed(Status::InvalidArgument, &error),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 /// # Safety
 /// `state` must be writable for one `u32`.
 pub unsafe extern "C" fn nuppNativeTlsHandshake(raw: u64, state: *mut u32) -> i32 {
-    if state.is_null() {
-        return super::failed(Status::InvalidArgument, "TLS handshake output is null");
-    }
-    let (_, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = match session.handshake() {
-        Ok(true) => READY,
-        Ok(false) => PENDING,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    // SAFETY: state was checked above.
-    unsafe { state.write(value) };
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() {
+            return super::failed(Status::InvalidArgument, "TLS handshake output is null");
+        }
+        let (_, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let value = match session.handshake() {
+            Ok(true) => READY,
+            Ok(false) => PENDING,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        // SAFETY: state was checked above.
+        unsafe { state.write(value) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -247,29 +251,31 @@ pub unsafe extern "C" fn nuppNativeTlsRead(
     state: *mut u32,
     length: *mut usize,
 ) -> i32 {
-    if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
-        return super::failed(Status::InvalidArgument, "TLS read output is invalid");
-    }
-    let (_, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (kind, bytes) = match session.try_read(capacity) {
-        transport::Read::Data(bytes) => (READ_DATA, bytes),
-        transport::Read::Pending => (READ_PENDING, Vec::new()),
-        transport::Read::Eof => (READ_EOF, Vec::new()),
-        transport::Read::Failed(error) => return super::failed(Status::Internal, &error),
-    };
-    if !bytes.is_empty() {
-        // SAFETY: output has capacity bytes and the core respected that bound.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    // SAFETY: scalar outputs were checked above.
-    unsafe {
-        state.write(kind);
-        length.write(bytes.len());
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
+            return super::failed(Status::InvalidArgument, "TLS read output is invalid");
+        }
+        let (_, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (kind, bytes) = match session.try_read(capacity) {
+            transport::Read::Data(bytes) => (READ_DATA, bytes),
+            transport::Read::Pending => (READ_PENDING, Vec::new()),
+            transport::Read::Eof => (READ_EOF, Vec::new()),
+            transport::Read::Failed(error) => return super::failed(Status::Internal, &error),
+        };
+        if !bytes.is_empty() {
+            // SAFETY: output has capacity bytes and the core respected that bound.
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
+        }
+        // SAFETY: scalar outputs were checked above.
+        unsafe {
+            state.write(kind);
+            length.write(bytes.len());
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -282,29 +288,31 @@ pub unsafe extern "C" fn nuppNativeTlsWrite(
     state: *mut u32,
     accepted: *mut usize,
 ) -> i32 {
-    if state.is_null() || accepted.is_null() {
-        return super::failed(Status::InvalidArgument, "TLS write output is null");
-    }
-    let input = match super::input(input_data, input_length) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (_, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (kind, count) = match session.try_write(input) {
-        transport::Write::Accepted(count) => (WRITE_ACCEPTED, count),
-        transport::Write::Pending => (WRITE_PENDING, 0),
-        transport::Write::Closed => (WRITE_CLOSED, 0),
-        transport::Write::Failed(error) => return super::failed(Status::Internal, &error),
-    };
-    // SAFETY: outputs were checked above.
-    unsafe {
-        state.write(kind);
-        accepted.write(count);
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() || accepted.is_null() {
+            return super::failed(Status::InvalidArgument, "TLS write output is null");
+        }
+        let input = match super::input(input_data, input_length) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (_, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (kind, count) = match session.try_write(input) {
+            transport::Write::Accepted(count) => (WRITE_ACCEPTED, count),
+            transport::Write::Pending => (WRITE_PENDING, 0),
+            transport::Write::Closed => (WRITE_CLOSED, 0),
+            transport::Write::Failed(error) => return super::failed(Status::Internal, &error),
+        };
+        // SAFETY: outputs were checked above.
+        unsafe {
+            state.write(kind);
+            accepted.write(count);
+        }
+        Status::Ok.code()
+    })
 }
 
 fn boolean(raw: u64, output: *mut i32, operation: impl FnOnce(&transport::Session) -> bool) -> i32 {
@@ -322,53 +330,57 @@ fn boolean(raw: u64, output: *mut i32, operation: impl FnOnce(&transport::Sessio
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeTlsFlushed(raw: u64, output: *mut i32) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "TLS flushed output is null");
-    }
-    let (_, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = match session.flushed() {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(i32::from(value)) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "TLS flushed output is null");
+        }
+        let (_, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let value = match session.flushed() {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(i32::from(value)) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeTlsCloseNotify(raw: u64, output: *mut i32) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "TLS close-notify output is null");
-    }
-    let (_, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = match session.close_notify() {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(i32::from(value)) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "TLS close-notify output is null");
+        }
+        let (_, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let value = match session.close_notify() {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(i32::from(value)) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeTlsConnected(raw: u64, output: *mut i32) -> i32 {
-    boolean(raw, output, transport::Session::is_connected)
+    boundary(|| boolean(raw, output, transport::Session::is_connected))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeTlsVerified(raw: u64, output: *mut i32) -> i32 {
-    boolean(raw, output, transport::Session::is_verified)
+    boundary(|| boolean(raw, output, transport::Session::is_verified))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeTlsResumed(raw: u64, output: *mut i32) -> i32 {
-    boolean(raw, output, transport::Session::is_resumed)
+    boundary(|| boolean(raw, output, transport::Session::is_resumed))
 }
 
 #[unsafe(no_mangle)]
@@ -384,44 +396,48 @@ pub unsafe extern "C" fn nuppNativeTlsProtocol(
     length: *mut usize,
     present: *mut i32,
 ) -> i32 {
-    if length.is_null() || present.is_null() || (capacity != 0 && output.is_null()) {
-        return super::failed(Status::InvalidArgument, "TLS protocol output is invalid");
-    }
-    let (_, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let protocol = session.protocol();
-    let bytes = protocol.as_deref().unwrap_or_default();
-    // SAFETY: scalar outputs were checked above.
-    unsafe {
-        length.write(bytes.len());
-        present.write(i32::from(protocol.is_some()));
-    }
-    if bytes.len() > capacity {
-        return super::failed(Status::BufferTooSmall, "TLS protocol output is too small");
-    }
-    if !bytes.is_empty() {
-        // SAFETY: the capacity check above proves the protocol fits.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if length.is_null() || present.is_null() || (capacity != 0 && output.is_null()) {
+            return super::failed(Status::InvalidArgument, "TLS protocol output is invalid");
+        }
+        let (_, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let protocol = session.protocol();
+        let bytes = protocol.as_deref().unwrap_or_default();
+        // SAFETY: scalar outputs were checked above.
+        unsafe {
+            length.write(bytes.len());
+            present.write(i32::from(protocol.is_some()));
+        }
+        if bytes.len() > capacity {
+            return super::failed(Status::BufferTooSmall, "TLS protocol output is too small");
+        }
+        if !bytes.is_empty() {
+            // SAFETY: the capacity check above proves the protocol fits.
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeTlsRelease(raw: u64) -> i32 {
-    let (handle, session) = match session(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    session.close();
-    match sessions().lock() {
-        Ok(mut arena) => match arena.remove(handle) {
-            Ok(_) => Status::Ok.code(),
-            Err(status) => super::failed(status, "TLS session handle is stale"),
-        },
-        Err(_) => super::failed(Status::Internal, "TLS session store is poisoned"),
-    }
+    boundary(|| {
+        let (handle, session) = match session(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        session.close();
+        match sessions().lock() {
+            Ok(mut arena) => match arena.remove(handle) {
+                Ok(_) => Status::Ok.code(),
+                Err(status) => super::failed(status, "TLS session handle is stale"),
+            },
+            Err(_) => super::failed(Status::Internal, "TLS session store is poisoned"),
+        }
+    })
 }
 
 #[cfg(test)]

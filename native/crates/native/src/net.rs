@@ -1,6 +1,6 @@
 //! native ABI translation for the Rust network provider.
 
-use nupp_native_abi::{Arena, Handle, Status, set_last_error};
+use nupp_native_abi::{Arena, Handle, Status, boundary, set_last_error};
 use nupp_native_net as transport;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ptr;
@@ -315,41 +315,47 @@ pub unsafe extern "C" fn nuppNativeNetListenerCreate(
     options: *const NetListenOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network listen input or output is null",
-        );
-    }
-    // SAFETY: options was checked above.
-    let options = unsafe { &*options };
-    // SAFETY: the ABI requires the nested host slice to remain readable.
-    let host = match unsafe { text(options.host, "network listen host") } {
-        Ok(value) if !value.is_empty() => value,
-        Ok(_) => {
-            return super::failed(Status::InvalidArgument, "network listen host is empty");
+    boundary(|| {
+        if options.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network listen input or output is null",
+            );
         }
-        Err(status) => return status,
-    };
-    if host.parse::<std::net::IpAddr>().is_err() {
-        return super::failed(
-            Status::InvalidArgument,
-            &format!("{host} is not an address to bind"),
-        );
-    }
-    if let Err(status) = listen_backlog(options.backlog) {
-        return status;
-    }
-    let value =
-        match transport::listen_tcp(host, options.port, options.backlog, options.reuse_port != 0) {
+        // SAFETY: options was checked above.
+        let options = unsafe { &*options };
+        // SAFETY: the ABI requires the nested host slice to remain readable.
+        let host = match unsafe { text(options.host, "network listen host") } {
+            Ok(value) if !value.is_empty() => value,
+            Ok(_) => {
+                return super::failed(Status::InvalidArgument, "network listen host is empty");
+            }
+            Err(status) => return status,
+        };
+        if host.parse::<std::net::IpAddr>().is_err() {
+            return super::failed(
+                Status::InvalidArgument,
+                &format!("{host} is not an address to bind"),
+            );
+        }
+        if let Err(status) = listen_backlog(options.backlog) {
+            return status;
+        }
+        let value = match transport::listen_tcp(
+            host,
+            options.port,
+            options.backlog,
+            options.reuse_port != 0,
+        ) {
             Ok(value) => value,
             Err(error) => return super::failed(Status::Internal, &error),
         };
-    insert(
-        Resource::Listener(value),
-        output,
-        "network listener output is null",
-    )
+        insert(
+            Resource::Listener(value),
+            output,
+            "network listener output is null",
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -362,34 +368,36 @@ pub unsafe extern "C" fn nuppNativeNetPathListenerCreate(
     options: *const NetPathListenOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network path listen input or output is null",
-        );
-    }
-    // SAFETY: options and its nested path obey this function's ABI contract.
-    let options = unsafe { &*options };
-    // SAFETY: the ABI requires the nested path slice to remain readable.
-    let path = match unsafe { text(options.path, "network listen path") } {
-        Ok(value) if !value.is_empty() => value,
-        Ok(_) => {
-            return super::failed(Status::InvalidArgument, "network listen path is empty");
+    boundary(|| {
+        if options.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network path listen input or output is null",
+            );
         }
-        Err(status) => return status,
-    };
-    if let Err(status) = listen_backlog(options.backlog) {
-        return status;
-    }
-    let value = match transport::listen_path(path, options.backlog) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    insert(
-        Resource::Listener(value),
-        output,
-        "network listener output is null",
-    )
+        // SAFETY: options and its nested path obey this function's ABI contract.
+        let options = unsafe { &*options };
+        // SAFETY: the ABI requires the nested path slice to remain readable.
+        let path = match unsafe { text(options.path, "network listen path") } {
+            Ok(value) if !value.is_empty() => value,
+            Ok(_) => {
+                return super::failed(Status::InvalidArgument, "network listen path is empty");
+            }
+            Err(status) => return status,
+        };
+        if let Err(status) = listen_backlog(options.backlog) {
+            return status;
+        }
+        let value = match transport::listen_path(path, options.backlog) {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        insert(
+            Resource::Listener(value),
+            output,
+            "network listener output is null",
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -398,19 +406,21 @@ pub unsafe extern "C" fn nuppNativeNetPathListenerCreate(
 /// # Safety
 /// `output` must be writable for one `u16`.
 pub unsafe extern "C" fn nuppNativeNetListenerPort(raw: u64, output: *mut u16) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network listener port output is null",
-        );
-    }
-    let (_, listener) = match listener(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(listener.port()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network listener port output is null",
+            );
+        }
+        let (_, listener) = match listener(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(listener.port()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -419,25 +429,27 @@ pub unsafe extern "C" fn nuppNativeNetListenerPort(raw: u64, output: *mut u16) -
 /// # Safety
 /// `output` must be writable for one `u32`.
 pub unsafe extern "C" fn nuppNativeNetListenerKind(raw: u64, output: *mut u32) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network listener kind output is null",
-        );
-    }
-    let (_, listener) = match listener(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: output was checked above.
-    unsafe {
-        output.write(if listener.is_path() {
-            LISTENER_PATH
-        } else {
-            LISTENER_TCP
-        })
-    };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network listener kind output is null",
+            );
+        }
+        let (_, listener) = match listener(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: output was checked above.
+        unsafe {
+            output.write(if listener.is_path() {
+                LISTENER_PATH
+            } else {
+                LISTENER_TCP
+            })
+        };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -450,50 +462,59 @@ pub unsafe extern "C" fn nuppNativeNetListenerAccept(
     state: *mut u32,
     output: *mut u64,
 ) -> i32 {
-    if state.is_null() || output.is_null() {
-        return super::failed(Status::InvalidArgument, "network accept output is null");
-    }
-    let (_, listener) = match listener(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let accepted = match listener.try_accept() {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    let (kind, handle) = match accepted {
-        Some(stream) => {
-            let handle = match resources().lock() {
-                Ok(mut arena) => match arena.insert(ResourceEntry::new(Resource::Stream(stream))) {
-                    Ok(handle) => handle.raw(),
-                    Err(status) => {
-                        return super::failed(status, "network handle capacity is exhausted");
-                    }
-                },
-                Err(_) => {
-                    return super::failed(Status::Internal, "network resource store is poisoned");
-                }
-            };
-            (ACCEPTED, handle)
+    boundary(|| {
+        if state.is_null() || output.is_null() {
+            return super::failed(Status::InvalidArgument, "network accept output is null");
         }
-        None => (PENDING, 0),
-    };
-    // SAFETY: outputs were checked above.
-    unsafe {
-        state.write(kind);
-        output.write(handle);
-    }
-    Status::Ok.code()
+        let (_, listener) = match listener(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let accepted = match listener.try_accept() {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        let (kind, handle) = match accepted {
+            Some(stream) => {
+                let handle = match resources().lock() {
+                    Ok(mut arena) => match arena
+                        .insert(ResourceEntry::new(Resource::Stream(stream)))
+                    {
+                        Ok(handle) => handle.raw(),
+                        Err(status) => {
+                            return super::failed(status, "network handle capacity is exhausted");
+                        }
+                    },
+                    Err(_) => {
+                        return super::failed(
+                            Status::Internal,
+                            "network resource store is poisoned",
+                        );
+                    }
+                };
+                (ACCEPTED, handle)
+            }
+            None => (PENDING, 0),
+        };
+        // SAFETY: outputs were checked above.
+        unsafe {
+            state.write(kind);
+            output.write(handle);
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetListenerRelease(raw: u64) -> i32 {
-    let (handle, listener) = match listener(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    listener.close();
-    remove(handle, "listener")
+    boundary(|| {
+        let (handle, listener) = match listener(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        listener.close();
+        remove(handle, "listener")
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -506,35 +527,37 @@ pub unsafe extern "C" fn nuppNativeNetConnectCreate(
     options: *const NetConnectOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network connect input or output is null",
-        );
-    }
-    // SAFETY: options was checked above.
-    let options = unsafe { &*options };
-    // SAFETY: the ABI requires the nested host slice to remain readable.
-    let host = match unsafe { text(options.host, "network connect host") } {
-        Ok(value) if !value.is_empty() => value,
-        Ok(_) => {
-            return super::failed(Status::InvalidArgument, "network connect host is empty");
+    boundary(|| {
+        if options.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network connect input or output is null",
+            );
         }
-        Err(status) => return status,
-    };
-    let value = match transport::connect_tcp(
-        host,
-        options.port,
-        Duration::from_millis(options.timeout_ms),
-    ) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    insert(
-        Resource::Connect(value),
-        output,
-        "network connect output is null",
-    )
+        // SAFETY: options was checked above.
+        let options = unsafe { &*options };
+        // SAFETY: the ABI requires the nested host slice to remain readable.
+        let host = match unsafe { text(options.host, "network connect host") } {
+            Ok(value) if !value.is_empty() => value,
+            Ok(_) => {
+                return super::failed(Status::InvalidArgument, "network connect host is empty");
+            }
+            Err(status) => return status,
+        };
+        let value = match transport::connect_tcp(
+            host,
+            options.port,
+            Duration::from_millis(options.timeout_ms),
+        ) {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        insert(
+            Resource::Connect(value),
+            output,
+            "network connect output is null",
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -547,31 +570,33 @@ pub unsafe extern "C" fn nuppNativeNetPathConnectCreate(
     options: *const NetPathConnectOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network path connect input or output is null",
-        );
-    }
-    // SAFETY: options and its nested path obey this function's ABI contract.
-    let options = unsafe { &*options };
-    // SAFETY: the ABI requires the nested path slice to remain readable.
-    let path = match unsafe { text(options.path, "network connect path") } {
-        Ok(value) if !value.is_empty() => value,
-        Ok(_) => {
-            return super::failed(Status::InvalidArgument, "network connect path is empty");
+    boundary(|| {
+        if options.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network path connect input or output is null",
+            );
         }
-        Err(status) => return status,
-    };
-    let value = match transport::connect_path(path, Duration::from_millis(options.timeout_ms)) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    insert(
-        Resource::Connect(value),
-        output,
-        "network connect output is null",
-    )
+        // SAFETY: options and its nested path obey this function's ABI contract.
+        let options = unsafe { &*options };
+        // SAFETY: the ABI requires the nested path slice to remain readable.
+        let path = match unsafe { text(options.path, "network connect path") } {
+            Ok(value) if !value.is_empty() => value,
+            Ok(_) => {
+                return super::failed(Status::InvalidArgument, "network connect path is empty");
+            }
+            Err(status) => return status,
+        };
+        let value = match transport::connect_path(path, Duration::from_millis(options.timeout_ms)) {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        insert(
+            Resource::Connect(value),
+            output,
+            "network connect output is null",
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -584,53 +609,62 @@ pub unsafe extern "C" fn nuppNativeNetConnectPoll(
     state: *mut u32,
     output: *mut u64,
 ) -> i32 {
-    if state.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network connect poll output is null",
-        );
-    }
-    let (_, connect) = match connect(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (kind, handle) = match connect.poll() {
-        transport::ConnectPoll::Pending => (CONNECT_PENDING, 0),
-        transport::ConnectPoll::Connected(stream) => {
-            let handle = match resources().lock() {
-                Ok(mut arena) => match arena.insert(ResourceEntry::new(Resource::Stream(stream))) {
-                    Ok(handle) => handle.raw(),
-                    Err(status) => {
-                        return super::failed(status, "network handle capacity is exhausted");
+    boundary(|| {
+        if state.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network connect poll output is null",
+            );
+        }
+        let (_, connect) = match connect(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (kind, handle) = match connect.poll() {
+            transport::ConnectPoll::Pending => (CONNECT_PENDING, 0),
+            transport::ConnectPoll::Connected(stream) => {
+                let handle = match resources().lock() {
+                    Ok(mut arena) => match arena
+                        .insert(ResourceEntry::new(Resource::Stream(stream)))
+                    {
+                        Ok(handle) => handle.raw(),
+                        Err(status) => {
+                            return super::failed(status, "network handle capacity is exhausted");
+                        }
+                    },
+                    Err(_) => {
+                        return super::failed(
+                            Status::Internal,
+                            "network resource store is poisoned",
+                        );
                     }
-                },
-                Err(_) => {
-                    return super::failed(Status::Internal, "network resource store is poisoned");
-                }
-            };
-            (CONNECT_READY, handle)
+                };
+                (CONNECT_READY, handle)
+            }
+            transport::ConnectPoll::Failed(error) => {
+                set_last_error(error);
+                (CONNECT_FAILED, 0)
+            }
+        };
+        // SAFETY: outputs were checked above.
+        unsafe {
+            state.write(kind);
+            output.write(handle);
         }
-        transport::ConnectPoll::Failed(error) => {
-            set_last_error(error);
-            (CONNECT_FAILED, 0)
-        }
-    };
-    // SAFETY: outputs were checked above.
-    unsafe {
-        state.write(kind);
-        output.write(handle);
-    }
-    Status::Ok.code()
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetConnectRelease(raw: u64) -> i32 {
-    let (handle, connect) = match connect(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    connect.cancel();
-    remove(handle, "connect")
+    boundary(|| {
+        let (handle, connect) = match connect(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        connect.cancel();
+        remove(handle, "connect")
+    })
 }
 
 fn remove(handle: Handle, kind: &str) -> i32 {
@@ -665,32 +699,34 @@ pub unsafe extern "C" fn nuppNativeNetStreamRead(
     state: *mut u32,
     length: *mut usize,
 ) -> i32 {
-    if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
-        return super::failed(Status::InvalidArgument, "network read output is invalid");
-    }
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (kind, bytes) = match stream.try_read(capacity) {
-        transport::Read::Data(bytes) => (READ_DATA, bytes),
-        transport::Read::Pending => (PENDING, Vec::new()),
-        transport::Read::Eof => (READ_EOF, Vec::new()),
-        transport::Read::Failed(error) => {
-            return stream_failed(&stream, &error);
+    boundary(|| {
+        if state.is_null() || length.is_null() || capacity == 0 || output.is_null() {
+            return super::failed(Status::InvalidArgument, "network read output is invalid");
         }
-    };
-    if !bytes.is_empty() {
-        debug_assert!(bytes.len() <= capacity);
-        // SAFETY: output has capacity writable bytes and the core respected it.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    // SAFETY: scalar outputs were checked above.
-    unsafe {
-        state.write(kind);
-        length.write(bytes.len());
-    }
-    Status::Ok.code()
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (kind, bytes) = match stream.try_read(capacity) {
+            transport::Read::Data(bytes) => (READ_DATA, bytes),
+            transport::Read::Pending => (PENDING, Vec::new()),
+            transport::Read::Eof => (READ_EOF, Vec::new()),
+            transport::Read::Failed(error) => {
+                return stream_failed(&stream, &error);
+            }
+        };
+        if !bytes.is_empty() {
+            debug_assert!(bytes.len() <= capacity);
+            // SAFETY: output has capacity writable bytes and the core respected it.
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
+        }
+        // SAFETY: scalar outputs were checked above.
+        unsafe {
+            state.write(kind);
+            length.write(bytes.len());
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -706,29 +742,31 @@ pub unsafe extern "C" fn nuppNativeNetStreamWrite(
     state: *mut u32,
     accepted: *mut usize,
 ) -> i32 {
-    if state.is_null() || accepted.is_null() {
-        return super::failed(Status::InvalidArgument, "network write output is null");
-    }
-    let input = match super::input(input_data, input_length) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (kind, count) = match stream.try_write(input) {
-        transport::Write::Accepted(count) => (WRITE_ACCEPTED, count),
-        transport::Write::Pending => (PENDING, 0),
-        transport::Write::Closed => (WRITE_CLOSED, 0),
-        transport::Write::Failed(error) => return super::failed(Status::Internal, &error),
-    };
-    // SAFETY: outputs were checked above.
-    unsafe {
-        state.write(kind);
-        accepted.write(count);
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() || accepted.is_null() {
+            return super::failed(Status::InvalidArgument, "network write output is null");
+        }
+        let input = match super::input(input_data, input_length) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (kind, count) = match stream.try_write(input) {
+            transport::Write::Accepted(count) => (WRITE_ACCEPTED, count),
+            transport::Write::Pending => (PENDING, 0),
+            transport::Write::Closed => (WRITE_CLOSED, 0),
+            transport::Write::Failed(error) => return super::failed(Status::Internal, &error),
+        };
+        // SAFETY: outputs were checked above.
+        unsafe {
+            state.write(kind);
+            accepted.write(count);
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -737,19 +775,21 @@ pub unsafe extern "C" fn nuppNativeNetStreamWrite(
 /// # Safety
 /// `output` must be writable for one `usize`.
 pub unsafe extern "C" fn nuppNativeNetStreamPendingWrite(raw: u64, output: *mut usize) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network pending write output is null",
-        );
-    }
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(stream.pending_write()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network pending write output is null",
+            );
+        }
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(stream.pending_write()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -758,51 +798,55 @@ pub unsafe extern "C" fn nuppNativeNetStreamPendingWrite(raw: u64, output: *mut 
 /// # Safety
 /// `output` must be writable for one `u32`.
 pub unsafe extern "C" fn nuppNativeNetStreamState(raw: u64, output: *mut u32) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network stream state output is null",
-        );
-    }
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let snapshot = stream.snapshot();
-    let mut flags = 0;
-    if snapshot.read_eof {
-        flags |= STREAM_READ_EOF;
-    }
-    if snapshot.write_closed {
-        flags |= STREAM_WRITE_CLOSED;
-    }
-    if snapshot.closed {
-        flags |= STREAM_CLOSED;
-    }
-    if snapshot.shutting_down {
-        flags |= STREAM_SHUTTING_DOWN;
-    }
-    if snapshot.read_failed {
-        flags |= STREAM_READ_FAILED;
-    }
-    if snapshot.write_failed {
-        flags |= STREAM_WRITE_FAILED;
-    }
-    // SAFETY: output was checked above.
-    unsafe { output.write(flags) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network stream state output is null",
+            );
+        }
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let snapshot = stream.snapshot();
+        let mut flags = 0;
+        if snapshot.read_eof {
+            flags |= STREAM_READ_EOF;
+        }
+        if snapshot.write_closed {
+            flags |= STREAM_WRITE_CLOSED;
+        }
+        if snapshot.closed {
+            flags |= STREAM_CLOSED;
+        }
+        if snapshot.shutting_down {
+            flags |= STREAM_SHUTTING_DOWN;
+        }
+        if snapshot.read_failed {
+            flags |= STREAM_READ_FAILED;
+        }
+        if snapshot.write_failed {
+            flags |= STREAM_WRITE_FAILED;
+        }
+        // SAFETY: output was checked above.
+        unsafe { output.write(flags) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetStreamShutdownWrite(raw: u64) -> i32 {
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    stream.shutdown_write().map_or_else(
-        |error| stream_failed(&stream, &error),
-        |()| Status::Ok.code(),
-    )
+    boundary(|| {
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        stream.shutdown_write().map_or_else(
+            |error| stream_failed(&stream, &error),
+            |()| Status::Ok.code(),
+        )
+    })
 }
 
 fn net_address(value: SocketAddr) -> NetAddress {
@@ -853,26 +897,32 @@ unsafe fn write_address(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeNetStreamLocalAddress(raw: u64, output: *mut NetAddress) -> i32 {
-    // SAFETY: write_address validates the caller-owned output pointer.
-    unsafe { write_address(raw, output, transport::Stream::local_address) }
+    boundary(|| {
+        // SAFETY: write_address validates the caller-owned output pointer.
+        unsafe { write_address(raw, output, transport::Stream::local_address) }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeNetStreamPeerAddress(raw: u64, output: *mut NetAddress) -> i32 {
-    // SAFETY: write_address validates the caller-owned output pointer.
-    unsafe { write_address(raw, output, transport::Stream::peer_address) }
+    boundary(|| {
+        // SAFETY: write_address validates the caller-owned output pointer.
+        unsafe { write_address(raw, output, transport::Stream::peer_address) }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetStreamSetNoDelay(raw: u64, enabled: i32) -> i32 {
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    stream.set_no_delay(enabled != 0).map_or_else(
-        |error| stream_failed(&stream, &error),
-        |()| Status::Ok.code(),
-    )
+    boundary(|| {
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        stream.set_no_delay(enabled != 0).map_or_else(
+            |error| stream_failed(&stream, &error),
+            |()| Status::Ok.code(),
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -881,32 +931,36 @@ pub extern "C" fn nuppNativeNetStreamSetKeepAlive(
     enabled: i32,
     delay_seconds: u32,
 ) -> i32 {
-    if enabled != 0 && delay_seconds == 0 {
-        return super::failed(
-            Status::InvalidArgument,
-            "network keepalive delay must be positive",
-        );
-    }
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    stream
-        .set_keep_alive(enabled != 0, Duration::from_secs(u64::from(delay_seconds)))
-        .map_or_else(
-            |error| stream_failed(&stream, &error),
-            |()| Status::Ok.code(),
-        )
+    boundary(|| {
+        if enabled != 0 && delay_seconds == 0 {
+            return super::failed(
+                Status::InvalidArgument,
+                "network keepalive delay must be positive",
+            );
+        }
+        let (_, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        stream
+            .set_keep_alive(enabled != 0, Duration::from_secs(u64::from(delay_seconds)))
+            .map_or_else(
+                |error| stream_failed(&stream, &error),
+                |()| Status::Ok.code(),
+            )
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetStreamRelease(raw: u64) -> i32 {
-    let (handle, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    stream.close();
-    remove(handle, "stream")
+    boundary(|| {
+        let (handle, stream) = match stream(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        stream.close();
+        remove(handle, "stream")
+    })
 }
 
 fn socket_address(value: NetAddress, what: &str) -> Result<SocketAddr, i32> {
@@ -938,26 +992,28 @@ pub unsafe extern "C" fn nuppNativeNetAddressParse(
     port: u16,
     output: *mut NetAddress,
 ) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "network address output is null");
-    }
-    // SAFETY: the caller promises the nested slice remains readable.
-    let host = match unsafe { text(host, "network address") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let address = match host.parse::<IpAddr>() {
-        Ok(address) => net_address(SocketAddr::new(address, port)),
-        Err(_) => {
-            return super::failed(
-                Status::InvalidArgument,
-                "network address is not an IPv4 or IPv6 literal",
-            );
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "network address output is null");
         }
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(address) };
-    Status::Ok.code()
+        // SAFETY: the caller promises the nested slice remains readable.
+        let host = match unsafe { text(host, "network address") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let address = match host.parse::<IpAddr>() {
+            Ok(address) => net_address(SocketAddr::new(address, port)),
+            Err(_) => {
+                return super::failed(
+                    Status::InvalidArgument,
+                    "network address is not an IPv4 or IPv6 literal",
+                );
+            }
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(address) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -972,30 +1028,32 @@ pub unsafe extern "C" fn nuppNativeNetAddressText(
     capacity: usize,
     length: *mut usize,
 ) -> i32 {
-    if address.is_null() || length.is_null() || (capacity != 0 && output.is_null()) {
-        return super::failed(
-            Status::InvalidArgument,
-            "network address text output is null",
-        );
-    }
-    // SAFETY: address was checked above.
-    let value = match socket_address(unsafe { *address }, "network address") {
-        Ok(value) => value.ip().to_string(),
-        Err(status) => return status,
-    };
-    // SAFETY: length was checked above.
-    unsafe { length.write(value.len()) };
-    if capacity < value.len() {
-        return super::failed(
-            Status::BufferTooSmall,
-            "network address text output is too small",
-        );
-    }
-    if !value.is_empty() {
-        // SAFETY: output is writable for capacity bytes, which is sufficient.
-        unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if address.is_null() || length.is_null() || (capacity != 0 && output.is_null()) {
+            return super::failed(
+                Status::InvalidArgument,
+                "network address text output is null",
+            );
+        }
+        // SAFETY: address was checked above.
+        let value = match socket_address(unsafe { *address }, "network address") {
+            Ok(value) => value.ip().to_string(),
+            Err(status) => return status,
+        };
+        // SAFETY: length was checked above.
+        unsafe { length.write(value.len()) };
+        if capacity < value.len() {
+            return super::failed(
+                Status::BufferTooSmall,
+                "network address text output is too small",
+            );
+        }
+        if !value.is_empty() {
+            // SAFETY: output is writable for capacity bytes, which is sufficient.
+            unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1008,31 +1066,33 @@ pub unsafe extern "C" fn nuppNativeNetDatagramCreate(
     options: *const NetDatagramOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network datagram input or output is null",
-        );
-    }
-    // SAFETY: options and its nested host obey this function's ABI contract.
-    let options = unsafe { &*options };
-    // SAFETY: the ABI requires the nested host slice to remain readable.
-    let host = match unsafe { text(options.host, "network datagram host") } {
-        Ok(value) if !value.is_empty() => value,
-        Ok(_) => {
-            return super::failed(Status::InvalidArgument, "network datagram host is empty");
+    boundary(|| {
+        if options.is_null() || output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network datagram input or output is null",
+            );
         }
-        Err(status) => return status,
-    };
-    let value = match transport::bind_datagram(host, options.port, options.reuse_port != 0) {
-        Ok(value) => value,
-        Err(error) => return super::failed(Status::Internal, &error),
-    };
-    insert(
-        Resource::Datagram(value),
-        output,
-        "network datagram output is null",
-    )
+        // SAFETY: options and its nested host obey this function's ABI contract.
+        let options = unsafe { &*options };
+        // SAFETY: the ABI requires the nested host slice to remain readable.
+        let host = match unsafe { text(options.host, "network datagram host") } {
+            Ok(value) if !value.is_empty() => value,
+            Ok(_) => {
+                return super::failed(Status::InvalidArgument, "network datagram host is empty");
+            }
+            Err(status) => return status,
+        };
+        let value = match transport::bind_datagram(host, options.port, options.reuse_port != 0) {
+            Ok(value) => value,
+            Err(error) => return super::failed(Status::Internal, &error),
+        };
+        insert(
+            Resource::Datagram(value),
+            output,
+            "network datagram output is null",
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1041,19 +1101,21 @@ pub unsafe extern "C" fn nuppNativeNetDatagramCreate(
 /// # Safety
 /// `output` must be writable for one `u16`.
 pub unsafe extern "C" fn nuppNativeNetDatagramPort(raw: u64, output: *mut u16) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network datagram port output is null",
-        );
-    }
-    let (_, datagram) = match datagram(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(datagram.port()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network datagram port output is null",
+            );
+        }
+        let (_, datagram) = match datagram(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(datagram.port()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1071,54 +1133,56 @@ pub unsafe extern "C" fn nuppNativeNetDatagramReceive(
     address: *mut NetAddress,
     truncated: *mut i32,
 ) -> i32 {
-    if capacity == 0
-        || output.is_null()
-        || state.is_null()
-        || length.is_null()
-        || address.is_null()
-        || truncated.is_null()
-    {
-        return super::failed(
-            Status::InvalidArgument,
-            "network datagram output is invalid",
-        );
-    }
-    let (_, datagram) = match datagram(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let message = match datagram.try_receive(capacity) {
-        transport::DatagramRead::Message(message) => Some(message),
-        transport::DatagramRead::Pending => None,
-        transport::DatagramRead::Failed(error) => {
-            return super::failed(Status::Internal, &error);
+    boundary(|| {
+        if capacity == 0
+            || output.is_null()
+            || state.is_null()
+            || length.is_null()
+            || address.is_null()
+            || truncated.is_null()
+        {
+            return super::failed(
+                Status::InvalidArgument,
+                "network datagram output is invalid",
+            );
         }
-    };
-    if let Some(message) = message {
-        if !message.bytes.is_empty() {
-            debug_assert!(message.bytes.len() <= capacity);
-            // SAFETY: output has capacity bytes and the core respected it.
+        let (_, datagram) = match datagram(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let message = match datagram.try_receive(capacity) {
+            transport::DatagramRead::Message(message) => Some(message),
+            transport::DatagramRead::Pending => None,
+            transport::DatagramRead::Failed(error) => {
+                return super::failed(Status::Internal, &error);
+            }
+        };
+        if let Some(message) = message {
+            if !message.bytes.is_empty() {
+                debug_assert!(message.bytes.len() <= capacity);
+                // SAFETY: output has capacity bytes and the core respected it.
+                unsafe {
+                    ptr::copy_nonoverlapping(message.bytes.as_ptr(), output, message.bytes.len())
+                };
+            }
+            // SAFETY: scalar outputs were checked above.
             unsafe {
-                ptr::copy_nonoverlapping(message.bytes.as_ptr(), output, message.bytes.len())
-            };
+                state.write(DATAGRAM_MESSAGE);
+                length.write(message.bytes.len());
+                address.write(net_address(message.address));
+                truncated.write(i32::from(message.truncated));
+            }
+        } else {
+            // SAFETY: scalar outputs were checked above.
+            unsafe {
+                state.write(PENDING);
+                length.write(0);
+                address.write(no_address());
+                truncated.write(0);
+            }
         }
-        // SAFETY: scalar outputs were checked above.
-        unsafe {
-            state.write(DATAGRAM_MESSAGE);
-            length.write(message.bytes.len());
-            address.write(net_address(message.address));
-            truncated.write(i32::from(message.truncated));
-        }
-    } else {
-        // SAFETY: scalar outputs were checked above.
-        unsafe {
-            state.write(PENDING);
-            length.write(0);
-            address.write(no_address());
-            truncated.write(0);
-        }
-    }
-    Status::Ok.code()
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1135,39 +1199,41 @@ pub unsafe extern "C" fn nuppNativeNetDatagramSend(
     state: *mut u32,
     sent: *mut usize,
 ) -> i32 {
-    if address.is_null() || state.is_null() || sent.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "network datagram send output is null",
-        );
-    }
-    let input = match super::input(input_data, input_length) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: address was checked above.
-    let address = match socket_address(unsafe { *address }, "network datagram peer") {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (_, datagram) = match datagram(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (kind, count) = match datagram.try_send_to(address, input) {
-        transport::DatagramWrite::Sent(count) => (DATAGRAM_SENT, count),
-        transport::DatagramWrite::Pending => (PENDING, 0),
-        transport::DatagramWrite::Closed => (WRITE_CLOSED, 0),
-        transport::DatagramWrite::Failed(error) => {
-            return super::failed(Status::Internal, &error);
+    boundary(|| {
+        if address.is_null() || state.is_null() || sent.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "network datagram send output is null",
+            );
         }
-    };
-    // SAFETY: outputs were checked above.
-    unsafe {
-        state.write(kind);
-        sent.write(count);
-    }
-    Status::Ok.code()
+        let input = match super::input(input_data, input_length) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: address was checked above.
+        let address = match socket_address(unsafe { *address }, "network datagram peer") {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (_, datagram) = match datagram(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (kind, count) = match datagram.try_send_to(address, input) {
+            transport::DatagramWrite::Sent(count) => (DATAGRAM_SENT, count),
+            transport::DatagramWrite::Pending => (PENDING, 0),
+            transport::DatagramWrite::Closed => (WRITE_CLOSED, 0),
+            transport::DatagramWrite::Failed(error) => {
+                return super::failed(Status::Internal, &error);
+            }
+        };
+        // SAFETY: outputs were checked above.
+        unsafe {
+            state.write(kind);
+            sent.write(count);
+        }
+        Status::Ok.code()
+    })
 }
 
 fn datagram_option(
@@ -1186,17 +1252,17 @@ fn datagram_option(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetDatagramSetBroadcast(raw: u64, enabled: i32) -> i32 {
-    datagram_option(raw, |datagram| datagram.set_broadcast(enabled != 0))
+    boundary(|| datagram_option(raw, |datagram| datagram.set_broadcast(enabled != 0)))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetDatagramSetMulticastTtl(raw: u64, ttl: u32) -> i32 {
-    datagram_option(raw, |datagram| datagram.set_multicast_ttl(ttl))
+    boundary(|| datagram_option(raw, |datagram| datagram.set_multicast_ttl(ttl)))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetDatagramSetMulticastLoop(raw: u64, enabled: i32) -> i32 {
-    datagram_option(raw, |datagram| datagram.set_multicast_loop(enabled != 0))
+    boundary(|| datagram_option(raw, |datagram| datagram.set_multicast_loop(enabled != 0)))
 }
 
 #[unsafe(no_mangle)]
@@ -1215,62 +1281,67 @@ pub unsafe extern "C" fn nuppNativeNetDatagramMembership(
     interface_kind: u8,
     join: i32,
 ) -> i32 {
-    // SAFETY: both input slices obey this function's ABI contract.
-    let group = match unsafe { text(group, "network multicast group") } {
-        Ok(value) => match value.parse::<IpAddr>() {
-            Ok(value) => value,
-            Err(_) => {
-                return super::failed(
-                    Status::InvalidArgument,
-                    "network multicast group is not an address",
-                );
-            }
-        },
-        Err(status) => return status,
-    };
-    let interface = match interface_kind {
-        ADDRESS_NONE => transport::MulticastInterface::Default,
-        ADDRESS_V4 => {
-            // SAFETY: the interface slice obeys this function's ABI contract.
-            let value = match unsafe { text(interface_address, "network multicast interface") } {
+    boundary(|| {
+        // SAFETY: both input slices obey this function's ABI contract.
+        let group = match unsafe { text(group, "network multicast group") } {
+            Ok(value) => match value.parse::<IpAddr>() {
                 Ok(value) => value,
-                Err(status) => return status,
-            };
-            match value.parse::<Ipv4Addr>() {
-                Ok(value) => transport::MulticastInterface::V4(value),
                 Err(_) => {
                     return super::failed(
                         Status::InvalidArgument,
-                        "network multicast interface is not an IPv4 address",
+                        "network multicast group is not an address",
                     );
                 }
+            },
+            Err(status) => return status,
+        };
+        let interface = match interface_kind {
+            ADDRESS_NONE => transport::MulticastInterface::Default,
+            ADDRESS_V4 => {
+                // SAFETY: the interface slice obeys this function's ABI contract.
+                let value = match unsafe { text(interface_address, "network multicast interface") }
+                {
+                    Ok(value) => value,
+                    Err(status) => return status,
+                };
+                match value.parse::<Ipv4Addr>() {
+                    Ok(value) => transport::MulticastInterface::V4(value),
+                    Err(_) => {
+                        return super::failed(
+                            Status::InvalidArgument,
+                            "network multicast interface is not an IPv4 address",
+                        );
+                    }
+                }
             }
-        }
-        ADDRESS_V6 => transport::MulticastInterface::V6(interface_index),
-        _ => {
-            return super::failed(
-                Status::InvalidArgument,
-                "network multicast interface has no valid family",
-            );
-        }
-    };
-    datagram_option(raw, |datagram| {
-        if join != 0 {
-            datagram.join_multicast(group, interface)
-        } else {
-            datagram.leave_multicast(group, interface)
-        }
+            ADDRESS_V6 => transport::MulticastInterface::V6(interface_index),
+            _ => {
+                return super::failed(
+                    Status::InvalidArgument,
+                    "network multicast interface has no valid family",
+                );
+            }
+        };
+        datagram_option(raw, |datagram| {
+            if join != 0 {
+                datagram.join_multicast(group, interface)
+            } else {
+                datagram.leave_multicast(group, interface)
+            }
+        })
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetDatagramRelease(raw: u64) -> i32 {
-    let (handle, datagram) = match datagram(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    datagram.close();
-    remove(handle, "datagram")
+    boundary(|| {
+        let (handle, datagram) = match datagram(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        datagram.close();
+        remove(handle, "datagram")
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1279,12 +1350,14 @@ pub extern "C" fn nuppNativeNetDatagramRelease(raw: u64) -> i32 {
 /// # Safety
 /// `output` must be writable for one `u64`.
 pub unsafe extern "C" fn nuppNativeNetPoll(output: *mut u64) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "network poll output is null");
-    }
-    // SAFETY: output was checked above.
-    unsafe { output.write(transport::poll_activity()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "network poll output is null");
+        }
+        // SAFETY: output was checked above.
+        unsafe { output.write(transport::poll_activity()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1297,13 +1370,16 @@ pub unsafe extern "C" fn nuppNativeNetWait(
     timeout_ms: u64,
     output: *mut u64,
 ) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "network wait output is null");
-    }
-    let generation = transport::wait_activity_since(generation, Duration::from_millis(timeout_ms));
-    // SAFETY: output was checked above.
-    unsafe { output.write(generation) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "network wait output is null");
+        }
+        let generation =
+            transport::wait_activity_since(generation, Duration::from_millis(timeout_ms));
+        // SAFETY: output was checked above.
+        unsafe { output.write(generation) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(test)]

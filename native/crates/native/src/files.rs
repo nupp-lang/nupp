@@ -1,6 +1,6 @@
 //! native ABI translation for the Rust filesystem provider.
 
-use nupp_native_abi::{Arena, Handle, Status};
+use nupp_native_abi::{Arena, Handle, Status, boundary};
 use nupp_native_files as filesystem;
 use std::path::PathBuf;
 #[cfg(feature = "files")]
@@ -169,48 +169,52 @@ pub unsafe extern "C" fn nuppNativeFilesInfo(
     follow: i32,
     output: *mut FilesInfo,
 ) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "file info output is null");
-    }
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let info = match filesystem::info(&path, follow != 0) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    if let Err(status) = exact_file_size(info.size) {
-        return status;
-    }
-    let kind = match info.kind {
-        filesystem::FileKind::File => 1,
-        filesystem::FileKind::Directory => 2,
-        filesystem::FileKind::Other => 3,
-        filesystem::FileKind::Symlink => 4,
-    };
-    // SAFETY: output was checked above.
-    unsafe {
-        output.write(FilesInfo {
-            kind,
-            read_only: i32::from(info.read_only),
-            size: info.size,
-            modified: modified(info.modified),
-        })
-    };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "file info output is null");
+        }
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let info = match filesystem::info(&path, follow != 0) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        if let Err(status) = exact_file_size(info.size) {
+            return status;
+        }
+        let kind = match info.kind {
+            filesystem::FileKind::File => 1,
+            filesystem::FileKind::Directory => 2,
+            filesystem::FileKind::Other => 3,
+            filesystem::FileKind::Symlink => 4,
+        };
+        // SAFETY: output was checked above.
+        unsafe {
+            output.write(FilesInfo {
+                kind,
+                read_only: i32::from(info.read_only),
+                size: info.size,
+                modified: modified(info.modified),
+            })
+        };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesReadLink(input: FilesSlice, output: *mut u64) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    match filesystem::read_link(&path) {
-        Ok(value) => store(value, output, "link output is null"),
-        Err(error) => io_failed(error),
-    }
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match filesystem::read_link(&path) {
+            Ok(value) => store(value, output, "link output is null"),
+            Err(error) => io_failed(error),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -219,98 +223,113 @@ pub unsafe extern "C" fn nuppNativeFilesCreateSymlink(
     link: FilesSlice,
     directory: i32,
 ) -> i32 {
-    let target = match unsafe { path(target, "symlink target") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let link = match unsafe { path(link, "symlink path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    filesystem::create_symlink(&target, &link, directory != 0)
-        .map_or_else(io_failed, |()| Status::Ok.code())
+    boundary(|| {
+        let target = match unsafe { path(target, "symlink target") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let link = match unsafe { path(link, "symlink path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        filesystem::create_symlink(&target, &link, directory != 0)
+            .map_or_else(io_failed, |()| Status::Ok.code())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesSetReadOnly(input: FilesSlice, read_only: i32) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    filesystem::set_read_only(&path, read_only != 0).map_or_else(io_failed, |()| Status::Ok.code())
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        filesystem::set_read_only(&path, read_only != 0)
+            .map_or_else(io_failed, |()| Status::Ok.code())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesCreateDirectory(input: FilesSlice) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    filesystem::create_directory(&path).map_or_else(io_failed, |()| Status::Ok.code())
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        filesystem::create_directory(&path).map_or_else(io_failed, |()| Status::Ok.code())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesRemove(input: FilesSlice, recursive: i32) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    filesystem::remove(&path, recursive != 0).map_or_else(io_failed, |()| Status::Ok.code())
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        filesystem::remove(&path, recursive != 0).map_or_else(io_failed, |()| Status::Ok.code())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesRename(from: FilesSlice, to: FilesSlice) -> i32 {
-    let from = match unsafe { path(from, "source path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let to = match unsafe { path(to, "destination path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    filesystem::rename(&from, &to).map_or_else(io_failed, |()| Status::Ok.code())
+    boundary(|| {
+        let from = match unsafe { path(from, "source path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let to = match unsafe { path(to, "destination path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        filesystem::rename(&from, &to).map_or_else(io_failed, |()| Status::Ok.code())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesList(input: FilesSlice, output: *mut u64) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let entries = match filesystem::list(&path) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    let mut encoded = Vec::new();
-    for entry in entries {
-        encoded.push(match entry.kind {
-            filesystem::FileKind::File => b'f',
-            filesystem::FileKind::Directory => b'd',
-            filesystem::FileKind::Symlink => b'l',
-            filesystem::FileKind::Other => b'o',
-        });
-        encoded.extend_from_slice(&entry.name);
-        encoded.push(0);
-    }
-    store(encoded, output, "directory listing output is null")
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let entries = match filesystem::list(&path) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        let mut encoded = Vec::new();
+        for entry in entries {
+            encoded.push(match entry.kind {
+                filesystem::FileKind::File => b'f',
+                filesystem::FileKind::Directory => b'd',
+                filesystem::FileKind::Symlink => b'l',
+                filesystem::FileKind::Other => b'o',
+            });
+            encoded.extend_from_slice(&entry.name);
+            encoded.push(0);
+        }
+        store(encoded, output, "directory listing output is null")
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesGlob(input: FilesSlice, output: *mut u64) -> i32 {
-    let pattern = match unsafe { text(input, "glob pattern") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let matches = match filesystem::glob(pattern) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    let mut encoded = Vec::new();
-    for value in matches {
-        encoded.extend_from_slice(&value);
-        encoded.push(0);
-    }
-    store(encoded, output, "glob output is null")
+    boundary(|| {
+        let pattern = match unsafe { text(input, "glob pattern") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let matches = match filesystem::glob(pattern) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        let mut encoded = Vec::new();
+        for value in matches {
+            encoded.extend_from_slice(&value);
+            encoded.push(0);
+        }
+        store(encoded, output, "glob output is null")
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -321,72 +340,76 @@ pub unsafe extern "C" fn nuppNativeFilesCreateTemporary(
     as_directory: i32,
     output: *mut u64,
 ) -> i32 {
-    let directory = match unsafe { path(directory, "temporary directory") } {
-        Ok(value) if value.as_os_str().is_empty() => None,
-        Ok(value) => Some(value),
-        Err(status) => return status,
-    };
-    let prefix = match unsafe { text(prefix, "temporary prefix") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let suffix = match unsafe { text(suffix, "temporary suffix") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let kind = if as_directory != 0 {
-        filesystem::TemporaryKind::Directory
-    } else {
-        filesystem::TemporaryKind::File
-    };
-    match filesystem::create_temporary(directory.as_deref(), prefix, suffix, kind) {
-        Ok(value) => store(value, output, "temporary path output is null"),
-        Err(error) => io_failed(error),
-    }
+    boundary(|| {
+        let directory = match unsafe { path(directory, "temporary directory") } {
+            Ok(value) if value.as_os_str().is_empty() => None,
+            Ok(value) => Some(value),
+            Err(status) => return status,
+        };
+        let prefix = match unsafe { text(prefix, "temporary prefix") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let suffix = match unsafe { text(suffix, "temporary suffix") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let kind = if as_directory != 0 {
+            filesystem::TemporaryKind::Directory
+        } else {
+            filesystem::TemporaryKind::File
+        };
+        match filesystem::create_temporary(directory.as_deref(), prefix, suffix, kind) {
+            Ok(value) => store(value, output, "temporary path output is null"),
+            Err(error) => io_failed(error),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesCurrentDirectory(output: *mut u64) -> i32 {
-    match filesystem::current_directory() {
+    boundary(|| match filesystem::current_directory() {
         Ok(value) => store(value, output, "working directory output is null"),
         Err(error) => io_failed(error),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesApplicationBase(which: u32, output: *mut u64) -> i32 {
-    match filesystem::application_base(which) {
+    boundary(|| match filesystem::application_base(which) {
         Ok(value) => store(value, output, "application base output is null"),
         Err(error) => io_failed(error),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesExecutablePath(output: *mut u64) -> i32 {
-    match filesystem::executable_path() {
+    boundary(|| match filesystem::executable_path() {
         Ok(value) => store(value, output, "executable path output is null"),
         Err(error) => io_failed(error),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesCanonicalize(input: FilesSlice, output: *mut u64) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    match filesystem::canonicalize(&path) {
-        Ok(value) => store(value, output, "canonical path output is null"),
-        Err(error) => io_failed(error),
-    }
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match filesystem::canonicalize(&path) {
+            Ok(value) => store(value, output, "canonical path output is null"),
+            Err(error) => io_failed(error),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesUserFolder(which: u32, output: *mut u64) -> i32 {
-    match filesystem::user_folder(which) {
+    boundary(|| match filesystem::user_folder(which) {
         Ok(value) => store(value, output, "user folder output is null"),
         Err(error) => io_failed(error),
-    }
+    })
 }
 
 fn open_mode(value: u32) -> Result<filesystem::OpenMode, i32> {
@@ -403,23 +426,25 @@ fn open_mode(value: u32) -> Result<filesystem::OpenMode, i32> {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFileOpen(input: FilesSlice, mode: u32, output: *mut u64) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let mode = match open_mode(mode) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let file = match filesystem::OpenFile::open(&path, mode) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    insert(
-        Resource::File(Arc::new(file)),
-        output,
-        "file handle output is null",
-    )
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let mode = match open_mode(mode) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let file = match filesystem::OpenFile::open(&path, mode) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        insert(
+            Resource::File(Arc::new(file)),
+            output,
+            "file handle output is null",
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -429,27 +454,29 @@ pub unsafe extern "C" fn nuppNativeFileRead(
     capacity: usize,
     length: *mut usize,
 ) -> i32 {
-    if length.is_null() || (capacity != 0 && output.is_null()) {
-        return super::failed(Status::InvalidArgument, "file read output is null");
-    }
-    let (_, file) = match file(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    // SAFETY: a zero-length slice may use a dangling pointer; otherwise output
-    // was checked and the caller promises capacity writable bytes.
-    let output = if capacity == 0 {
-        &mut []
-    } else {
-        unsafe { std::slice::from_raw_parts_mut(output, capacity) }
-    };
-    let count = match file.read(output) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    // SAFETY: length was checked above.
-    unsafe { length.write(count) };
-    Status::Ok.code()
+    boundary(|| {
+        if length.is_null() || (capacity != 0 && output.is_null()) {
+            return super::failed(Status::InvalidArgument, "file read output is null");
+        }
+        let (_, file) = match file(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        // SAFETY: a zero-length slice may use a dangling pointer; otherwise output
+        // was checked and the caller promises capacity writable bytes.
+        let output = if capacity == 0 {
+            &mut []
+        } else {
+            unsafe { std::slice::from_raw_parts_mut(output, capacity) }
+        };
+        let count = match file.read(output) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        // SAFETY: length was checked above.
+        unsafe { length.write(count) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -459,24 +486,26 @@ pub unsafe extern "C" fn nuppNativeFileWrite(
     input_length: usize,
     written: *mut usize,
 ) -> i32 {
-    if written.is_null() {
-        return super::failed(Status::InvalidArgument, "file write output is null");
-    }
-    let input = match super::input(input_data, input_length) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (_, file) = match file(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let count = match file.write(input) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    // SAFETY: written was checked above.
-    unsafe { written.write(count) };
-    Status::Ok.code()
+    boundary(|| {
+        if written.is_null() {
+            return super::failed(Status::InvalidArgument, "file write output is null");
+        }
+        let input = match super::input(input_data, input_length) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let (_, file) = match file(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let count = match file.write(input) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        // SAFETY: written was checked above.
+        unsafe { written.write(count) };
+        Status::Ok.code()
+    })
 }
 
 fn seek_origin(value: u32) -> Result<filesystem::SeekOrigin, i32> {
@@ -498,76 +527,84 @@ pub unsafe extern "C" fn nuppNativeFileSeek(
     origin: u32,
     output: *mut i64,
 ) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "file seek output is null");
-    }
-    let origin = match seek_origin(origin) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let (_, file) = match file(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let position = match file.seek(offset, origin) {
-        Ok(value) => match i64::try_from(value) {
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "file seek output is null");
+        }
+        let origin = match seek_origin(origin) {
             Ok(value) => value,
-            Err(_) => return super::failed(Status::OutOfRange, "file position exceeds int64"),
-        },
-        Err(error) => return io_failed(error),
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(position) };
-    Status::Ok.code()
+            Err(status) => return status,
+        };
+        let (_, file) = match file(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let position = match file.seek(offset, origin) {
+            Ok(value) => match i64::try_from(value) {
+                Ok(value) => value,
+                Err(_) => return super::failed(Status::OutOfRange, "file position exceeds int64"),
+            },
+            Err(error) => return io_failed(error),
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(position) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFileSize(raw: u64, output: *mut i64) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "file size output is null");
-    }
-    let (_, file) = match file(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let size = match file.size() {
-        Ok(value) => match exact_file_size(value) {
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "file size output is null");
+        }
+        let (_, file) = match file(raw) {
             Ok(value) => value,
             Err(status) => return status,
-        },
-        Err(error) => return io_failed(error),
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(size) };
-    Status::Ok.code()
+        };
+        let size = match file.size() {
+            Ok(value) => match exact_file_size(value) {
+                Ok(value) => value,
+                Err(status) => return status,
+            },
+            Err(error) => return io_failed(error),
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(size) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeFileFlush(raw: u64) -> i32 {
-    let (_, file) = match file(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    file.flush().map_or_else(io_failed, |()| Status::Ok.code())
+    boundary(|| {
+        let (_, file) = match file(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        file.flush().map_or_else(io_failed, |()| Status::Ok.code())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeFileRelease(raw: u64) -> i32 {
-    let (handle, _) = match file(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    match resources().lock() {
-        Ok(mut arena) => match arena.remove(handle) {
-            Ok(Resource::File(_)) => Status::Ok.code(),
-            #[cfg(feature = "files")]
-            Ok(Resource::Transfer(_)) => {
-                super::failed(Status::InvalidArgument, "file handle names a transfer")
-            }
-            Err(status) => super::failed(status, "file handle is stale"),
-        },
-        Err(_) => super::failed(Status::Internal, "file resource store is poisoned"),
-    }
+    boundary(|| {
+        let (handle, _) = match file(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match resources().lock() {
+            Ok(mut arena) => match arena.remove(handle) {
+                Ok(Resource::File(_)) => Status::Ok.code(),
+                #[cfg(feature = "files")]
+                Ok(Resource::Transfer(_)) => {
+                    super::failed(Status::InvalidArgument, "file handle names a transfer")
+                }
+                Err(status) => super::failed(status, "file handle is stale"),
+            },
+            Err(_) => super::failed(Status::Internal, "file resource store is poisoned"),
+        }
+    })
 }
 
 #[cfg(feature = "files")]
@@ -589,19 +626,21 @@ pub unsafe extern "C" fn nuppNativeFilesTransferSubmitRead(
     input: FilesSlice,
     output: *mut u64,
 ) -> i32 {
-    let path = match unsafe { path(input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let transfer = match filesystem::submit_read(path) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    insert(
-        Resource::Transfer(transfer),
-        output,
-        "file transfer output is null",
-    )
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let transfer = match filesystem::submit_read(path) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        insert(
+            Resource::Transfer(transfer),
+            output,
+            "file transfer output is null",
+        )
+    })
 }
 
 #[cfg(feature = "files")]
@@ -612,27 +651,29 @@ pub unsafe extern "C" fn nuppNativeFilesTransferSubmitWrite(
     mode: u32,
     output: *mut u64,
 ) -> i32 {
-    let path = match unsafe { path(path_input, "path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let contents = match unsafe { bytes(contents, "file contents") } {
-        Ok(value) => value.to_vec(),
-        Err(status) => return status,
-    };
-    let mode = match write_mode(mode) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let transfer = match filesystem::submit_write(path, contents, mode) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    insert(
-        Resource::Transfer(transfer),
-        output,
-        "file transfer output is null",
-    )
+    boundary(|| {
+        let path = match unsafe { path(path_input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let contents = match unsafe { bytes(contents, "file contents") } {
+            Ok(value) => value.to_vec(),
+            Err(status) => return status,
+        };
+        let mode = match write_mode(mode) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let transfer = match filesystem::submit_write(path, contents, mode) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        insert(
+            Resource::Transfer(transfer),
+            output,
+            "file transfer output is null",
+        )
+    })
 }
 
 #[cfg(feature = "files")]
@@ -642,143 +683,159 @@ pub unsafe extern "C" fn nuppNativeFilesTransferSubmitCopy(
     to: FilesSlice,
     output: *mut u64,
 ) -> i32 {
-    let from = match unsafe { path(from, "source path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let to = match unsafe { path(to, "destination path") } {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let transfer = match filesystem::submit_copy(from, to) {
-        Ok(value) => value,
-        Err(error) => return io_failed(error),
-    };
-    insert(
-        Resource::Transfer(transfer),
-        output,
-        "file transfer output is null",
-    )
+    boundary(|| {
+        let from = match unsafe { path(from, "source path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let to = match unsafe { path(to, "destination path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let transfer = match filesystem::submit_copy(from, to) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        insert(
+            Resource::Transfer(transfer),
+            output,
+            "file transfer output is null",
+        )
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesTransferStatus(raw: u64, output: *mut u32) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "file transfer status output is null",
-        );
-    }
-    let (_, transfer) = match transfer(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let status = match transfer.status() {
-        filesystem::TransferStatus::Pending => 0,
-        filesystem::TransferStatus::Ready => 1,
-        filesystem::TransferStatus::Failed => {
-            if let Some(error) = transfer.error() {
-                super::remember_error(&error);
-            }
-            2
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "file transfer status output is null",
+            );
         }
-        filesystem::TransferStatus::Canceled => 3,
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(status) };
-    Status::Ok.code()
+        let (_, transfer) = match transfer(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let status = match transfer.status() {
+            filesystem::TransferStatus::Pending => 0,
+            filesystem::TransferStatus::Ready => 1,
+            filesystem::TransferStatus::Failed => {
+                if let Some(error) = transfer.error() {
+                    super::remember_error(&error);
+                }
+                2
+            }
+            filesystem::TransferStatus::Canceled => 3,
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(status) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesTransferTakeBytes(raw: u64, output: *mut u64) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "file transfer bytes output is null",
-        );
-    }
-    let (_, transfer) = match transfer(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = match transfer.take_bytes() {
-        Ok(Some(value)) => value.into_vec(),
-        Ok(None) => {
-            return super::failed(Status::InvalidArgument, "file transfer has no byte result");
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "file transfer bytes output is null",
+            );
         }
-        Err(error) => return io_failed(error),
-    };
-    store(value, output, "file transfer bytes output is null")
+        let (_, transfer) = match transfer(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let value = match transfer.take_bytes() {
+            Ok(Some(value)) => value.into_vec(),
+            Ok(None) => {
+                return super::failed(Status::InvalidArgument, "file transfer has no byte result");
+            }
+            Err(error) => return io_failed(error),
+        };
+        store(value, output, "file transfer bytes output is null")
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeFilesTransferCancel(raw: u64) -> i32 {
-    let (_, transfer) = match transfer(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    transfer.cancel();
-    Status::Ok.code()
+    boundary(|| {
+        let (_, transfer) = match transfer(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        transfer.cancel();
+        Status::Ok.code()
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeFilesTransferRelease(raw: u64) -> i32 {
-    let (handle, _) = match transfer(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    match resources().lock() {
-        Ok(mut arena) => match arena.remove(handle) {
-            Ok(Resource::Transfer(_)) => Status::Ok.code(),
-            Ok(Resource::File(_)) => super::failed(
-                Status::InvalidArgument,
-                "file transfer handle names an open file",
-            ),
-            Err(status) => super::failed(status, "file transfer handle is stale"),
-        },
-        Err(_) => super::failed(Status::Internal, "file resource store is poisoned"),
-    }
+    boundary(|| {
+        let (handle, _) = match transfer(raw) {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match resources().lock() {
+            Ok(mut arena) => match arena.remove(handle) {
+                Ok(Resource::Transfer(_)) => Status::Ok.code(),
+                Ok(Resource::File(_)) => super::failed(
+                    Status::InvalidArgument,
+                    "file transfer handle names an open file",
+                ),
+                Err(status) => super::failed(status, "file transfer handle is stale"),
+            },
+            Err(_) => super::failed(Status::Internal, "file resource store is poisoned"),
+        }
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesTransferPoll(output: *mut usize) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "file transfer poll output is null");
-    }
-    // SAFETY: output was checked above.
-    unsafe { ptr::write(output, filesystem::transfer_poll()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "file transfer poll output is null");
+        }
+        // SAFETY: output was checked above.
+        unsafe { ptr::write(output, filesystem::transfer_poll()) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesTransferWait(timeout_ms: u64, output: *mut usize) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "file transfer wait output is null");
-    }
-    let count = filesystem::transfer_wait(Duration::from_millis(timeout_ms));
-    // SAFETY: output was checked above.
-    unsafe { ptr::write(output, count) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "file transfer wait output is null");
+        }
+        let count = filesystem::transfer_wait(Duration::from_millis(timeout_ms));
+        // SAFETY: output was checked above.
+        unsafe { ptr::write(output, count) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(feature = "files")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesTransferPending(output: *mut usize) -> i32 {
-    if output.is_null() {
-        return super::failed(
-            Status::InvalidArgument,
-            "file transfer pending output is null",
-        );
-    }
-    // SAFETY: output was checked above.
-    unsafe { ptr::write(output, filesystem::transfer_pending()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(
+                Status::InvalidArgument,
+                "file transfer pending output is null",
+            );
+        }
+        // SAFETY: output was checked above.
+        unsafe { ptr::write(output, filesystem::transfer_pending()) };
+        Status::Ok.code()
+    })
 }
 
 #[cfg(all(test, feature = "files"))]

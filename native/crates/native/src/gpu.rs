@@ -1,9 +1,8 @@
 //! C ABI translation for the safe WGPU provider.
 
-use nupp_native_abi::{Arena, Handle, Status, set_last_error};
+use nupp_native_abi::{Arena, Handle, Status, guard, set_last_error};
 use nupp_native_gpu::{GpuContext, GpuError, KernelDescriptor};
 use std::ffi::{c_char, c_void};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread::{self, ThreadId};
@@ -68,12 +67,12 @@ fn gpu_status(error: &GpuError) -> Status {
     }
 }
 
+/// The ABI's panic boundary, answering a failure's status and message.
 fn boundary(call: impl FnOnce() -> Result<(), (Status, String)>) -> i32 {
-    match catch_unwind(AssertUnwindSafe(call)) {
-        Ok(Ok(())) => Status::Ok.code(),
-        Ok(Err((status, message))) => fail(status, message),
-        Err(_) => fail(Status::Internal, "native provider panicked"),
-    }
+    nupp_native_abi::boundary(|| match call() {
+        Ok(()) => Status::Ok.code(),
+        Err((status, message)) => fail(status, message),
+    })
 }
 
 fn with_context<T>(
@@ -141,7 +140,7 @@ pub unsafe extern "C" fn nuppNativeGpuCostsOutput(path: *const u8, length: usize
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeGpuCostsEnabled() -> i32 {
-    i32::from(nupp_native_gpu::costs::enabled())
+    guard(0, || i32::from(nupp_native_gpu::costs::enabled()))
 }
 
 #[unsafe(no_mangle)]
@@ -532,8 +531,9 @@ mod tests {
             return;
         };
         // One word of a valid module changed: naga's SPIR-V front end panics
-        // on it rather than returning an error. Only unwinding builds reach
-        // the boundary's catch; release builds abort (G-1).
+        // on it rather than returning an error, and the boundary's catch
+        // turns that into a status. `test-rust-abi` shows the same of a
+        // release build.
         let spirv = include_bytes!("../testdata/naga-panic.spv");
         let mut kernel = 0;
         // SAFETY: the SPIR-V and entrypoint cover their lengths and the

@@ -3,7 +3,7 @@
 //! The transport keeps `Arc` pointers inside Rust. This facade gives LuaJIT only
 //! generational integers and copies every response byte into caller-owned storage.
 
-use nupp_native_abi::{Arena, Handle, Status, set_last_error};
+use nupp_native_abi::{Arena, Handle, Status, boundary, set_last_error};
 use nupp_native_http as transport;
 use std::collections::HashMap;
 use std::ptr;
@@ -222,46 +222,50 @@ pub unsafe extern "C" fn nuppNativeHttpClientCreate(
     options: *const transport::NuppHttpClientOptions,
     output: *mut u64,
 ) -> i32 {
-    if options.is_null() || output.is_null() {
-        return failed(
-            Status::InvalidArgument,
-            "HTTP client input or output is null",
-        );
-    }
-    // SAFETY: pointers were validated above and the transport copies options.
-    let pointer = unsafe { transport::nuppHttpClientCreate(options) };
-    if pointer.is_null() {
-        return refusal_status().code();
-    }
-    let entry = Arc::new(ClientEntry {
-        address: pointer as usize,
-        transfers: Mutex::new(HashMap::new()),
-    });
-    let handle = match clients().lock() {
-        Ok(mut arena) => match arena.insert(entry) {
-            Ok(handle) => handle,
-            Err(status) => return failed(status, "HTTP client capacity is exhausted"),
-        },
-        Err(_) => return failed(Status::Internal, "HTTP client store is poisoned"),
-    };
-    // SAFETY: output is writable by contract.
-    unsafe { output.write(handle.raw()) };
-    Status::Ok.code()
+    boundary(|| {
+        if options.is_null() || output.is_null() {
+            return failed(
+                Status::InvalidArgument,
+                "HTTP client input or output is null",
+            );
+        }
+        // SAFETY: pointers were validated above and the transport copies options.
+        let pointer = unsafe { transport::nuppHttpClientCreate(options) };
+        if pointer.is_null() {
+            return refusal_status().code();
+        }
+        let entry = Arc::new(ClientEntry {
+            address: pointer as usize,
+            transfers: Mutex::new(HashMap::new()),
+        });
+        let handle = match clients().lock() {
+            Ok(mut arena) => match arena.insert(entry) {
+                Ok(handle) => handle,
+                Err(status) => return failed(status, "HTTP client capacity is exhausted"),
+            },
+            Err(_) => return failed(Status::Internal, "HTTP client store is poisoned"),
+        };
+        // SAFETY: output is writable by contract.
+        unsafe { output.write(handle.raw()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeHttpClientRelease(raw: u64) -> i32 {
-    let removed = match clients().lock() {
-        Ok(mut arena) => arena.remove(Handle::from_raw(raw)),
-        Err(_) => return failed(Status::Internal, "HTTP client store is poisoned"),
-    };
-    match removed {
-        Ok(entry) => {
-            drop(entry);
-            Status::Ok.code()
+    boundary(|| {
+        let removed = match clients().lock() {
+            Ok(mut arena) => arena.remove(Handle::from_raw(raw)),
+            Err(_) => return failed(Status::Internal, "HTTP client store is poisoned"),
+        };
+        match removed {
+            Ok(entry) => {
+                drop(entry);
+                Status::Ok.code()
+            }
+            Err(status) => failed(status, "HTTP client handle is stale"),
         }
-        Err(status) => failed(status, "HTTP client handle is stale"),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -274,90 +278,98 @@ pub unsafe extern "C" fn nuppNativeHttpClientSend(
     request: *const transport::NuppHttpRequest,
     output: *mut u64,
 ) -> i32 {
-    if request.is_null() || output.is_null() {
-        return failed(
-            Status::InvalidArgument,
-            "HTTP request input or output is null",
-        );
-    }
-    let owner = match client(client_raw) {
-        Ok(owner) => owner,
-        Err(status) => return status,
-    };
-    // SAFETY: descriptor storage is valid for this call and the transport copies it.
-    let pointer = unsafe { transport::nuppHttpClientSend(owner.pointer(), request) };
-    if pointer.is_null() {
-        return refusal_status().code();
-    }
-    let entry = Arc::new(TransferEntry {
-        address: pointer as usize,
-        client: Arc::downgrade(&owner),
-        kind: TransferKind::Request,
-        body_taken: AtomicBool::new(false),
-    });
-    let handle = match transfers().lock() {
-        Ok(mut arena) => match arena.insert(entry) {
-            Ok(handle) => handle,
-            Err(status) => return failed(status, "HTTP transfer capacity is exhausted"),
-        },
-        Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
-    };
-    owner
-        .transfers
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            pointer as usize,
-            Registered {
-                request: Some(handle),
-                body: None,
+    boundary(|| {
+        if request.is_null() || output.is_null() {
+            return failed(
+                Status::InvalidArgument,
+                "HTTP request input or output is null",
+            );
+        }
+        let owner = match client(client_raw) {
+            Ok(owner) => owner,
+            Err(status) => return status,
+        };
+        // SAFETY: descriptor storage is valid for this call and the transport copies it.
+        let pointer = unsafe { transport::nuppHttpClientSend(owner.pointer(), request) };
+        if pointer.is_null() {
+            return refusal_status().code();
+        }
+        let entry = Arc::new(TransferEntry {
+            address: pointer as usize,
+            client: Arc::downgrade(&owner),
+            kind: TransferKind::Request,
+            body_taken: AtomicBool::new(false),
+        });
+        let handle = match transfers().lock() {
+            Ok(mut arena) => match arena.insert(entry) {
+                Ok(handle) => handle,
+                Err(status) => return failed(status, "HTTP transfer capacity is exhausted"),
             },
-        );
-    // SAFETY: output is writable by contract.
-    unsafe { output.write(handle.raw()) };
-    Status::Ok.code()
+            Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
+        };
+        owner
+            .transfers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                pointer as usize,
+                Registered {
+                    request: Some(handle),
+                    body: None,
+                },
+            );
+        // SAFETY: output is writable by contract.
+        unsafe { output.write(handle.raw()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeHttpClientPending(raw: u64, output: *mut usize) -> i32 {
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "HTTP pending output is null");
-    }
-    let owner = match client(raw) {
-        Ok(owner) => owner,
-        Err(status) => return status,
-    };
-    // SAFETY: the retained client entry keeps the pointer alive for this call.
-    let count = unsafe { transport::nuppHttpClientPending(owner.pointer()) };
-    // SAFETY: output was checked above.
-    unsafe { output.write(count) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return failed(Status::InvalidArgument, "HTTP pending output is null");
+        }
+        let owner = match client(raw) {
+            Ok(owner) => owner,
+            Err(status) => return status,
+        };
+        // SAFETY: the retained client entry keeps the pointer alive for this call.
+        let count = unsafe { transport::nuppHttpClientPending(owner.pointer()) };
+        // SAFETY: output was checked above.
+        unsafe { output.write(count) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeHttpTransferCancel(raw: u64) -> i32 {
-    let entry = match request(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    // SAFETY: the retained arena entry owns a live transport reference.
-    unsafe { transport::nuppHttpTransferCancel(entry.pointer()) };
-    Status::Ok.code()
+    boundary(|| {
+        let entry = match request(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        // SAFETY: the retained arena entry owns a live transport reference.
+        unsafe { transport::nuppHttpTransferCancel(entry.pointer()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeHttpTransferRelease(raw: u64) -> i32 {
-    let removed = match transfers().lock() {
-        Ok(mut arena) => arena.remove(Handle::from_raw(raw)),
-        Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
-    };
-    match removed {
-        Ok(entry) => {
-            drop(entry);
-            Status::Ok.code()
+    boundary(|| {
+        let removed = match transfers().lock() {
+            Ok(mut arena) => arena.remove(Handle::from_raw(raw)),
+            Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
+        };
+        match removed {
+            Ok(entry) => {
+                drop(entry);
+                Status::Ok.code()
+            }
+            Err(status) => failed(status, "HTTP transfer handle is stale"),
         }
-        Err(status) => failed(status, "HTTP transfer handle is stale"),
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -372,19 +384,22 @@ pub unsafe extern "C" fn nuppNativeHttpTransferOffer(
     finished: i32,
     output: *mut i32,
 ) -> i32 {
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "HTTP upload result is null");
-    }
-    let entry = match request(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    // SAFETY: the caller owns the input bytes for this synchronous copy.
-    let answer =
-        unsafe { transport::nuppHttpTransferOffer(entry.pointer(), data, length, finished != 0) };
-    // SAFETY: output was checked above.
-    unsafe { output.write(answer) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return failed(Status::InvalidArgument, "HTTP upload result is null");
+        }
+        let entry = match request(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        // SAFETY: the caller owns the input bytes for this synchronous copy.
+        let answer = unsafe {
+            transport::nuppHttpTransferOffer(entry.pointer(), data, length, finished != 0)
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(answer) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -400,54 +415,56 @@ pub unsafe extern "C" fn nuppNativeHttpTransferPollHead(
     headers: *mut u8,
     headers_capacity: usize,
 ) -> i32 {
-    if output.is_null()
-        || (url_capacity != 0 && url.is_null())
-        || (headers_capacity != 0 && headers.is_null())
-    {
-        return failed(Status::InvalidArgument, "HTTP response head output is null");
-    }
-    let entry = match request(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    let mut head = transport::NuppHttpResponseHead {
-        status: 0,
-        version: 0,
-        url: ptr::null(),
-        url_length: 0,
-        headers: ptr::null(),
-        headers_length: 0,
-    };
-    // SAFETY: head is writable and the transfer entry retains the response.
-    let state = unsafe { transport::nuppHttpTransferPollHeaders(entry.pointer(), &mut head) };
-    // SAFETY: output was checked above.
-    unsafe {
-        output.write(HttpHead {
-            state,
-            status: head.status,
-            version: head.version,
-            url_length: head.url_length,
-            headers_length: head.headers_length,
-        })
-    };
-    if state == HEAD_PENDING || state == HEAD_FAILED {
-        return Status::Ok.code();
-    }
-    if url_capacity < head.url_length || headers_capacity < head.headers_length {
-        return failed(
-            Status::BufferTooSmall,
-            "HTTP response head output is too small",
-        );
-    }
-    if head.url_length != 0 {
-        // SAFETY: the transport retains immutable head bytes and capacity was checked.
-        unsafe { ptr::copy_nonoverlapping(head.url, url, head.url_length) };
-    }
-    if head.headers_length != 0 {
-        // SAFETY: the transport retains immutable head bytes and capacity was checked.
-        unsafe { ptr::copy_nonoverlapping(head.headers, headers, head.headers_length) };
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null()
+            || (url_capacity != 0 && url.is_null())
+            || (headers_capacity != 0 && headers.is_null())
+        {
+            return failed(Status::InvalidArgument, "HTTP response head output is null");
+        }
+        let entry = match request(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        let mut head = transport::NuppHttpResponseHead {
+            status: 0,
+            version: 0,
+            url: ptr::null(),
+            url_length: 0,
+            headers: ptr::null(),
+            headers_length: 0,
+        };
+        // SAFETY: head is writable and the transfer entry retains the response.
+        let state = unsafe { transport::nuppHttpTransferPollHeaders(entry.pointer(), &mut head) };
+        // SAFETY: output was checked above.
+        unsafe {
+            output.write(HttpHead {
+                state,
+                status: head.status,
+                version: head.version,
+                url_length: head.url_length,
+                headers_length: head.headers_length,
+            })
+        };
+        if state == HEAD_PENDING || state == HEAD_FAILED {
+            return Status::Ok.code();
+        }
+        if url_capacity < head.url_length || headers_capacity < head.headers_length {
+            return failed(
+                Status::BufferTooSmall,
+                "HTTP response head output is too small",
+            );
+        }
+        if head.url_length != 0 {
+            // SAFETY: the transport retains immutable head bytes and capacity was checked.
+            unsafe { ptr::copy_nonoverlapping(head.url, url, head.url_length) };
+        }
+        if head.headers_length != 0 {
+            // SAFETY: the transport retains immutable head bytes and capacity was checked.
+            unsafe { ptr::copy_nonoverlapping(head.headers, headers, head.headers_length) };
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -461,20 +478,22 @@ pub unsafe extern "C" fn nuppNativeHttpTransferError(
     capacity: usize,
     length: *mut usize,
 ) -> i32 {
-    let entry = match request(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    // SAFETY: forwarded output contract and retained transport reference.
-    unsafe {
-        copy_transport_error(
-            transport::nuppHttpTransferErrorCopy,
-            entry.pointer(),
-            output,
-            capacity,
-            length,
-        )
-    }
+    boundary(|| {
+        let entry = match request(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        // SAFETY: forwarded output contract and retained transport reference.
+        unsafe {
+            copy_transport_error(
+                transport::nuppHttpTransferErrorCopy,
+                entry.pointer(),
+                output,
+                capacity,
+                length,
+            )
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -483,61 +502,65 @@ pub unsafe extern "C" fn nuppNativeHttpTransferError(
 /// # Safety
 /// `output` must be writable for one u64.
 pub unsafe extern "C" fn nuppNativeHttpTransferTakeBody(raw: u64, output: *mut u64) -> i32 {
-    if output.is_null() {
-        return failed(Status::InvalidArgument, "HTTP body handle output is null");
-    }
-    let request = match request(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    if request.body_taken.swap(true, Ordering::AcqRel) {
-        return failed(Status::Closed, "the HTTP response body was already taken");
-    }
-    // SAFETY: the request entry owns a live transport reference.
-    let pointer = unsafe { transport::nuppHttpTransferTakeBody(request.pointer()) };
-    if pointer.is_null() {
-        request.body_taken.store(false, Ordering::Release);
-        return failed(Status::Closed, "the HTTP response has no body");
-    }
-    let body = Arc::new(TransferEntry {
-        address: pointer as usize,
-        client: request.client.clone(),
-        kind: TransferKind::Body,
-        body_taken: AtomicBool::new(false),
-    });
-    let handle = match transfers().lock() {
-        Ok(mut arena) => match arena.insert(body) {
-            Ok(handle) => handle,
-            Err(status) => return failed(status, "HTTP body capacity is exhausted"),
-        },
-        Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
-    };
-    if let Some(client) = request.client.upgrade() {
-        client
-            .transfers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .entry(pointer as usize)
-            .or_default()
-            .body = Some(handle);
-    }
-    // SAFETY: output was checked above.
-    unsafe { output.write(handle.raw()) };
-    Status::Ok.code()
+    boundary(|| {
+        if output.is_null() {
+            return failed(Status::InvalidArgument, "HTTP body handle output is null");
+        }
+        let request = match request(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        if request.body_taken.swap(true, Ordering::AcqRel) {
+            return failed(Status::Closed, "the HTTP response body was already taken");
+        }
+        // SAFETY: the request entry owns a live transport reference.
+        let pointer = unsafe { transport::nuppHttpTransferTakeBody(request.pointer()) };
+        if pointer.is_null() {
+            request.body_taken.store(false, Ordering::Release);
+            return failed(Status::Closed, "the HTTP response has no body");
+        }
+        let body = Arc::new(TransferEntry {
+            address: pointer as usize,
+            client: request.client.clone(),
+            kind: TransferKind::Body,
+            body_taken: AtomicBool::new(false),
+        });
+        let handle = match transfers().lock() {
+            Ok(mut arena) => match arena.insert(body) {
+                Ok(handle) => handle,
+                Err(status) => return failed(status, "HTTP body capacity is exhausted"),
+            },
+            Err(_) => return failed(Status::Internal, "HTTP transfer store is poisoned"),
+        };
+        if let Some(client) = request.client.upgrade() {
+            client
+                .transfers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .entry(pointer as usize)
+                .or_default()
+                .body = Some(handle);
+        }
+        // SAFETY: output was checked above.
+        unsafe { output.write(handle.raw()) };
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeHttpBodyArm(raw: u64) -> i32 {
-    let entry = match body(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    // SAFETY: the retained arena entry owns a live body reference.
-    if unsafe { transport::nuppHttpBodyArm(entry.pointer()) } {
-        Status::Ok.code()
-    } else {
-        failed(Status::Closed, "the HTTP response body is closed")
-    }
+    boundary(|| {
+        let entry = match body(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        // SAFETY: the retained arena entry owns a live body reference.
+        if unsafe { transport::nuppHttpBodyArm(entry.pointer()) } {
+            Status::Ok.code()
+        } else {
+            failed(Status::Closed, "the HTTP response body is closed")
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -552,30 +575,32 @@ pub unsafe extern "C" fn nuppNativeHttpBodyRead(
     state: *mut u32,
     length: *mut usize,
 ) -> i32 {
-    if state.is_null() || length.is_null() || (capacity != 0 && output.is_null()) {
-        return failed(Status::InvalidArgument, "HTTP body read output is null");
-    }
-    let entry = match body(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    let mut kind = 0;
-    let mut copied = 0;
-    // SAFETY: the body entry keeps the transport reference live and the
-    // transport performs copy and consumption under one state lock.
-    if !unsafe {
-        transport::nuppHttpBodyRead(entry.pointer(), output, capacity, &mut kind, &mut copied)
-    } {
-        // Unreachable while the checks above match the transport's own, but a
-        // failure never leaves an earlier call's message in the error slot.
-        return failed(Status::Internal, "HTTP body read failed");
-    }
-    // SAFETY: outputs were checked above.
-    unsafe {
-        state.write(kind);
-        length.write(copied);
-    }
-    Status::Ok.code()
+    boundary(|| {
+        if state.is_null() || length.is_null() || (capacity != 0 && output.is_null()) {
+            return failed(Status::InvalidArgument, "HTTP body read output is null");
+        }
+        let entry = match body(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        let mut kind = 0;
+        let mut copied = 0;
+        // SAFETY: the body entry keeps the transport reference live and the
+        // transport performs copy and consumption under one state lock.
+        if !unsafe {
+            transport::nuppHttpBodyRead(entry.pointer(), output, capacity, &mut kind, &mut copied)
+        } {
+            // Unreachable while the checks above match the transport's own, but a
+            // failure never leaves an earlier call's message in the error slot.
+            return failed(Status::Internal, "HTTP body read failed");
+        }
+        // SAFETY: outputs were checked above.
+        unsafe {
+            state.write(kind);
+            length.write(copied);
+        }
+        Status::Ok.code()
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -589,20 +614,22 @@ pub unsafe extern "C" fn nuppNativeHttpBodyError(
     capacity: usize,
     length: *mut usize,
 ) -> i32 {
-    let entry = match body(raw) {
-        Ok(entry) => entry,
-        Err(status) => return status,
-    };
-    // SAFETY: forwarded output contract and retained transport reference.
-    unsafe {
-        copy_transport_error(
-            transport::nuppHttpBodyErrorCopy,
-            entry.pointer(),
-            output,
-            capacity,
-            length,
-        )
-    }
+    boundary(|| {
+        let entry = match body(raw) {
+            Ok(entry) => entry,
+            Err(status) => return status,
+        };
+        // SAFETY: forwarded output contract and retained transport reference.
+        unsafe {
+            copy_transport_error(
+                transport::nuppHttpBodyErrorCopy,
+                entry.pointer(),
+                output,
+                capacity,
+                length,
+            )
+        }
+    })
 }
 
 unsafe fn poll_ready(
@@ -692,12 +719,14 @@ pub unsafe extern "C" fn nuppNativeHttpClientPoll(
     count: *mut usize,
     more: *mut i32,
 ) -> i32 {
-    let owner = match client(raw) {
-        Ok(owner) => owner,
-        Err(status) => return status,
-    };
-    // SAFETY: forwarded caller output contract.
-    unsafe { poll_ready(&owner, None, output, capacity, count, more) }
+    boundary(|| {
+        let owner = match client(raw) {
+            Ok(owner) => owner,
+            Err(status) => return status,
+        };
+        // SAFETY: forwarded caller output contract.
+        unsafe { poll_ready(&owner, None, output, capacity, count, more) }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -713,12 +742,14 @@ pub unsafe extern "C" fn nuppNativeHttpClientWait(
     count: *mut usize,
     more: *mut i32,
 ) -> i32 {
-    let owner = match client(raw) {
-        Ok(owner) => owner,
-        Err(status) => return status,
-    };
-    // SAFETY: forwarded caller output contract.
-    unsafe { poll_ready(&owner, Some(wait_ms), output, capacity, count, more) }
+    boundary(|| {
+        let owner = match client(raw) {
+            Ok(owner) => owner,
+            Err(status) => return status,
+        };
+        // SAFETY: forwarded caller output contract.
+        unsafe { poll_ready(&owner, Some(wait_ms), output, capacity, count, more) }
+    })
 }
 
 #[cfg(test)]

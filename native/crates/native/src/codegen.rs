@@ -1,7 +1,7 @@
 //! The AOT code generator's C ABI: LLVM IR text in, objects and linked
 //! artifacts out. Results are byte handles the caller copies and releases.
 
-use nupp_native_abi::Status;
+use nupp_native_abi::{Status, boundary, guard};
 use nupp_native_codegen as codegen;
 
 fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, i32> {
@@ -32,14 +32,14 @@ fn status(result: Result<(), i32>) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppCodegenAvailable() -> u32 {
-    codegen::available() as u32
+    guard(0, || codegen::available() as u32)
 }
 
 #[unsafe(no_mangle)]
 /// # Safety
 /// `output` must be writable storage for one u64.
 pub unsafe extern "C" fn nuppCodegenVersion(result: *mut u64) -> i32 {
-    status(output(result, Some(codegen::version().into_bytes())))
+    boundary(|| status(output(result, Some(codegen::version().into_bytes()))))
 }
 
 #[unsafe(no_mangle)]
@@ -62,20 +62,22 @@ pub unsafe extern "C" fn nuppCodegenCompile(
     assembly: *mut u64,
     optimized_ir: *mut u64,
 ) -> i32 {
-    status((|| {
-        let ir = text(ir, ir_length, "LLVM IR")?;
-        let name = text(name, name_length, "module name")?;
-        let options =
-            codegen::CompileOptions::parse(text(options, options_length, "codegen options")?)
+    boundary(|| {
+        status((|| {
+            let ir = text(ir, ir_length, "LLVM IR")?;
+            let name = text(name, name_length, "module name")?;
+            let options =
+                codegen::CompileOptions::parse(text(options, options_length, "codegen options")?)
+                    .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+            let compiled = codegen::compile(ir, name, &options)
                 .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-        let compiled = codegen::compile(ir, name, &options)
-            .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-        let report_text = compiled.report();
-        output(object, Some(compiled.object))?;
-        output(report, Some(report_text.into_bytes()))?;
-        output(assembly, compiled.assembly.map(String::into_bytes))?;
-        output(optimized_ir, compiled.optimized_ir.map(String::into_bytes))
-    })())
+            let report_text = compiled.report();
+            output(object, Some(compiled.object))?;
+            output(report, Some(report_text.into_bytes()))?;
+            output(assembly, compiled.assembly.map(String::into_bytes))?;
+            output(optimized_ir, compiled.optimized_ir.map(String::into_bytes))
+        })())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -89,29 +91,32 @@ pub unsafe extern "C" fn nuppCodegenLink(
     length: usize,
     messages: *mut u64,
 ) -> i32 {
-    status((|| {
-        let argv: Vec<String> = text(argv, length, "linker arguments")?
-            .split('\0')
-            .filter(|a| !a.is_empty())
-            .map(str::to_string)
-            .collect();
-        let out = codegen::link(&argv).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-        output(messages, Some(out.into_bytes()))
-    })())
+    boundary(|| {
+        status((|| {
+            let argv: Vec<String> = text(argv, length, "linker arguments")?
+                .split('\0')
+                .filter(|a| !a.is_empty())
+                .map(str::to_string)
+                .collect();
+            let out =
+                codegen::link(&argv).map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+            output(messages, Some(out.into_bytes()))
+        })())
+    })
 }
 
 #[unsafe(no_mangle)]
 /// Whether a link left this process unable to exit through its static
 /// destructors; 1 when it did.
 pub extern "C" fn nuppCodegenUnexitable() -> i32 {
-    i32::from(codegen::unexitable())
+    guard(0, || i32::from(codegen::unexitable()))
 }
 
 #[unsafe(no_mangle)]
 /// Ends this process with `code` without its static destructors. For a
 /// process `nuppCodegenUnexitable` names, once its own output is flushed.
 pub extern "C" fn nuppCodegenEndProcess(code: i32) {
-    codegen::end_process(code)
+    guard((), || codegen::end_process(code))
 }
 
 #[unsafe(no_mangle)]
@@ -128,20 +133,22 @@ pub unsafe extern "C" fn nuppCodegenImportLibrary(
     names: *const u8,
     names_length: usize,
 ) -> i32 {
-    status((|| {
-        let dll = text(dll, dll_length, "DLL name")?;
-        let path = text(path, path_length, "import library path")?;
-        let names: Vec<(String, String)> = text(names, names_length, "import names")?
-            .split('\0')
-            .filter(|n| !n.is_empty())
-            .map(|n| match n.split_once('\t') {
-                Some((name, export)) => (name.to_string(), export.to_string()),
-                None => (n.to_string(), String::new()),
-            })
-            .collect();
-        codegen::import_library(dll, path, &names)
-            .map_err(|e| super::failed(Status::InvalidArgument, &e))
-    })())
+    boundary(|| {
+        status((|| {
+            let dll = text(dll, dll_length, "DLL name")?;
+            let path = text(path, path_length, "import library path")?;
+            let names: Vec<(String, String)> = text(names, names_length, "import names")?
+                .split('\0')
+                .filter(|n| !n.is_empty())
+                .map(|n| match n.split_once('\t') {
+                    Some((name, export)) => (name.to_string(), export.to_string()),
+                    None => (n.to_string(), String::new()),
+                })
+                .collect();
+            codegen::import_library(dll, path, &names)
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))
+        })())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -157,16 +164,18 @@ pub unsafe extern "C" fn nuppCodegenArchive(
     members_length: usize,
     kind: i32,
 ) -> i32 {
-    status((|| {
-        let path = text(path, path_length, "archive path")?;
-        let members: Vec<String> = text(members, members_length, "archive members")?
-            .split('\0')
-            .filter(|m| !m.is_empty())
-            .map(str::to_string)
-            .collect();
-        codegen::archive(path, &members, kind)
-            .map_err(|e| super::failed(Status::InvalidArgument, &e))
-    })())
+    boundary(|| {
+        status((|| {
+            let path = text(path, path_length, "archive path")?;
+            let members: Vec<String> = text(members, members_length, "archive members")?
+                .split('\0')
+                .filter(|m| !m.is_empty())
+                .map(str::to_string)
+                .collect();
+            codegen::archive(path, &members, kind)
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))
+        })())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -183,40 +192,42 @@ pub unsafe extern "C" fn nuppCodegenCompileFiles(
     width: u32,
     results: *mut u64,
 ) -> i32 {
-    status((|| {
-        let mut parsed = Vec::new();
-        for record in text(jobs, length, "compile jobs")?
-            .split('\0')
-            .filter(|r| !r.is_empty())
-        {
-            let mut fields = record.splitn(3, '\u{1f}');
-            let (Some(ir), Some(object), Some(options)) =
-                (fields.next(), fields.next(), fields.next())
-            else {
-                return Err(super::failed(
-                    Status::InvalidArgument,
-                    "a compile job needs an IR path, an object path and options",
-                ));
-            };
-            let options = codegen::CompileOptions::parse(options)
-                .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-            parsed.push(codegen::Job {
-                ir: ir.into(),
-                object: object.into(),
-                options,
-            });
-        }
-        let answers = codegen::compile_files(&parsed, width as usize);
-        let mut out = String::new();
-        for answer in answers {
-            match answer {
-                Ok(report) => out.push_str(&format!("ok\u{1f}{report}")),
-                Err(error) => out.push_str(&format!("error\u{1f}{error}")),
+    boundary(|| {
+        status((|| {
+            let mut parsed = Vec::new();
+            for record in text(jobs, length, "compile jobs")?
+                .split('\0')
+                .filter(|r| !r.is_empty())
+            {
+                let mut fields = record.splitn(3, '\u{1f}');
+                let (Some(ir), Some(object), Some(options)) =
+                    (fields.next(), fields.next(), fields.next())
+                else {
+                    return Err(super::failed(
+                        Status::InvalidArgument,
+                        "a compile job needs an IR path, an object path and options",
+                    ));
+                };
+                let options = codegen::CompileOptions::parse(options)
+                    .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+                parsed.push(codegen::Job {
+                    ir: ir.into(),
+                    object: object.into(),
+                    options,
+                });
             }
-            out.push('\0');
-        }
-        output(results, Some(out.into_bytes()))
-    })())
+            let answers = codegen::compile_files(&parsed, width as usize);
+            let mut out = String::new();
+            for answer in answers {
+                match answer {
+                    Ok(report) => out.push_str(&format!("ok\u{1f}{report}")),
+                    Err(error) => out.push_str(&format!("error\u{1f}{error}")),
+                }
+                out.push('\0');
+            }
+            output(results, Some(out.into_bytes()))
+        })())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -234,13 +245,15 @@ pub unsafe extern "C" fn nuppCodegenKitFetch(
     sha256_length: usize,
     size: u64,
 ) -> i32 {
-    status((|| {
-        let url = text(url, url_length, "kit URL")?;
-        let path = text(path, path_length, "kit archive path")?;
-        let sha256 = text(sha256, sha256_length, "kit digest")?;
-        codegen::kit::fetch(url, std::path::Path::new(path), size, sha256)
-            .map_err(|e| super::failed(Status::InvalidArgument, &e))
-    })())
+    boundary(|| {
+        status((|| {
+            let url = text(url, url_length, "kit URL")?;
+            let path = text(path, path_length, "kit archive path")?;
+            let sha256 = text(sha256, sha256_length, "kit digest")?;
+            codegen::kit::fetch(url, std::path::Path::new(path), size, sha256)
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))
+        })())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -258,19 +271,21 @@ pub unsafe extern "C" fn nuppCodegenKitUnpack(
     root: *const u8,
     root_length: usize,
 ) -> i32 {
-    status((|| {
-        let archive = text(archive, archive_length, "kit archive path")?;
-        let sha256 = text(sha256, sha256_length, "kit digest")?;
-        let root = text(root, root_length, "kit directory")?;
-        let bytes = std::fs::read(archive).map_err(|e| {
-            super::failed(
-                Status::InvalidArgument,
-                &format!("cannot read {archive}: {e}"),
-            )
-        })?;
-        codegen::kit::verify(&bytes, size, sha256)
-            .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
-        codegen::kit::unpack(&bytes, std::path::Path::new(root))
-            .map_err(|e| super::failed(Status::InvalidArgument, &e))
-    })())
+    boundary(|| {
+        status((|| {
+            let archive = text(archive, archive_length, "kit archive path")?;
+            let sha256 = text(sha256, sha256_length, "kit digest")?;
+            let root = text(root, root_length, "kit directory")?;
+            let bytes = std::fs::read(archive).map_err(|e| {
+                super::failed(
+                    Status::InvalidArgument,
+                    &format!("cannot read {archive}: {e}"),
+                )
+            })?;
+            codegen::kit::verify(&bytes, size, sha256)
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))?;
+            codegen::kit::unpack(&bytes, std::path::Path::new(root))
+                .map_err(|e| super::failed(Status::InvalidArgument, &e))
+        })())
+    })
 }

@@ -87,6 +87,76 @@ static void gpu_backend(const char *name) {
 #endif
 }
 
+/* Reads a file named relative to this source file, which the smoke build
+ * compiles by its absolute path. */
+static unsigned char *read_beside(const char *relative, size_t *length) {
+    char path[4096];
+    const char *source = __FILE__;
+    const char *slash = strrchr(source, '/');
+    size_t prefix = slash ? (size_t)(slash - source) + 1 : 0;
+    FILE *file;
+    long end;
+    unsigned char *bytes;
+    if (prefix + strlen(relative) + 1 > sizeof path) return NULL;
+    memcpy(path, source, prefix);
+    strcpy(path + prefix, relative);
+    file = fopen(path, "rb");
+    if (!file) return NULL;
+    if (fseek(file, 0, SEEK_END) != 0 || (end = ftell(file)) <= 0
+        || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return NULL;
+    }
+    bytes = malloc((size_t)end);
+    if (!bytes || fread(bytes, 1, (size_t)end, file) != (size_t)end) {
+        free(bytes);
+        fclose(file);
+        return NULL;
+    }
+    fclose(file);
+    *length = (size_t)end;
+    return bytes;
+}
+
+/* One word of a valid module changed, which naga's SPIR-V front end panics on
+ * rather than rejecting. A release build catches that panic at the export and
+ * answers INTERNAL; the process lives on to make another context. A machine
+ * with no adapter has nothing to show. */
+static int malformed_spirv_answers_a_status(void) {
+    size_t length = 0;
+    unsigned char *spirv =
+        read_beside("../crates/native/testdata/naga-panic.spv", &length);
+    uint64_t context = 0, kernel = 0, fresh = 0;
+    int32_t status;
+    if (!spirv) {
+        fprintf(stderr, "cannot read the malformed SPIR-V fixture\n");
+        return 1;
+    }
+    status = nuppNativeGpuContextCreate(&context);
+    if (status == NUPP_NATIVE_UNAVAILABLE) {
+        free(spirv);
+        return 0;
+    }
+    if (status != NUPP_NATIVE_OK) {
+        free(spirv);
+        return failed("GPU context", status);
+    }
+    status = nuppNativeGpuKernelCreate(context, spirv, length, "main", 4,
+        1, 1, 16, 64, 1, 1, &kernel);
+    free(spirv);
+    if (status != NUPP_NATIVE_INTERNAL
+        || !strstr(nuppNativeLastError(), "panicked")) {
+        return failed("malformed SPIR-V kernel", status);
+    }
+    status = nuppNativeGpuContextCreate(&fresh);
+    if (status != NUPP_NATIVE_OK) {
+        return failed("GPU context after a panic", status);
+    }
+    nuppNativeGpuContextRelease(fresh);
+    nuppNativeGpuContextRelease(context);
+    return 0;
+}
+
 /* A backend no adapter on this platform answers to. */
 static const char *absent_gpu_backend(void) {
 #if defined(__APPLE__)
@@ -191,6 +261,7 @@ int main(void) {
             return failed("GPU context without an adapter", status);
         }
     }
+    if (malformed_spirv_answers_a_status()) return 1;
     status = nuppNativeFilesInfo(current, 1, &file_info);
     if (status != NUPP_NATIVE_OK) return failed("filesystem info", status);
     if (file_info.kind != 2) {

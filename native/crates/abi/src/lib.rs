@@ -2,9 +2,11 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char};
 use std::fmt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const ABI_VERSION: u32 = 2;
 
@@ -53,6 +55,45 @@ pub fn with_last_error<T>(read: impl FnOnce(&CStr) -> T) -> T {
 
 pub fn last_error_ptr() -> *const c_char {
     with_last_error(CStr::as_ptr)
+}
+
+/// What a panic said, when it said it with text.
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        text
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text
+    } else {
+        "no message"
+    }
+}
+
+/// Runs one export's body and answers `fallback` if it panics.
+///
+/// Every native export runs inside this or [`boundary`]. The workspace builds
+/// with `panic = "unwind"` so that a panic reaches this catch rather than
+/// aborting the process; an unwind that escaped an `extern "C"` function
+/// would still abort, which is what keeps it from ever crossing LuaJIT's
+/// frames. The panic's text becomes the thread's last error.
+pub fn guard<T>(fallback: T, body: impl FnOnce() -> T) -> T {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(payload) => {
+            set_last_error(format_args!(
+                "native provider panicked: {}",
+                panic_message(payload.as_ref())
+            ));
+            // A payload's destructor may itself panic, and nothing here could
+            // catch that one, so it is leaked on this exceptional path.
+            std::mem::forget(payload);
+            fallback
+        }
+    }
+}
+
+/// Runs one status-returning export's body, answering INTERNAL if it panics.
+pub fn boundary(body: impl FnOnce() -> i32) -> i32 {
+    guard(Status::Internal.code(), body)
 }
 
 #[repr(transparent)]
@@ -203,6 +244,21 @@ mod tests {
         let handle = arena.insert(42).unwrap();
         assert_eq!(arena.remove(handle), Ok(42));
         assert_eq!(arena.remove(handle), Err(Status::StaleHandle));
+    }
+
+    #[test]
+    fn a_panic_inside_the_boundary_is_an_internal_status() {
+        let status = boundary(|| panic!("the provider tripped"));
+        assert_eq!(status, Status::Internal.code());
+        with_last_error(|value| {
+            assert_eq!(
+                value.to_bytes(),
+                b"native provider panicked: the provider tripped"
+            )
+        });
+        assert_eq!(guard(7, || -> u32 { panic!("{}", 1) }), 7);
+        with_last_error(|value| assert_eq!(value.to_bytes(), b"native provider panicked: 1"));
+        assert_eq!(boundary(|| Status::Closed.code()), Status::Closed.code());
     }
 
     #[test]
