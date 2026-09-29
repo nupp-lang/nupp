@@ -159,16 +159,22 @@ function M.dynamicSdkLinksAndRunsFromC()
     end
 end
 
-function M.staticApplicationHostLinksAndRuns()
+-- A standalone program links the way `nupp build` links one: lld, in process,
+-- against the link kit for this machine.
+function M.staticApplicationHostLinksFromAKitAndRuns()
     local directory = temporary()
     local executable = directory .. "/nupp"
     if jit.os == "Windows" then
         executable = executable .. ".exe"
     end
-    local status, output = run(
-        ("cd %s && ./scripts/toolchain host-link %s %s %s"):format(quote(ROOT), FEATURES, quote(executable), "--")
-    )
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local available, why = aotllvm.selected()
+    assert(available == true, why)
+    local status, output = run(("cd %s && ./scripts/toolchain kit %s"):format(quote(ROOT), FEATURES))
     assert(status == 0, output)
+    local kit = assert(output:match("([^\r\n]+)%s*$"), "toolchain named no kit")
+    local linkErr = aotllvm.linkStandalone(kit, executable, {}, {})
+    assert(linkErr == nil, linkErr)
     local source = directory .. "/fixture.lua"
     write(
         source,
