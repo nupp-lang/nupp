@@ -126,7 +126,7 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
         assertEq(#entry.forks, 12, "every process measurement is retained")
         for index, fork in ipairs(entry.forks) do
             assertEq(fork.index, index, "fork identity is retained")
-            assertEq(fork.measurement.samplesSec[2], 0.25, "raw ordered samples survive")
+            assertEq(fork.measurement.samplesMs[2], 0.25, "raw ordered samples survive")
         end
     end
     local verdict = comparison.verdicts[1]
@@ -158,6 +158,80 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     assertEq(verdict.withheld, "trend-warning", "trend withholding survives serialization")
     assertEq(verdict.interval, nil, "a withheld interval is absent")
     assertEq(verdict.verdict, "inconclusive", "a trend cannot acquire a confident verdict")
+    os.execute(("rm -rf %q"):format(working))
+end
+
+-- A baseline's schema is checked where it is read. A version three document kept
+-- its durations in seconds under other names, so it still reads for the
+-- deterministic counters and every duration verdict against it is inconclusive. A
+-- schema this version does not read is refused, naming both, rather than decoding
+-- as a baseline that matches nothing and passes.
+function M.aBaselineSchemaIsCheckedWhereItIsRead()
+    local working = workspace()
+    local stdout, stderr, baseline = working
+        .. "/stdout.json", working
+        .. "/stderr.txt", working
+        .. "/baseline.json"
+    local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
+
+    local function run(extra)
+        local command = ("%q bench --file %q --json %s > %q 2> %q"):format(NUPP, fixture, extra, stdout, stderr)
+
+        return os.execute(inWorkspace(working, command))
+    end
+
+    local function write(document)
+        local f = assert(io.open(baseline, "wb"))
+        f:write(json.encode(document))
+        f:close()
+    end
+
+    local function rename(value)
+        if type(value) ~= "table" then
+            return value
+        end
+        local renamed = {}
+        for key, item in pairs(value) do
+            if type(key) == "string" and key:match("%lMs$") and key ~= "p50Ms" and key ~= "p999Ms" then
+                key = key:gsub("Ms$", "Sec")
+            end
+            renamed[key] = rename(item)
+        end
+
+        return setmetatable(renamed, getmetatable(value))
+    end
+
+    local compared = ("--case '^fixed$' --forks 12 --baseline %q --margin 5"):format(baseline)
+    assertEq(run("--case '^fixed$' --forks 12"), 0, "the baseline run succeeds")
+    local current = json.decode(read(stdout))
+    assertEq(current.schema, 4, "a record is written at schema 4")
+
+    write(current)
+    assertEq(run(compared), 0, "a current baseline compares")
+    local comparison = json.decode(read(stdout)).comparisons[1]
+    assertEq(comparison.kind, "observational", "a current baseline is compared")
+    assertEq(#comparison.verdicts, 1, "a current baseline's durations are compared")
+
+    local older = rename(current)
+    older.schema = 3
+    write(older)
+    assertEq(run(compared), 0, "a version three baseline still reads")
+    comparison = json.decode(read(stdout)).comparisons[1]
+    assertEq(comparison.kind, "observational", "a version three baseline is compared")
+    local verdict = comparison.verdicts[1]
+    assertEq(verdict.interval, nil, "a version three baseline has no durations to compare")
+    assertEq(verdict.verdict, "inconclusive", "durations against a version three baseline are inconclusive")
+
+    current.schema = 5
+    write(current)
+    assertTrue(run(compared) ~= 0, "a foreign schema is refused")
+    local problem = read(stderr)
+    assertTrue(problem:find("has schema 5; this bench reads schema 4", 1, true) ~= nil, problem)
+
+    write({benchmarks = {}})
+    assertTrue(run(compared) ~= 0, "a document without a schema is refused")
+    problem = read(stderr)
+    assertTrue(problem:find("has schema none", 1, true) ~= nil, problem)
     os.execute(("rm -rf %q"):format(working))
 end
 
@@ -251,8 +325,8 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     assertEq(measurement.parameters.size, 2, "the parameter identity is structured")
     assertEq(measurement.sampleIterations, 2, "the declared sample batching is recorded")
     assertEq(measurement.operationsPerInvocation, 2, "operation normalization is recorded")
-    assertTrue(#measurement.samplesSec >= 3, "raw normalized samples are retained")
-    assertTrue(measurement.meanSec ~= nil and measurement.stdevSec ~= nil, "summary statistics are retained")
+    assertTrue(#measurement.samplesMs >= 3, "raw normalized samples are retained")
+    assertTrue(measurement.meanMs ~= nil and measurement.stdevMs ~= nil, "summary statistics are retained")
 
     os.execute(("rm -rf %q"):format(working))
 end
@@ -293,7 +367,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     -- needs every process's ordered samples, and a summary cannot give them back.
     assertEq(#document.benchmarks[1].forks, 1, "one fork was run and one fork was kept")
     assertTrue(
-        #document.benchmarks[1].forks[1].measurement.samplesSec >= 3,
+        #document.benchmarks[1].forks[1].measurement.samplesMs >= 3,
         "history includes each fork's raw samples rather than only a summary"
     )
     assertTrue(
@@ -375,7 +449,7 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
     assertEq(#benchmark.forks, 12, "every fork is retained structurally")
     for index, fork in ipairs(benchmark.forks) do
         assertEq(fork.index, index, "forks are recorded in execution order")
-        assertTrue(#fork.measurement.samplesSec > 0, "each fork keeps its own ordered samples")
+        assertTrue(#fork.measurement.samplesMs > 0, "each fork keeps its own ordered samples")
     end
 
     -- Fork one calibrates and the rest are told what it chose. Without this their
@@ -386,12 +460,12 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
         assertEq(fork.measurement.n, iterations, "every fork counted the same work")
     end
 
-    assertEq(#benchmark.summary.forkSummariesSec, 12, "one summary per process feeds the interval")
-    assertTrue(benchmark.summary.intervalLowSec ~= nil, "twelve forks support an interval")
+    assertEq(#benchmark.summary.forkSummariesMs, 12, "one summary per process feeds the interval")
+    assertTrue(benchmark.summary.intervalLowMs ~= nil, "twelve forks support an interval")
     assertTrue(benchmark.summary.intervalCoverage >= 0.95, "and it reports a coverage that clears the target")
     assertTrue(
-        benchmark.summary.intervalLowSec <= benchmark.summary.medianSec
-        and benchmark.summary.medianSec <= benchmark.summary.intervalHighSec,
+        benchmark.summary.intervalLowMs <= benchmark.summary.medianMs
+        and benchmark.summary.medianMs <= benchmark.summary.intervalHighMs,
         "the interval brackets the score"
     )
 

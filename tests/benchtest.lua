@@ -251,7 +251,7 @@ function M.formatsHumanResultsAsPerOperationScores()
     local bench = require("nupp.bench")
     local rendered = bench.format({
         cases = {
-            {name = "parse", kind = "case", n = 4, rounds = 7, medianSec = 0.000000004, allocatedKb = 0.5,},
+            {name = "parse", kind = "case", n = 4, rounds = 7, medianMs = 0.000004, allocatedKb = 0.5,},
             {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
         },
     })
@@ -283,7 +283,7 @@ function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
                 name = "copy.block",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000001,
+                medianMs = 0.001,
                 allocatedKb = 1.5,
                 suite = "copy",
                 caseName = "block",
@@ -308,10 +308,10 @@ function M.singleForkTableRefusesToCallItsSpreadAnInterval()
                 kind = "case",
                 n = 4,
                 rounds = 7,
-                medianSec = 0.000000004,
-                p25Sec = 0.0000000035,
-                p75Sec = 0.0000000052,
-                p99Sec = 0.0000000081,
+                medianMs = 0.000004,
+                p25Ms = 0.0000035,
+                p75Ms = 0.0000052,
+                p99Ms = 0.0000081,
             },
         },
     })
@@ -337,13 +337,13 @@ function M.replicatedTableReportsAttainedCoverage()
                     kind = "suite",
                     rounds = 40,
                     forkCount = 10,
-                    medianSec = 0.000000004,
+                    medianMs = 0.000004,
                     suite = "map",
                     caseName = "lookup",
                     variant = "table",
                     baselineVariant = "table",
-                    intervalLowSec = 0.0000000038,
-                    intervalHighSec = 0.0000000043,
+                    intervalLowMs = 0.0000038,
+                    intervalHighMs = 0.0000043,
                     intervalCoverage = 0.978515625,
                 },
             },
@@ -369,7 +369,7 @@ function M.withheldIntervalIsNamedInTheTable()
                     kind = "suite",
                     rounds = 40,
                     forkCount = 12,
-                    medianSec = 0.000000004,
+                    medianMs = 0.000004,
                     suite = "map",
                     caseName = "lookup",
                     variant = "table",
@@ -391,7 +391,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.lookup.table:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000000020,
+                medianMs = 0.00002,
                 suite = "map",
                 caseName = "lookup",
                 variant = "table",
@@ -402,7 +402,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.lookup.array:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000000010,
+                medianMs = 0.00001,
                 suite = "map",
                 caseName = "lookup",
                 variant = "array",
@@ -413,7 +413,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.lookup.table:size=200",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000000080,
+                medianMs = 0.00008,
                 suite = "map",
                 caseName = "lookup",
                 variant = "table",
@@ -424,7 +424,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.lookup.array:size=200",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000000020,
+                medianMs = 0.00002,
                 suite = "map",
                 caseName = "lookup",
                 variant = "array",
@@ -435,7 +435,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.insert.table:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000000030,
+                medianMs = 0.00003,
                 suite = "map",
                 caseName = "insert",
                 variant = "table",
@@ -446,7 +446,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.insert.array:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianSec = 0.000000060,
+                medianMs = 0.00006,
                 suite = "map",
                 caseName = "insert",
                 variant = "array",
@@ -773,10 +773,10 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
                 {
                     name = "x",
                     kind = "suite",
-                    medianSec = 0.000001,
+                    medianMs = 0.001,
                     allocatedKb = allocated,
                     abortSites = aborts,
-                    samplesSec = {1.0},
+                    samplesMs = {1.0},
                 },
             },
         }
@@ -829,7 +829,7 @@ function M.identicalForksReportNoDisagreement()
         return {
             allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
             remarks = {{code = "OPT-1", file = "a.nupp", message = "m", range = {start = {line = 1}}}},
-            cases = {{name = "x", kind = "suite", medianSec = 0.000001, abortSites = {}, samplesSec = {1.0}}},
+            cases = {{name = "x", kind = "suite", medianMs = 0.001, abortSites = {}, samplesMs = {1.0}}},
         }
     end
 
@@ -850,9 +850,9 @@ function M.mergeWithholdsIntervalsItCannotSupport()
                 {
                     name = "x",
                     kind = "suite",
-                    medianSec = median,
+                    medianMs = median,
                     abortSites = {},
-                    samplesSec = {median},
+                    samplesMs = {median},
                     trend = trend,
                 },
             },
@@ -865,7 +865,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
     end
     local scarce = runner.mergeForks("x", "a.nupp", few)
     assertEq(scarce.summary.intervalWithheld, "below-minimum-forks", "five forks cannot support an interval")
-    assertEq(scarce.summary.intervalLowSec, nil, "and none is invented")
+    assertEq(scarce.summary.intervalLowMs, nil, "and none is invented")
 
     local many = {}
     for index = 1, 12 do
@@ -873,7 +873,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
     end
     local settled = runner.mergeForks("x", "a.nupp", many)
     assertEq(settled.summary.intervalWithheld, nil, "twelve settled forks support one")
-    assertTrue(settled.summary.intervalLowSec ~= nil, "and it is present")
+    assertTrue(settled.summary.intervalLowMs ~= nil, "and it is present")
     assertTrue(settled.summary.intervalCoverage >= 0.95, "reporting the coverage it attained")
 
     local trending = {}
@@ -882,7 +882,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
     end
     local unsettled, trendNotes = runner.mergeForks("x", "a.nupp", trending)
     assertEq(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
-    assertEq(unsettled.summary.intervalLowSec, nil, "however many forks it ran")
+    assertEq(unsettled.summary.intervalLowMs, nil, "however many forks it ran")
     assertTrue(table.concat(trendNotes, "\n"):find("trend%-warning") ~= nil, "and the reason is reported")
 end
 
@@ -983,9 +983,9 @@ function M.mergeReportsAScatteredBenchmark()
                 {
                     name = "x",
                     kind = "suite",
-                    medianSec = 0.00000008,
+                    medianMs = 0.00008,
                     abortSites = {},
-                    samplesSec = samples,
+                    samplesMs = samples,
                     concentration = 0.09,
                 },
             },
@@ -1004,6 +1004,31 @@ function M.mergeReportsAScatteredBenchmark()
     assertTrue(table.concat(notes, "\n"):find("scattered") ~= nil, "the benchmark is named as scattered")
     assertTrue(table.concat(notes, "\n"):find("9%%") ~= nil, "with the concentration behind the judgement")
     assertTrue(merged.summary.concentration ~= nil, "and the figure is recorded")
+end
+
+-- ER-022: any JSON used to decode as a baseline. The schema is checked where a
+-- baseline is read, and the refusal names the record's schema and the ones this
+-- version reads.
+function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
+    local bench = require("nupp.bench")
+    assertEq(bench.SCHEMA, 4, "records are written at schema 4")
+    for _, schema in ipairs({2, 3, 4}) do
+        local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
+        assertTrue(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
+    end
+    local _, older = bench.decodeBaseline('{"schema":2,"cases":[]}', "b.json", 3)
+    assertTrue(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
+    for text, expected in pairs({
+        ['{"schema":5,"cases":[]}'] = "nupp: baseline b.json has schema 5; this bench reads schema 4, and 2 through 3",
+        ['{"schema":1.5}'] = "has schema 1.5",
+        ['{"cases":[]}'] = "has schema none",
+        ['[1, 2]'] = "nupp: baseline b.json is not a bench record",
+        ["not json"] = "is not a bench record",
+    }) do
+        local document, refused = bench.decodeBaseline(text, "b.json")
+        assertEq(document, nil, text .. " was read as a baseline")
+        assertTrue(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
+    end
 end
 
 return M

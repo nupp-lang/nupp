@@ -337,7 +337,7 @@ bench.suite(
         cases = decodeCases,
         warmupIterations = 3,
         minSamples = 7,
-        minDurationSec = 0.5,
+        minDurationMs = 500,
     } as bench.SuiteOptions
 )
 
@@ -353,7 +353,7 @@ bench.suite(
         cases = recognizeCases,
         warmupIterations = 3,
         minSamples = 7,
-        minDurationSec = 0.5,
+        minDurationMs = 500,
     } as bench.SuiteOptions
 )
 bench.report()

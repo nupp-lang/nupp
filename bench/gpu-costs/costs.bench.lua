@@ -100,8 +100,8 @@ bench.suite({
     warmupIterations = 1,
     sampleIterations = 64,
     minSamples = 7,
-    minDurationSec = 0.1,
+    minDurationMs = 100,
     maxSamples = 100000,
-    maxDurationSec = 3,
+    maxDurationMs = 3000,
 })
 bench.report()

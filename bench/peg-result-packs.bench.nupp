@@ -47,7 +47,7 @@ bench.suite(
         -- of every other one paying all of it.
         sampleIterations = 8,
         minSamples = 7,
-        minDurationSec = 0.5,
+        minDurationMs = 500,
     } as bench.SuiteOptions
 )
 bench.report()

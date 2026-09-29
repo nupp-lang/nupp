@@ -90,7 +90,7 @@ from `40.6` to `65.8 ns/op`. The old number was **18% low** because half the
 samples excluded work their own allocations caused.
 
 The upper end is p99 rather than p75 because a slow mode holding a tenth of the
-samples moves p99 and leaves p75 where it was. `p75Sec` is still in the record.
+samples moves p99 and leaves p75 where it was. `p75Ms` is still in the record.
 
 ## Keeping results alive
 
@@ -192,8 +192,8 @@ is kept for you, so a suite needs no `keep`.
 | `sampleIterations` | 1 | `run` calls per timed sample. Leave at 1 for a mutating workload; raise it when one call is too short to measure |
 | `operations` | 1 | Operations one `run` call represents, so the score stays `ns/op` |
 | `warmupIterations` | 10 | Untimed calls before sampling |
-| `minSamples`, `minDurationSec` | 15, 0.5 | Sampling stops once both are satisfied |
-| `maxSamples`, `maxDurationSec` | 100000, 10 | Safety bounds; hitting one is an error, not an under-sampled result |
+| `minSamples`, `minDurationMs` | 15, 500 | Sampling stops once both are satisfied |
+| `maxSamples`, `maxDurationMs` | 100000, 10000 | Safety bounds; hitting one is an error, not an under-sampled result |
 
 Drop `sampleIterations` from the suite above and the fastest pair says so
 rather than publishing a number off a clock it outran:
@@ -481,6 +481,13 @@ Durations, the calibrated `n`, allocated bytes, retained-heap delta, and the
 says so, which is a result and a different one from a pass; a named baseline
 that is not there exits non-zero.
 
+A baseline's `schema` is checked where it is read. Records are written at
+schema 4, which keeps every duration in milliseconds under an `Ms` name. A
+schema 3 record kept them in seconds under `Sec` names, so it still reads for
+the deterministic gate while every duration verdict against it is inconclusive.
+Any other schema is refused, naming the one it holds and the ones this version
+reads, and `--accept` replaces it.
+
 Replication makes the abort gate stricter, not noisier. Whether a loop aborts is
 timing-dependent, so forks legitimately disagree; only a site present in
 **every** fork can gate:
@@ -566,6 +573,10 @@ root.comparison                     interleaved | observational
 A summary cannot give the forks back: recomputing the interval needs the
 per-fork summaries. A calibrated warmup classifier, which this does not ship,
 needs each process's ordered series.
+
+Every duration in a record is in milliseconds, and its field says so with an `Ms`
+suffix: `medianMs`, `samplesMs`, `forkSummariesMs`, `intervalLowMs`, and the
+suite options `minDurationMs` and `maxDurationMs`.
 
 `build/bench-record.json` always holds the latest complete record. `--history`
 appends the same document as NDJSON once every selected benchmark reported.

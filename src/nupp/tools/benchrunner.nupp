@@ -25,12 +25,19 @@ local statistics = require("nupp.bench.internal.statistics")
 local system = require("nupp.system")
 local time = require("nupp.time")
 local type Bench = {
+    SCHEMA: integer,
     compare: function(any, any): ({string}, {string}),
+    decodeBaseline: function(string, string, integer?): (any, string?),
     format: function(any, any?): string
 }
 local bench = require("nupp.bench") as Bench
 local compare = bench.compare
 local format = bench.format
+
+--- The oldest runner document that still reads as a baseline. Three is the first
+--- that held one record per fork; it reads with its deterministic counters and no
+--- durations, since those were seconds under other names.
+local OLDEST_BASELINE_SCHEMA: integer = 3
 
 --- Where a child is told to write, and where the merged record goes.
 local RECORD_OUT = "build/bench-case.json"
@@ -678,10 +685,10 @@ local function progressLine(record: any, name: string, wallSec: number): string
     if measurement.kind == "case" then
         local n = measurement.n or 0
         if n > 0 then
-            score = (measurement.medianSec or 0.0) * 1000000000.0 / n
+            score = (measurement.medianMs or 0.0) * 1000000.0 / n
         end
     elseif measurement.kind == "suite" then
-        score = (measurement.medianSec or 0.0) * 1000000000.0
+        score = (measurement.medianMs or 0.0) * 1000000.0
         countLabel = "samples"
     else
         score = measurement.p50Ms or 0.0
@@ -719,16 +726,16 @@ local function usableRecord(record: any): boolean
         return false
     end
     if measurement.kind == "case" then
-        return type(measurement.n) == "number" and measurement.n >= 1 and measurement.medianSec ~= nil
+        return type(measurement.n) == "number" and measurement.n >= 1 and measurement.medianMs ~= nil
     end
     if measurement.kind == "suite" then
-        return measurement.medianSec ~= nil
+        return measurement.medianMs ~= nil
     end
 
     return measurement.p50Ms ~= nil
 end
 
---- One measurement's score in seconds per represented operation.
+--- One measurement's score in milliseconds per represented operation.
 ---
 --- The three kinds store their score differently, and everything statistical below
 --- compares across benchmarks, so they are brought to one scale here and put back
@@ -743,13 +750,13 @@ local function perOperation(measurement: any): number
             return 0.0
         end
 
-        return (measurement.medianSec or 0.0) / n
+        return (measurement.medianMs or 0.0) / n
     end
     if measurement.kind == "suite" then
-        return measurement.medianSec or 0.0
+        return measurement.medianMs or 0.0
     end
 
-    return (measurement.p50Ms or 0.0) / 1000.0
+    return measurement.p50Ms or 0.0
 end
 
 --- The inverse of `perOperation`, so a merged value lands in the field the formatter
@@ -908,7 +915,7 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         merged[key] = value
     end
     merged.forkCount = #summaries
-    merged.forkSummariesSec = summaries
+    merged.forkSummariesMs = summaries
     merged.abortSites = unanimousAborts
 
     -- A process showing a monotone trend has not settled, so its median describes a
@@ -930,9 +937,9 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
     end
     local unsettled = tested > 0 and trending * 2 >= tested
     if #summaries > 0 then
-        merged.medianSec = fromPerOperation(firstMeasurement, statistics.median(summaries))
+        merged.medianMs = fromPerOperation(firstMeasurement, statistics.median(summaries))
         if firstMeasurement and firstMeasurement.kind == "frames" then
-            merged.p50Ms = statistics.median(summaries) * 1000.0
+            merged.p50Ms = statistics.median(summaries)
         end
     end
 
@@ -959,8 +966,8 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
     else
         local interval = statistics.medianInterval(summaries)
         if interval then
-            merged.intervalLowSec = fromPerOperation(firstMeasurement, interval.low)
-            merged.intervalHighSec = fromPerOperation(firstMeasurement, interval.upper)
+            merged.intervalLowMs = fromPerOperation(firstMeasurement, interval.low)
+            merged.intervalHighMs = fromPerOperation(firstMeasurement, interval.upper)
             merged.intervalCoverage = interval.attainedCoverage
         else
             merged.intervalWithheld = "below-minimum-forks"
@@ -1009,7 +1016,7 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         local total: integer = 0
         for _, fork in ipairs(forks) do
             local measurement = onlyMeasurement(fork)
-            total = (total + ((measurement and measurement.samplesSec) and #measurement.samplesSec or 0)) as integer
+            total = (total + ((measurement and measurement.samplesMs) and #measurement.samplesMs or 0)) as integer
         end
         notes[
             #notes + 1
@@ -1039,7 +1046,7 @@ end
 --- The record shape `bench.compare` reads, assembled from a merged benchmark.
 local function comparableRecord(entry: any): any
     return {
-        schema = 3,
+        schema = bench.SCHEMA,
         cases = {entry.summary,},
         executionProfile = entry.executionProfile,
         remarks = entry.remarks,
@@ -1173,7 +1180,7 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
     local style = cli.style(io.stdout)
     local rows: {{cli.Cell}} = {}
     for _, entry in ipairs(merged) do
-        local summaries = entry.summary.forkSummariesSec or {}
+        local summaries = entry.summary.forkSummariesMs or {}
         local variation = statistics.coefficientOfVariation(summaries)
         local tight = statistics.forksForPrecision(variation, 0.02)
         local loose = statistics.forksForPrecision(variation, 0.05)
@@ -1440,7 +1447,16 @@ function runner.run(options: runner.Options): integer
     if baselinePath then
         local text = readFile(baselinePath)
         if text then
-            previous = json.decode(text)
+            local document, refused = bench.decodeBaseline(text, baselinePath, OLDEST_BASELINE_SCHEMA)
+            -- Accepting replaces the file, so one this version cannot read is only
+            -- replaced; otherwise it is an error rather than a missing baseline.
+            if refused then
+                io.stderr:write(refused, accept and "; replacing it\n" or "\n")
+                if not accept then
+                    return 1
+                end
+            end
+            previous = document
         end
         -- A named baseline that is not there is not a pass. Exiting zero here is how a
         -- lost baseline comes to look exactly like a clean run.
@@ -1621,7 +1637,7 @@ function runner.run(options: runner.Options): integer
     end
 
     local document = {
-        schema = 3,
+        schema = bench.SCHEMA,
         recordedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         label = label,
         forks = forks,
@@ -1653,8 +1669,8 @@ function runner.run(options: runner.Options): integer
         for _, entry in ipairs(merged) do
             local other = againstByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
             if other then
-                local current = entry.summary.forkSummariesSec or {}
-                local before = other.summary.forkSummariesSec or {}
+                local current = entry.summary.forkSummariesMs or {}
+                local before = other.summary.forkSummariesMs or {}
                 local change, interval, pValue = durationChange(current, before, true)
                 local withheld = entry.summary.intervalWithheld or other.summary.intervalWithheld
                 -- Written out rather than folded into one expression. `withheld and nil
@@ -1722,8 +1738,8 @@ function runner.run(options: runner.Options): integer
                     notes[#notes + 1] = entry.name .. ": " .. item
                 end
                 if margin and sameMachine then
-                    local current = entry.summary.forkSummariesSec or {}
-                    local before = was.summary and was.summary.forkSummariesSec or {}
+                    local current = entry.summary.forkSummariesMs or {}
+                    local before = was.summary and was.summary.forkSummariesMs or {}
                     local change, interval, pValue = durationChange(current, before, false)
                     local withheld = entry.summary.intervalWithheld
                     if withheld then

@@ -32,9 +32,9 @@ bench.suite(
         warmupIterations = 1,
         sampleIterations = 2,
         minSamples = 3,
-        minDurationSec = 0.000000001,
+        minDurationMs = 0.000001,
         maxSamples = 5,
-        maxDurationSec = 0.1,
+        maxDurationMs = 100,
     } as bench.SuiteOptions
 )
 bench.report()
