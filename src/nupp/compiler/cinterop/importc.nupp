@@ -820,9 +820,15 @@ local function integerLiteral(text: string): (importc.CValue?, string?)
     if not digits or not suffix then
         return nil
     end
-    local value = tonumber(digits, base) as number
-    if value > EXACT then
-        return nil, text .. " is too large to hold exactly"
+    -- Digit by digit rather than `tonumber(digits, base)`: LuaJIT converts a
+    -- non-decimal base through C's `unsigned long`, which is 32 bits on Windows,
+    -- so a 64-bit literal came back saturated and small enough to emit.
+    local value = 0
+    for index = 1, #digits do
+        value = value * base + (tonumber(digits:sub(index, index), 16) as number)
+        if value > EXACT then
+            return nil, text .. " is too large to hold exactly"
+        end
     end
     local lower = suffix:lower()
     local unsigned = lower:find("u", 1, true) ~= nil

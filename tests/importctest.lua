@@ -258,6 +258,7 @@ function M.macroValuesFollowCSemantics()
       "#define CV_TEXT \"a\\101\" \"b\"",
       "#define CV_HEXLIKE (a + 1)",
       "#define CV_BIG 0xFFFFFFFFFFFFFFFFULL",
+      "#define CV_WIDE 0x100000000",
       "#define CV_ZERO_DIV (1 / 0)",
    }, "\n") .. "\n")
    local text = assert(importc.import(path))
@@ -274,6 +275,7 @@ function M.macroValuesFollowCSemantics()
    assertContains(text, "local CV_CAST: number = 44")
    assertContains(text, "local CV_CHAR: number = 65")
    assertContains(text, 'local CV_TEXT: string = "aAb"', "C escapes are octal")
+   assertContains(text, "local CV_WIDE: number = 4294967296", "a literal wider than 32 bits keeps every bit")
    for _, name in ipairs({"CV_HEXLIKE", "CV_BIG", "CV_ZERO_DIV"}) do
       assert(not text:find("local " .. name, 1, true), name .. " must not be emitted:\n" .. text)
       assertContains(text, "-- import-c: skipped macro " .. name)
