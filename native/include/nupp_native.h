@@ -24,10 +24,20 @@
 
 #define NUPP_NATIVE_OK 0
 #define NUPP_NATIVE_INVALID_ARGUMENT 1
+/* A handle table or a provider resource limit is exhausted. */
 #define NUPP_NATIVE_CAPACITY 2
 #define NUPP_NATIVE_STALE_HANDLE 3
 #define NUPP_NATIVE_CLOSED 4
 #define NUPP_NATIVE_INTERNAL 5
+/* An output buffer is too small, and the call's length output holds the byte
+ * count it needs. nuppNativeBytesCopy still answers CAPACITY here, because the
+ * pinned stage-zero compiler reads that code as its size-probe answer. */
+#define NUPP_NATIVE_BUFFER_TOO_SMALL 6
+/* A value does not fit the range its ABI type, or Nupp's exact integers, can
+ * carry. */
+#define NUPP_NATIVE_OUT_OF_RANGE 7
+/* The facility is absent from this machine, such as a GPU adapter. */
+#define NUPP_NATIVE_UNAVAILABLE 8
 
 #define NUPP_NATIVE_FEATURE_BASE (UINT64_C(1) << 0)
 #define NUPP_NATIVE_FEATURE_UUID (UINT64_C(1) << 1)

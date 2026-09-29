@@ -199,6 +199,9 @@ pub unsafe extern "C" fn nuppNativeBytesCopy(
     };
     // SAFETY: `output_length` was checked above.
     unsafe { output_length.write(value.len()) };
+    // CAPACITY rather than BUFFER_TOO_SMALL: the pinned stage-zero compiler
+    // reads this code as the answer to its size probe. It moves once a pinned
+    // release accepts both.
     if capacity < value.len() {
         return failed(Status::Capacity, "byte copy output is too small");
     }
@@ -278,8 +281,11 @@ pub unsafe extern "C" fn nuppNativeXxh64Digest(
     output: *mut u8,
     capacity: usize,
 ) -> i32 {
-    if output.is_null() || capacity < 32 {
-        return failed(Status::Capacity, "XXH64 digest output needs 32 bytes");
+    if capacity < 32 {
+        return failed(Status::BufferTooSmall, "XXH64 digest output needs 32 bytes");
+    }
+    if output.is_null() {
+        return failed(Status::InvalidArgument, "XXH64 digest output is null");
     }
     let value = match input(data, length) {
         Ok(value) => nupp_native_platform::cache_digest(value),
@@ -296,8 +302,11 @@ unsafe fn write_uuid(
     output: *mut u8,
     capacity: usize,
 ) -> i32 {
-    if output.is_null() || capacity < 37 {
-        return failed(Status::Capacity, "UUID output needs 37 bytes");
+    if capacity < 37 {
+        return failed(Status::BufferTooSmall, "UUID output needs 37 bytes");
+    }
+    if output.is_null() {
+        return failed(Status::InvalidArgument, "UUID output is null");
     }
     let value = match make() {
         Ok(value) => value,
@@ -403,6 +412,13 @@ mod tests {
             0
         );
         assert_eq!(&data[..length], b"abc");
+        // The pinned stage zero reads CAPACITY as the answer to its size
+        // probe, so this one call keeps it rather than BUFFER_TOO_SMALL.
+        assert_eq!(
+            unsafe { nuppNativeBytesCopy(handle, data.as_mut_ptr(), 2, &mut length) },
+            Status::Capacity.code()
+        );
+        assert_eq!(length, 3);
         assert_eq!(nuppNativeBytesRelease(handle), 0);
         assert_eq!(nuppNativeBytesRelease(handle), Status::StaleHandle.code());
     }
@@ -412,7 +428,7 @@ mod tests {
         let mut short = [0; 31];
         assert_eq!(
             unsafe { nuppNativeXxh64Digest(ptr::null(), 0, short.as_mut_ptr(), short.len()) },
-            Status::Capacity.code()
+            Status::BufferTooSmall.code()
         );
         let mut output = [0; 32];
         assert_eq!(
@@ -441,7 +457,7 @@ mod tests {
         assert_eq!(output[36], 0);
         assert_eq!(
             unsafe { nuppNativeUuid7(output.as_mut_ptr(), 36) },
-            Status::Capacity.code()
+            Status::BufferTooSmall.code()
         );
     }
 }

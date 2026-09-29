@@ -399,7 +399,7 @@ pub unsafe extern "C" fn nuppNativeTlsProtocol(
         present.write(i32::from(protocol.is_some()));
     }
     if bytes.len() > capacity {
-        return super::failed(Status::Capacity, "TLS protocol output is too small");
+        return super::failed(Status::BufferTooSmall, "TLS protocol output is too small");
     }
     if !bytes.is_empty() {
         // SAFETY: the capacity check above proves the protocol fits.

@@ -1,6 +1,7 @@
 #include "nupp_native.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* These records are read and written directly across the C/Rust boundary.
@@ -71,6 +72,30 @@ static int failed(const char *operation, int32_t status) {
     return 1;
 }
 
+/* Selects which GPU backends a context may use. wgpu reads WGPU_BACKEND each
+ * time a context is created, so one process can ask for an adapter the machine
+ * cannot have and then for a real one. */
+static void gpu_backend(const char *name) {
+#if defined(_WIN32)
+    _putenv_s("WGPU_BACKEND", name ? name : "");
+#else
+    if (name) {
+        setenv("WGPU_BACKEND", name, 1);
+    } else {
+        unsetenv("WGPU_BACKEND");
+    }
+#endif
+}
+
+/* A backend no adapter on this platform answers to. */
+static const char *absent_gpu_backend(void) {
+#if defined(__APPLE__)
+    return "dx12";
+#else
+    return "metal";
+#endif
+}
+
 int main(void) {
     size_t length = 0;
     uint8_t uuid[37];
@@ -139,6 +164,33 @@ int main(void) {
         fprintf(stderr, "invalid GPU context description was accepted\n");
         return 1;
     }
+    {
+        uint64_t bytes = 0;
+        uint8_t one[1];
+        size_t bytes_length = 0;
+        status = nuppNativeFilesCurrentDirectory(&bytes);
+        if (status != NUPP_NATIVE_OK) {
+            return failed("current directory", status);
+        }
+        /* The pinned stage zero reads CAPACITY as its size-probe answer, so
+         * this copy keeps it where every other short output answers
+         * BUFFER_TOO_SMALL. */
+        status = nuppNativeBytesCopy(bytes, one, sizeof one, &bytes_length);
+        nuppNativeBytesRelease(bytes);
+        if (status != NUPP_NATIVE_CAPACITY || bytes_length <= sizeof one) {
+            fprintf(stderr, "a short byte copy did not answer CAPACITY\n");
+            return 1;
+        }
+    }
+    {
+        uint64_t context = 0;
+        gpu_backend(absent_gpu_backend());
+        status = nuppNativeGpuContextCreate(&context);
+        gpu_backend(NULL);
+        if (status != NUPP_NATIVE_UNAVAILABLE) {
+            return failed("GPU context without an adapter", status);
+        }
+    }
     status = nuppNativeFilesInfo(current, 1, &file_info);
     if (status != NUPP_NATIVE_OK) return failed("filesystem info", status);
     if (file_info.kind != 2) {
@@ -177,7 +229,7 @@ int main(void) {
         return 1;
     }
     if (nuppNativeUuid4(uuid, sizeof uuid - 1)
-        != NUPP_NATIVE_CAPACITY) {
+        != NUPP_NATIVE_BUFFER_TOO_SMALL) {
         fprintf(stderr, "uuid4 accepted a short output\n");
         return 1;
     }
@@ -195,6 +247,18 @@ int main(void) {
     status = nuppNativeUriParse((const uint8_t *)"https://EXAMPLE.com",
         sizeof "https://EXAMPLE.com" - 1, &uri);
     if (status != NUPP_NATIVE_OK) return failed("URI parse", status);
+    {
+        uint8_t small[2];
+        size_t part_length = 0;
+        int32_t present = 0;
+        /* Kind 5 is the host, which is longer than the output. */
+        if (nuppNativeUriPart(uri, 5, small, sizeof small, &part_length,
+                &present) != NUPP_NATIVE_BUFFER_TOO_SMALL
+            || part_length != sizeof "example.com" - 1 || !present) {
+            fprintf(stderr, "a short URI part output was not too small\n");
+            return 1;
+        }
+    }
     status = nuppNativeUriRelease(uri);
     if (status != NUPP_NATIVE_OK) return failed("URI release", status);
     if (nuppNativeUriRelease(uri) != NUPP_NATIVE_STALE_HANDLE) {

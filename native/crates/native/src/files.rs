@@ -152,7 +152,7 @@ fn modified(value: Option<SystemTime>) -> f64 {
 fn exact_file_size(value: u64) -> Result<i64, i32> {
     if value > filesystem::MAX_EXACT_INTEGER {
         return Err(super::failed(
-            Status::Capacity,
+            Status::OutOfRange,
             "file size exceeds Nupp's exact integer range",
         ));
     }
@@ -512,7 +512,7 @@ pub unsafe extern "C" fn nuppNativeFileSeek(
     let position = match file.seek(offset, origin) {
         Ok(value) => match i64::try_from(value) {
             Ok(value) => value,
-            Err(_) => return super::failed(Status::Capacity, "file position exceeds int64"),
+            Err(_) => return super::failed(Status::OutOfRange, "file position exceeds int64"),
         },
         Err(error) => return io_failed(error),
     };

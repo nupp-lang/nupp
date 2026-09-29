@@ -13,10 +13,17 @@ pub const ABI_VERSION: u32 = 2;
 pub enum Status {
     Ok = 0,
     InvalidArgument = 1,
+    /// A handle table or a provider resource limit is exhausted.
     Capacity = 2,
     StaleHandle = 3,
     Closed = 4,
     Internal = 5,
+    /// An output buffer is too small; the call reports the size it needs.
+    BufferTooSmall = 6,
+    /// A value does not fit the range its ABI type or the caller can carry.
+    OutOfRange = 7,
+    /// The facility is absent from this machine, such as a GPU adapter.
+    Unavailable = 8,
 }
 
 impl Status {

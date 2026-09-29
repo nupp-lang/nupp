@@ -207,7 +207,7 @@ unsafe fn copy_transport_error(
     if unsafe { copy(transfer, output, capacity, length) } {
         Status::Ok.code()
     } else if unsafe { length.read() } > capacity {
-        Status::Capacity.code()
+        Status::BufferTooSmall.code()
     } else {
         Status::Internal.code()
     }
@@ -434,7 +434,10 @@ pub unsafe extern "C" fn nuppNativeHttpTransferPollHead(
         return Status::Ok.code();
     }
     if url_capacity < head.url_length || headers_capacity < head.headers_length {
-        return failed(Status::Capacity, "HTTP response head output is too small");
+        return failed(
+            Status::BufferTooSmall,
+            "HTTP response head output is too small",
+        );
     }
     if head.url_length != 0 {
         // SAFETY: the transport retains immutable head bytes and capacity was checked.

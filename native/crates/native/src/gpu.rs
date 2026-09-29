@@ -57,8 +57,8 @@ fn gpu_status(error: &GpuError) -> Status {
         | GpuError::DownloadMismatch { .. } => Status::InvalidArgument,
         GpuError::StaleHandle(_) => Status::StaleHandle,
         GpuError::Capacity => Status::Capacity,
-        GpuError::AdapterUnavailable(_)
-        | GpuError::DeviceRequest(_)
+        GpuError::AdapterUnavailable(_) => Status::Unavailable,
+        GpuError::DeviceRequest(_)
         | GpuError::Validation(_)
         | GpuError::Device(_)
         | GpuError::Poll(_)
@@ -210,7 +210,7 @@ pub unsafe extern "C" fn nuppNativeGpuContextDescription(
         }
         if capacity <= description.len() {
             return Err((
-                Status::Capacity,
+                Status::BufferTooSmall,
                 "context description output is too small".to_owned(),
             ));
         }
@@ -456,12 +456,15 @@ pub unsafe extern "C" fn nuppNativeGpuDownloadRead(
     boundary(|| {
         let expected = usize::try_from(size).map_err(|_| {
             (
-                Status::Capacity,
+                Status::OutOfRange,
                 "download does not fit the host address space".to_owned(),
             )
         })?;
         if capacity < expected || (expected != 0 && output.is_null()) {
-            return Err((Status::Capacity, "download output is too small".to_owned()));
+            return Err((
+                Status::BufferTooSmall,
+                "download output is too small".to_owned(),
+            ));
         }
         let bytes = with_context(context, |gpu| gpu.read_download(buffer, offset, size))?;
         let start = nupp_native_gpu::costs::clock();
@@ -567,7 +570,7 @@ mod tests {
     fn a_missing_adapter_is_not_the_caller_s_mistake() {
         assert_eq!(
             gpu_status(&GpuError::AdapterUnavailable("none".to_owned())),
-            Status::Internal
+            Status::Unavailable
         );
         assert_eq!(
             gpu_status(&GpuError::CostOutput("disk full".to_owned())),

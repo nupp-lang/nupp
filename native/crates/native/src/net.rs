@@ -986,7 +986,10 @@ pub unsafe extern "C" fn nuppNativeNetAddressText(
     // SAFETY: length was checked above.
     unsafe { length.write(value.len()) };
     if capacity < value.len() {
-        return super::failed(Status::Capacity, "network address text output is too small");
+        return super::failed(
+            Status::BufferTooSmall,
+            "network address text output is too small",
+        );
     }
     if !value.is_empty() {
         // SAFETY: output is writable for capacity bytes, which is sufficient.

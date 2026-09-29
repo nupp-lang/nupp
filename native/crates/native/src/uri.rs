@@ -143,7 +143,7 @@ pub unsafe extern "C" fn nuppNativeUriPart(
         return Status::Ok.code();
     }
     if capacity < bytes.len() {
-        return failed(Status::Capacity, "URI component output is too small");
+        return failed(Status::BufferTooSmall, "URI component output is too small");
     }
     if !bytes.is_empty() {
         // SAFETY: the caller promised `capacity` writable bytes.

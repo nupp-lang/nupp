@@ -96,8 +96,10 @@ int32_t nuppNativeHttpClientWait(
 local ffi = native.ffi
 const C = native.C
 
--- Immediate ABI status used by query/copy calls and admission.
+-- Immediate ABI statuses: a client refusing admission, and a query or copy
+-- whose output needs more room.
 const ABI_CAPACITY = 2
+const ABI_BUFFER_TOO_SMALL = 6
 
 -- What polling the headers answers.
 const HEAD_PENDING = 0
@@ -349,7 +351,7 @@ local record Transfer is NativeTransfer
         local out = native.ffi.new("NuppNativeHttpHead[1]")
         local status = C.nuppNativeHttpTransferPollHead(raw(self._handle), out, nil, 0, nil, 0)
         local state = tonumber(out[0].state) as integer
-        if status ~= 0 and status ~= ABI_CAPACITY then
+        if status ~= 0 and status ~= ABI_BUFFER_TOO_SMALL then
             return "failed", nil, nil, nil, nil, lastError()
         end
         if state == HEAD_PENDING then
