@@ -75,6 +75,7 @@ unselected fields are omitted:
 ```nupp
 const json = nupp.codec.json
 
+local source = '[{"id": 1, "role": "admin", "profile": {"name": "Ada", "age": 36}}]'
 local users, reason = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
 ```
 

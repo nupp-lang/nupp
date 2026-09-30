@@ -92,23 +92,26 @@ end
 -- marker, a `--[[ ]]` body as written, and `false` for a line of code, which ends any
 -- fence a docblock left open.
 local function commentLines(text)
-   local lines, inBlock = {}, false
+   -- `closer` is the `]]`, `]=]` and so on the open block comment ends at, so a header
+   -- opened with `--[==[` may show a `[[...]]` string inside it.
+   local lines, closer = {}, nil
    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-      if inBlock then
-         local before = line:match("^(.-)%]%]")
-         if before then
-            lines[#lines + 1] = before
-            inBlock = false
+      if closer then
+         local at = line:find(closer, 1, true)
+         if at then
+            lines[#lines + 1] = line:sub(1, at - 1)
+            closer = nil
          else
             lines[#lines + 1] = line
          end
       else
-         local opened = line:match("^%s*%-%-%[=*%[(.*)$")
+         local level, opened = line:match("^%s*%-%-%[(=*)%[(.*)$")
          if opened then
-            if opened:find("]]", 1, true) then
+            local close = "]" .. level .. "]"
+            if opened:find(close, 1, true) then
                lines[#lines + 1] = false
             else
-               inBlock = true
+               closer = close
                lines[#lines + 1] = opened
             end
          else
