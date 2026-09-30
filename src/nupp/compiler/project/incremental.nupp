@@ -977,8 +977,124 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Checking a deep graph from the bottom
+    ---------------------------------------------------------------------
+
+    -- A module's check asks for each import's interface, and that checks the import, so
+    -- a graph is checked by recursion as deep as its longest require chain. The Lua
+    -- stack has room for about a thousand modules of that, and a chain longer than
+    -- that ended the process with a stack overflow instead of an answer.
+    --
+    -- So a graph deeper than this is checked from the bottom first: every module the
+    -- file reaches, in the order a depth-first walk of the requires finishes them, so
+    -- each one's imports are already checked when it is and no check nests in another.
+    -- A shallower graph is checked exactly as it always was.
+    --
+    -- A module in a require cycle is left to be checked through the cycle, because
+    -- which member a cycle is entered by decides what the others see of it, and that
+    -- has to stay the answer the recursion gives. Nothing outside a cycle can see a
+    -- difference: a module that reached a module still being checked would be in a
+    -- cycle with it.
+    local DEEP_GRAPH = 64
+
+    -- The walk's state, kept for one revision so a build that checks every file walks
+    -- the graph once rather than once per file.
+    local walk: any = {revision = -1}
+
+    local function checkFromTheBottom(path: string): nil
+        if #q.stack > 0 then
+            return
+        end
+        if walk.revision ~= q.revision then
+            walk = {revision = q.revision, index = {}, low = {}, height = {}, cyclic = {}, count = 0}
+        end
+        local index, low, height, cyclic = walk.index, walk.low, walk.height, walk.cyclic
+        if index[path] then
+            return
+        end
+        -- Tarjan's components, iteratively, because a recursive walk is what this is
+        -- here to avoid.
+        local finished: {string} = {}
+        local open: {string} = {}
+        local onOpen: {[string]: boolean} = {}
+        local frames: {any} = {}
+
+        local function visit(node: string): nil
+            walk.count = walk.count + 1
+            index[node], low[node] = walk.count, walk.count
+            open[#open + 1] = node
+            onOpen[node] = true
+            local targets: {string} = {}
+            local header = q:get("projectHeader", node)
+            for _, name in ipairs(header and header.dependencies or {}) do
+                local target = modulePath(q, name)
+                if target then
+                    targets[#targets + 1] = target
+                end
+            end
+            frames[#frames + 1] = {node = node, targets = targets, at = 0, height = 0}
+        end
+
+        visit(path)
+        while #frames > 0 do
+            local frame = frames[#frames]
+            frame.at = frame.at + 1
+            local target = frame.targets[frame.at]
+            if target == frame.node then
+                cyclic[target] = true
+            elseif target and not index[target] then
+                visit(target)
+            elseif target and onOpen[target] then
+                low[frame.node] = math.min(low[frame.node], index[target])
+            elseif target then
+                frame.height = math.max(frame.height, height[target] or 0)
+            else
+                frames[#frames] = nil
+                local node = frame.node
+                height[node] = frame.height + 1
+                local parent = frames[#frames]
+                if parent then
+                    low[parent.node] = math.min(low[parent.node], low[node])
+                    parent.height = math.max(parent.height, height[node])
+                end
+                if low[node] == index[node] then
+                    local members: {string} = {}
+                    repeat
+                        local member = open[#open]
+                        open[#open] = nil
+                        onOpen[member] = nil
+                        members[#members + 1] = member
+                    until member == node
+                    if #members > 1 then
+                        for _, member in ipairs(members) do
+                            cyclic[member] = true
+                        end
+                    end
+                end
+                finished[#finished + 1] = node
+            end
+        end
+        if height[path] <= DEEP_GRAPH then
+            return
+        end
+        for _, node in ipairs(finished) do
+            if node ~= path and not cyclic[node] then
+                q:get("checkModule", node)
+            end
+        end
+    end
+
     -- Full result for a file: parse + check diagnostics, parse result.
     local function apiCheckFile(path: string): incremental.CheckResult
+        -- A walk abandoned partway, by a cancelled request, would leave modules marked
+        -- as walked that were never checked; the next one starts over.
+        local walked, problem = pcall(checkFromTheBottom, path)
+        if not walked then
+            walk = {revision = -1}
+            error(problem, 0)
+        end
+
         return q:get("checkModule", path)
     end
 

@@ -116,6 +116,49 @@ function M.interfaceCutoffAcrossModules()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A check reaches each import through the query graph, so a long require chain
+-- used to be checked by recursion as deep as the chain, and past about a thousand
+-- modules the Lua stack ran out. A deep graph is now checked from the bottom.
+function M.aRequireChainDeeperThanTheStackIsChecked()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "'")
+    local count = 1500
+    local function write(path, text)
+        local f = assert(io.open(path, "wb"))
+        f:write(text)
+        f:close()
+    end
+    local function module(index, body)
+        local lines = {"module m" .. index, ""}
+        if index > 0 then
+            lines[#lines + 1] = ('const below = require("m%d")'):format(index - 1)
+        end
+        lines[#lines + 1] = "export function value(): number"
+        lines[#lines + 1] = "    return " .. body
+        lines[#lines + 1] = "end"
+        return table.concat(lines, "\n") .. "\n"
+    end
+    for index = 0, count - 1 do
+        write(("%s/m%d.nupp"):format(dir, index), module(index, index > 0 and "below.value() + 1" or "0"))
+    end
+
+    local inc = incremental.new(dir)
+    local top = ("%s/m%d.nupp"):format(dir, count - 1)
+    local ok, r = pcall(inc.checkFile, top)
+    assert(ok, "the chain is checked rather than overflowing: " .. tostring(r))
+    assertEq(#r.diags, 0, r.diags[1] and r.diags[1].msg or "clean")
+
+    -- An interface edit at the bottom rechecks the whole chain above it.
+    inc.changeDocument(dir .. "/m0.nupp", (module(0, "0"):gsub("%(%): number", "(): string"):gsub("return 0", 'return "0"')))
+    ok, r = pcall(inc.checkFile, top)
+    assert(ok, "the chain is rechecked rather than overflowing: " .. tostring(r))
+    local bottom = inc.checkFile(dir .. "/m1.nupp")
+    assertEq(bottom.diags[1] and bottom.diags[1].code, "NUPP2003", "the edit reaches the module above it")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.recursiveDerivedGraphRechecksAcrossThreeModules()
     local dir = os.tmpname()
     os.remove(dir)
