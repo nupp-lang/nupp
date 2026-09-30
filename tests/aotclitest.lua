@@ -773,6 +773,59 @@ return addMask
     end
 end
 
+-- A project whose build binds GPU declarations checks callers against the
+-- generated binding, so `nupp aot` over one of its files has to as well.
+-- It used to check the file with no binding at all, and `addMask:compile`
+-- was refused as a method on a function (NUPP2004).
+function M.gpuInspectionBindsDeclarationsTheProjectBinds()
+    local dir = project({
+        ["nupp.lua"] = [[
+return {
+    include = {"."},
+    build = {
+        targets = {
+            app = {
+                kind = "bundle",
+                entries = {"run"},
+                sources = {"."},
+                output = "dist/app.lua",
+                host = "browser",
+                aot = "require-wasm",
+            },
+        },
+    },
+}
+]],
+        ["run.nupp"] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local gpu = require("nupp.gpu")
+
+@aot(target = "gpu")
+local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        output[index] = nupp.math.u32.add(input[index], mask)
+    end
+end
+
+with context = gpu.open() do
+    with gpuInput = context:buffer(array.uint32, 2), gpuOutput = context:buffer(array.uint32, 2) do
+        with kernel = addMask:compile(context) do
+            with binding = kernel:bind(gpuOutput, gpuInput) do
+                binding:dispatch(nupp.math.u32.wrap(3))
+            end
+        end
+    end
+end
+]],
+    })
+    for _, emit in ipairs({"ir", "wgsl", "spirv"}) do
+        local out, code = run(dir, "--emit " .. emit .. " run.nupp")
+        test.equal(code, 0, out)
+    end
+end
+
 function M.loopFreeScalarExplainsWhyLanesDoNotApply()
     local dir = project({
         ["scalar.nupp"] = [[
