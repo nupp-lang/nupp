@@ -40,6 +40,11 @@ record explain.Entry
     --- why a program the reference calls wrong checks clean.
     strict: boolean
 
+    --- Whether the rule is only reported for a build target whose `aot` policy
+    --- compiles `@aot` functions, which is every policy but `off`. A file checked
+    --- on its own, or under `off`, is never lowered, so its `wrong` checks clean.
+    aot: boolean
+
     --- Codes worth reading beside it.
     related: {string}
 
@@ -1649,9 +1654,30 @@ ENTRIES[
     docs = "docs/learn/projects/build.md#target-capability-profiles",
 }
 
--- What AOT lowering refuses, as opposed to the checker's `@aot` rules above. No worked
--- examples: `nupp check` does not lower, so a `wrong` program would check clean, and
--- the examples are compiled by a test that expects the checker to report them.
+-- What AOT lowering refuses, as opposed to the checker's `@aot` rules above. A check
+-- lowers only for a target that compiles `@aot` functions, so these are marked `aot`
+-- and their examples are checked under one, pinned to aarch64 so a tier's lanes are
+-- the same on every machine that runs the test.
+-- A preferred species reads one vector; LANE names the lane taken out of it.
+local SIMD_LANE = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
+    .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
+    .. "local function lane(borrows input: span.Span<float>): number\n"
+    .. "    if species = simd.species(array.float) then\n        if species.lanes <= #input then\n"
+    .. "            return species:load(input, 1):extract(LANE)\n        end\n    end\n    return 0.0\nend\n\n"
+    .. "return {lane = lane}\n"
+
+-- A GPU map kernel with one uniform, PARAMETER, and one stored VALUE.
+local GPU_SCALE = "local span = require(\"nupp.mem.span\")\n\n@aot(target = \"gpu\")\nlocal function scale(\n"
+    .. "    exclusive output: span.WriteSpan<float>,\n    borrows input: span.Span<float>,\n    PARAMETER\n): nil\n"
+    .. "    assert(#output == #input, \"length mismatch\")\n    for index = 1, #output do\n"
+    .. "        output[index] = VALUE\n    end\nend\n\nreturn {scale = scale}\n"
+
+-- Nine calls, each closing the family over another constant when SIGNATURE is const.
+local CONST_FAMILY = "@aot\nlocal function SIGNATURE: number\n    local answer = value\n"
+    .. "    for _ = 1, BOUND do\n        answer = answer + value\n    end\n    return answer\nend\n\n"
+    .. "return repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4) + repeated(1.0, 5)\n"
+    .. "    + repeated(1.0, 6) + repeated(1.0, 7) + repeated(1.0, 8) + repeated(1.0, 9)\n"
+
 ENTRIES[
     #ENTRIES + 1
 ] = {
@@ -1664,6 +1690,11 @@ ENTRIES[
     .. "has to have a type the native ABI can carry. The message names the construct "
     .. "and what it would take. Rewrite that construct, or remove `@aot` and let the "
     .. "function run as ordinary Nupp.",
+    wrong = "@aot\nlocal function sign(value: number): number\n    if value then\n        return 1.0\n"
+    .. "    end\n    return 0.0\nend\n\nreturn {sign = sign}\n",
+    right = "@aot\nlocal function sign(value: number): number\n    if value > 0 then\n        return 1.0\n"
+    .. "    end\n    return 0.0\nend\n\nreturn {sign = sign}\n",
+    aot = true,
     related = {"NUPP2903", "NUPP2906"},
     docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }
@@ -1678,6 +1709,9 @@ ENTRIES[
     .. "lanes the tier's species has names a lane that does not exist there. Index "
     .. "within `species.lanes`, or keep the lane-specific code inside the branch "
     .. "that tested the species.",
+    wrong = SIMD_LANE:gsub("LANE", "5"),
+    right = SIMD_LANE:gsub("LANE", "1"),
+    aot = true,
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/simd.md#species-masks-and-tails",
 }
@@ -1691,6 +1725,9 @@ ENTRIES[
     .. "no dynamic allocation and a narrower set of types than a CPU kernel. The "
     .. "message names the rule the kernel broke. Keep the kernel to the map and "
     .. "workgroup forms the GPU page describes, or run it on the CPU.",
+    wrong = GPU_SCALE:gsub("PARAMETER", "enabled: boolean"):gsub("VALUE", "enabled and input[index] or 0.0"),
+    right = GPU_SCALE:gsub("PARAMETER", "factor: float"):gsub("VALUE", "input[index] * factor"),
+    aot = true,
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/gpu.md#inspection-and-limits",
 }
@@ -1704,6 +1741,10 @@ ENTRIES[
     .. "constant arguments its callers use, from a checked source, and a module "
     .. "may demand only so many of them. Pass fewer distinct constants, or make "
     .. "the varying argument an ordinary parameter.",
+    wrong = CONST_FAMILY:gsub("SIGNATURE", "repeated<const N: integer>(value: number, count: N)")
+        :gsub("BOUND", "count as integer"),
+    right = CONST_FAMILY:gsub("SIGNATURE", "repeated(value: number, count: integer)"):gsub("BOUND", "count"),
+    aot = true,
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/index.md#const-specialized-families",
 }
@@ -1714,8 +1755,9 @@ ENTRIES[
     code = "NUPP2909",
     summary = "A file given to AOT compilation has no `@aot` function",
     rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so "
-    .. "a file without one has nothing to show. A build that merely finds the word "
-    .. "`@aot` in a file's text does not report this.",
+    .. "a file without one has nothing to show. A build or a check that merely finds "
+    .. "the word `@aot` in a file's text does not report this, which is why there is "
+    .. "no example program here: only `nupp aot` reports it.",
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }
@@ -2569,6 +2611,7 @@ function explain.lookup(code: string): explain.Entry?
             wrong = entry.wrong,
             right = entry.right,
             strict = entry.strict and true or false,
+            aot = entry.aot and true or false,
             related = entry.related or {},
             docs = entry.docs,
             family = false
@@ -2589,6 +2632,7 @@ function explain.lookup(code: string): explain.Entry?
         wrong = nil,
         right = nil,
         strict = false,
+        aot = false,
         related = {},
         docs = lint and "docs/reference/lints.md#" .. lint.name or family.docs,
         family = true

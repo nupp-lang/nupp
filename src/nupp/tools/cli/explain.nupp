@@ -48,6 +48,12 @@ local REPORT_SCHEMA = {
                     description = "True when the rule is only reported under "
                     .. "--strict, or with strict = true in the manifest."
                 },
+                aot = {
+                    type = "boolean",
+                    description = "True when the rule is only reported for a build "
+                    .. "target whose aot policy compiles @aot functions: any "
+                    .. "policy but off."
+                },
                 class = {type = "string", description = "Trace reason class for a jit/* identity."},
                 repair = {type = "string", description = "Specific semantics-preserving repair, when known."},
                 reasonCatalog = {type = "object"},
@@ -124,6 +130,7 @@ local function run(options: any): integer
             docs = display.docs,
             family = display.family,
             strict = display.strict,
+            aot = display.aot,
             class = display.class,
             repair = display.repair,
             reasonCatalog = reason
@@ -166,6 +173,10 @@ local function run(options: any): integer
     if display.strict then
         out[#out + 1] = ""
         out[#out + 1] = style.faint("Reported only under --strict.")
+    end
+    if display.aot then
+        out[#out + 1] = ""
+        out[#out + 1] = style.faint("Reported only for a target whose aot policy compiles @aot functions.")
     end
     if display.family then
         out[#out + 1] = ""

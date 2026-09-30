@@ -83,6 +83,13 @@ local function section(
         out[#out + 1] = "This applies only under `--strict`, or in a `.nupp` file."
         out[#out + 1] = ""
     end
+    if entry.aot then
+        out[
+            #out + 1
+        ] = "This applies only to a build target whose `aot` policy compiles `@aot` "
+            .. "functions, which is every policy but `off`."
+        out[#out + 1] = ""
+    end
     if entry.right then
         out[#out + 1] = fence("Accepted", entry.right)
         out[#out + 1] = ""

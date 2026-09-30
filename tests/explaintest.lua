@@ -31,6 +31,12 @@ local M = {}
 -- live in the same one: they are separate modules, and a module says nothing
 -- about its neighbours.
 --
+-- A third holds what AOT lowering refuses. Only a target whose `aot` policy
+-- compiles `@aot` functions lowers them, so that project declares one, pinned to
+-- aarch64 so a feature tier has the same lanes wherever the suite runs. It is
+-- asked through `check`, which is the promise being kept: what a build of that
+-- target would refuse, a check of it reports.
+--
 -- The projects outlive the suite. Removing them would take an `afterAll`, and a
 -- suite carrying lifecycle hooks is never sliced across shards -- which this
 -- one, among the heaviest in the run, needs to be.
@@ -46,14 +52,19 @@ end
 --- Through `build` rather than `check`, because the generator reports too — the
 --- NUPP3 family is what a program that checks cleanly cannot be lowered to, so
 --- checking it would report nothing and the example would look wrong.
-local function reportedFor(strict)
-   local key = strict and "strict" or "lax"
+local function reportedFor(strict, aot)
+   local key = aot and "aot" or strict and "strict" or "lax"
    if reported[key] then return reported[key] end
    local dir = os.tmpname()
    os.remove(dir)
    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-   manifest:write('return {include = {"."}}\n')
+   if aot then
+      manifest:write('return {include = {"."}, build = {targets = {aot = {kind = "modules", '
+         .. 'aot = "require", aotTarget = "aarch64-apple-darwin"}}}}\n')
+   else
+      manifest:write('return {include = {"."}}\n')
+   end
    manifest:close()
    -- A missing require is visible only when the project really contains the
    -- module the unresolved name would bind.
@@ -65,7 +76,8 @@ local function reportedFor(strict)
 
    local names = {}
    for index, entry in ipairs(explain.entries) do
-      if (entry.strict and true or false) == strict then
+      if (entry.aot and true or false) == aot
+         and (aot or (entry.strict and true or false) == strict) then
          for _, which in ipairs({"wrong", "right"}) do
             if entry[which] then
                local name = fileFor(index, which)
@@ -81,8 +93,8 @@ local function reportedFor(strict)
    reported[key] = codes
    if #names == 0 then return codes end
 
-   local pipe = assert(io.popen(("cd '%s' && '%s' build %s--json %s 2>/dev/null")
-      :format(dir, NUPP, strict and "--strict " or "", table.concat(names, " "))))
+   local pipe = assert(io.popen(("cd '%s' && '%s' %s %s--json %s 2>/dev/null")
+      :format(dir, NUPP, aot and "check" or "build", strict and "--strict " or "", table.concat(names, " "))))
    local out = pipe:read("*a")
    pipe:close()
    local ok, decoded = pcall(json.decode, out)
@@ -98,9 +110,10 @@ local function reportedFor(strict)
 end
 
 --- Every code the compiler reports for one example. A strict-only rule is asked
---- for strictly, since otherwise its example would correctly report nothing.
+--- for strictly, and an AOT refusal of a target that lowers, since otherwise its
+--- example would correctly report nothing.
 local function codesFor(entry, index, which)
-   return reportedFor(entry.strict and true or false)[fileFor(index, which)] or {}
+   return reportedFor(entry.strict and true or false, entry.aot and true or false)[fileFor(index, which)] or {}
 end
 
 local function everyWrongExampleReportsTheCodeItIsFiledUnder()
@@ -131,6 +144,23 @@ end
 function M.everyWorkedExampleMatchesItsDiagnosticEntry()
    everyWrongExampleReportsTheCodeItIsFiledUnder()
    everyRightExampleReportsNothing()
+end
+
+-- What lowering refuses is reported by a check of a target that lowers, so each
+-- refusal a check can report has a worked pair, checked above under such a target.
+-- NUPP2909 is the one a check never reports: a build does not either.
+function M.everyAotRefusalACheckReportsHasAWorkedExample()
+   for _, code in ipairs({"NUPP2905", "NUPP2906", "NUPP2907", "NUPP2908"}) do
+      local entry = assert(explain.lookup(code), code)
+      assert(entry.aot == true, code .. " is marked as needing a target that lowers")
+      assert(entry.wrong and entry.right, code .. " has both examples")
+   end
+   local none = assert(explain.lookup("NUPP2909"))
+   assert(none.wrong == nil and none.aot == false, "NUPP2909 has no program a check reports")
+   local pipe = assert(io.popen(("'%s' explain NUPP2906 --json 2>/dev/null"):format(NUPP)))
+   local decoded = json.decode(pipe:read("*a"))
+   pipe:close()
+   assert(decoded.aot == true and decoded.strict == false, "the command says which targets report it")
 end
 
 function M.everyCodeResolvesThroughItsFamilyAtLeast()
