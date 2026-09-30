@@ -83,9 +83,13 @@ pub fn guard<T>(fallback: T, body: impl FnOnce() -> T) -> T {
                 "native provider panicked: {}",
                 panic_message(payload.as_ref())
             ));
-            // A payload's destructor may itself panic, and nothing here could
-            // catch that one, so it is leaked on this exceptional path.
-            std::mem::forget(payload);
+            // A payload's destructor may itself panic, so it is dropped under a
+            // second catch. Only the payload of that second panic, whose own
+            // destructor could panic again, is leaked; an ordinary message is
+            // freed, which LeakSanitizer reported when every payload was leaked.
+            if let Err(nested) = catch_unwind(AssertUnwindSafe(move || drop(payload))) {
+                std::mem::forget(nested);
+            }
             fallback
         }
     }
@@ -259,6 +263,22 @@ mod tests {
         assert_eq!(guard(7, || -> u32 { panic!("{}", 1) }), 7);
         with_last_error(|value| assert_eq!(value.to_bytes(), b"native provider panicked: 1"));
         assert_eq!(boundary(|| Status::Closed.code()), Status::Closed.code());
+    }
+
+    #[test]
+    fn a_payload_whose_destructor_panics_still_answers_the_fallback() {
+        // Both payloads are zero-sized, so neither allocates and the one the
+        // boundary leaks by design is nothing LeakSanitizer can see.
+        struct Bomb;
+        impl Drop for Bomb {
+            fn drop(&mut self) {
+                std::panic::panic_any(());
+            }
+        }
+        assert_eq!(guard(9, || -> u32 { std::panic::panic_any(Bomb) }), 9);
+        with_last_error(|value| {
+            assert_eq!(value.to_bytes(), b"native provider panicked: no message")
+        });
     }
 
     #[test]
