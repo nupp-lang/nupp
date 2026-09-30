@@ -162,6 +162,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     # A cold LLVM cache means building LLVM before anything else.
     timeout-minutes: 180
+    # A release without the code generator is refused rather than shipped.
+    env:
+      NUPP_REQUIRE_CODEGEN: '1'
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -439,7 +442,13 @@ jobs:
     name: Windows x86-64
     needs: build-unix
     runs-on: windows-2022
-    timeout-minutes: 45
+    # A cold LLVM cache means building LLVM before anything else.
+    timeout-minutes: 180
+    # A release without the code generator is refused rather than shipped. This
+    # job had no LLVM from the LLVM backend's merge until the first dry run
+    # after it, which is the only thing that noticed.
+    env:
+      NUPP_REQUIRE_CODEGEN: '1'
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -452,6 +461,10 @@ jobs:
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      # The nupp binary links the pinned LLVM (the AOT code generator).
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
 
       # The public catalog target keeps its established MSVC spelling, but the
       # host and its static C consumers are one MinGW ABI. Exercise that exact
