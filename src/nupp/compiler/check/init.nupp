@@ -2839,9 +2839,15 @@ function checkMod.check(
 
     --- Gives a hoisted nominal the identities of records nested anywhere beneath it.
     --- Their bodies are still filled when the owning declaration is checked, but an
-    --- earlier statement may already name `Owner.Nested`.
-    local function hoistNestedNominals(owner, entries)
+    --- earlier statement may already name `Owner.Nested`. Each one joins `hoisted`
+    --- with the declarations it sits inside, outermost first.
+    local function hoistNestedNominals(owner, entries, hoisted: {any}, owners: {any})
         owner.nestedTypes = owner.nestedTypes or {}
+        local within: {any} = {}
+        for j, enclosing in ipairs(owners) do
+            within[j] = enclosing
+        end
+        within[#within + 1] = owner
         for _, entry in ipairs(entries or {}) do
             if entry.kind == "recordDecl" then
                 local nested = entry.hoistedType or T.nominal(entry.name.text, entry.declKind)
@@ -2851,8 +2857,10 @@ function checkMod.check(
                 nested.staticByname = nested.staticByname or {}
                 nested.staticWriteByname = nested.staticWriteByname or {}
                 nested.runtimePath = (owner.runtimePath or owner.name) .. "." .. entry.name.text
+                nested.awaitingBody = true
                 owner.nestedTypes[entry.name.text] = nested
-                hoistNestedNominals(nested, entry.entries)
+                hoisted[#hoisted + 1] = {decl = entry, owners = within}
+                hoistNestedNominals(nested, entry.entries, hoisted, within)
             end
         end
     end
@@ -2945,9 +2953,9 @@ function checkMod.check(
                     n.typeParams, n.packParams, n.constParams = typeParams, packParams, constParams
                     n.paramKinds = paramKinds
                 end
-                hoistNestedNominals(n, decl.entries)
+                hoistedNominals[#hoistedNominals + 1] = {decl = decl, owners = {}}
+                hoistNestedNominals(n, decl.entries, hoistedNominals, {})
                 c.bindType(key, n, nil)
-                hoistedNominals[#hoistedNominals + 1] = decl
                 n.awaitingBody = true
             elseif k == "typeAlias" and decl.name and decl.value then
                 local waiting = {node = decl.value, tok = decl.name, decl = decl}
@@ -2967,13 +2975,29 @@ function checkMod.check(
         -- The ownership each declaration claims through `is`, before anything names
         -- it: `affine(T)` reads T's terminal as it resolves. Repeated until nothing
         -- changes, because a claim may come through an interface declared lower in
-        -- the block.
+        -- the block. A nested declaration reads its claims where its owner's body
+        -- would, with its siblings' names in scope.
         c.preclaiming = true
         for _ = 1, #hoistedNominals + 1 do
             local changed = false
-            for _, decl in ipairs(hoistedNominals) do
-                if decl.supertypes and c.preclaimAffine(decl, decl.hoistedType) then
-                    changed = true
+            for _, hoisted in ipairs(hoistedNominals) do
+                local decl = hoisted.decl
+                if decl.supertypes then
+                    local nested = #hoisted.owners > 0
+                    if nested then
+                        c.pushScope()
+                        for _, owner in ipairs(hoisted.owners) do
+                            for name, t in pairs(owner.nestedTypes or {}) do
+                                c.bindType(name, t, nil)
+                            end
+                        end
+                    end
+                    if c.preclaimAffine(decl, decl.hoistedType) then
+                        changed = true
+                    end
+                    if nested then
+                        c.popScope()
+                    end
                 end
             end
             if not changed then

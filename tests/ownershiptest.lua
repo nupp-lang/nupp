@@ -6414,6 +6414,48 @@ function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
     assertEq(chunk(), 12, "each acquisition is closed once at the end of its with")
 end
 
+-- The same inside one record's body: a nested declaration named above the nested
+-- one that claims Closeable. Its claim is read with its siblings' names in scope, so
+-- an outer interface of the same name as a nested one lends it nothing.
+function M.aNestedClaimDeclaredBelowItsFirstUseStillGivesATerminal()
+    local source = table.concat(
+        {
+            "local closed: integer = 0",
+            "local interface Resource end",
+            "local record Outer",
+            "   record Spec",
+            "      compile: function(borrows self: Outer.Spec): affine(Outer.Kernel)",
+            "      plain: function(borrows self: Outer.Spec): affine(Outer.Plain)",
+            "   end",
+            "   record Kernel is Resource",
+            "      function close(takes self): nil closed = closed + 1 end",
+            "   end",
+            "   record Plain is nupp.Closeable",
+            "      function close(takes self): nil closed = closed + 10 end",
+            "   end",
+            "   interface Resource is nupp.Closeable end",
+            "end",
+            "local spec = new Outer.Spec(",
+            "   compile = function(borrows self: Outer.Spec): affine(Outer.Kernel)",
+            "      return new Outer.Kernel()",
+            "   end,",
+            "   plain = function(borrows self: Outer.Spec): affine(Outer.Plain) return new Outer.Plain() end",
+            ")",
+            "with k = spec:compile() do end",
+            "with p = spec:plain() do end",
+            "return closed",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "ownership-nested-forward-claim")
+    assertEq(#genDiags, 0)
+    local chunk, loadErr = loadstring(code, "@ownership-nested-forward-claim")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    assertEq(chunk(), 11, "each acquisition is closed once at the end of its with")
+end
+
 -- Reading claims ahead of the bodies must not instantiate a generic declaration
 -- before it is filled: the instantiation would keep the half-built members and
 -- supertypes it was made from.
