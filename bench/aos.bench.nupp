@@ -80,7 +80,9 @@ bench.suite(
         minSamples = 5,
         minDurationMs = 500,
         maxSamples = 100,
-        maxDurationMs = 10000,
+        -- Eight table calls take about three seconds on a hosted runner, so ten
+        -- seconds stopped the baseline one sample short of minSamples.
+        maxDurationMs = 30000,
     } as bench.SuiteOptions
 )
 bench.report()
