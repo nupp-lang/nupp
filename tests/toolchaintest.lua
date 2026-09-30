@@ -168,6 +168,15 @@ function M.everyPinnedSourceHasANotice()
     end
 end
 
+-- Where a source comes from is the pin's to say. The driver used to spell four of
+-- the URLs out again beside the pins that named them, so editing a pin's URL moved
+-- nothing and the two could disagree about where a source lives.
+function M.theDriverFetchesOnlyFromThePins()
+    local driver = read(ROOT .. "/scripts/toolchain")
+    local url = driver:match("https?://[^%s\"']+")
+    assert(url == nil, "scripts/toolchain names a URL of its own: " .. tostring(url))
+end
+
 -- A pin written out a second time somewhere that cannot read the pins file. Each
 -- of these agreed only because whoever bumped the pin remembered it: the profiler
 -- labels a trace from any other LuaJIT unsupported, the notice every archive

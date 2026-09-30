@@ -22,6 +22,10 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$ROOT/scripts/toolchain.pins"
 
+# A pin's URL and directory are templates over its own version, so a bump moves
+# them with it and the pins file stays the one place a source is named.
+expand_pin() { eval "printf '%s' \"$1\""; }
+
 # Names shared with the archive fetching the host build already had, so a CI job
 # or an offline builder that supplies pinned archives keeps working unchanged.
 SOURCE_DIR=${NUPP_HOST_SOURCE_DIR:-}
@@ -426,10 +430,8 @@ stage0() {
     elif offline; then
         die "NUPP_HOST_OFFLINE is set and the $STAGE0_TAG stage-zero compiler is not cached; put $name.gz in NUPP_HOST_SOURCE_DIR"
     else
-        # Spelled out rather than expanded from the pin, which is how every
-        # other component here reaches its URL: the pin says where to look and
-        # the digest says what is acceptable.
-        url="https://github.com/nupp-lang/nupp/releases/download/$STAGE0_TAG/$name.gz"
+        # The pin says where to look and the digest says what is acceptable.
+        url=$(expand_pin "$STAGE0_URL")
         if [ -n "$SOURCE_BASE_URL" ]; then
             url="${SOURCE_BASE_URL%/}/$name.gz"
         fi
@@ -1117,8 +1119,8 @@ build_luajit() {
     luajit_intact "$out" && { release_lock; return 0; }
     [ -f "$out/.complete" ] && note "the cached LuaJIT is not what was installed; building it again"
 
-    directory="LuaJIT-$LUAJIT_REV"
-    url="https://github.com/LuaJIT/LuaJIT/archive/$LUAJIT_REV.tar.gz"
+    directory=$(expand_pin "$LUAJIT_DIRECTORY")
+    url=$(expand_pin "$LUAJIT_URL")
     luajit_source=$(source_tree "$directory" "$url" "$LUAJIT_SHA256" "$LUAJIT_MARKER")
     verify_notice "$luajit_source/COPYRIGHT" LuaJIT-COPYRIGHT.txt
 
@@ -1223,8 +1225,8 @@ build_luarocks() {
     take_lock luarocks "$out/.complete" || return 0
     [ -f "$out/.complete" ] && { release_lock; return 0; }
 
-    directory="luarocks-$LUAROCKS_VERSION"
-    url="https://github.com/luarocks/luarocks/archive/refs/tags/v$LUAROCKS_VERSION.tar.gz"
+    directory=$(expand_pin "$LUAROCKS_DIRECTORY")
+    url=$(expand_pin "$LUAROCKS_URL")
     tree=$(source_tree "$directory" "$url" "$LUAROCKS_SHA256" "$LUAROCKS_MARKER")
 
     note "installing LuaRocks"
@@ -1296,8 +1298,8 @@ build_lua_module() {
 # the sources rather than this machine's build of them, and wants them fetched
 # through the same pin and the same notice check.
 lpeg_source() {
-    directory="lpeg-$LPEG_VERSION"
-    url="https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-$LPEG_VERSION.tar.gz"
+    directory=$(expand_pin "$LPEG_DIRECTORY")
+    url=$(expand_pin "$LPEG_URL")
     tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER")
     verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
     printf '%s\n' "$tree"
@@ -1870,8 +1872,8 @@ llvm_tree_version() {
 }
 
 # The pins spell their templates the way the other components' do.
-LLVM_DIRECTORY=$(eval "printf '%s' \"$LLVM_DIRECTORY\"")
-LLVM_URL=$(eval "printf '%s' \"$LLVM_URL\"")
+LLVM_DIRECTORY=$(expand_pin "$LLVM_DIRECTORY")
+LLVM_URL=$(expand_pin "$LLVM_URL")
 
 # The source, extracted once per machine beside the other pinned sources.
 llvm_source() {
