@@ -1668,12 +1668,24 @@ local function recorded()
     local ok, decoded = pcall(function()
         return testJson.decode(text)
     end)
-    if ok and type(decoded) == "table" then
-        if type(decoded.suites) == "table" then
-            recordedOnce.suites = decoded.suites
+    -- Only durations are kept. The planner adds these up, and one entry that
+    -- decoded as something else stopped every run with an arithmetic error --
+    -- and, since that run never rewrote the file, every run after it too.
+    local function durations(from)
+        local kept = {}
+        for name, ms in pairs(type(from) == "table" and from or {}) do
+            if type(name) == "string" and type(ms) == "number" then
+                kept[name] = ms
+            end
         end
-        if type(decoded.cases) == "table" then
-            recordedOnce.cases = decoded.cases
+        return kept
+    end
+    if ok and type(decoded) == "table" then
+        recordedOnce.suites = durations(decoded.suites)
+        for suite, cases in pairs(type(decoded.cases) == "table" and decoded.cases or {}) do
+            if type(suite) == "string" and type(cases) == "table" then
+                recordedOnce.cases[suite] = durations(cases)
+            end
         end
     end
 

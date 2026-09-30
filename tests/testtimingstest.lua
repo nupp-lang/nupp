@@ -103,6 +103,30 @@ function M.aNarrowRunKeepsTheTimingsItDidNotMeasure()
     test.assert(after.gammatest, "every untouched suite should keep its timing: " .. recorded)
 end
 
+-- The planner adds recorded durations up, and an entry that decoded as something
+-- other than a number stopped every run with an arithmetic error. The run never
+-- got as far as rewriting the file, so every run after it failed the same way.
+function M.aRecordThatIsNotADurationIsIgnored()
+    local dir = project()
+    assert(os.execute("mkdir -p " .. ("%q"):format(dir .. "/build")) == 0)
+    write(
+        dir .. "/build/.nupp-test-times.json",
+        '{"suites":{"alphatest":"slow","betatest":[1],"gammatest":5},'
+            .. '"cases":{"alphatest":"slow","betatest":{"passes":{}}}}\n'
+    )
+    local output, status = shell(
+        ("cd %q && NUPP_TEST_BUILD=%q %q test --internal-runner --jobs=2 --timings=0"):format(
+            dir,
+            dir .. "/build",
+            NUPP
+        )
+    )
+    test.equal(status, 0, "a damaged record should not stop the run: " .. output)
+    local _, recorded = suitesIn(dir)
+    test.assert(not recorded:find("slow", 1, true), "the damaged record should be replaced: " .. recorded)
+    discard(dir)
+end
+
 -- The other half of the same rule: an entry for a suite that no longer exists is
 -- dropped, so the file tracks the tree rather than accumulating every suite
 -- there has ever been.
