@@ -235,11 +235,12 @@ function Registry:describeTargets(definition)
     return table.concat(definition.targets, ", ")
 end
 
--- `doc` is a one-line hover blurb; `docsPath` is the corresponding page on
--- nupp.org (repo-relative to its docs root). Neither is user-facing
--- metadata -- a project's own `@annotation` declarations get real hover and
--- go-to-definition from the record they are written as, so only the built-ins
--- compiled into the registry need a stand-in.
+-- `doc` is a one-line hover blurb; `docsPath` is the section documenting it, as a
+-- repository path and anchor -- the form a diagnostic's `docs` takes, which `nupp
+-- reference --section` follows and the language server turns into a nupp.org link.
+-- Neither is user-facing metadata -- a project's own `@annotation` declarations get
+-- real hover and go-to-definition from the record they are written as, so only the
+-- built-ins compiled into the registry need a stand-in.
 local BUILTINS = {
     {
         name = "nosuspend",
@@ -247,7 +248,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"type", "block", "loop"},
         doc = "Requires a callable type, block or loop that cannot suspend.",
-        docsPath = "learn/runtime/concurrency/suspension",
+        docsPath = "docs/learn/runtime/concurrency/suspension.md#non-suspending-regions",
     },
     {
         name = "sendable",
@@ -255,7 +256,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"type"},
         doc = "Requires a callable type reproducible in another isolated Lua state.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#built-in-annotations",
     },
     {
         name = "comptime",
@@ -263,7 +264,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"type", "function", "type-declaration"},
         doc = "Restricts a callable or type declaration to compile-time use.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#built-in-annotations",
     },
     {
         name = "noalloc",
@@ -271,7 +272,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"block"},
         doc = "Requires a block that performs no allocation.",
-        docsPath = "concepts/effects",
+        docsPath = "docs/learn/language/effects.md#allocation-and-raising-regions",
     },
     {
         name = "noraise",
@@ -279,7 +280,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"block"},
         doc = "Requires a block that cannot raise an error.",
-        docsPath = "concepts/effects",
+        docsPath = "docs/learn/language/effects.md#allocation-and-raising-regions",
     },
     {
         name = "readonly",
@@ -287,7 +288,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"field", "indexer"},
         doc = "Makes a declared property or indexer readable but not writable.",
-        docsPath = "reference/types",
+        docsPath = "docs/learn/language/types/properties.md#declaring-a-capability",
     },
     {
         name = "writeonly",
@@ -295,7 +296,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"field", "indexer"},
         doc = "Makes a declared property or indexer writable but not readable.",
-        docsPath = "reference/types",
+        docsPath = "docs/learn/language/types/properties.md#declaring-a-capability",
     },
     {
         name = "private",
@@ -303,7 +304,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"field"},
         doc = "Restricts a record field to its declaring module.",
-        docsPath = "reference/types",
+        docsPath = "docs/learn/language/types/records-and-structs.md#private-fields",
     },
     {
         name = "unsafe",
@@ -311,42 +312,42 @@ local BUILTINS = {
         builtin = true,
         targets = {"expression", "block", "conditional", "loop", "local-binding", "assignment", "call"},
         doc = "Authorizes unsafe operations in one statement or operand; nested function bodies authorize their own operations.",
-        docsPath = "reference/annotations#unsafe-operations",
+        docsPath = "docs/reference/annotations.md#unsafe-operations",
     },
     {
         name = "annotation",
         arguments = "definition",
         targets = {"record", "struct"},
         doc = "Declares a record or struct as an annotation definition; `targets` says where applications may attach.",
-        docsPath = "reference/annotations#defining-an-annotation",
+        docsPath = "docs/reference/annotations.md#defining-an-annotation",
     },
     {
         name = "annotationValue",
         arguments = "none",
         targets = {"field"},
         doc = "Marks one annotation-definition field as the single positional value, so `@name(value)` and `@name(field = value)` mean the same thing.",
-        docsPath = "reference/annotations#single-value-applications",
+        docsPath = "docs/reference/annotations.md#single-value-applications",
     },
     {
         name = "ref",
         arguments = "none",
         targets = {"field"},
         doc = "Marks an annotation-definition field whose value is a type reference rather than a literal constant.",
-        docsPath = "reference/annotations#type-reference-members",
+        docsPath = "docs/reference/annotations.md#type-reference-members",
     },
     {
         name = "allow",
         arguments = "warnings",
         targets = {"statement"},
         doc = "Suppresses the named lints, by name or code, for the statement it decorates. Does not suppress a type error.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#allow",
     },
     {
         name = "override",
         arguments = "none",
         targets = {"function"},
         doc = "Marks a method that replaces an inherited interface method; required on child-interface overrides and on implementations replacing a default, and an error when no matching method exists.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#override",
     },
     {
         name = "partition",
@@ -354,21 +355,21 @@ local BUILTINS = {
         targets = {"field"},
         builtin = true,
         doc = "An audited ownership assertion: the method's first result carries two sibling-disjoint regions in the named fields, on a sealed interface only.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#partition",
     },
     {
         name = "effects",
         arguments = "effects",
         targets = {"function", "c-function", "local-binding"},
         doc = "A complete, pessimistic effect contract: reads, writes, shapes, metatables, escapes, calls, returns, allocates, suspends, raises, external.",
-        docsPath = "concepts/effects",
+        docsPath = "docs/learn/language/effects.md#complete-contract",
     },
     {
         name = "relax",
         arguments = "names",
         targets = {"function"},
-        doc = "Names guarantees a function may give up, of six: function-identity, load-order, error-site, frames, gc-timing, table-order. Permits a rewrite that would otherwise change observable behavior.",
-        docsPath = "reference/annotations#relaxing-observable-guarantees",
+        doc = "Names guarantees a function may give up, of eight: function-identity, load-order, error-site, frames, gc-timing, table-order, and the numeric fp-contract and fp-transcendentals. Permits a rewrite that would otherwise change observable behavior.",
+        docsPath = "docs/reference/annotations.md#relaxing-observable-guarantees",
     },
     {
         name = "derive",
@@ -377,7 +378,7 @@ local BUILTINS = {
         builtin = true,
         qualifiedNames = true,
         doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Serde`, that adds checked members or data without exposing source or AST macros.",
-        docsPath = "reference/derives",
+        docsPath = "docs/reference/annotations.md#derive",
     },
     {
         name = "cli",
@@ -385,7 +386,7 @@ local BUILTINS = {
         targets = {"record", "field"},
         builtin = true,
         doc = "Configures command and field metadata consumed by `nupp.cli` derives.",
-        docsPath = "learn/projects/command-line-applications",
+        docsPath = "docs/learn/projects/command-line-applications.md#derive-typed-arguments",
     },
     {
         name = "json",
@@ -393,7 +394,7 @@ local BUILTINS = {
         targets = {"record", "field"},
         builtin = true,
         doc = "Configures how the JSON derive encodes and decodes a record or field.",
-        docsPath = "reference/derives",
+        docsPath = "docs/reference/derives.md#json",
     },
     {
         name = "debug",
@@ -401,7 +402,7 @@ local BUILTINS = {
         targets = {"field"},
         builtin = true,
         doc = "Configures how the debug derive shows a derived record's field: skip or redact.",
-        docsPath = "reference/derives",
+        docsPath = "docs/reference/derives.md#debug",
     },
     {
         name = "event",
@@ -409,7 +410,7 @@ local BUILTINS = {
         targets = {"record", "struct"},
         builtin = true,
         doc = "Names the event a declaration deriving `nupp.events.Event` registers as.",
-        docsPath = "reference/derives",
+        docsPath = "docs/reference/derives.md#event",
     },
     {
         name = "deprecated",
@@ -417,7 +418,7 @@ local BUILTINS = {
         targets = {"declaration", "field", "c-declaration"},
         builtin = true,
         doc = "Marks an API for migration while keeping it callable. Hover shows the reason and replacement, and a use reports the suppressible `deprecated` lint.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#deprecated",
     },
     {
         name = "syntax",
@@ -425,14 +426,14 @@ local BUILTINS = {
         targets = {"local-binding"},
         builtin = true,
         doc = "Names the embedded language of a local/const long-string initializer, e.g. `@syntax(\"json\")`, for editor syntax highlighting.",
-        docsPath = "reference/annotations#built-in-annotations",
+        docsPath = "docs/reference/annotations.md#syntax",
     },
     {
         name = "jit",
         arguments = "none",
         targets = {"function"},
         doc = "An absence-of-known-blockers contract for the selected LuaJIT trace profile; a call path to a catalogued recorder blocker reports NUPP2707.",
-        docsPath = "guides/jit-trace-checking",
+        docsPath = "docs/reference/annotations.md#jit",
     },
     {
         name = "aot",
@@ -440,7 +441,7 @@ local BUILTINS = {
         targets = {"function"},
         builtin = true,
         doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default), require, emit-wasm or require-wasm.",
-        docsPath = "guides/ahead-of-time",
+        docsPath = "docs/reference/annotations.md#aot",
     },
 }
 
@@ -490,7 +491,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     end
 
     local cli = registry:get("cli")
-    local cliDocs = "learn/projects/command-line-applications"
+    local cliDocs = "docs/learn/projects/command-line-applications.md#derive-typed-arguments"
 
     local function cliMember(name, t, reference)
         local value = member(name, optional(t), true, nil, cliDocs)
@@ -551,7 +552,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     cli.singleValue = "name"
 
     local json = registry:get("json")
-    local jsonDocs = "reference/derives"
+    local jsonDocs = "docs/reference/derives.md#json"
     json.members = {
         unknown = member(
             "unknown",
@@ -593,7 +594,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             ),
             true,
             "Selects the execution family: `\"cpu\"` (the default) or `\"gpu\"`.",
-            "guides/ahead-of-time"
+            "docs/reference/annotations.md#aot"
         ),
     }
     aot.memberOrder = {"target"}
@@ -605,13 +606,13 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             optional(typesApi.string),
             true,
             "The name the event registers under; the declaration's own name when omitted.",
-            "reference/derives"
+            "docs/reference/derives.md#event"
         ),
     }
     event.memberOrder = {"name"}
 
     local debug = registry:get("debug")
-    local debugDocs = "reference/derives"
+    local debugDocs = "docs/reference/derives.md#debug"
     debug.members = {
         skip = member(
             "skip",
@@ -631,7 +632,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     debug.memberOrder = {"skip", "redact"}
 
     local deprecated = registry:get("deprecated")
-    local deprecatedDocs = "reference/annotations#built-in-annotations"
+    local deprecatedDocs = "docs/reference/annotations.md#deprecated"
     deprecated.members = {
         reason = member(
             "reason",
@@ -658,7 +659,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             typesApi.string,
             false,
             "The embedded language name, e.g. `\"json\"`, used for editor syntax highlighting.",
-            "reference/annotations#built-in-annotations"
+            "docs/reference/annotations.md#syntax"
         ),
     }
     syntax.memberOrder = {"value"}

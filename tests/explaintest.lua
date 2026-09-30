@@ -236,6 +236,48 @@ function M.everyDocsPointerLeadsToASection()
    assert(out:find("From the diagnostic index.", 1, true), "and a code's index entry: " .. out)
 end
 
+-- A built-in annotation's hover links to where it is documented, and the link is
+-- derived from the same repository pointer a diagnostic's `docs` carries. So each has
+-- to be one `nupp reference --section` follows, and to name the page it reaches.
+function M.everyAnnotationHoverLinkLeadsToASection()
+   local reference = require("nupp.tools.reference")
+   local annotations = require("nupp.compiler.annotations")
+   local registry = annotations.new(true)
+   annotations.hydrateBuiltins(registry, require("nupp.compiler.types"))
+   local pointers = {}
+   for name, definition in pairs(registry.byname) do
+      if definition.docsPath then
+         pointers[#pointers + 1] = {"@" .. name, definition.docsPath}
+      end
+      for memberName, member in pairs(definition.members or {}) do
+         if member.docsPath then
+            pointers[#pointers + 1] = {"@" .. name .. "." .. memberName, member.docsPath}
+         end
+      end
+   end
+   assert(#pointers >= 26, "every built-in annotation is reached: " .. #pointers)
+   local root = HERE .. "/.."
+   local unresolved = {}
+   for _, pair in ipairs(pointers) do
+      local name, pointer = pair[1], pair[2]
+      local path = pointer:match("^([^#]*)")
+      local ok = pointer:match("^docs/[%w%-_/]+%.md#[%w%-]+$") ~= nil
+      if ok then
+         local found = reference.pointerSections(pointer, root)
+         ok = found[1] ~= nil and found[1].section.origin == path
+      end
+      if not ok then
+         unresolved[#unresolved + 1] = name .. " -> " .. pointer
+      end
+   end
+   table.sort(unresolved)
+   assert(#unresolved == 0, "hover links that lead nowhere:\n  " .. table.concat(unresolved, "\n  "))
+   local lsp = require("nupp.tools.lsp")
+   assert(lsp.siteUrl("docs/reference/annotations.md#aot") == "https://nupp.org/reference/annotations#aot")
+   assert(lsp.siteUrl("docs/learn/performance/ahead-of-time/index.md#annotation-guarantees")
+      == "https://nupp.org/learn/performance/ahead-of-time#annotation-guarantees")
+end
+
 -- A lint is a code the compiler reports by name, and `explain --list` is where a
 -- reader finds what one means. A lint without an entry of its own falls back to
 -- the family's generic rule and is missing from the list.

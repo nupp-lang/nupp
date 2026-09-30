@@ -2032,7 +2032,7 @@ function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
     assertContains(hover.contents.value, "ahead-of-time compilation contract", "builtin annotation hover blurb")
     assertContains(
         hover.contents.value,
-        "https://nupp.org/guides/ahead-of-time",
+        "https://nupp.org/reference/annotations#aot",
         "builtin annotation hover links to nupp.org"
     )
 
@@ -2126,7 +2126,7 @@ function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
     assert(hover and hover.contents, "builtin annotation member hover missing")
     assertContains(hover.contents.value, "target:", "member hover shows its type")
     assertContains(hover.contents.value, "execution family", "member hover blurb")
-    assertContains(hover.contents.value, "https://nupp.org/guides/ahead-of-time", "member hover links to nupp.org")
+    assertContains(hover.contents.value, "https://nupp.org/reference/annotations#aot", "member hover links to nupp.org")
 
     local definition = responseWithId(out, 11).result
     assert(

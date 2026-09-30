@@ -24,6 +24,19 @@ local annotationMod = require("nupp.compiler.annotations")
 
 local lsp = {}
 
+--- Where a documentation pointer is published: a repository path and anchor, such as
+--- `docs/reference/annotations.md#aot`, as the route the site gives that page.
+--- `index.md` names the directory holding it. Nil for anything not under `docs/`.
+function lsp.siteUrl(pointer: string): string?
+    local path, anchor = pointer:match("^docs/([^#]+)%.md(#?[^#]*)$")
+    if not path then
+        return nil
+    end
+    local route = (path as string):gsub("/index$", ""):gsub("^index$", "")
+
+    return "https://nupp.org/" .. route .. anchor
+end
+
 -- The parts of the server that need no session: positions and edits over a document's
 -- bytes, and what an editor asks of a parse.
 local text = require("nupp.tools.lsp.text")
@@ -867,8 +880,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             local label = def.kind == "annotation" and ("@" .. (def.name or tok.text))
                 or (def.name or tok.text) .. (t and (": " .. T.tostring(t)) or "")
             local value = "```nupp\n" .. label .. "\n```\n\n" .. def.doc
-            if def.docsPath then
-                value = value .. "\n\n[Reference on nupp.org](https://nupp.org/" .. def.docsPath .. ")"
+            local url = def.docsPath and lsp.siteUrl(def.docsPath) or nil
+            if url then
+                value = value .. "\n\n[Reference on nupp.org](" .. url .. ")"
             end
             respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
             return
