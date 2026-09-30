@@ -1627,6 +1627,64 @@ function M.requireWritesTheLlvmUnitBesideTheBuild()
     )
 end
 
+-- The first object key out of order in compact JSON, or nil when every object's
+-- keys are sorted. A string followed by a colon is a key; nothing else is.
+local function unsortedKey(text)
+    local last, index = {}, 1
+    while index <= #text do
+        local c = text:sub(index, index)
+        if c == "{" then
+            last[#last + 1] = ""
+        elseif c == "}" then
+            last[#last] = nil
+        elseif c == '"' then
+            local close = index + 1
+            while text:sub(close, close) ~= '"' do
+                close = close + (text:sub(close, close) == "\\" and 2 or 1)
+            end
+            local key = text:sub(index + 1, close - 1)
+            if text:sub(close + 1, close + 1) == ":" then
+                if key < last[#last] then
+                    return key .. " after " .. last[#last]
+                end
+                last[#last] = key
+            end
+            index = close
+        end
+        index = index + 1
+    end
+
+    return nil
+end
+
+-- A manifest's bytes are what it says, not the order this process's string
+-- hash happened to visit its keys in: LuaJIT seeds that hash per process, so
+-- an unsorted manifest differed from one build to the next.
+function M.aotManifestsWriteTheirKeysInSortedOrder()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/aot/src'") == 0)
+    local emitted = {
+        {
+            source = "src/main.nupp",
+            tier = "simd128",
+            cacheKey = "src/main.nupp#simd128",
+            output = dir .. "/aot/src/main.simd128.ll",
+            key = "k",
+            wasm = dir .. "/aot/src/main.simd128.0123456789abcdef.wasm",
+            registrar = "nupp_register",
+            unit = "u0123456789abcdef",
+            bridge = {abi = 1, entries = {{call = "nupp_bridge_1", symbol = "ks_scale", layouts = {}}}},
+        },
+    }
+    local path, err = aot.writeUnitsManifest(dir, "wasm32-unknown-unknown", emitted)
+    assert(path, err)
+    local text = assert(read(path))
+    test.equal(unsortedKey(text), nil, "every object in the units manifest lists its keys in order:\n" .. text)
+    assert(text:find('^{"schemaVersion":3,"target":'), "the document starts with its schema: " .. text)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.constGenericAotOmitsTheCarrierAndSpecializesTheBody()
     local dir = constProject("require")
     local out, code = build(dir)

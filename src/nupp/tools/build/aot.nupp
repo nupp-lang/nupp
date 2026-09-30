@@ -1497,6 +1497,41 @@ function aot.readUnitsManifest(path: string): (any?, string?)
     return document
 end
 
+--- JSON with object keys in sorted order.
+---
+--- `json.encode` writes keys in `pairs` order, and LuaJIT seeds its string hash
+--- per process, so the same manifest came out in a different order every build.
+--- A manifest is an artifact a browser package copies and a digest can cover,
+--- so its bytes have to be a function of what it says.
+--- @raises string when an object has a non-string key
+local function sortedJson(value: any): string
+    if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
+        return json.encode(value)
+    end
+    local entries = value as {[any]: any}
+    local parts: {string} = {}
+    if json.isArray(entries) then
+        for index = 1, #entries do
+            parts[index] = sortedJson(entries[index])
+        end
+
+        return "[" .. table.concat(parts, ",") .. "]"
+    end
+    local keys: {string} = {}
+    for key in pairs(entries) do
+        if type(key) ~= "string" then
+            error("JSON object keys must be strings", 0)
+        end
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    for index, key in ipairs(keys) do
+        parts[index] = json.encode(key) .. ":" .. sortedJson(entries[key])
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 --- Writes `aot/units.json`: every unit, its tier and the options it compiled
 --- with.
 function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Emitted}): (string?, string?)
@@ -1526,7 +1561,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             unit = one.unit,
         }
     end
-    local document = json.encode({
+    local document = sortedJson({
         schemaVersion = aot.UNITS_SCHEMA_VERSION,
         target = triple,
         units = json.asArray(units),
@@ -1605,7 +1640,7 @@ function aot.writeLinkManifest(
             #builders + 1
         ] = {key = key, entry = builderEntries[key], symbols = json.asArray(builderSymbols[key] as {string}),}
     end
-    local document = json.encode({
+    local document = sortedJson({
         schemaVersion = 1,
         component = name,
         target = profile.target,
