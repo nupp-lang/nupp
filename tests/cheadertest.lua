@@ -181,13 +181,16 @@ function M.aParseErrorNamesTheHeadersOwnLine()
 end
 
 function M.aNulByteIsRefused()
-    local path, dir = scratchHeader("nul.h", "int nupp_nul_a(void);\n\0int nupp_nul_b(void);\n")
+    -- Not nul.h: NUL is a reserved device name on Windows whatever its
+    -- extension, so that header was written to the null device and read back
+    -- empty, and an empty header declares nothing without complaint.
+    local path, dir = scratchHeader("zerobyte.h", "int nupp_nul_a(void);\n\0int nupp_nul_b(void);\n")
     local read = require("nupp.compiler.fs").readFile(path)
     local res, err = cheaderMod.load(path)
     os.execute("rm -rf '" .. dir .. "'")
     assertEq(res, nil, ("nothing past the NUL would be declared (read %s bytes from %s, NUL at %s)"):format(
         tostring(read and #read), path, tostring(read and read:find("%z"))))
-    assert(err:find("nul.h:2: the header holds a NUL byte", 1, true), err)
+    assert(err:find("zerobyte.h:2: the header holds a NUL byte", 1, true), err)
 end
 
 function M.noPreprocessorNeededForASelfContainedHeader()
