@@ -302,7 +302,8 @@ jobs:
           cp host/NOTICE.md "release/notices-${{ matrix.platform }}/NOTICE.md"
           cp -R host/notices "release/notices-${{ matrix.platform }}/notices"
           notice="${stub}-notices.tar.gz"
-          tar -czf "release/$notice" -C "release/notices-${{ matrix.platform }}" .
+          ./scripts/toolchain archive "release/notices-${{ matrix.platform }}" \
+            "release/$notice" > /dev/null
           ./bin/nupp run scripts/release.nupp record \
             "${{ matrix.platform }}" "$GITHUB_SHA" \
             "release/$stub" "release/$notice" \
@@ -331,8 +332,11 @@ jobs:
             printf '%s\n' 'Linux executables do not use a platform code signature.' \
               > "release/package-${{ matrix.platform }}/SIGNING.txt"
           fi
-          tar -czf "release/$ARTIFACT_NAME.tar.gz" \
-            -C "release/package-${{ matrix.platform }}" .
+          # Names, contents and modes only: bsdtar and GNU tar otherwise write the
+          # clock, the runner's user, macOS extended attributes and AppleDouble
+          # `._` files, so no rebuild of a tag could reproduce its digest.
+          ./scripts/toolchain archive "release/package-${{ matrix.platform }}" \
+            "release/$ARTIFACT_NAME.tar.gz" > /dev/null
           mkdir "release/verify-${{ matrix.platform }}"
           tar -xzf "release/$ARTIFACT_NAME.tar.gz" \
             -C "release/verify-${{ matrix.platform }}"

@@ -44,6 +44,7 @@ Components: luajit luarocks lpeg lpeg-source stage0 llvm
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
             kit FEATURES, kit-archive FEATURES OUTPUT
+            archive DIRECTORY OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
 not already cached. --all builds every component and prints nothing. --prefix
@@ -2061,6 +2062,15 @@ case "$1" in
         build_kit "$2"
         output=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
         deterministic_archive "$KIT_OUT" "$output" || die "cannot archive the link kit"
+        native_path "$output"
+        exit 0
+        ;;
+    archive)
+        # Any directory as a release carries it: the same archive as a kit's,
+        # so a rebuild of a tag reproduces the digest its release published.
+        [ "$#" -eq 3 ] && [ -d "$2" ] || die "usage: scripts/toolchain archive DIRECTORY OUTPUT"
+        output=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
+        deterministic_archive "$2" "$output" || die "cannot archive $2"
         native_path "$output"
         exit 0
         ;;

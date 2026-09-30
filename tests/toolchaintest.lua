@@ -414,6 +414,34 @@ function M.macOSRustProviderUsesARelocatableInstallName()
     )
 end
 
+-- A release archive is published by digest, so its bytes are its files' names,
+-- contents and executable bits: not the clock, the user, the umask, or the
+-- extended attributes and AppleDouble files macOS tar adds. The release job
+-- packs through the driver rather than calling tar itself.
+function M.releaseArchivesCarryOnlyNamesContentsAndModes()
+    local directory = temporary()
+    local tree = directory .. "/tree"
+    assert(os.execute("mkdir -p " .. quote(tree .. "/notices")) == 0)
+    write(tree .. "/nupp", "#!/bin/sh\n")
+    write(tree .. "/notices/NOTICE.md", "notice\n")
+    assert(os.execute("chmod 755 " .. quote(tree .. "/nupp")) == 0)
+    local first = directory .. "/first.tar.gz"
+    local status, output = run({}, "archive " .. quote(tree) .. " " .. quote(first))
+    assert(status == 0, output)
+    assert(
+        os.execute(
+            "touch " .. quote(tree .. "/nupp") .. " && chmod 700 " .. quote(tree .. "/nupp")
+                .. " && chmod 600 " .. quote(tree .. "/notices/NOTICE.md")
+        ) == 0
+    )
+    local second = directory .. "/second.tar.gz"
+    status, output = run({TZ = "Asia/Tokyo"}, "archive " .. quote(tree) .. " " .. quote(second))
+    assert(status == 0, output)
+    assert(read(first) == read(second), "the same files archived twice differ")
+    local workflow = read(ROOT .. "/.github/workflows/release.yml")
+    assert(not workflow:find("tar -czf", 1, true), "the release job archives with tar directly")
+end
+
 -- ld64 hashes the debug map's object paths and the output's leaf name into
 -- LC_UUID, and rustc re-signs an executable under that leaf. The target
 -- directory reaches all three -- the leaf is Cargo's hashed deps/ name -- so a
