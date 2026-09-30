@@ -43,8 +43,10 @@ record explain.Entry
     --- Codes worth reading beside it.
     related: {string}
 
-    --- The reference section that covers it, as a documentation path and anchor, or
-    --- as a module name and anchor where that module's own documentation covers it.
+    --- The reference section that covers it, always as a documentation path and an
+    --- anchor: the prose section that owns the rule, or the code's own entry in the
+    --- diagnostic index where no prose section does. `nupp reference --section` takes
+    --- it as written.
     docs: string
 
     --- Whether this came from the code's own entry or from its family.
@@ -113,7 +115,7 @@ local FAMILIES = {
         rule = "Not a problem. A pass saying what it rewrote, or what it looked "
         .. "at and declined to rewrite. Always a note, and never fails a "
         .. "build.",
-        docs = "docs/learn/performance/index.md"
+        docs = "docs/learn/performance/index.md#optimization-passes"
     },
 }
 
@@ -208,7 +210,7 @@ local ENTRIES: {any} = {
         wrong = "local function f(): integer\n    if true then\n        return 1\n" .. "end\n",
         right = "local function f(): integer\n    if true then\n        return 1\n" .. "    end\n    return 0\nend\n",
         related = {"NUPP1004"},
-        docs = "docs/reference/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#nupp1002",
     },
     {
         code = "NUPP1007",
@@ -246,7 +248,7 @@ local ENTRIES: {any} = {
         .. "with typed syntax available. Type comments are separate: recognized "
         .. "LuaCATS, EmmyLua, and typed LuaDoc comments are always imported.",
         related = {"NUPP2105", "NUPP2106"},
-        docs = "docs/reference/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#nupp1006",
     },
     {
         code = "NUPP1008",
@@ -265,7 +267,7 @@ local ENTRIES: {any} = {
         wrong = "local count: integer = \"twelve\"\nreturn count\n",
         right = "local count: integer = 12\nreturn count\n",
         related = {"NUPP2002", "NUPP2006"},
-        docs = "docs/reference/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#nupp2001",
     },
     {
         code = "NUPP2002",
@@ -312,7 +314,7 @@ local ENTRIES: {any} = {
         .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
         .. "local position = make()\ndraw({x, y} = position)\n\nreturn draw\n",
         related = {"NUPP2004", "NUPP2125"},
-        docs = "docs/learn/language/named-arguments.md",
+        docs = "docs/learn/language/named-arguments.md#rejected-arrangements",
     },
     {
         code = "NUPP2009",
@@ -569,7 +571,7 @@ local ENTRIES: {any} = {
         .. "    satisfies |self| -> self.kind == \"circle\"\nend\n\n"
         .. "return Circle\n",
         related = {"NUPP2116"},
-        docs = "docs/learn/language/types/refinements.md",
+        docs = "docs/learn/language/types/refinements.md#tests-read-self-and-nothing-else",
     },
     {
         code = "NUPP2123",
@@ -594,7 +596,7 @@ local ENTRIES: {any} = {
         .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
         .. "    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n",
         related = {"NUPP2118", "NUPP2006"},
-        docs = "docs/learn/language/metamethods.md",
+        docs = "docs/learn/language/metamethods.md#checking-a-metatable-literal",
     },
     {
         code = "NUPP2124",
@@ -648,7 +650,7 @@ local ENTRIES: {any} = {
         .. "local record Lines is Reader\n    associated type Item = string\n"
         .. "end\n\nreturn Lines\n",
         related = {"NUPP2128", "NUPP2116"},
-        docs = "docs/learn/language/types/associated-types.md",
+        docs = "docs/learn/language/types/associated-types.md#answering-a-requirement",
     },
     {
         code = "NUPP2128",
@@ -661,7 +663,7 @@ local ENTRIES: {any} = {
         wrong = "local record Box\n    associated type Item\nend\n\nreturn Box\n",
         right = "local record Box\n    type Item = string\nend\n\nreturn Box\n",
         related = {"NUPP2127", "NUPP2117"},
-        docs = "docs/learn/language/types/associated-types.md",
+        docs = "docs/learn/language/types/associated-types.md#defaults-and-fixed-equalities",
     },
     {
         code = "NUPP2129",
@@ -675,7 +677,7 @@ local ENTRIES: {any} = {
         right = "local interface Reader\n    type Unit = string\n"
         .. "    associated type Item\nend\n\nreturn Reader\n",
         related = {"NUPP2128"},
-        docs = "docs/learn/language/types/associated-types.md",
+        docs = "docs/learn/language/types/associated-types.md#associated-types-are-not-nested-aliases",
     },
     {
         code = "NUPP2134",
@@ -690,7 +692,7 @@ local ENTRIES: {any} = {
         .. "local function first<T is Reader>(x: T): T.Item\n    return nil as any\n"
         .. "end\n\nreturn first\n",
         related = {"NUPP2127"},
-        docs = "docs/learn/language/types/associated-types.md",
+        docs = "docs/learn/language/types/associated-types.md#reaching-an-associated-type",
     },
     {
         code = "NUPP2135",
@@ -707,7 +709,7 @@ local ENTRIES: {any} = {
         .. "local record Direct is Holds\n    associated type Value = string\n"
         .. "end\n\nreturn Direct\n",
         related = {"NUPP2127"},
-        docs = "docs/learn/language/types/associated-types.md",
+        docs = "docs/learn/language/types/associated-types.md#cycles-report-once-per-component",
     },
     {
         code = "NUPP2136",
@@ -943,7 +945,7 @@ local ENTRIES: {any} = {
         .. "local function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\n"
         .. "local kept = held(new Lines())\n\nreturn kept\n",
         related = {"NUPP2134"},
-        docs = "docs/learn/language/types/associated-types.md",
+        docs = "docs/learn/language/types/associated-types.md#gradual-projections",
     },
     {
         code = "NUPP2133",
@@ -1185,7 +1187,7 @@ local ENTRIES: {any} = {
         .. "an identity may occur only once across every derive "
         .. "annotation on the record.",
         related = {"NUPP2113", "NUPP2802"},
-        docs = "docs/reference/derives.md",
+        docs = "docs/reference/diagnostics.md#nupp2801",
     },
     {
         code = "NUPP2802",
@@ -1193,7 +1195,7 @@ local ENTRIES: {any} = {
         rule = "A derive never overrides a written instance or static member. Remove "
         .. "the written member or remove the provider so the behavior has one owner.",
         related = {"NUPP2801", "NUPP2115"},
-        docs = "docs/reference/derives.md",
+        docs = "docs/reference/diagnostics.md#nupp2802",
     },
     {
         code = "NUPP2803",
@@ -1220,7 +1222,7 @@ local ENTRIES: {any} = {
         .. "dependency cycle must still reduce to a closed recipe rather than require "
         .. "another unfinished provider result.",
         related = {"NUPP2803", "NUPP2806", "NUPP2810"},
-        docs = "docs/reference/derives.md",
+        docs = "docs/reference/derives.md#package-providers",
     },
     {
         code = "NUPP2808",
@@ -1229,7 +1231,7 @@ local ENTRIES: {any} = {
         .. "bounded compiler resources. Reduce the derived declaration or split the "
         .. "schema rather than depending on an unbounded generated function.",
         related = {"NUPP2807"},
-        docs = "docs/reference/derives.md",
+        docs = "docs/reference/diagnostics.md#nupp2808",
     },
     {
         code = "NUPP2809",
@@ -1425,14 +1427,14 @@ local ENTRIES: {any} = {
         summary = "Generated code that a Lua VM will not load",
         rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one of two limits, and the message says which. A function may capture at most sixty names from around it: one reading that many things from its scope is usually reading a record it could take as one argument instead, so pass what varies, or gather what it reads into one value and capture that. And a function, the file's top level included, may hold at most two hundred locals at once: past that, gather related values into a table, or split the function or the module in two. A declared module whose records, structs, interfaces, cdef items and exported functions do not fit is generated with those moved into a table, so only the `local`s it wrote count against its top level, and `nupp check` reports a top level with more of those than fit.\n\nAny other spelling of this is a bug in the compiler rather than in the program. `nupp lsp artifact --kind lua FILE` prints the Lua it wrote even when that Lua does not load, which is where the reason can be read. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written.",
         related = {"NUPP3004"},
-        docs = "docs/reference/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#nupp3005",
     },
     {
         code = "NUPP3006",
         summary = "The compiler or host cannot provide a required language capability",
         rule = "The compiler building an artifact and the host it targets fix the language representations and runtime modules it may use: the in-memory browser compiler has no native layout provider, and a browser host has no native runtime modules. Choose a target that supports the operation, or express it with a portable contract. Runtime provider selection cannot add a compiler representation.",
         related = {"NUPP3005"},
-        docs = "docs/learn/projects/portability/libraries.md",
+        docs = "docs/reference/diagnostics.md#nupp3006",
     },
     {
         code = "NUPP3009",
@@ -1497,7 +1499,7 @@ local ENTRIES: {any} = {
         .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n"
         .. "return unknown is Drawable\n",
         related = {"NUPP2122"},
-        docs = "docs/learn/language/types/interfaces.md",
+        docs = "docs/learn/language/types/interfaces.md#is-at-runtime",
     },
 }
 
@@ -1512,7 +1514,7 @@ ENTRIES[
     wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal function hot(): nil\n    printf('%d', 1)\nend\n",
     right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n",
     related = {"NUPP2502", "NUPP2514"},
-    docs = "docs/learn/runtime/c-interop/index.md",
+    docs = "docs/learn/runtime/c-interop/index.md#jit-sensitive-c-boundaries",
 }
 
 ENTRIES[
@@ -1754,7 +1756,7 @@ ENTRIES[
     wrong = "local s = 'oops\nreturn 1\n",
     right = "local s = 'oops'\nreturn s\n",
     related = {"NUPP1002", "NUPP1005"},
-    docs = "docs/reference/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#nupp1001",
 }
 
 ENTRIES[
@@ -1766,7 +1768,7 @@ ENTRIES[
     wrong = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.\nend\n\nreturn show\n",
     right = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.x\nend\n\nreturn show\n",
     related = {"NUPP1002", "NUPP1004"},
-    docs = "docs/reference/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#nupp1003",
 }
 
 ENTRIES[
@@ -1778,7 +1780,7 @@ ENTRIES[
     wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n",
     right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n",
     related = {"NUPP1002", "NUPP1003"},
-    docs = "docs/reference/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#nupp1004",
 }
 
 ENTRIES[
@@ -1790,7 +1792,7 @@ ENTRIES[
     wrong = "return 1\nlocal x = 2\n",
     right = "local x = 2\nreturn x\n",
     related = {"NUPP1002", "NUPP1004"},
-    docs = "docs/reference/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#nupp1005",
 }
 
 ENTRIES[
@@ -2229,7 +2231,7 @@ ENTRIES[
     wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n",
     right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n",
     related = {"NUPP2415", "NUPP2416"},
-    docs = "nupp.peg",
+    docs = "docs/reference/diagnostics.md#nupp2417",
 }
 
 ENTRIES[
@@ -2501,7 +2503,7 @@ ENTRIES[
     summary = "The formatter's own output would change the token stream",
     rule = "Formatting may only move whitespace, reflow comments, add or remove a schema-proven single-value annotation label, and parenthesize a method call's sugar-form arguments. Before writing its result the formatter re-lexes it and compares the token fingerprint against the input; a mismatch means the rewrite it just performed would have changed the program's meaning, so it discards the rewrite and leaves the file untouched instead of risking that change.",
     related = {},
-    docs = "docs/reference/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#nupp4001",
 }
 
 ENTRIES[

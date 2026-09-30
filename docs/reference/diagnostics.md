@@ -75,7 +75,9 @@ is something to say:
 - `notes`: context that points at no source, such as the trace classification a
   [JIT trace check](../learn/performance/jit-trace-checking.md) attaches to its finding.
 - `lint`: the lint name, when the code names one.
-- `docs`: the reference section covering the code, as a path and an anchor.
+- `docs`: the reference section covering the code, always as a documentation
+  path and an anchor: the prose section that owns the rule, or the code's own
+  entry in the [diagnostic index](#diagnostic-index) where no prose section does.
 
 The language server converts the same data to UTF-16 LSP ranges,
 `relatedInformation`, diagnostic `data`, and code actions, so an editor and a

@@ -198,9 +198,16 @@ function M.everyDocsPointerLeadsToASection()
    for _, reason in ipairs(trace.records()) do
       pointers[#pointers + 1] = {reason.id, explain.reasonDocs(reason.id, reason.class)}
    end
+   for _, lint in ipairs(require("nupp.compiler.lints").all) do
+      pointers[#pointers + 1] = {lint.code, explain.lookup(lint.code).docs}
+   end
    local unresolved = {}
    for _, pair in ipairs(pointers) do
       local code, pointer = pair[1], pair[2]
+      -- One form: a documentation file and an anchor in it. Never a page alone, never a
+      -- module name, and a code with no prose section points at its own index entry.
+      assert(pointer:match("^docs/[%w%-_/]+%.md#[%w%-]+$"),
+         code .. " points at " .. pointer .. ", which is not a file#anchor pointer")
       local path = pointer:match("^([^#]*)")
       local ok = reference.findSection(pointer) ~= nil
       if not ok then
