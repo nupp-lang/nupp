@@ -71,34 +71,48 @@ jobs:
           guest=$(./scripts/toolchain browser-guest)
           mkdir -p build/browser-guest
           cp -R "$guest/." build/browser-guest/
+      # A process a failing command leaves behind keeps the step's output open,
+      # and the step waits on it until the job's timeout, which reads as
+      # cancelled rather than failed: esbuild's service and a Python process did
+      # that on every push for a day. So each command below runs in a process
+      # group of its own (`set -m`), and whatever of that group outlives the
+      # command is ended with it -- until none is left, since a process forking
+      # as the group is signalled can bring a child into it afterwards. The
+      # step timeouts bound anything else.
       - name: Build the LuaJIT compiler and native response oracle
+        timeout-minutes: 30
         env:
           NUPP_REQUIRE_CODEGEN: '1'
         run: |
-          ./scripts/toolchain --all
-          ./bin/nupp build
-          ./bin/nupp build --target bootstrapCompiler
-          ./scripts/prelude-image
-          ./bin/nupp build --target browserLuaJITApplicationRuntime --host browser
-          node tests/luajit-browser/prepare-application.mjs build/browser-guest
+          set -m
+          grouped() { "$@" & job=$!; status=0; wait "$job" || status=$?; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -KILL -"$job" 2>/dev/null || break; sleep 0.2; done; return "$status"; }
+          grouped ./scripts/toolchain --all
+          grouped ./bin/nupp build
+          grouped ./bin/nupp build --target bootstrapCompiler
+          grouped ./scripts/prelude-image
+          grouped ./bin/nupp build --target browserLuaJITApplicationRuntime --host browser
+          grouped node tests/luajit-browser/prepare-application.mjs build/browser-guest
           luajit_dir=$(./scripts/toolchain luajit)
-          "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
+          grouped "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
       - name: Exercise LuaJIT in Chromium without cross-origin isolation
+        timeout-minutes: 15
         env:
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
           NUPP_BENCH_CHROME_FLAGS: '["--no-sandbox", "--disable-dev-shm-usage"]'
         run: |
+          set -m
+          grouped() { "$@" & job=$!; status=0; wait "$job" || status=$?; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -KILL -"$job" 2>/dev/null || break; sleep 0.2; done; return "$status"; }
           cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* tests/luajit-browser/compiler.html tests/luajit-browser/compiler.mjs tests/luajit-browser/recovery.html tests/luajit-browser/recovery.mjs tests/luajit-browser/lifecycle.* build/browser-guest/
           node bench/luajit-browser/serve.mjs build/browser-guest 8113 &
           server=$!
-          trap 'kill "$server"' EXIT
-          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/normal-boot-conformance.json
-          node scripts/browser-snapshot.mjs build/browser-guest http://127.0.0.1:8113/
-          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/snapshot-conformance.json
-          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
-          node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
-          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
+          trap 'kill -KILL -"$server" 2>/dev/null || true' EXIT
+          grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/normal-boot-conformance.json
+          grouped node scripts/browser-snapshot.mjs build/browser-guest http://127.0.0.1:8113/
+          grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/snapshot-conformance.json
+          grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
+          grouped node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
+          grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
       - name: Package the verified LuaJIT runtime and matching sources
         run: |
           node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest
@@ -106,18 +120,21 @@ jobs:
       # Wasm kernels and the guest's i686 AOT are compiled and linked by nupp
       # itself.
       - name: Verify consumers of the extracted release archive
+        timeout-minutes: 20
         env:
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
         run: |
+          set -m
+          grouped() { "$@" & job=$!; status=0; wait "$job" || status=$?; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -KILL -"$job" 2>/dev/null || break; sleep 0.2; done; return "$status"; }
           consumer="$RUNNER_TEMP/luajit-runtime-consumer"
-          node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
-          node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
-          node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
+          grouped node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
+          grouped node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
+          grouped node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
           node bench/luajit-browser/serve.mjs "$consumer/site" 8113 &
           server=$!
-          trap 'kill "$server"' EXIT
-          node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ "$consumer/browser-matrix.json"
+          trap 'kill -KILL -"$server" 2>/dev/null || true' EXIT
+          grouped node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ "$consumer/browser-matrix.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -4,12 +4,23 @@ import {execFileSync} from 'node:child_process';
 import {readFileSync, writeFileSync, mkdirSync, copyFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {build} from '../../editors/playground/node_modules/esbuild/lib/main.js';
+import {build, stop} from '../../editors/playground/node_modules/esbuild/lib/main.js';
 import {copyGuest, digest} from './package-assets.mjs';
 import {validateNativeLibrary} from './native.mjs';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 let compilerPrepared = false;
-export async function packageBrowserApp({project, target, output, guest, prebuilt = false}) {
+// esbuild answers from a service process it starts on first use and keeps. A
+// packaging failure left it running with the step's standard error, which held
+// a CI step open until the job timed out; it is stopped whichever way this ends,
+// and the next call starts another.
+export async function packageBrowserApp(options) {
+  try {
+    return await packageWithService(options);
+  } finally {
+    stop();
+  }
+}
+async function packageWithService({project, target, output, guest, prebuilt = false}) {
   // A cold checkout otherwise routes build --host through the pinned compiler,
   // which predates that option. Bootstrap the checkout's compiler first.
   if (!prebuilt && !compilerPrepared) {
