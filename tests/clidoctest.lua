@@ -154,6 +154,13 @@ local ILLUSTRATIVE = {
    ["nupp import-c native/mini.h --lib mini -o src/mini.nupp"] = "needs a C header and a compiler",
 }
 
+-- On Windows the harness starts `bin/nupp` through bash, and a task's own `nupp`
+-- is resolved by cmd.exe instead, which that harness does not provide.
+if jit.os == "Windows" then
+   REPLAYED["nupp task greet"] = nil
+   ILLUSTRATIVE["nupp task greet"] = "starts `nupp` by name, which the Windows harness does not provide"
+end
+
 function M.everyCommandBlockIsWhatTheCommandPrintsInTheExampleProject()
    local files = pageFiles()
    local dir = os.tmpname()
