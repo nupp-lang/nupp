@@ -1159,7 +1159,7 @@ end
 -- Half of a cold self-build is the trace compiler, so a compiler run raises LuaJIT's
 -- side-trace threshold. A resident or program-running command must not: `lsp` amortizes
 -- its traces across a session, and `run` and `task` execute somebody else's program.
-local function flagsAppliedBy(command, env)
+local function flagsAppliedBy(command, env, operation)
     local applied = {}
     local realStart, realGetenv, realWrite = jit.opt.start, os.getenv, io.write
     jit.opt.start = function(...)
@@ -1170,20 +1170,29 @@ local function flagsAppliedBy(command, env)
     end
     io.write = function()
     end
-    pcall(cli.main, {command, "--help"})
+    pcall(cli.main, operation and {command, operation, "--help"} or {command, "--help"})
     jit.opt.start, os.getenv, io.write = realStart, realGetenv, realWrite
 
     return table.concat(applied, " ")
 end
 
-local function assertFlags(command, want, env, label)
-    local got = flagsAppliedBy(command, env)
+local function assertFlags(command, want, env, label, operation)
+    local got = flagsAppliedBy(command, env, operation)
     assert(got == want, ("%s: %s\n  want: %q\n  got:  %q"):format(command, label or "wrong jit flags", want, got))
 end
 
 function M.compilerRunsRaiseTheSideTraceThreshold()
     assertFlags("build", "hotexit=200,hotloop=1000")
     assertFlags("check", "hotexit=200,hotloop=1000")
+end
+
+-- A one-shot language operation checks a dependency closure once and exits. On
+-- the defaults, `lsp inspect` of env.nupp cost twice the CPU a check of it did.
+function M.oneShotLanguageOperationsAreCompilerRuns()
+    for _, operation in ipairs({"inspect", "definition", "references", "symbols", "rename"}) do
+        assertFlags("lsp", "hotexit=200,hotloop=1000", nil, "a one-shot operation", operation)
+    end
+    assertFlags("lsp", "", nil, "the server is resident", "serve")
 end
 
 function M.residentAndProgramRunningCommandsKeepTheDefaults()
