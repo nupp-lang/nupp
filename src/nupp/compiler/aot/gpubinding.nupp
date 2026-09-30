@@ -173,18 +173,24 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     end
     append(lines, "")
 
-    append(lines, recordDeclaration .. specType)
-    append(lines, "    @private @readonly _marker: boolean")
-    append(
-        lines,
-        "    compile: function(borrows self: "
-        .. specType
-        .. ", borrows context: "
-        .. runtime
-        .. ".Context): affine("
-        .. kernelType
-        .. ") borrows (context)"
-    )
+    -- Each record is declared before the ones that name it: a binding, then the
+    -- kernel whose bind returns it, then the spec whose compile returns the
+    -- kernel. affine(T) takes T's cleanup from its Closeable claim, and a T
+    -- declared later has not made that claim yet when the annotation resolves.
+    append(lines, recordDeclaration .. bindingType .. " is nupp.Closeable")
+    append(lines, "    @private _binding: " .. implementation .. ".Binding")
+    append(lines, "    function close(takes self): nil")
+    append(lines, "        self._binding:close()")
+    append(lines, "    end")
+    local dispatchParams: {string} = {"borrows self: " .. bindingType}
+    for _, param in ipairs(artifact.uniforms) do
+        dispatchParams[#dispatchParams + 1] = parameterName(names, param.name) .. ": " .. sourceType(param)
+    end
+    append(lines, "    dispatch: function(")
+    for position, param in ipairs(dispatchParams) do
+        append(lines, "        " .. param .. (position < #dispatchParams and "," or ""))
+    end
+    append(lines, "    ): nil")
     append(lines, "end")
     append(lines, "")
 
@@ -212,20 +218,18 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "end")
     append(lines, "")
 
-    append(lines, recordDeclaration .. bindingType .. " is nupp.Closeable")
-    append(lines, "    @private _binding: " .. implementation .. ".Binding")
-    append(lines, "    function close(takes self): nil")
-    append(lines, "        self._binding:close()")
-    append(lines, "    end")
-    local dispatchParams: {string} = {"borrows self: " .. bindingType}
-    for _, param in ipairs(artifact.uniforms) do
-        dispatchParams[#dispatchParams + 1] = parameterName(names, param.name) .. ": " .. sourceType(param)
-    end
-    append(lines, "    dispatch: function(")
-    for position, param in ipairs(dispatchParams) do
-        append(lines, "        " .. param .. (position < #dispatchParams and "," or ""))
-    end
-    append(lines, "    ): nil")
+    append(lines, recordDeclaration .. specType)
+    append(lines, "    @private @readonly _marker: boolean")
+    append(
+        lines,
+        "    compile: function(borrows self: "
+        .. specType
+        .. ", borrows context: "
+        .. runtime
+        .. ".Context): affine("
+        .. kernelType
+        .. ") borrows (context)"
+    )
     append(lines, "end")
     append(lines, "")
 

@@ -741,6 +741,38 @@ return bindingNames
     assert(browser:find("nupp.math.u32.wrap(gpuParameter as integer)", 1, true), browser)
 end
 
+-- affine(T) takes T's cleanup from its Closeable claim, and a T declared later
+-- has not made that claim when the annotation resolves: the spec's compile and the
+-- kernel's bind then returned owners with no terminal, and every `with` over them
+-- was refused with NUPP2615. So each generated record comes before the ones that
+-- name it.
+function M.gpuBindingDeclaresEachRecordBeforeItIsNamed()
+    local dir = project({
+        [
+            "gpu.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        output[index] = nupp.math.u32.add(input[index], mask)
+    end
+end
+return addMask
+]],
+    })
+    for _, triple in ipairs({"", " --triple wasm32-unknown-emscripten"}) do
+        local binding, code = run(dir, "--emit binding" .. triple .. " gpu.nupp")
+        test.equal(code, 0, binding)
+        local bindingAt = assert(binding:find("record GpuBinding_ks_add_mask", 1, true), binding)
+        local kernelAt = assert(binding:find("record GpuKernel_ks_add_mask", 1, true), binding)
+        local specAt = assert(binding:find("record GpuSpec_ks_add_mask", 1, true), binding)
+        assert(bindingAt < kernelAt and kernelAt < specAt, "records out of dependency order:\n" .. binding)
+    end
+end
+
 function M.loopFreeScalarExplainsWhyLanesDoNotApply()
     local dir = project({
         ["scalar.nupp"] = [[
