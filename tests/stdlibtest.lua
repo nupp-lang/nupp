@@ -901,10 +901,10 @@ function M.optionBagsArePlainTables()
 end
 
 function M.anHttpClientPumpsItsTransfersOnRequest()
-    local polls = {}
+    local polls = 0
     local backend = {
-        poll = function(_self, waitMs)
-            polls[#polls + 1] = waitMs
+        poll = function()
+            polls = polls + 1
             return 0
         end,
         pending = function()
@@ -923,16 +923,18 @@ function M.anHttpClientPumpsItsTransfersOnRequest()
     })
     local client = provider.newClient()
     assertEq(client.flush, nil, "the old flush spelling is gone")
+    -- Waiting sleeps on the shared readiness generation rather than inside the
+    -- transport, so a pump drains once and, told to wait and finding nothing
+    -- settled, drains again after the sleep.
     client:pump()
+    assertEq(polls, 1, "a pump without a timeout drains once and does not wait")
     client:pump(25)
-    assertEq(#polls, 2, "each pump drove the transport once")
-    assertEq(polls[1], 0, "without waiting by default")
-    assertEq(polls[2], 25, "and for as long as it was told to")
+    assertEq(polls, 3, "a pump told to wait drains, sleeps, and drains again")
     local ok, problem = pcall(client.pump, client, -1)
     assert(not ok and tostring(problem):find("timeoutMs", 1, true), tostring(problem))
     client:close()
     client:pump()
-    assertEq(#polls, 2, "a closed client drives nothing")
+    assertEq(polls, 3, "a closed client drives nothing")
 end
 
 function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()

@@ -860,7 +860,14 @@ record http.Client is BodyClient, contracts.Client
             error("nupp: HTTP pump timeoutMs must be a non-negative integer", 2)
         end
         if not self._closed then
-            self._native:poll(waitMs)
+            -- Snapshot, drain, and sleep on the shared readiness generation only when
+            -- nothing settled, so an event between the drain and the sleep still wakes
+            -- it.
+            native.snapshot()
+            if self._native:poll() == 0 and waitMs > 0 then
+                native.sleep(waitMs)
+                self._native:poll()
+            end
         end
     end
 
