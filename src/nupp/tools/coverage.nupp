@@ -583,6 +583,32 @@ local function lcov(model)
 end
 
 --- Writes all report formats and returns the root roll-up for terminal/JSON callers.
+--- The format of `coverage.json`. `nupp test --coverage --report-json` and CI read
+--- it back, so a reader checks it exactly and refuses any other, naming both.
+coverage.SCHEMA_VERSION = 1
+
+--- Reads a `coverage.json` a run wrote, refusing one in another format.
+---
+--- @return the report's text and its decoded value, or nil and why it cannot be used
+function coverage.read(path: string): (string?, any, string?)
+    local text, readErr = readFile(path)
+    if not text then
+        return nil, nil, "cannot read coverage report " .. path .. ": " .. tostring(readErr)
+    end
+    local value, decodeErr = json.decode(text as string)
+    if type(value) ~= "table" then
+        return nil, nil, path .. " is not a coverage report: " .. tostring(decodeErr or "not a JSON object")
+    end
+    local found = (value as {[string]: any}).schemaVersion
+    if found ~= coverage.SCHEMA_VERSION then
+        return nil, nil, (
+            "%s has schemaVersion %s, and this compiler reads %d; run the coverage again"
+        ):format(path, tostring(found), coverage.SCHEMA_VERSION)
+    end
+
+    return text, value, nil
+end
+
 function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     highlight.configureScintillua(".", {})
     local summary = aggregate(model.files, "")
@@ -590,7 +616,7 @@ function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     -- Source text and generated Lua belong in their HTML pages, not in the machine
     -- report. Keeping the JSON to metrics/sites makes it practical for CI to read.
     local public = {
-        version = model.version,
+        schemaVersion = coverage.SCHEMA_VERSION,
         warnings = model.warnings,
         files = {},
         summary = {

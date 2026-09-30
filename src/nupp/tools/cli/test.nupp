@@ -264,7 +264,11 @@ local REPORT_SCHEMA = {
             .. "draw a gutter, so a site says where it is, how often it was "
             .. "reached, and -- for a branch -- which way it went.",
             properties = {
-                version = {type = "integer"},
+                schemaVersion = {
+                    type = "integer",
+                    enum = {1},
+                    description = "The report's format. A reader refuses any other, naming both."
+                },
                 warnings = {type = "array", items = {type = "string"}},
                 summary = {type = "object"},
                 files = {
@@ -283,7 +287,7 @@ local REPORT_SCHEMA = {
                     },
                 },
             },
-            required = {"version", "files", "summary"},
+            required = {"schemaVersion", "files", "summary"},
         },
     },
 }
@@ -381,11 +385,9 @@ local function runCoverage(options: any): integer
     local fs = require("nupp.compiler.fs")
     local outDir = options.coverageOut or "build/reports/coverage"
     if options.reportJson then
-        local existing, err = fs.readFile(outDir .. "/coverage.json")
+        local existing, _, err = require("nupp.tools.coverage").read(outDir .. "/coverage.json")
         if not existing then
-            io.stderr:write(
-                "nupp: cannot read coverage report " .. outDir .. "/coverage.json: " .. tostring(err) .. "\n"
-            )
+            io.stderr:write("nupp: " .. tostring(err) .. "\n")
             return 1
         end
         io.write(existing)

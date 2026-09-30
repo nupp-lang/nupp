@@ -107,4 +107,21 @@ function M.nonBranchSitesDoNotClaimOutcomeCounts()
     test.equal(sites[1].falseCount, nil)
 end
 
+-- The report is read back by `nupp test --coverage --report-json` and by CI, so its
+-- format is checked on read: one written in another format is refused by name rather
+-- than handed on as though it were current.
+function M.aReportInAnotherFormatIsRefusedOnRead()
+    local dir = tempdir()
+    write(dir .. "/coverage.json", json.encode({schemaVersion = coverage.SCHEMA_VERSION, files = {}, summary = {}}))
+    local text, value, err = coverage.read(dir .. "/coverage.json")
+    assert(text and value and not err, tostring(err))
+    write(dir .. "/coverage.json", json.encode({version = 1, files = {}, summary = {}}))
+    text, value, err = coverage.read(dir .. "/coverage.json")
+    assert(not text and err:find("schemaVersion nil", 1, true) and err:find("reads " .. coverage.SCHEMA_VERSION, 1, true), err)
+    write(dir .. "/coverage.json", json.encode({schemaVersion = 99, files = {}, summary = {}}))
+    text, value, err = coverage.read(dir .. "/coverage.json")
+    assert(not text and err:find("schemaVersion 99", 1, true), err)
+    assert(os.execute("rm -rf " .. string.format("%q", dir)) == 0)
+end
+
 return M
