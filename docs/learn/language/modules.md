@@ -200,8 +200,8 @@ directly:
 ```nupp
 module app.read
 
-export function read(pointer: voidptr, count: integer): nupp.mem.span.Span<uint8>
-    return nupp.mem.span.fromCarray(pointer as uint8*, count)
+export function view(borrows text: string): nupp.mem.span.ByteSpan borrows (text)
+    return nupp.mem.span.fromString(text)
 end
 ```
 

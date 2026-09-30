@@ -348,7 +348,7 @@ local first: integer?, last: integer?, name: string =
 the pattern has none:
 
 ```nupp
-local nextWord: function(): string = string.gmatch("one two", "[a-z]+")
+local nextWord: function(): string? = string.gmatch("one two", "[a-z]+")
 ```
 
 `gsub` validates a literal pattern even though its result stays

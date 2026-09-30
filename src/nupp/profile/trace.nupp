@@ -13,7 +13,7 @@ three explanations.
 ```nupp
 local trace = nupp.profile.trace
 
-local reason = trace.forOpcode("FNEW")
+local reason = assert(trace.forOpcode("FNEW"))
 print(reason.id, reason.repair)
 ```
 

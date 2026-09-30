@@ -106,7 +106,9 @@ local record Gmatch
 
     function run(self): integer
         for _, path in ipairs(self.files) do
-            local text = assert(io.open(path)):read("*a")
+            local file = assert(io.open(path))
+            local text = file:read("*a")
+            file:close()
             for match in text:gmatch(self.pattern) do
                 print(path .. ": " .. match)
             end

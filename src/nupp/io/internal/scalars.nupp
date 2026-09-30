@@ -646,6 +646,8 @@ export const newScalarReader: function(source: string | ByteQueue): affine(Scala
 --- `ScalarWriter:buffer` hands back.
 ---
 --- ```nupp
+--- local io = require("nupp.io")
+---
 --- do
 ---     local cursor = io.newScalarWriter()
 ---     cursor:writeUint32(0x4d495355):writeUint16(2)

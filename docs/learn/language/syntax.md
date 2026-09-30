@@ -399,7 +399,7 @@ None of the level-1 introducers is reserved. `type`, `record`, `interface`,
 start.
 
 ```nupp
-local switch = |n: integer| -> n + 1
+local switch = |n: number| -> n + 1
 
 local record = 5
 print(type(record))

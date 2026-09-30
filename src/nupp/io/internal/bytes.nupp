@@ -995,6 +995,8 @@ end
 --- changing:
 ---
 --- ```nupp
+--- local io = require("nupp.io")
+---
 --- local reader = io.newStringReader("hello")
 --- assert(reader:read(5) == "hello")
 --- assert(reader:read(1) == "")

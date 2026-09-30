@@ -143,7 +143,7 @@ local record User
 end
 
 local user = new User(id = 7, name = "ada")
-local out = string.buffer.new()
+local out = nupp.text.newBuffer()
 local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
