@@ -11,11 +11,14 @@ deadlines, comparing baselines, and retaining machine-readable history.
 
 local usageError = require("nupp.tools.cli.error").forCommand("bench")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
-local REPORT_SCHEMA = {
+local RUN_SCHEMA = {
     type = "object",
     description = "One benchmark-set run, with every fork of every selected benchmark.",
     properties = {
+        ok = report.OK,
+        diagnostics = report.DIAGNOSTICS,
         schema = {type = "integer"},
         recordedAt = {type = "string"},
         label = {type = "string"},
@@ -110,7 +113,39 @@ local REPORT_SCHEMA = {
             },
         },
     },
-    required = {"schema", "recordedAt", "benchmarks"},
+    required = {"ok", "schema", "recordedAt", "benchmarks"},
+}
+
+local LIST_SCHEMA = {
+    type = "object",
+    description = "The benchmarks --list selected, without running any.",
+    properties = {
+        ok = report.OK,
+        diagnostics = report.DIAGNOSTICS,
+        benchmarks = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    name = {type = "string"},
+                    file = {type = "string"},
+                    suite = {type = "string"},
+                    case = {type = "string"},
+                    variant = {type = "string"},
+                    parameters = {type = "object"},
+                },
+                required = {"name", "file"},
+            },
+        },
+    },
+    required = {"ok", "benchmarks"},
+}
+
+-- `anyOf` rather than `oneOf`: a run that measured nothing and a listing that matched
+-- nothing are both an empty `benchmarks`, and either shape describes it.
+local REPORT_SCHEMA = {
+    description = "One run, or with --list the benchmarks a run would select.",
+    anyOf = {RUN_SCHEMA, LIST_SCHEMA},
 }
 
 local function invalidPattern(patterns: {string}?): string?

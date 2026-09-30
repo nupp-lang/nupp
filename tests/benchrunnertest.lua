@@ -98,6 +98,33 @@ function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
     os.execute(("rm -rf %q"):format(working))
 end
 
+-- The evidence a `--json` run printed, as the record it saved would hold it: the
+-- document on stdout is that record plus `ok` and `diagnostics`, and its keys may come
+-- in another order, so the two are compared as values.
+local function evidence(text)
+    local value = json.decode(text)
+    value.ok, value.diagnostics = nil, nil
+    local function canonical(item)
+        if type(item) ~= "table" then
+            return json.encode(item)
+        end
+        local keys = {}
+        for key in pairs(item) do
+            keys[#keys + 1] = key
+        end
+        table.sort(keys, function(a, b)
+            return tostring(a) < tostring(b)
+        end)
+        local parts = {}
+        for _, key in ipairs(keys) do
+            parts[#parts + 1] = tostring(key) .. "=" .. canonical(item[key])
+        end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+
+    return canonical(value)
+end
+
 function M.comparisonRecordsRetainBothSidesAndVerdicts()
     local working = workspace()
     local stdout, history, baseline = working
@@ -110,9 +137,11 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
         local command = ("%q bench --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
         assertEq(os.execute(inWorkspace(working, command)), 0, "fixed-record comparison succeeds")
         local output = read(stdout)
-        assertEq(output:gsub("%s+$", ""), read(working .. "/build/bench-record.json"), "stdout and saved record agree")
+        assertEq(evidence(output), evidence(read(working .. "/build/bench-record.json")), "stdout and saved record agree")
+        local decoded = json.decode(output)
+        assertEq(decoded.ok, true, "the printed document says the run succeeded")
 
-        return json.decode(output)
+        return decoded
     end
 
     local paired = run(("--case '^fixed$' --forks 12 --against %q --margin 5 --history %q"):format(NUPP, history))
@@ -138,9 +167,9 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     assertEq(verdict.pValue, 1, "raw significance is retained")
     assertEq(verdict.adjusted, 1, "adjusted significance is retained")
     assertEq(verdict.verdict, "unchanged", "the comparison verdict is retained")
-    assertEq(read(history):gsub("%s+$", ""), read(stdout):gsub("%s+$", ""), "history retains identical evidence")
+    assertEq(evidence(read(history)), evidence(read(stdout)), "history retains identical evidence")
     local f = assert(io.open(baseline, "wb"));
-    f:write(read(stdout));
+    f:write(read(working .. "/build/bench-record.json"));
     f:close()
 
     local observed = run(("--case '^fixed$' --forks 1 --baseline %q --margin 5 --accept"):format(baseline))
@@ -151,7 +180,7 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     assertEq(comparison.baseline.comparisons, nil, "accepted baselines do not nest comparison history")
     assertEq(comparison.verdicts[1].withheld, "below-minimum-forks", "too few forks explain the absent interval")
     assertEq(comparison.verdicts[1].verdict, "inconclusive", "too few forks remain inconclusive")
-    assertEq(read(baseline), read(stdout):gsub("%s+$", ""), "accepted baseline retains the full report")
+    assertEq(evidence(read(baseline)), evidence(read(stdout)), "accepted baseline retains the full report")
 
     local trending = run(("--case '^trend$' --forks 2 --against %q --margin 5"):format(NUPP))
     verdict = trending.comparisons[1].verdicts[1]

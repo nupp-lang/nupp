@@ -409,6 +409,9 @@ function M.everyCommandReportsAMissingFileAsACodedFailure()
     end
     holdsTheContract(good, "ast nosuch.nupp", {alreadyJson = true, code = "NUPP0001", where = "a project"})
     holdsTheContract(good, "lsp inspect good.nupp 99 1", {code = "NUPP0003", where = "a project"})
+    holdsTheContract(good, "bench --list --file nosuch.bench.nupp", {code = "NUPP0001", where = "a project"})
+    holdsTheContract(good, "bench --file nosuch.bench.nupp", {where = "a project"})
+    holdsTheContract(good, "bench --list --case nosuch", {code = "NUPP0003", where = "a project"})
     os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
 end
 
@@ -502,7 +505,7 @@ function M.everySchemaRequiresOk()
     -- `run` is the exception: the program owns stdout, and its `--json` is the trace
     -- report it writes to a file.
     for _, name in ipairs(cli.names()) do
-        if name ~= "help" and name ~= "lsp" and name ~= "run" and name ~= "bench" then
+        if name ~= "help" and name ~= "lsp" and name ~= "run" then
             local help = capture(nil, "help " .. name)
             if help:find("--schema", 1, true) then
                 requiresOk(json.decode(capture(nil, name .. " --schema")), name)

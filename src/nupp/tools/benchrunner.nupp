@@ -1343,6 +1343,28 @@ local function planned(
 end
 
 --- Runs the selected benchmark programs.
+--- A reason as the diagnostic a `--json` document carries: coded, and positioned at
+--- nothing, because what failed is the run rather than a line of a program.
+local function problem(code: string, message: string, file: string?): any
+    return {filename = file, code = code, msg = message}
+end
+
+--- The document a `--json` run writes to stdout: what it measured, if anything, with
+--- `ok` and the reasons it was not. The record stored as the latest run, in history or
+--- as a baseline is the measurement alone.
+local function writeRunDocument(document: {[string]: any}, code: integer, problems: {any}): integer
+    local report = require("nupp.tools.cli.report")
+    local shown: {[string]: any} = {}
+    for key, value in pairs(document) do
+        shown[key] = value
+    end
+    shown.ok = code == 0
+    shown.diagnostics = report.diagnosticValues(problems)
+    io.stdout:write(report.encode(shown), "\n")
+
+    return code
+end
+
 function runner.run(options: runner.Options): integer
     local executable = options.executable or "nupp"
     local baselinePath = options.baseline
@@ -1379,12 +1401,31 @@ function runner.run(options: runner.Options): integer
 
         return 2
     end
-    if profileDir then
-        local made, problem = files.createDirectory(profileDir)
-        if not made then
-            io.stderr:write("nupp: cannot create profile directory " .. profileDir .. ": " .. tostring(problem) .. "\n")
 
-            return 1
+    -- A run refused before it measured anything is, under `--json`, a document with
+    -- nothing measured and the reason, rather than an empty record that only the exit
+    -- status tells apart from a run that measured nothing.
+    local function refuse(code: string, message: string, file: string?): integer
+        if asJson then
+            return writeRunDocument(
+                {schema = (require("nupp.bench") as any).SCHEMA, recordedAt = "", benchmarks = json.asArray({})},
+                1,
+                {problem(code, message, file)}
+            )
+        end
+        io.stderr:write("nupp: " .. message .. "\n")
+
+        return 1
+    end
+
+    if profileDir then
+        local made, madeProblem = files.createDirectory(profileDir)
+        if not made then
+            return refuse(
+                "NUPP0001",
+                "cannot create profile directory " .. profileDir .. ": " .. tostring(madeProblem),
+                profileDir
+            )
         end
     end
 
@@ -1393,10 +1434,17 @@ function runner.run(options: runner.Options): integer
         local paths = onlyFile and {onlyFile} or discover()
         local listings, listingProblems = casesFor(executable, paths, timeoutMs)
         local matched: {any} = {}
+        local problems: {any} = {}
         for _, path in ipairs(paths) do
-            local problem = listingProblems[path]
-            if problem then
-                io.stderr:write("nupp: " .. path .. ": " .. problem .. "\n")
+            local listingProblem = listingProblems[path]
+            if listingProblem then
+                if asJson then
+                    problems[
+                        #problems + 1
+                    ] = problem(files.exists(path) and "NUPP0004" or "NUPP0001", path .. ": " .. listingProblem, path)
+                else
+                    io.stderr:write("nupp: " .. path .. ": " .. listingProblem .. "\n")
+                end
                 failed = true
             end
             for _, benchmark in ipairs(listings[path] or {}) do
@@ -1406,7 +1454,11 @@ function runner.run(options: runner.Options): integer
             end
         end
         if #matched == 0 and not failed then
-            io.stderr:write("nupp: no benchmark matched the selection\n")
+            if asJson then
+                problems[#problems + 1] = problem("NUPP0003", "no benchmark matched the selection")
+            else
+                io.stderr:write("nupp: no benchmark matched the selection\n")
+            end
             failed = true
         end
         if asJson then
@@ -1424,7 +1476,14 @@ function runner.run(options: runner.Options): integer
                     parameters = benchmark.parameters,
                 }
             end
-            io.stdout:write(json.encode({benchmarks = entries}), "\n")
+            io.stdout:write(
+                require("nupp.tools.cli.report").encode({
+                    ok = not failed,
+                    benchmarks = json.asArray(entries),
+                    diagnostics = require("nupp.tools.cli.report").diagnosticValues(problems),
+                }),
+                "\n"
+            )
 
             return failed and 1 or 0
         end
@@ -1461,22 +1520,18 @@ function runner.run(options: runner.Options): integer
         -- A named baseline that is not there is not a pass. Exiting zero here is how a
         -- lost baseline comes to look exactly like a clean run.
         if not previous and not accept then
-            io.stderr:write("nupp: no baseline at " .. baselinePath .. "\n")
-
-            return 1
+            return refuse("NUPP0001", "no baseline at " .. baselinePath, baselinePath)
         end
     end
 
     if options.gpuCostsDir ~= nil then
         if options.gpuCostsDir == "" then
-            io.stderr:write("nupp: --gpu-costs needs an output directory\n")
-            return 1
+            return refuse("NUPP0001", "--gpu-costs needs an output directory")
         end
         gpuCostsDirectory = options.gpuCostsDir .. "/" .. require("nupp.util").uuid4()
-        local made, problem = files.createDirectory(gpuCostsDirectory)
+        local made, madeProblem = files.createDirectory(gpuCostsDirectory)
         if not made then
-            io.stderr:write("nupp: cannot create GPU cost directory: " .. tostring(problem) .. "\n")
-            return 1
+            return refuse("NUPP0001", "cannot create GPU cost directory: " .. tostring(madeProblem), gpuCostsDirectory)
         end
     end
 
@@ -1788,9 +1843,28 @@ function runner.run(options: runner.Options): integer
         executionFailures[#executionFailures + 1] = "cannot append " .. historyPath
     end
 
-    if asJson then
-        io.stdout:write(encoded, "\n")
-    else
+    -- Written once the verdict is known, so the document's `ok` is the exit status.
+    local function finish(code: integer): integer
+        if not asJson then
+            return code
+        end
+        local problems: {any} = {}
+        for _, failure in ipairs(executionFailures) do
+            problems[#problems + 1] = problem("NUPP0004", failure)
+        end
+        if not accept then
+            for _, regression in ipairs(regressions) do
+                problems[#problems + 1] = problem("NUPP0004", regression)
+            end
+        end
+        if code ~= 0 and #problems == 0 then
+            problems[#problems + 1] = problem("NUPP0004", "the run failed")
+        end
+
+        return writeRunDocument(document, code, problems)
+    end
+
+    if not asJson then
         local cases: {any} = {}
         for _, entry in ipairs(merged) do
             cases[#cases + 1] = entry.summary
@@ -1822,27 +1896,29 @@ function runner.run(options: runner.Options): integer
         if #executionFailures > 0 then
             io.stderr:write("nupp: baseline not written because a benchmark failed\n")
 
-            return 1
+            return finish(1)
         end
         if not writeFile(baselinePath, encoded) then
             io.stderr:write("nupp: cannot write " .. baselinePath .. "\n")
+            executionFailures[#executionFailures + 1] = "cannot write " .. baselinePath
 
-            return 1
+            return finish(1)
         end
         io.stderr:write("nupp: baseline written to " .. baselinePath .. "\n")
 
-        return 0
+        return finish(0)
     end
     if accept and not baselinePath then
         io.stderr:write("nupp: --accept needs --baseline PATH to write\n")
+        executionFailures[#executionFailures + 1] = "--accept needs --baseline PATH to write"
 
-        return 1
+        return finish(1)
     end
 
     -- Durations never reach this. They are machine-dependent, and a gate on them would
     -- fail runs for the machine being busy rather than for the code having changed.
 
-    return (#executionFailures > 0 or #regressions > 0) and 1 or 0
+    return finish((#executionFailures > 0 or #regressions > 0) and 1 or 0)
 end
 
 --- The fork merge, exposed because it is the contract rather than an implementation
