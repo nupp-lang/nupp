@@ -232,6 +232,45 @@ function M.aMalformedModuleGraphIsRecomputed()
     assert(require("nupp.io.files").remove(dir, true))
 end
 
+-- Most single flipped bytes in an encoded store still decode, and a hit is never
+-- rewritten. Unsealed, one damaged byte in `checks.buf` misquoted a diagnostic on every
+-- run and one in `headers.buf` crashed every check, until the file was deleted by hand.
+function M.aStoreWhoseBodyWasDamagedAnswersNothing()
+    local store = require("nupp.compiler.project.store")
+    local dir = tempProject({})
+    local message = "cannot initialize wrong: string is not a integer"
+
+    local function damage(path)
+        local file = assert(io.open(path, "rb"))
+        local text = file:read("*a")
+        file:close()
+        local at = assert(text:find(message, 1, true), "the message is stored as written")
+        local flipped = string.char(bit.bxor(text:byte(at + 7), 1))
+        text = text:sub(1, at + 6) .. flipped .. text:sub(at + 8)
+        assert(pcall(require("string.buffer").decode, text), "the damage still decodes")
+        file = assert(io.open(path, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    local valuePath = dir .. "/value.buf"
+    local value = store.openValue(valuePath, "stamp")
+    value.set({msg = message})
+    value.save()
+    assert(store.openValue(valuePath, "stamp").value.msg == message, "an intact value is read back")
+    damage(valuePath)
+    assert(store.openValue(valuePath, "stamp").value == nil, "a damaged value was believed")
+
+    local keyedPath = dir .. "/keyed.buf"
+    local keyed = store.open(keyedPath, "stamp")
+    keyed.put("key", {msg = message})
+    keyed.save()
+    assert(store.open(keyedPath, "stamp").get("key").msg == message, "an intact entry is read back")
+    damage(keyedPath)
+    assert(store.open(keyedPath, "stamp").get("key") == nil, "a damaged entry was believed")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A module is checked against the carried declarations as much as against the
 -- checker, and they are not modules, so the subsystem stamp never reached them. An
 -- edit to `lua.d.nupp` then left every module's stored diagnostics believed while a

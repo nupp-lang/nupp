@@ -18,6 +18,13 @@ What it will not do is answer a question it was not asked exactly. There is no
 partial matching, no "close enough", and no version migration: a stamp that
 does not match discards the file. Recomputing is always available and always
 correct, so every failure here has the same answer.
+
+Decoding is not the same as being intact. Most single flipped bytes in an
+encoded file still decode, into a table with a renamed field or a changed
+message, and a hit is never rewritten -- so one damaged byte was a diagnostic
+misquoted on every run, or a check that crashed on every run, until somebody
+deleted the file by hand. The body is sealed with a digest of itself, and a
+body that does not match its seal is a miss like any other.
 ]]
 
 local loaded, nativeBuffer = pcall(require, "string.buffer")
@@ -33,7 +40,75 @@ local store = {}
 
 -- Bumped when an entry's shape changes and old entries would decode into something the
 -- reader no longer understands.
-local FORMAT = 1
+local FORMAT = 2
+
+--- The digest a body is sealed with, or nil where the host has no native one.
+---
+--- Native only. The portable digest is byte for byte the same answer but costs most of
+--- a second over a prelude image, which is far more than the store saves; a host
+--- without the native one writes no seal and reads without checking, which is what the
+--- store did before it had seals. Named indirectly for the same reason
+--- `fingerprint.contentDigest` is: a portable bundle should not carry host services
+--- in for a branch it never takes.
+local sealMemo: any = nil
+
+local function sealDigest(): any
+    if sealMemo == nil then
+        local ok, services = pcall(require, "nupp.compiler." .. "hostservices")
+        local digest = ok and services and services.hash and services.hash.digest or nil
+        -- A host whose library is missing fails on the first call, not on require.
+        sealMemo = digest and pcall(digest, "") and digest or false
+    end
+
+    return sealMemo or nil
+end
+
+--- Encodes `body` and seals it, or nil when it cannot be encoded.
+local function seal(stamp: string, body: any): string?
+    local ok, inner = pcall(buffer.encode, body)
+    if not ok then
+        return nil
+    end
+    local digest = sealDigest()
+    local encoded, text = pcall(buffer.encode, {
+        format = FORMAT,
+        stamp = stamp,
+        seal = digest and digest(inner) or nil,
+        body = inner,
+    })
+
+    return encoded and text or nil
+end
+
+--- The body `path` holds when it was written under `stamp` and is intact, else nil.
+---
+--- The stamp is compared before the body is digested, so a file some other compiler
+--- wrote costs a decode of its envelope and nothing more.
+local function unseal(path: string, stamp: string): any
+    local text = fs.readFile(path)
+    if not text then
+        return nil
+    end
+    -- A cache file is data somebody else wrote. Everything from here is guarded, and
+    -- every way it can go wrong lands on the same answer: nothing, recompute,
+    -- overwrite.
+    local ok, envelope = pcall(buffer.decode, text)
+    if not ok
+        or type(envelope) ~= "table"
+        or envelope.format ~= FORMAT
+        or envelope.stamp ~= stamp
+        or type(envelope.body) ~= "string"
+    then
+        return nil
+    end
+    local digest = sealDigest()
+    if digest and envelope.seal ~= digest(envelope.body) then
+        return nil
+    end
+    local decodedOk, body = pcall(buffer.decode, envelope.body)
+
+    return decodedOk and body or nil
+end
 
 --- Keeps this many entries beyond the ones the current run touched.
 ---
@@ -85,24 +160,12 @@ function store.open(path: string?, stamp: string): store.Store
     local stats: {[string]: integer} = {gets = 0, hits = 0, puts = 0}
 
     if path then
-        local text = fs.readFile(path)
-        if text then
-            -- A cache file is data somebody else wrote. Everything from here is
-            -- guarded, and every way it can go wrong lands on the same answer: no
-            -- entries, recompute, overwrite.
-            local ok, decoded = pcall(buffer.decode, text)
-            if ok
-                and type(decoded) == "table"
-                and decoded.format == FORMAT
-                and decoded.stamp == stamp
-                and type(decoded.order) == "table"
-                and type(decoded.entries) == "table"
-            then
-                entries = decoded.entries
-                for _, key in ipairs(decoded.order) do
-                    if entries[key] ~= nil then
-                        order[#order + 1] = key
-                    end
+        local decoded = unseal(path, stamp)
+        if type(decoded) == "table" and type(decoded.order) == "table" and type(decoded.entries) == "table" then
+            entries = decoded.entries
+            for _, key in ipairs(decoded.order) do
+                if entries[key] ~= nil then
+                    order[#order + 1] = key
                 end
             end
         end
@@ -155,15 +218,10 @@ function store.open(path: string?, stamp: string): store.Store
                 keptEntries[key] = entries[key]
             end
         end
-        local ok, text = pcall(buffer.encode, {
-            format = FORMAT,
-            stamp = stamp,
-            order = keptOrder,
-            entries = keptEntries,
-        })
+        local text = seal(stamp, {order = keptOrder, entries = keptEntries})
         -- A store that cannot be encoded or written is a store that misses next time,
         -- which is what happens when there is no store at all.
-        if ok then
+        if text then
             pcall(fs.writeFile, path, text)
         end
         dirty = false
@@ -194,12 +252,9 @@ function store.openValue(path: string?, stamp: string): store.Value
     local initial: any
     local dirty = false
     if path then
-        local text = fs.readFile(path)
-        if text then
-            local ok, decoded = pcall(buffer.decode, text)
-            if ok and type(decoded) == "table" and decoded.format == FORMAT and decoded.stamp == stamp then
-                initial = decoded.value
-            end
+        local decoded = unseal(path, stamp)
+        if type(decoded) == "table" then
+            initial = decoded.value
         end
     end
 
@@ -212,8 +267,8 @@ function store.openValue(path: string?, stamp: string): store.Value
         if not path or not dirty then
             return
         end
-        local ok, text = pcall(buffer.encode, {format = FORMAT, stamp = stamp, value = assert(self).value})
-        if ok then
+        local text = seal(stamp, {value = assert(self).value})
+        if text then
             pcall(fs.writeFile, path, text)
         end
         dirty = false
