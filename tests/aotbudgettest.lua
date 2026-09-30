@@ -170,12 +170,13 @@ function M.aWasmKernelModuleStaysSmall()
     local pipe = assert(io.popen(("cd '%s' && '%s' build --target native 2>&1"):format(dir, NUPP)))
     local out = pipe:read("*a")
     pipe:close()
-    local listing = assert(io.popen(("find '%s/build' -name '*.wasm'"):format(dir)))
+    -- Sized by the shell that found them: on Windows the paths find prints are
+    -- MSYS spellings (/c/Users/...) that LuaJIT's io.open cannot open.
+    local listing = assert(io.popen(("find '%s/build' -name '*.wasm' -exec wc -c {} \\;"):format(dir)))
     local modules = {}
-    for path in listing:lines() do
-        local handle = assert(io.open(path, "rb"))
-        modules[#modules + 1] = {path = path, size = #handle:read("*a")}
-        handle:close()
+    for line in listing:lines() do
+        local size, path = line:match("^%s*(%d+)%s+(.+)$")
+        modules[#modules + 1] = {path = assert(path, line), size = tonumber(size)}
     end
     listing:close()
     os.execute("rm -rf '" .. dir .. "'")
