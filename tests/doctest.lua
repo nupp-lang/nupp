@@ -4212,4 +4212,49 @@ function M.everyPublishedModuleSaysWhatItIs()
     )
 end
 
+-- The versions table in the distribution reference is a registry: every number that
+-- versions a format another process reads, beside where it is declared. Each row is
+-- read back out of its declaration here, so bumping one without the other fails.
+local VERSION_SOURCES = {
+    ["Native provider ABI"] = {"native/include/nupp_native.h", "#define NUPP_NATIVE_ABI_VERSION (%d+)u"},
+    ["Embedding ABI"] = {"native/crates/host/src/embed.rs", "const EMBED_ABI_VERSION: u32 = (%d+);"},
+    ["Compiler host ABI"] = {"src/nupp/tools/build/package.nupp", "local hostAbiVersion = (%d+)"},
+    ["Payload trailer"] = {"native/crates/host/src/payload.rs", "const FORMAT_VERSION: u32 = (%d+);"},
+    ["AOT runtime ABI"] = {"native/crates/native/c/ks_rt.c", "#define KS_RT_ABI_VERSION (%d+)u"},
+    ["Browser application manifest"] = {"runtime/luajit/app-runtime.mjs", "manifest%.schema !== (%d+)"},
+    ["AOT units manifest"] = {"src/nupp/tools/build/aot.nupp", "aot%.UNITS_SCHEMA_VERSION = (%d+)"},
+    ["AOT component manifest"] = {"src/nupp/tools/build/aot.nupp", "document = json%.encode%({%s*schemaVersion = (%d+),%s*component"},
+    ["Link kit"] = {"src/nupp/tools/build/aotllvm.nupp", "manifest%.schemaVersion ~= (%d+)"},
+    ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
+    ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
+    ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
+    ["Bench record"] = {"src/nupp/bench/init.nupp", "bench%.SCHEMA = (%d+)"},
+    ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},
+    ["Trace reason catalog"] = {"src/nupp/profile/trace.nupp", "trace%.CATALOG_VERSION = (%d+)"},
+    ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
+}
+
+function M.theVersionsRegistryMatchesTheConstants()
+    local root = HERE .. "/.."
+    local page = readFile(root .. "/docs/reference/distribution.md")
+    local section = assert(page:match("\n## Versions\n(.-)\n## "), "distribution.md has a Versions section")
+    local listed = {}
+    for format, version in section:gmatch("\n| ([^|]-) | (%d+) | [^\n]*") do
+        listed[format] = tonumber(version)
+    end
+    for format, source in pairs(VERSION_SOURCES) do
+        assert(listed[format], "the Versions table has no row for " .. format)
+        local text = readFile(root .. "/" .. source[1])
+        local declared = tonumber(text:match(source[2]))
+        assert(declared, format .. ": no version found in " .. source[1])
+        assert(
+            declared == listed[format],
+            ("%s is %d in %s and %d in the Versions table"):format(format, declared, source[1], listed[format])
+        )
+    end
+    for format in pairs(listed) do
+        assert(VERSION_SOURCES[format], "the Versions table lists " .. format .. ", which nothing checks")
+    end
+end
+
 return M

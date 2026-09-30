@@ -379,6 +379,51 @@ registered in `package.preload`, because the compiler uses JSON before it does
 most work.
 :::
 
+## Versions
+
+Every number below versions something another process, another build, or
+another release reads back. Each is checked on read, and nothing is migrated
+before 1.0: a reader that finds a version it does not know refuses, naming the
+version it found and the one it reads, rather than guessing.
+
+Two policies cover them. A document another process reads -- a manifest, a
+report, a catalog -- carries an integer `schemaVersion` (or the older `schema`)
+and is bumped whenever its shape changes. A binary contract -- an ABI, the
+payload trailer -- is versioned apart from any document, because it versions the
+bytes two programs exchange rather than what one of them wrote. Components,
+payloads and stubs are rebuilt with the toolchain that reads them: a component
+built by another release is refused by exact version rather than adapted.
+
+| Format | Version | Rule | Declared in |
+| --- | --- | --- | --- |
+| Native provider ABI | 2 | exact major | `native/include/nupp_native.h` `NUPP_NATIVE_ABI_VERSION` |
+| Embedding ABI | 2 | exact, config `size` at least the struct | `native/crates/host/src/embed.rs` `EMBED_ABI_VERSION` |
+| Compiler host ABI | 1 | exact | `src/nupp/tools/build/package.nupp` `hostAbiVersion` |
+| Payload trailer | 1 | exact | `native/crates/host/src/payload.rs` `FORMAT_VERSION` |
+| AOT runtime ABI | 1 | exact | `native/crates/native/c/ks_rt.c` `KS_RT_ABI_VERSION` |
+| Browser application manifest | 1 | exact | `runtime/luajit/app-runtime.mjs` `schema` |
+| AOT units manifest | 3 | exact | `src/nupp/tools/build/aot.nupp` `UNITS_SCHEMA_VERSION` |
+| AOT component manifest | 1 | exact | `src/nupp/tools/build/aot.nupp` `schemaVersion` |
+| Link kit | 1 | exact | `src/nupp/tools/build/aotllvm.nupp` `kit.json` `schemaVersion` |
+| Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
+| Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
+| Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |
+| Bench record | 3 | an older record is an inconclusive baseline | `src/nupp/bench/init.nupp` `SCHEMA` |
+| Optimizer remarks | 1 | read by consumers | `src/nupp/tools/cli/compile.nupp` `schema` |
+| Trace reason catalog | 1 | read by consumers | `src/nupp/profile/trace.nupp` `CATALOG_VERSION` |
+| GPU cost records | 1 | read by consumers | `native/crates/gpu/src/costs.rs` `schemaVersion` |
+
+To bump one, change the constant and this row together; a test holds the two to
+the same number. A major ABI bump is two-phase when stage zero reads it: a
+release whose reader accepts both versions ships first, the stage-zero pin moves
+to it, and only then does the writer bump.
+
+Caches are not in this table. Every cache is keyed on the compiler that wrote
+it, so a mismatch is a miss and costs a cold rebuild, never an error; see [Cache
+and failure behavior](../learn/projects/build.md#cache-and-failure-behavior).
+`nupp --json` output is not either: its version is the compiler's, and
+`--schema` is its contract.
+
 ## Limits
 
 A distributed binary is deliberately none of these things.

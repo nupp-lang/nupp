@@ -674,6 +674,16 @@ section's sidebar with every document it holds.
 
 ## Cache and failure behavior
 
+One rule covers every cache here -- the build state, the check state, the value
+stores under `build/cache`, the module graph, the prelude image and the compiled
+bytecode: nothing is migrated. Each is keyed on the compiler that wrote it and
+on a marker naming its own shape, and any mismatch, missing file or failed
+decode is a miss that costs cold work, never an error and never a different
+answer. The markers are spelled differently from store to store (`version`,
+`FORMAT`, a stamp such as `checks/1`), which says nothing about how they behave.
+Artifacts another process reads back are versioned differently; see
+[Versions](../../reference/distribution.md#versions).
+
 Build state is JSON in `outDir/.nupp-state.json`. Cache keys cover source
 content, configuration, compiler artifacts, native tool versions, flags,
 target settings, and dependency inputs, and each module's record also covers
