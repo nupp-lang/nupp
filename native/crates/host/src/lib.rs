@@ -1027,7 +1027,8 @@ return {
         let mut runtime = runtime();
         runtime
             .run_buffer(
-                b"assert(type(require('jit.vmdef')) == 'table'); assert(type(require('jit.zone')) == 'table')",
+                b"assert(type(require('jit.vmdef')) == 'table'); assert(type(require('jit.zone')) == 'table'); \
+                  assert(package.preload['jit.bc'] ~= nil); assert(type(require('jit.bc').line) == 'function')",
                 "=embedded-modules",
                 &[],
             )

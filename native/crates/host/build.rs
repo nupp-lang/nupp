@@ -71,8 +71,10 @@ fn main() {
 
     let vmdef = lua_module(&prefix, "vmdef");
     let zone = lua_module(&prefix, "zone");
+    let bc = lua_module(&prefix, "bc");
     println!("cargo:rustc-env=NUPP_LUAJIT_VMDEF={}", vmdef.display());
     println!("cargo:rustc-env=NUPP_LUAJIT_ZONE={}", zone.display());
+    println!("cargo:rustc-env=NUPP_LUAJIT_BC={}", bc.display());
 
     let target = target();
     if !target.contains("windows") {

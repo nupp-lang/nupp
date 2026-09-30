@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 const LUAJIT_VMDEF: &[u8] = include_bytes!(env!("NUPP_LUAJIT_VMDEF"));
 const LUAJIT_ZONE: &[u8] = include_bytes!(env!("NUPP_LUAJIT_ZONE"));
+const LUAJIT_BC: &[u8] = include_bytes!(env!("NUPP_LUAJIT_BC"));
 
 #[repr(C)]
 pub struct LuaState {
@@ -304,7 +305,8 @@ impl Lua {
             unsafe { nupp_lua_openlibs(self.state.as_ptr(), error) }
         })?;
         self.preload_lua("jit.vmdef", LUAJIT_VMDEF)?;
-        self.preload_lua("jit.zone", LUAJIT_ZONE)
+        self.preload_lua("jit.zone", LUAJIT_ZONE)?;
+        self.preload_lua("jit.bc", LUAJIT_BC)
     }
 
     pub(crate) fn state(&self) -> *mut LuaState {
