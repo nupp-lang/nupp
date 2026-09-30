@@ -782,12 +782,16 @@ end
 function M.traceKeepsRootWhenRecordingAbortsInsideALibrary()
     local root = assert(loadstring("return function() return 1 end", "@program.nupp"))()
     local library = assert(loadstring("return function() return 2 end", "@runtime/peg.lua"))()
+    -- The session also records real aborts anywhere in the process, so the
+    -- compiler stays off while it is open and only the emitted events land.
+    jit.off()
     local session = profile.trace()
     session.callback("start", 90, root, 1)
     session.callback("abort", 90, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
     session.callback("start", 91, library, 1, 90, 0)
     session.callback("abort", 91, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
     local report = session:stop()
+    jit.on()
     assertEq(report.totalAborts, 2, "both recording attempts counted")
     assertEq(#report.sites, 1, "root and abort site aggregate together")
     assertMatch(report.sites[1].rootLocation, "program.nupp:", "origin retained")
