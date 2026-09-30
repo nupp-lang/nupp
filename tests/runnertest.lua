@@ -535,6 +535,52 @@ return {
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A temporary name a case makes into a directory, and fills, goes with the run
+-- that handed it out. Only the empty ones used to: a populated project at such a
+-- name outlived every run, and runs left some forty thousand of them behind until
+-- a fixpoint failed for want of a unique temporary name.
+function M.aTemporaryDirectoryACaseFillsIsRemovedWithItsRun()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/tempdirtest.lua",
+        [[
+return {fillsATemporaryDirectory = function()
+    local project = os.tmpname()
+    os.remove(project)
+    assert(os.execute(("mkdir -p %q"):format(project .. "/src/deeper")) == 0)
+    local file = assert(io.open(project .. "/src/deeper/main.nupp", "wb"))
+    file:write("print(1)\n")
+    file:close()
+    local named = assert(io.open("made", "wb"))
+    named:write(project)
+    named:close()
+end}
+]]
+    )
+    local _, invocation = capturedRun(
+        ("cd %q && %sNUPP_TEST_BUILD=%q %q tempdirtest --jobs=1 --json 2>/dev/null"):format(
+            dir,
+            MODULES,
+            dir .. "/build",
+            ROOT .. "/build/nupp-test"
+        )
+    )
+    test.equal(invocation.status, 0, "the case failed" .. evidence(invocation))
+    local made = read(dir .. "/made")
+    local left = io.open(made .. "/src/deeper/main.nupp", "rb")
+    if left then
+        left:close()
+        os.execute("rm -rf " .. string.format("%q", made))
+    end
+    test.equal(left, nil, made .. " outlived the run that handed it out")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.exactCasesAreValidatedBeforeHooksOrCasesRun()
     local dir = os.tmpname()
     os.remove(dir)

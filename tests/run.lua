@@ -187,9 +187,33 @@ local shardSalt = ((os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or 
 local handedOut = 0
 local reservedTempNames = {}
 
+-- A name handed out here is as often made into a directory as used as a file:
+-- a case removes the file, makes a project where it was, and runs the compiler
+-- in it. `os.remove` cannot take a directory with anything in it, so each of
+-- those outlived its run, and runs left tens of thousands of them in the
+-- temporary directory until `tmpnam` ran out of names. Whatever is still at a
+-- name this process handed out is removed whole, directory or not.
 local function cleanupTempNames()
+    local remaining = {}
     for _, path in ipairs(reservedTempNames) do
-        os.remove(path)
+        if not os.remove(path) then
+            remaining[#remaining + 1] = path
+        end
+    end
+    reservedTempNames = {}
+    if #remaining == 0 then
+        return
+    end
+    local loaded, files = pcall(require, "nupp.io.files")
+    if not loaded then
+        return
+    end
+    for _, path in ipairs(remaining) do
+        pcall(function()
+            if files.exists(path) then
+                files.remove(path, true)
+            end
+        end)
     end
 end
 
