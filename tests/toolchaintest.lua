@@ -168,6 +168,38 @@ function M.everyPinnedSourceHasANotice()
     end
 end
 
+-- A pin written out a second time somewhere that cannot read the pins file. Each
+-- of these agreed only because whoever bumped the pin remembered it: the profiler
+-- labels a trace from any other LuaJIT unsupported, the notice every archive
+-- carries names what was pinned, and llvm-sys is the C API the code generator is
+-- compiled against, `231` for LLVM 23.1.
+function M.handCopiedPinsAgreeWithThePinsFile()
+    local recorded = pins()
+    local trace = read(ROOT .. "/src/nupp/profile/trace.nupp")
+    assert(
+        trace:find('trace.PINNED_LUAJIT_REVISION = "' .. recorded.LUAJIT_REV .. '"', 1, true),
+        "src/nupp/profile/trace.nupp names a LuaJIT revision other than LUAJIT_REV"
+    )
+
+    local notice = read(ROOT .. "/host/NOTICE.md")
+    assert(
+        notice:find("| `" .. recorded.LUAJIT_REV .. "` |", 1, true),
+        "host/NOTICE.md names a LuaJIT revision other than LUAJIT_REV"
+    )
+    assert(
+        notice:find("| `" .. recorded.LPEG_VERSION .. "` |", 1, true),
+        "host/NOTICE.md names an LPeg version other than LPEG_VERSION"
+    )
+
+    local major, minor = recorded.LLVM_VERSION:match("^(%d+)%.(%d+)%.")
+    local manifest = read(ROOT .. "/native/crates/codegen/Cargo.toml")
+    local bound = manifest:match('llvm%-sys = { version = "=(%d+)%.')
+    assert(
+        bound == major .. minor,
+        ("llvm-sys is pinned to the %s C API and LLVM_VERSION is %s"):format(tostring(bound), recorded.LLVM_VERSION)
+    )
+end
+
 -- GPU conformance uses the distribution-provided Lavapipe ICD. Keeping a
 -- source-built software adapter here would make WGPU's test dependency the
 -- largest remaining C++ build in the ordinary Nupp toolchain.
