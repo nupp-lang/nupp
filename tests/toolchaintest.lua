@@ -177,6 +177,57 @@ function M.theDriverFetchesOnlyFromThePins()
     assert(url == nil, "scripts/toolchain names a URL of its own: " .. tostring(url))
 end
 
+--- A rockspec read the way LuaRocks reads one: as a chunk run in an empty table.
+local function rockspec(path)
+    local fields = {}
+    local chunk = assert(loadfile(path))
+    setfenv(chunk, fields)
+    chunk()
+    return fields
+end
+
+-- The documentation rocks are bundled into the release binary, and they were
+-- pinned by name and version alone: whatever the rock server, or the Git tag its
+-- rockspec named, held on the day was what `dist` shipped. Each is now installed
+-- from a rockspec in this tree naming one archive and the digest LuaRocks checks
+-- before unpacking it, and nothing is resolved from a server for them.
+function M.everyBundledRockIsPinnedToAnArchiveDigest()
+    local manifest = dofile(ROOT .. "/nupp.lua")
+    local seen = 0
+    for name, dependency in pairs(manifest.dependencies) do
+        if dependency.kind == "luarocks" then
+            seen = seen + 1
+            local path = dependency.rockspec
+            assert(
+                type(path) == "string" and path:match("^rocks/[^/]+%.rockspec$"),
+                name .. " is not pinned by a rockspec in rocks/"
+            )
+            assert(dependency.version == nil and dependency.server == nil, name .. " asks a rock server for itself")
+            assert(dependency.rockDependencies == false, name .. " lets LuaRocks resolve its dependencies from a server")
+            local source = rockspec(ROOT .. "/" .. path).source
+            assert(source.url:match("^https://"), path .. " fetches over something other than HTTPS: " .. source.url)
+            assert(source.tag == nil and source.branch == nil, path .. " names a movable Git ref")
+            assert(source.url:match("%.tar%.gz$") or source.url:match("%.zip$"), path .. " does not name an archive")
+            assert(
+                type(source.md5) == "string" and #source.md5 == 32 and source.md5:match("^%x+$"),
+                path .. " has no digest for LuaRocks to check"
+            )
+        end
+    end
+    assert(seen >= 5, "the manifest lost its documentation rocks")
+
+    -- The LPeg rock is built from the archive the native LPeg is, which the pins
+    -- file holds to a SHA-256.
+    local recorded = pins()
+    local lpeg = rockspec(ROOT .. "/" .. manifest.dependencies.lunamark_lpeg.rockspec).source.url
+    assert(lpeg == recorded.LPEG_URL:gsub("%${LPEG_VERSION}", recorded.LPEG_VERSION), lpeg)
+
+    -- A step that installs one of them by name first leaves the build nothing to
+    -- check, since an installed version is taken as it is.
+    local pages = read(ROOT .. "/.github/workflows/pages.yml")
+    assert(not pages:find("install lpeg", 1, true), "the Pages build installs LPeg from a rock server")
+end
+
 -- A pin written out a second time somewhere that cannot read the pins file. Each
 -- of these agreed only because whoever bumped the pin remembered it: the profiler
 -- labels a trace from any other LuaJIT unsupported, the notice every archive

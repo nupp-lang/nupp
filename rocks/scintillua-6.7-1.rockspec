@@ -1,6 +1,9 @@
 -- Scintillua is not published on LuaRocks, so this rockspec stands in for the
 -- one upstream does not ship. It names a release archive rather than a branch,
--- so the version this installs is the version this file says it installs.
+-- so the version this installs is the version this file says it installs, and
+-- `source.md5` is the digest LuaRocks checks that archive against before it
+-- unpacks it: the release asset could otherwise be replaced under the same name
+-- and `dist` would bundle whatever it became.
 --
 -- The lexers are data as much as code: `lexer.lua` finds its siblings by path,
 -- through the `scintillua.lexers` property, rather than by `require`. So they
@@ -14,6 +17,7 @@ version = "6.7-1"
 source = {
    url = "https://github.com/orbitalquark/scintillua/releases/download/"
       .. "scintillua_6.7/scintillua_6.7.zip",
+   md5 = "520b4f0df3983ee05f92398b3e0d5da8",
    dir = "scintillua",
 }
 

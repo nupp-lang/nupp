@@ -1110,6 +1110,13 @@ starts. Naming both a `version` and a `rockspec` that declares a different one
 is refused too. A rock does not list `dependencies` of its own: LuaRocks
 resolves what a rock needs, which is the reason to use it.
 
+A `version` pins a name, and the server decides which bytes it stands for. A
+rockspec in the project pins the bytes: when its `source` names an archive by
+URL and gives its `md5`, LuaRocks refuses an archive with another digest before
+unpacking it, and the rockspec itself is pinned by the commit that carries it.
+Nupp's own manifest pins every rock its release binary bundles that way, with
+`rockDependencies = false` so that nothing is resolved from a server either.
+
 `rockDependencies = false` passes `--deps-mode=none` when an upstream rockspec's
 dependency list is deliberately unsuitable. The target must name separately
 pinned rock dependencies before that rock; Nupp does not infer or replace what

@@ -428,12 +428,23 @@ return {
     -- and `tests/run` put that tree on the search path, and a build puts it
     -- there for itself, so nothing here is installed globally.
     dependencies = {
+        -- Every rock is pinned by a rockspec in `rocks/`, never by a name and
+        -- version a rock server resolves: each names one archive by URL and by
+        -- the digest LuaRocks checks before unpacking it, and `dist` bundles
+        -- what they install into the release binary. `rockDependencies = false`
+        -- keeps LuaRocks from reaching a server for what one of them depends on,
+        -- so everything installed is listed here.
+        --
         -- Lunamark's rockspec names an obsolete native UTF-8 module. Its actual
         -- retained dependencies are pinned here, and Nupp supplies the two UTF-8
         -- operations Lunamark needs while constructing its parser.
-        lunamark_lpeg = {kind = "luarocks", rock = "lpeg", version = "1.1.0-2",},
-        lunamark_cosmo = {kind = "luarocks", rock = "cosmo", version = "16.06.04-1",},
-        lunamark_getopt = {kind = "luarocks", rock = "alt-getopt", version = "0.8.0-2",},
+        lunamark_lpeg = {kind = "luarocks", rockspec = "rocks/lpeg-1.1.0-2.rockspec", rockDependencies = false,},
+        lunamark_cosmo = {kind = "luarocks", rockspec = "rocks/cosmo-16.06.04-1.rockspec", rockDependencies = false,},
+        lunamark_getopt = {
+            kind = "luarocks",
+            rockspec = "rocks/alt-getopt-0.8.0-2.rockspec",
+            rockDependencies = false,
+        },
         -- Renders the markdown. The retained rocks it needs are listed above so
         -- their dependency boundary is Nupp's rather than upstream's.
         --
@@ -444,14 +455,19 @@ return {
         -- nothing here ever asks for.
         lunamark = {
             kind = "luarocks",
-            version = "0.6.0-1",
+            rockspec = "rocks/lunamark-0.6.0-1.rockspec",
             rockDependencies = false,
             bundle = {"lunamark.lua", "lunamark/**.lua", "cosmo.lua", "cosmo/**.lua", "re.lua",},
         },
         -- Syntax highlighting for fenced code in the generated site. Not
         -- published on LuaRocks, so the rockspec beside it stands in for the one
         -- upstream does not ship.
-        scintillua = {kind = "luarocks", rockspec = "rocks/scintillua-6.7-1.rockspec", bundle = bundledLexers,},
+        scintillua = {
+            kind = "luarocks",
+            rockspec = "rocks/scintillua-6.7-1.rockspec",
+            rockDependencies = false,
+            bundle = bundledLexers,
+        },
     },
 
     build = {

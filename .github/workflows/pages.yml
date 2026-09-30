@@ -54,18 +54,12 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
-      - name: Install bootstrap LPeg
-        shell: bash
-        run: |
-          lua_dir=$(./scripts/toolchain luajit)
-          luarocks_dir=$(./scripts/toolchain luarocks)
-          "$luarocks_dir/bin/luarocks" \
-            --lua-version=5.1 --tree=.rocks --lua-dir="$lua_dir" \
-            install lpeg 1.1.0-2
-
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground
 
+      # The rocks come from the rockspecs in rocks/, each pinned to one archive
+      # and its digest. Installing one by name first, from a rock server, would
+      # leave the build nothing to check: it takes an installed version as is.
       - name: Install documentation dependencies
         run: ./bin/nupp build --target docs
 
