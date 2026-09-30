@@ -74,6 +74,17 @@ case "$SANITIZER" in
         ASAN_OPTIONS="detect_leaks=$leaks:detect_stack_use_after_return=1:strict_string_checks=1"
         LSAN_OPTIONS="suppressions=$SUPPRESSIONS/lsan.supp:print_suppressions=0"
         export ASAN_OPTIONS LSAN_OPTIONS
+        # A leak report is only as useful as its frames, and a suppression can
+        # only match a symbolized one. ASan looks for llvm-symbolizer on PATH;
+        # the runner carries it under a versioned name.
+        if [ -z "${ASAN_SYMBOLIZER_PATH:-}" ]; then
+            for candidate in "$(command -v llvm-symbolizer 2>/dev/null)" /usr/lib/llvm-*/bin/llvm-symbolizer; do
+                if [ -x "$candidate" ]; then
+                    ASAN_SYMBOLIZER_PATH=$candidate
+                    export ASAN_SYMBOLIZER_PATH
+                fi
+            done
+        fi
         ;;
     thread)
         flags="-fsanitize=thread"
