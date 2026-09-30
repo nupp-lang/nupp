@@ -4,11 +4,12 @@ module nupp.tools.cli.migrate
 
 local usageError = require("nupp.tools.cli.error").forCommand("migrate")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
-        ok = {type = "boolean"},
+        ok = report.OK,
         dryRun = {type = "boolean"},
         migrations = {
             type = "array",
@@ -26,9 +27,9 @@ local REPORT_SCHEMA = {
                 required = {"source", "destination", "dialect", "edits", "warnings", "written"},
             },
         },
-        errors = {type = "array", items = {type = "string"}},
+        diagnostics = report.DIAGNOSTICS,
     },
-    required = {"ok", "dryRun", "migrations", "errors"},
+    required = {"ok", "dryRun", "migrations", "diagnostics"},
 }
 
 local function publicPlan(plan: any, written: boolean, includeText: boolean): any
@@ -55,17 +56,37 @@ local function run(options: any): integer
     local fs = require("nupp.compiler.fs")
     local planner = require("nupp.tools.migrate")
     local plans: {planner.Plan} = {}
+    -- Each failure twice over: the line the text form prints, and the diagnostic the
+    -- document carries, with its code and, where it has one, its position.
     local errors: {string} = {}
+    local failures: {any} = {}
+
+    local function failed(line: string, diagnostic: any): nil
+        errors[#errors + 1] = line
+        failures[#failures + 1] = diagnostic
+    end
+
+    local function fileFailed(path: string, err: string?, help: string): nil
+        failed(path .. ": " .. tostring(err), report.fileDiagnostic(path, tostring(err), help))
+    end
+
     for _, path in ipairs(paths) do
         local source, readErr = fs.readFile(path)
         if not source then
-            errors[#errors + 1] = path .. ": " .. tostring(readErr)
+            fileFailed(path, readErr, "check that the path exists and is readable")
         else
-            local plan, planErr = planner.plan(source, path, dialect)
+            local plan, planErr, planDiagnostic = planner.plan(source, path, dialect)
             if not plan then
-                errors[#errors + 1] = path .. ": " .. tostring(planErr)
+                failed(path .. ": " .. tostring(planErr), planDiagnostic)
             elseif fs.exists(plan.destination) then
-                errors[#errors + 1] = plan.destination .. " already exists"
+                failed(
+                    plan.destination .. " already exists",
+                    report.fileDiagnostic(
+                        plan.destination,
+                        plan.destination .. " already exists",
+                        "move it aside; a migration never replaces a file"
+                    )
+                )
             else
                 plans[#plans + 1] = plan
             end
@@ -86,7 +107,7 @@ local function run(options: any): integer
         local function attempt(plan: any): boolean
             local wrote, writeErr = fs.writeFile(plan.destination, plan.text)
             if not wrote then
-                errors[#errors + 1] = plan.destination .. ": " .. tostring(writeErr)
+                fileFailed(plan.destination, writeErr, "check that the destination is writable")
                 public[#public + 1] = publicPlan(plan, false, asJson)
                 return false
             end
@@ -101,13 +122,13 @@ local function run(options: any): integer
                 end
             end
             if fatal then
-                errors[#errors + 1] = plan.destination .. ": " .. fatal.code .. ": " .. fatal.msg
+                failed(plan.destination .. ": " .. fatal.code .. ": " .. fatal.msg, fatal)
                 public[#public + 1] = publicPlan(plan, true, asJson)
                 return false
             end
             local removed, removeErr = os.remove(plan.source)
             if not removed then
-                errors[#errors + 1] = plan.source .. ": " .. tostring(removeErr)
+                fileFailed(plan.source, removeErr, "remove the source by hand; the migrated file is in place")
                 public[#public + 1] = publicPlan(plan, true, asJson)
                 return false
             end
@@ -132,11 +153,11 @@ local function run(options: any): integer
     end
 
     if asJson then
-        require("nupp.tools.cli.report").write({
+        report.write({
             ok = #errors == 0,
             dryRun = asking,
             migrations = public,
-            errors = errors,
+            diagnostics = report.diagnosticValues(failures),
         })
     else
         for _, plan in ipairs(plans) do

@@ -234,14 +234,20 @@ end
 --- @param opts `buildOnly` leaves out the test and self-host actions
 --- @return the task, or the whole list
 --- @return why not, ready to print
-function tasks.describe(root: string?, requested: string?, opts: {buildOnly: boolean?}?): tasks.Description?, string?
+--- @return the diagnostic code for why not: NUPP0002 when the manifest cannot be used,
+---   NUPP0003 when it does not define the task asked for
+function tasks.describe(
+    root: string?,
+    requested: string?,
+    opts: {buildOnly: boolean?}?
+): (tasks.Description?, string?, string?)
     local config, err = manifest.load(root or ".")
     if not config then
-        return nil, err
+        return nil, err, "NUPP0002"
     end
     local build = config.build
     if not build then
-        return nil, "nupp: build is not configured"
+        return nil, "nupp: build is not configured", "NUPP0002"
     end
     local tasks, defaultName = configuredTasks(config, opts and opts.buildOnly)
     if requested then
@@ -250,7 +256,7 @@ function tasks.describe(root: string?, requested: string?, opts: {buildOnly: boo
                 return task
             end
         end
-        return nil, "nupp: unknown project task " .. requested
+        return nil, "nupp: unknown project task " .. requested, "NUPP0003"
     end
 
     return {default = defaultName, tasks = jsonArray(tasks)}

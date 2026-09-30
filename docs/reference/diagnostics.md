@@ -61,11 +61,14 @@ through `TERM=dumb` is still asked last rather than first.
 
 ## Diagnostic fields
 
-Every diagnostic carries `severity`, `message`, and `range`, plus `fixes`,
-`notes`, and `related`, which are always present and may be empty. The rest
-appear when there is something to say:
+Every diagnostic carries `severity` and `message`, plus `fixes`, `notes`, and
+`related`, which are always present and may be empty. The rest appear when there
+is something to say:
 
-- `file` and `code`, on anything with a source position and a code of its own.
+- `range`, on anything with a place in source. A diagnostic about something with
+  none -- a file that could not be read, a manifest that could not be used --
+  leaves it out rather than pointing at a line 0 no file has.
+- `file` and `code`, on anything with a file and a code of its own.
 - `help`: a concrete repair direction, in one sentence.
 - `related`: labeled secondary ranges, including ranges in other files.
 - `fixes`: titled edit sets a tool can apply without reading the prose.
@@ -98,7 +101,11 @@ entry of its own can still be resolved this far.
 
 | Codes | Meaning |
 | --- | --- |
-| `NUPP0001` | Source input could not be read. |
+| `NUPP0001` | A file could not be read or written. |
+| `NUPP0002` | The project manifest could not be used. |
+| `NUPP0003` | A name the command was given names nothing here. |
+| `NUPP0004` | A tool the command depends on failed. |
+| `NUPP0005` | A type dependency's declaration file was not imported. |
 | `NUPP1001` | Invalid or unterminated lexical input. |
 | `NUPP1002` | A required token is missing. |
 | `NUPP1003` | A required name is missing. |
@@ -107,9 +114,11 @@ entry of its own can still be resolved this far.
 | `NUPP1006` | Typed Nupp syntax appeared in plain Lua. |
 | `NUPP1007` | A docblock names a parameter that does not exist. |
 | `NUPP1008` | An annotated Lua type was recovered with reduced precision. |
+| `NUPP1010` | A docblock `@raises` line does not name a type. |
 | `NUPP2xxx` | Type, declaration, lint, FFI, or ownership diagnostics. |
 | `NUPP3xxx` | Code generation cannot represent a checked construct. |
 | `NUPP4001` | Formatting could not safely produce the requested result. |
+| `NUPP4002` | A file is not formatted the way `nupp fmt` writes it. |
 | `NUPP5xxx` | A development-time change requires a restart. |
 | `OPT-n` | An optimization pass reporting what it did or declined to do. |
 
@@ -226,7 +235,7 @@ validates real output against it, so the two cannot drift.
 | `build` | diagnostics, the target, and every path written |
 | `check` | diagnostics, and where the check's time went |
 | `clean` | the paths removed, or that would be |
-| `doc` | the resolved format, the output, and every path written |
+| `doc` | what kind of documentation was produced, the output, and every path written |
 | `explain` | a code's rule and worked examples |
 | `export-c` | the header written and the declarations in it |
 | `fixpoint` | whether it reproduced, and why not |
@@ -235,20 +244,61 @@ validates real output against it, so the two cannot drift.
 | `init` | what the template resolved to and what it wrote |
 | `lints` | every lint, its level here, and its default |
 | `lsp` | per operation; each has its own schema |
+| `migrate` | the migration plans and why any failed |
 | `ownership-audit` | foreign pointer contracts and unsafe assertion sites |
 | `reference` | the reference, section by section |
-| `tasks` | the task list, or one task's configuration |
+| `bench` | one run with every fork of every benchmark, or with `--list` the benchmarks |
+| `task` | the task list, or one task's configuration |
 | `test` | totals and a record per test, with file and line |
+| `version` | the compiler's version and the interpreter under it |
 
 `nupp run` is the exception. Its `--json` writes the `--jit-aborts` record as
 JSON instead of CSV, because the program's own output is the run's output.
 
-Read `ok` before `diagnostics`. An empty list means the project is clean only
-when `ok` is true, since a run that could not use the manifest never reached a
-file and reports the same empty list.
+Every command holds its `--json` to one contract, whichever way it ends:
+
+- Exit status 2 is a usage error: an argument the command cannot use, decided
+  from the arguments and the names compiled into the compiler. Nothing is
+  written to stdout, even under `--json`; stderr has the usage message.
+- Exit status 0 or 1 writes exactly one document to stdout, valid against the
+  command's `--schema`, with `ok` set and equal to the status being 0.
+- `ok` false always comes with at least one `error` in `diagnostics` that
+  carries a code. A failure outside source is coded too; see [Failures outside
+  source](#failures-outside-source).
+- Nothing on stderr is needed to understand the result. It carries progress,
+  when progress was asked for.
+
+`nupp test` answers a failure before its tests started -- a manifest it could not
+use, a build under test that failed -- with the runner's own document: one failed
+record under a synthetic ID such as `nupp/<build>`.
+
+The documents are not versioned. Their version is the compiler's, which `nupp
+version --json` reports, and `--schema` is the contract: it describes what this
+compiler writes, and a field may change between releases before 1.0. Artifacts
+another process reads back -- a coverage report, an AOT units manifest, a bench
+baseline -- are a different matter and carry a `schemaVersion` checked on read;
+see [Versions](distribution.md#versions).
 
 The output is always valid UTF-8. A byte that is not UTF-8, such as one a
 diagnostic quotes from the source, is written as U+FFFD.
+
+## Failures outside source
+
+A command can stop before it has a file and a position to point at. Each such
+failure still has a code, so a caller reading `--json` can tell them apart
+without reading the message, and none has a `range`:
+
+| Code | The run stopped because |
+| --- | --- |
+| `NUPP0001` | a file could not be read or written |
+| `NUPP0002` | the project manifest exists and could not be used |
+| `NUPP0003` | a target, task, platform, triple, function or position it was given names nothing here |
+| `NUPP0004` | a tool it depends on failed: LuaRocks, the LLVM kit, Cargo, a C preprocessor, a stage compiler |
+
+A directory with no `nupp.lua` is a supported configuration for the commands
+that can work without one, and reports nothing. One that has a manifest which
+does not load is `NUPP0002`, since answering without it would answer for a
+different project.
 
 ## Agent workflow
 
@@ -289,12 +339,12 @@ pick one. An unhandled enum member needs a branch body only the author knows,
 so the message says what is missing and stops. See [Repairs](#repairs) for the
 repairs that are unambiguous enough to be offered as edits.
 
-### Why is `diagnostics` empty when the command still failed?
+### Why does a failed run have a diagnostic with no range?
 
 The run never reached a file. A manifest that could not be used ends a check
-before anything is parsed, and that answers with the same empty list a clean
-project does, which is why `ok` is a separate field. See [Machine-readable
-output](#machine-readable-output).
+before anything is parsed, so the reason is a coded diagnostic about the run --
+`NUPP0002` -- rather than about a place in source. See [Failures outside
+source](#failures-outside-source).
 
 ### Why did `@allow` not silence an error?
 

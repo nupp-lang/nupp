@@ -122,7 +122,10 @@ type project.CleanOptions = {
     dryRun: boolean?,
 
     --- The paths, instead of writing a line about each.
-    removed: {string}?
+    removed: {string}?,
+
+    --- Where a `--json` run gathers why it stopped, instead of stderr.
+    diagnostics: {any}?
 }
 
 --- What a fixpoint run was asked for.
@@ -133,7 +136,10 @@ type project.FixpointOptions = {
     emitStage0: string?,
 
     --- What happened, instead of the human line saying so.
-    result: {[string]: any}?
+    result: {[string]: any}?,
+
+    --- Where a `--json` run gathers why it stopped, instead of stderr.
+    diagnostics: {any}?
 }
 
 -- The check state records nothing the compiler's own identity is not already in:
@@ -252,6 +258,23 @@ project.describeTasks = tasks.describe
 
 project.encode = tasks.encode
 
+--- Says why a build or check stopped: as a coded diagnostic when the caller is
+--- gathering them for `--json`, and as the line of text it always was otherwise.
+--- The code is one of the failures outside source -- NUPP0001 a file, NUPP0002 the
+--- manifest, NUPP0003 a name the project does not define, NUPP0004 a tool that failed
+--- -- because a run refused here never got as far as a position to point at.
+local function say(opts: {diagnostics: {any}?}?, code: string, text: string): nil
+    if opts == nil or opts.diagnostics == nil then
+        io.stderr:write(text)
+        return
+    end
+    local message = text:gsub("\n$", "")
+    local diagnostics = (opts as {diagnostics: {any}?}).diagnostics as {any}
+    diagnostics[
+        #diagnostics + 1
+    ] = require("nupp.tools.cli.report").runDiagnostic(code, message, nil, code == "NUPP0002" and "nupp.lua" or nil)
+end
+
 local function buildOne(root: string?, opts: project.BuildOptions?): integer
     root, opts = root or ".", (opts or {}) as project.BuildOptions
     -- Started before the manifest is read, because a build takes as long as it takes
@@ -265,7 +288,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local report = progressMod.new(opts.progress)
     local config, loadErr = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(loadErr) .. "\n");
+        say(opts, "NUPP0002", tostring(loadErr) .. "\n");
         return 1
     end
     -- Absent rather than false: nil reaches the checker as "ask the file", which is
@@ -273,47 +296,51 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local strict = opts.strict
     local target, targetErr = targetConfig(config, opts.target)
     if not target then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n");
+        say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n");
         return 1
     end
     if opts.standalone then
         if target.kind ~= "binary" or target.stub ~= "nupp" then
-            io.stderr:write("nupp: --standalone requires a binary target with stub = \"nupp\"\n")
+            say(opts, "NUPP0002", "nupp: --standalone requires a binary target with stub = \"nupp\"\n")
             return 1
         end
         if target.aotLinkage == "shared" then
-            io.stderr:write("nupp: --standalone requires aotLinkage = \"static\"\n")
+            say(opts, "NUPP0002", "nupp: --standalone requires aotLinkage = \"static\"\n")
             return 1
         end
         target.standalone = true
     end
     target.host = opts.host or target.host or "native"
     if target.host ~= "native" and target.host ~= "browser" then
-        io.stderr:write("nupp: host must be native or browser\n")
+        say(opts, "NUPP0002", "nupp: host must be native or browser\n")
         return 1
     end
     if target.host == "browser" and target.platforms ~= nil then
-        io.stderr:write(
+        say(
+            opts,
+            "NUPP0002",
             "nupp: platforms selects native binary hosts and cannot be combined with host = \"browser\" or --host browser\n"
         )
         return 1
     end
     if target.host == "browser" then
         if target.layoutTarget ~= nil and target.layoutTarget ~= "i686-unknown-linux-gnu" then
-            io.stderr:write("nupp: the LuaJIT browser guest requires layoutTarget i686-unknown-linux-gnu\n")
+            say(opts, "NUPP0002", "nupp: the LuaJIT browser guest requires layoutTarget i686-unknown-linux-gnu\n")
             return 1
         end
         target.layoutTarget = "i686-unknown-linux-gnu"
     end
     if target.aot == "require-wasm" and target.host ~= "browser" then
-        io.stderr:write(
+        say(
+            opts,
+            "NUPP0002",
             "nupp: require-wasm needs host = \"browser\" or --host browser; use emit-wasm to export kernels for another host\n"
         )
         return 1
     end
     local compatibility, compatError = require("nupp.compiler.compat").resolve(opts.compat, config.compat)
     if compatError then
-        io.stderr:write("nupp: " .. compatError .. "\n")
+        say(opts, "NUPP0002", "nupp: " .. compatError .. "\n")
         return 1
     end
     config.compat = compatibility
@@ -327,7 +354,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             if #target.platforms == 1 then
                 selectedPlatform = target.platforms[1]
             else
-                io.stderr:write(
+                say(
+                    opts,
+                    "NUPP0003",
                     "nupp: binary target " .. tostring(
                         target.name or opts.target or "default"
                     ) .. " configures several platforms; select one with --platform or use --platform all\n"
@@ -340,7 +369,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             configured = configured or name == selectedPlatform
         end
         if not configured then
-            io.stderr:write(
+            say(
+                opts,
+                "NUPP0003",
                 "nupp: platform " .. tostring(
                     selectedPlatform
                 ) .. " is not configured on binary target " .. tostring(target.name or opts.target or "default") .. "\n"
@@ -354,7 +385,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             target.aotTarget = selectedPlatform
         end
     elseif selectedPlatform ~= nil then
-        io.stderr:write(
+        say(
+            opts,
+            "NUPP0003",
             "nupp: --platform requires a binary target with a platforms list; target " .. tostring(
                 target.name or opts.target or "default"
             ) .. " has none\n"
@@ -364,7 +397,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if selectedPlatform and not opts.checkOnly and not target.standalone then
         local record, recordErr = require("nupp.tools.build.stubs").record(selectedPlatform)
         if not record then
-            io.stderr:write("nupp: " .. tostring(recordErr) .. "\n")
+            say(opts, "NUPP0004", "nupp: " .. tostring(recordErr) .. "\n")
             return 1
         end
         target._stubRecord = record
@@ -391,7 +424,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if config._reload then
         defaultLevel = 0
         if opts.optLevel and opts.optLevel ~= 0 then
-            io.stderr:write("nupp: a reload component builds at -O0\n")
+            say(opts, "NUPP0002", "nupp: a reload component builds at -O0\n")
             return 1
         end
         -- The same map the session will compile against. A pinned library is part
@@ -403,7 +436,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             require("nupp.compiler.fs").absolute(root)
         )
         if not read then
-            io.stderr:write("nupp: " .. tostring(pinned) .. "\n")
+            say(opts, "NUPP0002", "nupp: " .. tostring(pinned) .. "\n")
             return 1
         end
         config._reloadLibraries = pinned
@@ -426,7 +459,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             target
         )
         if not installed then
-            io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
+            say(opts, "NUPP0004", "nupp: " .. tostring(depErr) .. "\n")
             return 1
         end
         return (require("nupp.tools.doc").build(root, config, target, {
@@ -442,7 +475,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- A bundle is a modules build plus one more file, and a binary is a bundle
         -- stamped into a stub, so both fall through to the same path and finish
         -- themselves at the end of it.
-        io.stderr:write("nupp: unsupported build target kind " .. tostring(target.kind) .. "\n")
+        say(opts, "NUPP0002", "nupp: unsupported build target kind " .. tostring(target.kind) .. "\n")
         return 1
     end
     local outDir = normalize(opts.outDir or target.outDir or "build")
@@ -483,7 +516,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if not opts.checkOnly then
         local stamped, stampErr = writeFile(pendingCompletionPath, newState.compilerHash .. "\n")
         if not stamped then
-            io.stderr:write("nupp: " .. tostring(stampErr) .. "\n")
+            say(opts, "NUPP0001", "nupp: " .. tostring(stampErr) .. "\n")
             return 1
         end
     end
@@ -511,7 +544,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies, target)
     report:clear()
     if not dependencies then
-        io.stderr:write("nupp: " .. tostring(depErr) .. "\n");
+        say(opts, "NUPP0004", "nupp: " .. tostring(depErr) .. "\n");
         return 1
     end
     newState.dependencies = dependencies
@@ -520,30 +553,30 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local generated, generatorErr = generators.run(root, outDir, config, dependencies, oldState.generators)
     report:clear()
     if not generated then
-        io.stderr:write("nupp: " .. tostring(generatorErr) .. "\n")
+        say(opts, "NUPP0004", "nupp: " .. tostring(generatorErr) .. "\n")
         return 1
     end
     newState.generators = generated
     local spiEntries, spiError = spi.read(root, config, target, dependencies)
     if spiEntries == nil then
-        io.stderr:write("nupp: " .. tostring(spiError) .. "\n")
+        say(opts, "NUPP0002", "nupp: " .. tostring(spiError) .. "\n")
         return 1
     end
     local wroteSpi, writeSpiError = spi.write(root, outDir, spiEntries)
     if not wroteSpi then
-        io.stderr:write("nupp: " .. tostring(writeSpiError) .. "\n")
+        say(opts, "NUPP0001", "nupp: " .. tostring(writeSpiError) .. "\n")
         return 1
     end
     config._spiEntries = spiEntries
     local session = modules.session(root, outDir, config, target, dependencies, strict, report)
     local validSpi, invalidSpi = spi.check(session, spiEntries, root, outDir)
     if not validSpi then
-        io.stderr:write("nupp: " .. tostring(invalidSpi) .. "\n")
+        say(opts, "NUPP0002", "nupp: " .. tostring(invalidSpi) .. "\n")
         return 1
     end
     local writtenSpi, publishSpiError = spi.write(root, outDir, spiEntries)
     if not writtenSpi then
-        io.stderr:write("nupp: " .. tostring(publishSpiError) .. "\n")
+        say(opts, "NUPP0001", "nupp: " .. tostring(publishSpiError) .. "\n")
         return 1
     end
     session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.g.nupp")), 2)
@@ -653,7 +686,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             report:charging(resumeChecking)
             report:at("aot")
             if scopeErr then
-                io.stderr:write("nupp: " .. tostring(scopeErr) .. "\n")
+                say(opts, "NUPP0002", "nupp: " .. tostring(scopeErr) .. "\n")
 
                 return 1
             end
@@ -795,7 +828,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             opts.produced.timing = report:timing()
         end
         if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then
-            io.stderr:write("nupp: " .. tostring(buildErr) .. "\n")
+            say(opts, "NUPP0004", "nupp: " .. tostring(buildErr) .. "\n")
         end
         return 1
     end
@@ -821,7 +854,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local reachedWorkers = detectedEffects["runtime.workers"] == true or detectedEffects["native.workers"] == true
     local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
     if resolvedEffects["native.workers"] and target.kind == "binary" and target.stub ~= "nupp" then
-        io.stderr:write(
+        say(
+            opts,
+            "NUPP0002",
             "nupp: native workers require a binary host with stub = \"nupp\"; "
             .. "the compiler-owned host supplies the isolated Lua states and early machine-code arena\n"
         )
@@ -840,7 +875,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         table.sort(unresolved)
         if #unresolved > 0 then
-            io.stderr:write(
+            say(
+                opts,
+                "NUPP0002",
                 "nupp: a one-file bundle cannot carry native features; "
                 .. "build modules or use a binary target with its lib directory ("
                 .. table.concat(
@@ -863,7 +900,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     )
     report:clear()
     if not nativeOutputs then
-        io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
+        say(opts, "NUPP0004", "nupp: " .. tostring(nativeErr) .. "\n")
         return 1
     end
     for output in pairs(nativeOutputs) do
@@ -898,11 +935,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             outDir
         )
         if not text then
-            io.stderr:write("nupp: " .. tostring(bundleErr) .. "\n")
+            say(opts, "NUPP0004", "nupp: " .. tostring(bundleErr) .. "\n")
             return 1
         end
         if unreachable and #unreachable > 0 then
-            io.stderr:write(
+            say(
+                opts,
+                "NUPP0002",
                 (
                     "nupp: %d resource%s could not be bundled, "
                     .. "starting at %s: a bundle can only carry what sits under "
@@ -917,12 +956,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             if target.payloadOutput ~= nil then
                 local payloadOutput = join(root, target.payloadOutput as string)
                 if normalize(payloadOutput) == normalize(output) then
-                    io.stderr:write("nupp: binary payloadOutput must differ from its executable output\n")
+                    say(opts, "NUPP0002", "nupp: binary payloadOutput must differ from its executable output\n")
                     return 1
                 end
                 local written, writeErr = writeFile(payloadOutput, text)
                 if not written then
-                    io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                    say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
                     return 1
                 end
                 newState.outputs[payloadOutput] = true
@@ -947,7 +986,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                             addUnique(flags, seenFlags, flag)
                         end
                     elseif dep.usage == "target" and dep.runtimeOutput and dep.reference then
-                        io.stderr:write(
+                        say(
+                            opts,
+                            "NUPP0002",
                             "nupp: standalone binary cannot carry shared dependency "
                             .. dependencyName
                             .. "; provide static linkage or a static prebuilt artifact\n"
@@ -968,23 +1009,23 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
             end
             if not stubPath then
-                io.stderr:write("nupp: " .. tostring(hostErr) .. "\n")
+                say(opts, "NUPP0004", "nupp: " .. tostring(hostErr) .. "\n")
                 return 1
             end
             local resolvedStub = stubPath == target.stub and join(root, stubPath) or stubPath
             local stub, stubErr = readFile(resolvedStub)
             if not stub then
-                io.stderr:write(("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
+                say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
                 return 1
             end
             local payload, payloadFlags, payloadErr = payloadBytes(text, selectedPlatform)
             if not payload then
-                io.stderr:write("nupp: " .. tostring(payloadErr) .. "\n")
+                say(opts, "NUPP0004", "nupp: " .. tostring(payloadErr) .. "\n")
                 return 1
             end
             local stamped, stampErr, archive = stampFile(output, stub, payload, selectedPlatform, payloadFlags)
             if not stamped then
-                io.stderr:write("nupp: " .. tostring(stampErr) .. "\n")
+                say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")
                 return 1
             end
             if archive then
@@ -995,7 +1036,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 or bundleOutput(root, target, name, opts.outDir)
             local written, writeErr = writeFile(output, text)
             if not written then
-                io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
                 return 1
             end
         end
@@ -1010,7 +1051,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             local beside = join(dirname(output), "lib/" .. basename(aotLibrary as string))
             local copied, copyErr = copyFile(aotLibrary as string, beside)
             if not copied then
-                io.stderr:write(
+                say(
+                    opts,
+                    "NUPP0001",
                     ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
                 )
 
@@ -1028,14 +1071,16 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             for _, source in ipairs(aotWasmModules) do
                 local normalizedSource = normalize(source)
                 if normalizedSource:sub(1, #builtRoot) ~= builtRoot then
-                    io.stderr:write("nupp: Wasm AOT output escaped its build directory: " .. source .. "\n")
+                    say(opts, "NUPP0004", "nupp: Wasm AOT output escaped its build directory: " .. source .. "\n")
                     return 1
                 end
                 local beside = join(packagedRoot, normalizedSource:sub(#builtRoot + 1))
                 if normalize(beside) ~= normalizedSource then
                     local copied, copyErr = copyFile(source, beside)
                     if not copied then
-                        io.stderr:write(
+                        say(
+                            opts,
+                            "NUPP0001",
                             ("nupp: cannot put the Wasm AOT module beside %s: %s\n"):format(output, tostring(copyErr))
                         )
                         return 1
@@ -1072,7 +1117,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 local beside = join(dirname(output), relative as string)
                 local copied, copyErr = copyFile(runtimeOutput as string, beside)
                 if not copied then
-                    io.stderr:write(
+                    say(
+                        opts,
+                        "NUPP0001",
                         ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
                     )
 
@@ -1165,7 +1212,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
     if not ok then
-        io.stderr:write("nupp: " .. tostring(stateErr) .. "\n");
+        say(opts, "NUPP0001", "nupp: " .. tostring(stateErr) .. "\n");
         return 1
     end
     local completed, completionErr = os.rename(pendingCompletionPath, completionPath)
@@ -1176,7 +1223,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         completed, completionErr = writeFile(completionPath, newState.compilerHash .. "\n")
     end
     if not completed then
-        io.stderr:write("nupp: " .. tostring(completionErr) .. "\n")
+        say(opts, "NUPP0001", "nupp: " .. tostring(completionErr) .. "\n")
         return 1
     end
     report:finish("built", targetKey)
@@ -1199,16 +1246,16 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     end
     local config, loadErr = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(loadErr) .. "\n")
+        say(opts, "NUPP0002", tostring(loadErr) .. "\n")
         return 1
     end
     local target, targetErr = targetConfig(config, opts.target)
     if not target then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n")
         return 1
     end
     if not target.platforms then
-        io.stderr:write("nupp: --platform all requires a binary target with a platforms list\n")
+        say(opts, "NUPP0003", "nupp: --platform all requires a binary target with a platforms list\n")
         return 1
     end
     local aggregate = opts.produced
@@ -1455,12 +1502,12 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
     if opts.target then
         local config, loadErr = project.loadManifest(root)
         if not config then
-            io.stderr:write(tostring(loadErr) .. "\n")
+            say(opts, "NUPP0002", tostring(loadErr) .. "\n")
             return 1
         end
         local target, targetErr = targetConfig(config, opts.target)
         if not target then
-            io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+            say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n")
             return 1
         end
         if target.platforms then
@@ -1476,7 +1523,9 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
                     end
                 end
                 if #selected == 0 then
-                    io.stderr:write(
+                    say(
+                        opts,
+                        "NUPP0003",
                         "nupp: platform "
                         .. opts.platform
                         .. " is not configured on binary target "
@@ -1499,11 +1548,11 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
             for _, candidate in ipairs(candidates) do
                 local safe, safeErr = safeCleanPath(candidate)
                 if not safe then
-                    io.stderr:write("nupp: refusing to clean " .. safeErr .. "\n")
+                    say(opts, "NUPP0002", "nupp: refusing to clean " .. safeErr .. "\n")
                     return 1
                 end
                 if not opts.dryRun and removeTree(join(root, safe)) ~= 0 then
-                    io.stderr:write("nupp: cannot remove build output " .. safe .. "\n")
+                    say(opts, "NUPP0001", "nupp: cannot remove build output " .. safe .. "\n")
                     return 1
                 end
                 if collected then
@@ -1523,20 +1572,20 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
                     end
                     local saved, saveErr = saveState(statePath, state)
                     if not saved then
-                        io.stderr:write("nupp: " .. tostring(saveErr) .. "\n")
+                        say(opts, "NUPP0001", "nupp: " .. tostring(saveErr) .. "\n")
                         return 1
                     end
                 end
             end
             return 0
         elseif opts.platform then
-            io.stderr:write("nupp: --platform requires a binary target with a platforms list\n")
+            say(opts, "NUPP0003", "nupp: --platform requires a binary target with a platforms list\n")
             return 1
         end
     end
     local described, err = project.describeTasks(root, opts.target, {buildOnly = true})
     if not described then
-        io.stderr:write(tostring(err) .. "\n");
+        say(opts, "NUPP0002", tostring(err) .. "\n");
         return 1
     end
     local tasks = opts.target and {described} or described.tasks
@@ -1544,7 +1593,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
     for _, task in ipairs(tasks) do
         local path, pathErr = safeCleanPath(task.outDir)
         if not path then
-            io.stderr:write("nupp: refusing to clean " .. pathErr .. "\n")
+            say(opts, "NUPP0002", "nupp: refusing to clean " .. pathErr .. "\n")
             return 1
         end
         candidates[path] = true
@@ -1572,7 +1621,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
     local collected = opts.removed
     for _, path in ipairs(selected) do
         if not opts.dryRun and removeTree(join(root, path)) ~= 0 then
-            io.stderr:write("nupp: cannot remove build output " .. path .. "\n")
+            say(opts, "NUPP0001", "nupp: cannot remove build output " .. path .. "\n")
             return 1
         end
         if collected then
@@ -1656,21 +1705,23 @@ function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): 
     root = root or "."
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n");
+        say(opts, "NUPP0002", tostring(err) .. "\n");
         return 1
     end
     local targetName = config.selfHost and config.selfHost.binary or nil
     if not targetName then
-        io.stderr:write("nupp: selfHost.binary names no target to stamp\n")
+        say(opts, "NUPP0002", "nupp: selfHost.binary names no target to stamp\n")
         return 1
     end
     local target, targetErr = targetConfig(config, targetName)
     if not target then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n")
         return 1
     end
     if target.kind ~= "binary" then
-        io.stderr:write(
+        say(
+            opts,
+            "NUPP0002",
             ("nupp: selfHost.binary names %s, which is a %s target\n"):format(targetName, target.kind or "modules")
         )
         return 1
@@ -1682,12 +1733,12 @@ function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): 
     end
     local produced = built.artifact
     if type(produced) ~= "string" then
-        io.stderr:write("nupp: binary build produced no executable artifact\n")
+        say(opts, "NUPP0004", "nupp: binary build produced no executable artifact\n")
         return 1
     end
     local first, readErr = readFile(produced)
     if not first then
-        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        say(opts, "NUPP0001", "nupp: " .. tostring(readErr) .. "\n")
         return 1
     end
 
@@ -1697,23 +1748,25 @@ function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): 
     local stage1 = produced .. ".stage1"
     local copied, copyErr = writeFile(stage1, first)
     if not copied then
-        io.stderr:write("nupp: " .. tostring(copyErr) .. "\n")
+        say(opts, "NUPP0001", "nupp: " .. tostring(copyErr) .. "\n")
         return 1
     end
     process.capture({"chmod", "+x", stage1})
 
     if process.run({stage1, "build", "--target", targetName}, {cwd = root}) ~= 0 then
-        io.stderr:write("nupp: the stamped binary could not stamp one\n")
+        say(opts, "NUPP0004", "nupp: the stamped binary could not stamp one\n")
         return 1
     end
     local second, secondErr = readFile(produced)
     if not second then
-        io.stderr:write("nupp: " .. tostring(secondErr) .. "\n")
+        say(opts, "NUPP0004", "nupp: " .. tostring(secondErr) .. "\n")
         return 1
     end
 
     if first ~= second then
-        io.stderr:write(
+        say(
+            opts,
+            "NUPP0004",
             (
                 "nupp: packaging fixpoint mismatch: %d bytes then %d; " .. "%s kept for inspection\n"
             ):format(#first, #second, stage1)
@@ -1836,18 +1889,18 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     root, opts = root or ".", (opts or {}) as project.FixpointOptions
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n");
+        say(opts, "NUPP0002", tostring(err) .. "\n");
         return 1
     end
     local targetName = config.selfHost and config.selfHost.target or nil
     local target, targetErr = targetConfig(config, targetName)
     if not target then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n")
         return 1
     end
     local stage0, stage0Err = stage0Compiler(root, config)
     if not stage0 then
-        io.stderr:write("nupp: " .. tostring(stage0Err) .. "\n")
+        say(opts, "NUPP0004", "nupp: " .. tostring(stage0Err) .. "\n")
         return 1
     end
 
@@ -1861,7 +1914,7 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     local packageRoot: string? = nil
     for _, stage in ipairs(stages) do
         if not buildWithCompiler(root, compiler, packageRoot, stage, targetName) then
-            io.stderr:write(("nupp: %s did not build %s\n"):format(compiler, stage))
+            say(opts, "NUPP0004", ("nupp: %s did not build %s\n"):format(compiler, stage))
             if opts.result then
                 opts.result.reason = "a stage did not build"
             end
@@ -1873,7 +1926,7 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     local second = treeDigest(join(root, stages[2]))
     local third = treeDigest(join(root, stages[3]))
     if second ~= third then
-        io.stderr:write("nupp: self-hosting fixpoint mismatch; stages kept for inspection\n")
+        say(opts, "NUPP0004", "nupp: self-hosting fixpoint mismatch; stages kept for inspection\n")
         if opts.result then
             opts.result.reason = "the two stages differ"
         end
@@ -1883,7 +1936,7 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     local destination = join(root, target.outDir or "build")
     local copied, copyErr = copyTree(join(root, stages[3]), destination)
     if not copied then
-        io.stderr:write("nupp: " .. copyErr .. "\n");
+        say(opts, "NUPP0001", "nupp: " .. copyErr .. "\n");
         return 1
     end
     writeFile(join(destination, ".nupp-complete"), third .. "\n")
@@ -1901,12 +1954,12 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
         end
         local text, textErr = stage0Text(root, config)
         if not text then
-            io.stderr:write("nupp: " .. tostring(textErr) .. "\n");
+            say(opts, "NUPP0004", "nupp: " .. tostring(textErr) .. "\n");
             return 1
         end
         local written, writeErr = writeFile(opts.emitStage0, text)
         if not written then
-            io.stderr:write("nupp: " .. tostring(writeErr) .. "\n");
+            say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n");
             return 1
         end
     end

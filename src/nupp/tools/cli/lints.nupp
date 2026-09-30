@@ -10,10 +10,13 @@ beside its summary, since the difference is the thing worth noticing.
 
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
+        ok = report.OK,
+        diagnostics = report.DIAGNOSTICS,
         lints = {
             type = "array",
             items = {
@@ -43,7 +46,7 @@ local REPORT_SCHEMA = {
             },
         },
     },
-    required = {"lints"},
+    required = {"ok", "lints"},
 }
 
 -- A level is a severity in everything but name, so it is painted like one; the two
@@ -69,6 +72,11 @@ local function run(options: any): integer
     if require("nupp.compiler.fs").exists("nupp.lua") then
         local loaded, err = project.loadManifest(".")
         if not loaded then
+            if options.format == "json" then
+                return report.failure(REPORT_SCHEMA, {
+                    report.runDiagnostic(report.MANIFEST, tostring(err), nil, "nupp.lua")
+                })
+            end
             io.stderr:write(tostring(err) .. "\n")
             return 1
         end
@@ -95,7 +103,7 @@ local function run(options: any): integer
         return a.name < b.name
     end)
     if options.format == "json" then
-        require("nupp.tools.cli.report").write({lints = rows})
+        report.write({ok = true, lints = rows})
         return 0
     end
     local cells: {{cliModule.Cell}} = {}

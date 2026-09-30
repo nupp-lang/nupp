@@ -21,9 +21,10 @@ local REPORT_SCHEMA = {
             .. "in which case these are the paths that would be."
         },
         dryRun = {type = "boolean"},
-        ok = {type = "boolean"},
+        ok = require("nupp.tools.cli.report").OK,
+        diagnostics = require("nupp.tools.cli.report").DIAGNOSTICS,
     },
-    required = {"ok", "removed", "dryRun"},
+    required = {"ok", "removed", "dryRun", "diagnostics"},
 }
 
 local function run(options: any): integer
@@ -39,14 +40,22 @@ local function run(options: any): integer
     end
     local project = require("nupp.tools.build.project")
     local removed: {string} = {}
+    local diagnostics: {any} = {}
     local code = project.clean(".", {
         target = values.target,
         platform = values.platform,
         dryRun = values.dryRun,
-        removed = asJson and removed or nil
+        removed = asJson and removed or nil,
+        diagnostics = asJson and diagnostics or nil
     })
     if asJson then
-        require("nupp.tools.cli.report").write({ok = code == 0, removed = removed, dryRun = dryRun})
+        local report = require("nupp.tools.cli.report")
+        report.write({
+            ok = code == 0,
+            removed = removed,
+            dryRun = dryRun,
+            diagnostics = report.diagnosticValues(diagnostics)
+        })
     end
 
     return code

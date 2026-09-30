@@ -188,7 +188,10 @@ type doc.BuildOptions = {
     output: string?,
     sources: {string}?,
     title: string?,
-    written: {string}?
+    written: {string}?,
+
+    --- Where a `--json` run gathers why it stopped, instead of stderr.
+    diagnostics: {any}?
 }
 
 ----------------------------------------------------------------------------
@@ -1603,7 +1606,14 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     local opts = opts as doc.BuildOptions or {} as doc.BuildOptions
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
     if #errors > 0 then
-        report(errors);
+        if opts.diagnostics then
+            local collected = opts.diagnostics as {any}
+            for _, err in ipairs(errors) do
+                collected[#collected + 1] = err
+            end
+        else
+            report(errors)
+        end
         return 1
     end
     if opts.checkOnly then
@@ -1652,7 +1662,10 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
             code, message = 1, tostring(err)
         end
     end
-    if message then
+    if message and opts.diagnostics then
+        local collected = opts.diagnostics as {any}
+        collected[#collected + 1] = require("nupp.tools.cli.report").runDiagnostic("NUPP0001", message, nil, output)
+    elseif message then
         io.stderr:write("nupp: " .. message .. "\n")
     end
 

@@ -439,7 +439,8 @@ function M.astCommandDumpsJsonSyntaxTrees()
     assertEq(decoded.file, "sample.nupp", "JSON identifies the input")
     assertEq(decoded.root.tag, "node", "JSON distinguishes nodes")
     assertEq(decoded.root.kind, "chunk", "JSON includes the root production")
-    assertEq(#decoded.errors, 0, "valid input has no parse errors")
+    assertEq(#decoded.diagnostics, 0, "valid input has no parse errors")
+    assertEq(decoded.ok, true, "and says so")
 
     local function containsKind(value, kind)
         if value.kind == kind then
@@ -472,7 +473,7 @@ function M.astJsonPrettyIndentsTheSameDocument()
     local pretty = captureJson(("cd '%s' && '%s' ast --json-pretty sample.nupp"):format(dir, NUPP))
     assert(select(2, pretty:gsub("\n", "")) > 10, "the pretty report spans lines: " .. pretty)
     assert(pretty:find('{\n  "', 1, true), "the pretty report indents members: " .. pretty)
-    assert(pretty:find('"errors": []', 1, true), "an empty list stays on one line: " .. pretty)
+    assert(pretty:find('"diagnostics": []', 1, true), "an empty list stays on one line: " .. pretty)
 
     local function same(a, b)
         if type(a) ~= type(b) then
@@ -503,8 +504,10 @@ function M.astCommandDumpsRecoveredTreesOnParseErrors()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["broken.nupp"] = "local = 1\nreturn 2\n",})
     local decoded = require("testjson").decode(captureJson(("cd '%s' && '%s' ast broken.nupp"):format(dir, NUPP)))
     assertEq(decoded.root.kind, "chunk", "recovered tree is printed")
-    assert(#decoded.errors > 0, "parse diagnostics are reported")
-    assert(decoded.errors[1].message ~= nil, "a reported parse error carries its message")
+    assert(#decoded.diagnostics > 0, "parse diagnostics are reported")
+    assert(decoded.diagnostics[1].message ~= nil, "a reported parse error carries its message")
+    assert(decoded.diagnostics[1].code and decoded.diagnostics[1].range, "with its code and range")
+    assert(decoded.ok == false, "and the document says the parse failed")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

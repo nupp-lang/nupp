@@ -16,7 +16,8 @@ local cliModule = require("nupp.cli")
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
-        ok = {type = "boolean", description = "Whether the rebuild reproduced itself."},
+        ok = require("nupp.tools.cli.report").OK,
+        diagnostics = require("nupp.tools.cli.report").DIAGNOSTICS,
         kind = {
             type = "string",
             enum = {"compiler", "binary"},
@@ -27,9 +28,9 @@ local REPORT_SCHEMA = {
         stage0 = {type = "string", description = "The stage-zero compiler the run started from."},
         emittedStage0 = {type = "string", description = "Where the stage-zero bundle was written, if anywhere."},
         bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
-        reason = {type = "string", description = "Why it failed. Absent when ok is true."},
+        reason = {type = "string", description = "Why it failed, in one phrase. Absent when ok is true."},
     },
-    required = {"ok", "kind"},
+    required = {"ok", "kind", "diagnostics"},
 }
 
 local function run(options: any): integer
@@ -46,16 +47,24 @@ local function run(options: any): integer
     -- The collector doubles as the request to stay quiet: what it fills is what gets
     -- said, so the human line does not land in front of the document.
     local result: {[string]: any} = {}
+    local diagnostics: {any} = {}
+    local collected = asJson and diagnostics or nil
     local code: integer
     if values.binary then
-        code = project.binaryFixpoint(".", {result = asJson and result or nil})
+        code = project.binaryFixpoint(".", {result = asJson and result or nil, diagnostics = collected})
     else
-        code = project.fixpoint(".", {emitStage0 = values.emitStage0, result = asJson and result or nil})
+        code = project.fixpoint(".", {
+            emitStage0 = values.emitStage0,
+            result = asJson and result or nil,
+            diagnostics = collected
+        })
     end
     if asJson then
+        local report = require("nupp.tools.cli.report")
         result.ok = code == 0
         result.kind = values.binary and "binary" or "compiler"
-        require("nupp.tools.cli.report").write(result)
+        result.diagnostics = report.diagnosticValues(diagnostics)
+        report.write(result)
     end
 
     return code

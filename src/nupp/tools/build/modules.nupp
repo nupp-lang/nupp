@@ -867,7 +867,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             offset = 0,
             length = 1,
             severity = "warning",
-            code = "NUPP1009",
+            code = "NUPP0005",
             msg = "type dependency declaration not imported: " .. problem.msg,
             help = "the declarations beside it were imported; pin a revision this "
             .. "compiler can read, or report the construct",

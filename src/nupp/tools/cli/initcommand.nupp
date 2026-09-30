@@ -17,12 +17,13 @@ local files = require("nupp.io.files")
 local ansi = require("nupp.cli")
 local usageError = require("nupp.tools.cli.error").forCommand("init")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
 local SCAFFOLD_SCHEMA = {
     type = "object",
     description = "A scaffold: what was written, or would be under --dry-run.",
     properties = {
-        ok = {type = "boolean"},
+        ok = report.OK,
         directory = {type = "string"},
         template = {
             type = "object",
@@ -70,7 +71,7 @@ local LISTING_SCHEMA = {
     type = "object",
     description = "The templates --list names.",
     properties = {
-        ok = {type = "boolean"},
+        ok = report.OK,
         templates = {
             type = "array",
             items = {
@@ -87,9 +88,14 @@ local LISTING_SCHEMA = {
     required = {"ok", "templates"},
 }
 
-local REPORT_SCHEMA = {oneOf = {SCAFFOLD_SCHEMA, LISTING_SCHEMA}}
+local REPORT_SCHEMA = {oneOf = {SCAFFOLD_SCHEMA, LISTING_SCHEMA, report.FAILURE}}
 
-local function fail(message: string): integer
+--- Ends the command on a refusal: under `--json` as the one document the reader was
+--- promised, carrying `code`, and otherwise as a line of text.
+local function fail(message: string, asJson: boolean?, code: string?): integer
+    if asJson then
+        return report.failure(REPORT_SCHEMA, {report.runDiagnostic(code or report.UNREADABLE, message)})
+    end
     io.stderr:write(ansi.severity(ansi.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
 
     return 1
@@ -160,7 +166,7 @@ local function listBuiltins(asJson: boolean): integer
         for _, name in ipairs(template.builtins()) do
             templates[#templates + 1] = {name = name, description = template.builtinDescription(name), kind = "builtin"}
         end
-        require("nupp.tools.cli.report").write({ok = true, templates = templates})
+        report.write({ok = true, templates = templates})
 
         return 0
     end
@@ -220,13 +226,16 @@ local function scaffold(source: any, destination: string, values: any, set: {[st
     local dryRun = values.dryRun and true or false
     local plan, planErr = template.plan(source, destination, {name = values.name, set = set})
     if not plan then
-        return fail(planErr as string)
+        return fail(planErr as string, asJson)
     end
     if source.kind == "remote" and not values.yes and not dryRun then
         local accepted, refusal = confirm(template.describe(source), #plan.files, plan.destination)
         if not accepted then
             if refusal then
-                return fail(refusal)
+                return fail(refusal, asJson)
+            end
+            if asJson then
+                return fail("the template was declined; nothing was written", true)
             end
             io.write("Nothing was written.\n")
 
@@ -241,13 +250,13 @@ local function scaffold(source: any, destination: string, values: any, set: {[st
     else
         local paths, writeErr = template.write(plan)
         if not paths then
-            return fail(writeErr as string)
+            return fail(writeErr as string, asJson)
         end
         written = paths
     end
     local ran = reportSteps(plan, plan.destination, dryRun)
     if asJson then
-        require("nupp.tools.cli.report").write({
+        report.write({
             ok = true,
             directory = plan.destination,
             template = {
@@ -336,12 +345,12 @@ local function run(options: any): integer
     -- close, with the work between them, because the handle is affine.
     local owned, scratchErr = files.createTemporaryDirectory({prefix = "nupp-template-"} as files.TemporaryOptions)
     if not owned then
-        return fail("cannot create a temporary directory: " .. tostring(scratchErr))
+        return fail("cannot create a temporary directory: " .. tostring(scratchErr), values.format == "json")
     end
     local code: integer
     local fetched, fetchErr = template.fetch(source, owned:toString())
     if not fetched then
-        code = fail(fetchErr as string)
+        code = fail(fetchErr as string, values.format == "json", report.TOOL_FAILED)
     else
         code = scaffold(source, destination, values, set)
     end

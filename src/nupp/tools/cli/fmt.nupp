@@ -41,9 +41,19 @@ local REPORT_SCHEMA = {
                 required = {"file", "diagnostics"},
             },
         },
-        ok = {type = "boolean", description = "True when nothing was left unformatted and " .. "nothing failed."},
+        ok = {
+            type = "boolean",
+            description = "True when nothing was left unformatted and nothing failed. "
+            .. "False always comes with a coded error in `diagnostics`."
+        },
+        diagnostics = {
+            type = "array",
+            description = "Every failure's diagnostics, and one NUPP4002 for each file "
+            .. "a --check or project run found unformatted.",
+            items = require("nupp.tools.cli.report").DIAGNOSTIC,
+        },
     },
-    required = {"ok", "unformatted", "written", "failed"},
+    required = {"ok", "diagnostics", "unformatted", "written", "failed"},
 }
 
 local function run(options: any): integer
@@ -94,11 +104,36 @@ local function run(options: any): integer
     -- for JSON is asking for the answer, so it reports whatever it was given.
     local reporting = asking or wholeProject or asJson
     local failures: {any} = {}
+    local problems: {any} = {}
 
     local function finish(code: integer, unformatted: {string}): integer
         if asJson then
+            local diagnostics: {any} = {}
+            for _, failure in ipairs(failures) do
+                for _, value in ipairs(failure.diagnostics) do
+                    diagnostics[#diagnostics + 1] = value
+                end
+            end
+            -- An unformatted file is what fails a run that only asked, so each is said
+            -- as an error of its own; a run that rewrote them has nothing to report.
+            if not write then
+                for _, path in ipairs(unformatted) do
+                    problems[
+                        #problems + 1
+                    ] = {
+                        filename = path,
+                        code = "NUPP4002",
+                        msg = path .. " is not formatted",
+                        help = "run nupp fmt --write " .. path,
+                    }
+                end
+            end
+            for _, value in ipairs(reportMod.diagnosticValues(problems)) do
+                diagnostics[#diagnostics + 1] = value
+            end
             reportMod.write({
                 ok = code == 0,
+                diagnostics = diagnostics,
                 written = write and true or false,
                 unformatted = unformatted,
                 failed = failures
@@ -111,7 +146,12 @@ local function run(options: any): integer
     if wholeProject then
         paths = envMod.listSourceFiles(env)
         if #paths == 0 then
-            io.stderr:write("nupp: no source files found under the project's " .. "include roots\n")
+            local message = "no source files found under the project's include roots"
+            if asJson then
+                problems[#problems + 1] = reportMod.runDiagnostic(reportMod.MANIFEST, message, nil, "nupp.lua")
+            else
+                io.stderr:write("nupp: " .. message .. "\n")
+            end
             return finish(1, {})
         end
     end

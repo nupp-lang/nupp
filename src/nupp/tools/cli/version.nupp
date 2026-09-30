@@ -20,13 +20,16 @@ local cliModule = require("nupp.cli")
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
+        -- Spelled here rather than taken from `nupp.tools.cli.report`, which would load
+        -- the diagnostic catalog to answer a question about a string.
+        ok = {type = "boolean", description = "Always true: there is no way for this to fail."},
         version = {
             type = "string",
             description = "The release, without a leading \"v\"; a -dev suffix " .. "is a checkout between releases."
         },
         runtime = {type = "string", description = "The LuaJIT interpreter underneath this compiler."},
     },
-    required = {"version", "runtime"},
+    required = {"ok", "version", "runtime"},
 }
 
 local function run(options: any): integer
@@ -35,7 +38,11 @@ local function run(options: any): integer
         return usageError("unexpected argument " .. positional[1])
     end
     if options.format == "json" then
-        require("nupp.tools.cli.report").write({version = versionMod.VERSION, runtime = versionMod.runtime()})
+        require("nupp.tools.cli.report").write({
+            ok = true,
+            version = versionMod.VERSION,
+            runtime = versionMod.runtime()
+        })
 
         return 0
     end

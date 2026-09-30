@@ -12,11 +12,14 @@ const {type Target} = require("nupp.tools.build.manifest")
 
 local cliModule = require("nupp.cli")
 
+local report = require("nupp.tools.cli.report")
+
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
-        ok = {type = "boolean"},
-        format = {type = "string", description = "The resolved format: site, markdown, json, or both."},
+        ok = report.OK,
+        diagnostics = report.DIAGNOSTICS,
+        kind = {type = "string", description = "What was produced: site, markdown, json, or both."},
         output = {type = "string", description = "The file or directory the run was pointed at."},
         files = {
             type = "array",
@@ -25,24 +28,25 @@ local REPORT_SCHEMA = {
             .. "not change is not rewritten and is not listed."
         },
     },
-    required = {"ok", "format", "output", "files"},
+    required = {"ok", "diagnostics", "kind", "output", "files"},
 }
 
 local function run(options: any): integer
     local values = options
     local asJson = values.format == "json"
     local settings: any = nil
+    local diagnostics: {any} = {}
 
-    local function fail(problem: any): integer
-        io.stderr:write("nupp: " .. tostring(problem) .. "\n")
+    -- Under `--json` the reason is in the document and nowhere else; otherwise it is
+    -- the line of text it always was.
+    local function fail(code: string, problem: any, file: string?): integer
         if asJson then
-            require("nupp.tools.cli.report").write({
-                ok = false,
-                files = {},
+            return report.failure(REPORT_SCHEMA, {report.runDiagnostic(code, tostring(problem), nil, file)}, {
                 output = values.output or settings and settings.outDir or "",
-                format = values.kind or settings and settings.format or "",
+                kind = values.kind or settings and settings.format or "",
             })
         end
+        io.stderr:write(require("nupp.tools.cli.error").message(problem) .. "\n")
 
         return 1
     end
@@ -55,14 +59,14 @@ local function run(options: any): integer
     if require("nupp.compiler.fs").exists("nupp.lua") then
         local loaded, configErr = require("nupp.tools.build.manifest").load(".")
         if not loaded then
-            return fail((tostring(configErr):gsub("^nupp: ", "")))
+            return fail(report.MANIFEST, configErr, "nupp.lua")
         end
         config = loaded
     end
     local settingsErr: any = nil
     settings, settingsErr = doc.manifestSettings(config, values.target)
     if not settings then
-        return fail(settingsErr)
+        return fail(report.UNKNOWN_NAME, settingsErr, "nupp.lua")
     end
     -- What the docs target depends on is what the renderer loads. A project that names
     -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
@@ -70,7 +74,7 @@ local function run(options: any): integer
     local deps = require("nupp.tools.build.deps")
     local installed, depErr = deps.build(".", settings.outDir or "build", config as Config, {}, settings as Target)
     if not installed then
-        return fail(depErr)
+        return fail(report.TOOL_FAILED, depErr)
     end
     local opts: {[string]: any} = {output = values.output, title = values.title}
     opts.format = values.kind
@@ -79,7 +83,7 @@ local function run(options: any): integer
         -- which is also what became of a format word written where a path goes.
         for _, path in ipairs(values.paths) do
             if not require("nupp.compiler.fs").exists(path) then
-                return fail("no source file or directory named " .. path)
+                return fail(report.UNREADABLE, "no source file or directory named " .. path, path)
             end
         end
         opts.sources = values.paths
@@ -90,14 +94,16 @@ local function run(options: any): integer
     local written: {string} = {}
     if asJson then
         opts.written = written
+        opts.diagnostics = diagnostics
     end
     local code, output, resolved = doc.build(".", config as Config, settings as Target, opts)
     if asJson then
-        require("nupp.tools.cli.report").write({
+        report.write({
             ok = code == 0,
+            diagnostics = report.diagnosticValues(diagnostics),
             files = written,
             output = output or "",
-            format = resolved or ""
+            kind = resolved or ""
         })
     end
 

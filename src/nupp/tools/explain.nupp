@@ -57,11 +57,11 @@ local FAMILIES = {
     {
         prefix = "NUPP0",
         title = "Input",
-        summary = "Source input could not be read",
-        rule = "The compiler was given a path it could not read. This is about "
-        .. "the file system rather than the program: the path does not "
-        .. "exist, or is not readable.",
-        docs = "docs/reference/diagnostics.md#code-families"
+        summary = "A failure outside source",
+        rule = "The command stopped before it had a file and a position to point "
+        .. "at: a path it could not read or write, a manifest it could not use, a "
+        .. "name that names nothing, or a tool that failed.",
+        docs = "docs/reference/diagnostics.md#failures-outside-source"
     },
     {
         prefix = "NUPP1",
@@ -143,12 +143,61 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP0001",
-        summary = "A source file could not be read",
-        rule = "The path named on the command line, or reached from a require, "
-        .. "could not be opened. Check the spelling and that the file is "
-        .. "readable from the directory the compiler was run in.",
-        related = {},
-        docs = "docs/reference/diagnostics.md#code-families",
+        summary = "A file could not be read or written",
+        rule = "The path named on the command line, reached from a require, or "
+        .. "written as output could not be opened. Check the spelling and that the "
+        .. "file is readable, or its directory writable, from the directory the "
+        .. "compiler was run in. The diagnostic has no position: the run never got "
+        .. "inside the file.",
+        related = {"NUPP0002"},
+        docs = "docs/reference/diagnostics.md#failures-outside-source",
+    },
+    {
+        code = "NUPP0002",
+        summary = "The project manifest could not be used",
+        rule = "A `nupp.lua` that exists has to load and describe a project this "
+        .. "compiler can build. One that raises, returns something other than a "
+        .. "table, misspells a key, or asks for a combination the build cannot "
+        .. "honour stops the command before any source is read, since answering "
+        .. "without it would answer for a different project. A directory with no "
+        .. "`nupp.lua` at all is a supported configuration and reports nothing.",
+        related = {"NUPP0001", "NUPP0003"},
+        docs = "docs/reference/diagnostics.md#failures-outside-source",
+    },
+    {
+        code = "NUPP0003",
+        summary = "A name the command was given names nothing here",
+        rule = "A build target, task, platform or triple is looked up in the "
+        .. "manifest or among the targets this compiler models, and a function, "
+        .. "position or kind of input in the file the command was pointed at. The "
+        .. "name was well formed and names nothing there. `nupp task --list` lists "
+        .. "the targets and tasks a project defines.",
+        related = {"NUPP0002"},
+        docs = "docs/reference/diagnostics.md#failures-outside-source",
+    },
+    {
+        code = "NUPP0004",
+        summary = "A tool the command depends on failed",
+        rule = "Some commands hand part of their work to another program or "
+        .. "component: LuaRocks installs a dependency, the LLVM kit compiles "
+        .. "native code, Cargo builds a native provider, a C preprocessor reads a "
+        .. "header, a stage compiler rebuilds the compiler. When that step fails, "
+        .. "the message carries what it said. The source may be fine; what failed "
+        .. "is the step.",
+        related = {"NUPP0002"},
+        docs = "docs/reference/diagnostics.md#failures-outside-source",
+    },
+    {
+        code = "NUPP0005",
+        summary = "A type dependency's declaration file was not imported",
+        rule = "A `kind = \"types\"` dependency is somebody else's source, pinned "
+        .. "at a revision this project chose but did not write. A file in that tree "
+        .. "the importer cannot read, parse, or check is skipped and named here; the "
+        .. "declarations beside it are still imported, so one unreadable corner of an "
+        .. "API does not cost the project the rest of it. Pin a revision this "
+        .. "compiler can read, or report the construct that stopped it.",
+        related = {"NUPP1008", "NUPP1006"},
+        docs = "docs/learn/projects/integrations/luacats.md#recovery",
     },
     {
         code = "NUPP1002",
@@ -206,18 +255,6 @@ local ENTRIES: {any} = {
         .. "ambiguous, unsupported, or ownership-incomplete foreign type recovers "
         .. "at the smallest affected position, usually as any, and checking continues.",
         related = {"NUPP1006", "NUPP2101"},
-        docs = "docs/learn/projects/integrations/luacats.md#recovery",
-    },
-    {
-        code = "NUPP1009",
-        summary = "A type dependency's declaration file was not imported",
-        rule = "A `kind = \"types\"` dependency is somebody else's source, pinned "
-        .. "at a revision this project chose but did not write. A file in that tree "
-        .. "the importer cannot read, parse, or check is skipped and named here; the "
-        .. "declarations beside it are still imported, so one unreadable corner of an "
-        .. "API does not cost the project the rest of it. Pin a revision this "
-        .. "compiler can read, or report the construct that stopped it.",
-        related = {"NUPP1008", "NUPP1006"},
         docs = "docs/learn/projects/integrations/luacats.md#recovery",
     },
     {

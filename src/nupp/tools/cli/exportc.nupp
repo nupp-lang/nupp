@@ -4,15 +4,16 @@ module nupp.tools.cli.exportc
 
 local usageError = require("nupp.tools.cli.error").forCommand("export-c")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
-        ok = {type = "boolean"},
+        ok = report.OK,
         output = {type = "string"},
         target = {type = "string"},
         declarations = {type = "array", items = {type = "string"}},
-        diagnostics = require("nupp.tools.cli.report").DIAGNOSTICS,
+        diagnostics = report.DIAGNOSTICS,
     },
     required = {"ok", "target", "declarations", "diagnostics"},
 }
@@ -64,23 +65,33 @@ local function run(options: any): integer
         return usageError("-o FILE is required")
     end
 
+    -- Refused before anything is exported: under `--json` as the one document the
+    -- reader was promised, with the reason coded, and otherwise as a line of text.
+    local function refuse(code: string, message: string): integer
+        if options.format == "json" then
+            return report.failure(REPORT_SCHEMA, {report.runDiagnostic(code, message, nil, "nupp.lua")}, {
+                declarations = selections
+            })
+        end
+        io.stderr:write(require("nupp.tools.cli.error").message(message) .. "\n")
+
+        return 1
+    end
+
     local manifest = require("nupp.tools.build.manifest")
     local config, configErr = manifest.load(".")
     if not config then
-        io.stderr:write("nupp: " .. tostring(configErr) .. "\n")
-        return 1
+        return refuse(report.MANIFEST, tostring(configErr))
     end
     local target, targetErr = require("nupp.tools.build.tasks").targetConfig(config, options.target)
     if not target then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
-        return 1
+        return refuse(report.UNKNOWN_NAME, tostring(targetErr))
     end
     config._target = target
     local targetLayout = require("nupp.compiler.targetlayout")
     local layoutKey = target.layoutTarget or targetLayout.hostKey()
     if not layoutKey then
-        io.stderr:write("nupp: the compiler host has no modeled C layout; configure build.layoutTarget\n")
-        return 1
+        return refuse(report.MANIFEST, "the compiler host has no modeled C layout; configure build.layoutTarget")
     end
 
     local envMod = require("nupp.compiler.project.env")
@@ -109,7 +120,9 @@ local function run(options: any): integer
     for _, path in ipairs(paths) do
         local source, readErr = fs.readFile(path)
         if not source then
-            allDiagnostics[#allDiagnostics + 1] = diagnostic(path, nil, "NUPP0001", tostring(readErr))
+            allDiagnostics[
+                #allDiagnostics + 1
+            ] = report.fileDiagnostic(path, tostring(readErr), "check that the path exists and is readable")
         else
             local result = parser.parse(source, path)
             for _, one in ipairs(result.errors) do
@@ -261,7 +274,9 @@ local function run(options: any): integer
     if text then
         local written, writeErr = fs.writeFileIfChanged(output, text)
         if not written then
-            allDiagnostics[#allDiagnostics + 1] = diagnostic(output, nil, "NUPP0001", tostring(writeErr))
+            allDiagnostics[
+                #allDiagnostics + 1
+            ] = report.fileDiagnostic(output, tostring(writeErr), "check that the output path is writable")
             failed = true
         end
     end
@@ -272,7 +287,7 @@ local function run(options: any): integer
             output = not failed and output or nil,
             target = layoutKey,
             declarations = selections,
-            diagnostics = allDiagnostics,
+            diagnostics = reportMod.diagnosticValues(allDiagnostics),
         })
     else
         require("nupp.compiler.diagnostics").report(allDiagnostics)

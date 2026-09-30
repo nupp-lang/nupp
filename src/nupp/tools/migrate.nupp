@@ -128,17 +128,24 @@ end
 
 --- Plans one source-family migration. Extension dispatch belongs here, not in a
 --- command, so the editor gets the same refusal for unsupported inputs.
-function migrate.plan(source: string, path: string, dialect: string?): migrate.Plan?, string?
+---
+--- @return the plan
+--- @return why there is none, as a line
+--- @return the same reason as a diagnostic, with its code and, for a parse error,
+---   its position
+function migrate.plan(source: string, path: string, dialect: string?): (migrate.Plan?, string?, any)
     if not path:match("%.lua$") then
-        return nil, "unsupported migration source extension in " .. path
+        local message = "unsupported migration source extension in " .. path
+        return nil, message, {filename = path, code = "NUPP0003", msg = message}
     end
     dialect = dialect or "auto"
     if dialect ~= "auto" and dialect ~= "luacats" and dialect ~= "emmy" and dialect ~= "luadoc" then
-        return nil, "unsupported annotated Lua dialect " .. dialect
+        local message = "unsupported annotated Lua dialect " .. dialect
+        return nil, message, {filename = path, code = "NUPP0003", msg = message}
     end
     local parsed = parser.parse(source, path)
     if #parsed.errors > 0 then
-        return nil, parsed.errors[1].msg
+        return nil, parsed.errors[1].msg, parsed.errors[1]
     end
     local warnings = annotated.decorate(parsed, path, dialect)
     local edits: {migrate.Edit} = {}

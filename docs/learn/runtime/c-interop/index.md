@@ -467,8 +467,9 @@ nupp import-c native/image.h --inspect
 # direct 0, bridged 0, skipped 2
 ```
 
-The JSON result carries totals, warnings, and a disposition for each considered
-aggregate or callable:
+The JSON result carries totals, a warning diagnostic for each declaration the
+bindings could not represent, and a disposition for each considered aggregate or
+callable:
 
 ```json
 {
@@ -476,9 +477,13 @@ aggregate or callable:
   "direct": 0,
   "bridged": 0,
   "skipped": 2,
-  "warnings": [
-    "static inline image_triple needs a configured C bridge",
-    "static inline image_store needs a configured C bridge"
+  "diagnostics": [
+    {"file": "native/image.h", "severity": "warning",
+     "message": "static inline image_triple needs a configured C bridge",
+     "fixes": [], "notes": [], "related": []},
+    {"file": "native/image.h", "severity": "warning",
+     "message": "static inline image_store needs a configured C bridge",
+     "fixes": [], "notes": [], "related": []}
   ],
   "dispositions": [
     {"name": "image_triple", "kind": "skipped", "reason": "bridge-required"},

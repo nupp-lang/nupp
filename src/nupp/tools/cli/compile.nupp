@@ -234,19 +234,36 @@ end
 --- form reports them. Returns the parse and the source it came from, or nil once
 --- what stopped it has been said: a command that inspects a checked tree rather than
 --- compiling it starts here, so that it sees the same tree a build would.
-function compile.check(path: string, env: table, opts: {[string]: any}?): (any?, string?)
+---
+--- @param collected where a `--json` run gathers the diagnostics instead, the
+---   unreadable file included, so nothing is written to stderr
+function compile.check(path: string, env: table, opts: {[string]: any}?, collected: {any}?): (any?, string?)
+    local function report(diagnostics: {any}): boolean
+        if not collected then
+            return diagnosticMod.report(diagnostics)
+        end
+        local failed = false
+        for _, diagnostic in ipairs(diagnostics) do
+            collected[#collected + 1] = diagnostic
+            failed = failed or diagnosticMod.severityOf(diagnostic) == "error"
+        end
+
+        return failed
+    end
+
     local source, readErr = fs.readFile(path)
     if not source then
-        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        local cliReport = require("nupp.tools.cli.report")
+        cliReport.fileFailure(path, readErr, "check that the path exists and is readable", collected)
         return nil
     end
     local result = require("nupp.compiler.syntax.parser").parse(source, path)
     if #result.errors > 0 then
-        diagnosticMod.report(result.errors)
+        report(result.errors)
         return nil
     end
     local diags = require("nupp.compiler.check").check(result, path, env, opts)
-    if diagnosticMod.report(diags) then
+    if report(diags) then
         return nil
     end
 

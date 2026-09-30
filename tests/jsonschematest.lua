@@ -17,7 +17,7 @@ local NUPP = HERE .. "/../bin/nupp"
 local M = {}
 
 --- A JSON Schema validator covering exactly the keywords the schemas use:
---- type, properties, required, items, enum, oneOf, and $ref into #/definitions.
+--- type, properties, required, items, enum, oneOf, anyOf, and $ref into #/definitions.
 --- Returns nil and the path of the first thing wrong.
 local function validate(value, schema, root, path)
     root, path = root or schema, path or "$"
@@ -41,6 +41,21 @@ local function validate(value, schema, root, path)
         end
         if matched ~= 1 then
             return nil, ("%s: matches %d of the oneOf branches (%s)"):format(path, matched, table.concat(reasons, "; "))
+        end
+    end
+    if schema.anyOf then
+        local reasons = {}
+        local matched = false
+        for _, branch in ipairs(schema.anyOf) do
+            local ok, err = validate(value, branch, root, path)
+            if ok then
+                matched = true
+            else
+                reasons[#reasons + 1] = err
+            end
+        end
+        if not matched then
+            return nil, ("%s: matches none of the anyOf branches (%s)"):format(path, table.concat(reasons, "; "))
         end
     end
     local wanted = schema.type
@@ -230,7 +245,7 @@ function M.docOutputMatchesItsSchema()
         ["good.nupp"] = "--- A point in the plane.\nglobal record Point\n" .. "    x: number\nend\n"
     })
     local decoded = agrees(dir, "doc --kind markdown -o out/api.md")
-    assert(decoded.format == "markdown", "the resolved format is reported")
+    assert(decoded.kind == "markdown", "what was produced is reported")
     assert(#decoded.files > 0, "and every path it wrote")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -291,6 +306,215 @@ function M.explainOutputMatchesItsSchema()
     end
 end
 
+-- The uniform `--json` failure contract, held against every command that has one.
+--
+-- Exit 2 is a usage error and writes nothing to stdout. Exit 0 or 1 writes exactly one
+-- document, valid against the command's own `--schema`, whose `ok` says which, and a
+-- document with `ok` false carries at least one error with a code: a failure before
+-- the work started -- a missing file, a manifest that does not load, a name that
+-- names nothing -- is still a coded diagnostic rather than a line on stderr.
+
+-- Runs a command and returns what it wrote to stdout and its exit status.
+local function statusOf(dir, argv)
+    local prefix = dir and ("cd '" .. dir .. "' && ") or ""
+    local pipe = assert(io.popen(prefix .. ("'%s' %s 2>/dev/null; echo \"__exit__:$?\""):format(NUPP, argv)))
+    local out = pipe:read("*a")
+    pipe:close()
+    local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")), "no exit status in:\n" .. out)
+
+    return (out:gsub("__exit__:%d+%s*$", "")), code
+end
+
+-- `jsonFlag` false is for a command whose only report is JSON. `runner` marks `test`,
+-- which answers a failure before its tests started with its own record rather than
+-- with diagnostics.
+local function holdsTheContract(dir, argv, options)
+    options = options or {}
+    local schemaArgv = options.schema or argv
+    local full = options.alreadyJson and argv or (argv .. " --json")
+    local out, code = statusOf(dir, full)
+    local label = full .. " (in " .. tostring(options.where or dir) .. ")"
+    assert(code == 0 or code == 1, label .. " exits " .. code .. ", which is neither an answer nor a failure:\n" .. out)
+    assert(select(2, out:gsub("\n", "")) == 1 and out:sub(-1) == "\n", label .. " writes one line of JSON:\n" .. out)
+    local ok, decoded = pcall(json.decode, out)
+    assert(ok and type(decoded) == "table", label .. " writes no JSON document:\n" .. out)
+    local schemaText = capture(dir, schemaArgv .. " --schema")
+    local schema = json.decode(schemaText)
+    local valid, err = validate(decoded, schema)
+    assert(valid, label .. " does not match its own --schema: " .. tostring(err) .. "\noutput: " .. out)
+    assert(decoded.ok == (code == 0), label .. " says ok = " .. tostring(decoded.ok) .. " and exits " .. code)
+    if options.expectOk ~= nil then
+        assert(decoded.ok == options.expectOk, label .. " should answer ok = " .. tostring(options.expectOk) .. ":\n" .. out)
+    end
+    if not decoded.ok then
+        if options.runner then
+            local failedRecord = false
+            for _, record in ipairs(decoded.tests or {}) do
+                failedRecord = failedRecord or (record.status == "failed" and record.failure and record.failure.message ~= "")
+            end
+            assert(failedRecord, label .. " answers a failure with a failed record:\n" .. out)
+        else
+            local coded = nil
+            for _, diagnostic in ipairs(decoded.diagnostics or {}) do
+                if diagnostic.severity == "error" and type(diagnostic.code) == "string" and diagnostic.code:match("^NUPP%d%d%d%d$") then
+                    coded = coded or diagnostic
+                end
+            end
+            assert(coded, label .. " fails without a coded error diagnostic:\n" .. out)
+            if options.code then
+                assert(coded.code == options.code, label .. " should report " .. options.code .. ":\n" .. out)
+            end
+        end
+    end
+
+    return decoded
+end
+
+local function failureProjects()
+    local good = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}, build = {default = "app", targets = {app = {kind = "modules"}}}}\n',
+        ["good.nupp"] = GOOD,
+        ["kernel.nupp"] = "@aot\nlocal function twice(x: number): number\n    return x * 2.0\nend\n\nreturn {twice = twice}\n",
+    })
+    local broken = tempProject({["nupp.lua"] = "return { build = { targets = 5 }, nope = \n", ["good.nupp"] = GOOD})
+    local none = tempProject({["good.nupp"] = GOOD})
+
+    return good, broken, none
+end
+
+function M.everyCommandReportsAMissingFileAsACodedFailure()
+    local good, broken, none = failureProjects()
+    for _, argv in ipairs({
+        "check nosuch.nupp",
+        "build nosuch.nupp",
+        "fmt nosuch.nupp",
+        "bc nosuch.nupp",
+        "aot nosuch.nupp",
+        "doc nosuch.nupp",
+        "import-c nosuch.h",
+        "migrate nosuch.lua",
+        "ownership-audit nosuch.nupp",
+        "lsp inspect nosuch.nupp 1 1",
+        "lsp definition nosuch.nupp 1 1",
+        "lsp implementation nosuch.nupp 1 1",
+        "lsp references nosuch.nupp 1 1",
+        "lsp rename nosuch.nupp 1 1 other",
+        "lsp actions nosuch.nupp 1 1",
+        "lsp trace-check nosuch.nupp 1 1",
+        "lsp artifacts nosuch.nupp 1 1",
+        "lsp artifact --kind lua nosuch.nupp",
+        "lsp symbols --file nosuch.nupp",
+    }) do
+        holdsTheContract(good, argv, {code = "NUPP0001", where = "a project"})
+    end
+    holdsTheContract(good, "ast nosuch.nupp", {alreadyJson = true, code = "NUPP0001", where = "a project"})
+    holdsTheContract(good, "lsp inspect good.nupp 99 1", {code = "NUPP0003", where = "a project"})
+    os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
+end
+
+function M.everyCommandReportsABrokenManifestAsACodedFailure()
+    local good, broken, none = failureProjects()
+    for _, argv in ipairs({
+        "check",
+        "check good.nupp",
+        "build",
+        "clean",
+        "task --list",
+        "lints",
+        "doc",
+        "fixpoint",
+        "export-c -o out.h good.nupp good.Missing",
+        "lsp symbols",
+        "lsp inspect good.nupp 1 7",
+    }) do
+        holdsTheContract(broken, argv, {code = "NUPP0002", where = "a broken manifest"})
+    end
+    -- `task` stops reading options at its first argument, which is the task's name.
+    holdsTheContract(broken, "task --list --json app", {alreadyJson = true, schema = "task", code = "NUPP0002"})
+    os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
+end
+
+function M.everyCommandAnswersWithoutAManifestOrSaysWhy()
+    local good, broken, none = failureProjects()
+    for _, argv in ipairs({"check", "build", "clean", "task --list", "fixpoint"}) do
+        holdsTheContract(none, argv, {code = "NUPP0002", where = "no manifest"})
+    end
+    -- A directory without `nupp.lua` is a supported configuration for these.
+    for _, argv in ipairs({"lints", "lsp symbols", "check good.nupp"}) do
+        holdsTheContract(none, argv, {expectOk = true, where = "no manifest"})
+    end
+    os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
+end
+
+function M.everyCommandReportsAnUnknownNameAsACodedFailure()
+    local good, broken, none = failureProjects()
+    for _, argv in ipairs({
+        "check --target nosuch",
+        "build --target nosuch",
+        "clean --target nosuch",
+        "doc --target nosuch",
+        "aot --triple nosuch-unknown-none kernel.nupp",
+    }) do
+        holdsTheContract(good, argv, {code = "NUPP0003", where = "a project"})
+    end
+    holdsTheContract(good, "task --list --json nosuch", {alreadyJson = true, schema = "task", code = "NUPP0003"})
+    os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
+end
+
+-- A usage error is decided from the arguments, before any format could be honoured, so
+-- stdout stays empty even under `--json` and the status alone says what happened.
+function M.aUsageErrorWritesNothingToStdout()
+    local good, broken, none = failureProjects()
+    for _, argv in ipairs({
+        "check --json --nosuchflag",
+        "explain --json NUPP9999",
+        "reference --json --section nosuchsection",
+        "lsp inspect --json good.nupp 0 1",
+        "init --json nosuchtemplate x",
+        "fmt --json --width 3 good.nupp",
+    }) do
+        local out, code = statusOf(good, argv)
+        assert(code == 2, argv .. " is a usage error, status 2, not " .. code)
+        assert(out == "", argv .. " writes nothing to stdout on a usage error: " .. out)
+    end
+    os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
+end
+
+-- The shapes a failure document takes are the command's own, so a reader validates
+-- it against the same schema as a success.
+function M.everySchemaRequiresOk()
+    local cli = require("nupp.tools.cli")
+    local function requiresOk(schema, name)
+        if schema.oneOf or schema.anyOf then
+            for _, branch in ipairs(schema.oneOf or schema.anyOf) do
+                requiresOk(branch, name)
+            end
+            return
+        end
+        local found = false
+        for _, required in ipairs(schema.required or {}) do
+            found = found or required == "ok"
+        end
+        assert(found, name .. " --schema does not require ok")
+    end
+    -- `run` is the exception: the program owns stdout, and its `--json` is the trace
+    -- report it writes to a file.
+    for _, name in ipairs(cli.names()) do
+        if name ~= "help" and name ~= "lsp" and name ~= "run" and name ~= "bench" then
+            local help = capture(nil, "help " .. name)
+            if help:find("--schema", 1, true) then
+                requiresOk(json.decode(capture(nil, name .. " --schema")), name)
+            end
+        end
+    end
+    for _, operation in ipairs({
+        "inspect", "definition", "implementation", "references", "symbols", "rename", "actions", "trace-check",
+        "artifacts", "artifact",
+    }) do
+        requiresOk(json.decode(capture(nil, "lsp " .. operation .. " --schema")), "lsp " .. operation)
+    end
+end
+
 function M.reportEncodingSortsKeysWithoutChangingValues()
     local report = require("nupp.tools.cli.report")
     local first = {text = "line\nbreak", number = 1.25, flag = true, list = {3, 2}, nested = {z = "last", a = "first"},}
@@ -311,6 +535,8 @@ function M.fileDiagnosticsAlwaysCarryAMessage()
     local diagnostic = report.fileDiagnostic("missing.nupp", nil, "check the path")
     local value = report.diagnosticValues({diagnostic})[1]
     assert(value.message == "cannot access missing.nupp", "an absent OS error gets a useful message")
+    assert(value.range == nil, "a diagnostic about a file rather than a place in it has no range")
+    assert(value.code == "NUPP0001", "and carries the code for a file the run never got inside")
 
     diagnostic.related = {{filename = "other.nupp", offset = 1, length = 0, msg = "declared here"}}
     value = report.diagnosticValues({diagnostic})[1]

@@ -233,7 +233,7 @@ same block still apply.
 
 A declaration file is never allowed to make the rest of its tree unreadable
 either. A file in a `kind = "types"` dependency that cannot be read, parsed, or
-checked is skipped and reported as a `NUPP1009` warning against the file, and
+checked is skipped and reported as a `NUPP0005` warning against the file, and
 the declarations beside it are imported as usual. A pinned upstream tree is
 somebody else's source: one corner of it spelled in a way this importer has yet
 to learn costs that corner, not the API.

@@ -20,50 +20,68 @@ local usageError = require("nupp.tools.cli.error").forCommand("task")
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
 
+local report = require("nupp.tools.cli.report")
+
+local TASK_PROPERTIES: {
+    [string]: any
+} = {
+    name = {type = "string"},
+    ["default"] = {type = "boolean"},
+    description = {type = "string"},
+    kind = {type = "string"},
+    category = {type = "string"},
+    command = {type = "array", items = {type = "string"}},
+    outDir = {
+        type = "string",
+        description = "Where the target writes, including the "
+        .. "default a docs target takes from the generator "
+        .. "rather than from the manifest."
+    },
+    buildTarget = {type = "string"},
+    cwd = {type = "string", description = "Task working directory, relative to the project root."},
+    includePrivate = {
+        type = "boolean",
+        description = "Documentation: include unexported, internal and private declarations."
+    },
+    entries = {type = "array", items = {type = "string"}},
+    sources = {type = "array", items = {type = "string"}},
+    resources = {type = "array", items = {type = "string"}},
+    dependencies = {type = "array", items = {type = "string"}},
+    nativeFeatures = {type = "object", additionalProperties = {type = "boolean"}},
+    layoutTarget = {type = "string"},
+    platforms = {type = "array", items = {type = "string"}},
+    argv = {type = "array", items = {type = "string"}},
+}
+
+-- One task, as it appears in the list and as the document for one named task, which
+-- also carries `ok`.
+local ONE_TASK: {[string]: any} = {ok = report.OK}
+for key, value in pairs(TASK_PROPERTIES) do
+    ONE_TASK[key] = value
+end
+
 local REPORT_SCHEMA = {
-    description = "The task list, or one task's effective configuration when " .. "a name was given.",
-    type = "object",
-    properties = {
-        tasks = {
-            type = "array",
-            description = "Present when no name was given.",
-            items = {["$ref"] = "#/definitions/task"},
-        },
-    },
-    definitions = {
-        task = {
+    description = "The task list, one task's effective configuration when a name was given, or why neither could be read.",
+    oneOf = {
+        {
             type = "object",
+            description = "Every task, when no name was given.",
             properties = {
-                name = {type = "string"},
-                ["default"] = {type = "boolean"},
-                description = {type = "string"},
-                kind = {type = "string"},
-                category = {type = "string"},
-                command = {type = "array", items = {type = "string"}},
-                outDir = {
-                    type = "string",
-                    description = "Where the target writes, including the "
-                    .. "default a docs target takes from the generator "
-                    .. "rather than from the manifest."
-                },
-                buildTarget = {type = "string"},
-                cwd = {type = "string", description = "Task working directory, relative to the project root."},
-                includePrivate = {
-                    type = "boolean",
-                    description = "Documentation: include unexported, internal and private declarations."
-                },
-                entries = {type = "array", items = {type = "string"}},
-                sources = {type = "array", items = {type = "string"}},
-                resources = {type = "array", items = {type = "string"}},
-                dependencies = {type = "array", items = {type = "string"}},
-                nativeFeatures = {type = "object", additionalProperties = {type = "boolean"}},
-                layoutTarget = {type = "string"},
-                platforms = {type = "array", items = {type = "string"}},
-                argv = {type = "array", items = {type = "string"}},
+                ok = report.OK,
+                ["default"] = {type = "string", description = "The default build target."},
+                tasks = {type = "array", items = {["$ref"] = "#/definitions/task"}},
             },
-            required = {"name"},
+            required = {"ok", "tasks"},
         },
+        {
+            type = "object",
+            description = "One task, when a name was given.",
+            properties = ONE_TASK,
+            required = {"ok", "name"},
+        },
+        report.FAILURE,
     },
+    definitions = {task = {type = "object", properties = TASK_PROPERTIES, required = {"name"}}},
 }
 
 local function writeItems(out: {string}, style: any, label: string, items: {string})
@@ -142,13 +160,20 @@ end
 
 local function list(name: string?, format: string?): integer
     local project = require("nupp.tools.build.project")
-    local info, err = project.describeTasks(".", name)
+    local info, err, code = project.describeTasks(".", name)
     if not info then
+        if format == "json" then
+            return report.failure(REPORT_SCHEMA, {
+                report.runDiagnostic(code or report.MANIFEST, tostring(err), nil, "nupp.lua")
+            })
+        end
         io.stderr:write(tostring(err) .. "\n")
         return 1
     end
     if format == "json" then
-        io.write(project.encode(info) .. "\n")
+        local document = info as {[string]: any}
+        document.ok = true
+        io.write(project.encode(document) .. "\n")
         return 0
     end
     local style = ansi.style(io.stdout)

@@ -280,6 +280,29 @@ function report.write(value: unknown): nil
     io.write(report.encode(value) .. "\n")
 end
 
+--- Where a diagnostic is, or nil for one about something with no place in source: a
+--- file that could not be read, a manifest that could not be used, a tool that failed.
+--- Leaving the range out says that; a range at line 0 would be a position the schema
+--- calls 1-based and a reader would have to know to discard.
+local function diagnosticRange(source: Source?, e: any): any
+    if type(e.offset) == "number" and e.offset >= 1 then
+        return rangeAt(source, e.offset, e.length)
+    end
+    if type(e.line) == "number" and e.line >= 1 then
+        local column: integer = type(e.col) == "number" and e.col >= 1 and e.col or 1
+        local offset: integer = 0
+        if source and source.lineStarts[e.line] then
+            offset = source.lineStarts[e.line] + column - 1
+        end
+        local start = {line = e.line, column = column, offset = offset}
+        local width: integer = type(e.length) == "number" and e.length or 0
+
+        return {start = start, ["end"] = {line = e.line, column = column + width, offset = offset + width}}
+    end
+
+    return nil
+end
+
 --- The diagnostics as `--json` promises them: every range resolved to line,
 --- column and offset, including the ranges inside fixes and related locations.
 function report.diagnosticValues(diagnostics: {any}): {any}
@@ -329,7 +352,7 @@ function report.diagnosticValues(diagnostics: {any}): {any}
             -- a diagnostic is raised would only be a way for them to disagree.
             docs = explain.anchor(e.code),
             message = e.msg,
-            range = rangeAt(source, e.offset, e.length),
+            range = diagnosticRange(source, e),
             fixes = fixes,
             help = e.help,
             notes = e.notes or {},
@@ -341,19 +364,27 @@ function report.diagnosticValues(diagnostics: {any}): {any}
 end
 
 --- A diagnostic about a file rather than a place in it: a path that could not be read
---- or written has no position, so the range fields are zero and the code is the one
---- every command reports for a file the run never got inside.
+--- or written has no position, so it carries none, and the code is the one every
+--- command reports for a file the run never got inside.
 function report.fileDiagnostic(path: string, msg: string?, help: string): {[string]: any}
-    return {
-        filename = path,
-        line = 0,
-        col = 0,
-        offset = 0,
-        length = 0,
-        code = "NUPP0001",
-        msg = msg or "cannot access " .. path,
-        help = help,
-    }
+    return {filename = path, code = report.UNREADABLE, msg = msg or "cannot access " .. path, help = help,}
+end
+
+--- The codes for a failure outside source, which is everything a run can refuse before
+--- it has a file and a position to point at. Each has its own `nupp explain` entry.
+report.UNREADABLE = "NUPP0001"
+
+report.MANIFEST = "NUPP0002"
+report.UNKNOWN_NAME = "NUPP0003"
+report.TOOL_FAILED = "NUPP0004"
+
+--- A diagnostic about the run rather than a place in source, carrying one of the codes
+--- above and, where there is one, the file it concerns. A message that arrives already
+--- spelled for the terminal loses its `nupp:`: in a document the code says who is
+--- speaking.
+function report.runDiagnostic(code: string, msg: string, help: string?, file: string?): {[string]: any}
+    local text = tostring(msg):gsub("^nupp: ", "")
+    return {filename = file, code = code, msg = text, help = help}
 end
 
 --- Says that a file could not be read or written, the way every command says it: as a
@@ -429,7 +460,14 @@ report.DIAGNOSTIC = {
             properties = {startLine = {type = "integer"}, endLine = {type = "integer"}},
             required = {"startLine", "endLine"}
         },
-        range = RANGE,
+        range = {
+            type = "object",
+            description = "Where the diagnostic is. Absent for one about something "
+            .. "with no place in source, such as a file that could not be read or a "
+            .. "manifest that could not be used.",
+            properties = {start = POSITION, ["end"] = POSITION},
+            required = {"start", "end"},
+        },
         help = {type = "string", description = "A concrete repair direction."},
         notes = {type = "array", items = {type = "string"}},
         related = {
@@ -450,11 +488,85 @@ report.DIAGNOSTIC = {
             },
         },
     },
-    required = {"severity", "message", "range", "fixes", "notes", "related"},
+    required = {"severity", "message", "fixes", "notes", "related"},
 }
 
 --- The array-of-diagnostics property every command that reports them carries, under
 --- that name, so one reader handles all of them.
 report.DIAGNOSTICS = {type = "array", items = report.DIAGNOSTIC}
+
+--- The field every `--json` document carries, and requires. It equals `status == 0`,
+--- and false always comes with at least one error diagnostic that has a code.
+report.OK = {
+    type = "boolean",
+    description = "Whether the command did what it was asked; the same answer as "
+    .. "exit status 0. False always comes with at least one error in "
+    .. "`diagnostics` that carries a code.",
+}
+
+--- The document a command whose schema is a choice of shapes writes when it fails:
+--- one more branch of its `oneOf`, which no successful document matches.
+report.FAILURE = {
+    type = "object",
+    description = "The command failed; `diagnostics` says why.",
+    properties = {ok = {type = "boolean", enum = {false}}, diagnostics = report.DIAGNOSTICS},
+    required = {"ok", "diagnostics"},
+}
+
+local function emptyValue(schema: any): unknown
+    local kind = schema and schema.type
+    if kind == "array" then
+        return {}
+    elseif kind == "object" then
+        local value: {[string]: unknown} = {}
+        for _, name in ipairs(schema.required or {}) do
+            value[name] = emptyValue(schema.properties and schema.properties[name])
+        end
+        return value
+    elseif kind == "string" then
+        return ""
+    elseif kind == "integer" or kind == "number" then
+        return 0
+    elseif kind == "boolean" then
+        return false
+    end
+
+    return json.NULL
+end
+
+-- The branch of a `oneOf` that a failure is: the one whose `ok` can only be false.
+local function failureShape(schema: any): any
+    if not schema or not schema.oneOf then
+        return schema
+    end
+    for _, branch in ipairs(schema.oneOf) do
+        local ok = branch.properties and branch.properties.ok
+        if ok and ok.enum and #ok.enum == 1 and ok.enum[1] == false then
+            return branch
+        end
+    end
+
+    return schema.oneOf[1]
+end
+
+--- Writes the document a failed `--json` run owes its reader and returns status 1: `ok`
+--- false, the diagnostics that say why, whatever `fields` the command already has, and
+--- every other field the schema requires at its empty value, so the one document is
+--- valid against `--schema` whichever step failed. Nothing goes to stderr: the reason
+--- is in the document.
+function report.failure(schema: any, diagnostics: {any}, fields: {[string]: any}?): integer
+    local document: {[string]: any} = fields or {}
+    document.ok = false
+    document.diagnostics = report.diagnosticValues(diagnostics)
+    local shape = failureShape(schema)
+    for _, name in ipairs(shape and shape.required or {}) do
+        if document[name] == nil then
+            document[name] = emptyValue(shape.properties and shape.properties[name])
+        end
+    end
+    report.write(document)
+
+    return 1
+end
 
 export = report

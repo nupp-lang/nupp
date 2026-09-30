@@ -367,7 +367,12 @@ local function run(options: any): integer
     local fs = require("nupp.compiler.fs")
     outDir = outDir or "build"
     if outDir and not fs.mkdir(outDir) then
-        io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
+        reportMod.fileFailure(
+            outDir,
+            "cannot create output directory " .. outDir,
+            "check that the directory can be created",
+            asJson and diagnostics or nil
+        )
         return finish(1, {})
     end
     local envMod = require("nupp.compiler.project.env")
@@ -435,7 +440,7 @@ local function run(options: any): integer
         report:at("write")
         local wrote, err = fs.writeFile(outPath, code)
         if not wrote then
-            io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            reportMod.fileFailure(outPath, err, "check that the output path is writable", asJson and diagnostics or nil)
             return false
         end
         outputs[#outputs + 1] = outPath

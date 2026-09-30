@@ -13,41 +13,52 @@ local usageError = cliError.forCommand("explain")
 local ansi = require("nupp.cli")
 local cliModule = require("nupp.cli")
 
+local report = require("nupp.tools.cli.report")
+
 local REPORT_SCHEMA = {
-    type = "object",
-    properties = {
-        code = {type = "string"},
-        summary = {type = "string", description = "One line."},
-        rule = {type = "string", description = "The general statement the code enforces."},
-        wrong = {
-            type = "string",
-            description = "A program that reports the code. Absent when " .. "only the family is known."
+    description = "One code's explanation, or with --list every code that has one.",
+    oneOf = {
+        {
+            type = "object",
+            description = "One code.",
+            properties = {
+                ok = report.OK,
+                code = {type = "string"},
+                summary = {type = "string", description = "One line."},
+                rule = {type = "string", description = "The general statement the code enforces."},
+                wrong = {
+                    type = "string",
+                    description = "A program that reports the code. Absent when " .. "only the family is known."
+                },
+                right = {type = "string", description = "The same program, corrected."},
+                related = {type = "array", items = {type = "string"}, description = "Codes worth reading beside it."},
+                docs = {
+                    type = "string",
+                    description = "The reference section, as a path and anchor. The "
+                    .. "same value every diagnostic carries under `docs`."
+                },
+                family = {
+                    type = "boolean",
+                    description = "True when this is what the code's family says "
+                    .. "rather than what is known about the code itself, which "
+                    .. "is when the examples are absent."
+                },
+                strict = {
+                    type = "boolean",
+                    description = "True when the rule is only reported under "
+                    .. "--strict, or with strict = true in the manifest."
+                },
+                class = {type = "string", description = "Trace reason class for a jit/* identity."},
+                repair = {type = "string", description = "Specific semantics-preserving repair, when known."},
+                reasonCatalog = {type = "object"},
+            },
+            required = {"ok", "code", "summary", "rule", "related", "docs", "family"},
         },
-        right = {type = "string", description = "The same program, corrected."},
-        related = {type = "array", items = {type = "string"}, description = "Codes worth reading beside it."},
-        docs = {
-            type = "string",
-            description = "The reference section, as a path and anchor. The "
-            .. "same value every diagnostic carries under `docs`."
-        },
-        family = {
-            type = "boolean",
-            description = "True when this is what the code's family says "
-            .. "rather than what is known about the code itself, which "
-            .. "is when the examples are absent."
-        },
-        strict = {
-            type = "boolean",
-            description = "True when the rule is only reported under "
-            .. "--strict, or with strict = true in the manifest."
-        },
-        class = {type = "string", description = "Trace reason class for a jit/* identity."},
-        repair = {type = "string", description = "Specific semantics-preserving repair, when known."},
-        reasonCatalog = {type = "object"},
-        codes = {
-            type = "array",
-            items = {type = "string"},
-            description = "Present for --list instead of the fields above."
+        {
+            type = "object",
+            description = "Every code with an explanation of its own, for --list.",
+            properties = {ok = report.OK, codes = {type = "array", items = {type = "string"}}},
+            required = {"ok", "codes"},
         },
     },
 }
@@ -67,7 +78,7 @@ local function run(options: any): integer
         end
         table.sort(codes)
         if asJson then
-            require("nupp.tools.cli.report").write({codes = codes})
+            report.write({ok = true, codes = codes})
         else
             io.write(table.concat(codes, "\n"), "\n")
         end
@@ -102,7 +113,8 @@ local function run(options: any): integer
     end
     local display: any = entry
     if asJson then
-        require("nupp.tools.cli.report").write({
+        report.write({
+            ok = true,
             code = display.code,
             summary = display.summary,
             rule = display.rule,

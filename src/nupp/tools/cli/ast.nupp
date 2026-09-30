@@ -20,25 +20,15 @@ local report = require("nupp.tools.cli.report")
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
+        ok = report.OK,
         file = {type = "string"},
-        root = {["$ref"] = "#/definitions/node"},
-        errors = {
-            type = "array",
-            items = {
-                type = "object",
-                properties = {
-                    code = {type = "string"},
-                    message = {type = "string"},
-                    offset = {type = "integer"},
-                    length = {type = "integer"},
-                    line = {type = "integer"},
-                    col = {type = "integer"},
-                    help = {type = "string"}
-                },
-            },
+        root = {
+            ["$ref"] = "#/definitions/node",
+            description = "The tree, recovered where the parse failed. Absent when the file could not be read.",
         },
+        diagnostics = report.DIAGNOSTICS,
     },
-    required = {"file", "root", "errors"},
+    required = {"ok", "file", "diagnostics"},
     definitions = {
         node = {
             description = "A structural node, or a token with the trivia "
@@ -109,30 +99,32 @@ local function run(options: any): integer
     local fs = require("nupp.compiler.fs")
     local source, readErr = fs.readFile(path)
     if not source then
-        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
-        return 1
+        return report.failure(
+            REPORT_SCHEMA,
+            {report.fileDiagnostic(path, readErr, "check that the path exists and is readable")},
+            {file = path}
+        )
     end
     local parser = require("nupp.compiler.syntax.parser")
     local cst = require("nupp.compiler.syntax.cst")
     local result = parser.parse(source, path)
-    local errors: {any} = {}
+    -- The tree is written either way, because a recovered tree is what explains a
+    -- failed parse; the parse errors travel with it as ordinary diagnostics.
+    local failed = false
     for _, err in ipairs(result.errors) do
-        errors[
-            #errors + 1
-        ] = {
-            code = err.code,
-            message = err.msg,
-            offset = err.offset,
-            length = err.length,
-            line = err.line,
-            col = err.col,
-            help = err.help
-        }
+        if require("nupp.compiler.diagnostics").severityOf(err) == "error" then
+            failed = true
+        end
     end
-    local value = {file = path, root = syntaxTreeValue(cst, result.root), errors = errors}
+    local value = {
+        ok = not failed,
+        file = path,
+        root = syntaxTreeValue(cst, result.root),
+        diagnostics = report.diagnosticValues(result.errors),
+    }
     io.write((options.jsonPretty and report.encodePretty(value) or report.encode(value)) .. "\n")
 
-    return require("nupp.compiler.diagnostics").report(result.errors) and 1 or 0
+    return failed and 1 or 0
 end
 
 --- Dump a Nupp file's parsed syntax tree as JSON.

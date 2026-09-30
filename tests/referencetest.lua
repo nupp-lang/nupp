@@ -250,7 +250,12 @@ function M.everyReferenceOutputBranchReportsWriteFailure()
     for _, command in ipairs(commands) do
         local output, ok = runCommand(dir, command)
         assert(not ok, command .. " must fail when its output cannot be staged")
-        assert(output:find("nupp:", 1, true), command .. " reports the failed write: " .. output)
+        if command:find("--json", 1, true) then
+            -- Under `--json` the reason is the document stdout still gets.
+            assert(output:find('"code":"NUPP0001"', 1, true), command .. " reports the failed write: " .. output)
+        else
+            assert(output:find("nupp:", 1, true), command .. " reports the failed write: " .. output)
+        end
     end
     assert(os.execute("chmod 755 '" .. dir .. "/locked'") == 0)
     os.execute("rm -rf '" .. dir .. "'")

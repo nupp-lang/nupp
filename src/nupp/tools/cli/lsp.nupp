@@ -393,6 +393,18 @@ local OPERATION_SCHEMAS: {
     },
 }
 
+-- Every operation's document says whether it answered, and why not when it did not,
+-- in the fields every other `--json` document uses for that.
+for _, schema in pairs(OPERATION_SCHEMAS) do
+    schema.properties.ok = reportMod.OK
+    schema.properties.diagnostics = reportMod.DIAGNOSTICS
+    local required: {string} = {"ok"}
+    for _, name in ipairs(schema.required or {}) do
+        required[#required + 1] = name
+    end
+    schema.required = required
+end
+
 ----------------------------------------------------------------------------
 -- Talking to a session
 ----------------------------------------------------------------------------
@@ -439,7 +451,8 @@ local function newClient(root)
         end
         local text, err = fs.readFile(path)
         if not text then
-            return nil, err
+            -- A problem with a code, so `--json` can say which failure it was.
+            return nil, {code = "NUPP0001", message = tostring(err), file = path}
         end
         sources[path] = text
 
@@ -568,6 +581,7 @@ end
 ----------------------------------------------------------------------------
 
 local function jsonOutput(value)
+    value.ok = true
     io.write(json.encode(value) .. "\n")
 end
 
@@ -606,7 +620,7 @@ local function target(client, opts)
     end
     local position, positionErr = toLspPosition(source, line, column)
     if not position then
-        return nil, nil, nil, positionErr
+        return nil, nil, nil, {code = "NUPP0003", message = tostring(positionErr), file = path}
     end
 
     return path, source, position
@@ -775,7 +789,7 @@ end
 
 local function runSymbols(client, opts)
     if #opts.positional > 1 then
-        return nil, "symbols accepts at most one pattern"
+        return nil, usage("symbols accepts at most one pattern")
     end
     local values: {SymbolValue} = jsonArray({} as {SymbolValue})
     local seen = {}
@@ -960,7 +974,7 @@ local function runRename(client, opts)
         for _, changedPath in ipairs(changedFiles) do
             local ok, writeErr = fs.writeFile(changedPath, rewritten[changedPath])
             if not ok then
-                return nil, writeErr
+                return nil, {code = "NUPP0001", message = tostring(writeErr), file = changedPath}
             end
         end
     end
@@ -1203,18 +1217,45 @@ local function typedOperation(name: string, self: any, positional: {string}): in
     opts.only = self.only
     opts.kind = self.kind
     opts.artifactOptLevel = self.optLevel
+
+    -- A failure is a problem with a code, or a message the language service gave,
+    -- which is its own failure. Under `--json` it is the one document the reader was
+    -- promised; otherwise it is a line of text.
+    local function fail(problem: any, fallback: string): integer
+        local code = type(problem) == "table" and problem.code or fallback
+        local message = type(problem) == "table" and problem.message or tostring(problem)
+        local file = type(problem) == "table" and problem.file or nil
+        if opts.format == "json" then
+            return reportMod.failure(OPERATION_SCHEMAS[name], {reportMod.runDiagnostic(code, message, nil, file)})
+        end
+        io.stderr:write(require("nupp.tools.cli.error").message(message) .. "\n")
+
+        return 1
+    end
+
+    -- The operations answer about the project, so a manifest that exists and cannot be
+    -- used stops them the way it stops a check, rather than answering as though the
+    -- project had none.
+    local manifestPath = fs.join(opts.root, "nupp.lua")
+    if fs.exists(manifestPath) then
+        local loaded, loadErr = require("nupp.tools.build.manifest").load(opts.root)
+        if not loaded then
+            return fail(
+                {code = reportMod.MANIFEST, message = tostring(loadErr), file = manifestPath},
+                reportMod.MANIFEST
+            )
+        end
+    end
     local client, clientErr = newClient(opts.root)
     if not client then
-        io.stderr:write("nupp: " .. tostring(clientErr) .. "\n")
-        return 1
+        return fail(clientErr, reportMod.TOOL_FAILED)
     end
     local run = assert(OPERATIONS[name])
     local ok, runErr = run(client, opts)
     if not ok and type(runErr) == "table" and runErr.usage then
         return require("nupp.tools.cli.error").forCommand("lsp " .. name)(runErr.usage)
     elseif not ok then
-        io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
-        return 1
+        return fail(runErr, reportMod.TOOL_FAILED)
     end
 
     return 0

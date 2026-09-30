@@ -494,7 +494,15 @@ function M.migrateJsonListsEveryPlanAfterAFailure()
     )
     waiting:close()
     local report = json.decode(captureJsonAt(dir, "migrate --json bad.lua waiting.lua"))
-    assert(not report.ok and #report.errors == 1, "the first migration fails its check: " .. json.encode(report.errors))
+    assert(
+        not report.ok and #report.diagnostics == 1,
+        "the first migration fails its check: " .. json.encode(report.diagnostics)
+    )
+    local failure = report.diagnostics[1]
+    assert(
+        failure.code:match("^NUPP2") and failure.file:match("bad%.g?%.?nupp$") and failure.range,
+        "and the failure is the checker's own diagnostic, with its code and position: " .. json.encode(failure)
+    )
     assert(#report.migrations == 2, "every plan is listed, the one that stopped the batch and the one it never reached")
     assert(
         report.migrations[2].source == "waiting.lua" and report.migrations[2].written == false,
@@ -1001,7 +1009,9 @@ function M.docJsonReportsEarlyConfigurationFailures()
     assert(code == 1, "an unknown documentation target must fail: " .. output)
     local report = json.decode(assert(output:match("({[^\n]+})"), "the JSON report is missing: " .. output))
     assert(report.ok == false, "the JSON report records the failure: " .. output)
-    assert(report.output == "" and report.format == "" and #report.files == 0, "the failed report has no outputs")
+    assert(report.output == "" and report.kind == "" and #report.files == 0, "the failed report has no outputs")
+    assert(report.diagnostics[1].code == "NUPP0003", "and says which name the project does not define: " .. output)
+    assert(not output:find("nupp: unknown", 1, true), "with nothing said twice on stderr: " .. output)
 end
 
 function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()

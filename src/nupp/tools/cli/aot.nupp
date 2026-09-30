@@ -32,6 +32,8 @@ local REPORT_SCHEMA = {
     type = "object",
     description = "What every @aot function in one file lowered to.",
     properties = {
+        ok = report.OK,
+        diagnostics = report.DIAGNOSTICS,
         file = {type = "string"},
         target = {
             type = "object",
@@ -55,9 +57,8 @@ local REPORT_SCHEMA = {
                         description = "Shader identity shared with runtime GPU cost records.",
                         properties = {
                             artifactId = {type = "string"},
-                            sourceFile = {type = "string"},
-                            sourceLine = {type = "integer"},
-                            sourceColumn = {type = "integer"},
+                            file = {type = "string", description = "The authored file, as an absolute path."},
+                            range = report.RANGE,
                             entrypoint = {type = "string"},
                             threads = {type = "integer"},
                         },
@@ -70,12 +71,13 @@ local REPORT_SCHEMA = {
                             properties = {
                                 id = {type = "integer"},
                                 kind = {type = "string", enum = {"map", "fornum", "while", "repeat"}},
-                                line = {type = "integer"},
-                                lastLine = {
-                                    type = "integer",
-                                    description = "Last authored position retained in the loop IR."
+                                range = {
+                                    type = "object",
+                                    description = "From the loop's first authored position to the end "
+                                    .. "of the last line the loop IR retains.",
+                                    properties = report.RANGE.properties,
+                                    required = report.RANGE.required,
                                 },
-                                column = {type = "integer"},
                                 nodes = {type = "integer"},
                                 simdOperations = {type = "integer"},
                                 luaOperations = {type = "integer"},
@@ -176,7 +178,47 @@ local REPORT_SCHEMA = {
             },
         },
     },
+    required = {"ok", "file", "diagnostics"},
 }
+
+--- The start of every line of a source, so an authored line and column become a
+--- position with its byte offset.
+local function lineStarts(source: string): {integer}
+    local starts: {integer} = {1}
+    for at in source:gmatch("\n()") do
+        starts[#starts + 1] = at
+    end
+
+    return starts
+end
+
+local function positionAt(starts: {integer}, line: integer, column: integer): any
+    local first = starts[line] or 1
+
+    return {line = line, column = column, offset = first + column - 1}
+end
+
+--- A loop's authored extent: from where it starts to the end of the last line
+--- its IR retains.
+local function loopRange(starts: {integer}, loop: any): any
+    local last: integer = loop.lastLine or loop.line
+    local nextLine = starts[last + 1]
+    local width = nextLine and nextLine - (starts[last] or 1) or 1
+
+    return {start = positionAt(starts, loop.line, loop.column or 1), ["end"] = positionAt(starts, last, width)}
+end
+
+--- A refusal from AOT lowering as a diagnostic, so `--json` reports it with its
+--- code the way it reports a type error.
+local function aotDiagnostic(problem: any): {[string]: any}
+    return {
+        filename = problem.file,
+        line = problem.line,
+        col = problem.column,
+        code = problem.code,
+        msg = problem.message
+    }
+end
 
 --- One line saying what happened, for a person.
 local function summarise(path: string, program: any, artifacts: any): string
@@ -320,14 +362,25 @@ local function run(options: any): integer
     end
 
     local path = paths[1]
+    local asJson = options.format == "json"
+
+    -- Every refusal below ends the run the same way: under `--json` as the one document
+    -- the reader was promised, with the reason in it, and otherwise as a line of text.
+    local function refuse(code: string, message: string): integer
+        if asJson then
+            return report.failure(REPORT_SCHEMA, {report.runDiagnostic(code, message, nil, path)}, {file = path})
+        end
+        io.stderr:write(require("nupp.tools.cli.error").message(message) .. "\n")
+
+        return 1
+    end
+
     -- A placeholder rather than a guess: where the object lands is a build
     -- decision this command does not make, and a binding printed for reading
     -- says so rather than naming a path nobody will produce.
     local selected, targetErr = targets.select(options.triple, options.features)
     if selected == nil then
-        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
-
-        return 1
+        return refuse(report.UNKNOWN_NAME, tostring(targetErr))
     end
 
     -- Inspection lowers the same checked tree a production build does. Parsing
@@ -352,14 +405,23 @@ local function run(options: any): integer
     -- `inspect` is this command's own: AOT checking without a build, so a
     -- GPU declaration is not bound to runtime types nothing staged.
     environment.config._target.aot = "inspect"
-    local tree, source = require("nupp.tools.cli.compile").check(path, environment as {[string]: any}, {})
+    local checked: {any}? = asJson and {} or nil
+    local tree, source = require("nupp.tools.cli.compile").check(path, environment as {[string]: any}, {}, checked)
     if tree == nil then
-        return 1
+        return checked and report.failure(REPORT_SCHEMA, checked, {file = path}) or 1
     end
 
     local library = options.library or "<object>"
     local artifacts, diagnostics = aot.artifacts(source as string, path, tree, library, selected as targets.Target)
     if artifacts == nil then
+        if asJson then
+            local refusals: {any} = {}
+            for _, problem in ipairs(diagnostics) do
+                refusals[#refusals + 1] = aotDiagnostic(problem)
+            end
+
+            return report.failure(REPORT_SCHEMA, refusals, {file = path})
+        end
         for _, problem in ipairs(diagnostics) do
             io.stderr:write(aot.renderDiagnostic(problem) .. "\n")
         end
@@ -392,15 +454,14 @@ local function run(options: any): integer
         spirvHex = table.concat(bytes)
     end
     if emit == "wgsl" and #wgslParts == 0 then
-        io.stderr:write("nupp: no GPU function matched --emit wgsl with the webgpu-int32 profile\n")
-        return 1
+        return refuse(report.UNKNOWN_NAME, "no GPU function matched --emit wgsl with the webgpu-int32 profile")
     end
     if emit == "spirv" and #spirvParts ~= 1 then
-        io.stderr:write(
-            #spirvParts == 0 and "nupp: no GPU function matched --emit spirv\n"
-            or "nupp: --emit spirv needs one GPU function; select it with --function\n"
+        return refuse(
+            report.UNKNOWN_NAME,
+            #spirvParts == 0 and "no GPU function matched --emit spirv"
+            or "--emit spirv needs one GPU function; select it with --function"
         )
-        return 1
     end
     -- Compiled once, before either branch prints: producing it runs the code
     -- generator, so it happens when it was asked for and never as a side effect
@@ -409,9 +470,7 @@ local function run(options: any): integer
     if emit == "asm" then
         local built, instructionErr = assembly(artifacts, selected as targets.Target, options.functionName, path)
         if built == nil then
-            io.stderr:write("nupp: " .. tostring(instructionErr) .. "\n")
-
-            return 1
+            return refuse(report.TOOL_FAILED, tostring(instructionErr))
         end
         instructionReport = built
     end
@@ -428,32 +487,48 @@ local function run(options: any): integer
         local target = selected as targets.Target
         local _, factsErr = aotllvm.facts()
         if factsErr ~= nil then
-            io.stderr:write("nupp: NUPP_AOT_FACTS: " .. tostring(factsErr) .. "\n")
-
-            return 1
+            return refuse(report.TOOL_FAILED, "NUPP_AOT_FACTS: " .. tostring(factsErr))
         end
         local ok, module, why = pcall(aotllvm.emit, artifacts.programs, target.tier, target.triple)
         if not ok or module == nil then
-            io.stderr:write("nupp: " .. tostring(ok and why or module) .. "\n")
-
-            return 1
+            return refuse(report.TOOL_FAILED, tostring(ok and why or module))
         end
         llvmText = module as string
     end
-    if options.format == "json" then
+    if asJson then
+        local starts = lineStarts(source as string)
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do
             local shader = artifacts.gpu[program.symbol]
-            local gpu = shader ~= nil
-                and {
+            local gpu: any = nil
+            if shader ~= nil then
+                local at = positionAt(starts, shader.sourceLine or 1, shader.sourceColumn or 1)
+                gpu = {
                     artifactId = shader.artifactId,
-                    sourceFile = shader.sourceFile,
-                    sourceLine = shader.sourceLine,
-                    sourceColumn = shader.sourceColumn,
+                    file = shader.sourceFile,
+                    range = {start = at, ["end"] = at},
                     entrypoint = shader.entrypoint,
                     threads = shader.threads,
                 }
-                or nil
+            end
+            local loops: {any} = {}
+            for index, loop in ipairs(artifacts.loops[position] or {}) do
+                loops[
+                    index
+                ] = {
+                    id = loop.id,
+                    kind = loop.kind,
+                    range = loopRange(starts, loop),
+                    nodes = loop.nodes,
+                    simdOperations = loop.simdOperations,
+                    luaOperations = loop.luaOperations,
+                    nativeReads = loop.nativeReads,
+                    nativeWrites = loop.nativeWrites,
+                    mayRaise = loop.mayRaise,
+                    outcome = loop.outcome,
+                    reason = loop.reason,
+                }
+            end
             functions[
                 position
             ] = {
@@ -464,11 +539,13 @@ local function run(options: any): integer
                 builderMode = program.builderMode,
                 runtimeAbi = program.runtimeAbi,
                 registrar = program.registrar,
-                loops = artifacts.loops[position],
+                loops = loops,
             }
         end
         io.write(
             report.encode({
+                ok = true,
+                diagnostics = report.diagnosticValues(checked or {}),
                 file = path,
                 target = {
                     triple = (selected as targets.Target).triple,

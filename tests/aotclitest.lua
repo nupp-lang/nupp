@@ -452,12 +452,12 @@ return convert
         assert(raw:byte(index) < 128, "binary SPIR-V escaped the JSON source literal at byte " .. index)
     end
     local shader = assert(report.functions[1].gpu, "GPU identity is structured inspection output")
-    local authored = require("nupp.compiler.fs").readFile(shader.sourceFile)
+    local authored = require("nupp.compiler.fs").readFile(shader.file)
     assert(
         authored and authored:find("local function convert", 1, true),
         "source identity resolves independently of the invocation directory"
     )
-    test.equal(shader.sourceLine, 2)
+    test.equal(shader.range.start.line, 2)
     test.equal(shader.artifactId, require("nupp.compiler.hash").digest(module))
     assert(report.binding:find(shader.artifactId, 1, true), "runtime and inspection share the shader digest")
     assert(report.binding:find('sourceLine = 2', 1, true), report.binding)

@@ -10,21 +10,22 @@ requires, not something the checker merely reads.
 
 local usageError = require("nupp.tools.cli.error").forCommand("import-c")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
-        ok = {type = "boolean"},
+        ok = report.OK,
         output = {
             type = "string",
             description = "Where the generated module was written. Absent " .. "when nothing was generated."
         },
-        warnings = {
+        diagnostics = {
             type = "array",
-            items = {type = "string"},
-            description = "What the header contained that the bindings "
-            .. "could not represent. Present whether or not it "
-            .. "succeeded; a warning is not a failure."
+            items = report.DIAGNOSTIC,
+            description = "Why the import failed, as errors, and what the header "
+            .. "contained that the bindings could not represent, as warnings. "
+            .. "A warning is not a failure.",
         },
         bridgeOutput = {type = "string"},
         direct = {type = "integer"},
@@ -32,8 +33,15 @@ local REPORT_SCHEMA = {
         skipped = {type = "integer"},
         dispositions = {type = "array", items = {type = "object"}},
     },
-    required = {"ok", "warnings"},
+    required = {"ok", "diagnostics"},
 }
+
+--- One importer message as a diagnostic: a warning at the header line it names, when
+--- it names one.
+local function warningDiagnostic(header: string, warning: string): {[string]: any}
+    local line, message = warning:match("^[^:]+:(%d+): (.*)$")
+    return {filename = header, line = line and tonumber(line) or nil, severity = "warning", msg = message or warning,}
+end
 
 -- An inspection writes nothing, so a header outside every root still names a
 -- module: its basename in the lowercase luacase a module segment is held to.
@@ -85,20 +93,28 @@ local function run(options: any): integer
         bridge = options.bridgeOut ~= nil,
     })
 
-    local function fail(): integer
-        if asJson then
-            reportMod.write({ok = false, warnings = warnings})
-        else
-            for _, warning in ipairs(warnings) do
-                io.stderr:write("nupp: " .. warning .. "\n")
-            end
+    local function diagnosticsOf(): {any}
+        local values: {any} = {}
+        for _, warning in ipairs(warnings) do
+            values[#values + 1] = warningDiagnostic(header, warning)
         end
 
-        return 1
+        return values
     end
 
     if not text then
-        return fail()
+        -- The importer's reason for producing nothing is its only message: the header
+        -- could not be read, or the C preprocessor produced nothing from it.
+        if asJson then
+            local reason = tostring(warnings[1] or "cannot import " .. header)
+            local code = reason:find("^cannot read ") and report.UNREADABLE or report.TOOL_FAILED
+            return report.failure(REPORT_SCHEMA, {report.runDiagnostic(code, reason, nil, header)})
+        end
+        for _, warning in ipairs(warnings) do
+            io.stderr:write("nupp: " .. warning .. "\n")
+        end
+
+        return 1
     end
     if not asJson then
         for _, warning in ipairs(warnings) do
@@ -109,7 +125,7 @@ local function run(options: any): integer
         if asJson then
             reportMod.write({
                 ok = true,
-                warnings = warnings,
+                diagnostics = reportMod.diagnosticValues(diagnosticsOf()),
                 direct = details and details.direct or 0,
                 bridged = details and details.bridged or 0,
                 skipped = details and details.skipped or 0,
@@ -142,8 +158,9 @@ local function run(options: any): integer
             return nil
         end
         if asJson then
-            warnings[#warnings + 1] = tostring(writeErr)
-            return fail()
+            local values = diagnosticsOf()
+            values[#values + 1] = report.fileDiagnostic(path, writeErr, "check that the output path is writable")
+            return report.failure(REPORT_SCHEMA, values)
         end
         io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
 
@@ -178,7 +195,7 @@ local function run(options: any): integer
             ok = true,
             output = out,
             bridgeOutput = bridgeOut and details and details.bridgeSource and bridgeOut or nil,
-            warnings = warnings,
+            diagnostics = reportMod.diagnosticValues(diagnosticsOf()),
             direct = details and details.direct or 0,
             bridged = details and details.bridged or 0,
             skipped = details and details.skipped or 0,

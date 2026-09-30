@@ -366,7 +366,7 @@ The tree is the one [grammar.md](grammar.md) defines, kept lossless down to
 trivia: every byte of the file is in exactly one token or one piece of trivia,
 so the report is the file in another shape rather than a summary of it. A file
 that does not parse still prints the tree recovery reached, with what went
-wrong in `errors`, and then exits 1.
+wrong in `diagnostics`, and then exits 1.
 
 There is no text form and no `--format`. A tree this literal is read by a
 program, and `--json-pretty` indents the same document for the times it is read
@@ -374,6 +374,7 @@ by a person:
 
 ```json [nupp ast --json-pretty src/tiny.nupp]
 {
+  "ok": true,
   "file": "src/tiny.nupp",
   "root": {
     "tag": "node",
@@ -430,7 +431,7 @@ by a person:
       }
     ]
   },
-  "errors": []
+  "diagnostics": []
 }
 ```
 
@@ -1744,7 +1745,8 @@ A successful run writes nothing to the terminal. `--json` names what it wrote:
 ```json [nupp doc --kind markdown -o docs/api.md --json]
 {
   "ok": true,
-  "format": "markdown",
+  "diagnostics": [],
+  "kind": "markdown",
   "output": "docs/api.md",
   "files": ["docs/api.md"]
 }

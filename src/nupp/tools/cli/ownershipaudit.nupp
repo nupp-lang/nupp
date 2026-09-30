@@ -14,14 +14,18 @@ local type OwnerEntry = {
     mayMove: boolean
 }
 
+local cliReport = require("nupp.tools.cli.report")
+
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
+        ok = cliReport.OK,
+        diagnostics = cliReport.DIAGNOSTICS,
         foreign = {type = "array", items = {type = "object"}},
         unsafe = {type = "array", items = {type = "object"}},
         regions = {type = "array", items = {type = "object"}},
     },
-    required = {"foreign", "unsafe"},
+    required = {"ok", "diagnostics", "foreign", "unsafe"},
 }
 
 local function pointerShaped(t, T)
@@ -281,8 +285,23 @@ local function run(options: any): integer
     end
 
     local diagnosticMod = require("nupp.compiler.diagnostics")
+    -- A file that could not be audited is a failure the document says, rather than an
+    -- empty audit that only the exit status tells apart from a clean one.
+    local asJson = options.format == "json"
+    local collected: {any} = {}
+
+    local function say(values: {any}): nil
+        if not asJson then
+            diagnosticMod.report(values)
+            return
+        end
+        for _, value in ipairs(values) do
+            collected[#collected + 1] = value
+        end
+    end
+
     for _, file in ipairs(sourceFiles(positional, fs)) do
-        local source = fs.readFile(file)
+        local source, readErr = fs.readFile(file)
         if source then
             local result = parser.parse(source, file)
             if #result.errors == 0 then
@@ -295,15 +314,20 @@ local function run(options: any): integer
                     end
                 end
                 if #errors > 0 then
-                    diagnosticMod.report(errors)
+                    say(errors)
                 end
                 visit(result.root, file, false)
             else
-                diagnosticMod.report(result.errors)
+                say(result.errors)
                 failed = true
             end
         else
-            io.stderr:write("nupp: cannot read " .. file .. "\n")
+            cliReport.fileFailure(
+                file,
+                "cannot read " .. file .. (readErr and ": " .. tostring(readErr) or ""),
+                "check that the path exists and is readable",
+                asJson and collected or nil
+            )
             failed = true
         end
     end
@@ -326,12 +350,14 @@ local function run(options: any): integer
         regionOrdinals[base] = (regionOrdinals[base] or 0) + 1
         region.id = base .. "#" .. tostring(regionOrdinals[base])
     end
-    local report = {foreign = foreign, unsafe = unsafeSites}
+    local report: {
+        [string]: any
+    } = {ok = not failed, diagnostics = cliReport.diagnosticValues(collected), foreign = foreign, unsafe = unsafeSites,}
     if options.regions then
         report.regions = regions
     end
-    if options.format == "json" then
-        require("nupp.tools.cli.report").write(report)
+    if asJson then
+        cliReport.write(report)
     else
         io.write("Foreign ownership contracts\n")
         for _, entry in ipairs(foreign) do

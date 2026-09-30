@@ -15,10 +15,13 @@ sections themselves, for a consumer that would rather render its own.
 
 local usageError = require("nupp.tools.cli.error").forCommand("reference")
 local cliModule = require("nupp.cli")
+local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
+        ok = report.OK,
+        diagnostics = report.DIAGNOSTICS,
         title = {type = "string"},
         sections = {
             type = "array",
@@ -49,14 +52,20 @@ local REPORT_SCHEMA = {
         tooling = {type = "string", description = "How to drive the toolchain, as markdown."},
         markdown = {type = "string", description = "The whole document, as `--format markdown` writes it."},
     },
-    required = {"title", "sections", "chapters", "tooling", "markdown"},
+    required = {"ok", "title", "sections", "chapters", "tooling", "markdown"},
 }
 
 --- Writes `-o` output with the result checked, so a full disk is a failed
---- command rather than a truncated file reported as success.
-local function writeOutput(path: string, content: string): integer
+--- command rather than a truncated file reported as success. A `--json` run that
+--- could not write its document says so in the one document stdout still gets.
+local function writeOutput(path: string, content: string, asJson: boolean?): integer
     local wrote, err = require("nupp.compiler.fs").writeFile(path, content .. "\n")
     if not wrote then
+        if asJson then
+            return report.failure(REPORT_SCHEMA, {
+                report.fileDiagnostic(path, err, "check that the output path is writable")
+            })
+        end
         io.stderr:write("nupp: " .. tostring(err) .. "\n")
         return 1
     end
@@ -138,6 +147,7 @@ local function run(options: any): integer
                 }
             end
             local payload = {
+                ok = true,
                 title = sections[1].title,
                 sections = sections,
                 chapters = {},
@@ -145,9 +155,9 @@ local function run(options: any): integer
                 markdown = rendered,
             }
             if options.output then
-                return writeOutput(options.output, require("nupp.tools.cli.report").encode(payload))
+                return writeOutput(options.output, report.encode(payload), true)
             end
-            require("nupp.tools.cli.report").write(payload)
+            report.write(payload)
             return 0
         end
         if options.output then
@@ -158,7 +168,10 @@ local function run(options: any): integer
         return 0
     end
 
-    if not topic and not options.format and not options.output then
+    -- The catalog is the text answer to asking for nothing in particular. Asking for a
+    -- representation is asking for the document in it, so `--json` alone is the whole
+    -- reference as JSON rather than the catalog printed as text.
+    if not topic and not options.format and not options.json and not options.skill and not options.output then
         io.write(reference.catalog(), "\n")
         return 0
     end
@@ -196,7 +209,10 @@ local function run(options: any): integer
                 #sections + 1
             ] = {title = section.title, body = section.body, example = section.example, codes = section.codes,}
         end
-        local payload = {
+        local payload: {
+            [string]: any
+        } = {
+            ok = true,
             title = chapter and "Nupp " .. chapter.title .. " reference" or "Nupp reference",
             sections = sections,
             chapters = chapter and {chapter} or reference.chapters,
@@ -207,9 +223,9 @@ local function run(options: any): integer
             payload.chapter = chapter
         end
         if options.output then
-            return writeOutput(options.output, require("nupp.tools.cli.report").encode(payload))
+            return writeOutput(options.output, report.encode(payload), true)
         end
-        require("nupp.tools.cli.report").write(payload)
+        report.write(payload)
         return 0
     end
 

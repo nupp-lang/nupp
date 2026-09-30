@@ -28,9 +28,9 @@ local REPORT_SCHEMA = {
         ok = {
             type = "boolean",
             description = "Whether the check ran and found nothing wrong. False "
-            .. "both for a project that reported an error and for a run that never "
-            .. "got as far as checking, such as one whose manifest could not be "
-            .. "used -- an empty `diagnostics` cannot tell those apart on its own.",
+            .. "always comes with at least one coded error in `diagnostics`: a "
+            .. "project that reported one, or a run that never got as far as "
+            .. "checking, such as one whose manifest could not be used (NUPP0002).",
         },
         diagnostics = require("nupp.tools.cli.report").DIAGNOSTICS,
         compat = {type = "string", enum = {"lua51"}, description = "The enforced source compatibility profile."},
@@ -198,10 +198,11 @@ local function run(options: any): integer
             if asJson then
                 diagnostics[
                     #diagnostics + 1
-                ] = reportMod.fileDiagnostic(
-                    "nupp.lua",
-                    (tostring(loadErr):gsub("^nupp: ", "")),
-                    "fix the manifest, or check the file from a directory without one"
+                ] = reportMod.runDiagnostic(
+                    reportMod.MANIFEST,
+                    tostring(loadErr),
+                    "fix the manifest, or check the file from a directory without one",
+                    "nupp.lua"
                 )
                 writeJson(false)
             else
