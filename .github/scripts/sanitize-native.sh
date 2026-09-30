@@ -88,7 +88,7 @@ case "$SANITIZER" in
         ;;
     thread)
         flags="-fsanitize=thread"
-        TSAN_OPTIONS="suppressions=$SUPPRESSIONS/tsan.supp:halt_on_error=1:second_deadlock_stack=1:print_suppressions=0"
+        TSAN_OPTIONS="suppressions=$SUPPRESSIONS/tsan.supp:halt_on_error=0:second_deadlock_stack=1:print_suppressions=0"
         export TSAN_OPTIONS
         ;;
     *)
@@ -106,10 +106,19 @@ export RUSTFLAGS CFLAGS
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$ROOT/build/rust/sanitize-$SANITIZER}
 export CARGO_TARGET_DIR
 
+# One run reports everything it can find. A sanitized build takes most of an
+# hour, and stopping at the first report -- the first race, the first failing
+# test binary, the first failing package -- left each run showing one finding
+# for the next to get past. ThreadSanitizer still exits 66 at the end when it
+# reported anything, and the script exits non-zero if any package failed.
+FAILED=
 cargo_test() {
     # Doctests are left out: rustdoc links them against the sysroot's
     # uninstrumented std, which -Zsanitizer refuses to mix.
-    cargo test --locked -Zbuild-std --target "$TARGET" --lib --bins --tests "$@"
+    if ! cargo test --locked -Zbuild-std --target "$TARGET" --no-fail-fast \
+        --lib --bins --tests "$@"; then
+        FAILED="$FAILED $2"
+    fi
 }
 
 cargo_test --package nupp-native-abi
@@ -162,5 +171,10 @@ for smoke in abi_smoke net_abi_smoke; do
     "$CC" -std=c11 -Wall -Wextra -Werror $smoke_flags \
         -I"$ROOT/native/include" "$ROOT/native/tests/$smoke.c" \
         "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$TEMP/$smoke"
-    "$TEMP/$smoke"
+    "$TEMP/$smoke" || FAILED="$FAILED $smoke"
 done
+
+if [ -n "$FAILED" ]; then
+    printf 'sanitize-native: failed under %s:%s\n' "$SANITIZER" "$FAILED" >&2
+    exit 1
+fi

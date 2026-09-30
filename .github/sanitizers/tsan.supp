@@ -7,9 +7,12 @@
 #
 # Format: race:<function or module substring>, deadlock:, signal:, mutex:
 
-# tokio's IO driver: a task registers a ScheduledIo's address with epoll, and
-# the driver thread reads it back from epoll_wait. The kernel orders the two,
-# which ThreadSanitizer cannot see, so the allocation and the driver's first
-# atomic read look unordered. Reported on the first Linux run (TcpStream
-# connect in nupp-native-runtime's tests).
-race:tokio::runtime::io::scheduled_io::ScheduledIo>::set_readiness
+# tokio's IO driver: a task allocates a ScheduledIo and registers its address
+# with epoll, and the driver thread reads it back from epoll_wait. The kernel
+# orders the two, which ThreadSanitizer cannot see, so the allocation and the
+# driver's first touch of any field -- set_readiness's atomic, wake's waiter
+# lock -- look unordered. Keyed on the allocation, which every such report
+# shares as its earlier access, rather than on whichever field is reached
+# first. Reported on the first Linux runs (TcpStream connect in
+# nupp-native-runtime's tests).
+race:tokio::runtime::io::registration_set::RegistrationSet>::allocate
