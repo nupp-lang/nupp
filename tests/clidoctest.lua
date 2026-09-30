@@ -92,7 +92,9 @@ local function pageFiles()
             body[#body + 1] = line
          end
       else
-         local lang, caption = line:match("^```(%a+) %[([%w_./-]+)%]$")
+         -- A fence may carry modifiers after its language (`nupp:fragment`),
+         -- which say how examplestest checks it and nothing about the file.
+         local lang, caption = line:match("^```(%a+)[%w:]* %[([%w_./-]+)%]$")
          if caption and lang ~= "text" then
             path, body = caption, {}
          end
