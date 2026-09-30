@@ -2390,6 +2390,20 @@ function M.jsonDocumentationExposesTheParseOnlyModel()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A manifest's outDir says where its own format goes. Asking for another format
+-- used to write there anyway, so `nupp doc json` wrote one file over the site
+-- directory and the next docs build could not recreate it.
+function M.anotherFormatDoesNotWriteOverTheConfiguredSite()
+    local dir = tempProject({["src/math.nupp"] = SOURCE})
+    local settings = {sources = {"src"}, format = "site", outDir = "site"}
+    assert(doc.build(dir, {include = {"src"}}, settings, {}) == 0)
+    assert(readFile(dir .. "/site/index.html"), "the configured site was not written")
+    assert(doc.build(dir, {include = {"src"}}, settings, {format = "json"}) == 0)
+    assert(readFile(dir .. "/build/docs.json"), "json did not go to its own default")
+    assert(readFile(dir .. "/site/index.html"), "json replaced the configured site")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 local ALIASED_PHASES = table.concat(
     {
         "module game.internal.phases",
@@ -4247,7 +4261,7 @@ local VERSION_SOURCES = {
     ["AOT runtime ABI"] = {"native/crates/native/c/ks_rt.c", "#define KS_RT_ABI_VERSION (%d+)u"},
     ["Browser application manifest"] = {"runtime/luajit/app-runtime.mjs", "manifest%.schema !== (%d+)"},
     ["AOT units manifest"] = {"src/nupp/tools/build/aot.nupp", "aot%.UNITS_SCHEMA_VERSION = (%d+)"},
-    ["AOT component manifest"] = {"src/nupp/tools/build/aot.nupp", "document = json%.encode%({%s*schemaVersion = (%d+),%s*component"},
+    ["AOT component manifest"] = {"src/nupp/tools/build/aot.nupp", "document = sortedJson%({%s*schemaVersion = (%d+),%s*component"},
     ["Link kit"] = {"src/nupp/tools/build/aotllvm.nupp", "manifest%.schemaVersion ~= (%d+)"},
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
