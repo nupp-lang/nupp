@@ -266,7 +266,7 @@ build_native() {
 }
 
 . "$ROOT/scripts/luajit.sh"
-select_luajit "$ROOT" || exit 1
+select_luajit "$ROOT" "$TOOLCHAIN_LUAJIT" || exit 1
 
 # The stamp is rewritten by every build, warm ones included, so one source
 # newer than it means the build has not seen that edit. Checking mtimes rather

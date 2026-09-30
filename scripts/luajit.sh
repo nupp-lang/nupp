@@ -42,15 +42,26 @@ luajit_has_required_patch() {
 # ARM64 needs the pinned build's IR type-width fix: a new banner alone does not
 # establish correct FFI argument widths. Other architectures retain a usable
 # PATH interpreter; otherwise provision the pinned build automatically.
+#
+# A caller that has already asked `scripts/toolchain --prefix` may pass the
+# staged directory under it as the second argument. A finished one is exactly
+# what `scripts/toolchain luajit` would answer, and asking again works the
+# prefix out a second time: about seventy milliseconds of compiler probing,
+# which was a third of every top-level command's cost on a machine whose PATH
+# interpreter lacks the patch.
 select_luajit() {
     case "$(uname -m 2>/dev/null)" in
         arm64|aarch64) luajit_has_required_patch "$1" && luajit_is_usable && return 0 ;;
         *) luajit_is_usable && return 0 ;;
     esac
-    staged=$("$1/scripts/toolchain" luajit) || {
-        echo "nupp: scripts/toolchain could not provision the required LuaJIT" >&2
-        return 1
-    }
+    if [ -n "${2:-}" ] && [ -f "$2/.complete" ]; then
+        staged=$2
+    else
+        staged=$("$1/scripts/toolchain" luajit) || {
+            echo "nupp: scripts/toolchain could not provision the required LuaJIT" >&2
+            return 1
+        }
+    fi
     # Toolchain answers use drive-letter paths because native Windows programs
     # consume them directly. PATH is still assembled by the MSYS shell, where
     # that drive colon is a separator, so convert this one use back to a mount

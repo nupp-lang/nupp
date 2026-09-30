@@ -860,7 +860,10 @@ fi
     assert(not io.open(source .. "/private-build-marker", "rb"), "make wrote into the shared verified source")
 end
 
-local function luaJitSelection(architecture, stagedExists, patched, replaceBinary)
+-- `known` is what the launcher hands the selector as its second argument: nil for
+-- nothing, "finished" for the staged directory with its completion marker, and
+-- "unfinished" for the directory without one.
+local function luaJitSelection(architecture, stagedExists, patched, replaceBinary, known)
     local directory = temporary()
     local current = directory .. "/current"
     local staged = directory .. "/staged"
@@ -900,6 +903,10 @@ local function luaJitSelection(architecture, stagedExists, patched, replaceBinar
         write(staged .. "/bin/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.1784535650'\n")
         assert(os.execute("chmod +x " .. quote(staged .. "/bin/luajit")) == 0)
     end
+    if known == "finished" then
+        write(staged .. "/.complete", "done\n")
+    end
+    local knownArgument = known and " " .. quote(forPath(staged)) or ""
     assert(
         os.execute(
             "chmod +x " .. quote(
@@ -914,7 +921,9 @@ local function luaJitSelection(architecture, stagedExists, patched, replaceBinar
         quote(
             '. ' .. quote(
                 ROOT .. '/scripts/luajit.sh'
-            ) .. '; if select_luajit ' .. quote(root) .. '; then command -v luajit; else echo SELECT_FAILED; fi'
+            ) .. '; if select_luajit ' .. quote(
+                root
+            ) .. knownArgument .. '; then command -v luajit; else echo SELECT_FAILED; fi'
         )
     )
     local pipe = assert(io.popen(command))
@@ -952,6 +961,23 @@ function M.arm64KeepsAnAlreadyVerifiedPatchedInterpreter()
     local selected, provisioned, current = luaJitSelection("arm64", true, true)
     assert(not provisioned, "a patched interpreter was rebuilt for a changed AOT compiler")
     assert(forPath(selected) == forPath(current) .. "/luajit", selected)
+end
+
+-- The launcher has already asked the toolchain for its prefix, and the staged
+-- interpreter under it is the answer a second question would get. Asking anyway
+-- cost every top-level command about seventy milliseconds.
+function M.aFinishedStagedLuaJitTheCallerNamedIsTakenWithoutAskingAgain()
+    local selected, provisioned, _, staged = luaJitSelection("arm64", true, false, false, "finished")
+    assert(not provisioned, "the selector asked the toolchain for a directory it was handed")
+    assert(forPath(selected) == forPath(staged) .. "/bin/luajit", selected)
+end
+
+-- A directory without its completion marker is one a build has not finished, and
+-- only the toolchain can say what to do about that.
+function M.anUnfinishedStagedLuaJitStillAsksTheToolchain()
+    local selected, provisioned, _, staged = luaJitSelection("arm64", true, false, false, "unfinished")
+    assert(provisioned, "the selector trusted a staged directory with no completion marker")
+    assert(forPath(selected) == forPath(staged) .. "/bin/luajit", selected)
 end
 
 function M.arm64DoesNotTrustAReplacedPatchedInterpreter()
