@@ -33,8 +33,7 @@ for (const [module, names] of Object.entries(corpus.probes)) {
   if (units.length !== 1) throw new Error(`Missing unique independent Wasm unit for ${module}`);
   for (const name of names) {
     const lowered = loweredEntryName(name);
-    const matches = entries.filter(entry => entry.unit === units[0].unit &&
-      [name, lowered].some(suffix => entry.symbol.endsWith('_' + suffix)));
+    const matches = entries.filter(entry => entry.unit === units[0].unit && entry.symbol.endsWith('_' + lowered));
     if (matches.length !== 1) throw new Error(`Missing unique independent Wasm entry for ${module}.${name}`);
     const key = `${module}.${name}`;
     symbols[key] = matches[0].symbol;
