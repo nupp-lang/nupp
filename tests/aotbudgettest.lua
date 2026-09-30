@@ -1,0 +1,122 @@
+-- Native code-size budgets for `@aot` kernels, read from the code generator's own
+-- account of what it emitted.
+--
+-- `nupp aot --emit asm` heads each function with its instruction, vector, load, store,
+-- branch, call and stack-slot counts. For a pinned LLVM and a named target and tier
+-- those are properties of the compiler's output, the same on every machine and under
+-- any load, so they can be held to a ceiling where a timing cannot. A ceiling is set a
+-- little above what the kernel compiles to today; raising one is a decision, and the
+-- message says which count moved. Two counts are held exactly: a hot kernel makes no
+-- calls, because a call there is a vector operation the tier failed to select and
+-- scalarized into a library routine -- which is how the AVX2 tier once spent eight
+-- `fmaf` calls and a spill per lane on every Mandelbrot iteration.
+--
+-- The kernels are the benchmark's own, so the budget and the measurement are of one
+-- program: bench/simd-mandelbrot times what this reads.
+
+local test = require("assert")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+if not HERE:match("^/") then
+    local p = assert(io.popen("pwd"))
+    HERE = p:read("*l") .. "/" .. HERE
+    p:close()
+end
+local ROOT = HERE .. "/.."
+local NUPP = ROOT .. "/bin/nupp"
+local KERNELS = "bench/simd-mandelbrot/mandelbrot.nupp"
+
+local M = {}
+
+--- The per-function counts `nupp aot --emit asm` prints for one target and tier.
+local function counts(target, tier, name)
+    local command = ("cd '%s' && '%s' aot --target %s --features %s --emit asm --function %s %s 2>&1"):format(
+        ROOT,
+        NUPP,
+        target,
+        tier,
+        name,
+        KERNELS
+    )
+    local pipe = assert(io.popen(command))
+    local out = pipe:read("*a")
+    pipe:close()
+    local found = {}
+    for symbol, role, rest in out:gmatch("\n%-%- ([%w_]+) %([%w_]+%), (%a+): ([^\n]+)") do
+        local entry = {role = role}
+        for value, key in rest:gmatch("(%d+) (%a+)") do
+            entry[key] = tonumber(value)
+        end
+        found[symbol] = entry
+    end
+
+    return found, out
+end
+
+-- Ceilings about a tenth above what each kernel compiles to at the commit that set
+-- them: instructions, vector instructions, and stack slots. Calls are held at zero.
+local BUDGETS = {
+    {
+        target = "aarch64-apple-darwin",
+        tier = "neon",
+        func = "mandelbrot",
+        symbol = "ks_mandelbrot",
+        instructions = 70,
+        stack = 0,
+    },
+    {
+        target = "aarch64-apple-darwin",
+        tier = "neon",
+        func = "mandelbrotSimd",
+        symbol = "ks_mandelbrot_simd",
+        instructions = 550,
+        stack = 12,
+    },
+    {
+        target = "x86_64-unknown-linux-gnu",
+        tier = "avx2",
+        func = "mandelbrotSimd",
+        symbol = "ks_mandelbrot_simd",
+        instructions = 220,
+        stack = 20,
+    },
+    {
+        target = "x86_64-unknown-linux-gnu",
+        tier = "avx512f",
+        func = "mandelbrotSimd",
+        symbol = "ks_mandelbrot_simd",
+        instructions = 200,
+        stack = 20,
+    },
+}
+
+function M.theBenchmarkKernelsStayWithinTheirNativeCodeBudgets()
+    local failures = {}
+    for _, budget in ipairs(BUDGETS) do
+        local found, out = counts(budget.target, budget.tier, budget.func)
+        local entry = found[budget.symbol]
+        local where = ("%s on %s/%s"):format(budget.symbol, budget.target, budget.tier)
+        assert(entry and entry.instructions, where .. " was not reported:\n" .. out)
+        test.equal(entry.role, "kernel", where .. " is the timed kernel")
+        if entry.calls ~= 0 then
+            failures[#failures + 1] = ("%s makes %d calls; a hot kernel makes none"):format(where, entry.calls)
+        end
+        if entry.instructions > budget.instructions then
+            failures[#failures + 1] = ("%s is %d instructions, over its budget of %d"):format(
+                where,
+                entry.instructions,
+                budget.instructions
+            )
+        end
+        if entry.stack > budget.stack then
+            failures[#failures + 1] = ("%s touches %d stack slots, over its budget of %d"):format(
+                where,
+                entry.stack,
+                budget.stack
+            )
+        end
+    end
+    assert(#failures == 0, table.concat(failures, "\n"))
+end
+
+return M

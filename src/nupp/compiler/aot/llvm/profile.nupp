@@ -136,11 +136,17 @@ local PROFILES: {[string]: profile.Profile} = {
 }
 
 --- The feature string each tier adds.
+---
+--- AVX2 carries FMA because LLVM does not imply one from the other and every
+--- processor with AVX2 has both. Without it `llvm.fma` on an eight-lane float
+--- became eight calls to `fmaf` with the vector spilled around each one, in the
+--- tier whose point is doing that in one instruction. AVX-512F implies FMA in
+--- LLVM already. The detector asks for FMA before it answers either tier.
 const TIER_FEATURES: {
     [string]: string
 } = {
     ["baseline"] = "",
-    ["avx2"] = "+avx2",
+    ["avx2"] = "+avx2,+fma",
     ["avx512f"] = "+avx512f",
     ["neon"] = "+neon",
     ["simd128"] = "+simd128",

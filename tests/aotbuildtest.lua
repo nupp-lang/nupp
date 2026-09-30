@@ -2170,8 +2170,11 @@ function M.x86BuildCarriesEveryTierAndItsDetector()
     assert(detector:find('asm sideeffect "xgetbv"', 1, true), detector)
     assert(detector:find("and i32 %%t%d+, 32\n"), detector)
     assert(detector:find("and i32 %%t%d+, 65536\n"), detector)
+    -- Both vector tiers are compiled with FMA, so the detector asks for it too:
+    -- leaf 1's ECX, bit 12.
+    assert(detector:find("and i32 %%t%d+, 4096\n"), detector)
     local units = assert(read(dir .. "/build/native/aot/units.json"))
-    assert(units:find('"features=+avx2"', 1, true), units)
+    assert(units:find('"features=+avx2,+fma"', 1, true), units)
     assert(units:find('"features=+avx512f"', 1, true), units)
 end
 

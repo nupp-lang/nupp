@@ -3,8 +3,8 @@ module nupp.compiler.aot.llvm.detector
 --[[
 The baseline runtime detector shared by every wrapper in one AOT library.
 
-`ks_aot_feature_tier` answers 0 for the baseline, 1 when AVX2 may run and 2 when
-AVX-512F may, asking CPUID and XGETBV directly. It needs no support library, so
+`ks_aot_feature_tier` answers 0 for the baseline, 1 when AVX2 and FMA may run and
+2 when AVX-512F and FMA may, asking CPUID and XGETBV directly. It needs no support library, so
 it is the one form for every x86-64 target. It is compiled without an optional
 tier, so asking the question never executes the instructions it asks about, and
 an instruction set counts only when the operating system also saves its register
@@ -54,6 +54,8 @@ function detector.module(attributes: string): string
     local leaf1 = builder.value(f, CPUID:format(1))
     local ecx = builder.value(f, ("extractvalue { i32, i32, i32, i32 } %s, 2"):format(leaf1))
     local osxsave = bits(f, ecx, 0x8000000, false)
+    -- Both vector tiers are compiled with FMA, which leaf 1 reports in bit 12.
+    local fma = bits(f, ecx, 0x1000, false)
     local enabledLabel = builder.label(f, "enabled")
     builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(osxsave, enabledLabel, none))
 
@@ -73,8 +75,10 @@ function detector.module(attributes: string): string
     local zmm = bits(f, enabled, 0xE6, true)
     local avx512f = bits(f, ebx, 0x10000, false)
     local avx2 = bits(f, ebx, 0x20, false)
-    local wide = builder.value(f, ("and i1 %s, %s"):format(zmm, avx512f))
-    local narrow = builder.value(f, ("select i1 %s, i32 1, i32 0"):format(avx2))
+    local wideVector = builder.value(f, ("and i1 %s, %s"):format(zmm, avx512f))
+    local wide = builder.value(f, ("and i1 %s, %s"):format(wideVector, fma))
+    local narrowVector = builder.value(f, ("and i1 %s, %s"):format(avx2, fma))
+    local narrow = builder.value(f, ("select i1 %s, i32 1, i32 0"):format(narrowVector))
     local tier = builder.value(f, ("select i1 %s, i32 2, i32 %s"):format(wide, narrow))
     builder.terminate(f, "ret i32 " .. tier)
 
