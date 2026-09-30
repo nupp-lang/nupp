@@ -24,8 +24,8 @@ local record User
     tags: {string} = {}
 end
 
-local user = new User()
-local out = string.buffer.new()
+local user = new User(id = 1)
+local out = nupp.text.newBuffer()
 local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
@@ -145,7 +145,7 @@ local struct Vec2
 end
 
 local prepared = nupp.serde.prepareDebug(nupp.serde.of(Vec2))
-local output = string.buffer.new()
+local output = nupp.text.newBuffer()
 prepared:write(new Vec2(1.25, 2.5), output)
 assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```
@@ -249,7 +249,7 @@ local record User
 end
 
 local user = new User(id = 7, name = "ada")
-local out = string.buffer.new()
+local out = nupp.text.newBuffer()
 local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
@@ -319,7 +319,7 @@ local record User
 end
 
 local user = new User(id = 7, tags = {})
-local out = string.buffer.new()
+local out = nupp.text.newBuffer()
 local writer = nupp.codec.json.newWriter(out)
 user:writeJSON(writer)
 writer:close()
@@ -336,7 +336,7 @@ $.tags: required field is absent
 Use `omit` with an explicit field default when a field should disappear from
 both directions:
 
-```nupp
+```nupp:fragment
 @json(omit = true)
 secret: string = "redacted"
 ```
@@ -367,7 +367,7 @@ and allocation model, and [](nupp.codec.json) for the rest of the codec.
 A package may export a derive provider as a `@comptime function`. Its exact
 signature names the one existing interface it implements:
 
-```nupp
+```nupp:fragment
 @comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     -- inspect info and return a closed recipe
 end
@@ -379,7 +379,7 @@ may accompany the provider and remain compile-time metadata, not runtime values.
 
 A consumer applies the resolved exported symbol, not a runtime function value:
 
-```nupp
+```nupp:fragment
 local inspect = require("inspect")
 
 @derive(inspect.derive)
@@ -460,7 +460,7 @@ reported as `NUPP2810` on the application.
 A provider that generates a recipe from a schema or other immutable project file
 reads it with `nupp.derive.file`:
 
-```nupp
+```nupp:fragment
 @comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     local schema = nupp.derive.file("schemas/inspect.txt")
     return nupp.derive.implement {
@@ -494,7 +494,7 @@ parameter names, allowing a provider to add a member that is not declared by the
 result interface. Parameter names are non-empty and unique, and every recipe
 array is dense.
 
-```nupp
+```nupp:fragment
 return nupp.derive.implement {
     methods = {
         inspect = nupp.derive.forward {

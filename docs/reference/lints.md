@@ -81,7 +81,7 @@ A project module must be required before its name is in scope. This project
 also contains `src/mathutil.nupp`.
 
 ::: code-group
-```nupp [src/missing-require.nupp]
+```nupp:fragment [src/missing-require.nupp]
 local doubled: number = mathutil.double(21)
 ```
 
@@ -212,7 +212,7 @@ also recognizes adjacent `if` statements that compare the same local name to
 different literals, where the first body does not assign that name.
 
 ::: code-group
-```nupp [src/else-if.nupp]
+```nupp:fragment [src/else-if.nupp]
 if primary then
     usePrimary()
 else
@@ -266,7 +266,7 @@ layout's order, and naming them is an error rather than a preference. See
 A loop should not build the same non-capturing function on every iteration.
 
 ::: code-group
-```nupp [src/loop-invariant-closure.nupp]
+```nupp:fragment [src/loop-invariant-closure.nupp]
 for _, item in ipairs(items) do
     register(item, function(event)
         return event.kind == "click"
@@ -299,7 +299,7 @@ it is [`jit-loop-closure`](#jit-loop-closure) below rather than this.
 The other half of the pair, for a function that reads the iteration.
 
 ::: code-group
-```nupp [src/jit-loop-closure.nupp]
+```nupp:fragment [src/jit-loop-closure.nupp]
 for _, item in ipairs(items) do
     register(item, function(event)
         return event.kind == item.kind
@@ -465,7 +465,7 @@ propagation those answers come from.
 A projection whose head inference never worked out is checked as `any`, and the
 lint reports the erasure once per call and member:
 
-```nupp
+```nupp:fragment
 local erased = collect(nil as any) -- warning: gradual-projection
 ```
 
@@ -624,7 +624,7 @@ help: bind the operand's results first, then test the one that decides
 
 Bind the operand's results and test the one that decides when both are wanted:
 
-```nupp
+```nupp:fragment
 function both(): (integer?, integer?)
     local left, right = pair()
     if left == nil then
@@ -743,7 +743,7 @@ the `@allow` on the statement. The most specific wins. See
 `@allow` takes lint names or codes, applies to the statement it decorates and
 nothing beyond it, and reaches any lint at any level:
 
-```nupp
+```nupp:fragment
 @allow("missing-require")
 local doubled = mathutil.double(21)
 ```
@@ -760,7 +760,7 @@ does.
 
 **1. Declare it** in the `lints.all` registry in `src/nupp/compiler/lints.nupp`:
 
-```nupp
+```nupp:fragment
 new lints.Lint(
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",
@@ -781,7 +781,7 @@ new lints.Lint(
 
 **2. Raise it** wherever the checker already knows enough to say so:
 
-```nupp
+```nupp:fragment
 diag("missing-require", node, advice)
 ```
 

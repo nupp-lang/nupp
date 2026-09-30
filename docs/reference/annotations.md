@@ -18,7 +18,7 @@ end
 
 An application names the definition and supplies its fields:
 
-```nupp
+```nupp:fragment
 @retry(attempts = 3)
 local function fetch(url: string): string
     return url
@@ -43,7 +43,7 @@ end
 
 That definition admits an application on either kind of declaration:
 
-```nupp
+```nupp:fragment
 @serializable(format = "json")
 local record User
     id: uint64
@@ -107,7 +107,7 @@ end
 
 The designated field may then be supplied positionally:
 
-```nupp
+```nupp:fragment
 @documentation("A user")
 local record User
     @documentation("The stable user ID")
@@ -141,7 +141,7 @@ end
 
 An application then writes the type's name where a literal would go:
 
-```nupp
+```nupp:fragment
 local record User
 end
 
@@ -285,7 +285,7 @@ fields are available through `nupp.reflect(T)` inside
 [comptime](../learn/language/comptime.md). Applications retain source order, and
 arguments follow the annotation definition's member order:
 
-```nupp
+```nupp:fragment
 return comptime do
     local info = nupp.reflect(User)
     local recordMetadata = info.annotations
@@ -444,6 +444,10 @@ capabilities, generated methods, JSON policies, and failure rules.
 while marking it for migration:
 
 ```nupp
+local function current(): integer
+    return 2
+end
+
 @deprecated(reason = "kept for compatibility", replacement = "current")
 local function legacy(): integer
     return current()
@@ -646,7 +650,7 @@ A C output states its contract the same way. A borrowed output is written
 `out value: affine(T, cleanup)*`, and `Success<T, N>` or `Failure<T, N>` on the
 return says which status means the outputs hold values:
 
-```nupp
+```nupp:fragment
 cdef function lookup(borrows key: const char*,
     out value: voidptr* borrows (key)): int32
 ```
@@ -701,7 +705,7 @@ complete examples.
 value. It is a shallow identity promise, not deep immutability: a const module
 binding does not freeze the module's fields.
 
-```nupp
+```nupp [clock.d.nupp]
 -- clock.d.nupp: a declaration for an implementation outside this source
 const monotonicNow: function(): number
 

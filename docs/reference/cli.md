@@ -175,7 +175,7 @@ end
 return {greet = greet}
 ```
 
-```nupp [src/main.nupp]
+```nupp:fragment [src/main.nupp]
 local greet = require("greet")
 
 print(greet.greet("world"))

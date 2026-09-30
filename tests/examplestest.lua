@@ -190,7 +190,7 @@ end
 
 function M.everyGuideExampleChecks()
    local problems, counts = {}, {checked = 0}
-   for _, path in ipairs(listed("find docs/learn -name '*.md'")) do
+   for _, path in ipairs(listed("find docs/learn docs/reference -name '*.md'")) do
       examine(environment(), path, fencedBlocks(fileLines(assert(fs.readFile(ROOT .. "/" .. path)))), problems, counts)
    end
    assert(counts.checked > 200, "the guides were reached: " .. counts.checked)
