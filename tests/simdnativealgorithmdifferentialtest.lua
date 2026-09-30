@@ -42,6 +42,11 @@ local function projectFiles(name)
     if name == "fused-json" then
         paths[#paths + 1] = ROOT .. "/src/nupp/codec/json/internal/decoder/fused.nupp"
         paths[#paths + 1] = ROOT .. "/tests/jsonfuseddifferentialtest.lua"
+        -- The fused decoder builds its values through the native value-stream
+        -- builder, which the provider compiles from C rather than from source
+        -- the compiler fingerprint covers.
+        paths[#paths + 1] = ROOT .. "/native/crates/native/c/ks_lua.h"
+        paths[#paths + 1] = ROOT .. "/native/crates/native/c/ks_rt.c"
     end
     table.sort(paths)
 
@@ -174,6 +179,17 @@ local cases = test.cases(
 
 for name, case in pairs(cases) do
     M[name] = case
+end
+
+-- A change to the native value-stream builder alone must not reuse a fused
+-- pass recorded against the previous builder.
+function M.fusedJsonKeyCoversTheNativeBuilder()
+    local covered = {}
+    for _, path in ipairs(projectFiles("fused-json")) do
+        covered[path:sub(#ROOT + 2)] = true
+    end
+    test.assert(covered["native/crates/native/c/ks_lua.h"], "the fused-json key omits ks_lua.h")
+    test.assert(covered["native/crates/native/c/ks_rt.c"], "the fused-json key omits ks_rt.c")
 end
 
 return M
