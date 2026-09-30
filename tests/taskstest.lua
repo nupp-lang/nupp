@@ -994,20 +994,27 @@ function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
       canPark = function() return true end,
       shutdown = function() end,
    }
-   local unwound = 0
+   -- The cancel waits for every grandchild to start rather than for a fixed
+   -- time. Spawning 150 can give the host a turn of its own, and on a loaded
+   -- machine a timed cancel landed first; a child spawned after it settles
+   -- without running, so it was never there to unwind.
+   local started, unwound = 0, 0
    handled(handler, function()
       scoped(nil, function(outer)
          local handle = outer:spawn(function()
             scoped(nil, function(inner)
                for _ = 1, 150 do
                   inner:spawn(function()
+                     started = started + 1
                      if not pcall(time.sleep, 5000) then unwound = unwound + 1 end
                   end)
                end
             end)
          end)
          outer:spawn(function()
-            time.sleep(10)
+            while started < 150 do
+               time.sleep(1)
+            end
             handle:cancel("stop")
          end)
       end)
