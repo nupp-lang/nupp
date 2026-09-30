@@ -30,7 +30,7 @@ local M = {}
 
 --- The per-function counts `nupp aot --emit asm` prints for one target and tier.
 local function counts(target, tier, name)
-    local command = ("cd '%s' && '%s' aot --target %s --features %s --emit asm --function %s %s 2>&1"):format(
+    local command = ("cd '%s' && '%s' aot --triple %s --features %s --emit asm --function %s %s 2>&1"):format(
         ROOT,
         NUPP,
         target,
@@ -138,7 +138,7 @@ function M.aWasmKernelModuleStaysSmall()
         "nupp.lua",
         'return {include = {"src"}, build = {targets = {native = {\n'
             .. '   kind = "modules", entries = {"k"}, outDir = "build/native",\n'
-            .. '   aot = "require-wasm", dialect = "luajit", host = "browser",\n}}}}\n'
+            .. '   aot = "require-wasm", host = "browser",\n}}}}\n'
     )
     write("src/k.nupp", table.concat({
         "module k",
@@ -179,11 +179,19 @@ function M.aWasmKernelModuleStaysSmall()
     end
     listing:close()
     os.execute("rm -rf '" .. dir .. "'")
-    test.equal(#modules, 1, "one Wasm module for one source: " .. out)
-    assert(
-        modules[1].size <= WASM_MODULE_BYTES,
-        ("the Wasm kernel module is %d bytes, over the budget of %d"):format(modules[1].size, WASM_MODULE_BYTES)
-    )
+    -- One source compiles to one module per tier: its SIMD128 kernels and their
+    -- scalar twins. Each is held to the budget on its own.
+    assert(#modules > 0, "no Wasm module for the source: " .. out)
+    local tiers = {}
+    for _, module in ipairs(modules) do
+        local tier = assert(module.path:match("%.([%w]+)%.%x+%.wasm$"), module.path)
+        assert(not tiers[tier], "two " .. tier .. " modules for one source: " .. out)
+        tiers[tier] = true
+        assert(
+            module.size <= WASM_MODULE_BYTES,
+            ("the %s Wasm module is %d bytes, over the budget of %d"):format(tier, module.size, WASM_MODULE_BYTES)
+        )
+    end
 end
 
 return M
