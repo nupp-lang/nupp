@@ -18,7 +18,7 @@ is how many files there are:
 | `multisource` | eight modules, one body each |
 | `multiversion` | four modules built for x86-64, so each body is several objects |
 | `wide` | sixteen modules built for x86-64: thirty-three objects |
-| `wasm` | four modules under `require-wasm`, one Emscripten side module each |
+| `wasm` | four modules under `require-wasm` for the browser host, one Wasm module each |
 
 Three states are timed for each: **cold** with no build directory, **unchanged**
 immediately after, and **one edit** after a literal inside one module's `@aot`
@@ -42,5 +42,6 @@ by running one and then the other.
 x86-64 machine is one; an Apple ARM64 machine is one, through its own SDK.
 Elsewhere they need a sysroot the machine may not have.
 
-`wasm` needs the pinned Emscripten on `PATH`, and reports it rather than
-skipping when there is none.
+`wasm` needs nothing beyond `nupp`: the Wasm modules are compiled and linked by
+the code generator linked into it. `require-wasm` is a browser-host policy, so
+the shape's target says `host = "browser"`.
