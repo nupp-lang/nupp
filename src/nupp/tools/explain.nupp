@@ -1437,20 +1437,6 @@ local ENTRIES: {any} = {
         docs = "docs/reference/diagnostics.md#nupp3006",
     },
     {
-        code = "NUPP3009",
-        summary = "The Lua 5.1 compatibility profile cannot lower an authored jump",
-        rule = "An authored label or `goto` can jump across arbitrary lexical regions. Lowering a function containing one to Lua 5.1 would require a state machine, changing stack frames and error sites. Use structured control flow instead. Compiler-generated cleanup and `continue` transfers are structured and are lowered separately.",
-        related = {"NUPP3006"},
-        docs = "docs/learn/projects/portability/libraries.md",
-    },
-    {
-        code = "NUPP3010",
-        summary = "A resolved prelude identity is outside the portable runtime surface",
-        rule = "The `lua51` compatibility profile runs on Lua 5.1 through 5.4 and LuaJIT, so an ambient prelude identity is available only when it has the same contract throughout that matrix or the compiler lowers it explicitly. A same-spelled local or ordinary table field is a different definition and remains application code.",
-        related = {"NUPP3006", "NUPP3009"},
-        docs = "docs/learn/projects/portability/libraries.md",
-    },
-    {
         code = "NUPP3013",
         summary = "Authored syntax is outside the Lua 5.1 compatibility profile",
         rule = "The project-wide compat=lua51 requirement checks source before optimization. Types can erase, but runtime const, operators, jumps and literals specific to LuaJIT are rejected even in dead code. Use ordinary Lua 5.1 syntax; this profile does not invoke a lowerer.",
