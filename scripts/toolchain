@@ -627,9 +627,10 @@ select_rust_tools() {
     rustc_verbose=$("$RUSTC" -vV) \
         || die "cannot inspect rustc named by NUPP_RUSTC"
     rust_host=$(printf '%s\n' "$rustc_verbose" | sed -n 's/^host: //p')
+    rust_commit=$(printf '%s\n' "$rustc_verbose" | sed -n 's/^commit-hash: //p')
+    rust_sysroot=$("$RUSTC" --print sysroot) \
+        || die "cannot locate the sysroot for rustc named by NUPP_RUSTC"
     if [ "$PLATFORM" = darwin ]; then
-        rust_sysroot=$("$RUSTC" --print sysroot) \
-            || die "cannot locate the sysroot for rustc named by NUPP_RUSTC"
         rust_runtime="$rust_sysroot/lib"
         case ":${DYLD_FALLBACK_LIBRARY_PATH:-}:" in
             *":$rust_runtime:"*) ;;
@@ -700,6 +701,41 @@ rust_environment_material() {
         -e '/^CFLAGS_/p' \
         -e '/^HOST_CFLAGS=/p' \
         -e '/^TARGET_CFLAGS=/p'
+}
+
+# Rust writes the path of every source a panic can be reported from into the
+# binary: about 675 under the building user's CARGO_HOME, and about 122 under
+# rustup's copy of the standard library, which rustc substitutes for the
+# `/rustc/<commit>` path the release was built with whenever rust-src is
+# installed. Both name a home directory, so two users' builds of one tree
+# differed. The registry goes to `/cargo`, a vendor directory to `/vendor`, and
+# the standard library back to the path the release itself records, so a build
+# on a machine without rust-src is the same build.
+#
+# Through build.rustflags, so every crate in the graph is remapped rather than
+# only the final one `cargo rustc --` reaches. What it maps from is left out of
+# the artifact key on purpose: the point is that the answer does not depend on
+# it. An ambient RUSTFLAGS replaces build.rustflags in Cargo, and is already
+# part of the key.
+rust_remap_arguments() {
+    cargo_home=${CARGO_HOME:-$HOME/.cargo}
+    vendor=${NUPP_RUST_VENDOR_DIR:-}
+    if [ "$PLATFORM" = windows ] && command -v cygpath >/dev/null 2>&1; then
+        cargo_home=$(cygpath -w "$cargo_home")
+        [ -z "$vendor" ] || vendor=$(cygpath -w "$vendor")
+    fi
+    # Later mappings win in rustc, so the more specific ones go last.
+    flags="$(toml_string "--remap-path-prefix=$cargo_home=/cargo")"
+    [ -z "$vendor" ] || flags="$flags, $(toml_string "--remap-path-prefix=$vendor=/vendor")"
+    [ -z "$rust_commit" ] || flags="$flags, $(toml_string \
+        "--remap-path-prefix=$rust_sysroot/lib/rustlib/src/rust=/rustc/$rust_commit")"
+    printf 'build.rustflags=[%s]\n' "$flags"
+}
+
+# A TOML basic string, for a value handed to `cargo --config`. Windows paths are
+# full of backslashes, and a path may hold a quote.
+toml_string() {
+    printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
 }
 
 rust_vendor_arguments() {
@@ -813,6 +849,7 @@ build_rust_native() {
 $vendor_arguments
 EOF
     fi
+    set -- "$@" --config "$(rust_remap_arguments)"
     if [ -n "$sorted" ]; then
         set -- "$@" --features "$sorted"
     fi
@@ -991,6 +1028,7 @@ build_rust_host() {
 $vendor_arguments
 EOF
     fi
+    set -- "$@" --config "$(rust_remap_arguments)"
     [ -z "$host_cargo_features" ] || set -- "$@" --features "$host_cargo_features"
     # Cargo may discard exports reached only through LuaJIT FFI. A binary's
     # linker roots dead stripping at its exports, which are exactly those, so
@@ -1081,6 +1119,7 @@ build_rust_embedding() {
 $vendor_arguments
 EOF
     fi
+    set -- "$@" --config "$(rust_remap_arguments)"
     set -- "$@" -- -C link-dead-code
     case "$PLATFORM" in
         darwin)

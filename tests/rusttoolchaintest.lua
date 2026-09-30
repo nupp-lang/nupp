@@ -119,7 +119,7 @@ local function fakeRustTools(directory, version, identity, identityMarker)
             [[#!/bin/sh
 case "${1:-}" in
    --version) printf '%%s\n' 'rustc %s (fake)' ;;
-   -vV) printf '%%s\n' 'rustc %s (fake)' 'host: %s' 'LLVM version: %s' ;;
+   -vV) printf '%%s\n' 'rustc %s (fake)' 'commit-hash: 0123abcd' 'host: %s' 'LLVM version: %s' ;;
    --print)
       [ "${2:-}" = sysroot ] || exit 2
       printf '%%s\n' "$NUPP_TEST_RUST_SYSROOT"
@@ -600,6 +600,43 @@ function M.featuresAndToolIdentityChangeTheArtifactKey()
     local fourthStatus, fourthOutput = run(changed, "native-rust beta")
     assert(fourthStatus == 0, fourthOutput)
     assert(answer(thirdOutput) ~= answer(fourthOutput), "two codegen configurations shared one artifact")
+end
+
+-- Rust writes the path of every source a panic can be reported from into the
+-- binary, and those sat under the building user's CARGO_HOME and rustup's copy of
+-- the standard library, so two users' builds of one tree differed by their home
+-- directories. Every crate is remapped, through build.rustflags rather than the
+-- final crate's own flags, and what is remapped from stays out of the artifact
+-- key: another CARGO_HOME is the same build.
+function M.rustSourcePathsAreRemappedOutOfTheBuildingUsersHome()
+    local directory = temporary()
+    local env = environment(directory)
+    env.CARGO_HOME = directory .. "/first-home/.cargo"
+    local windows = package.config:sub(1, 1) == "\\"
+    for _, command in ipairs({"native-rust alpha", "host-rust"}) do
+        local status, output = run(env, command)
+        assert(status == 0, output)
+        local arguments = read(env.NUPP_TEST_CARGO_RECORD)
+        assert(arguments:find("--config build.rustflags=[", 1, true), command .. ": " .. arguments)
+        assert(arguments:find("=/cargo\"", 1, true), command .. " does not remap CARGO_HOME: " .. arguments)
+        assert(arguments:find("=/vendor\"", 1, true), command .. " does not remap the vendor directory: " .. arguments)
+        assert(
+            arguments:find("/lib/rustlib/src/rust=/rustc/0123abcd\"", 1, true),
+            command .. " does not return the standard library to its release path: " .. arguments
+        )
+        if not windows then
+            assert(
+                arguments:find('"--remap-path-prefix=' .. env.CARGO_HOME .. '=/cargo"', 1, true),
+                command .. " remaps something other than CARGO_HOME: " .. arguments
+            )
+        end
+    end
+
+    local _, first = run(env, "native-rust alpha")
+    env.CARGO_HOME = directory .. "/second-home/.cargo"
+    local status, second = run(env, "native-rust alpha")
+    assert(status == 0, second)
+    assert(answer(first) == answer(second), "another CARGO_HOME was keyed as another build")
 end
 
 function M.legacyProviderUpgradeBridgeIsGone()

@@ -181,11 +181,15 @@ one tree produce byte-identical payloads, which is what the [packaging
 fixpoint](#packaging-fixpoint) below rests on.
 
 The compiler-owned host is reproducible to the same standard across checkouts,
-directories, locales, time zones and umasks, with one exception: Rust records
-the source paths of its dependencies and standard library in panic locations,
-and those sit under the building user's `CARGO_HOME` and rustup directory. Two
-machines agree byte for byte when those two directories are spelled the same,
-as they are on every hosted CI runner of one platform.
+directories, locales, time zones, umasks and users. Rust records the source
+paths of its dependencies and standard library in panic locations, and those sit
+under the building user's `CARGO_HOME` and rustup directory, so
+`scripts/toolchain` remaps them for every crate it builds: the registry to
+`/cargo`, a vendor directory to `/vendor`, and rustup's copy of the standard
+library back to the `/rustc/<commit>` path the Rust release itself records.
+Where those directories are is therefore not part of the build. An ambient
+`RUSTFLAGS` replaces the remapping, as it replaces any `build.rustflags` in
+Cargo, and is already part of the artifact key.
 
 ## Stub requirements
 
