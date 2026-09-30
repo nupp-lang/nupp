@@ -6440,6 +6440,62 @@ function M.readingClaimsEarlyLeavesALaterGenericContractIntact()
     assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
+-- An optional owner narrowed by `if p == nil then error() end` is as present as one
+-- `assert` unwrapped, so its affine field moves the same way. The move used to be
+-- refused, because the field was looked for on the declared `P?` rather than on the
+-- record behind the nil.
+function M.aFieldMovesOutOfAnOptionalOwnerOnceItIsNarrowed()
+    local source = table.concat(
+        {
+            "local record W is nupp.Closeable function close(takes self): nil end end",
+            "local record P is nupp.Closeable",
+            "   w: W?",
+            "   function close(takes self): nil if self.w ~= nil then self.w:close() end end",
+            "end",
+            "local function make(): (affine(P)?, string?) return new P(w = new W()), nil end",
+            "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
+            "local function viaAssert(): nil",
+            "   local p = assert(make())",
+            "   consume(p.w)",
+            "end",
+            "local function viaError(): nil",
+            "   local p, err = make()",
+            "   if p == nil then error(err) end",
+            "   consume(p.w)",
+            "end",
+            "local function viaBranch(): nil",
+            "   local p = make()",
+            "   if p ~= nil then consume(p.w) end",
+            "end",
+        },
+        "\n"
+    )
+    local _, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+end
+
+-- Reaching through the nil is only for an owner the checker already knows is there:
+-- indexing the optional owner itself is still refused.
+function M.aFieldCannotMoveOutOfAnOwnerThatMayBeNil()
+    local source = table.concat(
+        {
+            "local record W is nupp.Closeable function close(takes self): nil end end",
+            "local record P is nupp.Closeable",
+            "   w: W?",
+            "   function close(takes self): nil if self.w ~= nil then self.w:close() end end",
+            "end",
+            "local function make(): affine(P)? return new P(w = new W()) end",
+            "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
+            "local p = make()",
+            "consume(p.w)",
+        },
+        "\n"
+    )
+    local _, diags = checked(source)
+    assertEq(#diags, 1, "only the index is refused")
+    assertEq(diags[1].code, "NUPP2004")
+end
+
 function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     local source = table.concat(
         {

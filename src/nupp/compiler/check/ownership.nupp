@@ -1188,7 +1188,13 @@ function ownership.install(c: state.Checker): ownership.Ops
         if expr and expr.kind == "dotIndex" and expectedKind == "affine" then
             local container = expr.obj and own.ownershipState((own.ownershipEntry(expr.obj))) or nil
             local field = expr.name and expr.name.text
+            -- An optional owner's field is reached only once the owner is known to be
+            -- present -- the index would have been refused otherwise -- so the field
+            -- is declared on the record behind the nil.
             local aggregate = container and rawType(container.t) or nil
+            if aggregate and aggregate.tag == "union" and aggregate.hasNil and #aggregate.members == 2 then
+                aggregate = rawType(own.resourceBehind(aggregate))
+            end
             local declared = aggregate and aggregate.tag == "nominal" and aggregate.byname[field] or nil
             if not container
                 or own.ownershipKind(container.t) ~= "affine"
