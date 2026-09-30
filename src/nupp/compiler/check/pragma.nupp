@@ -233,12 +233,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
         local seen = {}
         for _, arg in ipairs(application.annotationArgs or {}) do
             local name = arg.name and arg.name.text or nil
+            -- The analysis records suspension under its older internal name.
             local semanticName = name == "suspends" and "yields" or name
-            if name == "yields" then
-                c.diag("NUPP2112", arg.name, "@effects uses suspends for the suspension effect", {
-                    c.edits.fix("use suspends", c.edits.replaceToken(arg.name, "suspends"))
-                })
-            elseif not name or seen[semanticName] or not (listMembers[name] or boolMembers[name]) then
+            if not name or seen[semanticName] or not (listMembers[name] or boolMembers[name]) then
                 c.diag("NUPP2112", arg, "@effects arguments must be unique named effect members")
             elseif listMembers[name] then
                 seen[semanticName] = true

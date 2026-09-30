@@ -680,7 +680,7 @@ cdef function fill(buffer: uint8*, count: uint64): integer
 ```
 
 The list members are `reads`, `writes`, `shapes`, `metatables`, `escapes`,
-`calls`, and `returns`. The boolean members are `allocates`, `yields`, `raises`,
+`calls`, and `returns`. The boolean members are `allocates`, `suspends`, `raises`,
 and `external`. Every member defaults to empty or false, so `@effects()` means
 the function has no observable effects; it does not mean "infer these later."
 

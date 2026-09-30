@@ -211,7 +211,7 @@ external I/O, or raise.
 
 ### Effect contracts publish the complete boundary
 
-An [effect contract](../../language/effects.md) includes suspension in its `yields` member:
+An [effect contract](../../language/effects.md) includes suspension in its `suspends` member:
 
 ```nupp [transport.d.nupp]
 @effects(suspends = true, raises = true)

@@ -148,7 +148,7 @@ Each of these names a set of rooted paths the call may touch:
 Each of these answers yes or no for the whole call:
 
 - `allocates`: may allocate a table, closure, or other modeled object.
-- `yields`: may suspend the current coroutine.
+- `suspends`: may suspend the current coroutine.
 - `raises`: may raise instead of returning normally.
 - `external`: may perform opaque behavior outside the modeled paths.
 
@@ -250,7 +250,7 @@ end
 ```
 
 A direct call to `error` or `assert` sets `raises`, and a direct
-`coroutine.yield` sets `yields`. Both facts also propagate from a directly
+`coroutine.yield` sets `suspends`. Both facts also propagate from a directly
 resolved visible callee.
 
 ```nupp
@@ -269,7 +269,7 @@ For the user-facing control-flow model, including `@nosuspend`, cancellation,
 coroutine inheritance, and concurrent combinators, see
 [suspension.md](../runtime/concurrency/suspension.md). See [Hosts supply scheduling
 policy](../runtime/concurrency/suspension.md#hosts-supply-scheduling-policy) for who owns the
-scheduling decision a `yields` contract permits.
+scheduling decision a `suspends` contract permits.
 
 ## Allocation and raising regions
 
@@ -470,7 +470,7 @@ separate dense-entry and alias proof succeeds, and the calls in the containing
 body are then checked pessimistically:
 
 - `top` or an unresolved call stops the rewrite;
-- `external`, `yields`, or a metatable effect stops it;
+- `external`, `suspends`, or a metatable effect stops it;
 - a `shapes` effect mapped to the iterated array stops it;
 - a captured or unresolved shape effect stops it.
 
@@ -582,7 +582,7 @@ values. See
 separate public capability contract.
 
 ::: seealso
-- [suspension.md](../runtime/concurrency/suspension.md) for the control-flow model behind `yields`
+- [suspension.md](../runtime/concurrency/suspension.md) for the control-flow model behind `suspends`
 - [ownership.md](../runtime/ownership/borrowing.md) for cleanup and lifetime
   obligations
 - [c-interop.md](../runtime/c-interop/index.md) for the trusted declarations a C boundary needs

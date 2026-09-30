@@ -280,9 +280,11 @@ function M.effectMembersHaveClosedShapes()
     assertEq(checked("@effects(reads = true)\nlocal function f() end"), "NUPP2112")
     assertEq(checked("@effects(allocates = {})\nlocal function f() end"), "NUPP2112")
     assertEq(checked("@effects(mystery = true)\nlocal function f() end"), "NUPP2112")
+    -- `yields` is no member: suspension is spelled `suspends`, and the old name is as
+    -- unknown as any other.
     local codes, _, diags = checked("@effects(yields = false)\nlocal function f() end")
     assertEq(codes, "NUPP2112")
-    assertEq(diags[1].fixes[1].edits[1].newText, "suspends")
+    assertEq(#(diags[1].fixes or {}), 0, "the retired spelling is not special-cased")
 end
 
 function M.relaxationsUseAClosedSetOfObservableGuarantees()
