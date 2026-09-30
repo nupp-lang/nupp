@@ -827,14 +827,17 @@ for i=1,40 do run(100) end
     assert(ok, out)
     local report = require("testjson").decode(readFile(dir .. "/aborts.json"))
     assert(report.totalAborts > 0, "program aborts remain visible")
+    assert(report.durationMs and report.durationSec == nil, "the duration is in milliseconds like every other report")
     -- Which program loop becomes a trace root depends on VM hotness. The
     -- callback test above checks cross-function attribution deterministically;
     -- this integration check keeps lazy compilation out of the recorded sites.
     local dependencyAbort = false
     for _, site in ipairs(report.sites) do
-        assert(not site.rootLocation:find("nupp/compiler/", 1, true), "compiler root leaked: " .. site.rootLocation)
-        assert(not site.location:find("nupp/compiler/", 1, true), "compiler abort leaked: " .. site.location)
-        dependencyAbort = dependencyAbort or site.location:find("lazy.g.nupp", 1, true)
+        local root, at = site.rootLocation.file, site.location.file
+        assert(not root:find("nupp/compiler/", 1, true), "compiler root leaked: " .. root)
+        assert(not at:find("nupp/compiler/", 1, true), "compiler abort leaked: " .. at)
+        dependencyAbort = dependencyAbort or at:find("lazy.g.nupp", 1, true)
+        assert(site.class and site.blacklisted ~= nil and site.severity == nil, "the JSON speaks one severity vocabulary")
     end
     assert(dependencyAbort, "the dependency's program aborts survive lazy compiler filtering")
     os.execute("rm -rf '" .. dir .. "'")

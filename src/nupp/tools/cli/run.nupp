@@ -21,11 +21,19 @@ local usageError = errors.forCommand("run")
 local report = require("nupp.tools.cli.report")
 local cliModule = require("nupp.cli")
 
+local SITE_LOCATION = {
+    type = "object",
+    description = "Where recording stopped, or where its root trace started. "
+    .. "The range covers that line, and is absent when the file cannot be read.",
+    properties = {file = {type = "string"}, range = report.RANGE},
+    required = {"file"},
+}
+
 local REPORT_SCHEMA = {
     type = "object",
     description = "Normalized LuaJIT trace aborts observed while one program ran.",
     properties = {
-        durationSec = {type = "number"},
+        durationMs = {type = "number", description = "How long the trace session was open."},
         totalAborts = {type = "integer"},
         blacklisted = {type = "integer"},
         traceProfile = {
@@ -52,22 +60,64 @@ local REPORT_SCHEMA = {
             items = {
                 type = "object",
                 properties = {
-                    severity = {type = "string", enum = {"blacklist", "warn", "info"}},
                     count = {type = "integer"},
                     reason = {type = "string"},
                     reasonId = {type = "string"},
-                    class = {type = "string", enum = {"blocker", "risk", "stop"}},
+                    class = {
+                        type = "string",
+                        enum = {"blocker", "risk", "stop"},
+                        description = "What kind of stop this is: one the recorder refuses, "
+                        .. "one that depends on runtime facts, or ordinary trace formation."
+                    },
+                    blacklisted = {
+                        type = "boolean",
+                        description = "Whether LuaJIT stopped retrying this trace for the rest of the process."
+                    },
                     rawReason = {type = "string"},
-                    location = {type = "string"},
-                    rootLocation = {type = "string"},
+                    location = SITE_LOCATION,
+                    rootLocation = SITE_LOCATION,
                     zone = {type = "string"},
                 },
-                required = {"severity", "count", "reason", "reasonId", "class", "rawReason", "location", "zone"},
+                required = {"count", "reason", "reasonId", "class", "blacklisted", "rawReason", "location", "zone"},
             },
         },
     },
-    required = {"durationSec", "totalAborts", "blacklisted", "traceProfile", "reasonCatalog", "sites"},
+    required = {"durationMs", "totalAborts", "blacklisted", "traceProfile", "reasonCatalog", "sites"},
 }
+
+--- A `file:line` the trace session recorded, as a location. The range covers the line
+--- when the file can be read; a chunk name that is not a path has a file and no range.
+local function siteLocation(text: string?): any
+    if text == nil then
+        return nil
+    end
+    local file, line = text:match("^(.*):(%d+)$")
+    local number = tonumber(line)
+    if not file or not number or number < 1 then
+        return {file = file or text}
+    end
+    local source = require("nupp.compiler.fs").readFile(file)
+    if not source then
+        return {file = file}
+    end
+    local start, current = 1, 1
+    while current < number do
+        local newline = source:find("\n", start, true)
+        if not newline then
+            return {file = file}
+        end
+        start, current = newline + 1, current + 1
+    end
+    local finish = source:find("\n", start, true) or (#source + 1)
+
+    return {
+        file = file,
+        range = {
+            start = {line = number, column = 1, offset = start},
+            ["end"] = {line = number, column = finish - start + 1, offset = finish},
+        },
+    }
+end
 
 local DEFAULT_INTERVAL_MS: integer = 10
 
@@ -333,19 +383,19 @@ local function run(options: any): integer
                 sites[
                     #sites + 1
                 ] = {
-                    severity = site.severity,
                     count = site.count,
                     reason = site.reason,
                     reasonId = site.reasonId,
                     class = site.reasonClass,
+                    blacklisted = site.severity == "blacklist",
                     rawReason = site.rawReason,
-                    location = site.location,
-                    rootLocation = site.rootLocation,
+                    location = siteLocation(site.location),
+                    rootLocation = siteLocation(site.rootLocation),
                     zone = site.zonePath,
                 }
             end
             local document = {
-                durationSec = summary.durationSec,
+                durationMs = summary.durationSec * 1000,
                 totalAborts = summary.totalAborts,
                 blacklisted = summary.blacklisted,
                 traceProfile = summary.traceProfile,

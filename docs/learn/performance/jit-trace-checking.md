@@ -458,21 +458,31 @@ severity,count,reason,location,zone
 warn,7,NYI: bytecode FNEW,app.nupp:41,frame/spawn
 ```
 
-JSON retains the raw VM detail and adds the stable identity:
+JSON retains the raw VM detail and adds the stable identity. A location is a
+file and the range of its line, the shape every other `--json` report uses, and
+`class` stands where the CSV's `severity` does; `blacklisted` says whether LuaJIT
+stopped retrying the trace:
 
 ```json
 {
+  "durationMs": 412.5,
   "totalAborts": 7,
   "blacklisted": 0,
   "reasonCatalog": {"id": "nupp-trace-reasons-v1", "version": 1},
   "sites": [{
-    "severity": "warn",
     "count": 7,
     "reason": "NYI: bytecode FNEW",
     "rawReason": "NYI: bytecode FNEW",
     "reasonId": "jit/loop-function-construction",
     "class": "blocker",
-    "location": "app.nupp:41",
+    "blacklisted": false,
+    "location": {
+      "file": "app.nupp",
+      "range": {
+        "start": {"line": 41, "column": 1, "offset": 1180},
+        "end": {"line": 41, "column": 38, "offset": 1217}
+      }
+    },
     "zone": "frame/spawn"
   }]
 }

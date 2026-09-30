@@ -520,6 +520,27 @@ function M.everySchemaRequiresOk()
     end
 end
 
+function M.aRunReportsItsTraceAbortsInTheSharedShapes()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        ["loop.lua"] = "local t = 0\nfor i = 1, 200 do local f = function() return i end t = t + f() end\nreturn t\n",
+    })
+    local out, code = statusOf(dir, "run --jit-aborts=aborts.json --json loop.lua")
+    assert(code == 0, out)
+    local handle = assert(io.open(dir .. "/aborts.json", "rb"))
+    local text = handle:read("*a")
+    handle:close()
+    local decoded = json.decode(text)
+    local valid, err = validate(decoded, json.decode(capture(dir, "run --schema")))
+    assert(valid, "the trace report matches run's --schema: " .. tostring(err) .. "\n" .. text)
+    assert(decoded.durationMs and decoded.durationSec == nil, "the duration is in milliseconds")
+    for _, site in ipairs(decoded.sites) do
+        assert(site.severity == nil and site.class and type(site.blacklisted) == "boolean", "one severity vocabulary")
+        assert(type(site.location) == "table" and site.location.file, "a location is a file and a range")
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.reportEncodingSortsKeysWithoutChangingValues()
     local report = require("nupp.tools.cli.report")
     local first = {text = "line\nbreak", number = 1.25, flag = true, list = {3, 2}, nested = {z = "last", a = "first"},}
