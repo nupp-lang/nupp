@@ -457,6 +457,15 @@ function resolve.install(c: state.Checker): nil
     -- A generic application means the same thing however the name was reached, so every
     -- way of resolving a type name ends here rather than only the unqualified one.
     local function applyTypeArgs(t, node)
+        -- Reading an `is` claim while hoisting settles nothing early: an alias's body
+        -- and an application of a declaration still waiting for its body would
+        -- both be snapshotted before what they are built from is filled.
+        if c.preclaiming
+            and t
+            and (t.tag == "genericAlias" or t.tag == "nominal" and t.awaitingBody and node.typeArgs)
+        then
+            return T.any
+        end
 
         -- A refinement is what `is` compiles to, and every path that resolves a
         -- declared name arrives here, so this is the one place it has to be attached

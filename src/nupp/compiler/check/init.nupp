@@ -1574,7 +1574,9 @@ function checkMod.check(
                 return t, s.typeDefs[name]
             end
             local waiting = s.pending and s.pending[name]
-            if waiting then
+            if waiting and c.preclaiming then
+                return nil
+            elseif waiting then
                 local resolved = c.resolvePendingAlias(name, waiting, s)
                 if resolved then
                     return resolved, s.typeDefs[name]
@@ -2860,6 +2862,7 @@ function checkMod.check(
     -- here and filled in when its statement is reached; an alias's value waits until
     -- something names it.
     local function hoistDeclarations(block)
+        local hoistedNominals: {any} = {}
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
             local deriveApplications: {Node} = {}
@@ -2944,6 +2947,8 @@ function checkMod.check(
                 end
                 hoistNestedNominals(n, decl.entries)
                 c.bindType(key, n, nil)
+                hoistedNominals[#hoistedNominals + 1] = decl
+                n.awaitingBody = true
             elseif k == "typeAlias" and decl.name and decl.value then
                 local waiting = {node = decl.value, tok = decl.name, decl = decl}
                 decl.hoistedAlias = waiting
@@ -2959,6 +2964,23 @@ function checkMod.check(
         end
         local wasHoisting = c.hoisting
         c.hoisting = true
+        -- The ownership each declaration claims through `is`, before anything names
+        -- it: `affine(T)` reads T's terminal as it resolves. Repeated until nothing
+        -- changes, because a claim may come through an interface declared lower in
+        -- the block.
+        c.preclaiming = true
+        for _ = 1, #hoistedNominals + 1 do
+            local changed = false
+            for _, decl in ipairs(hoistedNominals) do
+                if decl.supertypes and c.preclaimAffine(decl, decl.hoistedType) then
+                    changed = true
+                end
+            end
+            if not changed then
+                break
+            end
+        end
+        c.preclaiming = nil
         -- Methods, once the types they name are bound: publishing each signature now is
         -- what lets two methods call each other. Direct functions on the table this
         -- file returns are declarations of that module's surface in the same sense.

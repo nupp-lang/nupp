@@ -224,6 +224,28 @@ local function inheritsDeclaration(from: Type, target: T.Nominal, seen: {[string
     return false
 end
 
+--- What an `is` claim of `super` says about ownership: whether it claims Affine,
+--- and the cleanup and terminal method it hands down. The last result is true for
+--- an `Affine` written without its one cleanup, which the caller reports.
+local function affineClaim(super: T.Nominal): (boolean, T.Cleanup?, string?, boolean)
+    if not (super.intrinsicAffineClaim or super.intrinsicAffine) then
+        return false, nil, nil, false
+    end
+    if not super.intrinsicAffine then
+        return true, super.inherentCleanup, super.terminalMethod, false
+    end
+    local term = super.constArgs and super.constArgs[1] or nil
+    local named = term and term.tag == "constLiteral" and term.value or nil
+    local method = named is string and named:match("^self%.([%a_][%w_]*)$") or nil
+    if method then
+        return true, T.methodCleanup(method), method, false
+    elseif term then
+        return true, T.constFunctionCleanup(term), super.terminalMethod, false
+    end
+
+    return true, super.inherentCleanup, super.terminalMethod, true
+end
+
 --- The same member with no suspension guarantee asked of it.
 ---
 --- A declaration's own methods are qualified only once the file's effects have
@@ -1738,6 +1760,36 @@ function declare.install(
         end
     end
 
+    --- Applies the ownership a hoisted declaration's `is` list claims before any body
+    --- in its block is filled, and answers whether that changed what it had. A
+    --- one-argument `affine(T)` reads T's cleanup as it resolves, so a declaration
+    --- above T's that names it would otherwise see no terminal and settle on a
+    --- transfer-only owner. Runs while hoisting, which keeps it quiet: a claim that
+    --- cannot resolve yet is left to the declaration's own statement, as is a
+    --- function cleanup, which resolves only in the declaration's scope.
+    c.preclaimAffine = function(stat, n): boolean
+        local claimed, cleanup, method = nil, nil, nil
+        for _, superNode in ipairs(stat.supertypes or {}) do
+            local super = T.unwrapOwnership(c.resolveType(superNode))
+            if super.tag == "nominal" and super.declKind == "interface" and super ~= n then
+                local claims, inherited, inheritedMethod = affineClaim(super as T.Nominal)
+                if claims then
+                    claimed = true
+                end
+                if not cleanup and inherited and (inherited.kind == "method" or inherited.functionType) then
+                    cleanup, method = inherited, inheritedMethod
+                end
+            end
+        end
+        local before = n.inherentCleanup
+        local changed = n.intrinsicAffineClaim ~= claimed
+            or (before and before.id) ~= (cleanup and cleanup.id)
+            or n.terminalMethod ~= method
+        n.intrinsicAffineClaim, n.inherentCleanup, n.terminalMethod = claimed, cleanup, method
+
+        return changed
+    end
+
     c.checkTypedecl = function(stat)
         local kind = stat.kind
         if kind == "typeAlias" then
@@ -1786,6 +1838,7 @@ function declare.install(
             else
                 n, projectEntry = c.declaredNominal(stat, stat.declKind)
             end
+            n.awaitingBody = nil
             -- keep what hoisting already published: the methods declared further down
             -- the block are on it
             n.byname = n.byname or {}
@@ -1895,8 +1948,11 @@ function declare.install(
                 end
             end
             -- `is` includes trusted contracts. It is intentionally not a proof that
-            -- runtime initialization has already filled them.
+            -- runtime initialization has already filled them. Hoisting applied the
+            -- ownership they claim already; it is settled again here, with the
+            -- diagnostics, from the same claims.
             n.supertypes = {}
+            n.intrinsicAffineClaim, n.inherentCleanup, n.terminalMethod = nil, nil, nil
             for _, superNode in ipairs(stat.supertypes or {}) do
                 local super = T.unwrapOwnership(c.resolveType(superNode))
                 if super.tag ~= "nominal" or super.declKind ~= "interface" then
@@ -1919,24 +1975,11 @@ function declare.install(
                         )
                     end
                 else
-                    if super.intrinsicAffineClaim or super.intrinsicAffine then
-                        if super.intrinsicAffine or super.intrinsicAffineClaim then
-                            n.intrinsicAffineClaim = true
-                        end
-                        local inherited = super.inherentCleanup
-                        local inheritedMethod = super.terminalMethod
-                        if super.intrinsicAffine then
-                            local term = super.constArgs and super.constArgs[1] or nil
-                            local named = term and term.tag == "constLiteral" and term.value or nil
-                            local method = named is string and named:match("^self%.([%a_][%w_]*)$") or nil
-                            if method then
-                                inheritedMethod = method
-                                inherited = T.methodCleanup(method)
-                            elseif term then
-                                inherited = T.constFunctionCleanup(term)
-                            else
-                                c.diag("NUPP2615", superNode, "Affine requires one cleanup function")
-                            end
+                    local claims, inherited, inheritedMethod, malformed = affineClaim(super as T.Nominal)
+                    if claims then
+                        n.intrinsicAffineClaim = true
+                        if malformed then
+                            c.diag("NUPP2615", superNode, "Affine requires one cleanup function")
                         end
                         if n.inherentCleanup and inherited and n.inherentCleanup.id ~= inherited.id then
                             c.diag("NUPP2615", superNode, ("%s inherits competing cleanup functions"):format(n.name))

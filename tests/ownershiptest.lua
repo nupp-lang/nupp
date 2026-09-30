@@ -6370,6 +6370,76 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
     assertEq(table.concat(chunk(), ","), "1,1,1,0,1", "each moved owner is closed once, by the record")
 end
 
+-- A one-argument affine(T) reads T's terminal as it resolves. Named above T's own
+-- declaration -- a field or method of an earlier record -- it used to resolve before
+-- T's `is` claim was read, and settled on a transfer-only owner with no terminal, so
+-- `with` refused it (NUPP2615). The claim may come straight from the prelude, through
+-- an interface declared further down, or onto a generic declaration.
+function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
+    local source = table.concat(
+        {
+            "local closed: integer = 0",
+            "local record Spec",
+            "   compile: function(borrows self: Spec): affine(Kernel)",
+            "   box: function(borrows self: Spec): affine(Box<integer>)",
+            "   function viaMethod(borrows self): affine(Kernel) return self:compile() end",
+            "end",
+            "local record Kernel is Resource",
+            "   function close(takes self): nil closed = closed + 1 end",
+            "end",
+            "local record Box<T> is nupp.Closeable",
+            "   v: T",
+            "   function close(takes self): nil closed = closed + 10 end",
+            "end",
+            "local interface Resource is nupp.Closeable end",
+            "local spec = new Spec(",
+            "   compile = function(borrows self: Spec): affine(Kernel) return new Kernel() end,",
+            "   box = function(borrows self: Spec): affine(Box<integer>)",
+            "      return new Box<integer>(v = 2)",
+            "   end",
+            ")",
+            "with k = spec:compile() do end",
+            "with b = spec:box() do end",
+            "with m = spec:viaMethod() do end",
+            "return closed",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "ownership-forward-claim")
+    assertEq(#genDiags, 0)
+    local chunk, loadErr = loadstring(code, "@ownership-forward-claim")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    assertEq(chunk(), 12, "each acquisition is closed once at the end of its with")
+end
+
+-- Reading claims ahead of the bodies must not instantiate a generic declaration
+-- before it is filled: the instantiation would keep the half-built members and
+-- supertypes it was made from.
+function M.readingClaimsEarlyLeavesALaterGenericContractIntact()
+    local source = table.concat(
+        {
+            "local interface Source<T>",
+            "   read: function(self): T",
+            "end",
+            "local interface NumberSource is Source<number>",
+            "   reset: function(self): nil",
+            "end",
+            "local record Counter is NumberSource",
+            "   n: number",
+            "   function read(self): number return self.n end",
+            "   function reset(self): nil self.n = 0 end",
+            "end",
+            "local c: NumberSource = new Counter(n = 3)",
+            "return c:read()",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+end
+
 function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     local source = table.concat(
         {

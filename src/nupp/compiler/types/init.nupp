@@ -886,6 +886,10 @@ record types.Nominal
 
     intrinsicAffineClaim: boolean?
 
+    --- Hoisted and bound, with its body not yet filled. Set only between a block's
+    --- hoisting and the declaration's own statement.
+    awaitingBody: boolean?
+
     --- The single consuming method inherited as the inherent cleanup policy.
     terminalMethod: string?
 
