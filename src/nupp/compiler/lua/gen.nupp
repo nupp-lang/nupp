@@ -7535,7 +7535,16 @@ function gen.generate(
                     emit(binding.node)
                 end
             end
-            e("}, " .. x.recordConstruct .. ")")
+            -- A record reached through a module path is that module's export, bound
+            -- the way the same path is anywhere else; the path itself names no
+            -- runtime table.
+            if x.obj and x.obj.qualifiedModule then
+                e("}, ")
+                emit(x.obj)
+                e(")")
+            else
+                e("}, " .. x.recordConstruct .. ")")
+            end
             return
 
         elseif kind == "constructorDecl" and x.inlineRuntimeOwner then

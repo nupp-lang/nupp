@@ -369,6 +369,56 @@ end
     )
 end
 
+-- `new` through a qualified path stamps the module's export. The metatable used to be
+-- the path as written, `tecs.world.shape.Box`, which names no runtime table, so a
+-- construction that checked clean failed with "attempt to index" when it ran.
+function M.aRecordConstructedThroughAQualifiedPathIsTheModulesRecord()
+    withProject(
+        {
+            [
+                "src/tecs/world/shape.nupp"
+            ] = [[
+module tecs.world.shape
+export record Box
+   side: integer
+   function area(self): integer
+      return self.side * self.side
+   end
+end
+]],
+            [
+                "src/use.nupp"
+            ] = [[
+module use
+export function answer(): integer
+   local box = new tecs.world.shape.Box(side = 6)
+   return box:area() + 6
+end
+]],
+        },
+        function(dir)
+            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local checked = inc.checkFile(dir .. "/src/use.nupp")
+            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
+            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            assert(not code:find("tecs.world.shape.Box", 1, true), "qualified path is lowered away")
+
+            package.loaded.use = nil
+            package.loaded["tecs.world.shape"] = nil
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local use = require("use")
+            local ok, answer = pcall(use.answer)
+            removeLoader()
+            package.loaded.use = nil
+            package.loaded["tecs.world.shape"] = nil
+            assert(ok, tostring(answer))
+            assertEq(answer, 42, "the constructed record carries the module's methods")
+        end
+    )
+end
+
 function M.registryRejectsReservedAndChildExportCollisions()
     withProject(
         {
