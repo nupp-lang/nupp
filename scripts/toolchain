@@ -864,9 +864,11 @@ host_export_arguments() {
 
 # A host that links libnupp.a is an executable, and LuaJIT's ffi.C finds the
 # provider's nuppNative* symbols only among what that executable exports. macOS
-# executables export them already; a Linux one needs -rdynamic.
+# executables export them already; a Linux one needs -rdynamic, and a Windows
+# (GNU toolchain) one --export-all-symbols.
 static_host_export_flags() {
     [ "$UNAME" = Linux ] && printf '%s\n' -rdynamic
+    [ "$PLATFORM" = windows ] && printf '%s\n' -Wl,--export-all-symbols
     return 0
 }
 
