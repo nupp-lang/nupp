@@ -53,6 +53,9 @@ jobs:
           path: .nupp-cache/toolchain
           key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
       - name: Install browser engines
+        # apt behind this has hung on an unreachable mirror for the whole job
+        # timeout; a stalled install fails in minutes instead.
+        timeout-minutes: 20
         run: |
           npm ci --prefix editors/playground
           npx --prefix editors/playground playwright install --with-deps chromium firefox webkit
