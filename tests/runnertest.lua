@@ -535,6 +535,89 @@ return {
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A fixture's lock names the process producing it, and the wait follows that
+-- process rather than the clock. A consumer gave up after 944 s on a producer
+-- that was still compiling wasmtime from source, and told the user to delete a
+-- lock that was live; a new run likewise reaped any lock fifteen minutes old,
+-- however alive its holder. Now a live holder is waited on whatever its age, and
+-- one that has exited without publishing is reclaimed at once rather than after
+-- ten minutes.
+function M.fixtureWaitsFollowTheProducerNotTheClock()
+    if package.config:sub(1, 1) == "\\" then
+        return test.skip("the holders here are POSIX background processes")
+    end
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
+
+    local function fixtureSlot(key)
+        return dir .. "/build/test-fixtures/fixture-" .. digest("nupp-test-fixture\0" .. key)
+    end
+
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build/test-fixtures")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    -- A process that has exited: its id names nobody by the time a lock does.
+    assert(os.execute(("sh -c 'echo $$' > %q"):format(dir .. "/dead.pid")) == 0)
+    local dead = tonumber(read(dir .. "/dead.pid"):match("%d+"))
+    write(
+        dir .. "/tests/holderfixtest.lua",
+        ([[
+local test = require("nupp.test")
+local function produce(key)
+    local started = os.time()
+    local _, value, reused = test.fixture(key, function()
+        return {answer = 42}
+    end)
+    test.equal(value.answer, 42)
+    test.equal(reused, false)
+    return os.time() - started
+end
+return {
+    waitsOnALiveHolderWhateverItsAge = function()
+        -- The holder runs until this says otherwise, two seconds from now.
+        assert(os.execute(("(sleep 2; touch %%q) </dev/null >/dev/null 2>&1 &"):format(%q)) == 0)
+        local waited = produce("live-holder")
+        test.assert(waited >= 1, "a live producer's lock was reaped after " .. waited .. "s")
+    end,
+    reclaimsAnExitedHoldersLock = function()
+        local lock = assert(io.open(%q, "wb"))
+        lock:write(os.time(), " ", %d, "\n")
+        lock:close()
+        local waited = produce("exited-holder")
+        test.assert(waited <= 5, "an exited producer's lock held its consumer for " .. waited .. "s")
+    end,
+}
+]]):format(dir .. "/release", fixtureSlot("exited-holder") .. ".lock", dead)
+    )
+    -- Sixteen minutes old, which alone made a lock stale, and held by a process
+    -- that runs until the case releases it.
+    assert(
+        os.execute(
+            ("sh -c 'while [ ! -f %q ]; do sleep 0.2; done' </dev/null >/dev/null 2>&1 & echo $! > %q"):format(
+                dir .. "/release",
+                dir .. "/live.pid"
+            )
+        ) == 0
+    )
+    local live = tonumber(read(dir .. "/live.pid"):match("%d+"))
+    write(fixtureSlot("live-holder") .. ".lock", ("%d %d\n"):format(os.time() - 16 * 60, live))
+
+    local output, invocation = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q holderfixtest --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    write(dir .. "/release", "")
+    test.equal(invocation.status, 0, "fixture locks were not judged by their holders" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.equal(report.passed, 2)
+    test.equal(io.open(fixtureSlot("live-holder") .. ".lock", "rb"), nil)
+    test.equal(io.open(fixtureSlot("exited-holder") .. ".lock", "rb"), nil)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 -- A temporary name a case makes into a directory, and fills, goes with the run
 -- that handed it out. Only the empty ones used to: a populated project at such a
 -- name outlived every run, and runs left some forty thousand of them behind until

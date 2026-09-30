@@ -165,17 +165,58 @@ local rawTmpname, rawExit = os.tmpname, os.exit
 local tempStem = rawTmpname()
 os.remove(tempStem)
 local processSalt
+-- This process, for a lock to name its holder by, and the question a waiter asks
+-- of that name. Both stay nil without FFI, where a lock is judged by age alone.
+local processId, processAlive = nil, nil
 do
     local stateSalt = tostring({}):match("0x(%x+)") or tostring(os.clock())
     local loaded, ffi = pcall(require, "ffi")
     if loaded then
         if ffi.os == "Windows" then
             ffi.cdef[[int _getpid(void);]]
-            processSalt = tostring(ffi.C._getpid()) .. "-" .. stateSalt
+            processId = tonumber(ffi.C._getpid())
+            processAlive = function(pid)
+                local declared = pcall(
+                    ffi.cdef,
+                    [[
+                    void *OpenProcess(unsigned long, int, unsigned long);
+                    int GetExitCodeProcess(void *, unsigned long *);
+                    int CloseHandle(void *);
+                    unsigned long GetLastError(void);
+                    ]]
+                )
+                if not declared then
+                    return true
+                end
+                local kernel = ffi.load("kernel32")
+                -- PROCESS_QUERY_LIMITED_INFORMATION. A process this one may not
+                -- query is still a process, so only ERROR_INVALID_PARAMETER --
+                -- no process has that id -- says it is gone.
+                local handle = kernel.OpenProcess(0x1000, 0, pid)
+                if handle == nil then
+                    return kernel.GetLastError() ~= 87
+                end
+                local code = ffi.new("unsigned long[1]")
+                local asked = kernel.GetExitCodeProcess(handle, code) ~= 0
+                kernel.CloseHandle(handle)
+
+                return not asked or code[0] == 259
+            end
         else
-            ffi.cdef[[int getpid(void);]]
-            processSalt = tostring(ffi.C.getpid()) .. "-" .. stateSalt
+            ffi.cdef[[
+            int getpid(void);
+            int kill(int, int);
+            ]]
+            processId = tonumber(ffi.C.getpid())
+            processAlive = function(pid)
+                if ffi.C.kill(pid, 0) == 0 then
+                    return true
+                end
+                -- EPERM: alive, and somebody else's. Everything else is ESRCH.
+                return ffi.errno() == 1
+            end
         end
+        processSalt = tostring(processId) .. "-" .. stateSalt
     else
         -- Official Lua already reserves a process-distinct temporary name on
         -- the platforms where the portable compiler runs. Retain a state-local
@@ -664,7 +705,9 @@ do
             if fd < 0 then
                 return false
             end
-            local stamp = tostring(os.time()) .. "\n"
+            -- When, and by whom: a waiter keeps waiting on a holder that is still
+            -- running, and reclaims the lock of one that is not.
+            local stamp = tostring(os.time()) .. (processId and " " .. processId or "") .. "\n"
             local stamped = tonumber(write(fd, stamp, #stamp)) == #stamp
             close(fd)
             if not stamped then
@@ -1253,6 +1296,10 @@ end
 local fixtureRoot = buildRoot .. "/test-fixtures"
 local fixtureSerial = 0
 local FIXTURE_LEASE_SECONDS = 15 * 60
+-- How long a consumer waits on a producer that is still running. Not a budget
+-- for the producer, which is as slow as its work is: only a bound on trusting a
+-- process id that may since have been handed to something else.
+local FIXTURE_LIVE_PRODUCER_SECONDS = 3 * 60 * 60
 local fixtureDigest = require("nupp.compiler.project.fingerprint").contentDigest(true)
 
 local function readJson(path)
@@ -1351,6 +1398,28 @@ local function fixtureMetadata(path, published, key)
     end
 
     return value, "valid"
+end
+
+--- When a lock was taken and by which process, as its holder stamped it.
+---
+--- A lock from before holders were named carries only the time, and one being
+--- written may carry neither yet; both answer what they have.
+local function lockStamp(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local line = file:read("*l") or ""
+    file:close()
+    local created, holder = line:match("^(%d+)%s*(%d*)")
+
+    return {created = tonumber(created), holder = tonumber(holder)}
+end
+
+--- Whether a lock's holder is known to have exited. Unknown is not dead: a lock
+--- with no holder, or a runtime that cannot ask, is judged by age instead.
+local function holderExited(stamp)
+    return stamp ~= nil and stamp.holder ~= nil and processAlive ~= nil and not processAlive(stamp.holder)
 end
 
 local function writeText(path, text)
@@ -1472,8 +1541,19 @@ local function resolveFixture(key, produce)
         error("fixture " .. key .. " failed: " .. tostring(value), 2)
     end
 
-    local deadline = os.time() + 10 * 60
-    while os.time() < deadline do
+    -- A producer can take far longer than the ten minutes a suite is budgeted:
+    -- one compiling wasmtime from source on a cold machine took more than
+    -- fifteen. So the wait follows the producer rather than the clock. While the
+    -- process the lock names is running this keeps waiting, up to a ceiling that
+    -- only guards against its id having been reused; once that process is gone
+    -- without publishing, it died holding the lock, and this reclaims it and
+    -- produces the fixture itself. The ten minutes remain for a lock whose
+    -- holder cannot be asked about.
+    local began = os.time()
+    local deadline = began + 10 * 60
+    local ceiling = began + FIXTURE_LIVE_PRODUCER_SECONDS
+    local stamp
+    while true do
         cached = fixtureMetadata(metadata, published, key)
         if cached ~= nil then
             return published, cached.value, true
@@ -1482,25 +1562,60 @@ local function resolveFixture(key, produce)
         if failedFixture ~= nil then
             error("fixture " .. key .. " failed: " .. tostring(failedFixture.message), 2)
         end
+        stamp = lockStamp(lock)
+        if stamp == nil then
+            -- Released between the reads above and this one: whatever the
+            -- producer left is there now, or it left nothing and the lock is free.
+            cached = fixtureMetadata(metadata, published, key)
+            if cached ~= nil then
+                return published, cached.value, true
+            elseif readJson(failure) == nil then
+                return resolveFixture(key, produce)
+            end
+        elseif holderExited(stamp) then
+            fixtureSerial = fixtureSerial + 1
+            local claimed = lock .. ".dead-" .. shardSalt .. "-" .. fixtureSerial
+            if files.rename(lock, claimed) then
+                files.remove(claimed)
+            end
+            return resolveFixture(key, produce)
+        end
+        local now = os.time()
+        local live = stamp ~= nil and stamp.holder ~= nil and processAlive ~= nil
+        if now >= ceiling or (now >= deadline and not live) then
+            break
+        end
         if pauseBriefly then
             pauseBriefly()
         end
     end
+    local holder = stamp and stamp.holder
+    local waited = os.time() - began
+    if holder ~= nil then
+        error(
+            ("timed out after %ds waiting for fixture %s; pid %d still holds %s and is still running"):format(
+                waited,
+                key,
+                holder,
+                lock
+            ),
+            2
+        )
+    end
     error(
-        "timed out waiting for fixture "
-        .. key
-        .. "; lock is "
-        .. lock
-        .. " (remove it after confirming no producer is running)",
+        (
+            "timed out after %ds waiting for fixture %s; %s does not name its producer, and a run started once it is %d minutes old reclaims it"
+        ):format(waited, key, lock, math.floor(FIXTURE_LEASE_SECONDS / 60)),
         2
     )
 end
 
 -- A failed producer fans its result out to every consumer in one run. A new
 -- top-level run gets one new attempt; immutable successful fixtures remain. A
--- killed producer can leave its exclusive-create lock behind. Producers belong
--- under the ten-minute cold-suite budget, so a new top-level run atomically
--- reaps locks older than fifteen minutes while leaving a live producer alone.
+-- killed producer can leave its exclusive-create lock behind. A new top-level
+-- run atomically reaps a lock whose holder has exited, and one older than
+-- fifteen minutes that names no holder it can ask about, while leaving a live
+-- producer alone however long it has been working.
 if not queueDir and #shard == 0 then
     pcall(function()
         local files = require("nupp.io.files")
@@ -1509,15 +1624,14 @@ if not queueDir and #shard == 0 then
                 files.remove(fixtureRoot .. "/" .. entry.name)
             elseif entry.name:match("%.lock$") then
                 local path = fixtureRoot .. "/" .. entry.name
-                local file = io.open(path, "rb")
-                local created = file and tonumber(file:read("*l") or "") or nil
-                if file then
-                    file:close()
-                end
+                local stamp = lockStamp(path)
+                local created = stamp and stamp.created
                 local cutoff = os.time() - FIXTURE_LEASE_SECONDS
                 local information = not created and files.info(path) or nil
-                local stale = created and created <= cutoff
-                    or information ~= nil and tonumber(information.modified) / 1000 <= cutoff
+                local known = stamp ~= nil and stamp.holder ~= nil and processAlive ~= nil
+                local stale = holderExited(stamp)
+                    or not known and created and created <= cutoff
+                    or not known and information ~= nil and tonumber(information.modified) / 1000 <= cutoff
                 if stale then
                     fixtureSerial = fixtureSerial + 1
                     local claimed = path .. ".stale-" .. shardSalt .. "-" .. fixtureSerial
