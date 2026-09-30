@@ -442,6 +442,11 @@ build_now() {
             return 0
         fi
         echo "nupp: falling back to the stage-zero compiler" >&2
+        # The built compiler loads through build/.bytecode, and an entry that is
+        # damaged but still loads fails it the same way every time -- including
+        # the self-hosted pass after this one. Nothing else notices, so the
+        # cache goes with the compiler that could not build.
+        rm -rf "$ROOT/build/.bytecode"
     fi
     if stage0_path >/dev/null; then
         if [ -n "$BUILD_COLOR_ARG" ]; then

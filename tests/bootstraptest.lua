@@ -304,6 +304,26 @@ function M.aBuildWaitsForTheBuildAlreadyRunning()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A built compiler that cannot build falls back to the stage zero, and the module
+-- bytecode cache goes with it. An entry that is damaged but still loads fails the
+-- built compiler the same way on every run, the self-hosted pass after the
+-- bootstrap included, so keeping it left `nupp clean` -- all of build/, the Rust
+-- tree with it -- as the only way out.
+function M.aFallbackDropsTheBytecodeTheBuiltCompilerLoaded()
+    local dir, plant, env = plantedTree(
+        'print("BOOTSTRAP bytecode=" .. (io.open("build/.bytecode/index", "rb") and "present" or "absent"))\n'
+    )
+    plant("build/nupp/tools/main.lua", 'if arg[1] == "build" then os.exit(3) end\nprint("BUILT")\n')
+    assert(os.execute(("mkdir -p '%s/build/.bytecode'"):format(dir)) == 0)
+    plant("build/.bytecode/index", "damaged")
+
+    local out = ran(dir, env, "check")
+    assert(out:find("falling back to the stage-zero compiler", 1, true), out)
+    assert(out:find("BOOTSTRAP bytecode=absent", 1, true), "the stage zero ran beside the damaged cache: " .. out)
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A build the stage zero runs starts comptime workers of its own, and on Windows
 -- those are launched as a compiler rather than through this script. The launcher
 -- says which compiler it resolved so they can be the same one; a cold checkout has
