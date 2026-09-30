@@ -223,6 +223,38 @@ function doc.markdown(
     return markdownMod.render(modules, title, all, overview)
 end
 
+--- JSON with object keys in sorted order, so one model is one document: `json.encode`
+--- writes keys in `pairs` order, which LuaJIT's per-process string hash seed changes
+--- from one run to the next.
+--- @raises string when an object has a non-string key
+local function sortedJson(value: any): string
+    if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
+        return json.encode(value)
+    end
+    local entries = value as {[any]: any}
+    local parts: {string} = {}
+    if json.isArray(entries) then
+        for index = 1, #entries do
+            parts[index] = sortedJson(entries[index])
+        end
+
+        return "[" .. table.concat(parts, ",") .. "]"
+    end
+    local keys: {string} = {}
+    for key in pairs(entries) do
+        if type(key) ~= "string" then
+            error("JSON object keys must be strings", 0)
+        end
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    for index, key in ipairs(keys) do
+        parts[index] = json.encode(key) .. ":" .. sortedJson(entries[key])
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 --- Renders the parse-only documentation model for external generators. The envelope
 --- carries a version so consumers can reject a shape they do not understand rather
 --- than silently misreading it.
@@ -318,7 +350,7 @@ function doc.json(modules: {extractMod.Module}): string
         }
     end)
 
-    return json.encode({schemaVersion = 3, modules = model}) .. "\n"
+    return sortedJson({schemaVersion = 3, modules = model}) .. "\n"
 end
 
 ----------------------------------------------------------------------------

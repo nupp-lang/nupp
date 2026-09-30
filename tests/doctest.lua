@@ -250,7 +250,31 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     assert(markdown:find("#### `build` _comptime function_", 1, true), markdown)
     assert(markdown:find("#### `value` _comptime type_", 1, true), markdown)
 
-    local model = require("testjson").decode(doc.json({module}))
+    local text = doc.json({module})
+    -- One model, one document: keys go out sorted rather than in the order this
+    -- process's string hash seed visits them. A string followed by a colon is a key.
+    local last, index = {}, 1
+    while index <= #text do
+        local c = text:sub(index, index)
+        if c == "{" then
+            last[#last + 1] = ""
+        elseif c == "}" then
+            last[#last] = nil
+        elseif c == '"' then
+            local close = index + 1
+            while text:sub(close, close) ~= '"' do
+                close = close + (text:sub(close, close) == "\\" and 2 or 1)
+            end
+            local key = text:sub(index + 1, close - 1)
+            if text:sub(close + 1, close + 1) == ":" then
+                assert(key >= last[#last], key .. " is written after " .. last[#last] .. ":\n" .. text)
+                last[#last] = key
+            end
+            index = close
+        end
+        index = index + 1
+    end
+    local model = require("testjson").decode(text)
     assert(model.schemaVersion == 3)
     local modelItems = {}
     for _, item in ipairs(model.modules[1].items) do
