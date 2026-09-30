@@ -146,18 +146,26 @@ end
 --- tier that refuses, which is the one a build stops at. A file that only mentions
 --- the annotation is not a refusal here any more than it is in a build.
 ---
---- Each tier lowers the source on its own, as a build does, with no const demands
---- from other modules: a const-generic family is specialized for the calls in its
---- own module. A family only another module closes is refused by the build and not
---- here.
+--- Each tier lowers the source on its own, as a build does. A const-generic family
+--- is specialized for the calls `constPlans` collects, which a project check
+--- gathers from every module that calls into it, as the build does; without them it
+--- is specialized for the calls in its own module alone.
 ---
 --- @param source the text that was checked
 --- @param filename what the diagnostics name
 --- @param checked the checker's tree for `source`, which lowering reads types from
 --- @param target the build target the check is for
+--- @param constPlans const-generic demands collected across modules, or nil for
+---   this module's own
 --- @raises string when lowering finds its own IR malformed, which is a compiler bug
 ---   a build would raise on as well
-function aotcheck.refusals(source: string, filename: string, checked: ParseResult, target: aotcheck.Target): {any}
+function aotcheck.refusals(
+    source: string,
+    filename: string,
+    checked: ParseResult,
+    target: aotcheck.Target,
+    constPlans: {any}?
+): {any}
     local policy = target.aot
     if not aotcheck.applies(policy) or source:find("@aot", 1, true) == nil then
         return {}
@@ -171,7 +179,15 @@ function aotcheck.refusals(source: string, filename: string, checked: ParseResul
         return {}
     end
     for _, tier in ipairs(tiers as {TierTarget}) do
-        local artifacts, problems = compile.artifacts(source, filename, checked, "<object>", tier, tier.tier, nil)
+        local artifacts, problems = compile.artifacts(
+            source,
+            filename,
+            checked,
+            "<object>",
+            tier,
+            tier.tier,
+            constPlans
+        )
         if artifacts == nil then
             local first = problems[1]
             if first == nil or first.code == compile.NO_AOT_FUNCTION then

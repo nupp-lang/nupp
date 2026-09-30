@@ -101,6 +101,20 @@ type cache.ModuleRecord = {
     --- backend, so a record whose verdict another backend gave is not reused.
     aotKey: string?,
 
+    --- The names of the module's `@aot` const-generic families. A family is
+    --- specialized for the calls every module makes into it, so a check lowers it
+    --- again with those calls once any module might.
+    aotFamilies: {string}?,
+
+    --- What a build would refuse about the module once its families are
+    --- specialized for the calls the modules requiring it make. Reported in place
+    --- of `aotRefusals` when present.
+    aotGraphRefusals: {any}?,
+
+    --- The module, the calling modules and the backend `aotGraphRefusals` was
+    --- lowered for. A record whose callers moved is lowered again.
+    aotGraphKey: string?,
+
     --- Canonical provider blueprints and rendered backend outputs, with public build
     --- observations alongside them. Plain data only; never evaluator handles.
     materializations: {any}?,

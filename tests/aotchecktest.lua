@@ -378,4 +378,47 @@ return {
     assert(tostring(reached.diagnostics[1].file):match("stray%.nupp$"), reachedRaw)
 end
 
+-- A const-generic family is specialized for every call the deliverable makes into
+-- it. Called only from another module, it used to be lowered by check with its own
+-- module's calls alone -- none -- and passed, while the build, collecting the calls
+-- across the graph, refused the tenth body. A check now says what the build says,
+-- keeps saying it from the records when nothing moved, and stops once the calls do.
+function M.aFamilyOnlyAnotherModuleClosesIsRefusedByCheck()
+    local family = REFUSED["family.nupp"]:gsub("\nreturn repeated%(.*$", "\nreturn {repeated = repeated}\n")
+    local calls = {}
+    for count = 1, 9 do
+        calls[#calls + 1] = ("repeated(1.0, %d)"):format(count)
+    end
+    local function caller(n)
+        return 'local family = require("family")\nlocal repeated = family.repeated\nreturn '
+            .. table.concat(calls, " + ", 1, n) .. "\n"
+    end
+    local dir = project(([[
+return {include = {"src"}, build = {targets = {native = {kind = "modules", entries = {"main"}, aot = "require", aotTarget = %q}}}}
+]]):format(TRIPLE), {
+        ["src/family.nupp"] = family,
+        ["src/main.nupp"] = caller(9),
+        ["src/other.nupp"] = "return {answer = 42}\n",
+    })
+    local out, buildCode = run(dir, "build")
+    test.equal(buildCode, 1, "the build refuses the family: " .. out)
+    assert(out:find("NUPP2908", 1, true), out)
+    local decoded, code, raw = checkJson(dir, "")
+    test.equal(code, 1, raw)
+    local refused = refusalsByFile(decoded)
+    assert(refused["family.nupp"] and refused["family.nupp"][1]:match("^NUPP2908 "), raw)
+    test.equal(refused["main.nupp"], nil, raw)
+    local warm, warmCode, warmRaw = checkJson(dir, "")
+    test.equal(warmCode, 1, warmRaw)
+    test.equal(warm.timing.compiledModules, 0, warmRaw)
+    test.equal(#warm.diagnostics, 1, warmRaw)
+    -- Eight bodies fit, and the verdict follows the caller without the family moving.
+    write(dir .. "/src/main.nupp", caller(8))
+    local fixed, fixedCode, fixedRaw = checkJson(dir, "")
+    test.equal(fixedCode, 0, fixedRaw)
+    test.equal(fixed.timing.compiledModules, 1, fixedRaw)
+    local _, fixedBuild = run(dir, "build")
+    test.equal(fixedBuild, 0, "and the build agrees")
+end
+
 return M
