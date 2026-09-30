@@ -271,6 +271,41 @@ function M.aStoreWhoseBodyWasDamagedAnswersNothing()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Two compilers used on one project -- `bin/nupp` and the binary it builds -- stamp
+-- their caches differently. Each used to find the other's stamp, discard the file and
+-- write its own, so alternating them rechecked the whole project every time. A file
+-- now keeps a body for each of the last two stamps.
+function M.twoCompilersKeepEachOthersEntries()
+    local store = require("nupp.compiler.project.store")
+    local dir = tempProject({})
+    local path = dir .. "/checks.buf"
+
+    local first = store.openValue(path, "tree")
+    first.set({by = "tree"})
+    first.save()
+    local second = store.openValue(path, "bundle")
+    assert(second.value == nil, "another compiler's body is not this one's")
+    second.set({by = "bundle"})
+    second.save()
+    assert(store.openValue(path, "tree").value.by == "tree", "the first compiler's record was evicted")
+    assert(store.openValue(path, "bundle").value.by == "bundle", "the second compiler's record was lost")
+
+    local keyed = store.open(dir .. "/keyed.buf", "tree")
+    keyed.put("key", "tree")
+    keyed.save()
+    local other = store.open(dir .. "/keyed.buf", "bundle")
+    other.put("key", "bundle")
+    other.save()
+    assert(store.open(dir .. "/keyed.buf", "tree").get("key") == "tree", "a keyed store evicted too")
+
+    local third = store.openValue(path, "stage0")
+    third.set({by = "stage0"})
+    third.save()
+    assert(store.openValue(path, "tree").value == nil, "the file keeps two stamps, not every one")
+    assert(store.openValue(path, "bundle").value.by == "bundle", "the newer of the others is kept")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A module is checked against the carried declarations as much as against the
 -- checker, and they are not modules, so the subsystem stamp never reached them. An
 -- edit to `lua.d.nupp` then left every module's stored diagnostics believed while a
@@ -404,8 +439,17 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
     local store = require("nupp.compiler.project.store")
     local path = dir .. "/build/cache/checks.buf"
 
+    -- The stamp carries the module compiler that wrote the record, so it is read out
+    -- of the file rather than spelled here: the newest body is this compiler's.
+    local function stamp()
+        local file = assert(io.open(path, "rb"))
+        local envelope = require("string.buffer").decode(file:read("*a"))
+        file:close()
+        return envelope.slots[1].stamp
+    end
+
     local function stored()
-        return store.openValue(path, "checks/1").value
+        return store.openValue(path, stamp()).value
     end
 
     local passed, output = check()
@@ -429,7 +473,7 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
             length = 5,
         }
     }
-    local doctored = store.openValue(path, "checks/1")
+    local doctored = store.openValue(path, stamp())
     doctored.set(state)
     doctored.save()
 

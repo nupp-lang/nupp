@@ -40,7 +40,17 @@ local store = {}
 
 -- Bumped when an entry's shape changes and old entries would decode into something the
 -- reader no longer understands.
-local FORMAT = 2
+local FORMAT = 3
+
+--- How many stamps one file holds bodies for, newest first.
+---
+--- One was the obvious number and the wrong one. Two compilers used on one project --
+--- `bin/nupp` and the binary it builds, whose stamps differ because one is a tree
+--- of modules and the other a bundle -- each found the other's stamp, discarded the
+--- file and wrote its own, so alternating them redid the whole project every time.
+--- Two covers that; the file costs a second body on disk, and a reader decodes only
+--- the envelope of a body that is not its own.
+local KEEP_STAMPS = 2
 
 --- The digest a body is sealed with, or nil where the host has no native one.
 ---
@@ -63,51 +73,76 @@ local function sealDigest(): any
     return sealMemo or nil
 end
 
---- Encodes `body` and seals it, or nil when it cannot be encoded.
-local function seal(stamp: string, body: any): string?
-    local ok, inner = pcall(buffer.encode, body)
-    if not ok then
-        return nil
-    end
-    local digest = sealDigest()
-    local encoded, text = pcall(buffer.encode, {
-        format = FORMAT,
-        stamp = stamp,
-        seal = digest and digest(inner) or nil,
-        body = inner,
-    })
-
-    return encoded and text or nil
-end
-
---- The body `path` holds when it was written under `stamp` and is intact, else nil.
----
---- The stamp is compared before the body is digested, so a file some other compiler
---- wrote costs a decode of its envelope and nothing more.
-local function unseal(path: string, stamp: string): any
+--- The slots a cache file holds, newest first, or an empty list when it holds none
+--- this reader understands.
+local function slotsIn(path: string): {any}
     local text = fs.readFile(path)
     if not text then
-        return nil
+        return {}
     end
     -- A cache file is data somebody else wrote. Everything from here is guarded, and
     -- every way it can go wrong lands on the same answer: nothing, recompute,
     -- overwrite.
     local ok, envelope = pcall(buffer.decode, text)
-    if not ok
-        or type(envelope) ~= "table"
-        or envelope.format ~= FORMAT
-        or envelope.stamp ~= stamp
-        or type(envelope.body) ~= "string"
-    then
-        return nil
+    if not ok or type(envelope) ~= "table" or envelope.format ~= FORMAT or type(envelope.slots) ~= "table" then
+        return {}
+    end
+    local slots: {any} = {}
+    for _, slot in ipairs(envelope.slots) do
+        if type(slot) == "table" and type(slot.stamp) == "string" and type(slot.body) == "string" then
+            slots[#slots + 1] = slot
+        end
+    end
+
+    return slots
+end
+
+--- Encodes `body`, seals it under `stamp`, and writes it to `path` ahead of the
+--- bodies other stamps left there. Nothing is written when it cannot be encoded.
+---
+--- The file is read again here rather than remembered from when the store was
+--- opened, so a body another compiler wrote in between is kept rather than lost.
+local function writeSealed(path: string, stamp: string, body: any): nil
+    local ok, inner = pcall(buffer.encode, body)
+    if not ok then
+        return
     end
     local digest = sealDigest()
-    if digest and envelope.seal ~= digest(envelope.body) then
-        return nil
+    local slots: {any} = {{stamp = stamp, seal = digest and digest(inner) or nil, body = inner}}
+    for _, slot in ipairs(slotsIn(path)) do
+        if #slots >= KEEP_STAMPS then
+            break
+        end
+        if slot.stamp ~= stamp then
+            slots[#slots + 1] = slot
+        end
     end
-    local decodedOk, body = pcall(buffer.decode, envelope.body)
+    local encoded, text = pcall(buffer.encode, {format = FORMAT, slots = slots})
+    -- A store that cannot be encoded or written is a store that misses next time,
+    -- which is what happens when there is no store at all.
+    if encoded then
+        pcall(fs.writeFile, path, text)
+    end
+end
 
-    return decodedOk and body or nil
+--- The body `path` holds under `stamp` when it is intact, else nil.
+---
+--- The stamp is compared before the body is digested, so a body some other compiler
+--- wrote costs a decode of its envelope and nothing more.
+local function unseal(path: string, stamp: string): any
+    for _, slot in ipairs(slotsIn(path)) do
+        if slot.stamp == stamp then
+            local digest = sealDigest()
+            if digest and slot.seal ~= digest(slot.body) then
+                return nil
+            end
+            local decodedOk, body = pcall(buffer.decode, slot.body)
+
+            return decodedOk and body or nil
+        end
+    end
+
+    return nil
 end
 
 --- Keeps this many entries beyond the ones the current run touched.
@@ -218,12 +253,7 @@ function store.open(path: string?, stamp: string): store.Store
                 keptEntries[key] = entries[key]
             end
         end
-        local text = seal(stamp, {order = keptOrder, entries = keptEntries})
-        -- A store that cannot be encoded or written is a store that misses next time,
-        -- which is what happens when there is no store at all.
-        if text then
-            pcall(fs.writeFile, path, text)
-        end
+        writeSealed(path as string, stamp, {order = keptOrder, entries = keptEntries})
         dirty = false
     end
 
@@ -267,10 +297,7 @@ function store.openValue(path: string?, stamp: string): store.Value
         if not path or not dirty then
             return
         end
-        local text = seal(stamp, {value = assert(self).value})
-        if text then
-            pcall(fs.writeFile, path, text)
-        end
+        writeSealed(path as string, stamp, {value = assert(self).value})
         dirty = false
     end
 

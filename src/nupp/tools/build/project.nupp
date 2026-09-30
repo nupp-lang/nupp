@@ -146,10 +146,10 @@ type project.FixpointOptions = {
     diagnostics: {any}?
 }
 
--- The check state records nothing the compiler's own identity is not already in:
--- `compilerHash` and `configHash` live inside it and are compared there, the same way
--- the build state compares them. The stamp only has to change when the shape of a
--- record does.
+-- The check state's own shape. The module compiler that wrote a record is added to
+-- this where the store is opened, so each compiler finds its own record; the config
+-- still lives inside the record and is compared there, the same way the build state
+-- compares it.
 local CHECK_STATE_STAMP = "checks/1"
 
 local normalize, join = fs.normalize, fs.join
@@ -495,20 +495,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         os.remove(completionPath)
         os.remove(pendingCompletionPath)
     end
-    -- A check and a build each keep their own record of what they last did. They agree
-    -- about what a module is but not about what counts as done: a build's record is
-    -- only good while the artifact it names is still on disk and still what it wrote,
-    -- and a check writes no artifact at all. One file for both would have each
-    -- invalidating the other's work.
-    local statePath = join(root, join(outDir, ".nupp-state.json"))
-    local checkState = nil
-    local oldState
-    if opts.checkOnly then
-        checkState = storeMod.openValue(join(root, join(outDir, "cache/checks.buf")), CHECK_STATE_STAMP)
-        oldState = cache.adoptState(checkState.value)
-    else
-        oldState = loadState(statePath)
-    end
     local newState = cache.emptyState()
     -- Every cache key below this line goes through one digest. A native host has a
     -- compiled one that answers identically, so resolve it once here and hand it
@@ -534,6 +520,27 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         contentDigest
     )
     newState.configHash = contentDigest(stable(config))
+    -- A check and a build each keep their own record of what they last did. They agree
+    -- about what a module is but not about what counts as done: a build's record is
+    -- only good while the artifact it names is still on disk and still what it wrote,
+    -- and a check writes no artifact at all. One file for both would have each
+    -- invalidating the other's work.
+    local statePath = join(root, join(outDir, ".nupp-state.json"))
+    local checkState = nil
+    local oldState
+    -- Stamped with the module compiler, so a check by another compiler -- `bin/nupp`
+    -- and the binary it builds, each used on one project -- is kept beside this
+    -- one's record rather than replacing it, and alternating them no longer
+    -- rechecks everything each time.
+    if opts.checkOnly then
+        checkState = storeMod.openValue(
+            join(root, join(outDir, "cache/checks.buf")),
+            CHECK_STATE_STAMP .. "\0" .. newState.moduleCompilerHash
+        )
+        oldState = cache.adoptState(checkState.value)
+    else
+        oldState = loadState(statePath)
+    end
     -- Every other target's record is carried through untouched, so building one does
     -- not make the others look like they produced nothing.
     for name, produced in pairs(oldState.targets) do

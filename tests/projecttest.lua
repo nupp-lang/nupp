@@ -2353,8 +2353,16 @@ return {
         {version = 5, modules = {main = "a record"}, dependencies = {}, outputs = {}, targets = {}},
         {version = 5, modules = {}, dependencies = {}, outputs = {}, targets = {app = {1}}},
     }
+    -- The stamp carries the module compiler, so it is read from the state the last
+    -- check wrote rather than spelled here.
+    local function checkStamp()
+        local file = assert(io.open(dir .. "/out/cache/checks.buf", "rb"))
+        local envelope = require("string.buffer").decode(file:read("*a"))
+        file:close()
+        return envelope.slots[1].stamp
+    end
     for index, shape in ipairs(shapes) do
-        local doctored = store.openValue(dir .. "/out/cache/checks.buf", "checks/1")
+        local doctored = store.openValue(dir .. "/out/cache/checks.buf", checkStamp())
         doctored.set(shape)
         doctored.save()
         local ok, answer = pcall(answerOf)
