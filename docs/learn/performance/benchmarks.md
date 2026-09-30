@@ -199,7 +199,7 @@ Drop `sampleIterations` from the suite above and the fastest pair says so
 rather than publishing a number off a clock it outran:
 
 ```text
-nupp: nupp: sum.floats.index:size=100 reached its sampling limit after 100000
+nupp: sum.floats.index:size=100 reached its sampling limit after 100000
 samples and 0.028538s measured; increase sampleIterations or the maximums
 ```
 

@@ -25,6 +25,19 @@ function errors.wrap(text: string, width: integer): {string}
     return lines
 end
 
+--- A message as the command line prints it: under `nupp:`, unless it already says
+--- that. Library errors carry the prefix themselves, raised at level 0 as `nupp: ...`
+--- or with a position as `file:line: nupp: ...`, and a second one in front reads as
+--- two tools reporting one failure.
+function errors.message(text: unknown): string
+    local message = tostring(text)
+    if message:find("^nupp:") or message:find("^[^\n]-:%d+: nupp:") then
+        return message
+    end
+
+    return "nupp: " .. message
+end
+
 --- Builds the compiler's status-2 diagnostic for semantic argument combinations.
 --- Lexical and conversion failures are rendered by `cli.Application` before a
 --- command record is constructed.

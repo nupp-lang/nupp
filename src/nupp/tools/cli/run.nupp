@@ -16,7 +16,8 @@ before it did.
 ]]
 const {type Session} = require("nupp.tools.cli.watch")
 
-local usageError = require("nupp.tools.cli.error").forCommand("run")
+local errors = require("nupp.tools.cli.error")
+local usageError = errors.forCommand("run")
 local report = require("nupp.tools.cli.report")
 local cliModule = require("nupp.cli")
 
@@ -159,7 +160,7 @@ local function run(options: any): integer
         chunk, err = loadfile(path)
     end
     if not chunk then
-        io.stderr:write("nupp: " .. tostring(err) .. "\n")
+        io.stderr:write(errors.message(err) .. "\n")
         return 1
     end
 
@@ -243,12 +244,12 @@ local function run(options: any): integer
         local directory = require("nupp.compiler.fs").dirname(values.gpuCosts)
         local made, makeErr = require("nupp.io.files").createDirectory(directory)
         if not made then
-            io.stderr:write("nupp: " .. tostring(makeErr) .. "\n")
+            io.stderr:write(errors.message(makeErr) .. "\n")
             return 1
         end
         local configured, configureErr = configureGpuCosts(values.gpuCosts)
         if not configured then
-            io.stderr:write("nupp: " .. tostring(configureErr) .. "\n")
+            io.stderr:write(errors.message(configureErr) .. "\n")
             return 1
         end
     end
@@ -360,11 +361,11 @@ local function run(options: any): integer
         end
         local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, content)
         if not wrote then
-            io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+            io.stderr:write(errors.message(writeErr) .. "\n")
             -- The program's own failure still gets reported: losing the trace
             -- report is no reason to also lose the error the run ended on.
             if not ok then
-                io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
+                io.stderr:write(errors.message(runErr) .. "\n")
             end
 
             return 1
@@ -377,10 +378,10 @@ local function run(options: any): integer
     end
 
     if gpuCostsError ~= nil then
-        io.stderr:write("nupp: " .. tostring(gpuCostsError) .. "\n")
+        io.stderr:write(errors.message(gpuCostsError) .. "\n")
     end
     if not ok then
-        io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
+        io.stderr:write(errors.message(runErr) .. "\n")
         return 1
     end
 

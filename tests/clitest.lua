@@ -817,6 +817,32 @@ function M.runGivesTheProgramItsOwnArgTable()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A library error already names the tool, raised bare as `nupp: ...` or with a position
+-- as `file:line: nupp: ...`; run puts `nupp:` only in front of a message that lacks it.
+function M.runPrefixesAnErrorOnlyWhenItDoesNotNameNupp()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local files = {
+        ["bare.lua"] = 'error("nupp: already named", 0)\n',
+        ["placed.lua"] = 'error("nupp: already named")\n',
+        ["plain.lua"] = 'error("plain failure", 0)\n',
+    }
+    for name, text in pairs(files) do
+        local file = assert(io.open(dir .. "/" .. name, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    local output, code = captureStatusAt(dir, "run bare.lua")
+    assert(code == 1 and output == "nupp: already named\n", output)
+    output, code = captureStatusAt(dir, "run placed.lua")
+    assert(code == 1 and output == "placed.lua:1: nupp: already named\n", output)
+    output, code = captureStatusAt(dir, "run plain.lua")
+    assert(code == 1 and output == "nupp: plain failure\n", output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.lintsUsesDefaultsOutsideAConfiguredProject()
     local dir = os.tmpname()
     os.remove(dir)
