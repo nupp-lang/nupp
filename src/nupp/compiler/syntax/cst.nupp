@@ -246,6 +246,10 @@ interface cst.Hints
     --- records no runtime feature.
     typeOnlyRequire: boolean?
 
+    --- A move of an optional affine field out of a record whose own cleanup closes
+    --- it. The generated code writes nil where the field was.
+    fieldTake: boolean?
+
     --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type spec,
     --- and the nested struct ctypes the spec's `$` placeholders consume.
     layoutOf: any

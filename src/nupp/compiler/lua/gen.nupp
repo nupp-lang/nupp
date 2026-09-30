@@ -5784,6 +5784,19 @@ function gen.generate(
             e("." .. x.overloadMember, sourceLine(x))
             return
         end
+        -- A field taken out of a record whose own cleanup closes it leaves nil
+        -- behind, so that cleanup finds nothing to close twice.
+        if kind == "dotIndex" and x.fieldTake and x.name then
+            local take = pluck.declareHelper(
+                "__nuppTake",
+                "__nuppO,__nuppK",
+                "local __nuppV=__nuppO[__nuppK]; " .. "__nuppO[__nuppK]=nil; return __nuppV"
+            )
+            e(take .. "(", sourceLine(x))
+            emit(x.obj)
+            e((",%q)"):format(x.name.text))
+            return
+        end
         if x.callableBindings then
             for _, binding in ipairs(x.callableBindings) do
                 e("const " .. binding.name .. "=", sourceLine(x))

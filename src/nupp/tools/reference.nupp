@@ -1547,7 +1547,11 @@ field to a root; written on a result it may be any of them, one per callable, so
 a function handing a generic for a state it borrows states the second slot.
 Affine nominal fields have path-sensitive state, so a field is
 tracked apart from the record holding it, and suspension cannot strand an
-obligation.
+obligation. A record whose own cleanup closes it (`is nupp.Closeable`) still runs
+that cleanup on what it holds, so moving an optional field out of one is a take:
+nil is written where it was, and the field reads as moved until it is assigned
+again. A field that cannot hold nil cannot move out of such a record
+(`NUPP2602`). A record closed field by field keeps no such rule.
 
 Direct pointer or variable-length C-array indexing requires `@unsafe`; use a span
 for checked bounds. Fixed arrays reject bad literals and guard dynamic indexes.

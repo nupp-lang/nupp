@@ -1220,6 +1220,33 @@ function ownership.install(c: state.Checker): ownership.Ops
                 c.diag("NUPP2602", expr, ("owned field %q cannot move while the record is borrowed"):format(field))
                 return false
             end
+            -- A record whose own cleanup closes it runs that cleanup on every field
+            -- it still holds, the moved one included, so a field leaves it the way
+            -- Rust's `Option::take` leaves one: an optional field is taken, and nil
+            -- is written where it was; a field that cannot hold nil cannot leave.
+            local wholeCleanup = false
+            for _, cleanup in ipairs((container.t as any).cleanups or {}) do
+                wholeCleanup = wholeCleanup or (cleanup.kind ~= "field" and cleanup.kind ~= "dropfield")
+            end
+            if wholeCleanup then
+                local held = rawType(declared)
+                if not (held.tag == "union" and held.hasNil) then
+                    c.diag(
+                        "NUPP2602",
+                        expr,
+                        ("owned field %q cannot move out of a record its own cleanup closes"):format(field),
+                        nil,
+                        {
+                            help = (
+                                "declare the field optional (`%s: %s?`) so moving it leaves nil, "
+                                .. "or consume the record whole"
+                            ):format(field, T.tostring(held)),
+                        }
+                    )
+                    return false
+                end
+                expr.fieldTake = true
+            end
             container.movedFields[field] = true
             container.movedFieldTypes = container.movedFieldTypes or {}
             container.movedFieldTypes[field] = t

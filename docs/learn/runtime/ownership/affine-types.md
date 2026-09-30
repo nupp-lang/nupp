@@ -117,6 +117,40 @@ first, and the selected entry supplies its result policy. See [constructors and
 result policies](../../language/types/records-and-structs.md#constructors-and-result-policies) for what else a
 constructor result may say.
 
+## Moving a field out of a record that closes itself
+
+A record with its own cleanup, such as one that is `nupp.Closeable`, runs that
+cleanup on whatever it still holds when it is dropped. Moving an affine field
+out of it therefore works the way Rust's `Option::take` does. An optional field
+is taken: the generated code writes nil where the field was, so the record's
+`close` finds nothing to close twice, and the checker treats the field as moved
+until it is assigned again.
+
+```nupp:fragment
+local record Child is nupp.Closeable
+    stdin: Writer?
+
+    function close(takes self): nil
+        if self.stdin ~= nil then
+            self.stdin:close()
+        end
+    end
+end
+
+do
+    local child = new Child(stdin = openWriter())
+    if child.stdin ~= nil then
+        child.stdin:close() -- takes the writer; child.stdin is now nil
+    end
+    child.stdin = nil -- refilled, so the child may be used whole again
+end -- Child.close runs once and sees no writer
+```
+
+A field that cannot hold nil cannot leave such a record, because nothing could
+be written in its place: the move is `NUPP2602`, and the fix is to declare the
+field optional. A record without a cleanup of its own is closed field by field,
+and a field moved out of it is simply skipped when the rest are closed.
+
 ## Comptime type generators
 
 A user-defined comptime type function can call the programmable counterpart of

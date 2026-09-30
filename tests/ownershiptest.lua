@@ -6516,6 +6516,104 @@ function M.aFieldMovesOutOfAnOptionalOwnerOnceItIsNarrowed()
     assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
+-- A record whose own `close` closes its fields runs it on whatever it still holds.
+-- Moving an optional field out used to leave the field in place, so the record's
+-- close closed it a second time; the move is now a take that leaves nil behind,
+-- however the field leaves -- a takes argument, a consuming method, a binding, a
+-- return, or another record's construction.
+function M.anOptionalFieldTakenFromASelfClosingRecordIsClosedOnce()
+    local source = table.concat(
+        {
+            "local closed: integer = 0",
+            "local record W is nupp.Closeable",
+            "   function close(takes self): nil closed = closed + 1 end",
+            "end",
+            "local record P is nupp.Closeable",
+            "   w: W?",
+            "   function close(takes self): nil",
+            "      if self.w ~= nil then self.w:close() end",
+            "      closed = closed + 100",
+            "   end",
+            "end",
+            "local record Box is nupp.Closeable",
+            "   held: W?",
+            "   function close(takes self): nil if self.held ~= nil then self.held:close() end end",
+            "end",
+            "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
+            "local function viaArgument(): nil local p = new P(w = new W()) consume(p.w) end",
+            "local function viaMethod(): nil",
+            "   local p = new P(w = new W())",
+            "   if p.w ~= nil then p.w:close() end",
+            "end",
+            "local function viaBinding(): nil",
+            "   local p = new P(w = new W())",
+            "   local w = p.w",
+            "   if w ~= nil then w:close() end",
+            "end",
+            "local function viaConstruction(): nil",
+            "   local p = new P(w = new W())",
+            "   local b = new Box(held = p.w)",
+            "end",
+            "local function viaRefill(): nil",
+            "   local p = new P(w = new W())",
+            "   consume(p.w)",
+            "   p.w = nil",
+            "   p:close()",
+            "end",
+            "local function viaReturn(): W? local p = new P(w = new W()) return p.w end",
+            "local counts: {integer} = {}",
+            "for _, run in ipairs({viaArgument, viaMethod, viaBinding, viaConstruction, viaRefill}) do",
+            "   closed = 0",
+            "   run()",
+            "   counts[#counts + 1] = closed",
+            "end",
+            "closed = 0",
+            "local w = viaReturn()",
+            "counts[#counts + 1] = closed",
+            "consume(w)",
+            "counts[#counts + 1] = closed",
+            "return counts",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "ownership-field-take")
+    assertEq(#genDiags, 0)
+    local chunk, loadErr = loadstring(code, "@ownership-field-take")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    assertEq(table.concat(chunk(), ","), "101,101,101,101,101,100,101", "the taken field is closed once")
+end
+
+-- A field that cannot hold nil has nothing to leave behind, so it cannot move out
+-- of a record whose own cleanup would close it again, and the help says how to let
+-- it. A record closed field by field keeps its per-field moves.
+function M.aRequiredFieldCannotLeaveASelfClosingRecord()
+    local source = table.concat(
+        {
+            "local record W is nupp.Closeable function close(takes self): nil end end",
+            "local record P is nupp.Closeable",
+            "   w: W",
+            "   function close(takes self): nil self.w:close() end",
+            "end",
+            "local record Pair",
+            "   w: W",
+            "   o: W",
+            "end",
+            "local function consume(takes w: W): nil w:close() end",
+            "local function refused(): nil local p = new P(w = new W()) consume(p.w) end",
+            "local function admitted(): nil local pair = new Pair(w = new W(), o = new W()) consume(pair.w) end",
+            "return {refused = refused, admitted = admitted}",
+        },
+        "\n"
+    )
+    local _, diags = checked(source)
+    assertEq(#diags, 1, diags[2] and diags[2].msg or "one refusal")
+    assertEq(diags[1].code, "NUPP2602")
+    assert(diags[1].msg:find("cannot move out of a record its own cleanup closes", 1, true), diags[1].msg)
+    assert(diags[1].help and diags[1].help:find("`w: W?`", 1, true), tostring(diags[1].help))
+end
+
 -- An optional aggregate owner is closed field by field, as the same record is when
 -- it cannot be nil. The optional's cleanups used to be rebuilt from the obligation
 -- tree, which keeps the field only as a component, so each became `close` on the
