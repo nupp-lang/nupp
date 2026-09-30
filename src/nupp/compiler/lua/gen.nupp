@@ -10169,6 +10169,13 @@ function gen.generate(
                 spillNextModule = true
                 return gen.generate(result, filename, coverage, hot, bytecodeBoundary, forcedEffects)
             end
+            -- LuaJIT's parser also stops at two hundred levels of nesting and at a
+            -- function whose expressions need more than its registers. A program
+            -- reaches both by what it wrote -- a generated expression a few hundred
+            -- operators deep, an `if` ladder nested past the limit -- so they are
+            -- limits, not bugs, and have a way out.
+            local levels = text:find("too many syntax levels", 1, true) ~= nil
+            local registers = text:find("needs too many registers", 1, true) ~= nil
             local message, help
             if cap then
                 message = (
@@ -10185,6 +10192,13 @@ function gen.generate(
                 ):format(localCap)
                 help = "gather related values into a table, or split the module; at the top level every "
                     .. "local, function and record counts, exported or not"
+            elseif levels then
+                message = "this nests expressions or blocks more than 200 levels deep, "
+                    .. "which is more than LuaJIT's parser accepts"
+                help = "name intermediate results with locals, or move an inner block into a function"
+            elseif registers then
+                message = "this function needs more registers than a Lua function has"
+                help = "split the expression or the function, or name intermediate results with locals"
             else
                 message = "generated code does not load: " .. (text:gsub("^[^:]*:%d+:%s*", ""))
                 help = "this is a bug in the compiler rather than in this file; "

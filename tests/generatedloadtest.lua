@@ -67,6 +67,22 @@ function M.capturingUpToTheLimitIsAccepted()
    assert(loadstring(code, "@within-limit"), "generated code should load")
 end
 
+-- LuaJIT's parser stops at two hundred levels of nesting. A program reaches that by
+-- what it wrote, so it is reported as the limit and not as a compiler bug.
+function M.nestingPastTheParserLimitIsReportedAsTheLimit()
+   local expression = "x"
+   for i = 1, 250 do
+      expression = ("(%s + %d)"):format(expression, i)
+   end
+   local _, diags = generate("local function f(x: number): number\n    return " .. expression
+      .. "\nend\n\nreturn f\n")
+   assert(#diags == 1, "expected one diagnostic, got " .. #diags)
+   local d = diags[1]
+   assert(d.code == "NUPP3005", "code was " .. tostring(d.code))
+   assert(d.msg:find("more than 200 levels deep", 1, true), "the message says what the limit is: " .. d.msg)
+   assert(not d.help:find("bug in the compiler", 1, true), "not called a compiler bug: " .. tostring(d.help))
+end
+
 -- `new R(field = value)` lowers from what the checker resolved rather than from what
 -- the call wrote, so an unchecked construction is one the generator writes out as the
 -- call it was spelled as -- which is not Lua. Entries standing after a computed key
