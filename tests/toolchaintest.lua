@@ -282,7 +282,8 @@ function M.everyRockTreeCacheKeyCoversTheRockspecs()
     local caches = 0
     for name in handle:lines() do
         if name:match("%.ya?ml$") then
-            local text = read(ROOT .. "/.github/workflows/" .. name)
+            -- A Windows checkout carries CRLF line endings; the pattern reads LF.
+            local text = read(ROOT .. "/.github/workflows/" .. name):gsub("\r\n", "\n")
             local cursor = 1
             while true do
                 local at = text:find("\n%s+%.rocks\n", cursor)
@@ -579,6 +580,8 @@ function M.aDriftedLlvmNoticeStopsTheLlvmBuild()
             NUPP_TOOLCHAIN_DIR = directory .. "/cache",
             NUPP_CC = compiler,
             NUPP_CXX = compiler,
+            -- CI's pinned-llvm step names a real tree, which would be used as is.
+            NUPP_LLVM_PREFIX = "",
             PATH = forPath(bin) .. ":$PATH",
         },
         "llvm",
