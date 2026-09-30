@@ -39,6 +39,7 @@ local bindingRules = require("nupp.compiler.aot.binding")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local wasmBinding = require("nupp.compiler.aot.wasmbinding")
 local wasmBridge = require("nupp.compiler.aot.wasmbridge")
+local aotcheck = require("nupp.tools.build.aotcheck")
 local aotllvm = require("nupp.tools.build.aotllvm")
 local compile = require("nupp.compiler.aot.compile")
 local constspecialize = require("nupp.compiler.lua.constspecialize")
@@ -1657,10 +1658,8 @@ function aot.apply(
     local held = carried or new aot.Carried()
     toolruns.reset()
     local wasmPolicy = aot.linksWasm(policy)
-    if wasmPolicy then
-        triple = "wasm32-unknown-emscripten"
-        features = features or "scalar"
-    end
+    -- The same selection a check lowers for, so the two cannot disagree about tiers.
+    triple, features = aotcheck.selection(policy, triple, features)
     local work = {checkedSources = 0, loweredPrograms = 0, optimizedPrograms = 0, emittedUnits = 0,}
     local emitted, emitErr, produced, authoredUnused, constSelection, gpuSources, refusal = aot.emit(
         root,

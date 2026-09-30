@@ -1361,6 +1361,14 @@ function M.browserGpuChecksShareTheGeneratedInterface()
     local file = assert(io.open(path, "wb"))
     assert(file:write(source))
     file:close()
+    -- The browser's WebGPU profile stores only 32-bit integers, and a check of a
+    -- lowering target refuses a kernel its build would, so the kernel is one the
+    -- browser admits.
+    local kernelPath = dir .. "/src/gpucheck.nupp"
+    local kernel = assert(read(kernelPath)):gsub("<float>", "<uint32>")
+    file = assert(io.open(kernelPath, "wb"))
+    assert(file:write(kernel))
+    file:close()
     local out, code = check(dir)
     test.equal(code, 0, out)
     assert(read(dir .. "/build/native/cache/runtime-source/nupp/gpu/internal.nupp"))

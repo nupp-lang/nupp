@@ -528,6 +528,12 @@ operation inside the body reports `NUPP2903` at the construct. Stacking it with
 `@jit` reports `NUPP2901`, and annotating a constructor or inline requirement
 reports `NUPP2902`, since neither is a whole function to compile.
 
+What lowering refuses about an admitted construct, such as a `number` used as a
+branch condition or a call no intrinsic admits, reports `NUPP2905` through
+`NUPP2908`. `nupp check` lowers for a target whose policy is anything but
+`off`, so it reports these where the build would, and a target under `off`,
+which never lowers, reports none of them.
+
 Code that runs in vector lanes uses `nupp.simd`. See
 [simd.md](../learn/performance/ahead-of-time/simd.md) for the
 vector loop and scalar continuation patterns, and

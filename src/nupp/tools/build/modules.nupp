@@ -21,6 +21,7 @@ const {type Reporter} = require("nupp.tools.build.progress")
 const {type Observer} = require("nupp.compiler.project.incremental")
 const {type Value} = require("nupp.compiler.project.store")
 
+local aotcheck = require("nupp.tools.build.aotcheck")
 local envMod = require("nupp.compiler.project.env")
 local gen = require("nupp.compiler.lua.gen")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -625,6 +626,8 @@ local function copyModuleRecord(record)
         output = record.output,
         external = record.external,
         diags = record.diags,
+        aotRefusals = record.aotRefusals,
+        aotKey = record.aotKey,
         coverage = record.coverage,
         materializations = record.materializations,
         derives = record.derives,
@@ -1433,6 +1436,46 @@ local function buildModules(root: string, outDir: string, config: Config, target
         return false
     end
 
+    local aotApplies = checkOnly and aotcheck.applies(target.aot)
+
+    -- The code that lowered a verdict, asked once a run and only when one is made
+    -- or reused. The module-compiler digest above does not cover the AOT backend,
+    -- so that an edit to lowering discards only the records of modules it lowered.
+    local aotBackendKey: string? = nil
+
+    local function currentAotKey(): string
+        if aotBackendKey == nil then
+            aotBackendKey = aotcheck.backendKey(
+                fingerprint.sharedCacheDir(join(root, join(outDir, "cache"))),
+                contentDigest
+            )
+        end
+
+        return aotBackendKey as string
+    end
+
+    --- What a build of this target would refuse about one checked module's `@aot`
+    --- functions, and whether it was lowered to find out. Asked only by a check, and
+    --- only of a module it checked this run: a reused record carries the answer it
+    --- was given, keyed like the rest of the record on the source, its dependencies'
+    --- interfaces and the manifest, and on the backend that lowered it.
+    local function aotRefusals(name: string, path: string, checked: any): ({any}, boolean)
+        if not aotApplies
+            or checked == nil
+            or linkedModules[name]
+            or packagedRuntimeModules[name]
+            or not aotcheck.projectSource(root, config.include, outDir, path)
+        then
+            return {}, false
+        end
+        local text = substituted[normalize(path)] or inc.fileText(path)
+        if text == nil or (text as string):find("@aot", 1, true) == nil then
+            return {}, false
+        end
+
+        return aotcheck.refusals(text as string, path, checked, target as any), true
+    end
+
     local function compile(name, path, sourceHash)
         local external = path:match("%.d%.nupp$") ~= nil
             or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
@@ -1470,6 +1513,17 @@ local function buildModules(root: string, outDir: string, config: Config, target
             mine[#mine + 1] = diag
         end
         local fatal = isFatalIn(mine)
+        -- Lowered only once the checker is satisfied, as a build lowers only a source
+        -- that checks: a refusal about a program already refused says nothing new.
+        local refusals = jsonArray({} as {any})
+        local aotKey: string? = nil
+        if not fatal and not external then
+            local found, lowered = aotRefusals(name, path, result.result)
+            for _, diag in ipairs(found) do
+                refusals[#refusals + 1] = diag
+            end
+            aotKey = lowered and currentAotKey() or nil
+        end
         local depNames = inc.moduleDependencies(path)
         local effectNames: {string} = {}
         if fatal or checkOnly or external then
@@ -1576,6 +1630,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
             diags = jsonArray(checkedDiags),
+            aotRefusals = refusals,
+            aotKey = aotKey,
             coverage = coverage,
             materializations = jsonArray(materializations),
             derives = jsonArray(derives),
@@ -1646,6 +1702,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     and type(previous.effects) == "table"
                     and type(previous.runtimeModules) == "table"
                     and type(previous.diags) == "table"
+                    and type(previous.aotRefusals) == "table"
+                    and (previous.aotKey == nil or previous.aotKey == currentAotKey())
                     and type(previous.materializations) == "table"
                     and type(previous.derives) == "table"
                     and type(previous.optimizationRemarks) == "table"
@@ -1724,6 +1782,70 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 report:resolved()
             end
         end
+    end
+
+    --- The modules a build of this target would lower, by name, or nil for every one.
+    ---
+    --- A build lowers what its deliverable reaches, not everything under the include
+    --- roots: two targets can build one source tree at different feature tiers, and
+    --- the scalar one must not be refused over a SIMD module it never bundles. The
+    --- same closure is read here off the records' dependency lists, which a check has
+    --- either just written or reused, so nothing is checked to answer it. It is asked
+    --- when the diagnostics are reported rather than stored with a record, because
+    --- whether a module is reached is a fact about the modules that require it.
+    ---
+    --- A module with no record at all -- a narrow check of a project never checked
+    --- whole -- leaves the closure unknown, and every refusal is reported rather
+    --- than one being missed.
+    local function refusalScope(): {[string]: boolean}?
+        local pending: {string} = {}
+        local seeds = false
+        for _, entry in ipairs(target.entries or {}) do
+            seeds = true
+            local name: string? = entry
+            if entry:match("%.nupp$") or entry:find("[/\\]") then
+                name = envMod.moduleNameForPath(inc.env, join(root, entry))
+            end
+            if name == nil then
+                return nil
+            end
+            pending[#pending + 1] = name as string
+        end
+        if target.sources ~= nil then
+            seeds = true
+            for _, path in ipairs(selectedSourceFiles(root, target) or {}) do
+                local name = envMod.moduleNameForPath(inc.env, path)
+                if name == nil then
+                    return nil
+                end
+                pending[#pending + 1] = name as string
+            end
+        end
+        if not seeds then
+            return nil
+        end
+        for _, provider in ipairs(config._spiEntries or {}) do
+            pending[#pending + 1] = provider.implementation
+        end
+        local reached: {[string]: boolean} = {}
+        while #pending > 0 do
+            local name = table.remove(pending) as string
+            if not reached[name] then
+                reached[name] = true
+                local record = records[name] or oldState.modules[name]
+                if record == nil then
+                    if inc.modulePath(name) ~= nil then
+                        return nil
+                    end
+                else
+                    for _, dependency in ipairs(record.dependencies or {}) do
+                        pending[#pending + 1] = dependency
+                    end
+                end
+            end
+        end
+
+        return reached
     end
 
     processQueue()
@@ -1848,10 +1970,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- question nobody asked -- name one file, hear about thirty. Whether the project as
     -- a whole is well typed is what `nupp check` with no files means.
     local errors: {any} = {}
+    local aotScope = aotApplies and refusalScope() or nil
     for _, name in ipairs(order) do
         if not asked or asked[name] then
             for _, diag in ipairs(said[name] or {}) do
                 errors[#errors + 1] = diag
+            end
+            if aotScope == nil or aotScope[name] then
+                for _, diag in ipairs(records[name] and records[name].aotRefusals or {}) do
+                    errors[#errors + 1] = diag
+                end
             end
         end
     end

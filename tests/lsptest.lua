@@ -1330,6 +1330,53 @@ function M.aDocumentOutsideTheWorkspaceIsStillChecked()
     assert(#published[#published] == 0, "and rechecked when it changes")
 end
 
+-- What a build of the project's target would refuse about an `@aot` function is
+-- published with the checker's own diagnostics, as `nupp check` reports it, and a
+-- target that does not lower publishes nothing of the kind.
+function M.aotRefusalsArePublishedForATargetThatLowers()
+    local refused = "@aot\nlocal function rest(source: string, from: integer): string\n"
+        .. "    return source:sub(from)\nend\nreturn {rest = rest}\n"
+    local admitted = "@aot\nlocal function rest(from: integer): integer\n    return from\nend\nreturn {rest = rest}\n"
+    local function published(policy)
+        local dir = makeDir()
+        writeInto(dir, "nupp.lua", ('return {include = {"."}, build = {targets = {app = {kind = "modules", '
+            .. 'aot = %q, aotTarget = "aarch64-apple-darwin"}}}}\n'):format(policy))
+        writeInto(dir, "method.nupp", refused)
+        local uri = fileUri(dir .. "/method.nupp")
+        local out = runSession({
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = fileUri(dir), capabilities = {}}},
+            {jsonrpc = "2.0", method = "initialized", params = {}},
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = refused}}
+            },
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didChange",
+                params = {textDocument = {uri = uri, version = 2}, contentChanges = {{text = admitted}}}
+            },
+            {jsonrpc = "2.0", id = 2, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
+        }, dir)
+        os.execute("rm -rf '" .. dir .. "'")
+
+        return diagnosticsFor(out, uri), out
+    end
+
+    local lowered, out = published("require")
+    assert(#lowered >= 2, "published on open and on change: " .. out)
+    local first = lowered[1][1]
+    assert(first and first.code == "NUPP2905" and #lowered[1] == 1, "the refusal is published: " .. json.encode(lowered[1]))
+    assert(first.range.start.line == 2 and first.range.start.character == 11, json.encode(first.range))
+    assert(first.range["end"].character == 17, "the range covers the receiver: " .. json.encode(first.range))
+    assert(first.severity == 1, "as an error, since the build fails on it")
+    assert(#lowered[#lowered] == 0, "and withdrawn once the body is admitted")
+
+    local off = published("off")
+    assert(#off >= 1 and #off[1] == 0, "a target that does not lower publishes nothing: " .. json.encode(off))
+end
+
 function M.crossFileDiagnosticsPublishRelatedInformation()
     local projectDir = makeDir()
     writeInto(projectDir, "nupp.lua", 'return {include = {"."}}\n')

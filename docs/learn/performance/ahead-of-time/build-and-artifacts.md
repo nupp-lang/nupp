@@ -144,7 +144,11 @@ rather than a silent misread.
 
 The module is hashed on the text that was compiled rather than the file on disk,
 so a rebuild never reuses an artifact built from a different body. `nupp check`
-does none of this: it answers a question about the source as written.
+does none of this: it answers a question about the source as written. It lowers
+each `@aot` function the target reaches, as the build would, and reports what
+lowering refuses as `NUPP2905` through `NUPP2908`, but it compiles, links and
+substitutes nothing, and needs no code generator. Under `off` it lowers nothing,
+because the build does not either.
 
 ## Shipping a shared artifact
 

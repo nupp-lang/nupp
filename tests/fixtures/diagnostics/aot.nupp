@@ -1,0 +1,14 @@
+@aot
+local function sign(value: number): number
+    if value then
+        return 1.0
+    end
+    return 0.0
+end
+
+@aot
+local function rest(source: string, from: integer): string
+    return source:sub(from)
+end
+
+return {sign = sign, rest = rest}

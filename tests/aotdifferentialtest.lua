@@ -870,6 +870,20 @@ function M.stringIndexesFollowLua()
     assert(out:find("false", 1, true) and out:find("has no byte at that index", 1, true), dir .. ": " .. out)
 end
 
+-- The corpus is what the native build admits, so a check of the same target
+-- refuses none of it: what `check` reports and what `build` refuses are the same
+-- set, and here both are empty. Asked after the build, so the check starts from
+-- the build's checked graph as a user's would.
+function M.checkOfTheNativeTargetRefusesNothingTheBuildAdmits()
+    local dir = built()
+    local out, code = run(("cd %q && NO_COLOR= '%s' check --target native --json"):format(dir, NUPP))
+    test.equal(code, 0, ("check of the built corpus in %s: %s"):format(dir, out))
+    local decoded = require("testjson").decode(assert(out:match("(%b{})"), out))
+    for _, diagnostic in ipairs(decoded.diagnostics or {}) do
+        assert(diagnostic.severity ~= "error", dir .. ": " .. out)
+    end
+end
+
 -- A written span is `noalias` in the native entry. A caller the checker never
 -- saw can still pass two views of one buffer, which the wrapper refuses; views
 -- that only touch, and empty ones, are not overlaps.

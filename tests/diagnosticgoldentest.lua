@@ -23,6 +23,20 @@ local function diagnostics(name, strict)
    return check.check(parsed, path, env, {strict = strict})
 end
 
+-- What a build of a lowering target refuses, as the check of that target says it.
+-- Lowering stops at a file's first refusal, as a build does, so the second function
+-- here is reported only once the first is fixed.
+local function refusals(name)
+   local path = FIXTURES .. "/" .. name .. ".nupp"
+   local source = readFile(path)
+   local parsed = parser.parse(source, path)
+   local found = check.check(parsed, path, env, {strict = true})
+   assert(#found == 0, "the fixture checks clean before it is lowered")
+   return require("nupp.tools.build.aotcheck").refusals(source, path, parsed, {
+      name = "native", aot = "require", aotTarget = "aarch64-apple-darwin",
+   })
+end
+
 local function render(name, values)
    local out = {"[" .. name .. "]"}
    for _, diagnostic in ipairs(values) do
@@ -65,7 +79,11 @@ help: add branches for "blue", "green" or add an else clause
 NUPP2011 error 10:22+4
 number is not established as int32
 help: first produce an integer, or widen the destination type
-fix: change the type to `number`]]
+fix: change the type to `number`
+[aot]
+NUPP2905 error 3:8+5
+native branch conditions must be boolean
+help: target native compiles `@aot` functions for the neon tier (aot = "require"); rewrite this, or remove `@aot` to run the function as ordinary Nupp]]
 
 -- The checker threads its context through a local named `c`, so `c.result` and
 -- its neighbours are ordinary expressions in code and a rename artifact inside a
@@ -106,6 +124,7 @@ function M.curatedBadCodeMessagesStayUseful()
       render("syntax", diagnostics("syntax")),
       render("checker", diagnostics("checker", true)),
       render("lints", diagnostics("lints", true)),
+      render("aot", refusals("aot")),
    }, "\n")
    if actual ~= EXPECTED then
       error("diagnostic golden changed:\n" .. actual, 2)

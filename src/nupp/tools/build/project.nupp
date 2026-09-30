@@ -604,7 +604,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     --
     -- A check does none of it. `nupp check` answers a question about the source
     -- as written, and asking it to compile and link first would make checking a
-    -- project need the code generator that only building it requires.
+    -- project need the code generator that only building it requires. What it
+    -- does ask is the question the policy's first step answers: the module build
+    -- lowers each checked `@aot` source it reaches for this target's tiers and
+    -- reports what lowering refuses, through `nupp.tools.build.aotcheck`, cached
+    -- with the rest of that module's record.
     local aotOverlays: {[string]: string}? = nil
     local aotAuthoredUnused: {[string]: {any}}? = nil
     local aotLibrary: string? = nil

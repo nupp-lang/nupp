@@ -90,6 +90,17 @@ type cache.ModuleRecord = {
     --- again rather than reporting a clean file.
     diags: {any}?,
 
+    --- What a build of the checked target would refuse about the module's `@aot`
+    --- functions. Written by a check, empty for a module it did not lower, and kept
+    --- apart from `diags` because whether it is reported depends on whether the
+    --- target reaches the module, which the modules requiring it decide.
+    aotRefusals: {any}?,
+
+    --- The digest of the backend that lowered the module for `aotRefusals`, absent
+    --- when it was not lowered. The module-compiler digest does not cover the AOT
+    --- backend, so a record whose verdict another backend gave is not reused.
+    aotKey: string?,
+
     --- Canonical provider blueprints and rendered backend outputs, with public build
     --- observations alongside them. Plain data only; never evaluator handles.
     materializations: {any}?,

@@ -18,7 +18,9 @@ is visible in the tree without asking what anything's type is. The value-level
 subset is the other half and belongs with the IR,
 which is where a type is actually needed to say that some `number` is admitted
 and some `any` is not. Reporting the structural half here keeps that later pass
-from having to re-explain constructs it never saw.
+from having to re-explain constructs it never saw. `nupp check` asks for that
+half too, for a target whose policy lowers, but from the tools layer
+(`nupp.tools.build.aotcheck`): it needs the target, which this pass never sees.
 
 A method call is deliberately not refused here, even though a dynamic one has no
 AOT IR opcode. Span accesses and admitted intrinsics lower directly rather than

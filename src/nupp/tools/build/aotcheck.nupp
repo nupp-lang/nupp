@@ -1,0 +1,218 @@
+module nupp.tools.build.aotcheck
+
+--[[
+What a build would refuse about an `@aot` function, said by a check.
+
+The checker's `@aot` rules are structural: a closure or a table has no AOT IR at
+all, and that is visible in the tree. Whether a `number` is used as a branch
+condition, a call reaches an admitted intrinsic, or a lane index fits the tier is
+answered by lowering, which needs the checked tree and the target. A check that
+stopped at the structural half passed programs the build then refused, and the
+promise is the other way round: `@aot` on something the backend cannot compile
+is an error when the source is checked, not a surprise when it is built.
+
+So a check lowers each checked source that has an `@aot` function, for every
+feature tier its target builds, through the same `compile.artifacts` a build
+calls, and reports what that refuses as ordinary coded diagnostics. It stops
+short of code generation: nothing here needs the code generator, writes a file,
+or links anything.
+
+Only a target whose policy compiles `@aot` functions is asked. Under `off`, the
+default, a build never lowers and never refuses, so a check says nothing either:
+the function runs as ordinary Nupp and the annotation is a reservation. Every
+other policy fails the build on a refusal, so a check reports one as an error.
+
+Lives in the tools layer, beside the build it mirrors. The checker knows nothing
+about targets, and `compiler/aot` does not require the checker, so the direction
+between them is unchanged.
+]]
+
+const {type ParseResult} = require("nupp.compiler.syntax.parser")
+const {type Artifacts} = require("nupp.compiler.aot.compile")
+const {type Target as TierTarget} = require("nupp.compiler.aot.target")
+
+local envMod = require("nupp.compiler.project.env")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local fs = require("nupp.compiler.fs")
+
+local aotcheck = {}
+
+--- That `loadBackend` does not make the AOT backend part of what this
+--- module is defined by, for `nupp.compiler.project.fingerprint`'s module graph.
+---
+--- A module build requires this, and the digest of everything a module build
+--- requires keys every check record in every project. Taking the backend into it
+--- would make an edit to lowering discard the record of every module, `@aot` or
+--- not. A verdict carries its own stamp instead, `aotcheck.backendKey`, and only a
+--- module that was lowered is asked about it.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
+--- `require` under another name. A backend module is loaded when a verdict is
+--- first asked for, and through this so that neither the module graph nor an
+--- optimizer that inlines a constant argument turns the load back into a literal
+--- `require` of the backend.
+local loadBackend: function(string): any = require
+
+--- The stamp a lowering verdict is kept under: a digest of the code that lowered it.
+---
+--- @param cacheDir where the compiler's module graph is kept between commands
+--- @param digest the build's content digest
+function aotcheck.backendKey(cacheDir: string?, digest: (function(string): string)?): string
+    return fingerprint.subsystemFingerprint({"nupp.compiler.aot.compile"}, cacheDir, digest)
+end
+
+--- The part of a build target this reads.
+type aotcheck.Target = {
+    --- The target's name, which the help names so a reader knows which build refuses.
+    name: string?,
+
+    --- The `aot` policy: `off`, `require`, `emit-wasm` or `require-wasm`.
+    aot: string?,
+
+    --- The triple AOT code is compiled for, when it is not the host's.
+    aotTarget: string?,
+
+    --- The inclusive feature-tier range a build carries.
+    aotFeatures: any
+}
+
+--- Whether a policy lowers `@aot` functions, which is whether a build can refuse one.
+function aotcheck.applies(policy: string?): boolean
+    return policy == "require" or policy == "emit-wasm" or policy == "require-wasm"
+end
+
+--- Whether a build looks for `@aot` functions in `path`.
+---
+--- Under the include roots, or the project directory when there are none, and
+--- never under the build's own output: the sources a build lists. A module a
+--- target links from the runtime or takes from a dependency is not one of them.
+---
+--- @param root the project directory
+--- @param include the manifest's include roots
+--- @param outDir where the target builds, relative to `root`
+function aotcheck.projectSource(root: string, include: {string}?, outDir: string, path: string): boolean
+    -- Compared as canonical paths: an editor names a file by the spelling its URI
+    -- carries, `/tmp` for `/private/tmp` among them, and an include of `.` joins to
+    -- a trailing `/.` that no lexical comparison sees through.
+    local file = fs.canonical(path)
+    local built = fs.canonical(fs.join(root, outDir)) .. "/"
+    if file:sub(1, #built) == built then
+        return false
+    end
+    local roots: {string} = {}
+    for _, directory in ipairs(include or {}) do
+        roots[#roots + 1] = fs.canonical(fs.join(root, directory))
+    end
+    if #roots == 0 then
+        roots[1] = fs.canonical(root)
+    end
+
+    return envMod.moduleNameInRoots(roots, file) ~= nil
+end
+
+--- The triple and feature range a build of this policy compiles for.
+---
+--- The Wasm policies compile for the browser's Wasm target whatever the host is.
+--- Shared with the build so the two cannot select different tiers.
+function aotcheck.selection(policy: string?, triple: string?, features: any): (string?, any)
+    if policy == "emit-wasm" or policy == "require-wasm" then
+        return "wasm32-unknown-emscripten", features or "scalar"
+    end
+
+    return triple, features
+end
+
+local function offsetOf(source: string, line: integer, column: integer): integer
+    local offset: integer = 1
+    for _ = 2, line do
+        offset = (source:find("\n", offset, true) or #source) + 1
+    end
+
+    return offset + column - 1
+end
+
+--- The width of what starts at `offset`: a name or a number, else one byte.
+local function widthAt(source: string, offset: integer): integer
+    local word = source:match("^[%a_][%w_]*", offset) or source:match("^%d[%w%.]*", offset)
+
+    return word ~= nil and #(word as string) or 1
+end
+
+--- What a build of `target` would refuse about one checked source, as diagnostics.
+---
+--- Empty when the target does not compile `@aot` functions, when the source has
+--- none, and when every tier admits every one. Otherwise the refusals of the first
+--- tier that refuses, which is the one a build stops at. A file that only mentions
+--- the annotation is not a refusal here any more than it is in a build.
+---
+--- Each tier lowers the source on its own, as a build does, with no const demands
+--- from other modules: a const-generic family is specialized for the calls in its
+--- own module. A family only another module closes is refused by the build and not
+--- here.
+---
+--- @param source the text that was checked
+--- @param filename what the diagnostics name
+--- @param checked the checker's tree for `source`, which lowering reads types from
+--- @param target the build target the check is for
+--- @raises string when lowering finds its own IR malformed, which is a compiler bug
+---   a build would raise on as well
+function aotcheck.refusals(source: string, filename: string, checked: ParseResult, target: aotcheck.Target): {any}
+    local policy = target.aot
+    if not aotcheck.applies(policy) or source:find("@aot", 1, true) == nil then
+        return {}
+    end
+    local triple, features = aotcheck.selection(policy, target.aotTarget, target.aotFeatures)
+    -- A range the manifest cannot select is the manifest's error, reported where it
+    -- is loaded; there is no tier to lower for.
+    local compile = loadBackend("nupp.compiler.aot.compile")
+    local tiers = loadBackend("nupp.compiler.aot.target").buildTiers(triple, features)
+    if tiers == nil then
+        return {}
+    end
+    for _, tier in ipairs(tiers as {TierTarget}) do
+        local artifacts, problems = compile.artifacts(source, filename, checked, "<object>", tier, tier.tier, nil)
+        if artifacts == nil then
+            local first = problems[1]
+            if first == nil or first.code == compile.NO_AOT_FUNCTION then
+                return {}
+            end
+            local help = (
+                "target %s compiles `@aot` functions for the %s tier (aot = %q); rewrite this, or remove "
+                .. "`@aot` to run the function as ordinary Nupp"
+            ):format(target.name or "default", tier.tier, policy as string)
+            local out: {any} = {}
+            for _, problem in ipairs(problems) do
+                local offset = offsetOf(source, problem.line, problem.column)
+                out[
+                    #out + 1
+                ] = {
+                    filename = filename,
+                    line = problem.line,
+                    col = problem.column,
+                    offset = offset,
+                    length = widthAt(source, offset),
+                    severity = "error",
+                    code = problem.code,
+                    msg = problem.message,
+                    help = help,
+                }
+            end
+
+            return out
+        end
+        -- A file whose functions all run on the GPU compiles one shader for every
+        -- tier, so the first tier is the whole answer, as it is in a build.
+        local cpu = false
+        for _, program in ipairs((artifacts as Artifacts).programs) do
+            cpu = cpu or program.executionTarget ~= "gpu"
+        end
+        if not cpu then
+            return {}
+        end
+    end
+
+    return {}
+end
+
+export = aotcheck

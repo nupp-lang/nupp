@@ -1941,6 +1941,12 @@ operation inside one reports `NUPP2903` at the construct. Stacking it with
 constructor, qualified declaration or inline requirement is not a replaceable
 local function declaration, so annotating one reports `NUPP2902`.
 
+What lowering itself refuses is `NUPP2905` through `NUPP2908`: a `number` used
+as a branch condition, a call no intrinsic admits, a lane past the tier's
+species, a GPU kernel outside its subset, or a const family over its cap.
+`nupp check` lowers too, for a target whose policy is anything but `off`, so a
+program that checks against that target is one its build admits.
+
 The compiler classifies an admitted function automatically. Numeric, struct and
 span code uses the pointer-free `kernel` ABI. A function that constructs or
 returns ordinary Lua tables or strings uses the `lua-builder` ABI and is entered

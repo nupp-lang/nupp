@@ -18,9 +18,10 @@ local function clamp(value: number, low: number, high: number): number
 end
 ```
 
-`nupp check` validates the target and the structural subset, so `@aot` on
-something the backend could not compile is an error rather than a surprise
-later. [Build policy](build-and-artifacts.md) selects what a build does with a
+`nupp check` validates the target and the structural subset, and for a target
+whose policy compiles `@aot` code it lowers each function for every feature tier
+the build selects, so `@aot` on something the backend could not compile is an
+error rather than a surprise later. [Build policy](build-and-artifacts.md) selects what a build does with a
 CPU result: `off` by default, and `require` to compile it into the project's
 own shared library and call it. Browser
 applications have corresponding
