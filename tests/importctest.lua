@@ -466,6 +466,22 @@ function M.theOutputFlagIsSpelledLikeEveryOtherCommands()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The module is named from the output path, so a `..` inside it that stays in the
+-- project names the module the folded path names, not `src....src.mini`.
+function M.aDotDotInsideTheOutputPathIsFolded()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write('return {include = {"src"}}\n')
+   manifest:close()
+   local output, ok = runCli(dir, ("-o src/../src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
+   assert(ok, "import-c writes the module: " .. output)
+   local text = readFile(dir .. "/src/mini.nupp")
+   assertContains(text, "\nmodule mini\n")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A generated module is committed and hand-edited, so it lands in the one spelling
 -- `nupp fmt` produces rather than failing the project's format check.
 function M.theWrittenModuleIsAlreadyFormatted()

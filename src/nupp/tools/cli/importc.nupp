@@ -55,6 +55,31 @@ local function headerModuleName(header: string): string
     return name
 end
 
+--- A relative output path with its `name/..` pairs folded away.
+---
+--- The module is named from the path's spelling, and `src/../src/x.nupp` spelled
+--- the module `src....src.x`. The folding is here rather than where a path is
+--- named in general, because a source loaded as `tests/../src/...` keeps the name
+--- its spelling gives it, and this is a path the command is about to create. A
+--- path that climbs out of the working directory keeps its leading `..`, which
+--- is what refuses it below.
+local function foldOutput(path: string): string
+    local normalized = (path:gsub("\\", "/"))
+    if normalized:sub(1, 1) == "/" or normalized:match("^[A-Za-z]:/") then
+        return path
+    end
+    local parts: {string} = {}
+    for part in normalized:gmatch("[^/]+") do
+        if part == ".." and #parts > 0 and parts[#parts] ~= ".." then
+            parts[#parts] = nil
+        elseif part ~= "." then
+            parts[#parts + 1] = part
+        end
+    end
+
+    return table.concat(parts, "/")
+end
+
 local function run(options: any): integer
     local positional: {string} = {options.header}
     local paths: {string} = positional
@@ -65,7 +90,7 @@ local function run(options: any): integer
     local asJson = options.format == "json"
     local reportMod = require("nupp.tools.cli.report")
     local importc = require("nupp.compiler.cinterop.importc")
-    local out = options.output or (headerModuleName(header) .. ".nupp")
+    local out = options.output and foldOutput(options.output) or (headerModuleName(header) .. ".nupp")
     local config = require("nupp.tools.build.manifest").load(".")
     local envMod = require("nupp.compiler.project.env")
     local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
