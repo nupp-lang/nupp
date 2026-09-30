@@ -571,6 +571,11 @@ for _ = 1, repeats do hot(2000000) end
 -- and a penalty the compiler's own aborted loops left in the one stepper's loop
 -- lands on can hold it off for up to 30,000 iterations. Setting hotloop reseeds
 -- every counter, and 1 makes the first back-edge record the FNEW that aborts.
+-- Flushing first gives back the machine code and trace slots the compiler's own
+-- traces took in this process, so the recording cannot be cut short by a full
+-- trace table or code area either, whatever the process did before getting here.
+jit.flush()
+jit.on()
 jit.opt.start("hotloop=1")
 stepper(3000)
 io.write("ran\n")
