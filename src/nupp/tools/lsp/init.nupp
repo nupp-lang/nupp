@@ -954,7 +954,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         return "opaque"
     end
 
-    handlers["$/nupp/inspect"] = function(id, params)
+    handlers["nupp/inspect"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
             respond(id, json.NULL);
@@ -1007,7 +1007,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- One-shot trace eligibility for the smallest checked function containing the
     -- cursor. This reads the document overlay already checked by the language server;
     -- it neither adds @jit nor compiles or executes a temporary program.
-    handlers["$/nupp/traceCheck"] = function(id, params)
+    handlers["nupp/traceCheck"] = function(id, params)
         local _, doc = documentAt(params)
         local position = params and params.position
         local offset = doc and position and offsetAtPosition(doc.text, position) or nil
@@ -1074,11 +1074,11 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- What the buffer compiles to. Discovery is answered from the check that has
     -- already happened, so it costs nothing to ask per function; resolution lowers
     -- the buffer, so it is asked for once something has been opened.
-    handlers["$/nupp/artifacts"] = function(id, params)
+    handlers["nupp/artifacts"] = function(id, params)
         respond(id, compiled.discover(params))
     end
 
-    handlers["$/nupp/artifact"] = function(id, params)
+    handlers["nupp/artifact"] = function(id, params)
         respond(id, compiled.resolve(params))
     end
 
@@ -1088,7 +1088,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
 
     -- A one-shot planner for Lua documents. The current bytes travel with the request,
     -- so LuaLS can continue to own synchronization and every ordinary Lua feature.
-    handlers["$/nupp/migrateAnnotatedLua"] = function(id, params)
+    handlers["nupp/migrate"] = function(id, params)
         local document = params and params.textDocument
         local uri = type(document) == "table" and document.uri or nil
         local source = params and params.text

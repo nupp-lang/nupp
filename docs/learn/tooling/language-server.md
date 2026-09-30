@@ -124,7 +124,7 @@ dependencies](../projects/integrations/luacats.md#pin-the-source), so a `kind = 
 tree an editor has never fetched is fetched once and the project types the way
 its build does.
 
-Which project answered travels with the answer. `$/nupp/inspect` names it in
+Which project answered travels with the answer. `nupp/inspect` names it in
 `root`, and a `workspace/symbol` result carries the folder its declaration is
 in as `data.root`:
 
@@ -180,6 +180,38 @@ token carrying the diagnostic rather than only at its first byte.
 A spelling fix refuses on a tie rather than picking one, and a missing require
 offers one fix per candidate module rather than guessing between them.
 
+## Custom requests
+
+Beyond the protocol, the server answers five requests of its own. Each is named
+`nupp/<method>`, the `<tool>/<method>` convention rust-analyzer uses, rather
+than under the `$/` prefix LSP reserves for messages a peer may drop, and each
+has a command-line twin that runs the same handler:
+
+| Request | Command-line form | What it answers |
+| --- | --- | --- |
+| `nupp/inspect` | `nupp lsp inspect` | The symbol at a position, and which project answered |
+| `nupp/traceCheck` | `nupp lsp trace-check` | The trace blockers and risks in the function at a position |
+| `nupp/artifacts` | `nupp lsp artifacts` | What the buffer compiles to, without compiling it |
+| `nupp/artifact` | `nupp lsp artifact` | One compiled artifact of the buffer |
+| `nupp/migrate` | `nupp migrate --dry-run` | The plan for migrating an annotated Lua buffer to Nupp |
+
+`nupp/traceCheck` takes a document and a position. It selects the smallest
+checked function containing the position and answers with its `name`, `range`,
+the `findings` a `@jit` contract would report there -- each a stable `reason`,
+its `class`, a `message`, a `help` and the `callPath` a blocker was reached
+through -- the `traceProfile` and `reasonCatalog` they were judged against, and
+`contract`, which is `@jit` when the function already carries one and
+`inspection` otherwise. For a declaration without the contract, `addContract`
+is the edit that adds it. A position in no checked function answers `null`. It
+reads the checked overlay and runs nothing.
+
+`nupp/migrate` takes a document, its current `text`, and an optional `dialect`
+(`auto`, `luacats`, `emmy` or `luadoc`). The text travels with the request, so a
+Lua language server can keep owning the document's synchronization. It answers
+`ok: true` with the `sourceUri`, the `destinationUri`, the migrated `text`, the
+`edits`, the importer's `warnings` and the `dialect` it resolved, or `ok: false`
+and an `error`. It plans and writes nothing; the client applies the plan.
+
 ## Compiled artifacts
 
 What a file compiles to, answered for the buffer rather than for the file on
@@ -187,8 +219,8 @@ disk. Two requests, because the two questions cost different amounts:
 
 | Request | Cost |
 | --- | --- |
-| `$/nupp/artifacts` | The check already done, so a client may ask per function |
-| `$/nupp/artifact` | Lowers the buffer, so a client asks once something is opened |
+| `nupp/artifacts` | The check already done, so a client may ask per function |
+| `nupp/artifact` | Lowers the buffer, so a client asks once something is opened |
 
 A lens carries a command the *client* runs, so the server advertises
 `codeLensProvider` only for a client whose `initializationOptions` name one:
@@ -202,9 +234,9 @@ an older extension from showing a button over every function that nothing it has
 can run. The command on each lens is the one the client gave, so the server never
 needs to know what any particular editor calls it.
 
-`$/nupp/artifacts` takes a document and an optional position and answers with
+`nupp/artifacts` takes a document and an optional position and answers with
 the kinds available and the innermost function the position is in.
-`$/nupp/artifact` takes a document, a `kind` and an optional `optLevel`, and
+`nupp/artifact` takes a document, a `kind` and an optional `optLevel`, and
 answers with the artifact or with why there is not one. The kinds the server can
 produce are advertised under `capabilities.experimental.nuppArtifacts`, so a
 client can tell what it may ask for without asking for it.

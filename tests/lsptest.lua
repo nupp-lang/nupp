@@ -606,7 +606,7 @@ function M.anAbsolutePathUnderARelativeRootReusesItsGraph()
     client.dispatch({
         jsonrpc = "2.0",
         id = 2,
-        method = "$/nupp/inspect",
+        method = "nupp/inspect",
         params = {textDocument = {uri = uri}, position = {line = 1, character = 8}}
     })
     local answer = client.answer(2)
@@ -1031,13 +1031,13 @@ function M.hoverOnALocalFunctionNameShowsItsSignature()
             {
                 jsonrpc = "2.0",
                 id = 11,
-                method = "$/nupp/inspect",
+                method = "nupp/inspect",
                 params = {textDocument = {uri = uri}, position = {line = 0, character = 16}}
             },
             {
                 jsonrpc = "2.0",
                 id = 12,
-                method = "$/nupp/inspect",
+                method = "nupp/inspect",
                 params = {textDocument = {uri = uri}, position = {line = 4, character = 8}}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
@@ -1092,7 +1092,7 @@ function M.hoverAndInspectExposeAutomaticCleanup()
             {
                 jsonrpc = "2.0",
                 id = 11,
-                method = "$/nupp/inspect",
+                method = "nupp/inspect",
                 params = {textDocument = {uri = uri}, position = {line = 10, character = 10}}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
@@ -3628,7 +3628,7 @@ function M.answersSayWhichFolderTheyCameFrom()
             {
                 jsonrpc = "2.0",
                 id = 10,
-                method = "$/nupp/inspect",
+                method = "nupp/inspect",
                 params = {textDocument = {uri = uri}, position = {line = 2, character = 13}}
             },
             {jsonrpc = "2.0", id = 11, method = "workspace/symbol", params = {query = "Only"}},
@@ -4485,7 +4485,7 @@ return restored, why, codec, shown
             {
                 jsonrpc = "2.0",
                 id = 11,
-                method = "$/nupp/inspect",
+                method = "nupp/inspect",
                 params = {textDocument = {uri = uri}, position = at("writeJSON(writer)", 1)}
             },
             {
@@ -5046,7 +5046,7 @@ end
 function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "inspect.nupp", ARTIFACT_SOURCE, "$/nupp/artifacts", {
+    local result = artifactSession(projectDir, "inspect.nupp", ARTIFACT_SOURCE, "nupp/artifacts", {
         position = positionOf(ARTIFACT_SOURCE, "total = total")
     })
     os.execute("rm -rf '" .. projectDir .. "'")
@@ -5065,7 +5065,7 @@ end
 function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "outside.nupp", ARTIFACT_SOURCE, "$/nupp/artifacts", {
+    local result = artifactSession(projectDir, "outside.nupp", ARTIFACT_SOURCE, "nupp/artifacts", {
         position = positionOf(ARTIFACT_SOURCE, "return scale")
     })
     os.execute("rm -rf '" .. projectDir .. "'")
@@ -5079,7 +5079,7 @@ end
 function M.generatedLuaIsLineIdenticalToItsSource()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "lua"})
+    local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "lua"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file lowers: " .. json.encode(result.unavailable or {}))
     test.equal(result.kind, "lua")
@@ -5107,7 +5107,7 @@ function M.artifactsLowerTheBufferRatherThanTheFileOnDisk()
         projectDir,
         "unsaved.nupp",
         "local inBuffer = 2\nreturn inBuffer\n",
-        "$/nupp/artifact",
+        "nupp/artifact",
         {kind = "lua"}
     )
     os.execute("rm -rf '" .. projectDir .. "'")
@@ -5119,7 +5119,7 @@ end
 function M.bytecodeArtifactMapsItsLinesBackToSource()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "listing.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "bytecode"})
+    local result = artifactSession(projectDir, "listing.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "bytecode"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
     test.equal(result.mapping.kind, "lines-collapsible")
@@ -5152,7 +5152,7 @@ function M.foldingTheListingLeavesOneRowPerSourceLine()
         "return scale\n",
         "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
     )
-    local result = artifactSession(projectDir, "folded.nupp", source, "$/nupp/artifact", {kind = "bytecode"})
+    local result = artifactSession(projectDir, "folded.nupp", source, "nupp/artifact", {kind = "bytecode"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
     local lines = {}
@@ -5188,7 +5188,7 @@ end
 function M.anUnresolvableArtifactSaysWhyRatherThanComingBackEmpty()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "broken.nupp", "local value: integer = \n", "$/nupp/artifact", {
+    local result = artifactSession(projectDir, "broken.nupp", "local value: integer = \n", "nupp/artifact", {
         kind = "lua"
     })
     os.execute("rm -rf '" .. projectDir .. "'")
@@ -5201,7 +5201,7 @@ end
 function M.anUnknownArtifactKindIsRefusedByName()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "kind.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "wgsl"})
+    local result = artifactSession(projectDir, "kind.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "wgsl"})
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(result.available, false)
     test.equal(result.unavailable.reason, "unknown-kind")
@@ -5212,8 +5212,8 @@ end
 function M.artifactIdentityCarriesTheOptimizationLevel()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local plain = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "lua"})
-    local optimized = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {
+    local plain = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "lua"})
+    local optimized = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "nupp/artifact", {
         kind = "lua",
         optLevel = 1
     })
@@ -5226,7 +5226,7 @@ end
 function M.anUnknownOptimizationLevelIsRefused()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {
+    local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "nupp/artifact", {
         kind = "lua",
         optLevel = 9
     })
@@ -5239,7 +5239,7 @@ function M.optimizationLevelsAreNotCoerced()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     for _, optLevel in ipairs({1.5, "1"}) do
-        local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {
+        local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "nupp/artifact", {
             kind = "lua",
             optLevel = optLevel
         })
@@ -5503,7 +5503,7 @@ function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
             {
                 jsonrpc = "2.0",
                 id = 10,
-                method = "$/nupp/migrateAnnotatedLua",
+                method = "nupp/migrate",
                 params = {textDocument = {uri = uri}, text = source, dialect = "auto"}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
@@ -5516,6 +5516,65 @@ function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
     assert(result and result.ok, "migration request failed")
     assert(result.destinationUri:match("legacy%.g%.nupp$"))
     assertContains(result.text, "local function keep(value: integer): integer", "unsaved Lua text was planned")
+end
+
+-- `nupp/traceCheck` answers for the smallest checked function around the cursor with
+-- the findings a `@jit` contract would report there, and offers the edit that adds the
+-- contract. The retired `$/nupp/` spelling is an unknown method.
+function M.traceCheckReportsTheFunctionAtTheCursor()
+    local root = scratchRoot()
+    local uri = fileUri(root .. "/trace.nupp")
+    local source = table.concat(
+        {
+            "local function hot(n: integer): integer",
+            "    local total = 0",
+            "    for i = 1, n do",
+            "        local step = function(): integer return i end",
+            "        total = total + step()",
+            "    end",
+            "    return total",
+            "end",
+            "return hot",
+        },
+        "\n"
+    ) .. "\n"
+    local out = runSession(
+        {
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 10,
+                method = "nupp/traceCheck",
+                params = {textDocument = {uri = uri}, position = {line = 1, character = 8}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 11,
+                method = "$/nupp/traceCheck",
+                params = {textDocument = {uri = uri}, position = {line = 1, character = 8}}
+            },
+            {jsonrpc = "2.0", id = 2, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
+        },
+        root
+    )
+    local result = responseWithId(out, 10).result
+    assert(type(result) == "table", "the function at the cursor is checked")
+    test.equal(result.name, "hot", "the enclosing declaration is selected")
+    test.equal(result.contract, "inspection", "an uncontracted function is inspected")
+    local construction = false
+    for _, finding in ipairs(result.findings) do
+        construction = construction or finding.reason == "jit/loop-function-construction"
+    end
+    assert(construction, "the loop that builds a function is a finding")
+    assertContains(result.addContract and result.addContract.newText or "", "@jit", "the contract edit is offered")
+    local retired = responseWithId(out, 11)
+    assert(retired.error and retired.error.code == -32601, "the $/ spelling is no longer answered")
 end
 
 -- A long-bracket comment documents its declaration like a `---` run does, and
@@ -5693,7 +5752,7 @@ local function double(value: int32): int32
 end
 return double
 ]],
-        "$/nupp/artifacts",
+        "nupp/artifacts",
         {position = {line = 3, character = 8}}
     )
     test.equal(answer["function"].aotSymbol, "ks_double")

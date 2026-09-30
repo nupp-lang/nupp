@@ -8,9 +8,9 @@ obviously, is an ordinary one: the Lua a `.nupp` file erases to and the bytecode
 LuaJIT then runs are both already reachable from the command line, but only for
 a file that has been saved, and only into a terminal that cannot be clicked.
 
-Two requests, for the two costs. `$/nupp/artifacts` asks what is available at a
+Two requests, for the two costs. `nupp/artifacts` asks what is available at a
 position and is answered from the check the session has already done, so a
-client may ask it per function on every viewport. `$/nupp/artifact` resolves one
+client may ask it per function on every viewport. `nupp/artifact` resolves one
 and lowers the buffer to do it, so a client asks it when somebody opened
 something.
 

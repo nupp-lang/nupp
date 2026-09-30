@@ -67,7 +67,7 @@ async function checkFunctionForTraceBlockers(target) {
   traceDiagnostics.delete(uri);
   let result;
   try {
-    result = await running.client.sendRequest("$/nupp/traceCheck", {
+    result = await running.client.sendRequest("nupp/traceCheck", {
       textDocument: { uri: uri.toString() },
       position
     });
@@ -136,7 +136,7 @@ async function migrateAnnotatedLua(target) {
     .get("luaMigrationDialect", "auto");
   let plan;
   try {
-    plan = await running.client.sendRequest("$/nupp/migrateAnnotatedLua", {
+    plan = await running.client.sendRequest("nupp/migrate", {
       textDocument: { uri: document.uri.toString() },
       text: document.getText(),
       dialect
@@ -208,7 +208,7 @@ async function resolveArtifact(sourceUri, kind, optLevel) {
   // The server answers from its own copy of the buffer, so the document has to
   // be open for it to have one.
   await vscode.workspace.openTextDocument(sourceUri);
-  return running.client.sendRequest("$/nupp/artifact", {
+  return running.client.sendRequest("nupp/artifact", {
     textDocument: { uri: sourceUri.toString() },
     kind,
     optLevel
@@ -521,7 +521,7 @@ async function inspectCompiledFunction(target) {
     : vscode.window.activeTextEditor && vscode.window.activeTextEditor.selection.active;
   let available;
   try {
-    available = await running.client.sendRequest("$/nupp/artifacts", {
+    available = await running.client.sendRequest("nupp/artifacts", {
       textDocument: { uri: uri.toString() },
       position
     });

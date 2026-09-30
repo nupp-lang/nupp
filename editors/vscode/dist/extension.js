@@ -22867,7 +22867,7 @@ async function checkFunctionForTraceBlockers(target) {
   traceDiagnostics.delete(uri);
   let result;
   try {
-    result = await running.client.sendRequest("$/nupp/traceCheck", {
+    result = await running.client.sendRequest("nupp/traceCheck", {
       textDocument: { uri: uri.toString() },
       position
     });
@@ -22922,7 +22922,7 @@ async function migrateAnnotatedLua(target) {
   const dialect = vscode.workspace.getConfiguration("nupp", document.uri).get("luaMigrationDialect", "auto");
   let plan;
   try {
-    plan = await running.client.sendRequest("$/nupp/migrateAnnotatedLua", {
+    plan = await running.client.sendRequest("nupp/migrate", {
       textDocument: { uri: document.uri.toString() },
       text: document.getText(),
       dialect
@@ -22984,7 +22984,7 @@ async function resolveArtifact(sourceUri, kind, optLevel) {
     throw new Error("No Nupp language server is running for this file.");
   }
   await vscode.workspace.openTextDocument(sourceUri);
-  return running.client.sendRequest("$/nupp/artifact", {
+  return running.client.sendRequest("nupp/artifact", {
     textDocument: { uri: sourceUri.toString() },
     kind,
     optLevel
@@ -23237,7 +23237,7 @@ async function inspectCompiledFunction(target) {
   const position = target && target.position ? target.position : vscode.window.activeTextEditor && vscode.window.activeTextEditor.selection.active;
   let available;
   try {
-    available = await running.client.sendRequest("$/nupp/artifacts", {
+    available = await running.client.sendRequest("nupp/artifacts", {
       textDocument: { uri: uri.toString() },
       position
     });

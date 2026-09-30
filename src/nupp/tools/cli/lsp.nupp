@@ -635,7 +635,7 @@ local function runInspect(client, opts)
     if not path then
         return nil, err
     end
-    local result, requestErr = client.request("$/nupp/inspect", positionParams(path, position))
+    local result, requestErr = client.request("nupp/inspect", positionParams(path, position))
     if requestErr then
         return nil, requestErr
     end
@@ -1060,7 +1060,7 @@ local function runTraceCheck(client, opts)
     if not path then
         return nil, err
     end
-    local result, requestErr = client.request("$/nupp/traceCheck", positionParams(path, position))
+    local result, requestErr = client.request("nupp/traceCheck", positionParams(path, position))
     if requestErr then
         return nil, requestErr
     end
@@ -1114,7 +1114,7 @@ local function runArtifacts(client, opts)
     if not path then
         return nil, err
     end
-    local result, requestErr = client.request("$/nupp/artifacts", positionParams(path, position))
+    local result, requestErr = client.request("nupp/artifacts", positionParams(path, position))
     if requestErr then
         return nil, requestErr
     end
@@ -1166,7 +1166,7 @@ local function runArtifact(client, opts)
     if readErr then
         return nil, readErr
     end
-    local result, requestErr = client.request("$/nupp/artifact", {
+    local result, requestErr = client.request("nupp/artifact", {
         textDocument = {uri = pathToUri(path)},
         kind = opts.kind,
         optLevel = tonumber(opts.artifactOptLevel) or 0,
