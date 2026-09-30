@@ -156,7 +156,8 @@
           "groups": ["docs"],
           "guarantees": [
             "generated documentation matches its sources",
-            "every diagnostic code has a reference section"
+            "every diagnostic code has a reference section",
+            "every documented Nupp example checks, or is marked a fragment or a refused program"
           ]
         }
       ]

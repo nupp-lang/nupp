@@ -55,6 +55,7 @@ return {
         "clidoctest",
         "diagnosticgoldentest",
         "doctest",
+        "examplestest",
         "explaintest",
         "homesampletest",
         "overloaddoctest",
