@@ -136,6 +136,20 @@ if [ -f "$TOOLCHAIN_LUAROCKS/.complete" ] && [ -z "${NUPP_LUAROCKS:-}" ]; then
     esac
     PATH="$TOOLCHAIN_LUAROCKS_BIN:$PATH"
     export PATH
+elif [ -z "${NUPP_LUAROCKS:-}" ]; then
+    # Not installed yet. A build would otherwise run whichever `luarocks` is
+    # first on PATH, of any version and from anywhere, and install the rocks a
+    # release bundles with it. The shim provisions the pinned one on first use,
+    # so a command that installs nothing costs nothing. Windows starts tools
+    # natively and cannot run a shell script, so it keeps the PATH lookup; its
+    # CI provisions the toolchain before any build.
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        *)
+            NUPP_LUAROCKS="$ROOT/scripts/luarocks"
+            export NUPP_LUAROCKS
+            ;;
+    esac
 fi
 export LUA_PATH LUA_CPATH
 export NUPP_COMPILER_ROOT="$LUA_ROOT"

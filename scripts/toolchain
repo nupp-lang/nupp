@@ -2058,6 +2058,11 @@ build_llvm() {
     llvm_complete "$out" && { release_lock; return 0; }
     source=$(llvm_source)
     LLVM_SOURCE=$source
+    # Every release archive carries these two notices for what `nupp` links,
+    # and they were copied by hand. Held to the source they describe, as
+    # LuaJIT's and LPeg's are, before an hour goes into building it.
+    verify_notice "$source/llvm/LICENSE.TXT" LLVM-LICENSE.txt
+    verify_notice "$source/lld/LICENSE.TXT" LLD-LICENSE.txt
     jobs=${NUPP_LLVM_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 4)}
     note "building LLVM $LLVM_VERSION with $CC/$CXX, $jobs jobs (this takes a while)"
     rm -rf "$out"

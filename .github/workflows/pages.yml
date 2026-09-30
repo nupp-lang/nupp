@@ -41,12 +41,6 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "$channel" --profile minimal
 
-      - name: Set up Emscripten 6.0.8
-        uses: emscripten-core/setup-emsdk@v15
-        with:
-          version: 6.0.8
-          actions-cache-folder: emsdk-cache
-
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
 

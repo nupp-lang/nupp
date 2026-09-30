@@ -24,9 +24,12 @@ brew update
 brew upgrade nupp
 ```
 
-The macOS release is currently unsigned. A browser download may make macOS ask
-for explicit approval the first time it runs; use **Open Anyway** under
-**System Settings > Privacy & Security** if that happens.
+Release CI signs and notarizes the macOS binary with a Developer ID when the
+project's Apple credentials are configured, and otherwise ships it with only
+the ad-hoc signature every arm64 executable carries. `SIGNING.txt` in the
+archive says which. An archive without a Developer ID downloaded through a
+browser may make macOS ask for explicit approval the first time it runs; use
+**Open Anyway** under **System Settings > Privacy & Security** if that happens.
 
 ## Scoop on Windows
 

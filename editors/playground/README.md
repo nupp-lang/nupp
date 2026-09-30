@@ -17,8 +17,9 @@ npm run serve --prefix editors/playground
 
 The LuaJIT guest is built from pinned sources on Linux x86_64. Other development
 hosts set `NUPP_BROWSER_GUEST_DIR` to a verified source-built guest package.
-See [guest requirements](../../runtime/luajit/README.md). Emscripten 6.0.8 is
-needed when packaging independent Wasm kernels.
+See [guest requirements](../../runtime/luajit/README.md). Independent Wasm
+kernels are compiled and linked by the pinned LLVM `nupp` carries; no
+Emscripten install is needed.
 The build creates missing pre-LuaJIT snapshots in a derived build cache using
 headless Chromium; it does not modify the toolchain's source package.
 

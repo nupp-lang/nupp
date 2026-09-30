@@ -2328,7 +2328,7 @@ The text form is one line and stays one line, in the shape an install script or
 a packaging recipe already expects:
 
 ```text
-nupp 0.0.2
+nupp 1.2.3
 ```
 
 A version with a `-dev` suffix is a checkout between releases rather than a
@@ -2339,7 +2339,7 @@ the tag before publishing it.
 `--json` adds the LuaJIT interpreter underneath:
 
 ```json
-{"version": "0.0.2", "runtime": "LuaJIT 2.1.1234567890"}
+{"version": "1.2.3", "runtime": "LuaJIT 2.1.1234567890"}
 ```
 
 Answering costs nothing but starting the process: the number is a string in the

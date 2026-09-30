@@ -1,0 +1,22 @@
+#!/bin/sh
+# The pinned LuaRocks, provisioned the first time a build asks for it.
+#
+# `bin/nupp` names this as NUPP_LUAROCKS while `scripts/toolchain` has not
+# installed LuaRocks yet. A build that installs a rock then runs the pinned,
+# digest-checked LuaRocks rather than whichever `luarocks` is first on PATH, and
+# a command that installs no rock pays nothing for it.
+#
+# What provisioning prints goes to standard error only when it fails: a build
+# reads `luarocks --version` as part of what a rock was installed by, and the
+# first run's install log is not a version.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+log=$(mktemp "${TMPDIR:-/tmp}/nupp-luarocks.XXXXXX")
+if ! prefix=$("$ROOT/scripts/toolchain" luarocks 2>"$log"); then
+    cat "$log" >&2
+    rm -f "$log"
+    echo "nupp: scripts/toolchain could not provision the pinned LuaRocks" >&2
+    exit 1
+fi
+rm -f "$log"
+exec "$(cat "$prefix/.executable")" "$@"

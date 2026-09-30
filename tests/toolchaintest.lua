@@ -186,6 +186,50 @@ local function rockspec(path)
     return fields
 end
 
+-- A build that installs a rock ran whichever `luarocks` was first on PATH when the
+-- pinned one had not been installed yet. The launcher now names a shim instead,
+-- which asks `scripts/toolchain` for the pinned LuaRocks and runs it with the
+-- build's arguments; the provisioning log stays out of what `--version` answers.
+function M.anUnprovisionedLuaRocksIsThePinnedOneNotThePathOne()
+    local launcher = read(ROOT .. "/bin/nupp")
+    assert(launcher:find('NUPP_LUAROCKS="$ROOT/scripts/luarocks"', 1, true), "bin/nupp falls back to PATH's luarocks")
+    if package.config:sub(1, 1) == "\\" then
+        return
+    end
+
+    local directory = temporary()
+    local root = directory .. "/root"
+    local prefix = directory .. "/prefix"
+    assert(os.execute("mkdir -p " .. quote(root .. "/scripts") .. " " .. quote(prefix)) == 0)
+    write(root .. "/scripts/luarocks", read(ROOT .. "/scripts/luarocks"))
+    write(
+        root .. "/scripts/toolchain",
+        "#!/bin/sh\n[ \"$1\" = luarocks ] || exit 9\necho 'installing LuaRocks' >&2\nprintf '%s\\n' "
+            .. quote(prefix)
+            .. "\n"
+    )
+    write(prefix .. "/luarocks", "#!/bin/sh\nprintf 'pinned %s\\n' \"$*\"\n")
+    write(prefix .. "/.executable", prefix .. "/luarocks\n")
+    assert(
+        os.execute(
+            "chmod +x " .. quote(root .. "/scripts/luarocks") .. " " .. quote(root .. "/scripts/toolchain") .. " "
+                .. quote(prefix .. "/luarocks")
+        ) == 0
+    )
+    local pipe = assert(io.popen(quote(root .. "/scripts/luarocks") .. " --tree=x install 'a b' 2>&1"))
+    local output = pipe:read("*a")
+    pipe:close()
+    assert(output == "pinned --tree=x install a b\n", "the shim did not run the pinned LuaRocks:\n" .. output)
+
+    write(root .. "/scripts/toolchain", "#!/bin/sh\necho 'cannot download luarocks' >&2\nexit 1\n")
+    pipe = assert(io.popen(quote(root .. "/scripts/luarocks") .. " --version 2>&1; echo \"__exit__:$?\""))
+    output = pipe:read("*a")
+    pipe:close()
+    assert(output:find("cannot download luarocks", 1, true), "a failed provision hid its reason:\n" .. output)
+    assert(not output:find("__exit__:0", 1, true), "a failed provision succeeded:\n" .. output)
+    os.execute("rm -rf " .. quote(directory))
+end
+
 -- The documentation rocks are bundled into the release binary, and they were
 -- pinned by name and version alone: whatever the rock server, or the Git tag its
 -- rockspec named, held on the day was what `dist` shipped. Each is now installed
@@ -228,6 +272,58 @@ function M.everyBundledRockIsPinnedToAnArchiveDigest()
     assert(not pages:find("install lpeg", 1, true), "the Pages build installs LPeg from a rock server")
 end
 
+-- CI restores `.rocks` from a cache, and a build takes a rock installed at the
+-- version it asks for as it is. The key hashed only the toolchain pins, so a
+-- rockspec that moved to other bytes at the same version was served the tree
+-- built from the old ones. Every rock is pinned in rocks/ (above), so that is
+-- what each key covers.
+function M.everyRockTreeCacheKeyCoversTheRockspecs()
+    local handle = assert(io.popen("ls " .. quote(ROOT .. "/.github/workflows")))
+    local caches = 0
+    for name in handle:lines() do
+        if name:match("%.ya?ml$") then
+            local text = read(ROOT .. "/.github/workflows/" .. name)
+            local cursor = 1
+            while true do
+                local at = text:find("\n%s+%.rocks\n", cursor)
+                if not at then
+                    break
+                end
+                local key = text:match("key:[^\n]*\n([^\n]*\n[^\n]*)", at)
+                assert(
+                    key and key:find("hashFiles('scripts/toolchain.pins', 'rocks/**')", 1, true),
+                    name .. " caches .rocks under a key that ignores rocks/: " .. tostring(key)
+                )
+                caches = caches + 1
+                cursor = at + 1
+            end
+        end
+    end
+    handle:close()
+    assert(caches > 0, "no workflow caches .rocks, so this check checks nothing")
+end
+
+-- A tag on a third-party action is a name its owner can move to other code, and
+-- the release job runs one with the signing secrets in reach. Those are pinned
+-- to a commit. GitHub's own actions/* stay on their major tags by choice: they
+-- are published by the platform that already runs the workflow.
+function M.thirdPartyActionsArePinnedToCommits()
+    local handle = assert(io.popen("ls " .. quote(ROOT .. "/.github/workflows")))
+    local checked = 0
+    for name in handle:lines() do
+        if name:match("%.ya?ml$") then
+            for action in read(ROOT .. "/.github/workflows/" .. name):gmatch("uses:%s*([^%s#]+)") do
+                if not action:match("^actions/") and not action:match("^%./") then
+                    checked = checked + 1
+                    assert(action:match("@%x+$") and #action:match("@(%x+)$") == 40, name .. " runs " .. action .. " by tag")
+                end
+            end
+        end
+    end
+    handle:close()
+    assert(checked > 0, "no third-party action is used, so this check checks nothing")
+end
+
 -- A pin written out a second time somewhere that cannot read the pins file. Each
 -- of these agreed only because whoever bumped the pin remembered it: the profiler
 -- labels a trace from any other LuaJIT unsupported, the notice every archive
@@ -258,6 +354,16 @@ function M.handCopiedPinsAgreeWithThePinsFile()
         bound == major .. minor,
         ("llvm-sys is pinned to the %s C API and LLVM_VERSION is %s"):format(tostring(bound), recorded.LLVM_VERSION)
     )
+
+    -- The archive names an offline builder is told to supply.
+    local distribution = read(ROOT .. "/docs/reference/distribution.md")
+    for _, component in ipairs({"LUAJIT", "LUAROCKS", "LPEG"}) do
+        local archive = recorded[component .. "_DIRECTORY"]:gsub("%${([A-Z0-9_]+)}", recorded) .. ".tar.gz"
+        assert(
+            distribution:find("\n" .. archive .. "\n", 1, true),
+            "docs/reference/distribution.md does not name the pinned " .. archive
+        )
+    end
 end
 
 -- GPU conformance uses the distribution-provided Lavapipe ICD. Keeping a
@@ -438,6 +544,49 @@ function M.aDamagedCachedLuajitIsBuiltAgain()
     local status, output = run(environment, "luajit")
     assert(status ~= 0, "a damaged LuaJIT was handed out as the built one:\n" .. output)
     assert(output:find("not what was installed", 1, true), "the damage was not reported:\n" .. output)
+    os.execute("rm -rf " .. quote(directory))
+end
+
+-- The LLVM and LLD notices ship in every release archive, and nothing held them
+-- to the source they describe. A drifted one now stops the LLVM build before any
+-- of it is configured, the way a drifted LuaJIT or LPeg notice does.
+function M.aDriftedLlvmNoticeStopsTheLlvmBuild()
+    local directory = temporary()
+    local root = directory .. "/root"
+    local bin = directory .. "/bin"
+    local source = directory .. "/cache/sources/" .. pins().LLVM_DIRECTORY:gsub("%${LLVM_VERSION}", pins().LLVM_VERSION)
+    for _, path in ipairs({root .. "/scripts/patches", root .. "/host/notices", bin, source .. "/llvm", source .. "/lld"}) do
+        assert(os.execute("mkdir -p " .. quote(path)) == 0)
+    end
+    local driver = root .. "/scripts/toolchain"
+    write(driver, read(DRIVER))
+    write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
+    write(root .. "/scripts/patches/luajit-irt-size.patch", read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    for _, notice in ipairs({"LLVM-LICENSE.txt", "LLD-LICENSE.txt"}) do
+        write(root .. "/host/notices/" .. notice, read(ROOT .. "/host/notices/" .. notice))
+    end
+    write(source .. "/llvm/CMakeLists.txt", "")
+    write(source .. "/lld/CMakeLists.txt", "")
+    write(source .. "/llvm/LICENSE.TXT", read(ROOT .. "/host/notices/LLVM-LICENSE.txt"))
+    write(source .. "/lld/LICENSE.TXT", read(ROOT .. "/host/notices/LLD-LICENSE.txt") .. "\nA new clause.\n")
+    -- cmake records that it ran; reaching it means the notice was not checked.
+    write(bin .. "/cmake", "#!/bin/sh\n: > " .. quote(directory .. "/configured") .. "\nexit 1\n")
+    write(bin .. "/ninja", "#!/bin/sh\nexit 1\n")
+    assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(bin .. "/cmake") .. " " .. quote(bin .. "/ninja")) == 0)
+    local compiler = fakeCompiler(directory, "fake-cc", "fixed")
+    local status, output = run(
+        {
+            NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+            NUPP_CC = compiler,
+            NUPP_CXX = compiler,
+            PATH = forPath(bin) .. ":$PATH",
+        },
+        "llvm",
+        driver
+    )
+    assert(status ~= 0, "a drifted LLD notice was built past:\n" .. output)
+    assert(output:find("host/notices/LLD-LICENSE.txt is not what", 1, true), output)
+    assert(not io.open(directory .. "/configured", "rb"), "LLVM was configured before its notices were checked")
     os.execute("rm -rf " .. quote(directory))
 end
 

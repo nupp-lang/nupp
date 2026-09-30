@@ -41,7 +41,7 @@ jobs:
             .rocks
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}
+            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
 
       - name: Restore the provisioned toolchain
         uses: actions/cache/restore@v4
