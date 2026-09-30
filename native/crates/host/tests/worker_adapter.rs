@@ -337,10 +337,12 @@ typedef struct { unsigned blocks_in_use; size_t size_in_use; size_t max_size_in_
 void malloc_zone_statistics(void *zone, adapter_malloc_statistics_t *stats);
 void *malloc(size_t);
 ]]
-ffi.cdef[[void __asan_init(void);]]
+ffi.cdef[[void __asan_init(void); void __tsan_init(void);]]
 -- AddressSanitizer's allocator quarantines freed blocks outside these
--- statistics, and reports a leak or double free itself.
-if pcall(function() return ffi.C.__asan_init end) then
+-- statistics, and reports a leak or double free itself. ThreadSanitizer's
+-- allocator is not in them at all.
+if pcall(function() return ffi.C.__asan_init end)
+    or pcall(function() return ffi.C.__tsan_init end) then
     return
 end
 local stats = ffi.new("adapter_malloc_statistics_t")
