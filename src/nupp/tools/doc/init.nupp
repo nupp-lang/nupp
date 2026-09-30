@@ -1653,7 +1653,10 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     end
     local format = opts.format or settings.format or "site"
     local title = opts.title or settings.title or config.name or "Nupp API"
-    local output = normalize(opts.output or settings.outDir or doc.defaultOutDir(format))
+    -- The manifest's outDir is where its own format goes. Another format asked for
+    -- on the command line writes to that format's default rather than over it.
+    local configuredOutDir = format == (settings.format or "site") and settings.outDir or nil
+    local output = normalize(opts.output or configuredOutDir or doc.defaultOutDir(format))
     output = join(root, output)
     -- Recording is on for the writes below and off again before returning, so a later
     -- caller without a collector cannot inherit this one's.
