@@ -55,6 +55,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
     handlers.localStmt = function(stat: cst.LocalStmt)
         if stat.pattern then
             local source = stat.patternSource or stat
+            -- A pattern that selects only types erases the require it reads, so the
+            -- module is not used at run time and selects none of its features.
+            local typesOnly = #stat.pattern > 0
+            for _, entry in ipairs(stat.pattern) do
+                typesOnly = typesOnly and entry.typeOnly ~= nil
+            end
+            if typesOnly and source.kind == "call" then
+                source.typeOnlyRequire = true
+            end
             local sourceType = c.infer(source)
             if ownershipKind(sourceType) then
                 c.diag("NUPP2603", source, "an owned or borrowed container cannot be selected by a binding pattern")

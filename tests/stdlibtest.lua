@@ -1946,6 +1946,23 @@ function M.nativeFeaturesAreResolvedEffects()
 
     local namespaceOnly = effectsOf("local store = nupp.util.newStore")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
+
+    -- A require read only for its types is erased, so it selects no feature. It used
+    -- to record the module's, and every program reaching a module that named `Path`
+    -- this way needed the native file host.
+    local typeOnly = effectsOf(
+        table.concat(
+            {
+                "const {type Path} = require('nupp.io.path')",
+                "local function describe(p: Path?): string return p == nil and 'none' or 'some' end",
+                "print(describe(nil))",
+            },
+            "\n"
+        )
+    )
+    assert(next(typeOnly) == nil, "a type-only import selects no feature")
+    local mixed = effectsOf("const {type Path, separator} = require('nupp.io.path')\nprint(separator)")
+    assert(mixed["runtime.path"], "a pattern that also selects a value still uses the module")
 end
 
 function M.processViewsSatisfyTheSharedContracts()

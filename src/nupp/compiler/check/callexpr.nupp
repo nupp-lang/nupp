@@ -1310,13 +1310,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         modname = canonical
                     end
                     local effect = portableEffect or native.forModule(modname)
-                    if effect and c.recordEffect then
+                    local typeOnly = node.typeOnlyRequire == true
+                    if effect and c.recordEffect and not typeOnly then
                         (node as any).compilerFeatureEffect = effect
                         c.recordEffect(effect)
                     end
                     -- Optional native accelerators contribute their packaging effects.
                     local accelerators = require("nupp.compiler.standardsurface").accelerators(modname)
-                    if accelerators and c.recordEffect then
+                    if accelerators and c.recordEffect and not typeOnly then
                         local carried = (node as any).compilerFeatureEffects or {}
                         for _, accelerated in ipairs(accelerators) do
                             carried[#carried + 1] = accelerated
