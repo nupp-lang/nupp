@@ -203,7 +203,7 @@ end
 --- source: the poll snapshots the generation and then checks, and the wait
 --- sleeps on the generation.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- context:source("nupp-files", native.READINESS_PRIORITY, native.pump(harvest))
 --- ```
 --- @export

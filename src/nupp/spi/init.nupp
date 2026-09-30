@@ -8,7 +8,7 @@ does not choose a winner: the caller may compare priorities, check capabilities,
 or combine implementations. `select` is the common rule, the unique highest
 `priority`, with the caller's fallback where nothing is advertised:
 
-```nupp
+```nupp:fragment
 local spi = require("nupp.spi")
 local {type Codec} = require("example.codec.spi")
 
