@@ -431,6 +431,7 @@ function M.everyCommandReportsABrokenManifestAsACodedFailure()
     end
     -- `task` stops reading options at its first argument, which is the task's name.
     holdsTheContract(broken, "task --list --json app", {alreadyJson = true, schema = "task", code = "NUPP0002"})
+    holdsTheContract(broken, "test", {runner = true, where = "a broken manifest"})
     os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
 end
 
@@ -439,6 +440,7 @@ function M.everyCommandAnswersWithoutAManifestOrSaysWhy()
     for _, argv in ipairs({"check", "build", "clean", "task --list", "fixpoint"}) do
         holdsTheContract(none, argv, {code = "NUPP0002", where = "no manifest"})
     end
+    holdsTheContract(none, "test", {runner = true, where = "no manifest"})
     -- A directory without `nupp.lua` is a supported configuration for these.
     for _, argv in ipairs({"lints", "lsp symbols", "check good.nupp"}) do
         holdsTheContract(none, argv, {expectOk = true, where = "no manifest"})

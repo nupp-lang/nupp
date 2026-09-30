@@ -107,7 +107,11 @@ type project.TestOptions = {
     coverage: boolean?,
 
     --- Added to the test command's environment, over the manifest's own.
-    env: {[string]: string}?
+    env: {[string]: string}?,
+
+    --- Where a `--json` run gathers why it stopped before the test command ran,
+    --- instead of stderr.
+    diagnostics: {any}?
 }
 
 --- What `clean` was asked for.
@@ -1316,13 +1320,15 @@ function project.check(root: string?, opts: project.BuildOptions?): integer
     return project.build(root, opts)
 end
 
-function project.test(root: string?, args: {string}?, opts: project.TestOptions?): integer
+--- @return the test command's exit status, or 1 when it never ran
+--- @return what stopped it before it ran: `manifest` or `build`, absent once it did
+function project.test(root: string?, args: {string}?, opts: project.TestOptions?): (integer, string?)
     root = root or "."
     local asked: project.TestOptions = opts or {}
     local config, err = project.loadManifest(root)
     if not config then
-        io.stderr:write(tostring(err) .. "\n");
-        return 1
+        say(asked, "NUPP0002", tostring(err) .. "\n")
+        return 1, "manifest"
     end
     local test = manifest.testConfig(config)
     local produced: {[string]: any} = {}
@@ -1330,9 +1336,10 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
         target = test.build,
         outDir = asked.outDir,
         coverage = asked.coverage,
-        produced = produced
+        produced = produced,
+        diagnostics = asked.diagnostics
     }) ~= 0 then
-        return 1
+        return 1, "build"
     end
     local argv = {}
     for _, item in ipairs(manifest.testArgv(test)) do

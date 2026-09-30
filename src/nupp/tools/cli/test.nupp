@@ -298,6 +298,60 @@ local function asksForJson(args: {string}): boolean
     return false
 end
 
+--- The run a `--json` caller gets when the tests never started: the manifest could not
+--- be used, or the build under test failed. It is the runner's own document with one
+--- failed record under a synthetic ID, so a reader handles it like any other failure
+--- rather than finding nothing on stdout.
+local function preRunnerFailure(stage: string, diagnostics: {any}): integer
+    local report = require("nupp.tools.cli.report")
+    local values = report.diagnosticValues(diagnostics)
+    local lines: {string} = {}
+    for _, value in ipairs(values) do
+        if value.severity == "error" then
+            local at = value.range and (":" .. value.range.start.line .. ":" .. value.range.start.column) or ""
+            lines[
+                #lines + 1
+            ] = (
+                value.file and value.file .. at .. ": " or ""
+            ) .. (value.code and value.code .. ": " or "") .. value.message
+        end
+    end
+    local first = values[1]
+    local failure: {
+        [string]: any
+    } = {
+        message = #lines > 0 and table.concat(lines, "\n")
+        or (stage == "manifest" and "nupp.lua could not be used" or "the build under test failed"),
+        file = first and first.file or (stage == "manifest" and "nupp.lua" or nil),
+        line = first and first.range and first.range.start.line or nil,
+    }
+    report.write({
+        schemaVersion = 1,
+        ok = false,
+        total = 1,
+        passed = 0,
+        skipped = 0,
+        notExecuted = 0,
+        failed = 1,
+        durationMs = 0,
+        tests = {
+            {
+                id = "nupp/<" .. stage .. ">",
+                suite = "nupp",
+                name = "<" .. stage .. ">",
+                status = "failed",
+                durationMs = 0,
+                failure = failure,
+            },
+        },
+        metrics = {},
+        suites = {},
+        shards = {},
+    })
+
+    return 1
+end
+
 local function applyTestColor(args: {string}): integer?
     local color: string? = nil
     for _, argument in ipairs(args) do
@@ -433,7 +487,19 @@ local record Test
             return runCoverage(self)
         end
 
-        return require("nupp.tools.build.project").test(".", self.arguments)
+        if asksForJson(self.arguments) then
+            local diagnostics: {any} = {}
+            local code, stopped = require("nupp.tools.build.project").test(".", self.arguments, {
+                diagnostics = diagnostics
+            })
+            if stopped ~= nil then
+                return preRunnerFailure(stopped as string, diagnostics)
+            end
+
+            return code
+        end
+
+        return (require("nupp.tools.build.project").test(".", self.arguments))
     end
 end
 
