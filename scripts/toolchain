@@ -639,9 +639,10 @@ rust_library_filename() {
 }
 
 # Cargo accepts ambient knobs that materially alter a binary without changing
-# its source or lock file. Keep supported codegen/profile overrides in the
-# content key, and reject the implicit target override because the artifact
-# path and platform filename below deliberately describe the host target.
+# its source or lock file. Keep supported codegen/profile overrides, and the
+# C flags build scripts compile with, in the content key, and reject the
+# implicit target override because the artifact path and platform filename
+# below deliberately describe the host target.
 rust_environment_material() {
     [ -z "${CARGO_BUILD_TARGET:-}" ] \
         || die "CARGO_BUILD_TARGET is unsupported; Rust host builds require an explicit toolchain target design"
@@ -651,7 +652,11 @@ rust_environment_material() {
         -e '/^CARGO_PROFILE_/p' \
         -e '/^CARGO_TARGET_.*_RUSTFLAGS=/p' \
         -e '/^MACOSX_DEPLOYMENT_TARGET=/p' \
-        -e '/^IPHONEOS_DEPLOYMENT_TARGET=/p'
+        -e '/^IPHONEOS_DEPLOYMENT_TARGET=/p' \
+        -e '/^CFLAGS=/p' \
+        -e '/^CFLAGS_/p' \
+        -e '/^HOST_CFLAGS=/p' \
+        -e '/^TARGET_CFLAGS=/p'
 }
 
 rust_vendor_arguments() {

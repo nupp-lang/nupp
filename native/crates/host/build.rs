@@ -13,6 +13,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NUPP_LPEG_PREFIX");
     println!("cargo:rerun-if-env-changed=NUPP_CC");
     println!("cargo:rerun-if-env-changed=CC");
+    println!("cargo:rerun-if-env-changed=CFLAGS");
     println!("cargo:rerun-if-env-changed=AR");
     println!("cargo:rerun-if-changed=../../../scripts/toolchain");
     println!("cargo:rerun-if-changed=../../../scripts/toolchain.pins");
@@ -201,7 +202,13 @@ fn compile_shim(manifest: &Path, prefix: &Path, target: &str) {
                 "cc".into()
             }
         });
+    // CFLAGS as the cc crate reads it, so an instrumented build (the sanitizer
+    // workflow) instruments the shims with everything else it compiles.
+    let extra: Vec<String> = env::var("CFLAGS")
+        .map(|flags| flags.split_whitespace().map(str::to_owned).collect())
+        .unwrap_or_default();
     let status = Command::new(&compiler)
+        .args(&extra)
         .arg("-c")
         .arg("-std=c11")
         .arg("-O2")
@@ -226,6 +233,7 @@ fn compile_shim(manifest: &Path, prefix: &Path, target: &str) {
     );
 
     let status = Command::new(&compiler)
+        .args(&extra)
         .arg("-c")
         .arg("-std=c11")
         .arg("-O2")
