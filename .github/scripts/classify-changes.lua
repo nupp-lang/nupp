@@ -84,6 +84,11 @@ local rules = {
     {"^editors/", {"editors"}},
 
     {"^bench/kernel%-subset%-spike/", {"aot", "measurement"}},
+    -- The budget suites compile these and hold what they compile to: perfbudgettest
+    -- the benchmark programs' bytecode, aotbudgettest the Mandelbrot kernels' native
+    -- code. An edit to one moves a budget, so it has to reach the suite holding it.
+    {"^bench/[^/]+%.bench%.nupp$", {"tests", "measurement"}},
+    {"^bench/simd%-mandelbrot/mandelbrot%.nupp$", {"aot", "measurement"}},
     -- The owned-algorithm rows copy these projects, but each target consumes a
     -- narrow source and oracle set. Results, benchmark drivers and prose do not
     -- change the conformance programs and must not start the full fleet.

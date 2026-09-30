@@ -335,6 +335,18 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
     end
 end
 
+-- The budget suites compile benchmark sources and hold what those compile to, so a
+-- benchmark edit is a change those suites can observe, not only a measurement one.
+function M.benchmarkSourcesWithBudgetsReachTheSuitesHoldingThem()
+    local surfacesOf = classifier().surfacesOf
+    test.assert(surfacesOf("bench/soa.bench.nupp").tests, "perfbudgettest holds the benchmark programs' bytecode")
+    test.assert(
+        surfacesOf("bench/simd-mandelbrot/mandelbrot.nupp").aot,
+        "aotbudgettest holds the Mandelbrot kernels' native code"
+    )
+    test.assert(surfacesOf("bench/soa.bench.nupp").measurement, "a benchmark source is still a measurement input")
+end
+
 -- The other half. A compiler change that does not touch bench code leaves the
 -- gated suite unrun, which is only acceptable because the cover for what such a
 -- change can break -- the `keep` intrinsic's lowering, the allocation account,
