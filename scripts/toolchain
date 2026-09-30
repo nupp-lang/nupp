@@ -393,10 +393,18 @@ stage0_runtime() {
 stage0() {
     out="$CACHE/stage0/$STAGE0_SHA256"
     file="$out/nupp.lua"
+    # Checked again rather than believed for being there. It went in whole and
+    # verified, but a disk can still damage it afterwards, and a damaged one was
+    # either run as the compiler or failed every bootstrap with a parse error in
+    # a file nothing said to delete. Fetched again like a missing one instead.
     if [ -f "$file" ]; then
-        stage0_runtime "$file"
-        native_path "$stage0_runtime_file"
-        return 0
+        if [ "$(sha256 "$file")" = "$STAGE0_SHA256" ]; then
+            stage0_runtime "$file"
+            native_path "$stage0_runtime_file"
+            return 0
+        fi
+        note "the cached $STAGE0_TAG stage-zero compiler does not have the pinned digest; fetching it again"
+        rm -f "$file"
     fi
 
     name="nupp-stage0-$STAGE0_TAG.lua"

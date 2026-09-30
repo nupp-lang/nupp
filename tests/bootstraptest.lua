@@ -321,6 +321,30 @@ function M.theStageZeroIsNamedToWhatItRuns()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The cached stage zero went in verified, and was then believed for being there. A
+-- disk that damaged it afterwards got the damage run as the compiler, or a parse
+-- error on every bootstrap out of a file nothing said to delete.
+function M.aDamagedCachedStageZeroIsFetchedAgain()
+    local dir, _, env = plantedTree()
+    local toolchain = ("%s '%s/scripts/toolchain' stage0 2>&1"):format(env, dir)
+    local out, ok = capture(toolchain)
+    assert(ok, "the planted stage zero did not install: " .. out)
+    local digest = assert(readFile(dir .. "/scripts/toolchain.pins"):match("\nSTAGE0_SHA256=(%x+)"))
+    local cached = dir .. "/toolchain/stage0/" .. digest .. "/nupp.lua"
+    local planted = assert(readFile(dir .. "/stage0.lua"))
+    assert(readFile(cached) == planted, "the stage zero was not cached where this case looks")
+
+    local damaged = assert(io.open(cached, "wb"))
+    damaged:write(planted:sub(1, math.floor(#planted / 2)))
+    damaged:close()
+    out, ok = capture(toolchain)
+    assert(ok, "a damaged cached stage zero was not replaced: " .. out)
+    assert(out:find("fetching it again", 1, true), "the damage was not reported: " .. out)
+    assert(readFile(cached) == planted, "the cached stage zero is still damaged")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- The launcher must supply the worker executable path expected by the pinned
 -- compiler on Windows. The artifact itself determines which path it reads.
 function M.theLauncherServesThePinnedReleasesWorkerPath()
