@@ -397,7 +397,8 @@ function M.aCancelledTransferGivesItsLaneSlotBack()
     -- the race abandons the read while it is still in flight.
     local value = tasks.race({
         function()
-            return assert(files.read(inRoot("cancel/large.bin")))
+            -- A race branch answers one value; `assert` would pass on the nil reason too.
+            return (assert(files.read(inRoot("cancel/large.bin"))))
         end,
         function()
             return "settled first"
