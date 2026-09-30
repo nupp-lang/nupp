@@ -1,0 +1,75 @@
+name: Sanitizers
+
+# AddressSanitizer with LeakSanitizer, and ThreadSanitizer, over the native
+# crates and the C ABI smoke tests, on Linux, where all three are supported.
+#
+# Run on request only. Each leg rebuilds std and every dependency
+# instrumented with a nightly compiler, which no other job shares, and the
+# questions it answers -- a use after free, a leak, a data race -- are about
+# the native code rather than about any one change to it. Dispatch it after
+# work on the Rust or C providers, and before a release.
+#
+# What is covered, what is left out and why, and how the C built by build
+# scripts is instrumented, is in .github/scripts/sanitize-native.sh, which
+# runs the same way on a workstation. Suppressions live in .github/sanitizers,
+# one reason per entry.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanitize:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: AddressSanitizer and LeakSanitizer
+            sanitizer: address
+          - name: ThreadSanitizer
+            sanitizer: thread
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      # LuaJIT and LPeg for the host crate. Restored and never saved: the
+      # entry belongs to the compiler matrix, and a manual run should not
+      # churn it.
+      - name: Restore the provisioned toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # The instrumented target directory is not cached. It is several
+      # gigabytes per leg, built with a compiler nothing else uses, and
+      # storing it would evict the entries the required matrix lives on to
+      # save ten minutes on a job that runs by hand.
+
+      # The runner's kernel randomizes 32 bits of the mmap base, which puts
+      # mappings where the sanitizer runtimes expect their shadow memory and
+      # makes them abort before main. 28 bits is the long-standing default.
+      - name: Leave the sanitizers their address space
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Provision LuaJIT and LPeg
+        run: |
+          ./scripts/toolchain luajit
+          ./scripts/toolchain lpeg
+
+      # clang, which the script defaults to, is on the runner image.
+      - name: Run the native tests under ${{ matrix.name }}
+        run: .github/scripts/sanitize-native.sh ${{ matrix.sanitizer }}

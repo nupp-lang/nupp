@@ -1,0 +1,8 @@
+# ThreadSanitizer suppressions for .github/scripts/sanitize-native.sh.
+#
+# An entry here is a report that is not a race in this repository: one inside
+# an uninstrumented library whose synchronization ThreadSanitizer cannot see,
+# or a known false positive in a dependency. Each one carries a comment saying
+# which, and why. A race in our own code is fixed rather than listed.
+#
+# Format: race:<function or module substring>, deadlock:, signal:, mutex:

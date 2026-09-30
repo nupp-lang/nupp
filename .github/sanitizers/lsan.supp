@@ -1,0 +1,8 @@
+# LeakSanitizer suppressions for .github/scripts/sanitize-native.sh.
+#
+# An entry here is a report that is not a leak in this repository: a
+# third-party or system allocation held for the life of the process, or a
+# sanitizer artifact. Each one carries a comment saying which, and why. A
+# leak in our own code is fixed rather than listed.
+#
+# Format: leak:<function, source file or module substring>
