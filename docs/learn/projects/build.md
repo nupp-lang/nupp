@@ -985,7 +985,7 @@ independently.
 
 The header above is then consumed under the dependency name:
 
-```nupp
+```nupp:fragment
 local image = require("image")
 
 local tripled = image.image_triple(14)

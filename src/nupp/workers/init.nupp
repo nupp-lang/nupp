@@ -6,7 +6,7 @@ Runs functions in parallel, on real threads.
 A lane is reached through `fork` on a [](nupp.tasks) scope: the scope hands the
 work to a pool of lanes and settles every child when the block ends.
 
-```nupp
+```nupp:fragment
 module main
 
 const jobs = require("jobs")

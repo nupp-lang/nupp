@@ -134,7 +134,7 @@ what `is Shape` runs. Fields that provably fail it are reported, because
 the alternative is a value the checker calls a `Shape` and `is` calls
 otherwise.
 
-```nupp
+```nupp:refused
 local interface Circle
     kind: string
     radius: number

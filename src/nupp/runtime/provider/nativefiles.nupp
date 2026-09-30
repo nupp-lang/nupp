@@ -26,7 +26,7 @@ with a reason, and a malformed argument raises at the call site.
 
 `info` answers one record of attributes:
 
-```nupp
+```nupp:fragment
 local info, reason = files.info("nupp.lua")
 assert(info, reason)
 assert(info.kind == "file")
@@ -45,7 +45,7 @@ and without a reason. Any failure is `false` rather than an error, a refused
 permission or an I/O error as much as a missing path, so ask `info` when the
 reason matters:
 
-```nupp
+```nupp:fragment
 if files.isDirectory(candidate) then
     return files.list(candidate)
 end
@@ -55,7 +55,7 @@ end
 would hide the answer. It answers a boolean like the other three, false on any
 failure:
 
-```nupp
+```nupp:fragment
 assert(files.createSymlink("target.txt", "alias"))
 assert(files.isSymlink("alias"))
 assert(files.isFile("alias"))
@@ -69,7 +69,7 @@ Only Windows distinguishes the two; elsewhere it is ignored.
 
 `list` answers every entry in a directory, in one call:
 
-```nupp
+```nupp:fragment
 local entries, reason = files.list("src/nupp")
 assert(entries, reason)
 ```
@@ -88,7 +88,7 @@ path component, `[abc]` and `[!abc]` select characters, and `**` crosses
 directory boundaries. No matches is an empty list; an invalid pattern or a
 filesystem error answers a reason.
 
-```nupp
+```nupp:fragment
 for _, path in ipairs(assert(files.glob("src/**/*.nupp"))) do
     print(path:toString())
 end
@@ -98,7 +98,7 @@ end
 
 These three operations move names rather than bytes, so each answers now:
 
-```nupp
+```nupp:fragment
 assert(files.createDirectory("out/lib/native"))
 assert(files.rename("out/report.tmp", "out/report.json"))
 assert(files.remove("out/stale", true))
@@ -118,7 +118,7 @@ reason.
 `createTemporaryFile` and `createTemporaryDirectory` both take options and
 answer a path:
 
-```nupp
+```nupp:fragment
 local scratch, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = "build-"))
 assert(scratch, reason)
 ```
@@ -133,7 +133,7 @@ A temporary is an [owner](docs/learn/runtime/ownership/index.md): closing it rem
 what it created, and the checker runs that cleanup at the end of the scope
 whether the block falls through, returns early, or raises.
 
-```nupp
+```nupp:fragment
 do
     local scratch = assert(files.createTemporaryFile(new files.TemporaryOptions(suffix = ".json")))
     assert(files.write(scratch:path(), encoded))
@@ -150,7 +150,7 @@ a half-written file under the final name.
 
 `read` and `write` move a file's complete contents in one call:
 
-```nupp
+```nupp:fragment
 local text, reason = files.read("nupp.lua")
 assert(text, reason)
 assert(files.write("out/report.json", encoded))
@@ -167,7 +167,7 @@ A NUL byte is content, not a terminator, in every direction.
 `lines` opens a file as a [line reader](nupp.io.Lines), which takes the file
 and closes it when it closes:
 
-```nupp
+```nupp:fragment
 local log = assert(files.lines("access.log"))
 while true do
     local line, reason = log:read()
@@ -188,7 +188,7 @@ file apart from a finished one.
 
 `open` hands over a `File` and the obligation to close it:
 
-```nupp
+```nupp:fragment
 do
     local file = assert(files.open("image.png"))
     print(file:read(8))
@@ -203,7 +203,7 @@ read and write through checked spans without separating a pointer from its
 bound. `readInto` commits the destination buffer only after a successful read,
 and `transferTo` streams a file of any size through a fixed window:
 
-```nupp
+```nupp:fragment
 do
     local source = assert(files.open("input.bin"))
     local sink = assert(files.open("output.bin", "w"))
@@ -224,7 +224,7 @@ Two queries answer where the platform keeps a user's folders and where the
 running program lives; [](nupp.io.path.currentDirectory) answers where the
 process is:
 
-```nupp
+```nupp:fragment
 print(assert(files.userFolder("documents")))
 print(assert(files.executableDirectory()))
 ```
@@ -265,7 +265,7 @@ for how one call takes either path.
 The immediate operations cannot suspend, so a region that forbids waiting still
 permits asking what a path is, listing a directory, or renaming one:
 
-```nupp
+```nupp:fragment
 @nosuspend do
     if files.isDirectory(candidate) then
         print(#assert(files.list(candidate)))
@@ -1605,7 +1605,7 @@ end
 ---
 --- Write somewhere nobody else can take, then move it into place:
 ---
---- ```nupp
+--- ```nupp:fragment
 --- do
 ---     local options = new nupp.io.files.TemporaryOptions(directory = "build")
 ---     local scratch = assert(nupp.io.files.createTemporaryFile(options))

@@ -29,14 +29,14 @@ Nupp has no `enum` declaration, and a literal union is how one is written.
 Nothing is declared at run time, since the value is the plain string, and a
 bare literal lands in the union:
 
-```nupp
+```nupp:fragment
 local c: Color = "red"
 ```
 
 A string that is not a member is rejected, and the message says which values
 were on offer:
 
-```nupp
+```nupp:fragment
 local c: Color = "purple"
 -- NUPP2001: "purple" is not a "blue" | "green" | "red"
 ```
@@ -84,7 +84,7 @@ local type Shape = Circle | Square
 Comparing the tag narrows the union to the one record that declares it, so the
 fields of that arm are reachable and the other arm's are not:
 
-```nupp
+```nupp:fragment
 local function area(shape: Shape): number
     if shape.kind == "circle" then
         -- shape is Circle here: `radius` resolves, `side` does not
@@ -98,7 +98,7 @@ end
 
 Construction fills the tag like any other field:
 
-```nupp
+```nupp:fragment
 local s: Shape = Circle{kind = "circle", radius = 2}
 ```
 
@@ -117,7 +117,7 @@ key, and then the cost is the same field under a name nobody chose.
 
 A tag copied into a local is still a tag:
 
-```nupp
+```nupp:fragment
 local function areaVia(shape: Shape): number
     local kind = shape.kind
     if kind == "circle" then
@@ -170,7 +170,7 @@ A [switch expression](../switch-expressions.md) checks exhaustiveness
 as a type error rather than a lint, because the expression must always produce
 a value:
 
-```nupp
+```nupp:fragment
 local function describe(c: Color): string
     return switch c do
         case "red" -> "warm"
@@ -234,7 +234,7 @@ the type builders it belongs to.
 When a dispatch on a closed set of literals has every branch return, the
 checker reports the members you left out:
 
-```nupp
+```nupp:fragment
 local function describe(c: Color): string
     if c == "red" then
         return "warm"
@@ -279,7 +279,7 @@ stronger rule everywhere.
 
 Comparing against a member narrows in both directions:
 
-```nupp
+```nupp:fragment
 local function widthOf(c: Color): integer
     if c == "red" then
         -- c is "red" here

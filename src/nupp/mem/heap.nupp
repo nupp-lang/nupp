@@ -118,7 +118,7 @@ end
 --- are not zeroed, so a program that reads before it writes reads whatever was
 --- there.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- do
 ---     local values = heap.allocate(ffi.typeof<int32>(), 1000000)
 ---     print(values.count)

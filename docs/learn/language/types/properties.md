@@ -42,7 +42,7 @@ Structural shapes use the same `@readonly` and `@writeonly` annotations. A
 caller can state the authority it needs without naming the declaration that
 supplies it:
 
-```nupp
+```nupp:fragment
 local input: {
     @readonly value: string
 } = Cell{value = "ready"}
@@ -94,7 +94,7 @@ write.
 
 An ordinary property has both constraints, so it is invariant:
 
-```nupp
+```nupp:refused
 local interface Animal
     name: string
 end
@@ -161,7 +161,7 @@ A read through a write-only view, and an assignment through a read-only view,
 are both reported. Compound assignment needs both capabilities, because it first
 reads the old value and then writes the result:
 
-```nupp
+```nupp:refused
 local record Counter
     value: integer
 end

@@ -196,7 +196,7 @@ end
 --- Creates an arena of `witness` rows with one page of `pageSize` rows already
 --- allocated.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local struct Cell
 ---     value: int32
 --- end

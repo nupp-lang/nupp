@@ -25,7 +25,7 @@ end
 `Lines.Item` is `string`. A function [generic](generics.md) over readers reads
 it back through the type parameter:
 
-```nupp
+```nupp:fragment
 local function collect<T is Reader>(source: T): {T.Item}
 ```
 
@@ -52,7 +52,7 @@ A default is a fallback. An implementor may answer otherwise, so a value known
 only as the interface cannot be said to answer it, and the projection stays
 opaque there:
 
-```nupp
+```nupp:refused
 local interface Holds
     associated type Value = string
 end
@@ -173,7 +173,7 @@ checked at instantiation rather than solved.
 A projection reaches an answer through a concrete declaration by path, through
 a type parameter, or through the receiver:
 
-```nupp
+```nupp:fragment
 local text: Lines.Item = "a line"
 local function collect<T is Reader>(source: T): {T.Item}
 ```
@@ -224,7 +224,7 @@ An interface carrying associated requirements is nominal at that part. Members
 can still be satisfied by shape, but an answer is a type, nothing registers one
 later, and a structural value has nowhere to put it:
 
-```nupp
+```nupp:refused
 local interface Holder
     count: integer
     associated type Item
@@ -276,7 +276,7 @@ is the feature declining to say anything rather than saying the call is right.
 That is reported by the `gradual-projection` lint, once per call and member,
 where the erasure happened:
 
-```nupp
+```nupp:fragment
 local erased = collect(nil as any) -- warning: gradual-projection
 ```
 

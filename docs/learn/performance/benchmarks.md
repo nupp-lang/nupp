@@ -100,7 +100,7 @@ measurement is of nothing. `bench.keep` stores the value somewhere a trace
 cannot sink it:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 bench.keep({x = 1})
 local kept = bench.keep({y = 2})
 ```
@@ -402,7 +402,7 @@ below the adjusted level.
 A frame loop is a latency question, and a distribution answers it: one frame in
 a hundred over budget is a visible stutter and an unmoved mean.
 
-```nupp
+```nupp:fragment
 local bench = require("nupp.bench")
 
 local frames = bench.frames("frame", 16.6, 60)

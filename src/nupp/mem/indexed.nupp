@@ -7,7 +7,7 @@ A loop that walks two views together needs the same bounds to hold for both, and
 checking them separately checks them twice and says nothing about the pair.
 `range` takes the views and answers bounds that are valid for all of them.
 
-```nupp
+```nupp:fragment
 local indexed = nupp.mem.indexed
 
 const bounds = indexed.range(1, 4, left, right)
@@ -45,7 +45,7 @@ end
 --- bounds. The views are borrowed for the call, so this may be written inline in
 --- the `for` header that uses the result.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const bounds = indexed.range(1, 4, left, right)
 --- for i = bounds.first, bounds.last do
 ---     print(left[i], right[i])

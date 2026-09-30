@@ -9,7 +9,7 @@ Nupp is gradually typed: anything unannotated or unresolvable is `any` and
 checks silently, so an untyped LuaJIT program is already a valid Nupp program.
 An annotation is what turns checking on, one declaration at a time.
 
-```nupp:playground
+```nupp:refused:playground
 local total = 1
 total = total / 2
 
@@ -43,7 +43,7 @@ local label: string = area(2, 3) -- checks clean
 
 Annotating the result is what starts checking both ends:
 
-```nupp
+```nupp:refused
 local function area(w: number, h: number): number
     return w * h
 end
@@ -57,7 +57,7 @@ parameter types from that slot and its result types from what its `return`
 statements produce. A slot whose result is a generic's binder is bound by the
 body, and a slot whose result is fixed is checked against it:
 
-```nupp
+```nupp:refused
 local function map<A, B>(xs: {A}, f: function(A): B): {B}
     local out: {B} = {}
     for i, x in ipairs(xs) do
@@ -106,7 +106,7 @@ const escaped: "\65" = "A" -- one byte, written two ways
 
 An annotation keeps exactly the type you wrote, on a mutable binding too:
 
-```nupp
+```nupp:refused
 local j: integer = 1
 j = j / 2 -- NUPP2001: number is not a integer
 
@@ -195,7 +195,7 @@ type](primitives.md#unknown-the-top-type) for more information.
 
 Some boundaries deliberately trust gradual or externally supplied information:
 
-```nupp
+```nupp:refused
 local ints: {integer} = {1, 2}
 local nums: const {number} = ints -- a read-only view may widen
 local writable: {number} = ints -- NUPP2001: a wider writer could corrupt ints

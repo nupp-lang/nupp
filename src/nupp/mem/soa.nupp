@@ -263,7 +263,7 @@ sealed interface soa.Span<T> is soa.ReadView
     --- the checker give the result that field's element type rather than `any`. A
     --- dynamic string or a missing field reports `NUPP2403`.
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- const rows = positions:read()
     --- const velocity: span.Span<float> = rows:field("velocity")
     --- for index = 1, #velocity do
@@ -352,7 +352,7 @@ sealed interface soa.WriteSpan<T>
     --- overlap. The name must be a string literal naming a stored field; a dynamic
     --- string or a missing field reports `NUPP2403`.
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- do
     ---     local rows = particles:write()
     ---     local xs: span.Writable<float> = rows:field("x")
@@ -375,7 +375,7 @@ sealed interface soa.WriteSpan<T>
     --- contiguous run per column rather than a row at a time, so no row struct is
     --- ever materialized.
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- with rows = target:write() do
     ---     rows:copyFrom(3, source:read(), 1, 2)
     --- end
@@ -661,7 +661,7 @@ end
 --- the intrinsic identity. The result owns the slab and frees it at its lexical
 --- boundary; the bytes are not zeroed.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local positions = soa.allocate(ffi.typeof<Position>(), 128)
 --- with rows = positions:write() do
 ---     rows[1].x = 3.5
@@ -683,7 +683,7 @@ end
 --- Only top-level fields are split, so a nested struct or fixed array is one field
 --- here whatever it holds.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local layout = soa.layoutof(ffi.typeof<Sample>())
 --- assert(#layout.fields == 2)
 --- assert(layout.fields[1].name == "position")

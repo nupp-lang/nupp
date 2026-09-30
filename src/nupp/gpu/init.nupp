@@ -10,7 +10,7 @@ downloads only enqueue commands; `synchronize()` is the explicit CPU boundary.
 `gpu.available()` says whether a device can be opened at all, since `open`
 raises when none can.
 
-```nupp
+```nupp:fragment
 local gpu = nupp.gpu
 local array = nupp.mem.array
 local kernels = require("kernels")

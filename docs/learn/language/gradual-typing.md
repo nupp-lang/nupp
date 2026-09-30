@@ -89,7 +89,7 @@ The strict floor adds two rules. An unknown variable is reported instead of
 typing as `any`, and an exported declaration without an annotation is reported
 too, so nothing untyped crosses a module boundary.
 
-```nupp
+```nupp:fragment
 module models
 
 export function double(n)

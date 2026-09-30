@@ -114,7 +114,7 @@ payload.name = name
 return payload, count
 ```
 
-```nupp [payload.g.nupp (Nupp view)]
+```nupp:fragment [payload.g.nupp (Nupp view)]
 local name: string, count: integer = "Ada", 1
 
 local payload = decode()

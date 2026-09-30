@@ -116,7 +116,7 @@ in a single named file until it acquires children.
 
 `require` stays the explicit, Lua-shaped import:
 
-```nupp
+```nupp:fragment
 module app.main
 
 const shapes = require("geom.shapes")
@@ -138,14 +138,14 @@ the file is.
 A project file does not put its basename into every other file's scope. Reading
 a member of an unbound module is reported:
 
-```nupp
+```nupp:fragment
 local answer: number = mathutil.double(21)
 ```
 
 Bind the module first, and the diagnostic names the exact `require` call that
 makes the program valid:
 
-```nupp
+```nupp:fragment
 local mathutil = require("mathutil")
 local answer: number = mathutil.double(21)
 ```
@@ -154,7 +154,7 @@ local answer: number = mathutil.double(21)
 
 Brace selection imports several values without repetitive field reads:
 
-```nupp
+```nupp:fragment
 const {origin, originName as label} = require("geom.shapes")
 ```
 
@@ -166,7 +166,7 @@ Binding patterns are shallow, and they are not allowed in function parameter
 declarations. Braces at a call site instead pluck named parameters from an
 existing value:
 
-```nupp
+```nupp:fragment
 draw({x, y} = point, color = "blue")
 ```
 
@@ -176,7 +176,7 @@ See [calls.md](named-arguments.md) for the argument forms that brace stands for.
 
 An erased type selection is available for declared modules:
 
-```nupp
+```nupp:fragment
 const {
     type Point as ShapePoint,
     origin as makeOrigin,
@@ -213,7 +213,7 @@ for the module the example names.
 
 A lexical binding wins:
 
-```nupp
+```nupp:fragment
 local tecs = makeTestDouble()
 tecs.world.query -- ordinary field access on the test double
 ```
@@ -250,7 +250,7 @@ real types instead of degrading to `any`:
 
 ::: code-group
 
-```nupp [a.nupp]
+```nupp:fragment [a.nupp]
 module a
 const b = require("b")
 
@@ -259,7 +259,7 @@ export function fromA(value: integer): integer
 end
 ```
 
-```nupp [b.nupp]
+```nupp:fragment [b.nupp]
 module b
 const a = require("a")
 

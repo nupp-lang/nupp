@@ -44,7 +44,7 @@ A malformed byte answers `0xFFFD` and advances exactly one byte, so a walk over
 damaged text makes progress rather than stalling. Nil is the end of the value,
 and that is what stops the walk:
 
-```nupp
+```nupp:fragment
 const utf8 = nupp.text.utf8
 
 local at: integer = 1
@@ -254,7 +254,7 @@ end
 --- Walking a buffer is this call and nothing else, because a malformed byte
 --- answers `0xFFFD` and still advances:
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const utf8 = nupp.text.utf8
 ---
 --- local at: integer = 1

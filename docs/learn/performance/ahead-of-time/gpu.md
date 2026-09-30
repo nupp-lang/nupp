@@ -41,7 +41,7 @@ A native `aot = "require"` target replaces the declaration with a kernel
 specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
-```nupp
+```nupp:fragment
 local gpu = require("nupp.gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array

@@ -117,7 +117,7 @@ changes one, which is what keeps `float` a storage fact rather than an
 arithmetic type:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local wide = inputs[i].value
 local doubled = wide + wide
 local narrow = nupp.math.f32.add(nupp.math.f32.narrow(wide), nupp.math.f32.narrow(wide))

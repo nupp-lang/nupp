@@ -19,7 +19,7 @@ export function hash(bytes: string): string
 end
 ```
 
-```nupp
+```nupp:fragment
 module main
 
 const jobs = require("jobs")
@@ -69,7 +69,7 @@ Every worker task belongs to the task scope that forked it. Leaving the exact
 `with` extent waits for all of its children, including tasks the body never
 awaited and every path out by return or error.
 
-```nupp
+```nupp:fragment
 with scope = tasks.open() do
     scope:fork(snapshot, jobs.rebuildIndex)
 end -- rebuildIndex has settled here
@@ -110,7 +110,7 @@ table. A list therefore fans out through children: each one forks its item and
 waits for it, and the children wait together, so every item is on a lane at
 once.
 
-```nupp
+```nupp:fragment
 export function hashEach(inputs: {string}): {string}
     local hashed: {string} = {}
 
@@ -143,7 +143,7 @@ requires an `@sendable` function](#functions-that-can-be-submitted).
 The calling thread has nothing to do while lanes run. Give it a share when the
 work divides:
 
-```nupp
+```nupp:fragment
 export function bothHashes(left: string, right: string): (string, string)
     with scope = tasks.open() do
         const task = scope:fork(right, jobs.hash)
@@ -160,7 +160,7 @@ Arguments and results are copied, so a task whose work is smaller than its
 message spends longer being sent than being run. Submit chunks of a list rather
 than its elements when the work per element is small:
 
-```nupp
+```nupp:fragment
 export function hashChunks(inputs: {string}, size: integer): {string}
     local chunks: {{string}} = {}
 
@@ -248,7 +248,7 @@ Compose nested parallel work in the calling state instead, and pass each leaf
 operation to the shared scheduler. A tree of work becomes a flat submission of
 its leaves:
 
-```nupp
+```nupp:fragment
 const indexJobs = jobs.index
 
 export function countAll(shards: {{string}}): number
@@ -279,7 +279,7 @@ mailboxes would be a separate abstraction.
 The final argument to `fork` must be a `@sendable function`. A function read
 from a loaded module is sendable with no captures:
 
-```nupp
+```nupp:fragment
 module image.jobs
 
 export function resize(input: string, width: integer): string
@@ -287,7 +287,7 @@ export function resize(input: string, width: integer): string
 end
 ```
 
-```nupp
+```nupp:fragment
 const imageJobs = image.jobs
 const task = scope:fork(bytes, 320, imageJobs.resize)
 ```
@@ -298,7 +298,7 @@ carries `image.jobs`; there is no list of worker entries in `nupp.lua`.
 An eligible function literal is sendable too. Its activation-local captures are
 snapshotted when the literal is created and copied with the explicit arguments:
 
-```nupp
+```nupp:fragment
 scope:fork(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
 ```
 
@@ -315,7 +315,7 @@ heap identity cross between states.
 A callable held as a value keeps the guarantee only where the type says so, so a
 dispatch table names it:
 
-```nupp
+```nupp:fragment
 const handlers: {[string]: @sendable function(string): string} = {
     hash = jobs.hash,
     resize = jobs.resize,
@@ -376,7 +376,7 @@ The following are therefore still rejected while copying:
 A rejection names the position it found, so the message says which argument and
 which field stopped the copy rather than that the message was untransferable:
 
-```nupp
+```nupp:fragment
 with scope = tasks.open() do
     const row = new jobs.Row(name = "a")
 
@@ -443,7 +443,7 @@ export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap
 end
 ```
 
-```nupp
+```nupp:fragment
 local frame = heap.allocate(ffi.typeof<uint8>(), 8 * 1048576)
 with scope = tasks.open() do
     for generation = 1, 60 do
@@ -482,7 +482,7 @@ scope cancels its unfinished children, waits for every one of them so it never
 abandons a live child, and raises the failure where the block is left. `await`
 raises it too, and so does any later task operation in the scope.
 
-```nupp
+```nupp:fragment
 export function observed(): string
     local digest = ""
     with scope = tasks.open() do
@@ -517,7 +517,7 @@ A running task is not preempted. Lua and foreign code have no safe general
 interruption point, so leaving a scope waits for a task that is already running.
 A bounded function can cooperate by calling `tasks.checkpoint()`:
 
-```nupp
+```nupp:fragment
 const tasks = nupp.tasks
 
 export function search(limit: integer): integer

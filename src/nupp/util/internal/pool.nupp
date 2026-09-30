@@ -185,7 +185,7 @@ end
 --- Creates a pool of `witness` instances with `capacity` of them stamped and
 --- waiting.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local record Tick
 ---     frame: integer
 --- end

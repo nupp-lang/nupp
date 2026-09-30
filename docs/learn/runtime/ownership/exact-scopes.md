@@ -35,7 +35,7 @@ scope performs no flush or copy.
 
 One acquisition is the common form:
 
-```nupp
+```nupp:fragment
 with file = openFile(path) do
     print(file:read("*a"))
 end
@@ -44,7 +44,7 @@ end
 Several resources may share an extent. Acquisitions run left to right and
 terminals run in reverse order:
 
-```nupp
+```nupp:fragment
 with
     input = openFile(source, "rb"),
     output = openFile(target, "wb")
@@ -55,7 +55,7 @@ end
 
 A binding may have an underlying representation type annotation:
 
-```nupp
+```nupp:fragment
 with file: FileHandle = openFile(path) do
     use(file)
 end
@@ -83,7 +83,7 @@ Those rules make cleanup unconditional without an "already closed" flag. If a
 value needs to move or end early, use an ordinary affine local and
 [`drop`](index.md#discharging-an-owner):
 
-```nupp
+```nupp:fragment
 local rows = positions:write()
 update(rows)
 nupp.drop(rows)

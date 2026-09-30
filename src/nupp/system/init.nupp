@@ -72,7 +72,7 @@ export const pointerBits = provider.pointerBits
 --- estimate, while browser hosts use the value their browser exposes. It opens
 --- no worker pool, so it is a fair default for the `limit` one is opened with.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
 ---     for _, shard in ipairs(shards) do
 ---         scope:fork(shard, jobs.shard)

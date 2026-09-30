@@ -114,7 +114,7 @@ distinguish calls to the same function from different phases of your program.
 
 `nupp.profile.zone` is a stack of names that the profiler reads:
 
-```nupp
+```nupp:fragment
 local zone = nupp.profile.zone
 
 local function frame()
@@ -174,7 +174,7 @@ session, such as in a coroutine resumed after profiling stops. `enter` returns
 a token. If the session has ended, `leave` ignores that token, so it cannot pop
 a zone from a later session:
 
-```nupp
+```nupp:fragment
 local token = zone.enter("request")
 serveRequest()
 zone.leave(token)
@@ -257,7 +257,7 @@ comparison against a baseline. See
 Use `nupp.profile` directly to capture part of a run, such as one frame, one
 request, or the work after warm-up:
 
-```nupp
+```nupp:fragment
 local profile = nupp.profile
 
 with session = profile.sample({intervalMs = 2, zone = "frame/render"}) do
@@ -280,7 +280,7 @@ the session starts and cannot be widened afterwards.
 
 Use `profile.trace()` to collect trace aborts:
 
-```nupp
+```nupp:fragment
 with session = profile.trace() do
     runTheWorkload()
     local report = session:stop()

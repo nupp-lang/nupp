@@ -8,7 +8,7 @@ order: 80
 when an expression's first result is falsy, and yield that result when it is
 not:
 
-```nupp
+```nupp:fragment
 local text = files.read(path) or return
 ```
 
@@ -16,7 +16,7 @@ They shorten the convention most of this language already follows: a call
 answers a value first and an optional reason after it, and a caller that cannot
 handle the failure passes it on. The line above means exactly this:
 
-```nupp
+```nupp:fragment
 local text, reason = files.read(path)
 if text == nil then
     return text, reason
@@ -38,7 +38,7 @@ The checker admits an operand whose result count is fixed, whose results are
 not a correlated pack union, and whose first result can be both falsy and a
 value. Anything else is refused and keeps the explicit conditional:
 
-```nupp
+```nupp:fragment
 local always = nonOptional() or return  -- NUPP2149: never nil or false
 ```
 
@@ -55,7 +55,7 @@ Only the first result is the expression's value, whatever the operand's width.
 A binding list that takes two names from a suffix gets nil in the second, which
 the `exit-suffix-binding` lint reports:
 
-```nupp
+```nupp:fragment
 local left, right = readPair() or return  -- right is always nil
 ```
 
@@ -67,7 +67,7 @@ A caller that wants the other results writes the conditional out.
 the falsy part. That is what makes a wrapper type-check without inventing
 values:
 
-```nupp
+```nupp:fragment
 function loadCount(store: Store): (integer?, Store.Problem?)
     local entry = store:fetch("count") or return
 
@@ -91,7 +91,7 @@ reporting `NUPP2002` when it does not fit.
 protected function's results follow it. A direct call to either is refused as an
 operand, naming the pair that answers the conventional order instead:
 
-```nupp
+```nupp:fragment
 const util = require("nupp.util")
 
 function parsed(text: string): (Config?, unknown)
@@ -122,7 +122,7 @@ Cleanup runs on every exit exactly as it does for the statements.
 
 The suffix binds at the `or` tier, which is the loosest binary tier:
 
-```nupp
+```nupp:fragment
 local total = base + amount() or return          -- (base + amount()) or return
 local ready = enabled and check() or return      -- the whole conjunction
 local chosen = (mode ? first() : second()) or return

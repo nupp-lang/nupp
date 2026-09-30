@@ -905,7 +905,7 @@ end
 --- recipe, and a consumer applies the resolved export rather than a runtime function
 --- value. Applying it also claims that interface.
 ---
---- ```nupp:static
+--- ```nupp:fragment:static
 --- local M = {}
 ---
 --- interface M.Named

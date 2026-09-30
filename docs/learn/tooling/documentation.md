@@ -86,7 +86,7 @@ somewhere else: `[ownership](docs/learn/runtime/ownership/borrowing.md)`.
 
 **A run of `---` line comments** immediately above a declaration documents it:
 
-```nupp
+```nupp:fragment
 --- Opens a session against the account service.
 ---
 --- @param id the stable account identifier
@@ -134,7 +134,7 @@ ownership, but its documentation signature names the method as `Buffer:write`.
 one line per raise. Lua has no signature to find that out from, so it is written
 down:
 
-```nupp
+```nupp:fragment
 --- Reads the whole file at `path`.
 ---
 --- @raises string when the file cannot be opened
@@ -146,7 +146,7 @@ The type is the value `error` is called with. An ordinary Lua message is a
 `string`; a raise that carries a declaration names it, and the generated page
 links the name to that declaration's own documentation:
 
-```nupp
+```nupp:fragment
 const tasks = require("nupp.tasks")
 
 --- Waits for the batch to settle.
@@ -207,7 +207,7 @@ require them by, gets pages nested under `nupp`.
 A public `const` bound to a whole required module is a namespace re-export, and
 the name it publishes is one the checker resolves:
 
-```nupp
+```nupp:fragment
 local phasevalues = require("app.internal.phases")
 
 --- The ordered frame phase constants.
@@ -282,7 +282,7 @@ is usually private: the prelude declares `__nuppDestroyReader` and never means
 a caller to write it. Wherever a rendered signature applies `affine` to a
 cleanup the documentation hides, the argument prints as `_`:
 
-```nupp
+```nupp:fragment
 newReader: function(self: ByteView): affine(Reader, _)
 ```
 
@@ -324,6 +324,24 @@ local offset = true
 
 The numbers sit in their own gutter, so selecting the block copies the code
 without them.
+
+### Checked examples
+
+Every `nupp` fence in `docs/learn` and in a module's docblocks is checked as a
+file of its own, so an example that stops checking is caught by the
+repository's tests rather than by the reader who copies it. A block that is not a whole
+program says so on its fence. `:fragment` marks a step of a sequence, a
+declaration lifted out of its module, or syntax shown in isolation, and is not
+checked. `:refused` marks a program shown for the diagnostic it reports, and is
+held to reporting one:
+
+````markdown
+```nupp:refused
+local count: integer = "twelve" -- NUPP2001
+```
+````
+
+Neither marker changes how the block renders.
 
 ### Code groups
 

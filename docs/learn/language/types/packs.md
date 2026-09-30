@@ -55,7 +55,7 @@ site.
 Every non-final expression in a list contributes one value. A final call or
 `...` contributes its complete pack, and parentheses force it back to one:
 
-```nupp
+```nupp:fragment
 local n, s = pair() -- number, string
 local first = (pair()) -- number
 local a, b = pair(), true -- number, boolean
@@ -65,7 +65,7 @@ Missing assignment slots receive `nil`, and surplus slots are truncated. Calls
 apply the same rules before generic inference and argument checking, so
 expanding a two-result call into a one-parameter function is still reported:
 
-```nupp
+```nupp:fragment
 local function one(value: number): nil
 end
 
@@ -176,7 +176,7 @@ end
 returns the exact suffix, and an invalid constant index is reported. A
 dynamic index retains a homogeneous union of the possible elements:
 
-```nupp
+```nupp:fragment
 local count = select("#", pair()) -- integer
 local second: string = select(2, pair()) -- the exact suffix, (string)
 ```
@@ -261,7 +261,7 @@ current coroutine.
 The handle carries four packs, in the order start arguments, resume arguments,
 yielded values, and final returns:
 
-```nupp
+```nupp:fragment
 local co: thread<(number), (boolean), (number, string), (string)> =
     coroutine.create(worker)
 ```
@@ -284,7 +284,7 @@ multi-result call, ignoring a call statement, truncating an assignment or
 argument list, count-only selection, or slicing a pack is reported when any
 discarded slot is owned, pinned, or a still-generic potentially affine slot:
 
-```nupp
+```nupp:refused
 local record Resource
 end
 

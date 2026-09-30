@@ -100,7 +100,7 @@ points.
 An `if` is always broken across lines, however short it is, and an ordinary
 `function` body always has its own lines. `|| ->` is the one-line function form:
 
-```nupp
+```nupp:fragment
 local ready = |request: Request| -> request.method == "GET"
 
 if ready(incoming) then
@@ -115,11 +115,11 @@ between them rather than inside the first call's arguments. The receiver keeps
 the call that heads the chain and every later step lines up under it:
 
 ::: code-group
-```nupp [Written]
+```nupp:fragment [Written]
 local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
 ```
 
-```nupp [Formatted]
+```nupp:fragment [Formatted]
 local production = endpoint:withUserInfo(nil)
     :withHost("api.example.com")
     :withPort(nil)
@@ -139,7 +139,7 @@ written as one: every argument under the opener, one per line, with the closing
 parenthesis on its own. That holds however the list stopped fitting, whether on
 the width, a comment inside it, or an argument whose own body is a block.
 
-```nupp
+```nupp:fragment
 report:put(
     "header",
     function(row: string): string
@@ -155,7 +155,7 @@ The exception is the argument that runs down the page on purpose. A trailing
 function or table hugs the call that takes it, because the line that opens the
 call already says what is being done and to what, and only the body follows:
 
-```nupp
+```nupp:fragment
 table.sort(rows, |a, b| -> do
     return a.id < b.id
 end)
@@ -195,7 +195,7 @@ field on its own line however short the whole is. A shape of exactly one field
 is not a list: it is a single type standing where a type goes, so it stays on
 the line that names it and breaks only when the width says so.
 
-```nupp
+```nupp:fragment
 record Settings
     headers: {string: string}?
     limits: {
@@ -219,7 +219,7 @@ recognized, continuations indent by five spaces, and fenced or indented
 verbatim blocks are left alone. Backtick and tilde fences close only on a run
 of the same character at least as long as their opener.
 
-```nupp
+```nupp:fragment
 --- Opens a session against the account service.
 ---
 --- @param id the stable account identifier, which the caller reads from the
@@ -232,12 +232,12 @@ local function openSession(id: uint64): Session
 A method call left in its sugar form gets its parentheses back:
 
 ::: code-group
-```nupp [Written]
+```nupp:fragment [Written]
 obj:configure{retries = 3}
 obj:log"starting"
 ```
 
-```nupp [Formatted]
+```nupp:fragment [Formatted]
 obj:configure({retries = 3})
 obj:log("starting")
 ```
@@ -298,11 +298,11 @@ single-value annotation loses its redundant `member =` where the checker has
 proved the two forms equivalent:
 
 ::: code-group
-```nupp [Written]
+```nupp:fragment [Written]
 @documentation(text = "A user")
 ```
 
-```nupp [Formatted]
+```nupp:fragment [Formatted]
 @documentation("A user")
 ```
 :::

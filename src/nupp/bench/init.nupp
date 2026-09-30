@@ -6,7 +6,7 @@ Measuring Nupp code from inside an ordinary program.
 A benchmark here is a program, not a case a runner discovered. It links this
 module, runs under `nupp run`, and reports itself:
 
-```nupp
+```nupp:fragment
 local bench = nupp.bench
 
 local function sized(b: nupp.bench.Case): nil

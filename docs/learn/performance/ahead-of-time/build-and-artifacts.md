@@ -108,7 +108,7 @@ code retirement, all of which exist only because code is mapped at run time.
 The wrapper is ordinary Nupp. `nupp aot --emit binding` prints it, and what the
 build splices in is the same text minus the parts the source already has:
 
-```nupp
+```nupp:fragment
 cdef function ks_scale_layout_Sample_size(): uint64 from"build/native/lib/libnative_aot.dylib"
 const ks_scale_SampleLayout = layoutof(Sample)
 if ks_scale_SampleLayout.size ~= ks_scale_layout_Sample_size() then

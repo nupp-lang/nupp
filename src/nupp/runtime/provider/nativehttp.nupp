@@ -358,7 +358,7 @@ end
 --- suspends until there are some. Only one reader may be on a body at a time, and
 --- reading it again after it is closed answers a reason rather than raising.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local total = assert(response.body:transferTo(destination))
 --- ```
 record http.Body is io.Reader
@@ -611,7 +611,7 @@ end
 --- Closing the response closes the body with it, which is what a caller that only
 --- wanted the status does.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- do
 ---     local response = assert(client:send(request))
 ---     if response:ok() then
@@ -820,7 +820,7 @@ record http.Client is BodyClient, contracts.Client
     --- The client is an owner, and closing it closes every transfer still in flight.
     --- Keep one for the program rather than one per request.
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- do
     ---     local client = http.newClient({
     ---         userAgent = "nupp/1",
@@ -941,7 +941,7 @@ end
 --- a `referer`. A status is an answer; only a transport failure comes back as a
 --- reason.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- do
 ---     local response, reason = client:send(new http.Request(
 ---         url = assert(uri.newURI("https://example.com/data.json"))

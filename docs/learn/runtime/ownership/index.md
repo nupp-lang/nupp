@@ -106,7 +106,7 @@ transfer-only.
 An owner is destroyed automatically at its lexical boundary. You can consume it
 earlier with `nupp.drop`:
 
-```nupp
+```nupp:fragment
 local file = openFile()
 nupp.drop(file)
 local another = openFile()
@@ -121,7 +121,7 @@ for the exact destruction order.
 Use [`with`](exact-scopes.md) when the value should instead have one
 exact extent:
 
-```nupp
+```nupp:fragment
 with session = openSession(1) do
     inspect(session)
 end
@@ -140,7 +140,7 @@ forwarded to another owner or consuming parameter, returned, or released in
 A `borrows` parameter gets access for the duration of the call without taking
 responsibility:
 
-```nupp
+```nupp:fragment
 local function inspect(borrows session: Session): nil
     print(session.id)
 end
@@ -160,7 +160,7 @@ borrow pins its root.
 A record containing affine fields is itself affine. Its synthesized terminal
 destroys still-live fields in reverse declaration order:
 
-```nupp
+```nupp:fragment
 local record Bundle
     first: affine(Session, closeSession)
     second: affine(Session, closeSession)
@@ -182,7 +182,7 @@ affine.
 Static borrows should remain the default. When references must escape a lexical
 borrow, move the owner into an independent managed cell:
 
-```nupp
+```nupp:fragment
 local owner = nupp.manage(new Client())
 local client = owner:alias()
 
@@ -218,7 +218,7 @@ would mint a second obligation for an aliased value.
 Fresh function and C results introduce ownership normally. At an audited raw
 boundary, use the ownership calls:
 
-```nupp
+```nupp:fragment
 @unsafe do
     local raw = @unsafe nupp.release(owner)
     local restored = @unsafe nupp.adopt<affine(voidptr, free)>(raw)

@@ -50,7 +50,7 @@ thread would stop unrelated work:
 A root task installs the host's handler, then ordinary functions beneath it can
 park without accepting a scheduler parameter:
 
-```nupp [main.nupp]
+```nupp:fragment [main.nupp]
 local frame = require("scheduler")
 local process = nupp.io.process
 
@@ -168,7 +168,7 @@ print(total)
 This call path reaches `coroutine.yield`, so the region is reported, and the
 report names the path from the call to the suspension:
 
-```nupp [pause.nupp]
+```nupp:refused [pause.nupp]
 local function pause(): nil
     coroutine.yield()
 end
@@ -228,7 +228,7 @@ A handler is dynamically scoped per coroutine, not process-wide. A host often
 wraps its root application task, which makes that handler application-wide in
 practice:
 
-```nupp
+```nupp:fragment
 local frame = require("scheduler")
 local suspension = nupp.suspension
 
@@ -387,7 +387,7 @@ current coroutine, then yields until the wait is ready. `canPark` returns false
 inside a host barrier where yielding would violate a runtime invariant.
 `shutdown` drains work queued while the handled extent is ending.
 
-```nupp [scheduler.nupp]
+```nupp:fragment [scheduler.nupp]
 local scheduler = {park = function(_: suspension.Handler, waiting: suspension.Waiting, _: function(): nil): nil
     local task = assert(coroutine.running())
     local function wake(): nil
@@ -416,7 +416,7 @@ trusted runtime contract: the checker verifies the function bodies and their
 annotations, and only the scheduler author can guarantee that `park` eventually
 resumes or cancels every wait.
 
-```nupp [scheduler.nupp]
+```nupp:fragment [scheduler.nupp]
 local function tick(): nil
     suspension.poll()
     runReady()
@@ -453,7 +453,7 @@ Structured exits leave the region only after its installation has been closed.
 `return` preserves all values, `break` and `continue` reach the loop that owns
 them, and `goto` may reach a label outside:
 
-```nupp
+```nupp:fragment
 local frame = require("scheduler")
 
 local function choose(): integer
@@ -472,7 +472,7 @@ installation fails too, while still reporting the close failure.
 Control cannot jump *into* a handled region, because such a jump would bypass
 handler installation and the lexical state before the label:
 
-```nupp [wrong.nupp]
+```nupp:refused [wrong.nupp]
 local frame = require("scheduler")
 
 goto inside
@@ -492,7 +492,7 @@ a replacement called by `string.gsub`, and an FFI callback are non-yieldable
 positions. The checker follows those callback bodies and reports a call inside
 one that reaches a suspension:
 
-```nupp [compare.nupp]
+```nupp:refused [compare.nupp]
 local function pause(): nil
     coroutine.yield()
 end

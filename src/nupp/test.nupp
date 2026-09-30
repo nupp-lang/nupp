@@ -3,7 +3,7 @@ module nupp.test
 --[[
 Assertions, for Nupp's own test runner and for project suites.
 
-```nupp
+```nupp:fragment
 const test = nupp.test
 
 test.equal(2 + 2, 4)
@@ -15,7 +15,7 @@ Every failure names the values that differed. An assertion answers the input it
 was given where that is useful, so one can narrow or validate a value in place
 rather than spelling it twice:
 
-```nupp
+```nupp:fragment
 const name = test.assert(lookup(id), "no row for " .. id)
 ```
 ]]

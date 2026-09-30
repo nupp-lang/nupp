@@ -24,7 +24,8 @@ function M.everyOverloadGuideExampleChecksAsDocumented()
    markdown = markdown:gsub("\r\n?", "\n")
 
    local count = 0
-   for source in markdown:gmatch("```nupp\n(.-)\n```") do
+   -- A fence may carry options, such as the `:refused` examplestest reads.
+   for source in markdown:gmatch("```nupp[^\n]*\n(.-)\n```") do
       count = count + 1
       local expected = source:match("^%-%- reports: ([A-Z0-9, ]+)") or ""
       expected = expected:gsub(",", "")

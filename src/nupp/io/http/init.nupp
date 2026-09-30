@@ -155,7 +155,7 @@ const http.capabilities = provider.capabilities
 --- headers arrive before the reader is finished, the upload stops there and the
 --- peer never sees the shortened body as complete.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local request = new http.Request(
 ---     url = endpoint,
 ---     method = "POST",

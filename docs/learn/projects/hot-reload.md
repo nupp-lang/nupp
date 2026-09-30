@@ -9,7 +9,7 @@ which named functions and methods keep their public identity while their bodies
 change. Reload is cooperative, so the host calls `nupp.hotreload.poll()` at a
 point where changing future dispatch is safe:
 
-```nupp
+```nupp:fragment
 while running do
     nupp.hotreload.poll()
     update()
@@ -192,7 +192,7 @@ every one of them is gone.
 An exported derive provider may read an immutable project file with a literal
 path:
 
-```nupp
+```nupp:fragment
 @comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
     local schema = nupp.derive.file("schemas/widget.txt")
     -- Build a closed recipe from schema.
@@ -236,7 +236,7 @@ callable, capture, or module boundary that made the candidate incompatible.
 Anonymous escaping closures are not yet patch identities. Give a long-lived
 callback a name:
 
-```nupp
+```nupp:fragment
 local function receive(message: string): nil
     -- body may be reloaded
 end

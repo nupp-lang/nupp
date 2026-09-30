@@ -221,7 +221,7 @@ sealed interface span.Span<T>
     --- Indexes are one-based. Omitting `last` runs through to the end, and
     --- `first, first - 1` is how an empty subspan is written.
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- const values = span.fromCarray(storage, 4)
     --- const middle = values:slice(2, 3)
     --- assert(#middle == 2)
@@ -404,7 +404,7 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- The two children are non-overlapping, so both are writable at once, which
     --- a pair of `slice` calls could not be. `mid` is how many elements go left.
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- do
     ---     local writable = values:write()
     ---     local split = writable:splitAt(2)
@@ -689,7 +689,7 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const text = "hello"
 --- const bytes = span.fromString(text)
 --- assert(#bytes == 5 and bytes[1] == 104)
@@ -737,7 +737,7 @@ rawset(span as table, "__foreignSpan", foreignSpan)
 --- A native raw reference uses the caller's explicit extent. Wasm references also
 --- check it against their rooted allocation. Later operations check this extent.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local struct Value
 ---     n: int32
 --- end
@@ -785,7 +785,7 @@ end
 --- under an incompatible-borrow barrier until `drop` or a scope boundary consumes
 --- the token. Nothing else may read or write the array in between.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local struct Value
 ---     n: int32
 --- end

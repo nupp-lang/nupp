@@ -140,7 +140,7 @@ Literal choices complete automatically, and a value named `FILE`, `PATH`,
 the shell's own file (or directory) completion. Use `@cli(complete = Provider)`
 when candidates depend on the machine or current project.
 
-```nupp
+```nupp:fragment
 local record Files
     function complete(
         self,
@@ -177,7 +177,7 @@ hidden `__complete` command, so the answer is always the current grammar's.
 `cli.style(stream)` returns styles that become identity functions when color is
 disabled.
 
-```nupp
+```nupp:fragment
 local styles = cli.style(io.stderr)
 io.stderr:write(styles.bold("error:") .. " bad input\n")
 ```

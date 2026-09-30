@@ -7,7 +7,7 @@ A suspension-aware call parks the frame it is in rather than stopping the
 process, and whoever installed a handler decides what runs meanwhile -- an
 event loop, a poll, the next frame.
 
-```nupp
+```nupp:fragment
 local frame = require("scheduler")
 local suspension = require("nupp.suspension")
 

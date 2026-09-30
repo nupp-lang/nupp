@@ -121,7 +121,7 @@ end
 --- cancellation is not a failure and should usually be re-raised rather than
 --- reported.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const ok, problem = pcall(work)
 --- if not ok and not tasks.isCancelled(problem) then
 ---     report(problem)
@@ -1197,7 +1197,7 @@ end
 --- argument never read as each other, because only a body expecting nothing can be
 --- named and only a body expecting something can be given one.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const page = scope:spawn(function(): string return fetchPage() end)
 --- const size = scope:spawn(url, measure)
 --- const report = scope:spawn("build report", buildReport)
@@ -1227,7 +1227,7 @@ end
 --- provider says which. A worker task holds one of the scope's slots until its lane
 --- answers. Its failure is the scope's, worded `nupp: worker task failed: ...`.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const thumbnail = scope:fork(bytes, jobs.thumbnail)
 --- save(thumbnail:await())
 --- ```
@@ -1250,7 +1250,7 @@ end
 --- deadline's cancellation, which is the scope's promise broken, reaches the block's
 --- exit. A child spawned after this settles as cancelled without running.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- with scope = nupp.tasks.open(limit = 4) do
 ---     for _, mirror in ipairs(mirrors) do
 ---         scope:spawn(mirror, probe)
@@ -1275,7 +1275,7 @@ end
 --- computing without parking. It never suspends, so a `@nosuspend` region and a
 --- worker lane can both call it, and outside any task it does nothing.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- for index = 1, #items do
 ---     tasks.checkpoint()
 ---     consume(items[index])
@@ -1517,7 +1517,7 @@ end
 --- A failure the block itself raises does not cancel the children: they run to
 --- completion before it propagates. Call `cancel` first where that is not wanted.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- with scope = nupp.tasks.open() do
 ---     scope:spawn(function(): nil work() end)
 --- end
@@ -1558,7 +1558,7 @@ end
 --- Both are named arguments: `open()`, `open(limit = 8)`, `open(timeoutMs = 500)`,
 --- or `open(limit = 8, timeoutMs = 500)`.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const sizes: {integer} = {}
 --- with scope = nupp.tasks.open(limit = 8) do
 ---     for index, url in ipairs(urls) do
@@ -1671,7 +1671,7 @@ end
 --- many, rather than having the rest dropped. A scope is the fail-fast answer to the
 --- same question: use one where the first failure should end the rest.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const values, errors = nupp.tasks.gather({
 ---     function(): string return fetch(primary) end,
 ---     function(): string return fetch(mirror) end,
@@ -1727,7 +1727,7 @@ tasks.gather = gather
 --- affine body that never ran is dropped rather than leaked. A branch answers one
 --- value, as in `gather`, so a winner that returned several raises saying how many.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const answer, which = nupp.tasks.race({
 ---     function(): string return fetch(primary) end,
 ---     function(): string return fetch(mirror) end,

@@ -484,7 +484,7 @@ export record URI
     ---
     --- Resolve a relative reference:
     ---
-    --- ```nupp
+    --- ```nupp:fragment
     --- local page = assert(newURI("https://example.com/docs/a.html"))
     --- assert(assert(page:resolve("b.html")):toString()
     ---     == "https://example.com/docs/b.html")
@@ -670,7 +670,7 @@ end
 ---
 --- Assemble one from components rather than writing the text out:
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local endpoint = assert(uri.newURI(new uri.Components(
 ---     scheme = "https",
 ---     host = "example.com",

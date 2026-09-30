@@ -42,7 +42,7 @@ Use `nupp aot --emit llvm FILE` to inspect the LLVM IR and `nupp aot --emit asm 
 
 Vector comparisons produce masks. `mask:any()` tests for an active lane, `mask:first()` finds its first position, and `mask:select(yes, no)` chooses values lane by lane. `species:tail(remaining)` activates only lanes backed by remaining elements. Pass that mask to both a partial load and its store. Unmasked loads and stores need a dominating full-width bound. A bound on `#input` also covers `output` when the leading guards hold `output` no shorter, as `assert(#output == #input)` does in the example above.
 
-```nupp
+```nupp:fragment
 local cursor: uint32 = 0
 if species = simd.species(array.uint32) then
     while cursor + species.lanes <= #values do
@@ -63,7 +63,7 @@ An early-exit scan keeps its scalar continuation after the last full vector. For
 For a filter, count selected lanes before compressing them. The output cursor
 advances by the count, not by the species width:
 
-```nupp
+```nupp:fragment
 local selected = value > threshold
 local kept = selected:count()
 local packed = value:compress(selected)
@@ -73,7 +73,7 @@ written = written + kept
 
 In a divergent loop, a mask is also the lifetime of unfinished lanes:
 
-```nupp
+```nupp:fragment
 while live:any() do
     local next = value * 0.5
     value = live:select(next, value)
@@ -85,7 +85,7 @@ end
 
 Records of two to four elements stored one after another, like pixels or the bytes of a Base64 group, load a field to a vector with `species:loadPairs`, `loadTriples` or `loadQuads`. Each one reads the next `ways * lanes` elements and gives vector `j` elements `j`, `j + ways`, and so on. `storePairs`, `storeTriples` and `storeQuads` do the reverse. The results can only initialize locals:
 
-```nupp
+```nupp:fragment
 while at + 3 * species.lanes <= #rgb and out + 4 * species.lanes <= #rgba do
     local r, g, b = species:loadTriples(rgb, at + 1)
     species:storeQuads(rgba, out + 1, r, g, b, species:splat(255))
@@ -100,7 +100,7 @@ A guard for the whole run makes each access a single copy. On NEON that is `ld2`
 
 `value:swizzle(indices)` reads lane `indices[i]` of `value` into lane `i`, and zero where the index is outside `1..lanes`. A small table is a vector, so a lookup is one swizzle. Up to three more vectors continue the run of lanes: an index in `lanes+1..2*lanes` reads the second, and so on through the fourth. A sixty-four-byte alphabet on a sixteen-lane byte species is four table vectors and one lookup:
 
-```nupp
+```nupp:fragment
 local t0 = species:load(alphabet, 1)
 local t1 = species:load(alphabet, species.lanes + 1)
 local t2 = species:load(alphabet, 2 * species.lanes + 1)
@@ -114,7 +114,7 @@ On NEON a byte lookup over one to four tables is a single table instruction. A w
 
 `simd.reducer` names the numerical contract. Scalar contributions remain scalar; vector contributions pass a matching mask inside one `do` region. Finalize once after that region.
 
-```nupp
+```nupp:fragment
 if species = simd.species(array.number) then
     local total = simd.reducer.pairwiseSum(0.0)
     do
@@ -138,7 +138,7 @@ Every reducer contributes through `add`, a dot product taking two values, and an
 
 A field load from a span of structs reads strided memory. If hot fields live in `nupp.mem.soa` column storage, an explicit load from a row view selects a contiguous column instead:
 
-```nupp
+```nupp:fragment
 local x = species:load(rows, cursor + 1, "x", active)
 local velocity = species:load(rows, cursor + 1, "velocity", active)
 species:store(rows, cursor + 1, "x", x + velocity * dt, active)

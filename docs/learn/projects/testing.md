@@ -313,7 +313,7 @@ it when it loads it and keeps the project's runtime loader installed while its
 cases run, so it can require project modules the same way the code under test
 does:
 
-```nupp:playground
+```nupp:fragment:playground
 module tests.arithmetictest
 
 local fixture = tests.nuppfixture

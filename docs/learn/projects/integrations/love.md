@@ -38,7 +38,7 @@ dependencies = {
 
 That makes LÖVE's `love` global available directly to Nupp source:
 
-```nupp
+```nupp:fragment
 function love.draw()
    love.graphics.setColor(0.35, 0.8, 1)
    love.graphics.rectangle("fill", 32, 220, 48, 48)

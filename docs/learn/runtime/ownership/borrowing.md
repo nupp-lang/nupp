@@ -72,7 +72,7 @@ in full, including its comptime counterpart.
 
 Packages normally hide a representation and publish the policy they mean:
 
-```nupp
+```nupp:fragment
 local record SocketHandle
     descriptor: integer
 end
@@ -126,7 +126,7 @@ aggregate obligations and destroys live fields in reverse declaration order.
 
 A closed terminal has the exact shape:
 
-```nupp
+```nupp:fragment
 function(takes Representation): nil
 ```
 
@@ -155,7 +155,7 @@ cleanup obligations. Ownership is introduced by a fresh annotated function
 result, a record constructor result, a declared C output, a transfer, or audited
 adoption:
 
-```nupp
+```nupp:fragment
 local record File
     descriptor: integer
 
@@ -183,7 +183,7 @@ adoption, which is reserved for a boundary no typed producer can describe.
 selected terminal. Passing to `takes`, returning through a matching affine
 result, or moving into another affine location transfers the obligation instead:
 
-```nupp
+```nupp:fragment
 local function peek(path: string): string
     local file = new File(nativeOpen(path))
     local head = file:read(16)
@@ -200,7 +200,7 @@ return, loop exit, outward `goto`, and errors. Bindings are acquired left to
 right and destroyed right to left, and a successful move deactivates the source
 exactly once:
 
-```nupp
+```nupp:fragment
 local function copy(from: string, to: string): nil
     local source = new File(nativeOpen(from))
     local sink = new File(nativeOpen(to))
@@ -230,7 +230,7 @@ starts as `nil` takes its first owner without overwriting anything. A swap is
 spelled through a temporary, each assignment landing on a name whose owner has
 already moved out:
 
-```nupp
+```nupp:fragment
 local held = first
 first = second
 second = held
@@ -243,7 +243,7 @@ acquisition moves into a hidden slot, the visible binding is a scoped borrow,
 and the same lexical cleanup machinery drops the hidden owner on every exit from
 the body:
 
-```nupp
+```nupp:fragment
 with file = new File(nativeOpen("notes.txt")) do
     print(file:read(16))
 end -- the hidden owner is destroyed here, not at the end of the function
@@ -261,7 +261,7 @@ the obligation.
 
 A record containing affine fields is an affine aggregate:
 
-```nupp
+```nupp:fragment
 local record Session
     inbound: File
     outbound: File
@@ -278,7 +278,7 @@ discharge every affine field on every path.
 
 A closure with `takes (capture)` is an affine, single-shot callable:
 
-```nupp
+```nupp:fragment
 local file = new File(nativeOpen("notes.txt"))
 local finish = function(): nil takes (file)
     print(file:read(16))
@@ -305,7 +305,7 @@ independent of each other.
 `borrows` grants call-scoped access without consuming the owner, and `exclusive`
 adds sole-access proof for operations that may invalidate derived views:
 
-```nupp
+```nupp:fragment
 local function checksum(borrows file: File): integer
     return hash(file:read(4096))
 end
@@ -325,7 +325,7 @@ a body that stores it is reported. A mode the literal writes itself is kept,
 and `takes` is never adopted, since an obligation the literal never wrote is
 not one its body promised to discharge.
 
-```nupp
+```nupp:refused
 local record Damage
     amount: number
 end
@@ -343,7 +343,7 @@ each(|event| -> do kept[1] = event end)    -- NUPP2603: a borrow cannot be store
 is the only way a rooted value leaves the scope that made it. Without it the
 escape is reported:
 
-```nupp
+```nupp:refused
 local function leak(borrows value: table): table
     return borrow(value) -- NUPP2608: a rooted value escapes its lifetime
 end
@@ -357,7 +357,7 @@ The clause states the result it is about, so it may be written on any of them.
 A generic for is handed an iterator, a state and a control variable, so a
 function that gives a loop something it only borrows puts that borrow second:
 
-```nupp
+```nupp:fragment
 local function entries(borrows value: table): (function(table, integer): (integer, string), table borrows (value), integer)
     return step, value, 0
 end
@@ -403,7 +403,7 @@ unannotated, but an unconstrained public generic parameter states `takes`,
 `borrows`, `exclusive`, or `scoped`, because callers may instantiate it with a
 capability:
 
-```nupp
+```nupp:refused
 local m = {}
 
 function m.forward<T>(value: T): T -- NUPP2610: the contract is implicit
@@ -478,7 +478,7 @@ fields, tuple slots, different constant indexes, and non-overlapping exact
 intervals are disjoint. A parent overlaps every descendant, and unknown indexes,
 bounds, and pointer arithmetic widen conservatively:
 
-```nupp
+```nupp:refused
 local function pair(exclusive a: table, exclusive b: table): nil
 end
 
@@ -490,7 +490,7 @@ pair({}, {}) -- fine: disjoint places
 After validating runtime bounds, audited unsafe library code can attach an exact
 interval to a child view:
 
-```nupp
+```nupp:fragment
 @unsafe do
     local left = nupp.region(storage, leftView, 1, 8)
     local right = nupp.region(storage, rightView, 9, 16)
@@ -510,7 +510,7 @@ access, pin, retention, and live-region shape. Iteration-local borrows end
 before the edge, and consuming an outer owner on a repeating path is
 reported:
 
-```nupp
+```nupp:fragment
 local function run(again: boolean): nil
     local value = new File(nativeOpen("notes.txt"))
     while again do
@@ -527,7 +527,7 @@ of the same obligation, and its fresh capability identity is tolerated exactly
 when no borrow or region loan is live on either side of the edge, because no
 loan can dangle across an edge that carries none:
 
-```nupp
+```nupp:fragment
 local frame = heap.allocate(ffi.typeof<uint8>(), size)
 with scope = nupp.tasks.open() do
     for generation = 1, 60 do
@@ -546,7 +546,7 @@ comparison, and with it the report.
 selector. Matching does not move the selector or duplicate an ownership
 obligation, and the views last for the selected arm:
 
-```nupp
+```nupp:fragment
 local size = switch handle do
     case is File as file -> file:read(16)
     case is Buffer {length} -> length
@@ -593,7 +593,7 @@ A nontrivial capability cannot disappear into `any` or an untyped call. Prefer
 a typed wrapper or static borrow. When references must escape, `nupp.manage`
 moves one self-contained exact obligation into an independently owned cell:
 
-```nupp
+```nupp:fragment
 local owner = nupp.manage(new Client())
 local client = owner:alias()
 
@@ -636,7 +636,7 @@ after terminal state and never select a replacement resource. See
 Audited adoption is reserved for boundaries where no typed producer can state
 the policy:
 
-```nupp
+```nupp:fragment
 @unsafe do
     local owner = @unsafe nupp.adopt<affine(voidptr, free)>(raw)
 end
@@ -644,7 +644,7 @@ end
 
 The reverse operation is also explicit:
 
-```nupp
+```nupp:fragment
 @unsafe do
     local raw = @unsafe nupp.release(owner)
 end

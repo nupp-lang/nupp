@@ -1656,7 +1656,7 @@ end
 --- Either way the result is an optional. Code
 --- that has a scalar continuation tests it:
 ---
---- ```nupp
+--- ```nupp:fragment
 --- if species = simd.species(array.uint32) then
 ---     while cursor + species.lanes <= #cps do
 ---         ...
@@ -1670,7 +1670,7 @@ end
 --- and code that has none asserts it, which is the same word it uses for every
 --- other requirement:
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local wide = assert(simd.species(array.float))
 --- local four = assert(simd.species(array.float, 4))
 --- ```

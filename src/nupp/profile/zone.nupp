@@ -4,7 +4,7 @@ module nupp.profile.zone
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.
 
-```nupp
+```nupp:fragment
 local zone = nupp.profile.zone
 
 local function render(): nil
@@ -117,7 +117,7 @@ end
 --- this is generated inline against the fields above rather than called. See the
 --- module comment.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- zone.push("render/overlay")
 --- drawOverlay()
 --- zone.pop()
@@ -193,7 +193,7 @@ end
 --- coroutine resumed after a profile stopped. The token carries the generation, so a
 --- late `leave` is discarded rather than popping someone else's zone.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local token = zone.enter("request")
 --- local answer = fetch()
 --- zone.leave(token)

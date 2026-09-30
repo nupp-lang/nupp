@@ -64,7 +64,7 @@ table all answer `false`.
 `Point` is a type and also a value: the runtime table above. Its value is the
 declaration's visible `Type<Point>` witness.
 
-```nupp
+```nupp:fragment
 local witness: Type<Point> = Point
 local p: Point = new Point(x = 3, y = 4)
 ```
@@ -81,7 +81,7 @@ Reaching a member through the table reaches the record's, so `Point.length`,
 `Point.make(...)` and a nested `Point.Inner` all resolve as they always did. A
 function that takes a declaration's table rather than an instance says so:
 
-```nupp
+```nupp:fragment
 local function register<P is Shape>(shape: Type<P>)
 ```
 
@@ -236,7 +236,7 @@ declaration that does install operator behavior.
 
 Inside its own body a declaration answers to its simple name:
 
-```nupp
+```nupp:fragment
 local record Path
     points: {Point}
     cutFrom: Path?
@@ -302,7 +302,7 @@ the width of a C `float`.
 Struct construction is positional in declaration order. A struct binding is
 never nil and a bare declaration is complete on its own:
 
-```nupp
+```nupp:fragment
 local a = new Vec2(1.0, 2.0) -- positional, in field order
 local b: Vec2 -- zero-initialized
 ```
@@ -422,7 +422,7 @@ A struct is a value type in native memory, and a nested struct field is stored
 by value. A struct held in a Lua variable refers to its runtime representation,
 so passing one to a function and mutating a field is visible to the caller:
 
-```nupp
+```nupp:fragment
 local function move(v: Vec2)
     v.x = v.x + 1
 end
@@ -443,7 +443,7 @@ stored through a reference (`NUPP2603`), which is where it would outlive the
 memory it points into. A parent that is only a temporary has no lifetime to
 borrow from, so bind it to a local before reading into it (`NUPP2619`).
 
-```nupp
+```nupp:refused
 local struct Inner
     v: int32
 end

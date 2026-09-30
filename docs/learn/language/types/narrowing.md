@@ -43,7 +43,7 @@ the checker records the fact against.
 Discriminant narrowing follows a copied local, so binding the tag to a new name
 first does not lose the fact:
 
-```nupp
+```nupp:fragment
 local kind = shape.kind
 if kind == "circle" then
     print(shape.radius) -- shape is the circle arm here
@@ -61,7 +61,7 @@ and target share none of them can only answer false. That is `NUPP2147`,
 reported where the test is written rather than compiled into a branch nothing
 reaches:
 
-```nupp
+```nupp:refused
 local record Circle
     radius: number
 end
@@ -104,7 +104,7 @@ return value, and as a bare statement it narrows its argument the way a
 never-returning helper does, because the builtin returns only on the truthy
 arm:
 
-```nupp
+```nupp:fragment
 assert(s)
 local a: string = s -- s is string here
 
@@ -125,7 +125,7 @@ there is nothing left for the fact to say.
 
 `type(x) == "string"` does not narrow, which is the limit readers hit first:
 
-```nupp
+```nupp:refused
 local function f(s: string | number): string
     if type(s) == "string" then
         return s
@@ -161,7 +161,7 @@ Only names and dotted paths narrow. An index like `a[i]`, a call result, or any
 other computed expression has no stable key to hang a fact on. Bind it to a
 local and narrow that:
 
-```nupp
+```nupp:fragment
 local entry = entries[index]
 if entry then
     print(entry.name) -- entry is narrowed; entries[index] would not have been
@@ -204,7 +204,7 @@ more than the annotation does. See
 The truthy side of `and` proves both operands. The falsy side proves neither,
 since either test could have been the one that failed:
 
-```nupp
+```nupp:fragment
 if a and a.b then
     print(a.b) -- a is not nil and a.b is truthy
 else
@@ -238,7 +238,7 @@ end
 A narrowed fact dies with the scope that proved it, and assigning to a name
 clears the facts for that name and everything beneath it:
 
-```nupp
+```nupp:fragment
 local function f(s: string?)
     if s then
         s = maybeName() -- facts for s are cleared here
@@ -261,7 +261,7 @@ unassigned, and an owner one path moved is moved.
 When narrowing cannot see what you know, write a predicate. The return type
 `v is T` names a parameter and a type:
 
-```nupp
+```nupp:fragment
 local function isPoint(v: any): v is Point
     return v ~= nil and v.x ~= nil and v.y ~= nil
 end
@@ -317,7 +317,7 @@ the selector to the matched literal; `case is T` narrows it to `T`. Earlier
 cases are subtracted before a later arm is checked, so the `else` arm sees the
 unmatched residue:
 
-```nupp
+```nupp:fragment
 local text = switch value do
     case is string as s -> s
     case is Point as point {x, y} -> `(${x}, ${y})`

@@ -6,7 +6,7 @@ Compressing and decompressing a stream of bytes.
 Ask for a format, then use its one-shot helpers or wrap a [](nupp.io) reader or
 writer:
 
-```nupp
+```nupp:fragment
 local compression = require("nupp.compression")
 
 const gzip = compression.format("gzip")

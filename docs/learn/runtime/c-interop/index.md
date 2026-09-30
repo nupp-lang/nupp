@@ -107,7 +107,7 @@ cannot express.
 
 Use the generated module like any other:
 
-```nupp
+```nupp:fragment
 local miniApi = native.mini
 
 local total = miniApi.mini_add(20, 22)
@@ -367,7 +367,7 @@ use a handwritten C wrapper and an ownership-refined `cdef` for that boundary.
 
 After `nupp build`, the generated module carries the dependency's name:
 
-```nupp [src/main.nupp]
+```nupp:fragment [src/main.nupp]
 local image = require("image")
 
 print(image.image_triple(14))       -- 42
@@ -526,7 +526,7 @@ module is editable. Refine the declaration once you have reviewed the API
 contract, using the modes under [lifetime
 behavior](#describe-lifetime-behavior):
 
-```nupp
+```nupp:fragment
 -- Generated physical type:
 cdef function use_context(value: context*?)
 
@@ -564,7 +564,7 @@ future work.
 `cheader` reads a header at compile time and gives you its exports, with no
 generated file to keep in step:
 
-```nupp
+```nupp:fragment
 local mini = cheader("native/mini.h", "mini")
 
 print(mini.mini_add(20, 22))
@@ -586,7 +586,7 @@ and a test of `__cplusplus` is not, so the usual `extern "C"` wrapper needs
 nothing. For any other conditional, or a header written in its includes'
 vocabulary, pass `"preprocess"` as the third argument to run `cc -E` first:
 
-```nupp
+```nupp:fragment
 local api = cheader("native/api.h", "api", "preprocess")
 ```
 
@@ -609,7 +609,7 @@ header-only callable still needs the manifest dependency or the standalone
 
 Six FFI operations take a type argument, which is what makes them checked:
 
-```nupp
+```nupp:fragment
 local p = ffi.new<nativePoint>()
 local q = ffi.cast<nativePoint*>(address)
 local t = ffi.typeof<nativePoint>()
@@ -629,7 +629,7 @@ yields `cdata`, and a string naming an undeclared type is reported.
 `carray` allocates a zero-based C array, which is `carray<T>` and distinct from
 the one-based Lua array `{T}`:
 
-```nupp
+```nupp:fragment
 local points = carray(nativePoint, 16)
 points[0].x = 1.0
 ```
@@ -768,7 +768,7 @@ parameters, callbacks, pinning, and raw-pointer escape hatches.
 element count. The qualifier does not change the C ABI given to LuaJIT FFI,
 while checked callers see spans:
 
-```nupp
+```nupp:fragment
 cdef function transform(
     borrows output: Item* countedBy(count),
     borrows input: const Item* countedBy(count),

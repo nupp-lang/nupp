@@ -110,7 +110,7 @@ it. Distinct primitive runtime categories, distinct literals, distinct
 concrete nominal identities, unions whose every arm is disjoint, and
 incompatible required fields are all proofs:
 
-```nupp
+```nupp:refused
 local type Impossible = string & number
 local type ConflictingTags = {
     kind: 'file'

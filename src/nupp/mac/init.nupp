@@ -5,7 +5,7 @@ Keyed hashes, for bytes somebody could have tampered with.
 
 Same shape as [](nupp.digest), plus a key.
 
-```nupp
+```nupp:fragment
 const mac = nupp.mac
 
 print(mac.hexDigest("hmac-sha256", key, "hello"))

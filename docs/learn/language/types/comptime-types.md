@@ -153,7 +153,7 @@ end
 `Arguments("pair")` to `(string, number)`. Any other literal closes it to
 `(...any)`, so the tail is unconstrained:
 
-```nupp
+```nupp:fragment
 local paired = apply("pair", "left", 2)
 local loose = apply("other", true, nil, 3)
 ```
@@ -188,7 +188,7 @@ local type Events<T> = {
 `Events<Settings>` is a shape of two read-only members, each named after the
 field it came from and each taking that field's type:
 
-```nupp
+```nupp:fragment
 local handlers: Events<Settings> = {
     themeChanged = function(value: string): nil end,
     volumeChanged = function(value: integer): nil end,
@@ -285,7 +285,7 @@ end
 
 Arity errors report at the call:
 
-```nupp
+```nupp:refused
 -- NUPP2006: omitted argument 3 supplies nil, not number
 local missing = string.format("%s has %d messages", "Ada")
 
@@ -296,7 +296,7 @@ local surplus = string.format("%s", "Ada", "Grace")
 A conversion mismatch reports at the argument that does not fit, and an
 unreadable directive reports where it starts:
 
-```nupp
+```nupp:refused
 -- NUPP2006: argument 2: string is not a number
 local mismatched = string.format("%d", "three")
 

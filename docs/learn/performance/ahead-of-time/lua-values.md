@@ -198,7 +198,7 @@ the default shared-library linkage, the generated module resolves its sidecar,
 opens that registrar with `package.loadlib`, validates the returned closure
 table, and caches that table for the Lua state:
 
-```nupp
+```nupp:fragment
 local ks_summary_builderRegistrar = "ks_register_c70bc70bcb1fafb2"
 -- ...
 local open, why = loadlib(path, ks_summary_builderRegistrar)

@@ -4,7 +4,7 @@ module nupp.profile
 Two profiling channels: one for where the time went, one for whether it went
 there compiled.
 
-```nupp
+```nupp:fragment
 local profile = nupp.profile
 
 with session = profile.sample({intervalMs = 5}) do
@@ -567,7 +567,7 @@ end
 
 --- Starts sampling.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- with session = profile.sample({intervalMs = 5, zone = "frame/render"}) do
 ---     render()
 ---     local report = session:stop("render.collapsed")
@@ -929,7 +929,7 @@ end
 
 --- Starts collecting trace aborts.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- with session = profile.trace() do
 ---     render()
 ---     local report = session:stop("aborts.csv")

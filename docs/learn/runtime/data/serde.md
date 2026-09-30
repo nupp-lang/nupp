@@ -86,7 +86,7 @@ local text = nupp.codec.json.newCodec():prepare(binding):encode(value)
 and out-of-range fixed-width integers. Code constructing many values can retain
 a `Member` and avoid name resolution:
 
-```nupp
+```nupp:fragment
 local id = schema:expectMember("id")
 local value = binding:newValue()
 value:set(id, 41)
@@ -128,7 +128,7 @@ prepared plan combines member metadata such as `debugRedact` and `debugSkip`
 with the binding's record, struct, or dynamic-slot access once, then caches the
 result on the binding:
 
-```nupp
+```nupp:fragment
 local prepared = serde.prepareDebug(binding)
 local text = prepared:format(value)
 
@@ -148,7 +148,7 @@ it does not resolve schema extensions for each field or each call.
 profile, a `nupp.serde.JsonProfile` table. `prepare(binding)` memoizes the
 combined schema and physical plan on that codec:
 
-```nupp
+```nupp:fragment
 local codec = nupp.codec.json.newCodec{
     unknownMembers = "ignore",
     fieldNames = function(member: nupp.serde.Member): string
@@ -186,7 +186,7 @@ Schemas, bindings, and runtime reflection descriptors are extension hosts.
 `nupp.reflect.extensionKey` creates a typed provider identity, and a host computes its
 value once:
 
-```nupp
+```nupp:fragment
 local calls = 0
 local displayName = nupp.reflect.extensionKey(function(schema: any): string
     calls = calls + 1

@@ -48,7 +48,7 @@ Decoding drops JSON null by default, including from inside an array. Pass a
 replacement value to preserve it. `NULL` is the round-trippable choice, because
 it encodes back as null:
 
-```nupp
+```nupp:fragment
 const json = nupp.codec.json
 
 local value = assert(json.decode([[{"items":[1,null,2]}]], json.NULL))

@@ -37,7 +37,7 @@ compile-time type-generator call. It is never a runtime call:
 Two functions with the same signature therefore create different affine types,
 and aliasing a generated type does not create a new nominal identity:
 
-```nupp
+```nupp:fragment
 local type AlsoHeld = affine(LockToken, unlock) -- the same type as HeldLock
 ```
 
@@ -80,7 +80,7 @@ happens.
 
 A record constructor may make the affine view the default result of `new`:
 
-```nupp
+```nupp:fragment
 local record File
     descriptor: integer
 
@@ -122,7 +122,7 @@ constructor result may say.
 A user-defined comptime type function can call the programmable counterpart of
 the direct form:
 
-```nupp
+```nupp:fragment
 @comptime local function MakeOwner(
     T: type,
     const cleanup: function

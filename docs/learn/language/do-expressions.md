@@ -7,7 +7,7 @@ order: 79
 A `do` expression runs statements and produces one value. `yield value` ends
 its execution and supplies that value:
 
-```nupp
+```nupp:fragment
 local enabled = do
     if ready then
         yield true
@@ -20,7 +20,7 @@ end
 Use a ternary for a simple choice: `ready ? true : false`. Use a `do` expression
 when computing the result needs local variables, loops, or early exits.
 
-```nupp
+```nupp:fragment
 local value = cached ?? do
     local response = fetch()
     validate(response)
@@ -46,7 +46,7 @@ ordinary loop targets, and an [exit suffix](exit-suffixes.md) inside a do
 expression takes the same targets the written statements would. Cleanup runs when any of these exits leaves its region.
 A nested function cannot yield to a surrounding expression.
 
-```nupp
+```nupp:fragment
 local selected = do
     for _, candidate in ipairs(candidates) do
         if candidate.ready then

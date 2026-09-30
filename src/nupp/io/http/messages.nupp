@@ -141,7 +141,7 @@ type http.RequestBody = string | http.ReaderBody | http.FileBody
 --- here override the client's for this request alone. A request is an affine owner;
 --- closing it closes a streaming reader body, and otherwise has no external work.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local request = new http.Request(
 ---     url = assert(uri.newURI("https://example.com/upload")),
 ---     method = "POST",

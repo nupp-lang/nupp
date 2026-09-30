@@ -59,7 +59,7 @@ silently, which is exactly right for code that has not been annotated yet.
 known, such as a JSON decode, a `pcall` result, or reflection over an undeclared
 table:
 
-```nupp
+```nupp:refused
 local function decode(json: string): unknown
     return nil
 end
@@ -75,7 +75,7 @@ field, calling it, and comparing it against a typed value all need it narrowed
 or cast first, the same as any other concrete type that is not what the
 operation wants:
 
-```nupp
+```nupp:fragment
 local record Status
     ok: boolean
 end
@@ -169,7 +169,7 @@ since nothing but `never` fits `never`.
 A function type carries it in result position with no syntax beyond the name,
 and a `never` variadic parameter takes no extra arguments at all:
 
-```nupp
+```nupp:refused
 local type Bailer = function(msg: string): never
 
 local function noExtras(a: integer, ...: never): integer
@@ -183,7 +183,7 @@ noExtras(1, "oops") -- NUPP2006: argument 2: string is not a never
 Because it fits anywhere, a `never`-returning call also satisfies a literal
 type, the same as any other declared result:
 
-```nupp
+```nupp:fragment
 local function pick(ok: boolean): "yes" | "no"
     if ok then
         return "yes"
@@ -197,7 +197,7 @@ end
 `integer` is a subtype of `number`. The reverse is not true, and there is no
 implicit downcast:
 
-```nupp
+```nupp:refused
 local x: number = 1
 local y: integer = x -- NUPP2001: number is not a integer
 ```
@@ -210,7 +210,7 @@ by `1LL` finds nothing. An `LL` or `ULL` literal, a load from a struct field or
 C array, or a `cdef` function's result establishes one, and storing a Lua
 number into an `int64` field converts it the way C does.
 
-```nupp
+```nupp:refused
 local big: int64 = 1LL
 local n: number = big  -- NUPP2001: int64 is not a number
 local x: int64 = 1.5   -- NUPP2001: number is not an int64
@@ -251,7 +251,7 @@ else. They may describe struct fields, C arrays and pointers, cdefs, and
 standard spans, but not locals, parameters, results, records, or unrelated
 generic arguments:
 
-```nupp
+```nupp:refused
 local struct Header
     kind: uint8
     length: uint16
@@ -283,7 +283,7 @@ are `number`, `1LL` is `int64`, `1ULL` is `uint64`, and `0xff` is `integer`.
 
 A union lists the types a value may have, and `T?` is sugar for `T | nil`:
 
-```nupp
+```nupp:fragment
 local type Shape = Circle | Square
 local name: string?
 ```
@@ -369,7 +369,7 @@ for what a C boundary adds to a pointer.
 `const T` is a read-only view of the whole value. A mutable value satisfies a
 `const` parameter; a `const` value does not satisfy a mutable one:
 
-```nupp
+```nupp:fragment
 local function render(buffer: const Buffer)
 end
 ```
@@ -406,7 +406,7 @@ enums](unions.md#literal-unions-are-enums) for what that admits.
 
 An alias introduces a name, not a new nominal identity:
 
-```nupp
+```nupp:fragment
 local type Id = uint32
 local type Handler = function(event: Event): boolean
 ```

@@ -72,7 +72,7 @@ infinities, functions, threads, and cdata have no spelling to commit to.
 A table the block reaches by two paths is one table while the block runs and
 would be two once quoted, so it is refused rather than quoted twice:
 
-```nupp [shared.nupp]
+```nupp:refused [shared.nupp]
 local value: {{integer}} = comptime do
     local shared = {1}
     return {shared, shared}
@@ -109,7 +109,7 @@ print(PositionCodec)
 Drop the annotation and the result has nowhere to land. An inferred binding, or
 an opaque value nested inside an ordinary table, is refused:
 
-```nupp [codec.nupp]
+```nupp:refused [codec.nupp]
 local record Position
     x: number
     y: number

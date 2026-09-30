@@ -60,7 +60,7 @@ end
 --- The origin is whatever the platform's monotonic clock counts from, and two
 --- runs don't share it.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const started = time.now()
 --- work()
 --- print(time.now() - started)
@@ -193,7 +193,7 @@ end
 ---
 --- Providing zero returns without parking.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- time.sleep(25)
 --- ```
 ---

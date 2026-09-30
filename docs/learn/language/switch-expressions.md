@@ -12,7 +12,7 @@ can be compared directly; computed selectors are saved once. Nothing is wrapped
 in a function. The examples below use local selectors.
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local label = switch status do
     case 200 -> "ok"
     case 301, 302, 307, 308 -> "redirect"
@@ -37,7 +37,7 @@ packed into a narrow span become a dense array indexed through an offset, and a
 miss lands on the `else` result without a range guard:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local name = switch level do
     case 1 -> "trace"
     case 2 -> "debug"
@@ -75,7 +75,7 @@ Static cases use primitive Lua equality. An allowed value is:
 Several values may share an arm:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local kind = switch byte do
     case 9, 10, 13, 32 -> "space"
     case 48, 49, 50, 51, 52, 53, 54, 55, 56, 57 -> "digit"
@@ -106,7 +106,7 @@ not static cases.
 An exact const name is useful when the name communicates more than its value:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 const READ: "read" = "read"
 const WRITE: "write" = "write"
 
@@ -138,7 +138,7 @@ that arm. `as name` binds the narrowed whole value, and a brace list binds
 direct fields:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local description = switch shape do
     case is Circle as circle {radius} ->
         `circle ${circle.name}, radius ${radius}`
@@ -199,7 +199,7 @@ arm's own scope, so it reads the bindings a type case introduced and sees the
 selector already narrowed by the pattern:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local reading = switch sample do
     case is Measurement as m where m.celsius > 100 -> "boiling"
     case is Measurement as m -> `${m.celsius} degrees`
@@ -249,7 +249,7 @@ commit to an arm whose predicate they cannot evaluate.
 An expression arm produces its expression directly:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local path = switch mode do
     case "read" -> inputPath
     case "write" -> outputPath
@@ -270,7 +270,7 @@ Use a [do expression](do-expressions.md) after `->` when an arm needs statements
 `yield value` supplies the switch result. It is not coroutine suspension. `return` still exits the enclosing
 function immediately:
 
-```nupp
+```nupp:fragment
 local value = switch token do
     case is NumberToken {text} -> do
         local parsed = tonumber(text)
@@ -304,7 +304,7 @@ enclosing do expression and never crossing a function boundary.
 `yield` is line-sensitive. These remain ordinary Lua calls:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 yield(value)
 yield {value}
 yield "value"
@@ -320,7 +320,7 @@ yield "value"
 To supply one of those forms as an arm result, bind it and yield the name:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local answer = {value}
 yield answer
 ```
@@ -338,7 +338,7 @@ when the checker can prove that ordered cases consume the entire selector type.
 Finite literal unions, `nil`, and both boolean values are enumerable:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local type Mode = "read" | "write"
 
 local access = switch mode do
@@ -361,7 +361,7 @@ nothing is generated to defend it at runtime.
 Type cases can likewise consume a closed union:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local area = switch shape do
     case is Circle {radius} -> math.pi * radius * radius
     case is Rectangle {width, height} -> width * height
@@ -402,7 +402,7 @@ A union declared with `nupp.types.nonExhaustive()` among its alternatives
 requires `else` however many cases are written, because the member that call
 adds is one no case can name:
 
-```nupp
+```nupp:fragment
 local type Status = "ok" | "error" | nupp.types.nonExhaustive()
 
 local label = switch status do
@@ -432,7 +432,7 @@ evaluate unless the arm is selected.
 Switches preserve conditional evaluation in `and`, `or`, `??`, ternary arms,
 and safe-navigation work. Only the selected branch runs:
 
-```nupp
+```nupp:fragment
 local selected = ready and switch code do
     case 200 -> "ok"
     else -> "other"
@@ -469,7 +469,7 @@ The formatter preserves two visible nesting boundaries: cases sit one level
 inside the switch, and statements in a block arm sit one level inside their
 case.
 
-```nupp
+```nupp:fragment
 local result = switch value do
     case 1 -> "one"
     case 2 -> do

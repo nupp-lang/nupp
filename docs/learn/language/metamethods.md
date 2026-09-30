@@ -203,7 +203,7 @@ end
 Metamethod function types can have their own type parameters, so a typed key
 can determine the result of an indexed read or store:
 
-```nupp
+```nupp:fragment
 local record Key<T>
 end
 
@@ -304,7 +304,7 @@ runtime implementation explicitly.
 `metatable<T>` is a compiler-known type that erases to an ordinary Lua table.
 It connects the standard metatable functions to their receiver:
 
-```nupp
+```nupp:fragment
 local record Task
 end
 local task: Task
@@ -361,7 +361,7 @@ shorthand for, so `__band`, `__bor`, `__bxor`, `__bnot`, `__shl`, `__shr` and
 `__sar` are rejected. They will be reconsidered when the runtime dispatches
 them.
 
-```nupp
+```nupp:refused
 local record Flags
     bits: integer
     metamethod __band: function(self, other: Flags): Flags

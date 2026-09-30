@@ -587,7 +587,7 @@ export const newQueueReader = bytes.newQueueReader
 --- borrowed and outlives the cursor; a reader is taken, and closing the cursor
 --- closes it; a string or a queue carries no obligation either way.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- do
 ---     local cursor = io.newScalarReader(header)
 ---     local magic = cursor:readUint32()

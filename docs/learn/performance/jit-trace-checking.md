@@ -104,7 +104,7 @@ measure a process.
 `FNEW` constructs a Lua function, and the selected LuaJIT recorder refuses it.
 This capturing closure therefore breaks an `@jit` contract:
 
-```nupp
+```nupp:refused
 @jit
 local function sum(values: {integer}): integer
     local total: integer = 0
@@ -174,7 +174,7 @@ A non-capturing function is more directly repairable, so
 [`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure)
 remains its automatic diagnostic:
 
-```nupp
+```nupp:fragment
 for _, item in ipairs(items) do
     register(item, function(event)
         return event.kind == "click"
@@ -193,7 +193,7 @@ The contract follows resolved Nupp calls, including recursive call graphs and
 exact exported callees. The error belongs to the annotated caller and shows a
 bounded path:
 
-```nupp
+```nupp:refused
 local function helper(values: {integer}): integer
     local total: integer = 0
     for index = 1, #values do
@@ -227,7 +227,7 @@ Calling a function deliberately disabled with `jit.off` is valid ordinary code.
 It is an error from an `@jit` body, because that body promised not to leave
 compiled code deliberately:
 
-```nupp
+```nupp:refused
 local function logValue(value: integer): nil
     print(value)
 end
@@ -321,7 +321,7 @@ help: disable the callback and its calling boundary with jit.off
 
 Keep the complete C-to-Lua callback boundary cold:
 
-```nupp
+```nupp:fragment
 local function visit(value: int32): nil
     print(value)
 end
@@ -390,7 +390,7 @@ The command exits 1 because every repeatable path reaches both blockers.
 
 A conditional non-capturing construction can be only may-reach:
 
-```nupp
+```nupp:fragment
 local current = function(): integer return 0 end
 local first = true
 for index = 1, #values do

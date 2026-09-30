@@ -37,7 +37,7 @@ names may change.
 once, without argument tables or closures.
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local record Vec2
     x: number
     y: number
@@ -76,7 +76,7 @@ Safe calls and short-circuit expressions evaluate plucked paths only when the
 call runs:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local moved = enabled and update(delta, {x, y} = entity.body.position)
 ```
 
@@ -160,7 +160,7 @@ examples use local scalar selectors.
 Computed results keep an `if`/`elseif` chain:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local text = switch status do
     case 200 -> formatStatus(status)
     case 301 -> "redirect"
@@ -183,7 +183,7 @@ Enough static scalar cases and results, including `else`, become one table read.
 Closely spaced integers use an offset into a dense array:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local label = switch byte do
     case 9 -> "tab"
     case 10 -> "newline"
@@ -205,7 +205,7 @@ if label == nil then label = "other" end
 Widely spaced integers use a hash-keyed map:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local again = switch status do
     case 408 -> true
     case 409 -> true
@@ -243,7 +243,7 @@ if again == nil then again = false end
 String cases use the same lookup, including cases that return `nil`:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 local kind = switch word do
     case "and" -> "operator"
     case "break" -> "statement"
@@ -628,7 +628,7 @@ M.field` recursively fixes fresh named fields. Reads through fully immutable
 paths fold:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 -- settings.nupp
 module settings
 
@@ -680,7 +680,7 @@ Repeated statement-position calls through an immutable path share a local bound
 at first use:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 -- service.nupp
 module service
 
@@ -783,7 +783,7 @@ views. Matching accesses in the numeric loop become non-raising at every level,
 including in `@noraise` code. At `-O1`, they also become direct FFI accesses:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 function m.dot(leftView: span.Span<Value>, rightView: span.Span<Value>): integer
     const left = leftView
     const right = rightView
@@ -835,7 +835,7 @@ For a const-bound [SoA view](../runtime/data/structure-of-arrays.md), `for index
 stores:
 
 ::: code-group
-```nupp [Nupp]
+```nupp:fragment [Nupp]
 function m.advance(view: soa.WriteSpan<Particle>, delta: float): nil
     const rows = view
     for index = 1, #rows do
@@ -1085,7 +1085,7 @@ Define a function outside the loop when every iteration can reuse it.
 [`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure)
 suggests eligible cases:
 
-```nupp
+```nupp:fragment
 local isClick = |event| -> event.kind == "click"
 for _, item in ipairs(items) do
     register(item, isClick)

@@ -169,7 +169,7 @@ runs.
 
 Type arguments come from the arguments:
 
-```nupp
+```nupp:fragment
 print(firstOr({1, 2, 3}, 0)) -- T = integer
 ```
 
@@ -191,7 +191,7 @@ Unification makes four decisions a partly inferred call depends on:
 A `T?` parameter subtracts the concrete members from the argument, so the
 residue binds. That is how `assert` is typed:
 
-```nupp
+```nupp:fragment
 -- assert: function<T>(v: T?, msg: any?): T
 local name: string? = maybeName()
 local sure = assert(name) -- sure is string
@@ -204,7 +204,7 @@ See [Narrowing](narrowing.md#narrowing-tests) for the other route from `T?` to
 
 Write a type argument when neither the values nor the destination supply one:
 
-```nupp
+```nupp:fragment
 local value = make<string>()
 local selected = holder:pick<integer>()
 ```
@@ -212,13 +212,13 @@ local selected = holder:pick<integer>()
 The parser commits to call type arguments only when the closing `>` is followed
 immediately by `(`. The ordinary comparison keeps its Lua reading:
 
-```nupp
+```nupp:fragment
 a < b > c
 ```
 
 Adding parentheses after `>` selects the generic-call reading instead:
 
-```nupp
+```nupp:fragment
 a < b > (c) -- a<b>(c)
 ```
 
@@ -287,7 +287,7 @@ A [metamethod contract](../metamethods.md#generic-indexing) may carry
 its own type parameters, which lets a typed key determine the result of an
 index:
 
-```nupp
+```nupp:fragment
 local record Key<T>
 end
 

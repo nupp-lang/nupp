@@ -950,7 +950,7 @@ end
 
 --- Ends the stream and returns its single root value.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- valuebuilder.openArray(builder, 1)
 --- valuebuilder.number(builder, 41)
 --- valuebuilder.close(builder)

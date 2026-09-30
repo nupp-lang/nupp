@@ -216,7 +216,7 @@ end
 --- Inside one, prefer the context's `source`: a pump registered there belongs to the
 --- handler answering that wait, and a handler that owns its pumps can shut them down.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const source = suspension.source("example.timers", 50, function(): integer
 ---     return fireDueTimers()
 --- end)
@@ -421,7 +421,7 @@ end
 --- is required, because a handler that has to abandon the wait needs a way to say
 --- so.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- const line = suspension.suspend("io.readLine", function(
 ---     resume: function(string),
 ---     context: suspension.Context
@@ -690,7 +690,7 @@ end
 --- to do with them. So this hands back the obligation and lexical cleanup
 --- discharges it.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- do
 ---     local handling = suspension.install(scheduler)
 ---     runFrame()

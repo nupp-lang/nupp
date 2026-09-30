@@ -26,7 +26,7 @@ local n: Named = new Circle(name = "c", radius = 1)
 A type satisfies an interface by carrying its members. No declaration is
 required, and a plain table shape works the same way:
 
-```nupp
+```nupp:fragment
 local n: Named = {name = "anonymous"}
 ```
 
@@ -35,7 +35,7 @@ it: a fresh table literal, a record, a struct, or a module's own table. Any othe
 shape may be a narrowed view of a value that holds the member under another
 type, so it has to declare the member to fit:
 
-```nupp
+```nupp:refused
 local type Labelled = {@readonly label: string?}
 
 local full = {id = 1, label = 5}
@@ -86,7 +86,7 @@ land in that parameter.
 
 ## `is` is a claim, not a proof
 
-```nupp
+```nupp:fragment
 local record Tagged is Named
     name: string
     weight: number
@@ -136,7 +136,7 @@ Only interfaces may be named after `is`, and anything else is reported. An
 interface cannot name itself, directly or through a cycle of other interfaces.
 Multiple parents are allowed:
 
-```nupp
+```nupp:fragment
 local record Task is Named, Callable
 end
 ```
@@ -145,7 +145,7 @@ end
 
 An interface is the usual bound for a type parameter:
 
-```nupp
+```nupp:fragment
 local function start<T is Callable>(task: T): T
     return task()
 end
@@ -161,7 +161,7 @@ bound rules.
 
 The `is` operator tests a value's type:
 
-```nupp
+```nupp:fragment
 if shape is Circle then
     print(shape.radius)
 end
@@ -177,7 +177,7 @@ integrality is not checked at run time.
 
 A test the subject's own type settles does not run at all:
 
-```nupp
+```nupp:fragment
 local maybe: Shape? = pick()
 if maybe is Shape then -- compiles to `maybe ~= nil`
     use(maybe)
@@ -284,7 +284,7 @@ say which behavior it means.
 `@override` may mark a method satisfying any interface requirement, including
 a bodyless one. It reports an error when the method matches no requirement:
 
-```nupp
+```nupp:fragment
 local record Shouter is Greeter
     name: string
 

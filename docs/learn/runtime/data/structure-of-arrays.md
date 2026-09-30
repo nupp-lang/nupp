@@ -54,7 +54,7 @@ one column whose element keeps that field's declared C layout, which is what
 holds struct identity, construction, `layoutof(T)`, and FFI calls independent
 of the storage choice.
 
-```nupp
+```nupp:fragment
 local struct Sample
     position: Position
     history: float[3]
@@ -78,7 +78,7 @@ shared row view; `write()` borrows an exclusive affine one.
 Indexing a row supports direct field reads, writes, and compound assignments.
 Reading or writing a whole row gathers from or scatters to every column.
 
-```nupp
+```nupp:fragment
 local struct Particle
     x: float
     y: float
@@ -113,7 +113,7 @@ destruction](../ownership/borrowing.md#consumption-and-lexical-destruction).
 A shared view rejects direct field stores and whole-row stores alike, and the
 exclusive borrow prevents any other access to the owner until it ends.
 
-```nupp
+```nupp:fragment
 local shared = particles:read()
 shared[1].x = 4
 ```
@@ -128,7 +128,7 @@ NUPP2009: SoA shared rows are read-only
 view. A shared row view returns `span.Span<Field>`, and an exclusive row view
 returns `span.Writable<Field>`.
 
-```nupp
+```nupp:fragment
 local span = nupp.mem.span
 
 with
@@ -153,7 +153,7 @@ dynamic string or a missing field is reported.
 A row slice preserves the column layout and adjusts the logical row offset. Its
 indexes start at one, like the parent view.
 
-```nupp
+```nupp:fragment
 local samples = soa.allocate(ffi.typeof<Position>(), 3)
 with rows = samples:write() do
     with middle = rows:slice(2, 2) do
@@ -175,7 +175,7 @@ created.
 `copyFrom` moves a row range without materializing row structs. It validates
 both ranges before moving bytes, then performs one contiguous copy per field.
 
-```nupp
+```nupp:fragment
 local source = soa.allocate(ffi.typeof<Particle>(), 2)
 local target = soa.allocate(ffi.typeof<Particle>(), 4)
 
@@ -207,7 +207,7 @@ field identities.
 type names, sizes, alignments, and a versioned fingerprint, without exposing the
 slab pointer. `forCount` adds the offsets and byte counts for one row count.
 
-```nupp
+```nupp:fragment
 local layout = soa.layoutof(ffi.typeof<Particle>())
 local instance = layout:forCount(1024)
 
@@ -226,7 +226,7 @@ Compile-time [reflection](../../language/reflection.md) publishes the semantic h
 same description. It reports eligibility and each field's identity, ordinal,
 type-graph edge, and C type name, without choosing a target row count.
 
-```nupp
+```nupp:fragment
 local firstIdentity = comptime do
     local info = nupp.reflect(Particle)
     assert(info.soa.eligible)
@@ -246,7 +246,7 @@ The canonical loop proves every indexed row access is in bounds, so it lowers
 to direct typed-column loads and stores. An arbitrary index keeps its runtime
 bounds check.
 
-```nupp
+```nupp:fragment
 with rows = particles:write() do
     for index = 1, #rows do
         rows[index].x += rows[index].dx
@@ -266,7 +266,7 @@ fields address the original columns, including when the caller passes a slice.
 The private native call receives column pointers and a row count; entry and
 exit copy no row payloads.
 
-```nupp
+```nupp:fragment
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 

@@ -1359,7 +1359,7 @@ end
 --- be started, such as a program that is not there, answers nil and why rather than
 --- raising, as `files.open` and `net.connect` do.
 ---
---- ```nupp
+--- ```nupp:fragment
 --- local child = assert(process.spawn({
 ---     args = {"grep", "-c", "nupp"},
 ---     stderr = "stdout",

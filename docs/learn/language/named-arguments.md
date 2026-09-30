@@ -92,7 +92,7 @@ end
 A name that is not a field of the operand is reported, carrying a fix when a
 real field is close enough to be the one meant.
 
-```nupp
+```nupp:refused
 local record Sprite
     x: number
     y: number
@@ -207,7 +207,7 @@ applied to `require`.
 A call is reported when its arguments cannot be arranged into the single
 positional call they stand for.
 
-```nupp
+```nupp:refused
 local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end

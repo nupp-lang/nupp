@@ -10,7 +10,7 @@ scope's body, and leaving it settles the scope, so every child has run, been
 cancelled, or unwound before the block is left. The first child failure cancels
 unfinished siblings and becomes the scope's failure.
 
-```nupp
+```nupp:fragment
 export function load(): string
     local loaded = ""
     with scope = nupp.tasks.open() do
@@ -35,7 +35,7 @@ The standard library is reached by nesting; nothing here is required.
 worker lane. Both have one shape: arguments first, callable last, and both answer
 a `Task<F>`.
 
-```nupp
+```nupp:fragment
 const page = scope:spawn(function(): string return fetchPage() end)
 const size = scope:spawn(url, measure)                 -- measure(url: string): integer
 const thumbnail = scope:fork(bytes, jobs.thumbnail)    -- on a worker lane
@@ -66,7 +66,7 @@ that spawns is the source, and a settlement is what lets it continue, so nothing
 is pulled from the source before there is room to run it. A worker child holds a
 slot until its lane answers.
 
-```nupp
+```nupp:fragment
 const sizes: {integer} = {}
 with scope = nupp.tasks.open(limit = 8) do
     for index, url in ipairs(urls) do
@@ -80,7 +80,7 @@ cursor. A child holds its own result when it finishes, so it processes it there,
 in completion order by construction. A worker result comes back through the
 child that awaits it, which is the child that occupies the slot:
 
-```nupp
+```nupp:fragment
 with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
@@ -108,7 +108,7 @@ child is resumed far enough to unwind its cleanup. Running Lua is cooperative:
 it notices cancellation when it suspends, returns, or calls
 `nupp.tasks.checkpoint()`.
 
-```nupp
+```nupp:fragment
 const child = scope:spawn(function(): integer
     local total: integer = 0
     for index = 1, 1000000 do
@@ -128,7 +128,7 @@ lanes, and a child spawned afterwards settles as cancelled without running.
 Because the scope asked for it, leaving the block afterwards does not raise. This
 is how the first result wins:
 
-```nupp
+```nupp:fragment
 local winner: string? = nil
 with scope = nupp.tasks.open(limit = 4) do
     for _, mirror in ipairs(mirrors) do
@@ -190,7 +190,7 @@ a scope a caller has to discharge.
 `gather` returns parallel value and error arrays, indexed as the bodies were,
 for a caller who has to see every outcome:
 
-```nupp
+```nupp:fragment
 const values, errors = nupp.tasks.gather({
     function(): string return fetch(primary) end,
     function(): string return fetch(mirror) end,
@@ -208,7 +208,7 @@ dropped. `race` holds its branches to the same rule.
 `race` returns the first settled value and its one-based index, then cancels
 and unwinds the rest:
 
-```nupp
+```nupp:fragment
 const answer, which = nupp.tasks.race({
     function(): Head return upload(transfer) end,
     function(): Head return head(transfer) end,
@@ -233,7 +233,7 @@ enclosing scope's, so a child may bound itself more tightly than its parent did
 and may not extend what its parent already promised. `nupp.tasks.deadline()`
 answers the current absolute deadline, or nil outside a bounded scope.
 
-```nupp
+```nupp:fragment
 with scope = nupp.tasks.open(timeoutMs = 5000) do
     index(scope:spawn(url, fetch):await())
 end

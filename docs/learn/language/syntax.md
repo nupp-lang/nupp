@@ -86,7 +86,7 @@ end
 `??=` assigns only when the target is `nil`, and is Nupp's own addition. The
 other two are LuaJIT's.
 
-```nupp
+```nupp:fragment
 local function fill(user: User): nil
     user.port ??= 8080
 end
@@ -116,7 +116,7 @@ end
 `or return`, `or break` and `or continue` leave when an expression's first
 result is falsy, and are that result when it is not.
 
-```nupp
+```nupp:fragment
 local text = files.read(path) or return
 ```
 
@@ -334,7 +334,7 @@ end
 `do ... yield value ... end` evaluates statements and produces one value.
 Locals stay in the block, and `yield` exits the nearest do expression.
 
-```nupp
+```nupp:fragment
 local value = do
     local computed = calculate()
     yield computed

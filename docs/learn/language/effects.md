@@ -47,7 +47,7 @@ end
 empty and every boolean is false. If the body performs an omitted effect, the
 checker reports the contract.
 
-```nupp
+```nupp:refused
 @effects()
 local function mutate(values: {integer})
     values[1] = 2
@@ -110,7 +110,7 @@ implementation really is contained by the other members.
 
 For a bodyless Nupp declaration, `@effects` combines with `const`:
 
-```nupp
+```nupp:fragment
 -- clock.d.nupp
 @effects(external = true)
 const monotonicNow: function(): number
@@ -382,7 +382,7 @@ Unknown code is pessimistic by default. An unresolved call widens the inferred
 summary to `top`, meaning no finite `@effects(...)` contract can verify the
 visible body.
 
-```nupp
+```nupp:refused
 @effects(external = true)
 local function run(callback: function())
     callback()

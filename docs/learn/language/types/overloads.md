@@ -73,7 +73,7 @@ Subtype overlap is the usual way to write a real tie. An integer satisfies both
 `integer` and `number`, and Nupp does not guess that the narrower type was
 meant:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2126
 local type Render = function(integer): string & function(number): string
 local render: Render = nil as any
@@ -82,7 +82,7 @@ return render(1)
 
 No surviving member is reported at the call:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2125
 local type Parse = function(string): string & function(boolean): string
 local parse: Parse = nil as any
@@ -151,7 +151,7 @@ it means.
 
 There is no runtime value corresponding to the source name `decoder.decode`:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2126
 local record Decoder
     function decode(self, text: string): string
@@ -195,7 +195,7 @@ ordinary first-class Lua function.
 
 An `any` argument may leave several entries possible:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2126
 local record Decoder
     function decode(self, text: string): string
@@ -234,7 +234,7 @@ return decoder:decode(input as string)
 
 Two bodies cannot differ only by return type:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2118
 local record Bad
     function get(self, value: string): string
@@ -280,7 +280,7 @@ This is implementation, not replacement: the interface supplied no body, so
 these methods do not use `@override`. Every contract entry needs a compatible
 record body:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2118
 local interface DecoderContract
     decode: function(self, string): string & function(self, integer): string
@@ -334,7 +334,7 @@ return decoder:decode("ready"), decoder:decode(42)
 Omitting `@override` from the string body is reported, and putting it on a
 parameter pack with no inherited body is reported as well:
 
-```nupp
+```nupp:refused
 -- reports: NUPP2118
 local interface Decoder
     function decode(self, text: string): string

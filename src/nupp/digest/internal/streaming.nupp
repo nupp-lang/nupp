@@ -4,7 +4,7 @@ module nupp.digest.internal.streaming
 --[[
 SHA-256 and HMAC-SHA256 over byte strings, streaming or in one shot.
 
-```nupp
+```nupp:fragment
 local hash = require("nupp.digest.internal.streaming")
 
 local mac = hash.hmac("secret")

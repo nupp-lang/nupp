@@ -85,7 +85,7 @@ nupp: SPI declaration must name a concrete exported interface: example.codec.spi
 This consumer takes the unique highest priority and keeps the one function it
 calls:
 
-```nupp [src/example/codec/init.nupp]
+```nupp:fragment [src/example/codec/init.nupp]
 module example.codec
 local spi = require("nupp.spi")
 local {type Codec} = require("example.codec.spi")
