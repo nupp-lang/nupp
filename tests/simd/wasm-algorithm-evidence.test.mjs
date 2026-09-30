@@ -59,7 +59,9 @@ test('archived oracle bytes must match both the recorded hash and current source
 });
 
 test('owned algorithms have one dedicated job outside the type-width matrix', () => {
-  const workflow = readFileSync(new URL('../../.github/workflows/simd-conformance.yml', import.meta.url), 'utf8');
+  // A Windows checkout carries CRLF line endings; the block pattern reads LF.
+  const workflow = readFileSync(new URL('../../.github/workflows/simd-conformance.yml', import.meta.url), 'utf8')
+    .replace(/\r\n/g, '\n');
   const block = workflow.match(/^  wasm-algorithms:\n([\s\S]*?)(?=^  [a-z][a-z-]*:|$(?![\s\S]))/m)?.[1];
   assert.ok(block, 'dedicated algorithm job is required');
   assert.ok(!block.includes('matrix:'), 'algorithm job must not be multiplied by type or width');
