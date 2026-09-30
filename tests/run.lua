@@ -790,8 +790,75 @@ do
         -- `groupedWorker`. Read once and unexported for the same reason as the two
         -- above -- a nested runner a case starts is inside this group, and must
         -- stay there rather than leave it for one of its own.
-        if os.getenv("NUPP_TEST_PROCESS_GROUP") == "1" and ffi.os ~= "Windows" then
+        --
+        -- The run a person or a command starts does the same for itself, because
+        -- a lone suite runs in this process rather than a worker and nothing else
+        -- would end what its cases leave behind. It has no shell to do that for it,
+        -- so it starts a watcher first, outside the group it is about to lead: when
+        -- this process or whatever started it is gone, the watcher ends the group.
+        -- That is what a killed `nupp test` needs, since what it started is
+        -- otherwise left running with nobody to report to; one run under a
+        -- wrapper that times out and kills only the command left a suite spinning
+        -- for a day and a half. The command names itself in
+        -- `NUPP_TEST_WATCH_PID`, since a shell may stand between the two.
+        --
+        -- Not from a terminal, where the run belongs to the shell's foreground
+        -- job: leading a group of its own would take it out of reach of Ctrl-C
+        -- and the shell's job control, which already end it together.
+        local grouping = os.getenv("NUPP_TEST_PROCESS_GROUP") == "1"
+        local watchedCommand = tonumber(os.getenv("NUPP_TEST_WATCH_PID") or "")
+        stopExporting("NUPP_TEST_WATCH_PID")
+        local leading = not grouping
+            and ffi.os ~= "Windows"
+            and not embedded
+            and #shard == 0
+            and not queueDir
+            and isatty(0) == 0
+            and isatty(1) == 0
+            and isatty(2) == 0
+        if leading then
+            pcall(function()
+                ffi.cdef[[int getppid(void);]]
+                local watched = {tostring(processId)}
+                local parent = tonumber(C.getppid())
+                -- Started by init, or a launcher that has already gone, there is no
+                -- parent left to lose.
+                if parent and parent > 1 then
+                    watched[#watched + 1] = tostring(parent)
+                end
+                if watchedCommand and watchedCommand > 1 and watchedCommand ~= parent then
+                    watched[#watched + 1] = tostring(watchedCommand)
+                end
+                -- The workers this run starts give their own groups a grace a second
+                -- shorter than this one, so theirs are ended first.
+                local grace = math.max(2, 7 - (tonumber(os.getenv("NUPP_TEST_GROUP_DEPTH") or "") or 0))
+                local alive = {}
+                for _, pid in ipairs(watched) do
+                    -- A process another user owns answers `kill -0` with a refusal, and
+                    -- is still running; `ps` settles it.
+                    alive[#alive + 1] = ("{ kill -0 %s 2>/dev/null || ps -p %s >/dev/null 2>&1; }"):format(pid, pid)
+                end
+                local group = tostring(processId)
+                local watcher = table.concat({
+                    "( trap '' HUP INT TERM",
+                    "exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-",
+                    "while " .. table.concat(alive, " && ") .. "; do sleep 1; done",
+                    ("kill -0 -%s 2>/dev/null || exit 0"):format(group),
+                    ("kill -TERM -%s 2>/dev/null"):format(group),
+                    "waited=0",
+                    ("while kill -0 -%s 2>/dev/null && [ $waited -lt %d ]; do sleep 1; waited=$((waited + 1)); done"):format(
+                        group,
+                        grace
+                    ),
+                    ("kill -KILL -%s 2>/dev/null ) </dev/null >/dev/null 2>&1 &"):format(group),
+                }, "; ")
+                os.execute(watcher)
+            end)
+        end
+        if grouping and ffi.os ~= "Windows" then
             stopExporting("NUPP_TEST_PROCESS_GROUP")
+        end
+        if (grouping and ffi.os ~= "Windows") or leading then
             pcall(function()
                 ffi.cdef[[
                 int setpgid(int, int);

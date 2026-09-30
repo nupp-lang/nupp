@@ -1492,6 +1492,11 @@ end}
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- One word to the shell, whatever it holds: nothing in it is expanded.
+local function shellWord(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
 -- A copied runner in a temporary directory, with one suite in it and a second
 -- that passes. A lone process-isolated suite runs in the runner's own process;
 -- two are handed to workers, which is the path under test.
@@ -1597,13 +1602,30 @@ return {staysBusy = function()
     os.execute("sleep 300")
 end}
 ]])
+    -- Started from a shell that stays to wait on it, as a command would: a runner
+    -- whose parent has gone ends by itself, which is the next case.
     assert(
         os.execute(
             (
-                "cd %q && { %sNUPP_TEST_BUILD=%q %q stucktest quiettest --lane=isolated --jobs=1 --json </dev/null >/dev/null 2>&1 & echo $! > runner.pid; }"
-            ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+                "cd %q && sh -c %s </dev/null >/dev/null 2>&1 &"
+            ):format(
+                dir,
+                shellWord(
+                    (
+                        "%sNUPP_TEST_BUILD=%q %q stucktest quiettest --lane=isolated --jobs=1 --json & echo $! > runner.pid; wait"
+                    ):format(MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+                )
+            )
         ) == 0
     )
+    for _ = 1, 100 do
+        local file = io.open(dir .. "/runner.pid", "rb")
+        if file then
+            file:close()
+            break
+        end
+        os.execute("sleep 0.1")
+    end
     local runner = tonumber(read(dir .. "/runner.pid"):match("%d+"))
     local pid
     for _ = 1, 1200 do
@@ -1621,6 +1643,62 @@ end}
     test.assert(pid, "the case never reported its process")
     test.assert(ended, "pid " .. tostring(pid) .. " outlived the runner that was killed")
     os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+-- A lone suite runs in the runner's own process, with no worker to end what its
+-- cases leave behind. When the command that started the runner is killed on its
+-- own -- `nupp test` under a wrapper that times out and kills only it -- the
+-- runner used to go on, and one spun for a day and a half. It now leads a
+-- process group of its own and ends it once its starter is gone: the shell that
+-- started it directly, or the command it was told to watch, which may have a
+-- shell of its own between the two.
+function M.aRunnerEndsWhatItStartedWhenItsCommandIsKilled()
+    if package.config:sub(1, 1) == "\\" then
+        return test.skip("process groups are POSIX")
+    end
+    for _, shape in ipairs({"parent", "named"}) do
+        local dir = runnerProject("lonetest", LINGERING .. [[
+return {staysBusy = function()
+    linger()
+    os.execute("sleep 300")
+end}
+]])
+        local runner = ("%sNUPP_TEST_BUILD=%q %q lonetest --jobs=1 --json; :"):format(
+            MODULES,
+            dir .. "/build",
+            ROOT .. "/build/nupp-test"
+        )
+        -- The command: a shell that waits on the runner, or one that names itself
+        -- and waits on another shell that waits on the runner.
+        local command = shape == "parent" and runner
+            or ("NUPP_TEST_WATCH_PID=$$ sh -c %s; :"):format(shellWord(runner))
+        assert(
+            os.execute(
+                ("cd %q && { sh -c %s </dev/null >/dev/null 2>&1 & echo $! > command.pid; }"):format(
+                    dir,
+                    shellWord(command)
+                )
+            ) == 0
+        )
+        local started = tonumber(read(dir .. "/command.pid"):match("%d+"))
+        local pid
+        for _ = 1, 1200 do
+            pid = lingeringPid(dir)
+            if pid or not alive(started) then
+                break
+            end
+            os.execute("sleep 0.1")
+        end
+        os.execute(("kill -KILL %d 2>/dev/null"):format(started))
+        local ended = pid ~= nil and awaitExit(pid, 30)
+        if pid then
+            os.execute(("kill -KILL %d 2>/dev/null"):format(pid))
+        end
+        os.execute("pkill -KILL -f " .. string.format("%q", dir) .. " 2>/dev/null")
+        test.assert(pid, shape .. ": the case never reported its process")
+        test.assert(ended, shape .. ": pid " .. tostring(pid) .. " outlived the command that started its runner")
+        os.execute("rm -rf " .. string.format("%q", dir))
+    end
 end
 
 function M.embeddedWorkersDiscoverFromTheParentCatalogWithoutPopen()

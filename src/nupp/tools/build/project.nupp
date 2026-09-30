@@ -1404,7 +1404,16 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
         env.LUA_CPATH = rocks.cpath .. ";" .. (env.LUA_CPATH or os.getenv("LUA_CPATH") or "")
     end
 
-    return process.run(argv, {cwd = root, env = env})
+    -- The test command learns which process started it, and ends what it started
+    -- if that process is killed; a shell left between the two would outlive this
+    -- one and hide it. So the shell hands its process over, and the command also
+    -- names this one outright.
+    local pid = fs.processId()
+    if pid ~= nil then
+        env.NUPP_TEST_WATCH_PID = tostring(pid)
+    end
+
+    return process.run(argv, {cwd = root, env = env, replaceShell = true})
 end
 
 --- Runs `tasks.<name>` from the manifest: builds `tasks.<name>.build` first if it names

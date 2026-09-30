@@ -236,6 +236,15 @@ local stagingToken = (function(): string
     return tostring(pid)
 end)()
 
+--- This process's id, or nil where the runtime cannot say.
+local function processId(): number?
+    if stagingToken == "0" then
+        return nil
+    end
+
+    return tonumber(stagingToken)
+end
+
 local staged = 0
 
 --- A process-local suffix for staging files that may be created concurrently.
@@ -409,5 +418,6 @@ fs.installStaged = installStaged
 fs.writeFileIfChanged = writeFileIfChanged
 fs.copyFile = copyFile
 fs.listFiles = listFiles
+fs.processId = processId
 
 export = fs

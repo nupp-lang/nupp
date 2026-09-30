@@ -26,6 +26,11 @@ type process.Options = {
     cwd: string?,
     env: {[string]: string}?,
 
+    --- `run` and `command` only, and only on POSIX: the shell hands its process to
+    --- the program rather than waiting on it, so the program's parent is the
+    --- caller. Ignored on Windows, whose shell cannot.
+    replaceShell: boolean?,
+
     --- `captureIsolated` only: how long the host waits before killing the child.
     timeoutMs: integer?,
 
@@ -173,6 +178,9 @@ function process.command(argv: {string}, opts: process.Options?): string
                 parts[#parts + 1] = name .. "=" .. quote(opts.env[name])
             end
         end
+    end
+    if opts.replaceShell and not windows then
+        parts[#parts + 1] = "exec"
     end
     for index, arg in ipairs(argv) do
         -- `cmd` reads a leading `/` as the start of a switch, so a program named
