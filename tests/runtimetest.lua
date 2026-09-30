@@ -621,4 +621,35 @@ print('300000 calls passed',total)
     end)
 end
 
+
+-- Once a numeric for loop has a trace, ARM64 enters it through JFORI, whose
+-- floating-point path left PC at the loop body when the loop ran no
+-- iterations: after `f(0, 1000)`, `f(2.5, 0)` ran once. Every bound that is
+-- not an int32 takes that path, an integer past 2^31 included, and the pinned
+-- build carries the fix. A fresh interpreter, so the loop's trace is this
+-- script's own, and the same answers with the JIT off.
+function M.aTracedNumericForLoopRunsNoIterationsForAnEmptyRange()
+    withProject({
+        ["loops.lua"] = [==[
+if arg[1] == 'off' then jit.off() end
+local function count(first, last) local n = 0 for _ = first, last do n = n + 1 end return n end
+local answers = {count(0, 1000)}
+for _, range in ipairs({{2.5, 0}, {0, -0.5}, {1.5, 1.2}, {2^40, 0}, {0, -2^40}, {0, -math.huge}, {0/0, 5}}) do
+    answers[#answers + 1] = count(range[1], range[2])
+end
+answers[#answers + 1] = count(2.5, 5)
+answers[#answers + 1] = count(0, 2.5)
+print(table.concat(answers, ' '))
+]==],
+    }, function(dir)
+        for _, mode in ipairs({"off", "on"}) do
+            local output = dir .. "/" .. mode .. ".log"
+            local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
+            local result = readFile(output)
+            assertEq(status, 0, mode .. ": " .. result)
+            assertEq(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
+        end
+    end)
+end
+
 return M

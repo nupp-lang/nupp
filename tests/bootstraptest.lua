@@ -202,7 +202,7 @@ local function plantedTree(stage0Body)
     assert(
         os.execute(
             (
-                "{ cksum < '%s/scripts/patches/luajit-irt-size.patch'; cksum < '%s/luajit/bin/luajit'; }"
+                "{ cksum < '%s/scripts/patches/luajit.patch'; cksum < '%s/luajit/bin/luajit'; }"
                     .. " > '%s/luajit/.nupp-runtime-patch'"
             ):format(dir, prefix, prefix)
         ) == 0

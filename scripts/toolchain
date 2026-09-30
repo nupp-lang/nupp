@@ -187,7 +187,7 @@ rust_sources_digest() {
         # `scripts/toolchain.pins` is not in this list because it is folded in
         # below through `pins_digest`, which leaves out the stage-zero pin.
         for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
-            scripts/toolchain scripts/patches/luajit-irt-size.patch \
+            scripts/toolchain scripts/patches/luajit.patch \
             host/include/nupp.exports; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
@@ -235,7 +235,7 @@ key_material() {
     "$CXX" --version 2>&1 | head -n 2 || true
     printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
     sha256 "$ROOT/scripts/toolchain"
-    sha256 "$ROOT/scripts/patches/luajit-irt-size.patch"
+    sha256 "$ROOT/scripts/patches/luajit.patch"
     pins_digest
 }
 KEY=$(key_material | sha256_stdin | cut -c1-16)
@@ -1120,7 +1120,7 @@ module_extension() {
 # The receipt the install leaves beside the interpreter. `scripts/luajit.sh`
 # reads the same one to decide whether a LuaJIT on the PATH is this one.
 luajit_receipt() {
-    cksum < "$ROOT/scripts/patches/luajit-irt-size.patch"
+    cksum < "$ROOT/scripts/patches/luajit.patch"
     cksum < "$1/bin/luajit"
 }
 
@@ -1149,7 +1149,7 @@ build_luajit() {
     rm -rf "$luajit_build"
     mkdir -p "$luajit_build"
     cp -R "$luajit_source/." "$luajit_build/"
-    patch -f -p1 -d "$luajit_build" < "$ROOT/scripts/patches/luajit-irt-size.patch" >&2
+    patch -f -p1 -d "$luajit_build" < "$ROOT/scripts/patches/luajit.patch" >&2
     tree=$luajit_build
 
     note "building LuaJIT with $CC"

@@ -31,16 +31,17 @@ luajit_has_required_patch() {
     [ -f "$patch_interpreter" ] || return 1
     patch_prefix=$(CDPATH= cd -- "$(dirname "$patch_interpreter")/.." && pwd) || return 1
     [ -f "$patch_prefix/.nupp-runtime-patch" ] || return 1
-    [ -f "$1/scripts/patches/luajit-irt-size.patch" ] || return 1
+    [ -f "$1/scripts/patches/luajit.patch" ] || return 1
     patch_receipt=$(
-        cksum < "$1/scripts/patches/luajit-irt-size.patch"
+        cksum < "$1/scripts/patches/luajit.patch"
         cksum < "$patch_interpreter"
     ) || return 1
     [ "$(cat "$patch_prefix/.nupp-runtime-patch")" = "$patch_receipt" ]
 }
 
-# ARM64 needs the pinned build's IR type-width fix: a new banner alone does not
-# establish correct FFI argument widths. Other architectures retain a usable
+# ARM64 needs the pinned build's fixes, the IR type widths and the numeric
+# for loop's entry (scripts/patches/luajit.patch): a new banner alone does not
+# establish either. Other architectures retain a usable
 # PATH interpreter; otherwise provision the pinned build automatically.
 #
 # A caller that has already asked `scripts/toolchain --prefix` may pass the

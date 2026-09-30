@@ -1,3 +1,10 @@
+Fixes carried against the pinned LuaJIT, applied to a private copy of its
+source by scripts/toolchain before it is built. Each hunk says why.
+
+irt_size indexed the type-size table with the whole IR type, flags included,
+so a guarded integer became a wrong width: ARM64 stack arguments stored a
+uint32_t as a halfword.
+
 --- a/src/lj_ir.h
 +++ b/src/lj_ir.h
 @@ -409,7 +409,7 @@
@@ -9,3 +16,19 @@
  
  LJ_DATA const uint8_t lj_ir_type_size[];
  
+ARM64's JFORI, the loop entry once a numeric for loop has a trace, leaves PC
+at the loop body on its floating-point path when the loop runs no iterations,
+so the body ran once. Any bound that is not an int32 takes that path:
+`for i = 2.5, 0` or `for i = 0, -2^40` after the loop traced over integers.
+The integer path and the other VMs branch to the loop exit here.
+
+--- a/src/vm_arm64.dasc
++++ b/src/vm_arm64.dasc
+@@ -3939,6 +3939,7 @@
+     if (op == BC_FORI) {
+       |  csel PC, RC, PC, hi
+     } else if (op == BC_JFORI) {
++      |  mov PC, RC
+       |  ldrh RCw, [RC, #-4+OFS_RD]
+       |  bls =>BC_JLOOP
+     } else if (op == BC_IFORL) {

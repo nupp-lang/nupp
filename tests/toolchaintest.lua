@@ -767,8 +767,8 @@ function M.luaJitPatchContentChangesNativeAndHostKeys()
     local driver = root .. "/scripts/toolchain"
     write(driver, read(DRIVER))
     write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
-    local patch = root .. "/scripts/patches/luajit-irt-size.patch"
-    write(patch, read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    local patch = root .. "/scripts/patches/luajit.patch"
+    write(patch, read(ROOT .. "/scripts/patches/luajit.patch"))
     local hostProbe = root .. "/scripts/host-key"
     local text = read(DRIVER)
     local entry = assert(text:find("# --- entry", 1, true))
@@ -803,7 +803,7 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
     local driver = root .. "/scripts/toolchain"
     write(driver, read(DRIVER))
     write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
-    write(root .. "/scripts/patches/luajit-irt-size.patch", read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    write(root .. "/scripts/patches/luajit.patch", read(ROOT .. "/scripts/patches/luajit.patch"))
     local notice = read(ROOT .. "/host/notices/LuaJIT-COPYRIGHT.txt")
     write(root .. "/host/notices/LuaJIT-COPYRIGHT.txt", notice)
     write(source .. "/COPYRIGHT", notice)
@@ -813,6 +813,17 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
         .. "#define irt_size(t)\t\t(lj_ir_type_size[irt_t((t))])\n\n"
         .. "LJ_DATA const uint8_t lj_ir_type_size[];\n\n"
     write(source .. "/src/lj_ir.h", header)
+    -- The loop-entry hunk's context, at the line it names.
+    write(
+        source .. "/src/vm_arm64.dasc",
+        string.rep("\n", 3938)
+            .. "    if (op == BC_FORI) {\n"
+            .. "      |  csel PC, RC, PC, hi\n"
+            .. "    } else if (op == BC_JFORI) {\n"
+            .. "      |  ldrh RCw, [RC, #-4+OFS_RD]\n"
+            .. "      |  bls =>BC_JLOOP\n"
+            .. "    } else if (op == BC_IFORL) {\n"
+    )
     local make = directory .. "/fake-make"
     write(
         make,
@@ -880,8 +891,8 @@ local function luaJitSelection(architecture, stagedExists, patched, replaceBinar
     write(current .. "/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.9999999999'\n")
     if patched then
         assert(os.execute("mkdir -p " .. quote(root .. "/scripts/patches")) == 0)
-        local patch = root .. "/scripts/patches/luajit-irt-size.patch"
-        write(patch, read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+        local patch = root .. "/scripts/patches/luajit.patch"
+        write(patch, read(ROOT .. "/scripts/patches/luajit.patch"))
         local receipt = directory .. "/.nupp-runtime-patch"
         assert(
             os.execute(
