@@ -180,6 +180,13 @@ timestamp, a path from the building machine, or a build counter. Two builds of
 one tree produce byte-identical payloads, which is what the [packaging
 fixpoint](#packaging-fixpoint) below rests on.
 
+The compiler-owned host is reproducible to the same standard across checkouts,
+directories, locales, time zones and umasks, with one exception: Rust records
+the source paths of its dependencies and standard library in panic locations,
+and those sit under the building user's `CARGO_HOME` and rustup directory. Two
+machines agree byte for byte when those two directories are spelled the same,
+as they are on every hosted CI runner of one platform.
+
 ## Stub requirements
 
 A stub does six things, in this order.
