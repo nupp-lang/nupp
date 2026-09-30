@@ -2443,10 +2443,14 @@ end
 function types.withOwnershipPayload(source: types.Type, payload: types.Type, selectedPath: {string}?): types.Type
     local slot = types.valueSlot(source)
     if slot.capability.obligation then
+        -- The owner's own list when there is one: an aggregate's cleanups are its
+        -- fields', and the obligation tree keeps which field only as a component.
+        local owned = source.tag == "affine" and (source as types.Affine).cleanups
+            or types.capabilityCleanups(slot.capability)
         local path = selectedPath or preservedPath(payload, slot.payload)
         if path and #path > 0 then
             local cleanups = {}
-            for j, cleanup in ipairs(types.capabilityCleanups(slot.capability)) do
+            for j, cleanup in ipairs(owned) do
                 cleanups[j] = cleanupAtPath(cleanup, path)
             end
             return types.affine(
@@ -2456,12 +2460,7 @@ function types.withOwnershipPayload(source: types.Type, payload: types.Type, sel
                 obligationAtPath(slot.capability.obligation, path)
             )
         end
-        return types.affine(
-            payload,
-            types.capabilityCleanups(slot.capability),
-            types.capabilityTransferOnly(slot.capability),
-            slot.capability.obligation
-        )
+        return types.affine(payload, owned, types.capabilityTransferOnly(slot.capability), slot.capability.obligation)
     elseif #slot.capability.loans > 0 then
         return types.borrowed(payload)
     elseif #slot.capability.anchors > 0 then

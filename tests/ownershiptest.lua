@@ -6474,6 +6474,56 @@ function M.aFieldMovesOutOfAnOptionalOwnerOnceItIsNarrowed()
     assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
+-- An optional aggregate owner is closed field by field, as the same record is when
+-- it cannot be nil. The optional's cleanups used to be rebuilt from the obligation
+-- tree, which keeps the field only as a component, so each became `close` on the
+-- record itself: the scope's end raised "attempt to call method 'close'".
+function M.anOptionalAggregateOwnerClosesItsFields()
+    local source = table.concat(
+        {
+            "local closed: integer = 0",
+            "local record W is nupp.Closeable",
+            "   function close(takes self): nil closed = closed + 1 end",
+            "end",
+            "local record P",
+            "   w: W?",
+            "   o: W?",
+            "end",
+            "local function make(ok: boolean): (P?, string?)",
+            "   if ok then return new P(w = new W(), o = new W()), nil end",
+            "   return nil, 'no'",
+            "end",
+            "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
+            "local function held(): nil local p = make(true) end",
+            "local function viaError(): integer",
+            "   local p, err = make(true)",
+            "   if p == nil then error(err) end",
+            "   consume(p.w)",
+            "   return closed",
+            "end",
+            "local function absent(): nil local p = make(false) end",
+            "held()",
+            "local whole = closed",
+            "closed = 0",
+            "local during = viaError()",
+            "local after = closed",
+            "closed = 0",
+            "absent()",
+            "return {whole, during, after, closed}",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "ownership-optional-aggregate")
+    assertEq(#genDiags, 0)
+    local chunk, loadErr = loadstring(code, "@ownership-optional-aggregate")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local ok, counts = pcall(chunk)
+    assert(ok, tostring(counts))
+    assertEq(table.concat(counts, ","), "2,1,2,0", "each field is closed once")
+end
+
 -- Reaching through the nil is only for an owner the checker already knows is there:
 -- indexing the optional owner itself is still refused.
 function M.aFieldCannotMoveOutOfAnOwnerThatMayBeNil()
