@@ -12,4 +12,4 @@
 # which ThreadSanitizer cannot see, so the allocation and the driver's first
 # atomic read look unordered. Reported on the first Linux run (TcpStream
 # connect in nupp-native-runtime's tests).
-race:tokio::runtime::io::scheduled_io::ScheduledIo::set_readiness
+race:tokio::runtime::io::scheduled_io::ScheduledIo>::set_readiness
