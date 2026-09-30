@@ -195,8 +195,17 @@ local function ipv4Number(text: string): integer?
     if digits:match(pattern) == nil then
         return nil
     end
+    -- Digit by digit rather than tonumber(digits, radix): that is C's strtoul,
+    -- and where unsigned long is 32 bits (Windows) 0x100000000 saturates to
+    -- 4294967295 and passes for 255.255.255.255. A double keeps growing past
+    -- every IPv4 bound, to infinity for an absurd run of digits, and the range
+    -- checks refuse it.
+    local value = 0
+    for index = 1, #digits do
+        value = value * radix + (tonumber(digits:sub(index, index), 16) as integer)
+    end
 
-    return tonumber(digits, radix) as integer?
+    return value as integer
 end
 
 local function endsInANumber(text: string): boolean

@@ -483,6 +483,8 @@ function M.portableParserRefusesMalformedHosts()
         ["http://1.2.3.4.5/x"] = "invalid IPv4 address",
         ["http://09/x"] = "invalid IPv4 address",
         ["http://0x100000000/x"] = "invalid IPv4 address",
+        -- Past 32 bits in decimal too: strtoul saturates there on Windows.
+        ["http://4294967296/x"] = "invalid IPv4 address",
         ["file://h:8080/x"] = "invalid domain character",
         ["http://example.com:65536/"] = "invalid port number",
         ["http://example.com/\0suffix"] = "URI contains a NUL byte",
