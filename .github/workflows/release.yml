@@ -9,8 +9,11 @@ name: Build standalone binaries
 # exercised deliberately before a tag rather than only by one.
 on:
   push:
+    # A release version and nothing else. Any tag used to start the hour-long
+    # build, and one like v0.0.13-dev on the commit that says 0.0.13-dev passed
+    # the version check at the end and published an ordinary release.
     tags:
-      - "*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
 permissions:
