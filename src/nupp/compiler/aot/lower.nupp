@@ -1645,12 +1645,15 @@ local function admitSpecies(node: cst.Call, kernel: lower.Kernel): nil
     local site = lower.site(node)
     local arguments = node.args ~= nil and (node.args as cst.Args).exprs or {}
     local witness = #arguments >= 1 and lower.dottedName(arguments[1]) or nil
-    local root: string? = nil
+    local owner: string? = nil
     local field: string? = nil
     if witness ~= nil then
-        root, field = (witness as string):match("^([^.]+)%.([^.]+)$")
+        local root: string? = nil
+        root, field = (witness as string):match("^(.+)%.([^.]+)$")
+        -- A module alias, or the module's global path written out.
+        owner = root ~= nil and (kernel.modules[root as string] or root) or nil
     end
-    if root == nil or kernel.modules[root as string] ~= "nupp.mem.array" or not SPECIES_WITNESSES[field as string] then
+    if owner ~= "nupp.mem.array" or not SPECIES_WITNESSES[field as string] then
         context.reject(site, "simd.species takes one of the scalar witnesses in nupp.mem.array, such as array.uint32")
     end
     if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "number" then
@@ -2053,6 +2056,13 @@ local function fixedCall(
     end
 
     for position, argument in ipairs(args) do
+        -- A `float` read widens to a number where it is loaded, as it does in
+        -- the Lua body, and the checker types it as the `float` it came from.
+        -- Narrowing it back is exact, so an f32 operand takes the load itself.
+        if fixed.operand == "f32" and argument.op == "widen_f32_f64" then
+            argument = (argument as scalarIR.Convert).value
+            args[position] = argument
+        end
         if argument.op == "constant" and fixed.operand ~= "f64" then
             local literal = argument as scalarIR.Constant
             local number = tonumber(literal.value)
@@ -2318,6 +2328,25 @@ local function call(
     end
     for index = first, #written do
         args[#args + 1] = lower.expression(written[index], environment, activeIndex, kernel)
+    end
+    -- The checker counts an exact integer literal as established at every
+    -- width it fits, so `valuebuilder.openArray(builder, 2)` checks against a
+    -- `uint32` parameter. Lowered, the literal is a binary64 constant; give it
+    -- the width the called function's parameter declares, as a helper's own
+    -- parameters do.
+    local callee = semanticRaw((node.obj as any).inferredType)
+    if callee ~= nil and callee.tag == "func" then
+        for index = first, #written do
+            local declared = (callee.params or {})[index]
+            local raw = declared ~= nil and semanticRaw(declared) or nil
+            local width: scalarIR.Type? = raw ~= nil
+                and (raw.tag == "uint32" and "u32" or raw.tag == "int32" and "i32" or nil)
+                or nil
+            local position = index - first + 1
+            if width ~= nil then
+                args[position] = exactWidthConstant(args[position], width as scalarIR.Type) or args[position]
+            end
+        end
     end
     -- A spelling is only the prelude's when nothing between here and the
     -- prelude has rebound `string`, which is the same test `table.new` makes.
@@ -8579,6 +8608,14 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                     end
                     if required ~= nil then
                         found.modules[names[1].text] = required
+                    end
+                end
+                -- `local array = nupp.mem.array` names the module through its
+                -- global path, which the checker accepts as the required one.
+                if #names == 1 and #exprs == 1 and exprs[1].kind == "dotIndex" then
+                    local path = lower.dottedName(exprs[1])
+                    if path ~= nil and (path as string):match("^nupp%.") ~= nil then
+                        found.modules[names[1].text] = path as string
                     end
                 end
                 if declaration.isConst and #names == 1 and #exprs == 1 and exprs[1].kind == "number" then

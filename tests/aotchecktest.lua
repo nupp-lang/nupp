@@ -111,6 +111,67 @@ return repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4)
 
 -- What `check` has to leave alone: an admitted `@aot` function, and a file with none.
 local ADMITTED = {
+    -- A `float` read passed where `f32` is wanted: the load is already one.
+    ["floatread.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        output[index] = nupp.math.f32.mul(input[index], factor)
+    end
+end
+
+return {scale = scale}
+]],
+    -- A number literal passed to a `uint32` parameter, which the literal fits.
+    ["literalwidth.nupp"] = [[
+local valuebuilder = require("nupp.codec.valuebuilder")
+
+@aot
+local function pair(nullValue: any): any
+    local builder = valuebuilder.new(nullValue)
+    valuebuilder.openArray(builder, 2)
+    valuebuilder.boolean(builder, true)
+    valuebuilder.null(builder)
+    valuebuilder.close(builder)
+    return valuebuilder.finish(builder)
+end
+
+-- Not returned: an `any` result is not an interface a module can export.
+local _ = pair
+]],
+    -- A species witness named through the global `nupp.mem.array` path.
+    ["globalwitness.nupp"] = [[
+local array = nupp.mem.array
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function countQuotes(borrows source: span.Span<uint8>): uint32
+    local cursor: uint32 = 0
+    local found: uint32 = 0
+    if species = simd.species(array.uint8) then
+        while cursor + species.lanes <= #source do
+            found = found + (species:load(source, cursor + 1) == 34):count()
+            cursor = cursor + species.lanes
+        end
+    end
+    if lanes = simd.species(nupp.mem.array.uint8) then
+        found = found + lanes.lanes - lanes.lanes
+    end
+    while cursor < #source do
+        if source[cursor + 1] == 34 then
+            found = found + 1
+        end
+        cursor = cursor + 1
+    end
+    return found
+end
+
+return {countQuotes = countQuotes}
+]],
     ["clamp.nupp"] = [[
 @aot
 local function clamp(value: number, low: number, high: number): number
