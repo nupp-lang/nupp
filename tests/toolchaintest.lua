@@ -207,6 +207,31 @@ function M.aWrongDigestRefusesToBuild()
     )
 end
 
+-- A finished LuaJIT is checked against the receipt its install left, not believed
+-- for its marker: one damaged afterwards was handed to every command, which the
+-- kernel killed before it printed anything. Offline and with nothing supplied, the
+-- rebuild this asks for stops at the archive, which is how the case sees it asked.
+function M.aDamagedCachedLuajitIsBuiltAgain()
+    local directory = temporary()
+    local environment = {
+        NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+        NUPP_HOST_SOURCE_DIR = directory .. "/empty",
+        NUPP_HOST_OFFLINE = "1",
+        PATH = "$PATH",
+    }
+    local _, prefix = run(environment, "--prefix")
+    local out = assert(prefix:match("([^\n]+)%s*$")) .. "/luajit"
+    assert(os.execute("mkdir -p " .. quote(out .. "/bin")) == 0)
+    write(out .. "/bin/luajit", "an interpreter once\n")
+    write(out .. "/.complete", "done\n")
+    write(out .. "/.nupp-runtime-patch", "the receipt of some other interpreter\n")
+
+    local status, output = run(environment, "luajit")
+    assert(status ~= 0, "a damaged LuaJIT was handed out as the built one:\n" .. output)
+    assert(output:find("not what was installed", 1, true), "the damage was not reported:\n" .. output)
+    os.execute("rm -rf " .. quote(directory))
+end
+
 -- A tree named outright is checked for being the pinned LLVM as well as for being
 -- whole. CI names whichever restored tree it finds first, and one left from before
 -- a pin bump was linked as though it were the pinned one.

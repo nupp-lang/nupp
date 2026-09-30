@@ -1096,10 +1096,26 @@ module_extension() {
     esac
 }
 
+# The receipt the install leaves beside the interpreter. `scripts/luajit.sh`
+# reads the same one to decide whether a LuaJIT on the PATH is this one.
+luajit_receipt() {
+    cksum < "$ROOT/scripts/patches/luajit-irt-size.patch"
+    cksum < "$1/bin/luajit"
+}
+
+# Finished and still what was installed. The marker alone was believed, so an
+# interpreter damaged afterwards was handed to every command, which the kernel
+# then killed before it printed anything.
+luajit_intact() {
+    [ -f "$1/.complete" ] && [ -f "$1/.nupp-runtime-patch" ] || return 1
+    [ "$(luajit_receipt "$1" 2>/dev/null)" = "$(cat "$1/.nupp-runtime-patch")" ]
+}
+
 build_luajit() {
     out="$PREFIX/luajit"
     take_lock luajit "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    luajit_intact "$out" && { release_lock; return 0; }
+    [ -f "$out/.complete" ] && note "the cached LuaJIT is not what was installed; building it again"
 
     directory="LuaJIT-$LUAJIT_REV"
     url="https://github.com/LuaJIT/LuaJIT/archive/$LUAJIT_REV.tar.gz"
@@ -1189,10 +1205,7 @@ build_luajit() {
     include=$(find "$out/include" -maxdepth 1 -type d -name 'luajit-*' | head -n 1)
     [ -n "$include" ] || include="$out/include"
     native_path "$include" > "$out/.include"
-    {
-        cksum < "$ROOT/scripts/patches/luajit-irt-size.patch"
-        cksum < "$out/bin/luajit"
-    } > "$out/.nupp-runtime-patch"
+    luajit_receipt "$out" > "$out/.nupp-runtime-patch"
     rm -rf "$luajit_build"
     printf 'done\n' > "$out/.complete"
     release_lock

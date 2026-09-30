@@ -197,6 +197,16 @@ local function plantedTree(stage0Body)
     assert(os.execute(("ln -s '%s' '%s/luajit/bin/luajit'"):format(interpreter, prefix)) == 0)
     local complete = assert(io.open(prefix .. "/luajit/.complete", "wb"))
     complete:close()
+    -- And the receipt an install leaves, which the toolchain checks the
+    -- interpreter against before it believes the marker.
+    assert(
+        os.execute(
+            (
+                "{ cksum < '%s/scripts/patches/luajit-irt-size.patch'; cksum < '%s/luajit/bin/luajit'; }"
+                    .. " > '%s/luajit/.nupp-runtime-patch'"
+            ):format(dir, prefix, prefix)
+        ) == 0
+    )
 
     return dir, plant, env
 end
