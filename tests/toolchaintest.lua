@@ -414,6 +414,25 @@ function M.macOSRustProviderUsesARelocatableInstallName()
     )
 end
 
+-- ld64 hashes the debug map's object paths and the output's leaf name into
+-- LC_UUID, and rustc re-signs an executable under that leaf. The target
+-- directory reaches all three -- the leaf is Cargo's hashed deps/ name -- so a
+-- provider or host linked in a second checkout differed from the first in its
+-- UUID and signature and nowhere else.
+function M.macOSRustLinksDoNotRecordTheTargetDirectory()
+    local driver = read(ROOT .. "/scripts/toolchain")
+    local _, prefixes = driver:gsub("link%-arg=%-Wl,%-oso_prefix,%$out/target/", "")
+    assert(prefixes == 3, "the provider, host and embedding links each strip the target directory: " .. prefixes)
+    assert(
+        driver:find("link-arg=-Wl,-final_output,nupp-host-rust", 1, true),
+        "the host's UUID is hashed from Cargo's per-directory deps/ name"
+    )
+    assert(
+        driver:find("codesign --force --sign - --identifier nupp-host-rust", 1, true),
+        "the host keeps rustc's signature under Cargo's per-directory deps/ name"
+    )
+end
+
 -- The dependency builds use GNU make. Windows' hosted clang targets MSVC, so
 -- LuaJIT's makefile asks it to link Unix spellings such as `-lm` as MSVC
 -- libraries and the cold bootstrap stops. MinGW GCC is the compatible default;

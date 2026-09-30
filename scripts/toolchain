@@ -785,9 +785,12 @@ EOF
     fi
     # rustc otherwise records the content-addressed target directory as this
     # dylib's identity. A program linked against the provider would then load
-    # that cache path after the library was staged or packaged elsewhere.
+    # that cache path after the library was staged or packaged elsewhere. The
+    # debug map's object paths carry it too, and ld64 hashes them into
+    # LC_UUID, so they go relative to it.
     if [ "$PLATFORM" = darwin ]; then
-        set -- "$@" -- -C "link-arg=-Wl,-install_name,@rpath/$filename"
+        set -- "$@" -- -C "link-arg=-Wl,-install_name,@rpath/$filename" \
+            -C "link-arg=-Wl,-oso_prefix,$out/target/"
     fi
     CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_NATIVE_OUT" ] \
@@ -863,6 +866,12 @@ host_export_arguments() {
             # host/include/nupp.exports, which names every export and so
             # leaves LLVM, lld, C++ and Rust symbols out without naming them.
             printf '%s\n' '-C' 'link-arg=-Wl,-x'
+            # ld64 hashes the debug map's object paths and the output's leaf
+            # name into LC_UUID. Both carry the target directory -- the leaf
+            # is Cargo's hashed deps/ name -- so without these the same
+            # sources linked in two checkouts differ in their UUID.
+            printf '%s\n' '-C' "link-arg=-Wl,-oso_prefix,$out/target/"
+            printf '%s\n' '-C' 'link-arg=-Wl,-final_output,nupp-host-rust'
             ;;
         windows)
             # A PE image also holds at most 65535 exports, which LLVM's alone
@@ -971,6 +980,12 @@ EOF
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$expected" ] \
         || die "Cargo built nupp-native-host but did not write $expected"
+    # rustc re-signs the stripped executable ad hoc under that same hashed
+    # deps/ name. One identifier everywhere keeps the signature the same too.
+    if [ "$PLATFORM" = darwin ] && [ "$host_kind" != application ]; then
+        codesign --force --sign - --identifier nupp-host-rust "$expected" >&2 \
+            || die "cannot sign $expected"
+    fi
     printf 'done\n' > "$out/.complete"
     release_lock
 }
@@ -1035,7 +1050,10 @@ EOF
     fi
     set -- "$@" -- -C link-dead-code
     case "$PLATFORM" in
-        darwin) set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' ;;
+        darwin)
+            set -- "$@" -C 'link-arg=-Wl,-install_name,@rpath/libnupp.dylib' \
+                -C "link-arg=-Wl,-oso_prefix,$out/target/"
+            ;;
     esac
     export_list="$out/nupp.exports"
     NUPP_CC="$CC" NUPP_EXPORT_LIST="$export_list" \
