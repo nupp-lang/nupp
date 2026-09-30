@@ -997,4 +997,55 @@ function M.arm64DoesNotTrustAReplacedPatchedInterpreter()
     assert(forPath(selected) == forPath(staged) .. "/bin/luajit", selected)
 end
 
+
+-- A run that finds another holding a lock says so, and whose it is, on standard
+-- error whether or not that is a terminal. It used to sleep in silence for up to
+-- half an hour -- the fifteen-minute stalls three cold runs showed with nothing
+-- to explain them -- and when it did learn to speak, it spoke only to a
+-- terminal, which a test suite's or an agent's standard error is not.
+--
+-- The lock functions are taken out of the driver and run on their own: no
+-- component is quick enough to hold a lock for the grace this waits out, and
+-- the waiting is theirs alone.
+function M.aRunWaitingOnALockSaysWhoHoldsIt()
+    local driver = read(DRIVER)
+    local functions = {}
+    for _, name in ipairs({"release_lock", "say_waiting", "take_lock"}) do
+        local body = driver:match("\n(" .. name .. "%(%) {[^\n]*})\n")
+            or driver:match("\n(" .. name .. "%(%) {\n.-\n})\n")
+        assert(body, "scripts/toolchain has no " .. name .. " function")
+        functions[#functions + 1] = body
+    end
+    local directory = temporary()
+    local script = directory .. "/wait.sh"
+    write(
+        script,
+        table.concat({
+            "set -eu",
+            "note() { printf 'toolchain: %s\\n' \"$*\" >&2; }",
+            "LOCK=",
+            table.concat(functions, "\n"),
+            "CACHE=" .. quote(directory .. "/cache"),
+            "mkdir -p \"$CACHE/.lock-demo\"",
+            "sleep 5 &",
+            "holder=$!",
+            "printf '%s\\n' \"$holder\" > \"$CACHE/.lock-demo/pid\"",
+            "echo \"holder:$holder\"",
+            "take_lock demo \"$CACHE/never\"",
+            "echo took",
+            "",
+        }, "\n")
+    )
+    local pipe = assert(io.popen("sh " .. quote(script) .. " 2>&1"))
+    local output = pipe:read("*a")
+    pipe:close()
+    local holder = assert(output:match("holder:(%d+)"), output)
+    assert(output:find("took", 1, true), "the lock was never taken once its holder exited:\n" .. output)
+    assert(
+        output:find("toolchain: waiting for demo, which pid " .. holder .. " is building (3s so far)", 1, true),
+        "a wait on a live holder said nothing:\n" .. output
+    )
+    os.execute("rm -rf " .. quote(directory))
+end
+
 return M

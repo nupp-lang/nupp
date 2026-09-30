@@ -507,9 +507,12 @@ release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
 
 # Says that this run is waiting and on whom: once after a short grace, then
 # once a minute. Waiting in silence read as a hang for as long as the other
-# build took. Only on a terminal, so captured output stays what it was.
+# build took -- a quarter of an hour, several times over, with nothing to say
+# why. Said on standard error whether or not it is a terminal: the runs that
+# waited longest were a test suite's and an agent's, whose standard error is
+# captured, and captured is exactly where a stall needs explaining. Callers
+# read only standard output, so the answer they take is unchanged.
 say_waiting() {
-    [ -t 2 ] || return 0
     [ "$3" -eq 3 ] || [ $(($3 % 60)) -eq 0 ] || return 0
     note "waiting for $1, which pid $2 is building (${3}s so far)"
 }
