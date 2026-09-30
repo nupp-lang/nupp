@@ -162,10 +162,12 @@ sha256() { sha256_stdin < "$1"; }
 # sees it, and keying LuaJIT, LPeg and every Rust crate on it would make the
 # one-line pin bump a stage-zero move asks for a from-scratch native rebuild on
 # machine that pulls it. Assignments only, so a comment is documentation rather
-# than a cache generation.
+# than a cache generation. A mirror list says where else the same bytes may be
+# found, which changes no artifact either.
 pins_digest() {
     grep '^[A-Z][A-Z0-9_]*=' "$ROOT/scripts/toolchain.pins" \
-        | grep -v -e '^STAGE0_' -e '^BROWSER_' -e '^LLVM_' | sha256_stdin
+        | grep -v -e '^STAGE0_' -e '^BROWSER_' -e '^LLVM_' -e '^[A-Z0-9_]*_MIRRORS=' \
+        | sha256_stdin
 }
 
 # Public embedding headers are staged beside the Rust libraries rather than
@@ -266,8 +268,14 @@ offline() {
 # One pinned archive, in the cache, verified. A digest is checked before a byte
 # is unpacked, so a mirror that served something else is refused rather than
 # compiled.
+#
+# The URL is where to look first, not what is trusted. A pin may name mirrors
+# after it, tried in order when the one before could not be downloaded or did not
+# have the pinned digest; each answer is held to the same digest, so a mirror adds
+# a place to look and nothing else. An origin that was unreachable for an
+# afternoon otherwise failed every CI job whose cache happened to miss.
 archive() {
-    name=$1 url=$2 digest=$3 suffix=${4:-.tar.gz}
+    name=$1 url=$2 digest=$3 suffix=${4:-.tar.gz} mirrors=${5:-}
     file="$ARCHIVES/$name$suffix"
     if [ -f "$file" ] && [ "$(sha256 "$file")" = "$digest" ]; then
         printf '%s\n' "$file"
@@ -277,23 +285,49 @@ archive() {
     mkdir -p "$ARCHIVES"
     if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name$suffix" ]; then
         cp "$SOURCE_DIR/$name$suffix" "$file.$$"
+        verified "$file.$$" "$name" "$digest" || die "$refusal"
     elif offline; then
         die "NUPP_HOST_OFFLINE is set and $name$suffix is not cached; put the pinned archive in NUPP_HOST_SOURCE_DIR"
     else
         if [ -n "$SOURCE_BASE_URL" ]; then
             url="${SOURCE_BASE_URL%/}/$name$suffix"
         fi
-        note "fetching $name"
-        download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
-    fi
-
-    found=$(sha256 "$file.$$")
-    if [ "$found" != "$digest" ]; then
-        rm -f "$file.$$"
-        die "$name has digest $found, expected $digest; refusing to cache or compile it"
+        fetch_verified "$file.$$" "$name" "$digest" "$url" $mirrors
     fi
     mv "$file.$$" "$file"
     printf '%s\n' "$file"
+}
+
+# Whether a download has the pinned digest, removing it and saying why when it
+# does not. The refusal names both digests, so a stale pin reads differently from
+# a bad download.
+refusal=""
+verified() {
+    candidate=$1 label=$2 expected=$3
+    found=$(sha256 "$candidate")
+    [ "$found" = "$expected" ] && return 0
+    rm -f "$candidate"
+    refusal="$label has digest $found, expected $expected; refusing to cache or compile it"
+    return 1
+}
+
+# The first of these URLs to answer with the pinned digest. Every failure is
+# reported on the way past it, and the last one is what the build stops with.
+fetch_verified() {
+    destination=$1 label=$2 expected=$3
+    shift 3
+    refusal=""
+    for candidate in "$@"; do
+        [ -n "$refusal" ] && note "$refusal; trying $candidate"
+        note "fetching $label"
+        if ! download "$candidate" "$destination"; then
+            rm -f "$destination"
+            refusal="cannot download $candidate"
+            continue
+        fi
+        verified "$destination" "$label" "$expected" && return 0
+    done
+    die "$refusal"
 }
 
 # One pinned file, verified. Not every source is an archive: a single-header
@@ -309,19 +343,14 @@ pinned_file() {
     mkdir -p "$ARCHIVES"
     if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name" ]; then
         cp "$SOURCE_DIR/$name" "$file.$$"
+        verified "$file.$$" "$name" "$digest" || die "$refusal"
     elif offline; then
         die "NUPP_HOST_OFFLINE is set and $name is not cached; put the pinned file in NUPP_HOST_SOURCE_DIR"
     else
         if [ -n "$SOURCE_BASE_URL" ]; then
             url="${SOURCE_BASE_URL%/}/$name"
         fi
-        note "fetching $name"
-        download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
-    fi
-    found=$(sha256 "$file.$$")
-    if [ "$found" != "$digest" ]; then
-        rm -f "$file.$$"
-        die "$name has digest $found, expected $digest; refusing to cache or compile it"
+        fetch_verified "$file.$$" "$name" "$digest" "$url"
     fi
     mv "$file.$$" "$file"
     printf '%s\n' "$file"
@@ -330,14 +359,14 @@ pinned_file() {
 # One extracted source tree. Extraction is into a temporary sibling and renamed,
 # so a killed run never leaves a half-unpacked tree a later one trusts.
 source_tree() {
-    name=$1 url=$2 digest=$3 marker=$4 suffix=${5:-.tar.gz}
+    name=$1 url=$2 digest=$3 marker=$4 suffix=${5:-.tar.gz} mirrors=${6:-}
     tree="$SOURCES/$name"
     if [ -f "$tree/$marker" ]; then
         printf '%s\n' "$tree"
         return 0
     fi
 
-    file=$(archive "$name" "$url" "$digest" "$suffix")
+    file=$(archive "$name" "$url" "$digest" "$suffix" "$mirrors")
     mkdir -p "$SOURCES"
     staging="$SOURCES/.$name.$$"
     rm -rf "$staging"
@@ -1334,7 +1363,8 @@ build_lua_module() {
 lpeg_source() {
     directory=$(expand_pin "$LPEG_DIRECTORY")
     url=$(expand_pin "$LPEG_URL")
-    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER")
+    mirrors=$(expand_pin "$LPEG_MIRRORS")
+    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER" .tar.gz "$mirrors")
     verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
     printf '%s\n' "$tree"
 }
@@ -2099,7 +2129,9 @@ for component in "$@"; do
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
-        lpeg-source) native_path "$(lpeg_source)" ;;
+        # Assigned first: a substitution inside an argument loses its status,
+        # and a refused archive printed an empty prefix and succeeded.
+        lpeg-source) lpeg_tree=$(lpeg_source); native_path "$lpeg_tree" ;;
         llvm)     build_llvm;     native_path "$LLVM_OUT" ;;
         stage0)   stage0 ;;
         *) note "unknown component $component"; usage ;;

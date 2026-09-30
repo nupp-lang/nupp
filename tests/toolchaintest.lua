@@ -248,6 +248,123 @@ function M.aWrongDigestRefusesToBuild()
     )
 end
 
+-- A checkout copy whose LPeg pin names an archive this suite made, fetched by a
+-- `curl` that answers from a table of hosts and logs each URL it was asked for.
+-- The origin never answers, as it did not for run 36447903992; what each mirror
+-- serves is the case's to say.
+local function lpegFromMirrors(serves)
+    local directory = temporary()
+    local root = directory .. "/root"
+    local bin = directory .. "/bin"
+    local staging = directory .. "/staging/lpeg-9.9.9"
+    for _, path in ipairs({root .. "/scripts/patches", root .. "/host/notices", bin, staging, directory .. "/served"}) do
+        assert(os.execute("mkdir -p " .. quote(path)) == 0)
+    end
+    local licence = "Copyright 2007-2023 Lua.org, PUC-Rio.\nPermission is hereby granted\n"
+        .. "THE SOFTWARE IS PROVIDED\n"
+    write(root .. "/host/notices/LPeg-LICENSE.txt", licence)
+    write(staging .. "/lptree.c", "/* fixture marker */\n")
+    write(staging .. "/lpeg.html", licence)
+    local tarball = directory .. "/lpeg-9.9.9.tar.gz"
+    assert(os.execute("tar czf " .. quote(tarball) .. " -C " .. quote(directory .. "/staging") .. " lpeg-9.9.9") == 0)
+    local digestCommand = "{ shasum -a 256 2>/dev/null || sha256sum; } < " .. quote(tarball) .. " | cut -c1-64"
+    local pipe = assert(io.popen("sh -c " .. quote(digestCommand)))
+    local digest = pipe:read("*l")
+    pipe:close()
+    assert(digest and #digest == 64, "cannot digest the fixture archive")
+
+    local pinsText = read(ROOT .. "/scripts/toolchain.pins")
+        :gsub("\nLPEG_VERSION=[^\n]*", "\nLPEG_VERSION=9.9.9")
+        :gsub("\nLPEG_SHA256=[^\n]*", "\nLPEG_SHA256=" .. digest)
+        :gsub("\nLPEG_URL=[^\n]*", "\nLPEG_URL='https://origin.invalid/lpeg-${LPEG_VERSION}.tar.gz'")
+        :gsub(
+            "\nLPEG_MIRRORS=[^\n]*",
+            "\nLPEG_MIRRORS='https://first.invalid/lpeg-${LPEG_VERSION}.tar.gz "
+                .. "https://second.invalid/lpeg-${LPEG_VERSION}.tar.gz'"
+        )
+    local driver = root .. "/scripts/toolchain"
+    write(driver, read(DRIVER))
+    write(root .. "/scripts/toolchain.pins", pinsText)
+    write(root .. "/scripts/patches/luajit-irt-size.patch", read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    for host, what in pairs(serves) do
+        write(directory .. "/served/" .. host, what == "archive" and read(tarball) or what)
+    end
+    write(
+        bin .. "/curl",
+        [[#!/bin/sh
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --output) destination=$2; shift ;;
+        -*) ;;
+        *) url=$1 ;;
+    esac
+    shift
+done
+printf '%s\n' "$url" >> "$NUPP_TEST_SERVED/log"
+host=${url#https://}
+host=${host%%/*}
+[ -f "$NUPP_TEST_SERVED/$host" ] || { echo "curl: (6) Could not resolve host: $host" >&2; exit 6; }
+cp "$NUPP_TEST_SERVED/$host" "$destination"
+]]
+    )
+    assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(bin .. "/curl")) == 0)
+    local compiler = fakeCompiler(directory, "fake-cc", "fixed")
+    local status, output = run(
+        {
+            NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+            NUPP_CC = compiler,
+            NUPP_CXX = compiler,
+            NUPP_TEST_SERVED = directory .. "/served",
+            PATH = forPath(bin) .. ":$PATH",
+        },
+        "lpeg-source",
+        driver
+    )
+    local log = io.open(directory .. "/served/log", "rb")
+    local asked = log and log:read("*a") or ""
+    if log then
+        log:close()
+    end
+
+    return status, output, asked, digest, directory
+end
+
+-- The origin being down is not the archive being unavailable. Each mirror is
+-- asked in turn and held to the same digest: the first answers with other bytes
+-- and is refused, and the second, which has the pinned archive, is what is used.
+function M.anUnreachableOriginFallsBackToAMirrorWithTheSameDigest()
+    local status, output, asked, _, directory = lpegFromMirrors({
+        ["first.invalid"] = "a page that is not the archive",
+        ["second.invalid"] = "archive",
+    })
+    assert(status == 0, "no mirror was used when the origin was down:\n" .. output)
+    assert(
+        asked == "https://origin.invalid/lpeg-9.9.9.tar.gz\n"
+            .. "https://first.invalid/lpeg-9.9.9.tar.gz\n"
+            .. "https://second.invalid/lpeg-9.9.9.tar.gz\n",
+        "the origin and mirrors were not asked in order:\n" .. asked
+    )
+    assert(output:find("refusing to cache or compile it; trying https://second.invalid", 1, true), output)
+    assert(output:find("/sources/lpeg-9.9.9", 1, true), "the tree was not printed:\n" .. output)
+    os.execute("rm -rf " .. quote(directory))
+end
+
+-- A mirror is a place to look and nothing else. When every one of them serves
+-- something other than the pinned archive, the build stops rather than taking the
+-- last answer, and says what it expected.
+function M.mirrorsThatServeOtherBytesAreRefused()
+    local status, output, asked, digest, directory = lpegFromMirrors({
+        ["first.invalid"] = "a page that is not the archive",
+        ["second.invalid"] = "another page that is not the archive",
+    })
+    assert(status ~= 0, "a mirror's wrong bytes were used:\n" .. output)
+    assert(output:find("expected " .. digest, 1, true), "the refusal does not say what was expected:\n" .. output)
+    assert(select(2, asked:gsub("\n", "")) == 3, "not every mirror was tried:\n" .. asked)
+    local cached = io.open(directory .. "/cache/archives/lpeg-9.9.9.tar.gz", "rb")
+    assert(cached == nil, "a refused download was left in the archive cache")
+    os.execute("rm -rf " .. quote(directory))
+end
+
 -- A finished LuaJIT is checked against the receipt its install left, not believed
 -- for its marker: one damaged afterwards was handed to every command, which the
 -- kernel killed before it printed anything. Offline and with nothing supplied, the

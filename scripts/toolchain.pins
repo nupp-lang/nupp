@@ -33,6 +33,12 @@ LPEG_SHA256=4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a
 LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
 LPEG_MARKER=lptree.c
 LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
+# The origin above is one university web server, and it has been unreachable
+# for long enough to fail CI. These carry the same archive byte for byte --
+# Debian's orig tarball and FreeBSD's distfile cache -- and are tried in order
+# when it does not answer. The digest above is what any of them is held to, so
+# plain HTTP adds a place to look, not a thing to trust.
+LPEG_MIRRORS='https://deb.debian.org/debian/pool/main/l/lua-lpeg/lua-lpeg_${LPEG_VERSION}.orig.tar.gz http://distcache.freebsd.org/ports-distfiles/lpeg-${LPEG_VERSION}.tar.gz'
 
 # LLVM, the AOT code generator linked into `nupp`: its optimizer, its AArch64,
 # X86 and WebAssembly back ends, and lld's Mach-O, ELF, COFF/MinGW and Wasm

@@ -85,8 +85,10 @@ Three settings, shared with the host build's own fetching:
 | `NUPP_HOST_OFFLINE` | refuse to reach the network |
 
 A digest is checked whichever of these supplied the bytes, so a mirror that
-served something else is refused rather than compiled. `NUPP_TOOLCHAIN_DIR`
-moves where the built components land.
+served something else is refused rather than compiled. A pin may also name
+mirrors of its own (`LPEG_MIRRORS`), tried in order when the origin cannot be
+reached, and held to the same digest. `NUPP_TOOLCHAIN_DIR` moves where the
+built components land.
 
 ### Optional components
 
