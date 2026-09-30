@@ -278,6 +278,26 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         end
     end
 
+    --- A root's absolute spelling, worked out once: roots are compared by it, and
+    --- answered by the spelling they were declared with.
+    local function absoluteRoot(entry): string
+        if not entry.absolute then
+            entry.absolute = fs.absolute(entry.root)
+        end
+
+        return entry.absolute
+    end
+
+    --- A root's filesystem identity: two spellings of one directory, a relative one
+    --- and an absolute one or one through a symbolic link, are one folder.
+    local function identityRoot(entry): string
+        if not entry.identity then
+            entry.identity = fs.canonical(entry.root)
+        end
+
+        return entry.identity
+    end
+
     -- One graph per project, rather than one graph over every folder.
     --
     -- A project is a `nupp.lua`: its own dependencies, lint levels, strictness and
@@ -298,7 +318,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             resolveTypeDependencies(entry.root)
             local others = {}
             for _, other in ipairs(s.roots) do
-                if other.root ~= entry.root then
+                if identityRoot(other) ~= identityRoot(entry) then
                     others[#others + 1] = other.root
                 end
             end
@@ -389,16 +409,6 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         return found
     end
 
-    --- A root's absolute spelling, worked out once: roots are compared by it, and
-    --- answered by the spelling they were declared with.
-    local function absoluteRoot(entry): string
-        if not entry.absolute then
-            entry.absolute = fs.absolute(entry.root)
-        end
-
-        return entry.absolute
-    end
-
     --- Re-declares the folders this session answers for, dropping every graph built for
     --- the previous set. The launch root is always among them: a document under none of
     --- the client's folders is still a document this session was started against.
@@ -406,15 +416,21 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         s.folders = folders
         s.roots = {}
         nestedRoots = {}
+        -- Compared by filesystem identity, because a client names its folder by URI and
+        -- the server is launched with whatever the command line said: `lsp serve .`
+        -- under a client that sends the same directory as `file:///...` is one folder,
+        -- and counting it twice had every module provided by two files.
         local seen = {}
         for _, root in ipairs(folders) do
-            if not seen[root] then
-                seen[root] = true
-                s.roots[#s.roots + 1] = {root = root}
+            local entry = {root = root}
+            if not seen[identityRoot(entry)] then
+                seen[identityRoot(entry)] = true
+                s.roots[#s.roots + 1] = entry
             end
         end
-        if not seen[rootDir] then
-            table.insert(s.roots, 1, {root = rootDir})
+        local launched = {root = rootDir}
+        if not seen[identityRoot(launched)] then
+            table.insert(s.roots, 1, launched)
         end
         s.inc = graphFor(s.roots[1])
     end

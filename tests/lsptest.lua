@@ -1266,6 +1266,52 @@ function M.diagnosticsLifecycle()
     assertContains(out, '"diagnostics":[]', "clean after fix")
 end
 
+-- `lsp serve .` under a client that names the same directory by an absolute
+-- URI is one folder. Counted as two, every module was provided by two files and
+-- the first diagnostic anywhere was NUPP1002. The URI is the directory's real
+-- path, which is what the server's working directory resolves `.` to.
+function M.theLaunchRootAndTheClientFolderAreOneFolder()
+    local made = makeDir()
+    local real = io.popen("cd '" .. made .. "' && pwd -P")
+    local dir = real:read("*l")
+    real:close()
+    writeInto(dir, "nupp.lua", 'return {include = {"."}}\n')
+    writeInto(dir, "a.nupp", 'local b = require("b")\nreturn b + 1\n')
+    writeInto(dir, "b.nupp", "return 1\n")
+    local uri = fileUri(dir .. "/a.nupp")
+    local input = {}
+    for _, message in ipairs({
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {rootUri = fileUri(dir), capabilities = {}}},
+        {jsonrpc = "2.0", method = "initialized", params = {}},
+        {
+            jsonrpc = "2.0",
+            method = "textDocument/didOpen",
+            params = {
+                textDocument = {uri = uri, languageId = "nupp", version = 1, text = 'local b = require("b")\nreturn b + 1\n'}
+            }
+        },
+        {jsonrpc = "2.0", id = 2, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    }) do
+        input[#input + 1] = frame(message)
+    end
+    local infile, outfile = os.tmpname(), os.tmpname()
+    local f = assert(io.open(infile, "wb"))
+    f:write(table.concat(input))
+    f:close()
+    local here = io.popen("cd '" .. ROOT .. "' && pwd")
+    local launcher = here:read("*l") .. "/bin/nupp"
+    here:close()
+    os.execute(("cd '%s' && '%s' lsp serve . < '%s' > '%s' 2>/dev/null"):format(dir, launcher, infile, outfile))
+    local out = assert(io.open(outfile, "rb")):read("*a")
+    os.remove(infile)
+    os.remove(outfile)
+    os.execute("rm -rf '" .. dir .. "'")
+    local published = diagnosticsFor(out, uri)
+    assert(#published > 0, "diagnostics published for the opened file:\n" .. out)
+    assert(#published[#published] == 0, "one folder, no duplicate providers:\n" .. json.encode(published[#published]))
+end
+
 function M.syntaxErrorsPublished()
     local uri = fileUri(scratchRoot() .. "/broken.nupp")
     local out = runSession({
