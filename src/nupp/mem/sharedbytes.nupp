@@ -38,8 +38,6 @@ assert(builder:freeze():toString() == "ABCDE!")
 ```
 ]]
 
-const {type Path} = require("nupp.io.files")
-
 local span = require("nupp.mem.span")
 
 local type Native = {
@@ -196,12 +194,11 @@ end
 
 --- Reads a whole file directly into an engine-owned region, with no
 --- intermediate Lua string for the payload.
---- @param path the file to read, as anything [](nupp.io.files) accepts
+--- @param path the native path of the file to read
 --- @return the region, or nil when the file cannot be opened, sized, or read
 --- @return why it could not be read, when unsuccessful
-function sharedbytes.readFile(path: Path): (sharedbytes.Region?, string?)
-    local name = type(path) == "string" and path as string or (path as any):toString() as string
-    local handle, problem = native.readFile(name)
+function sharedbytes.readFile(path: string): (sharedbytes.Region?, string?)
+    local handle, problem = native.readFile(path)
     if handle == nil then
         return nil, tostring(problem)
     end

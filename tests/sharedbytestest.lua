@@ -5,7 +5,6 @@ local moduleName = "nupp.mem.sharedbytes"
 local nativeName = "nupp.mem.sharedbytes.native"
 local priorModule, priorNative, sharedbytes
 local released = {}
-local lastReadName
 
 function M.beforeAll()
     local nextIdentity = 0
@@ -19,8 +18,7 @@ function M.beforeAll()
             ffi.copy(pointer, text, #text)
             return {identity = nextIdentity, pointer = pointer}, #text
         end,
-        readFile = function(name)
-            lastReadName = name
+        readFile = function()
             return nil, "unavailable"
         end,
         text = function()
@@ -129,17 +127,6 @@ function M.readingAMissingFileAnswersAReason()
     local region, reason = sharedbytes.readFile("definitely/not/here.bin")
     assert(region == nil)
     assert(reason == "unavailable", tostring(reason))
-end
-
--- Any name the file facility takes: a path value reaches the engine as its native
--- text, as a string does.
-function M.readingTakesAPath()
-    local paths = require("nupp.io.path")
-    local where = paths.newPath("data", "here.bin")
-    local region = sharedbytes.readFile(where)
-    assert(region == nil)
-    assert(type(lastReadName) == "string", "the engine is handed text, got " .. type(lastReadName))
-    assert(lastReadName == where:toString(), tostring(lastReadName))
 end
 
 function M.withoutTheEngineHostTheModuleSaysWhatItNeeds()
