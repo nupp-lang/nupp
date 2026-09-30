@@ -2369,10 +2369,16 @@ mod tests {
         assert_eq!(last_failure(), Failure::InvalidArgument);
         options.max_connections = 4;
         options.max_pending_requests = 1;
+        // The first transfer has to still be pending when the second is sent. A
+        // closed port refused it at once, and under a sanitizer's slowdown it had
+        // already failed and given its slot back; a listener nothing accepts from
+        // holds the connection open instead.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", silent.local_addr().unwrap());
         // SAFETY: descriptors and handles remain live until explicitly destroyed.
         unsafe {
             let client = nuppHttpClientCreate(&options);
-            let descriptor = request(b"http://127.0.0.1:9/");
+            let descriptor = request(url.as_bytes());
             let first = nuppHttpClientSend(client, &descriptor);
             assert!(!first.is_null());
             assert!(nuppHttpClientSend(client, &descriptor).is_null());
