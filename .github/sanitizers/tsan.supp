@@ -16,3 +16,10 @@
 # first. Reported on the first Linux runs (TcpStream connect in
 # nupp-native-runtime's tests).
 race:tokio::runtime::io::registration_set::RegistrationSet>::allocate
+
+# libgcc_s's unwinder: LuaJIT raises errors through _Unwind on x64, and
+# _Unwind_Backtrace allocates and copies its frame-info cache under its own
+# lock. The library is not instrumented, so ThreadSanitizer sees the cache's
+# malloc and memmove on two threads with nothing ordering them. Reported by the
+# host's worker_adapter tests, both accesses inside _Unwind_Backtrace.
+called_from_lib:libgcc_s.so.1

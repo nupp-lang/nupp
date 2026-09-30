@@ -1940,10 +1940,19 @@ mod tests {
             tokens: 0,
         }; 8];
         let mut more = false;
-        // SAFETY: all output storage is live for the call.
-        let count = unsafe {
-            nuppHttpClientWait(client, 1_000, ready.as_mut_ptr(), ready.len(), &mut more)
-        };
+        // One empty wait is a timeout, not a lost event: under ThreadSanitizer a
+        // cold runtime took longer than a second to refuse a connection. Ten
+        // seconds without readiness is the failure.
+        let mut count = 0;
+        for _ in 0..10 {
+            // SAFETY: all output storage is live for the call.
+            count = unsafe {
+                nuppHttpClientWait(client, 1_000, ready.as_mut_ptr(), ready.len(), &mut more)
+            };
+            if count > 0 || more {
+                break;
+            }
+        }
         assert!(count > 0 || more, "HTTP operation produced no readiness");
         for event in ready.into_iter().take(count) {
             // SAFETY: every event owns one readiness reference.
