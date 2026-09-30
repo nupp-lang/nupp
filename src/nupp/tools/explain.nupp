@@ -1816,7 +1816,7 @@ ENTRIES[
 ] = {
     code = "NUPP1005",
     summary = "Another syntax or recovery constraint failed",
-    rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression: a `return` that is not the last statement in its block, a `const` path that is not static, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed.",
+    rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression: a `return` that is not the last statement in its block, a `const` path that is not static, expressions, blocks or types nested more than a thousand levels deep, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed.",
     wrong = "return 1\nlocal x = 2\n",
     right = "local x = 2\nreturn x\n",
     related = {"NUPP1002", "NUPP1004"},

@@ -115,6 +115,18 @@ local EXPR_START = {
     ["istringOpen"] = true,
 }
 
+--- How deep expressions, blocks and types may nest before a file is refused.
+---
+--- The parser descends once per level and so does every pass after it, and past a
+--- few thousand levels the Lua stack runs out: five thousand nested parentheses used
+--- to end the process with a traceback. A thousand is far past anything written by
+--- hand, and past what LuaJIT itself loads -- it refuses two hundred -- so the limit
+--- refuses nothing a build would have accepted.
+const MAX_NESTING = 1000
+
+-- Raised to abandon a parse that nested too deeply; caught in `parser.parse`.
+local TOO_DEEP = {}
+
 --- Parses one file into a lossless tree.
 ---
 --- Never throws and never drops a token: every token, garbage included, ends up in
@@ -125,6 +137,7 @@ local EXPR_START = {
 ---
 --- @param source the file's bytes
 --- @param filename what to call it in diagnostics
+--- @raises string when the parser itself fails, which is a bug in the compiler
 function parser.parse(source: string, filename: string?): parser.ParseResult
     local tokens, errors = lexer.lex(source, filename)
     local i: integer = 1
@@ -152,6 +165,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- A contextual `yield value` belongs to the nearest enclosing do expression.
     -- Function bodies reset this depth, just as they reset loop depth.
     local valueBlockDepth = 0
+    -- Expressions, blocks and types currently open, bounded by MAX_NESTING.
+    local nesting = 0
+    local tooDeepAt: Token? = nil
 
     ---------------------------------------------------------------------
     -- The cursor
@@ -1190,7 +1206,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- closing pipe; unions there need parentheses. Intersections remain available.
 
     --- A type, including a union unless the caller is parsing one.
-    parseType = function(noUnion: boolean?, stopAtFunctionMember: boolean?): Node
+    local function parseTypeNested(noUnion: boolean?, stopAtFunctionMember: boolean?): Node
         local t = parseIntersection(stopAtFunctionMember)
         if noUnion or cur().kind ~= "|" then
             return t
@@ -1201,6 +1217,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             n.types[#n.types + 1] = add(n, parseIntersection(stopAtFunctionMember))
         end
+
+        return n
+    end
+
+    parseType = function(noUnion: boolean?, stopAtFunctionMember: boolean?): Node
+        nesting = nesting + 1
+        if nesting > MAX_NESTING then
+            tooDeepAt = cur()
+            error(TOO_DEEP, 0)
+        end
+        local n = parseTypeNested(noUnion, stopAtFunctionMember)
+        nesting = nesting - 1
 
         return n
     end
@@ -2349,7 +2377,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- Operator-precedence parsing down to `limit`.
-    parseBinexp = function(limit: integer): Node
+    local function parseBinexpNested(limit: integer): Node
         local left
         if UNOPS[cur().kind] then
             local n = new cst.Unop(kind = "unop")
@@ -2393,6 +2421,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
 
         return left
+    end
+
+    parseBinexp = function(limit: integer): Node
+        nesting = nesting + 1
+        if nesting > MAX_NESTING then
+            tooDeepAt = cur()
+            error(TOO_DEEP, 0)
+        end
+        local n = parseBinexpNested(limit)
+        nesting = nesting - 1
+
+        return n
     end
 
     --- Any expression, ternary included.
@@ -3578,7 +3618,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     ---------------------------------------------------------------------
 
     --- Statements up to a block terminator.
-    parseBlock = function(): cst.Block
+    local function parseBlockNested(): cst.Block
         local n = new cst.Block(stats = {}, kind = "block")
         local returned = false
         while not BLOCK_FOLLOW[cur().kind] do
@@ -3614,50 +3654,93 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
-    local root = new cst.Chunk(blocks = {}, kind = "chunk")
-    while cur().kind == "@"
-        and tokens[i + 1]
-        and tokens[i + 1].kind == "not"
-        and tokens[i + 1].text == "!"
-        and tokens[i + 2]
-        and tokens[i + 2].kind == "name" do
-        local name = tokens[i + 2].text
-        if name ~= "nofmt" and name ~= "internal" then
-            break
+    parseBlock = function(): cst.Block
+        nesting = nesting + 1
+        if nesting > MAX_NESTING then
+            tooDeepAt = cur()
+            error(TOO_DEEP, 0)
         end
-        -- An inner annotation belongs to the file rather than a statement. It is
-        -- deliberately absent from the tree's array part, so compilation ignores it;
-        -- its tokens are kept beside the tree for whatever needs to print them.
-        root.innerAnnotations = root.innerAnnotations or {}
-        for offset = 0, 2 do
-            root.innerAnnotations[#root.innerAnnotations + 1] = tokens[i + offset]
-        end
-        root.formatDisabled = root.formatDisabled or name == "nofmt"
-        root.documentationInternal = root.documentationInternal or name == "internal"
-        tokens[i].startsStat = true
-        tokens[i].blockDepth = 0
-        tokens[i + 1].unaryTok = true
-        tokens[i + 1].blockDepth = 0
-        tokens[i + 2].blockDepth = 0
-        advance();
-        advance();
-        advance()
-    end
-    while true do
-        root.blocks[#root.blocks + 1] = add(root, parseBlock())
-        if cur().kind == "eof" then
-            break
-        end
-        -- Stray block terminator at top level ('end', 'else', ...): report, consume,
-        -- keep parsing.
-        local e = new cst.ErrorStmt(kind = "errorStmt")
-        errAt(cur(), ("unexpected '%s' at top level"):format(spelling(cur())))
-        add(e, advance())
-        add(root, e)
-    end
-    root.eof = add(root, advance())
+        local n = parseBlockNested()
+        nesting = nesting - 1
 
-    return {root = root, tokens = tokens, errors = errors, source = source}
+        return n
+    end
+
+    local function parseChunk(): cst.Chunk
+        local root = new cst.Chunk(blocks = {}, kind = "chunk")
+        while cur().kind == "@"
+            and tokens[i + 1]
+            and tokens[i + 1].kind == "not"
+            and tokens[i + 1].text == "!"
+            and tokens[i + 2]
+            and tokens[i + 2].kind == "name" do
+            local name = tokens[i + 2].text
+            if name ~= "nofmt" and name ~= "internal" then
+                break
+            end
+            -- An inner annotation belongs to the file rather than a statement. It is
+            -- deliberately absent from the tree's array part, so compilation ignores
+            -- it; its tokens are kept beside the tree for whatever needs to print them.
+            root.innerAnnotations = root.innerAnnotations or {}
+            for offset = 0, 2 do
+                root.innerAnnotations[#root.innerAnnotations + 1] = tokens[i + offset]
+            end
+            root.formatDisabled = root.formatDisabled or name == "nofmt"
+            root.documentationInternal = root.documentationInternal or name == "internal"
+            tokens[i].startsStat = true
+            tokens[i].blockDepth = 0
+            tokens[i + 1].unaryTok = true
+            tokens[i + 1].blockDepth = 0
+            tokens[i + 2].blockDepth = 0
+            advance();
+            advance();
+            advance()
+        end
+        while true do
+            root.blocks[#root.blocks + 1] = add(root, parseBlock())
+            if cur().kind == "eof" then
+                break
+            end
+            -- Stray block terminator at top level ('end', 'else', ...): report,
+            -- consume, keep parsing.
+            local e = new cst.ErrorStmt(kind = "errorStmt")
+            errAt(cur(), ("unexpected '%s' at top level"):format(spelling(cur())))
+            add(e, advance())
+            add(root, e)
+        end
+        root.eof = add(root, advance())
+
+        return root
+    end
+
+    local parsed, root = pcall(parseChunk)
+    if not parsed then
+        -- Too deep to parse, whether the limit said so or the Lua stack did first. The
+        -- tree still holds every token exactly once, as one error statement, so the
+        -- file round-trips and nothing downstream walks the depth that was refused.
+        if root ~= TOO_DEEP and not tostring(root):find("stack overflow", 1, true) then
+            error(tostring(root), 0)
+        end
+        local at = tooDeepAt or tokens[i] or tokens[#tokens]
+        errAt(
+            at,
+            ("nested more than %d levels deep"):format(MAX_NESTING),
+            "NUPP1005",
+            "name the inner parts with locals, or split the nesting into functions"
+        )
+        local chunk = new cst.Chunk(blocks = {}, kind = "chunk")
+        local block = new cst.Block(stats = {}, kind = "block")
+        local stray = new cst.ErrorStmt(kind = "errorStmt")
+        for index = 1, #tokens - 1 do
+            add(stray, tokens[index])
+        end
+        block.stats[1] = add(block, stray)
+        chunk.blocks[1] = add(chunk, block)
+        chunk.eof = add(chunk, tokens[#tokens])
+        root = chunk
+    end
+
+    return {root = root as cst.Chunk, tokens = tokens, errors = errors, source = source}
 end
 
 export = parser

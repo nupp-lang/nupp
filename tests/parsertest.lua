@@ -168,6 +168,24 @@ function M.cdefUnionAndBitfieldRoundtrip()
     assertEq(declaration.entries[1].bitWidth.text, "3")
 end
 
+-- Nesting past what any pass can walk is a syntax error rather than a Lua stack
+-- overflow: five thousand parentheses used to end the process with a traceback.
+-- The refused file still round-trips, as one error statement.
+function M.nestingTooDeepIsASyntaxError()
+    local deep = "return " .. ("("):rep(5000) .. "1" .. (")"):rep(5000) .. "\n"
+    local ok, result = pcall(parser.parse, deep)
+    assert(ok, "the parser does not throw: " .. tostring(result))
+    assertEq(#result.errors, 1, "one error for the whole nesting")
+    assertEq(result.errors[1].code, "NUPP1005")
+    assert(result.errors[1].msg:find("nested more than 1000 levels deep", 1, true), result.errors[1].msg)
+    assertEq(cst.textOf(result.root), deep, "the refused file round-trips")
+
+    local shallow = "return " .. ("("):rep(900) .. "1" .. (")"):rep(900) .. "\n"
+    assertEq(#parser.parse(shallow).errors, 0, "nine hundred levels still parse")
+    local blocks = ("if x then\n"):rep(5000) .. ("end\n"):rep(5000)
+    assertEq(parser.parse(blocks).errors[1].code, "NUPP1005", "blocks are bounded too")
+end
+
 function M.fileInnerAnnotationsAreRecorded()
     local result = parser.parse("@!internal\n@!nofmt\nlocal x=1\n")
     assertEq(#result.errors, 0, "inner annotations parse")
