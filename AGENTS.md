@@ -47,13 +47,12 @@ compiled.
 ### The development rock tree
 
 `.rocks` holds the rocks this repository develops against -- lunamark and
-scintillua for the documentation site, lunajson for the portable compiler, and
-what those pull in. It is ignored, so a fresh checkout has none, and the suites
-that need one fail rather than skip: twenty-eight of them, reading as missing
-modules. Two builds write it, which is what CI runs:
+scintillua for the documentation site, and what those pull in. It is ignored,
+so a fresh checkout has none, and the suites that need one fail rather than
+skip, reading as missing modules. The documentation build writes it, as CI
+does:
 
 ```sh
-./bin/nupp build --target bootstrapCompiler
 ./bin/nupp build --target docs
 ```
 
@@ -66,9 +65,9 @@ helper below or from a bare `git worktree add`. So provision the checkout, and
 a worktree is provisioned by the same act. An existing `.rocks` is never
 replaced, a link that is dangling included.
 
-That leaves one case where the twenty-eight suites still fail as missing
-modules: a main checkout nobody has run the two builds in. It is the case the
-builds above answer, and linking is deliberately declined there rather than
+That leaves one case where those suites still fail as missing modules: a main
+checkout nobody has run the documentation build in. It is the case the build
+above answers, and linking is deliberately declined there rather than
 reaching for whatever a parent directory holds.
 
 ### Worktree setup
