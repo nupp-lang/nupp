@@ -30,7 +30,9 @@ def clean_environment(original, output, toolchain, guest):
            and key not in (
                "NODE_OPTIONS", "NODE_PATH", "CARGO_TARGET_DIR", "RUSTC_WRAPPER",
            )}
-    for key in ("NUPP_CC", "NUPP_CXX"):
+    # The pinned LLVM is an external input like the C compiler, and the
+    # toolchain refuses a tree that is not the pinned version.
+    for key in ("NUPP_CC", "NUPP_CXX", "NUPP_LLVM_PREFIX"):
         if key in original:
             env[key] = original[key]
     env.update(NUPP_TOOLCHAIN_DIR=str(toolchain), NUPP_BROWSER_GUEST_DIR=str(guest),

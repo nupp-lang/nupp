@@ -29,9 +29,15 @@ jobs:
     name: Cold browser checkout
     needs: build-luajit-browser-runtime
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # A cold LLVM cache means building LLVM before anything else.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+      # The checkout's @aot project is compiled by the LLVM code generator; without
+      # it the build refuses, which is how the first dry run after the backend
+      # moved to LLVM found this job had none.
+      - name: Fetch or build the pinned LLVM
+        uses: ./.github/actions/pinned-llvm
       - uses: actions/setup-node@v4
         with:
           node-version: 24
