@@ -442,7 +442,7 @@ local function lpegFromMirrors(serves)
     local driver = root .. "/scripts/toolchain"
     write(driver, read(DRIVER))
     write(root .. "/scripts/toolchain.pins", pinsText)
-    write(root .. "/scripts/patches/luajit-irt-size.patch", read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    write(root .. "/scripts/patches/luajit.patch", read(ROOT .. "/scripts/patches/luajit.patch"))
     for host, what in pairs(serves) do
         write(directory .. "/served/" .. host, what == "archive" and read(tarball) or what)
     end
@@ -561,7 +561,7 @@ function M.aDriftedLlvmNoticeStopsTheLlvmBuild()
     local driver = root .. "/scripts/toolchain"
     write(driver, read(DRIVER))
     write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
-    write(root .. "/scripts/patches/luajit-irt-size.patch", read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    write(root .. "/scripts/patches/luajit.patch", read(ROOT .. "/scripts/patches/luajit.patch"))
     for _, notice in ipairs({"LLVM-LICENSE.txt", "LLD-LICENSE.txt"}) do
         write(root .. "/host/notices/" .. notice, read(ROOT .. "/host/notices/" .. notice))
     end
