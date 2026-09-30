@@ -68,7 +68,7 @@ end
 ```
 
 ```text
-src/rows.nupp:2:31: aot: parameter type {number} is not admitted
+src/rows.nupp:2:31: aot: NUPP2905: parameter type {number} is not admitted
 ```
 
 Every live constructed object stays in an absolute Lua stack slot across

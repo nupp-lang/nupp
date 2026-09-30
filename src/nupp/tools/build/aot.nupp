@@ -969,7 +969,7 @@ function aot.emit(
                     -- an error. Every tier lowers from the same checked
                     -- source, so only the first can discover that case.
                     local first = diagnostics[1]
-                    if first ~= nil and first.message ~= "no @aot function was found" then
+                    if first ~= nil and first.code ~= compile.NO_AOT_FUNCTION then
                         local rendered = "feature tier " .. tierTarget.tier .. ": " .. compile.renderDiagnostic(first)
                         return nil, rendered, produced, authoredUnused, constSelection, gpuSources, first
                     end

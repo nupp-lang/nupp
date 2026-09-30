@@ -30,7 +30,20 @@ record compile.Diagnostic
     line: integer
     column: integer
     message: string
+
+    --- The diagnostic code, so a refusal can be looked up with `nupp explain` and
+    --- told apart from another by more than its wording.
+    code: string
 end
+
+--- The codes a refusal carries. The checker's `@aot` rules are NUPP2901 to NUPP2904;
+--- these are what lowering itself refuses.
+compile.REFUSED_BODY = "NUPP2905"
+
+compile.REFUSED_TIER = "NUPP2906"
+compile.REFUSED_GPU = "NUPP2907"
+compile.REFUSED_SPECIALIZATION = "NUPP2908"
+compile.NO_AOT_FUNCTION = "NUPP2909"
 
 --- Where one `@aot` declaration sits in the source it came from.
 ---
@@ -78,7 +91,7 @@ end
 
 --- One diagnostic, as a line a person reads.
 function compile.renderDiagnostic(problem: compile.Diagnostic): string
-    return ("%s:%d:%d: aot: %s"):format(problem.file, problem.line, problem.column, problem.message)
+    return ("%s:%d:%d: aot: %s: %s"):format(problem.file, problem.line, problem.column, problem.code, problem.message)
 end
 
 --- The sentinel a refusal unwinds with, so it is told apart from a real error
@@ -144,7 +157,8 @@ local function rejection(filename: string, diagnostics: {compile.Diagnostic}): f
             file = filename,
             line = at ~= nil and (at as scalarIR.Source).line or 1,
             column = at ~= nil and (at as scalarIR.Source).column or 1,
-            message = message
+            message = message,
+            code = compile.REFUSED_BODY
         )
         error(REFUSED, 0)
     end
@@ -204,7 +218,8 @@ function compile.lower(
                 file = filename,
                 line = problem.line or 1,
                 column = problem.col or 1,
-                message = "syntax error: " .. problem.msg
+                message = "syntax error: " .. problem.msg,
+                code = problem.code or "NUPP1005"
             )
         end
 
@@ -228,7 +243,16 @@ function compile.lower(
     local ok, lowered = pcall(function(): {scalarIR.Program}
         local found = lower.scan(tree.root, wasChecked)
         if #found.applications == 0 then
-            context.reject(nil, "no @aot function was found")
+            diagnostics[
+                #diagnostics + 1
+            ] = new compile.Diagnostic(
+                file = filename,
+                line = 1,
+                column = 1,
+                message = "no @aot function was found",
+                code = compile.NO_AOT_FUNCTION
+            )
+            error(REFUSED, 0)
         end
 
         local programs: {scalarIR.Program} = {}
@@ -308,7 +332,8 @@ function compile.constSpecializations(
                 file = filename,
                 line = 1,
                 column = 1,
-                message = "const specialization needs a checked source"
+                message = "const specialization needs a checked source",
+                code = compile.REFUSED_SPECIALIZATION
             ),
         }
     end
@@ -567,7 +592,8 @@ function compile.constSpecializations(
             column = 1,
             message = (
                 "const specialization requires %d body classes in this module, over the cap of %d; demanding call sites: %s"
-            ):format(specializationCount, maxPerModule, table.concat(sites, ", "))
+            ):format(specializationCount, maxPerModule, table.concat(sites, ", ")),
+            code = compile.REFUSED_SPECIALIZATION
         )
         return nil, diagnostics
     end
@@ -681,7 +707,8 @@ function compile.legalizeVectors(
                                 file = filename,
                                 line = at ~= nil and (at as scalarIR.Source).line or 1,
                                 column = at ~= nil and (at as scalarIR.Source).column or 1,
-                                message = "SIMD lane index exceeds the logical species lanes for the selected tier"
+                                message = "SIMD lane index exceeds the logical species lanes for the selected tier",
+                                code = compile.REFUSED_TIER
                             )
                         end
                     end
@@ -748,7 +775,13 @@ function compile.artifacts(
     end
     if #programs == 0 and constArtifacts == nil then
         return nil, {
-            new compile.Diagnostic(file = filename, line = 1, column = 1, message = "no @aot function was found")
+            new compile.Diagnostic(
+                file = filename,
+                line = 1,
+                column = 1,
+                message = "no @aot function was found",
+                code = compile.NO_AOT_FUNCTION
+            )
         }
     end
 
@@ -769,7 +802,13 @@ function compile.artifacts(
                 local site = sites[position]
                 local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
                 return nil, {
-                    new compile.Diagnostic(file = filename, line = line, column = column, message = rule as string)
+                    new compile.Diagnostic(
+                        file = filename,
+                        line = line,
+                        column = column,
+                        message = rule as string,
+                        code = compile.REFUSED_GPU
+                    )
                 }
             end
             local checkedArtifact = artifact as gpuartifact.Artifact
@@ -798,7 +837,8 @@ function compile.artifacts(
                         file = filename,
                         line = 1,
                         column = 1,
-                        message = "const-specialized GPU kernels are not yet supported"
+                        message = "const-specialized GPU kernels are not yet supported",
+                        code = compile.REFUSED_GPU
                     )
                 }
             end

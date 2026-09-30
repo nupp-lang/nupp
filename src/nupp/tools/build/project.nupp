@@ -738,7 +738,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                     col = aotDiagnostic.column,
                     offset = offset + aotDiagnostic.column - 1,
                     length = 1,
-                    code = "NUPP0001",
+                    code = aotDiagnostic.code,
                     msg = tostring(aotErr),
                     help = "Adjust the source to the selected AOT target's supported subset.",
                 }

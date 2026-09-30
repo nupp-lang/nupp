@@ -1658,7 +1658,91 @@ ENTRIES[
     .. "built-in profile for its triple or by a verified descriptor in a compiler "
     .. "pack, and a target nothing describes refuses nothing.",
     related = {"NUPP2707", "NUPP2901"},
-    docs = "docs/learn/projects/build.md",
+    docs = "docs/learn/projects/build.md#target-capability-profiles",
+}
+
+-- What AOT lowering refuses, as opposed to the checker's `@aot` rules above. No worked
+-- examples: `nupp check` does not lower, so a `wrong` program would check clean, and
+-- the examples are compiled by a test that expects the checker to report them.
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2905",
+    summary = "An `@aot` body uses a value or operation lowering cannot admit",
+    rule = "An `@aot` body lowers to typed native code, which decides at compile time "
+    .. "what the Lua version decides as it runs: a branch condition has to be a "
+    .. "boolean rather than any truthy value, a call has to reach an admitted "
+    .. "intrinsic or helper, a span read has to be proved in bounds, and a parameter "
+    .. "has to have a type the native ABI can carry. The message names the construct "
+    .. "and what it would take. Rewrite that construct, or remove `@aot` and let the "
+    .. "function run as ordinary Nupp.",
+    related = {"NUPP2903", "NUPP2906"},
+    docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2906",
+    summary = "The selected feature tier cannot carry an explicit vector operation",
+    rule = "Explicit SIMD code is legalized for the tier it is compiled for, and every "
+    .. "tier a build selects compiles the same body. A constant lane index past the "
+    .. "lanes the tier's species has names a lane that does not exist there. Index "
+    .. "within `species.lanes`, or keep the lane-specific code inside the branch "
+    .. "that tested the species.",
+    related = {"NUPP2905"},
+    docs = "docs/learn/performance/ahead-of-time/simd.md#species-masks-and-tails",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2907",
+    summary = "A GPU kernel is outside the subset the GPU backend compiles",
+    rule = "A kernel that runs on the GPU lowers to a shader, which has no call stack, "
+    .. "no dynamic allocation and a narrower set of types than a CPU kernel. The "
+    .. "message names the rule the kernel broke. Keep the kernel to the map and "
+    .. "workgroup forms the GPU page describes, or run it on the CPU.",
+    related = {"NUPP2905"},
+    docs = "docs/learn/performance/ahead-of-time/gpu.md#inspection-and-limits",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2908",
+    summary = "A const-specialized family cannot be compiled",
+    rule = "A const-generic `@aot` function compiles one body per closed set of "
+    .. "constant arguments its callers use, from a checked source, and a module "
+    .. "may demand only so many of them. Pass fewer distinct constants, or make "
+    .. "the varying argument an ordinary parameter.",
+    related = {"NUPP2905"},
+    docs = "docs/learn/performance/ahead-of-time/index.md#const-specialized-families",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2909",
+    summary = "A file given to AOT compilation has no `@aot` function",
+    rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so "
+    .. "a file without one has nothing to show. A build that merely finds the word "
+    .. "`@aot` in a file's text does not report this.",
+    related = {"NUPP2905"},
+    docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP4002",
+    summary = "A file is not formatted the way `nupp fmt` writes it",
+    rule = "There is one formatted spelling of a file, and `nupp fmt --check` and a "
+    .. "project-wide `nupp fmt` report every file that differs from it. Nothing is "
+    .. "wrong with the program; run `nupp fmt --write` on the file to produce the "
+    .. "spelling.",
+    related = {"NUPP4001"},
+    docs = "docs/learn/tooling/formatter.md#formatter-modes",
 }
 
 ENTRIES[

@@ -4739,7 +4739,7 @@ return {acc = acc}
         }
         local out, code = run(dir, "step.nupp")
         test.equal(code, 1, out)
-        assert(out:find("step.nupp:4:5: aot: a native nested for loop takes no explicit step", 1, true), out)
+        assert(out:find("step.nupp:4:5: aot: NUPP2905: a native nested for loop takes no explicit step", 1, true), out)
         assert(not out:find("stack traceback", 1, true), out)
     end
 end
@@ -4873,7 +4873,7 @@ return {decode = decode}
     test.equal(code, 1, "an unproved read is refused\n" .. out)
     assert(
         out:find(
-            "stale.g.nupp:11:18: aot: valuebuilder.byteAt needs offset < length(bytes) to dominate the read",
+            "stale.g.nupp:11:18: aot: NUPP2905: valuebuilder.byteAt needs offset < length(bytes) to dominate the read",
             1,
             true
         ),
@@ -4922,7 +4922,7 @@ return {rows = rows}
     test.equal(code, 1, "a literal bound proves nothing about the span\n" .. out)
     assert(
         out:find(
-            "literal.nupp:15:25: aot: the loop's bound is not a span count, so nothing proves weights is that long",
+            "literal.nupp:15:25: aot: NUPP2905: the loop's bound is not a span count, so nothing proves weights is that long",
             1,
             true
         ),
@@ -4980,7 +4980,7 @@ return {first = first}
     local out, code = run(dir, "--emit ir shadow.g.nupp")
     test.equal(code, 1, "the rebound name is not an intrinsic\n" .. out)
     assert(
-        out:find("shadow.g.nupp:4:12: aot: call target string.byte is not an admitted intrinsic or helper", 1, true),
+        out:find("shadow.g.nupp:4:12: aot: NUPP2905: call target string.byte is not an admitted intrinsic or helper", 1, true),
         "and is refused as the call it is: " .. out
     )
 end
@@ -5003,7 +5003,7 @@ return {rest = rest}
     local out, code = run(dir, "--emit ir method.nupp")
     test.equal(code, 1, out)
     assert(
-        out:find("method.nupp:3:12: aot: method :sub on a string is not admitted", 1, true),
+        out:find("method.nupp:3:12: aot: NUPP2905: method :sub on a string is not admitted", 1, true),
         "the refusal names the receiver: " .. out
     )
 end
@@ -5041,7 +5041,7 @@ return {decode = decode}
     test.equal(code, 1, "a proof the loop does not renew is not a proof\n" .. out)
     assert(
         out:find(
-            "outside.nupp:10:46: aot: span loads need a counted-loop index or cursor + 1 under cursor < #span",
+            "outside.nupp:10:46: aot: NUPP2905: span loads need a counted-loop index or cursor + 1 under cursor < #span",
             1,
             true
         ),
@@ -5083,7 +5083,7 @@ return {scan = scan}
     test.equal(code, 1, "a cursor the nested loop moves is not proved by the enclosing check\n" .. out)
     assert(
         out:find(
-            "annotated.nupp:9:29: aot: span loads need a counted-loop index or cursor + 1 under cursor < #span",
+            "annotated.nupp:9:29: aot: NUPP2905: span loads need a counted-loop index or cursor + 1 under cursor < #span",
             1,
             true
         ),
@@ -6052,7 +6052,7 @@ return {lanes = lanes}
     test.equal(code, 1, "a use after the nil test on a tier without vectors\n" .. out)
     assert(
         out:find(
-            "outside.nupp:11:12: aot: this tier has no vectors, so species is nil here; "
+            "outside.nupp:11:12: aot: NUPP2905: this tier has no vectors, so species is nil here; "
             .. "keep the vector path inside the branch that tested it against nil",
             1,
             true
@@ -6062,7 +6062,7 @@ return {lanes = lanes}
 
     out, code = run(dir, scalar .. "other.nupp")
     test.equal(code, 1, "a native if binding is the species test\n" .. out)
-    assert(out:find("other.nupp:10:16: aot: a native if binding takes simd.species only", 1, true), out)
+    assert(out:find("other.nupp:10:16: aot: NUPP2905: a native if binding takes simd.species only", 1, true), out)
 
     out, code = run(dir, scalar .. "witness.nupp")
     test.equal(code, 1, "the argument is an array witness\n" .. out)
@@ -6125,7 +6125,7 @@ return {total = total}
     test.equal(code, 1, "no vectors, so the assert would always fail\n" .. out)
     assert(
         out:find(
-            "required.nupp:7:25: aot: this tier has no vectors, so simd.species is nil here and the assert "
+            "required.nupp:7:25: aot: NUPP2905: this tier has no vectors, so simd.species is nil here and the assert "
             .. "would always fail; test it against nil and keep the vector path inside that branch",
             1,
             true
