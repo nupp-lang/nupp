@@ -30,14 +30,24 @@ const MAX_DICTIONARY: usize = 256;
 const MAX_ATTACHMENTS: usize = 255;
 const ACCOUNT_STEP_BYTES: usize = 1 << 20;
 
+/// Frees a caught panic's payload without letting its destructor unwind.
+///
+/// A user-supplied payload may itself panic from Drop, so it is dropped under a
+/// second catch, and only the payload of that second panic, whose destructor
+/// could panic again, is leaked. Nothing unwinds through the Lua/C callback
+/// ABI, and an ordinary message is freed, which LeakSanitizer reported when
+/// every payload was leaked.
+fn discard_payload(payload: Box<dyn std::any::Any + Send>) {
+    if let Err(nested) = catch_unwind(AssertUnwindSafe(move || drop(payload))) {
+        std::mem::forget(nested);
+    }
+}
+
 fn ffi_value<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(value) => value,
         Err(payload) => {
-            // A user-supplied panic payload may itself panic from Drop. Leak it
-            // on this exceptional path so even that destructor cannot unwind
-            // through the Lua/C callback ABI.
-            std::mem::forget(payload);
+            discard_payload(payload);
             fallback
         }
     }
@@ -45,7 +55,7 @@ fn ffi_value<T>(fallback: T, body: impl FnOnce() -> T) -> T {
 
 fn ffi_void(body: impl FnOnce()) {
     if let Err(payload) = catch_unwind(AssertUnwindSafe(body)) {
-        std::mem::forget(payload);
+        discard_payload(payload);
     }
 }
 
@@ -1450,6 +1460,20 @@ mod tests {
     fn rust_panic_firewall_returns_conservative_values() {
         assert_eq!(ffi_value(17, || panic!("value boundary fixture")), 17);
         ffi_void(|| panic!("void boundary fixture"));
+    }
+
+    #[test]
+    fn a_payload_whose_destructor_panics_stays_inside_the_firewall() {
+        // Both payloads are zero-sized, so the one the firewall leaks by design
+        // allocates nothing for LeakSanitizer to see.
+        struct Bomb;
+        impl Drop for Bomb {
+            fn drop(&mut self) {
+                std::panic::panic_any(());
+            }
+        }
+        assert_eq!(ffi_value(5, || -> i32 { std::panic::panic_any(Bomb) }), 5);
+        ffi_void(|| std::panic::panic_any(Bomb));
     }
 
     #[test]
