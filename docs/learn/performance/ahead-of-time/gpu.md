@@ -19,7 +19,7 @@ local function scale(
 ): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
-        output[index] = nupp.math.f32.mul(input[index], factor)
+        output[index] = input[index] * factor
     end
 end
 ```

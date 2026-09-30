@@ -8,7 +8,8 @@ it found -- an array opens here, this byte range is a key, that one is a number
 -- and the module builds the value behind it.
 
 ```nupp
-local valuebuilder = nupp.codec.valuebuilder
+local u32 = nupp.math.u32
+local valuebuilder = require("nupp.codec.valuebuilder")
 
 --- Decodes the fixed document `{"id": 41}`.
 --- @raises string when the stream is left incomplete
@@ -16,9 +17,9 @@ local valuebuilder = nupp.codec.valuebuilder
 local function decode(source: string, nullValue: any): any
     local builder = valuebuilder.new(nullValue)
 
-    valuebuilder.openObject(builder, 1)
-    valuebuilder.key(builder, source, 2, 2, false)
-    valuebuilder.numberSlice(builder, source, 7, 2)
+    valuebuilder.openObject(builder, u32.wrap(1))
+    valuebuilder.key(builder, source, u32.wrap(2), u32.wrap(2), false)
+    valuebuilder.numberSlice(builder, source, u32.wrap(7), u32.wrap(2))
     valuebuilder.close(builder)
 
     return valuebuilder.finish(builder)
@@ -27,7 +28,9 @@ end
 
 Values are reported as the parser reaches them, so there is no intermediate
 representation. Every offset, length, and index here counts from zero, because
-they address the parser's bytes rather than a Lua string.
+they address the parser's bytes rather than a Lua string. Each is a `uint32`,
+which an `@aot` body establishes with `nupp.math.u32.wrap` rather than by
+passing a number literal.
 
 The lowering is why the module exists. Inside an `@aot` function these calls
 become one native construction pass: tables are presized from the capacities the
@@ -183,7 +186,8 @@ end
 --- to reserve scratch for transformed strings, when the parser knows better.
 ---
 --- ```nupp
---- local valuebuilder = nupp.codec.valuebuilder
+--- local u32 = nupp.math.u32
+--- local valuebuilder = require("nupp.codec.valuebuilder")
 ---
 --- --- Builds `[true, null]` without a source document.
 --- --- @raises string when the stream is left incomplete
@@ -191,7 +195,7 @@ end
 --- local function pair(nullValue: any): any
 ---     local builder = valuebuilder.new(nullValue)
 ---
----     valuebuilder.openArray(builder, 2)
+---     valuebuilder.openArray(builder, u32.wrap(2))
 ---     valuebuilder.boolean(builder, true)
 ---     valuebuilder.null(builder)
 ---     valuebuilder.close(builder)

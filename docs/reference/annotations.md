@@ -775,6 +775,7 @@ local function activate(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
+    assert(#output == #input, "length mismatch")
     for i = 1, #output do
         output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
     end

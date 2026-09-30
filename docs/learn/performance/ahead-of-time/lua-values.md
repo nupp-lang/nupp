@@ -57,7 +57,7 @@ metatables, dynamic calls, callbacks, userdata, cycles, and arbitrary Lua
 execution. A table that arrived from outside is refused at the parameter rather
 than at its first access:
 
-```nupp
+```nupp:refused
 @aot
 local function extend(target: {number}, count: integer): {number}
     for index = 1, count do
