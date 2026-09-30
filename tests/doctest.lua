@@ -4236,7 +4236,8 @@ local VERSION_SOURCES = {
 
 function M.theVersionsRegistryMatchesTheConstants()
     local root = HERE .. "/.."
-    local page = readFile(root .. "/docs/reference/distribution.md")
+    -- A Windows checkout carries CRLF line endings; the table is read as text.
+    local page = readFile(root .. "/docs/reference/distribution.md"):gsub("\r\n", "\n")
     local section = assert(page:match("\n## Versions\n(.-)\n## "), "distribution.md has a Versions section")
     local listed = {}
     for format, version in section:gmatch("\n| ([^|]-) | (%d+) | [^\n]*") do
