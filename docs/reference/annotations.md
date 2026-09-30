@@ -316,6 +316,14 @@ any of their names.
 
 | Annotation | Arguments | Attaches to |
 | --- | --- | --- |
+| `@nosuspend` | none | callable type, block, loop; see [non-suspending regions](../learn/runtime/concurrency/suspension.md#non-suspending-regions) |
+| `@sendable` | none | callable type reproducible in another isolated Lua state |
+| `@comptime` | none | callable type, function, type declaration used only at compile time |
+| `@noalloc` | none | block; see [allocation and raising regions](../learn/language/effects.md#allocation-and-raising-regions) |
+| `@noraise` | none | block; see [allocation and raising regions](../learn/language/effects.md#allocation-and-raising-regions) |
+| `@readonly` | none | field, indexer; see [property capabilities](../learn/language/types/properties.md#declaring-a-capability) |
+| `@writeonly` | none | field, indexer |
+| `@private` | none | record field; see [private fields](../learn/language/types/records-and-structs.md#private-fields) |
 | `@unsafe` | None | Supported statements and operands; see [unsafe operations](#unsafe-operations) |
 | `@annotation` | `targets = {"..."}` | record, struct |
 | `@annotationValue` | none | annotation definition field |
@@ -326,8 +334,10 @@ any of their names.
 | `@effects` | named effect members | function, c-function, local-binding |
 | `@relax` | guarantee names | function |
 | `@derive` | qualified comptime providers | record, struct |
+| `@cli` | command and field options for the `nupp.cli` derives | record, field |
 | `@json` | JSON record or field options | record, field |
 | `@debug` | `skip` or `redact` | field in a derived record |
+| `@event` | the registered event name | record, struct deriving `nupp.events.Event` |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
 | `@jit` | none | function |
