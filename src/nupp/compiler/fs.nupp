@@ -316,14 +316,15 @@ end
 --- project may name an include root it has not created yet, and the shell-out
 --- this replaced answered the same way.
 ---
---- `skipDirectory` is asked about each directory's own name before the walk
---- descends into it, and a true answer prunes it and everything under it. A
+--- `skipDirectory` is asked about each directory before the walk descends into
+--- it, by its own name and by its path as joined below `path`, and a true answer
+--- prunes it and everything under it. A
 --- caller that discards those files afterwards gets the same answer either way,
 --- and discarding them afterwards means having walked them first: on this
 --- compiler the unpruned walk found eight hundred files to keep a hundred,
 --- because a checkout's own root holds a version-control store and possibly a
 --- nest of worktrees.
-local function listFiles(path: string, skipDirectory: (function(name: string): boolean?)?): {string}
+local function listFiles(path: string, skipDirectory: (function(name: string, path: string): boolean?)?): {string}
     local files: {string} = {}
     local pending = {path}
     local parent: {[string]: string} = {}
@@ -338,7 +339,7 @@ local function listFiles(path: string, skipDirectory: (function(name: string): b
                 kind = resolved and resolved.kind or "other"
             end
             if kind == "directory" then
-                if not (skipDirectory and skipDirectory(entry.name)) then
+                if not (skipDirectory and skipDirectory(entry.name, child)) then
                     local cycle = false
                     if link then
                         local identity = canonical(child)
