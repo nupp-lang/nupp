@@ -4157,8 +4157,10 @@ end
 --- Moves the counters forward to `identity`, never back.
 ---
 --- Never back, because a serial this process has already handed out is spoken for
---- whatever an image says. Taking the larger of the two is what makes restoring an
---- image safe in a process that had already interned types of its own.
+--- whatever an image says. That keeps what this process issues next clear of the
+--- image; it does nothing for what it issued before, whose serials the image may
+--- use for other types. So an image is only restored into an arena that issued
+--- the same ones -- see "Origin" in `nupp.compiler.project.preludecache`.
 function types.resumeIdentity(identity: any): nil
     if type(identity) ~= "table" then
         return

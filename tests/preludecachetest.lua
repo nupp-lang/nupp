@@ -215,6 +215,132 @@ function M.everyEnvironmentDeclaresItsOwnNominals()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A stored prelude is true only of the type identity it was written from.
+--
+-- An arena key spells a type by its parts' serials, and serials are issued per
+-- process. So an image restored over an arena that already holds other types
+-- under those serials gives two objects one id, and every key built from that id
+-- afterwards finds whichever the arena met first. The test runner's process lanes
+-- made exactly that arena: after each suite they unload the modules it loaded,
+-- which takes `nupp.compiler.project.env` and keeps `nupp.compiler.types`, so the
+-- next suite's first environment read the stored prelude over the last suite's
+-- checked one. `nupp.peg.compile` then answered a `Peg<...any>` that was not the
+-- `Peg<...any>` it was annotated with, and `examplestest` failed on whichever
+-- machine put the two suites in one lane.
+function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
+    local saved = {}
+    for name, value in pairs(package.loaded) do
+        saved[name] = value
+    end
+    -- What a lane does between suites: every compiler module is loaded afresh,
+    -- except the one that owns type identity.
+    local function unloadAllButTypes()
+        for name in pairs(package.loaded) do
+            if type(name) == "string" and name:match("^nupp%.") and name ~= "nupp.compiler.types" then
+                package.loaded[name] = nil
+            end
+        end
+    end
+    local function restore()
+        for name in pairs(package.loaded) do
+            if saved[name] == nil then
+                package.loaded[name] = nil
+            end
+        end
+        for name, value in pairs(saved) do
+            package.loaded[name] = value
+        end
+    end
+
+    local dir = project()
+    local store = dir .. "/store"
+    local ok, problem = pcall(function()
+        -- The first writes the image, the second is a first environment again and
+        -- finds it.
+        unloadAllButTypes()
+        require("nupp.compiler.project.env").new(dir, {cacheDir = store})
+        unloadAllButTypes()
+        local env = require("nupp.compiler.project.env").new(dir, {cacheDir = store})
+
+        local types = require("nupp.compiler.types")
+        local byId, shared = {}, {}
+        for bucket, entries in pairs(types.identity().arenas) do
+            for key, value in pairs(entries) do
+                local id = type(value) == "table" and value.id or nil
+                if id ~= nil and byId[id] ~= nil and byId[id] ~= value then
+                    shared[#shared + 1] = bucket .. " " .. key .. " = " .. tostring(id)
+                end
+                if id ~= nil then
+                    byId[id] = value
+                end
+            end
+        end
+        table.sort(shared)
+        test.equal(#shared, 0, "no two interned types share an id:\n  "
+            .. table.concat(shared, "\n  ", 1, math.min(#shared, 10)))
+
+        local source = "local function loadMatcher(configuration: string): nupp.peg.Peg<...any>\n"
+            .. "    return nupp.peg.compile(configuration)\n"
+            .. "end\n"
+            .. "return loadMatcher\n"
+        local parsed = require("nupp.compiler.syntax.parser").parse(source, "prelude-identity.nupp")
+        local found = {}
+        for _, diagnostic in ipairs(require("nupp.compiler.check").check(parsed, "prelude-identity.nupp", env)) do
+            found[#found + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg)
+        end
+        test.equal(table.concat(found, "\n"), "", "a nominal the prelude declares is one type")
+    end)
+    restore()
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(ok, problem)
+end
+
+-- The same, the other way round and across processes: an image written by a
+-- process that had interned types of its own before the prelude, read by one
+-- that had not. The reader's serials for its own first types are the writer's
+-- for something else, and the image arrives carrying both.
+function M.aStoredPreludeFromAnotherIdentityIsNotRestored()
+    local dir = project()
+    local store = dir .. "/store"
+    local script = dir .. "/identity.lua"
+    local file = assert(io.open(script, "wb"))
+    file:write([[
+local project, store, extra = arg[1], arg[2], tonumber(arg[3])
+local types = require("nupp.compiler.types")
+for index = 1, extra do
+    types.union({types.literal("before the prelude " .. index), types.string})
+end
+require("nupp.compiler.project.env").new(project, {cacheDir = store})
+local byId, shared = {}, 0
+for _, entries in pairs(types.identity().arenas) do
+    for _, value in pairs(entries) do
+        local id = type(value) == "table" and value.id or nil
+        if id ~= nil and byId[id] ~= nil and byId[id] ~= value then
+            shared = shared + 1
+        end
+        if id ~= nil then
+            byId[id] = value
+        end
+    end
+end
+print("shared ids: " .. shared)
+]])
+    file:close()
+    local function run(extra)
+        local pipe = assert(io.popen(("NUPP_COMPILER_ROOT='%s' LUA_PATH='%s' luajit '%s' '%s' '%s' %d 2>&1")
+            :format(ROOT, package.path, script, dir, store, extra)))
+        local out = pipe:read("*a")
+        pipe:close()
+        return out
+    end
+
+    local written = run(5)
+    test.equal(written:match("shared ids: %d+"), "shared ids: 0", "the writer's own arena is consistent:\n" .. written)
+    local read = run(0)
+    os.execute("rm -rf '" .. dir .. "'")
+    test.equal(read:match("shared ids: %d+"), "shared ids: 0", "no two interned types share an id:\n" .. read)
+end
+
 -- Exercise the image writer and reader together with values the real prelude
 -- need not happen to contain, especially binary strings and IEEE negative zero.
 local function imageFixture()
@@ -430,9 +556,14 @@ function M.portableImageRejectsMalformedCompactData()
     assert(not adopted and not resumed, "a refused compact prelude changed type identity")
 end
 
+-- Written from the arena as it stands, so the origin is not what refuses it.
 local function emptyNativeImage()
+    local cache = require("nupp.compiler.project.preludecache")
+    local origin = cache.origin()
+    assert(cache.seal(origin), "the arena has not moved since its origin was taken")
     return {
-        format = 1,
+        format = 2,
+        origin = origin,
         counts = {},
         cells = {},
         tags = {},
@@ -480,6 +611,16 @@ function M.nativeCacheRejectsMalformedPlainData()
         end,
         function(image)
             image.identity.serial = math.huge
+        end,
+        -- Written from an arena that had issued something this one has not.
+        function(image)
+            image.origin.serial = image.origin.serial + 1
+        end,
+        function(image)
+            image.origin.digest = string.rep("0", #image.origin.digest)
+        end,
+        function(image)
+            image.origin = nil
         end,
     }
     for index, damage in ipairs(cases) do

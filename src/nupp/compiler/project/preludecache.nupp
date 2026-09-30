@@ -57,6 +57,26 @@ restoring the counter would have this process hand out a serial some restored
 type already carries. `types.resumeIdentity` moves the counters forward to where
 the writing process left them, never back.
 
+## Origin
+
+Moving the counters forward covers what this process issues next, not what it
+issued before. A key spells a type by its parts' serials and a nominal's id by
+its counter, so an image means what it says only in an arena that numbered
+everything before the prelude the way the writer's did. Read over any other, a
+restored type and a live one share an id, and a key built from that id finds
+whichever the arena met first -- or the image's keys find the live types and the
+image's nominals are not the ones they point at, so `nupp.peg.compile` answers a
+`Peg<...any>` that is not the `Peg<...any>` it is annotated with.
+
+"The first environment in a process" was meant to be that condition, and is not
+one: a module reloaded over a live `nupp.compiler.types` is a first environment
+again with a checked prelude already in the arena, which is what the test
+runner's lanes do between suites. So the image records its origin -- the three
+counters and a digest of every interned key and id, taken before the prelude was
+checked -- and is read only into an arena whose own origin is the same. Every
+command starts from the same one, which is the case the cache exists for; any
+other reader checks the prelude itself.
+
 ## Compiler-owned identity
 
 Not everything reachable from the prelude was made by it. `types.any` is one
@@ -83,6 +103,7 @@ out as exactly that and built again by replaying the records into a new one. Two
 of them cover the whole prelude.
 ]]
 
+local hash = require("nupp.compiler.hash")
 local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local types = require("nupp.compiler.types")
 
@@ -104,7 +125,99 @@ local ROOT_NAMES = {
 
 --- Bumped when the shape below changes. An image that does not say this number is
 --- discarded, the same way a store entry stamped differently is.
-local FORMAT = 1
+local FORMAT = 2
+
+--- Where type identity stood when a prelude was about to be checked or read.
+---
+--- The counters say how much had been issued, and `digest` says what: every
+--- interned key with the id it was stamped with. See "Origin" above.
+export type preludecache.Origin = {
+    serial: integer,
+    capability: integer,
+    nominal: integer,
+
+    --- Filled in by `preludecache.seal`, and only when it is needed: the counters
+    --- tell most origins apart, and the listing is as long as the arena.
+    digest: string?
+}
+
+--- The origin of the arena as it stands.
+function preludecache.origin(): preludecache.Origin
+    local identity = types.identity()
+
+    return {serial = identity.serial, capability = identity.capability, nominal = identity.nominal}
+end
+
+--- Fills in `origin.digest`, or nil when the arena is no longer the one `origin`
+--- was taken from.
+---
+--- Once filled it is kept, so the arena may move on afterwards -- which checking
+--- the prelude does -- and the origin still says where it started.
+function preludecache.seal(origin: preludecache.Origin): string?
+    if origin.digest ~= nil then
+        return origin.digest
+    end
+    local identity = types.identity()
+    if identity.serial ~= origin.serial
+        or identity.capability ~= origin.capability
+        or identity.nominal ~= origin.nominal
+    then
+        return nil
+    end
+    local lines: {string} = {}
+    for bucket, entries in pairs(identity.arenas) do
+        for key, value in pairs(entries) do
+            local id = type(value) == "table" and (value as any).id or nil
+            lines[#lines + 1] = bucket .. "\0" .. key .. "\0" .. tostring(id)
+        end
+    end
+    table.sort(lines)
+    origin.digest = hash.digest(table.concat(lines, "\n"))
+
+    return origin.digest
+end
+
+local function isOrigin(value: any): boolean
+    return type(value) == "table"
+        and type(value.serial) == "number"
+        and type(value.capability) == "number"
+        and type(value.nominal) == "number"
+        and type(value.digest) == "string"
+end
+
+--- Whether `recorded` is `origin`: the counters first, the listing only when they
+--- agree.
+local function sameOrigin(recorded: any, origin: preludecache.Origin): boolean
+    if not isOrigin(recorded)
+        or recorded.serial ~= origin.serial
+        or recorded.capability ~= origin.capability
+        or recorded.nominal ~= origin.nominal
+    then
+        return false
+    end
+
+    return recorded.digest == preludecache.seal(origin)
+end
+
+--- Whether an image written from `origin` should take the place of `stored`.
+---
+--- Nothing stored, or nothing this can read, is replaced. So is an image from an
+--- arena that had issued more, because the one every command starts from is the
+--- one that has issued least: a test harness that checked a prelude before this
+--- one does not get to evict the image the next command reads. And so is one from
+--- this very origin that did not decode, since it is no use to anyone who could
+--- read it.
+function preludecache.replaces(stored: any, origin: preludecache.Origin): boolean
+    local recorded = type(stored) == "table" and stored.format == FORMAT and stored.origin or nil
+    if not isOrigin(recorded) then
+        return true
+    end
+    if recorded.serial ~= origin.serial then
+        return recorded.serial > origin.serial
+    end
+
+    return sameOrigin(recorded, origin)
+end
 
 local function isScalar(value: any): boolean
     local kind = type(value)
@@ -237,7 +350,14 @@ end
 --- is computed the slow way -- which is what every command did before this
 --- existed. The alternative, a half-written image, is the one outcome that would
 --- be worse than no cache.
-function preludecache.encode(roots: any): any?
+---
+--- `origin` is where the arena stood before the prelude was checked, sealed while
+--- it still stood there. Without one there is nothing to say which readers the
+--- image is true for, so there is no image.
+function preludecache.encode(roots: any, origin: preludecache.Origin?): any?
+    if origin == nil or origin.digest == nil then
+        return nil
+    end
     local owned = ownedByModules()
     local identity = types.identity()
 
@@ -441,6 +561,12 @@ function preludecache.encode(roots: any): any?
         triviaOf = triviaOf,
         internedAs = internedAs,
         identity = {serial = identity.serial, capability = identity.capability, nominal = identity.nominal,},
+        origin = {
+            serial = origin.serial,
+            capability = origin.capability,
+            nominal = origin.nominal,
+            digest = origin.digest,
+        },
         roots = rootIds,
         runtime = roots.preludeRuntime,
     }
@@ -452,8 +578,16 @@ end
 --- Guarded throughout: the image comes off disk, where anything could have
 --- written it, and every way it can be wrong has the same answer as no image at
 --- all.
-function preludecache.decode(image: any): any?
+---
+--- `origin` is where this arena stands, and defaults to now. An image written
+--- from anywhere else is refused before anything else is looked at -- in
+--- particular before a name in it is resolved, which can load a module and move
+--- the arena on.
+function preludecache.decode(image: any, origin: preludecache.Origin?): any?
     if type(image) ~= "table" or image.format ~= FORMAT then
+        return nil
+    end
+    if not sameOrigin(image.origin, origin or preludecache.origin()) then
         return nil
     end
     local counts = image.counts
