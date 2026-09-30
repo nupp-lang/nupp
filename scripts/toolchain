@@ -1207,6 +1207,18 @@ build_luajit() {
             [ -f "$jit_dir/vmdef.lua" ] \
                 || die "LuaJIT's Windows build staged no jit/vmdef.lua"
         done
+    else
+        # The prefix baked in above is for this interpreter. The static archive
+        # is what a host carries into every stamped binary, where the prefix
+        # named this machine's cache in package.path -- a directory no user of
+        # a released nupp has, and different bytes from every other checkout.
+        # Build the archive with LuaJIT's stock paths instead; the host preloads
+        # the jit.* modules it needs.
+        "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+        "$MAKE" -C "$tree" PREFIX=/usr/local CC="$CC" HOST_CC="$CC" XCFLAGS=-fPIC >&2
+        [ -f "$tree/src/libluajit.a" ] \
+            || die "LuaJIT's static build produced no archive"
+        cp "$tree/src/libluajit.a" "$out/lib/libluajit-5.1.a"
     fi
 
     # `luajit` itself is a versioned name plus a symlink upstream only makes on

@@ -312,6 +312,25 @@ function M.theStampedBinaryRunsThePayload()
       ("the stamped binary answered differently:\n%s\n---\n%s"):format(fromBinary, fromSource))
 end
 
+--- The binary a user is handed searches nothing that only existed where it was
+--- built. LuaJIT compiles its install prefix into the default package.path, and
+--- the toolchain installs it in a per-machine cache, so the stamped host used to
+--- look for modules there -- found on the build machine, which is how `nupp bc`
+--- worked here and nowhere else, and different bytes from every other checkout.
+function M.theStampedBinarySearchesNothingFromTheMachineThatBuiltIt()
+   local binary = binaryOrSkip()
+   local dir = makeDir()
+   writeFile(dir .. "/paths.lua", "print(package.path)\nprint(package.cpath)\n")
+   local out, status = run(("env -u LUA_PATH -u LUA_CPATH '%s' run '%s/paths.lua'"):format(binary, dir))
+   assert(status == 0, out)
+   local prefix = run(("'%s/scripts/toolchain' --prefix 2>/dev/null"):format(ROOT)):match("[^\r\n]+")
+   assert(prefix and not out:find(prefix, 1, true), "the default search path names the toolchain cache:\n" .. out)
+   writeFile(dir .. "/demo.lua", "local x = 1\nprint(x)\n")
+   local listing, listed = run(("LUA_PATH='./?.lua' '%s' bc '%s/demo.lua'"):format(binary, dir))
+   assert(listed == 0 and listing:find("KSHORT", 1, true), "bc needs a module the binary does not carry:\n" .. listing)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Input a language client would never send, which is exactly what arrives when
 -- something else connects to the port, a proxy rewrites a body, or a client
 -- crashes mid-frame.

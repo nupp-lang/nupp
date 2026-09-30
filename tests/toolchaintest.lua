@@ -802,8 +802,11 @@ done
 [ "$tree" != "$NUPP_TEST_SHARED_SOURCE" ]
 grep -F 'lj_ir_type_size[irt_type((t))]' "$tree/src/lj_ir.h" >/dev/null
 printf 'private\n' > "$tree/private-build-marker"
+if [ "$mode" = build ]; then
+    : > "$tree/src/libluajit.a"
+fi
 if [ "$mode" = install ]; then
-    mkdir -p "$prefix/bin" "$prefix/include/luajit-2.1"
+    mkdir -p "$prefix/bin" "$prefix/lib" "$prefix/include/luajit-2.1"
     printf '#!/bin/sh\necho LuaJIT 2.1.1784535650\n' > "$prefix/bin/luajit"
     chmod +x "$prefix/bin/luajit"
 fi
