@@ -114,12 +114,16 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
             sealedProgram.deriveProvider = true
             sealedProgram.deriveInterface = hasContract and contract or nil
             sealedProgram.deriveInterfaceIdentity = hasContract and contract.id or nil
-            sealedProgram.providerModule = c.result.moduleName
+            -- A file checked from outside any project root has no module name, and
+            -- its helpers still need one identity the provider, the checker and the
+            -- generated forwarders agree on. No module can be named "<chunk>".
+            local ownModule = c.result.moduleName or "<chunk>"
+            sealedProgram.providerModule = ownModule
             sealedProgram.providerModuleLocal = c.moduleLocal
             sealedProgram.runtimeHelpers = {}
             for runtimeName, runtimeType in pairs(c.moduleFields or {}) do
                 if runtimeType and runtimeType.tag == "func" then
-                    local moduleName = c.result.moduleName or c.moduleLocal or "<chunk>"
+                    local moduleName = ownModule
                     local descriptor = {module = moduleName, member = runtimeName,}
                     sealedProgram.runtimeHelpers[moduleName .. "." .. runtimeName] = descriptor
                     if c.moduleLocal then
@@ -147,9 +151,9 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
                     local first = modulePath and modulePath:match("^[^.]+") or nil
                     local holder = first and c.lookupEntry(first) or nil
                     local moduleName = holder and holder.requiredModule
-                        or (first == c.moduleLocal and c.result.moduleName or nil)
+                        or (first ~= nil and first == c.moduleLocal and ownModule or nil)
                     local helperType
-                    if moduleName == c.result.moduleName then
+                    if moduleName == ownModule then
                         helperType = c.moduleFields and c.moduleFields[memberName]
                     else
                         local moduleType = moduleName

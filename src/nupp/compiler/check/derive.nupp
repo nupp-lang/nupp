@@ -341,7 +341,7 @@ function derive.install(c: state.Checker): derive.Ops
         if not descriptor then
             return nil
         end
-        if descriptor.module == c.result.moduleName then
+        if descriptor.module == (c.result.moduleName or "<chunk>") then
             return c.moduleFields and c.moduleFields[descriptor.member] or nil
         end
         -- This lookup is also the generated wrapper's ordinary runtime dependency
@@ -362,7 +362,7 @@ function derive.install(c: state.Checker): derive.Ops
         if not descriptor then
             return nil
         end
-        if descriptor.module == c.result.moduleName then
+        if descriptor.module == (c.result.moduleName or "<chunk>") then
             return c.moduleExports.valueDefs and c.moduleExports.valueDefs[descriptor.member] or nil
         end
         local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, descriptor.module)
@@ -1105,7 +1105,7 @@ function derive.install(c: state.Checker): derive.Ops
                                 or nil
                             recipe.signature = T.tostring(callable)
                             recipe.paramNames = callable.paramNames
-                            if recipe.helper.module == c.result.moduleName and c.moduleLocal then
+                            if recipe.helper.module == (c.result.moduleName or "<chunk>") and c.moduleLocal then
                                 recipe.helper.localPath = c.moduleLocal .. "." .. recipe.helper.member
                             end
                             local generatedMember = {
