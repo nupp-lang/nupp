@@ -528,8 +528,8 @@ function M.aDamagedOrForeignCacheAnswersNothingRatherThanWrongly()
     corrupted:close()
     local search = assert(bytecodecache.searcher(out), "a damaged entry is still an index")
     assert(search(name) == nil, "but the entry answers nothing")
+    assert(io.open(entry, "rb") == nil, "and is removed, so the next build writes it again")
 
-    assert(os.remove(entry))
     assert(assert(bytecodecache.searcher(out))(name) == nil, "and a missing entry answers nothing")
 
     local function rewrite(text)
@@ -544,6 +544,49 @@ function M.aDamagedOrForeignCacheAnswersNothingRatherThanWrongly()
     assert(bytecodecache.searcher(out) == nil, "and neither is nonsense")
     assert(os.remove(index))
     assert(bytecodecache.searcher(out) == nil, "and an absent one is simply absent")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- The damage the loader cannot see: a flipped bit in a string constant still
+-- loads, and the module then answers something the build never wrote. On a tree
+-- the build already considers current nothing else rebuilds it, so the entry is
+-- checked against what the index recorded, removed when it differs, and written
+-- again by the next build rather than reused for being there.
+function M.aDamagedEntryThatStillLoadsAnswersNothing()
+    local name = "flippedthing"
+    local text = "return 'aaaaaaaaaaaaaaaa'\n"
+    local dir, out, path = cachedTree(name, text)
+    local index = assert(bytecodecache.indexPath(out))
+    local handle = assert(io.open(index, "rb"))
+    local entry = index:gsub("index$", "") .. assert(handle:read("*a"):match("(%x+) " .. name)) .. ".bc"
+    handle:close()
+
+    handle = assert(io.open(entry, "rb"))
+    local bytes = handle:read("*a")
+    handle:close()
+    local at = assert(bytes:find("aaaaaaaaaaaaaaaa", 1, true), "the constant is in the dump")
+    -- 'a' to 'c': one bit, and still a dump that loads and runs.
+    local flipped = bytes:sub(1, at - 1) .. "c" .. bytes:sub(at + 1)
+    assert(loadstring(flipped)() == "caaaaaaaaaaaaaaa", "the damage is the kind the loader cannot see")
+    handle = assert(io.open(entry, "wb"))
+    handle:write(flipped)
+    handle:close()
+
+    assert(assert(bytecodecache.searcher(out))(name) == nil, "a damaged entry answered for the module")
+    assert(io.open(entry, "rb") == nil, "the damaged entry was left to be reused")
+
+    bytecodecache.refresh(out, {[name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)}})
+    local cached = assert(assert(bytecodecache.searcher(out))(name), "the next build did not write it again")
+    assert(cached() == "aaaaaaaaaaaaaaaa", "the rewritten entry is not the module")
+
+    -- One of another length, the length alone tells.
+    handle = assert(io.open(entry, "rb"))
+    bytes = handle:read("*a")
+    handle:close()
+    handle = assert(io.open(entry, "wb"))
+    handle:write(bytes .. "\0")
+    handle:close()
+    assert(assert(bytecodecache.searcher(out))(name) == nil, "an entry of another length answered")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

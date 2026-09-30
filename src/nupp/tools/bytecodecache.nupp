@@ -34,8 +34,98 @@ local bytecodecache = {}
 
 -- Both halves of the format, kept together because they are one agreement. The
 -- version leads so that a reader of a later one stops at the first line.
-local FORMAT = "nupp-bytecode 2"
+local FORMAT = "nupp-bytecode 3"
 local INDEX = "index"
+
+-- The multiplier of the checksum below: odd, so any change confined to one word
+-- changes the sum, and under 2^21, so a product with a 32-bit lane stays inside a
+-- double's exact integers before it is wrapped.
+local MULTIPLIER = 1000003
+
+-- Asked for rather than required: this module is loaded by every compiler's
+-- entry point, including one running on an interpreter with no BitOp library,
+-- where the cache is simply never used.
+local okBit, bitLibrary = pcall(require, "bit")
+local bit: any = okBit and bitLibrary or nil
+
+-- Little-endian words through the FFI where it can read them in place, which is
+-- what makes checking an entry cheaper than loading it; otherwise the same words
+-- assembled from bytes, so either path computes the same sum.
+local okFfi, ffiLibrary = pcall(require, "ffi")
+local ffi: any = okFfi and ffiLibrary or nil
+local words: any = nil
+if ffi ~= nil and ffi.abi("le") then
+    words = ffi.typeof("const uint32_t *")
+end
+
+--- A checksum of a dump, for telling a damaged entry from the one that was written.
+---
+--- A damaged dump that still loads is the case this is for. Bytecode is not
+--- checked by the loader: a flipped bit in a constant or an operand loads, and the
+--- compiler then runs something the build never wrote, on a tree where nothing
+--- else would notice until it misbehaved. A cryptographic digest is not what is
+--- wanted -- the threat is a disk and not an adversary -- and in Lua it cost 27 ms
+--- against a 5.8 ms load of the whole cache. This is a polynomial over 32-bit
+--- words in four interleaved lanes, so the lanes run in parallel: about 2 ms for
+--- the whole cache, and a command only checks the entries it loads.
+local function checksum(bytes: string): string?
+    if bit == nil then
+        return nil
+    end
+    local tobit, bxor, rol, rshift = bit.tobit, bit.bxor, bit.rol, bit.rshift
+    local length = #bytes
+    local count = rshift(length, 2)
+    local a, b, c, d = tobit(length), 1, 2, 3
+    local index = 0
+    if words ~= nil then
+        local word: any = ffi.cast(words, bytes)
+        local last = count - 4
+        while index <= last do
+            a = tobit(a * MULTIPLIER + word[index])
+            b = tobit(b * MULTIPLIER + word[index + 1])
+            c = tobit(c * MULTIPLIER + word[index + 2])
+            d = tobit(d * MULTIPLIER + word[index + 3])
+            index = index + 4
+        end
+        while index < count do
+            a = tobit(a * MULTIPLIER + word[index])
+            index = index + 1
+        end
+    else
+        local byte = string.byte
+
+        local function word(at: number): number
+            local p = at * 4 + 1
+            local b1, b2, b3, b4 = byte(bytes, p, p + 3)
+            return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+        end
+
+        local last = count - 4
+        while index <= last do
+            a = tobit(a * MULTIPLIER + word(index))
+            b = tobit(b * MULTIPLIER + word(index + 1))
+            c = tobit(c * MULTIPLIER + word(index + 2))
+            d = tobit(d * MULTIPLIER + word(index + 3))
+            index = index + 4
+        end
+        while index < count do
+            a = tobit(a * MULTIPLIER + word(index))
+            index = index + 1
+        end
+    end
+    for at = count * 4 + 1, length do
+        a = tobit(a * MULTIPLIER + string.byte(bytes, at))
+    end
+
+    return bit.tohex(bxor(a, rol(b, 8), rol(c, 16), rol(d, 24)))
+end
+
+--- One index line: where the entry is, and what it held when it was written.
+local type Entry = {
+    digest: string,
+    length: integer,
+    sum: string
+}
 
 --- Where entries made by this interpreter live, under the cache directory.
 ---
@@ -69,7 +159,7 @@ end
 --- would answer `debug.getinfo` with is where they used to be, and the compiler
 --- finds its declarations and its native library by asking exactly that. So a
 --- moved tree is a miss until the next build rewrites it.
-local function readIndex(root: string): {[string]: string}?
+local function readIndex(root: string): {[string]: Entry}?
     local file = io.open(root .. "/.bytecode/" .. vmDirectory() .. "/" .. INDEX, "rb")
     if not file then
         return nil
@@ -86,11 +176,11 @@ local function readIndex(root: string): {[string]: string}?
     if lines[1] ~= FORMAT or lines[2] ~= "root " .. root then
         return nil
     end
-    local found: {[string]: string} = {}
+    local found: {[string]: Entry} = {}
     for index = 3, #lines do
-        local digest, name = lines[index]:match("^(%x+) (%S+)$")
-        if digest and name then
-            found[name] = digest
+        local digest, name, length, sum = lines[index]:match("^(%x+) (%S+) (%d+) (%x+)$")
+        if digest and name and length and sum then
+            found[name] = {digest = digest, length = tonumber(length) as integer, sum = sum}
         end
     end
 
@@ -118,11 +208,12 @@ function bytecodecache.searcher(root: string): any
     local where = root .. "/.bytecode/" .. vmDirectory()
 
     return function(name: string): any
-        local digest = found[name]
-        if digest == nil then
+        local entry = found[name]
+        if entry == nil then
             return nil
         end
-        local file = io.open(where .. "/" .. digest .. ".bc", "rb")
+        local path = where .. "/" .. entry.digest .. ".bc"
+        local file = io.open(path, "rb")
         if not file then
             return nil
         end
@@ -131,9 +222,22 @@ function bytecodecache.searcher(root: string): any
         if not bytes then
             return nil
         end
-        -- A cache is allowed to be damaged. Bad bytecode raises rather than
-        -- answering, and the answer to that is the ordinary searcher, not a
-        -- stack trace out of a compiler that was only trying to start.
+        -- A cache is allowed to be damaged, and a damaged dump can still load.
+        -- One that is not what was written is removed, so the next build writes
+        -- it again instead of reusing it for being there, and the ordinary
+        -- searcher answers meanwhile.
+        local sum = #bytes == entry.length and checksum(bytes) or nil
+        if sum ~= entry.sum then
+            -- Only where a checksum could be taken: without one, nothing says
+            -- this entry is damaged either.
+            if sum ~= nil or #bytes ~= entry.length then
+                os.remove(path)
+            end
+            return nil
+        end
+        -- Bad bytecode raises rather than answering, and the answer to that is
+        -- the ordinary searcher, not a stack trace out of a compiler that was
+        -- only trying to start.
         local ok, chunk = pcall(loadstring, bytes)
 
         return ok and chunk or nil
@@ -178,7 +282,13 @@ function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
     -- therefore has entries whose identities still match but whose chunk names
     -- point where the tree used to be. A root that is not the recorded one makes
     -- every entry worth writing again rather than worth keeping.
-    local reusable = readIndex(root) ~= nil
+    local previous = readIndex(root)
+    -- What each reusable entry held when it was written, by entry digest, so an
+    -- untouched module keeps its line without its dump being read again.
+    local recorded: {[string]: Entry} = {}
+    for _, entry in pairs(previous or {}) do
+        recorded[entry.digest] = entry
+    end
     local lines: {string} = {FORMAT, "root " .. root}
     local live: {[string]: boolean} = {}
     local names: {string} = {}
@@ -196,8 +306,12 @@ function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
             -- sharing one dump under the source digest alone.
             local entryDigest = hash.digest(name .. "\0" .. digest)
             local entry = where .. "/" .. entryDigest .. ".bc"
-            local written = reusable and fs.exists(entry)
-            if not written then
+            local known = recorded[entryDigest]
+            local line = known
+                and fs.exists(entry)
+                and (entryDigest .. " " .. name .. " " .. known.length .. " " .. known.sum)
+                or nil
+            if line == nil then
                 local text = fs.readFile(output)
                 -- Named the way the file searcher would name it, which is the
                 -- root on `package.path` with the module's own name under it,
@@ -209,11 +323,15 @@ function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
                     -- Sorted template tables, so two builds racing to write one
                     -- digest write the same bytes rather than tearing over
                     -- each other with two spellings of the same functions.
-                    written = fs.writeFile(entry, string.dump(chunk, "d")) == true
+                    local dump = string.dump(chunk, "d")
+                    local sum = checksum(dump)
+                    if sum ~= nil and fs.writeFile(entry, dump) == true then
+                        line = entryDigest .. " " .. name .. " " .. #dump .. " " .. sum
+                    end
                 end
             end
-            if written then
-                lines[#lines + 1] = entryDigest .. " " .. name
+            if line ~= nil then
+                lines[#lines + 1] = line
                 live[entryDigest] = true
             end
         end
