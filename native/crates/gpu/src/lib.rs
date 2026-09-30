@@ -1844,6 +1844,11 @@ mod tests {
 
     #[test]
     fn narrow_buffers_move_bytes_that_end_partway_through_a_word_when_available() {
+        // Opening a context reads the process-wide cost sink, which the
+        // costs tests reset and inspect under this lock.
+        let _costs_guard = costs::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let Ok(mut gpu) = GpuContext::new() else {
             assert!(std::env::var_os("NUPP_REQUIRE_GPU").is_none());
             return;
@@ -1921,6 +1926,11 @@ mod tests {
 
     #[test]
     fn an_unread_download_says_so_when_available() {
+        // Opening a context reads the process-wide cost sink, which the
+        // costs tests reset and inspect under this lock.
+        let _costs_guard = costs::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let Ok(mut gpu) = GpuContext::new() else {
             assert!(std::env::var_os("NUPP_REQUIRE_GPU").is_none());
             return;
@@ -1952,6 +1962,11 @@ mod tests {
 
     #[test]
     fn submitted_work_wakes_its_waiter_without_blocking_when_available() {
+        // Opening a context reads the process-wide cost sink, which the
+        // costs tests reset and inspect under this lock.
+        let _costs_guard = costs::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         static WOKEN: AtomicU64 = AtomicU64::new(0);
         fn wake() {
             WOKEN.fetch_add(1, Ordering::SeqCst);
