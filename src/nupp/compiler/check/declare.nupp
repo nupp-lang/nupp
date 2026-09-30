@@ -1830,6 +1830,10 @@ function declare.install(
             end
             c.publishType(stat, t, projectEntry)
         elseif kind == "recordDecl" then
+            -- Handed by the block for its statement alone: a nested declaration
+            -- checked below is its owner's, and settles inside it.
+            local deferred = c.deferredBodies
+            c.deferredBodies = nil
             local n: T.Nominal
             local projectEntry
             if stat.hoistedType then
@@ -1852,7 +1856,8 @@ function declare.install(
             local staticEntries: {[string]: {any}} = {}
             n.methodEntries = methodEntries
             n.methodDispatchEntries = methodDispatchEntries
-            n.overloadedMethods = {}
+            local overloadedMethods: {[string]: boolean} = {}
+            n.overloadedMethods = overloadedMethods
             n.staticEntries = staticEntries
             n.overloadedStatics = {}
             n.defaultEntries = {}
@@ -1902,7 +1907,8 @@ function declare.install(
             end
             local fieldOrder: {string} = {}
             n.fieldOrder = fieldOrder
-            n.fieldDefaults = {}
+            local fieldDefaults: {[string]: any} = {}
+            n.fieldDefaults = fieldDefaults
             n.fieldDefs = {}
             n.writeFieldDefs = {}
             n.staticFieldDefs = {}
@@ -2167,7 +2173,9 @@ function declare.install(
             publishInlineFunctions(inlineSignatures, inlineDeclarations, "method")
             publishInlineFunctions(staticSignatures, staticDeclarations, "function")
             local localMembers, localMetamethods = {}, {}
-            for _, e in ipairs(stat.entries) do
+            local pendingNested: {[any]: any} = {}
+
+            local function checkEntry(e: any): nil
                 if e.kind == "fieldDecl" then
                     if e.type and e.type.kind == "tfunc" then
                         c.raises.checkParams(e, (e.type as any).params or {})
@@ -2231,7 +2239,7 @@ function declare.install(
                                         "field default does not fit " .. T.tostring(ft) .. (why and (": " .. why) or "")
                                     )
                                 else
-                                    n.fieldDefaults[e.name.text] = {value = value}
+                                    fieldDefaults[e.name.text] = {value = value}
                                 end
                             end
                         end
@@ -2351,8 +2359,8 @@ function declare.install(
                             }
                         end
                         if callable then
-                            n.overloadedMethods[name] = true
-                            n.methodDispatchEntries[name] = contracts
+                            overloadedMethods[name] = true
+                            methodDispatchEntries[name] = contracts
                         end
                     end
                     if grantsRead then
@@ -2609,7 +2617,7 @@ function declare.install(
                         -- second place to derive the same thing: one method, one
                         -- signature. An overload set is assembled from all its entries
                         -- further down and is left alone here.
-                        if not n.overloadedMethods[name] and #entries == 1 then
+                        if not overloadedMethods[name] and #entries == 1 then
                             n.byname[name] = ft
                             n.writeByname[name] = ft
                         end
@@ -2620,11 +2628,13 @@ function declare.install(
                     if receiver and stat.declKind == "interface" then
                         n.defaults = n.defaults or {}
                         n.defaults[name] = true
-                        n.defaultEntries[
+                        (
+                            n.defaultEntries as {[string]: any}
+                        )[
                             memberName
                         ] = {
                             name = name,
-                            member = n.overloadedMethods[name] and memberName or name,
+                            member = overloadedMethods[name] and memberName or name,
                             slot = memberName,
                             entry = entry
                         }
@@ -2658,7 +2668,13 @@ function declare.install(
                     if stat.declKind == "struct" then
                         c.diag("NUPP2201", e, "struct bodies hold fields only (no nested declarations)")
                     else
+                        -- A nested record's bodies wait with this one's, so they see
+                        -- every member written around them.
+                        local nestedBodies: {any} = {}
+                        c.deferredBodies = nestedBodies
                         c.checkTypedecl(e) -- nested declarations share the scope (v0)
+                        c.deferredBodies = nil
+                        pendingNested[e] = nestedBodies[1]
                         local nested = e.resolvedType or e.hoistedType
                         if nested then
                             if nested.tag == "nominal" and not nested.runtimePath then
@@ -2678,250 +2694,311 @@ function declare.install(
                     end
                 end
             end
-            checkDeclaredConformance(stat, n, localMembers)
-            local borrowSources = n.fieldBorrowSources or {}
-            for field, source in pairs(borrowSources) do
-                if field == source then
-                    c.diag("NUPP2602", stat, ("field %q cannot borrow from itself"):format(field))
-                elseif not n.byname[source] then
-                    c.diag("NUPP2109", stat, ("borrowed field %q names no sibling field %q"):format(field, source))
-                elseif borrowSources[source] then
-                    c.diag("NUPP2602", stat, "borrowed field relations cannot form chains or cycles")
-                end
-                -- Replacing either half would invalidate the relation. Construction is
-                -- still writable; an initialized composite exposes both as read-only.
-                n.writeByname[field] = nil
-                n.writeByname[source] = nil
-                n.writeFieldDefs[field] = nil
-                n.writeFieldDefs[source] = nil
+
+            -- Every member is filled before any body is checked, so a method may read
+            -- a field written below it and construct a nested declaration written
+            -- after it. Members and nested declarations are filled in the order they
+            -- were written, and the bodies of both are checked afterwards.
+            local function isBody(e: any): boolean
+                return e.kind == "inlineMethod" or e.kind == "constructorDecl"
             end
-            -- Only a group needs hidden runtime members. A single method keeps the
-            -- ordinary Lua spelling and remains extractable like any other field.
-            for name, entries in pairs(methodEntries) do
-                local byMember = {}
-                local order: {string} = {}
-                local inheritedMembers: {[string]: any} = {}
-                for _, entry in ipairs(n.methodDispatchEntries[name] or {}) do
-                    if not byMember[entry.member] then
-                        order[#order + 1] = entry.member
-                    end
-                    byMember[entry.member] = entry
-                    inheritedMembers[entry.member] = entry
+
+            for _, e in ipairs(stat.entries) do
+                if not isBody(e) then
+                    checkEntry(e)
                 end
-                local inheritedClaims = {}
-                for _, entry in ipairs(entries) do
-                    local inherited = inheritedMembers[entry.member]
-                    if not inherited then
-                        local localCallable = dropSelf(entry.signature) as T.Func
-                        local positionalKey = methodslots.unlabeledParameters(localCallable)
-                        for _, candidate in pairs(inheritedMembers) do
-                            local inheritedCallable = dropSelf(candidate.signature) as T.Func
-                            if methodslots.unlabeledParameters(inheritedCallable) == positionalKey
-                                and implementationLabelsFit(localCallable, inheritedCallable)
-                            then
-                                inherited = candidate
-                                break
+            end
+
+            local function finish(): nil
+                for _, e in ipairs(stat.entries) do
+                    if isBody(e) then
+                        checkEntry(e)
+                    elseif pendingNested[e] then
+                        pendingNested[e]()
+                    end
+                end
+                checkDeclaredConformance(stat, n, localMembers)
+                local borrowSources = n.fieldBorrowSources or {}
+                for field, source in pairs(borrowSources) do
+                    if field == source then
+                        c.diag("NUPP2602", stat, ("field %q cannot borrow from itself"):format(field))
+                    elseif not n.byname[source] then
+                        c.diag("NUPP2109", stat, ("borrowed field %q names no sibling field %q"):format(field, source))
+                    elseif borrowSources[source] then
+                        c.diag("NUPP2602", stat, "borrowed field relations cannot form chains or cycles")
+                    end
+                    -- Replacing either half would invalidate the relation. Construction
+                    -- is still writable; an initialized composite exposes both as
+                    -- read-only.
+                    n.writeByname[field] = nil
+                    n.writeByname[source] = nil
+                    n.writeFieldDefs[field] = nil
+                    n.writeFieldDefs[source] = nil
+                end
+                -- Only a group needs hidden runtime members. A single method keeps the
+                -- ordinary Lua spelling and remains extractable like any other field.
+                for name, entries in pairs(methodEntries) do
+                    local byMember = {}
+                    local order: {string} = {}
+                    local inheritedMembers: {[string]: any} = {}
+                    for _, entry in ipairs(methodDispatchEntries[name] or {}) do
+                        if not byMember[entry.member] then
+                            order[#order + 1] = entry.member
+                        end
+                        byMember[entry.member] = entry
+                        inheritedMembers[entry.member] = entry
+                    end
+                    local inheritedClaims = {}
+                    for _, entry in ipairs(entries) do
+                        local inherited = inheritedMembers[entry.member]
+                        if not inherited then
+                            local localCallable = dropSelf(entry.signature) as T.Func
+                            local positionalKey = methodslots.unlabeledParameters(localCallable)
+                            for _, candidate in pairs(inheritedMembers) do
+                                local inheritedCallable = dropSelf(candidate.signature) as T.Func
+                                if methodslots.unlabeledParameters(inheritedCallable) == positionalKey
+                                    and implementationLabelsFit(localCallable, inheritedCallable)
+                                then
+                                    inherited = candidate
+                                    break
+                                end
+                            end
+                        end
+                        if inherited then
+                            local localCallable = dropSelf(entry.signature)
+                            local inheritedCallable = dropSelf(inherited.signature)
+                            local compatible, why = isA(localCallable, inheritedCallable)
+                            if not compatible then
+                                c.diag(
+                                    "NUPP2118",
+                                    entry.declaration.name,
+                                    (
+                                        "method %q does not satisfy its inherited " .. "overload: %s"
+                                    ):format(name, why or "incompatible signature")
+                                )
+                            end
+                            local priorClaim = inheritedClaims[inherited.member]
+                            if priorClaim and priorClaim ~= entry then
+                                c.diag(
+                                    "NUPP2118",
+                                    entry.declaration.name,
+                                    ("several local overloads implement the same inherited slot of %q"):format(name)
+                                )
+                            else
+                                inheritedClaims[inherited.member] = entry
+                                entry.member = inherited.member
+                            end
+                        end
+                        if not byMember[entry.member] then
+                            order[#order + 1] = entry.member
+                        end
+                        byMember[entry.member] = entry
+                    end
+                    local dispatch: {any} = {}
+                    for _, member in ipairs(order) do
+                        dispatch[#dispatch + 1] = byMember[member]
+                    end
+                    methodDispatchEntries[name] = dispatch
+                    if stat.declKind ~= "interface" and overloadedMethods[name] then
+                        for _, entry in ipairs(dispatch) do
+                            if not entry.declaration then
+                                local plain = dropSelf(entry.signature) as T.Func
+                                c.diag(
+                                    "NUPP2118",
+                                    stat.name,
+                                    (
+                                        "%s does not implement overload %s of %q"
+                                    ):format(n.name, T.tostringPack(plain.paramPack), name),
+                                    nil,
+                                    {help = "write a method body with that parameter pack"}
+                                )
                             end
                         end
                     end
-                    if inherited then
-                        local localCallable = dropSelf(entry.signature)
-                        local inheritedCallable = dropSelf(inherited.signature)
-                        local compatible, why = isA(localCallable, inheritedCallable)
-                        if not compatible then
-                            c.diag(
-                                "NUPP2118",
-                                entry.declaration.name,
-                                (
-                                    "method %q does not satisfy its inherited " .. "overload: %s"
-                                ):format(name, why or "incompatible signature")
-                            )
+                    if overloadedMethods[name] then
+                        for _, entry in ipairs(entries) do
+                            entry.declaration.overloadMember = entry.member
                         end
-                        local priorClaim = inheritedClaims[inherited.member]
-                        if priorClaim and priorClaim ~= entry then
-                            c.diag(
-                                "NUPP2118",
-                                entry.declaration.name,
-                                ("several local overloads implement the same inherited slot of %q"):format(name)
-                            )
+                    end
+                end
+                for _, entries in pairs(staticEntries) do
+                    if #entries > 1 then
+                        for _, entry in ipairs(entries) do
+                            entry.declaration.overloadMember = entry.member
+                        end
+                    end
+                end
+                c.derives.merge(stat, n)
+                -- The refinement is read last, because it speaks about the fields and
+                -- they are only all here now. It is an interface's runtime identity: a
+                -- record's instances are stamped and a struct is its ctype, but an
+                -- interface has no table to stamp at all, so a refinement is the only
+                -- way one can answer `is`.
+                for _, e in ipairs(stat.entries) do
+                    if e.kind == "satisfiesDecl" then
+                        if n.predicate then
+                            c.diag("NUPP2122", e, ("%s already declares how it is matched"):format(n.name), nil, {
+                                help = "combine the tests with `and`"
+                            })
                         else
-                            inheritedClaims[inherited.member] = entry
-                            entry.member = inherited.member
+                            checkRefinement(stat, n, e)
                         end
                     end
-                    if not byMember[entry.member] then
-                        order[#order + 1] = entry.member
+                end
+                -- The clause used to sit in the declaration head. It says the same
+                -- thing a `satisfies` declaration does and reads worse beside the
+                -- others, so it is answered rather than left to parse into nothing.
+                if stat.whereClause then
+                    c.diag(
+                        "NUPP2122",
+                        stat.whereClause,
+                        "a refinement is written as a `satisfies` declaration in the body",
+                        nil,
+                        {help = "write `satisfies |self| -> <test>` among the fields"}
+                    )
+                end
+                -- An interface whose fields carry literal types has already said what
+                -- its test is: the field admits that value and nothing else. Reading it
+                -- off is what lets a tagged interface answer `is` for a value this
+                -- program did not build, with nothing written.
+                --
+                -- Interfaces only. A record and a struct already answer `is` exactly,
+                -- so a derived test beside either would be a second answer chosen by
+                -- whether the fields happened to be literals, since an interface has no
+                -- identity for it to disagree with.
+                if stat.declKind == "interface" and not n.predicate then
+                    local derived = nil
+                    for _, name in ipairs(fieldOrder) do
+                        local ft = n.byname[name]
+                        if ft and ft.tag == "literal" then
+                            derived = predicate.both(derived, predicate.equals({name}, ft.constant))
+                        end
                     end
-                    byMember[entry.member] = entry
+                    n.predicate = derived
                 end
-                local dispatch: {any} = {}
-                for _, member in ipairs(order) do
-                    dispatch[#dispatch + 1] = byMember[member]
-                end
-                n.methodDispatchEntries[name] = dispatch
-                if stat.declKind ~= "interface" and n.overloadedMethods[name] then
-                    for _, entry in ipairs(dispatch) do
-                        if not entry.declaration then
-                            local plain = dropSelf(entry.signature) as T.Func
+                if n.intrinsicAffineClaim and n.inherentCleanup then
+                    local cleanup = n.inherentCleanup
+                    if cleanup.kind == "method" then
+                        local ft = n.byname[cleanup.name as string]
+                        ft = ft and T.unwrapOwnership(ft) or nil
+                        if not ft or ft.tag ~= "func" then
+                            c.diag("NUPP2615", stat.name, ("cleanup method %q must be declared"):format(cleanup.name))
+                        elseif #ft.params ~= 1 or ft.paramPack.tail ~= nil or ft.paramModes[1] ~= "takes" then
                             c.diag(
-                                "NUPP2118",
+                                "NUPP2615",
                                 stat.name,
-                                (
-                                    "%s does not implement overload %s of %q"
-                                ):format(n.name, T.tostringPack(plain.paramPack), name),
+                                ("cleanup method %q must take one consuming self"):format(cleanup.name)
+                            )
+                        elseif ft.params[1] == T.any or not isA(n, T.unwrapOwnership(ft.params[1])) then
+                            c.diag("NUPP2615", stat.name, ("cleanup method %q must accept self"):format(cleanup.name))
+                        elseif #ft.rets ~= 1 or ft.retPack.tail ~= nil or ft.rets[1] ~= T.nil_ then
+                            c.diag("NUPP2615", stat.name, ("cleanup method %q must return nil"):format(cleanup.name))
+                        end
+                    elseif cleanup.kind == "function" then
+                        cleanup = c.own.resolveCleanups({cleanup}, stat, stat)[1]
+                        n.inherentCleanup = cleanup
+                        c.own.validateCleanups(n, {cleanup}, stat, "NUPP2615")
+                    end
+                end
+                -- A refinement is the runtime test `is` compiles to, and it can only
+                -- read fields. An associated type is erased, so a declaration whose
+                -- associated surface is not settled would answer `is` for values whose
+                -- associated types it cannot check. A fixed one is settled -- every
+                -- implementor answers exactly it -- so a contract that fixes all of
+                -- them may carry a refinement, and one that leaves any defaulted or
+                -- bare may not.
+                if n.predicate then
+                    local associatedMod = require("nupp.compiler.types.associated")
+                    for _, owed in ipairs(associatedMod.requirementNames(n)) do
+                        local settled = relations.associatedLookup(n, owed)
+                        -- Settled means resolved, acyclic, and not gradual. `== any` is
+                        -- fixed and still says nothing a run-time test could check, so
+                        -- it does not make a refinement enforceable.
+                        local resolvedTo = settled.resolved
+                        local unsettled = resolvedTo == nil
+                            or settled.reason ~= nil
+                            or settled.gradual == true
+                            or resolvedTo == T.any
+                            or (resolvedTo ~= nil and resolvedTo.tag == "projection")
+                        if unsettled then
+                            c.diag(
+                                "NUPP2122",
+                                stat.name,
+                                ("%s refines, but leaves %q unsettled"):format(n.name, owed),
                                 nil,
-                                {help = "write a method body with that parameter pack"}
+                                {
+                                    help = "a refinement is a run-time test and an associated type is erased; "
+                                    .. "fix it with `associated type "
+                                    .. owed
+                                    .. " == <type>`, or drop the refinement"
+                                }
                             )
                         end
                     end
                 end
-                if n.overloadedMethods[name] then
-                    for _, entry in ipairs(entries) do
-                        entry.declaration.overloadMember = entry.member
-                    end
+                checkInheritedDefaults(stat, n, localMembers)
+                checkInheritedRefinements(stat, n)
+                -- The declaration's surface is complete. Anything the relation decided
+                -- about it while it was still being filled was decided about a type
+                -- that did not exist yet, and caching that made the verdict permanent.
+                relations.invalidate()
+                c.popScope()
+            end
+
+            local function publish(): nil
+                if stat.isAnnotationDefinition then
+                    -- The declaration is a metadata schema, not a runtime constructor.
+                    -- Its type remains available to the checker.
+                elseif stat.declKind == "struct" then
+                    -- A ctype declaration is a witness, not a value constructed from
+                    -- it.
+                    c.bindDeclaredVar(stat, T.typeObject(n))
+                elseif stat.declKind == "record" then
+                    -- A record's name also holds a value: the runtime table that
+                    -- carries its members and is stamped on the instances it builds.
+                    -- That table is their metatable, so it has the type of one -- which
+                    -- is what keeps it from standing where an instance is wanted, and
+                    -- an instance from standing where it is.
+                    suggestStruct(stat, n)
+                else
+                    -- Interfaces with defaults or statics have a declaration table at
+                    -- run time. Giving the name its metatable type keeps static access
+                    -- checked; an erased interface still has no readable runtime
+                    -- members.
+                    c.bindDeclaredVar(stat, T.metatable(n))
                 end
+                c.publishType(stat, n, projectEntry)
             end
-            for _, entries in pairs(staticEntries) do
-                if #entries > 1 then
-                    for _, entry in ipairs(entries) do
-                        entry.declaration.overloadMember = entry.member
-                    end
+
+            -- A record among declarations written together has its bodies checked
+            -- once all of them are filled, so a method may construct one written
+            -- after it. Its private scope is set aside and entered again then; the
+            -- block hides what a later declaration binds that Lua would not yet have
+            -- in scope. Nothing reads a record's own bodies before then: nothing but
+            -- declarations stands between it and them.
+            if deferred and stat.declKind == "record" and not stat.isAnnotationDefinition then
+                local declScope = c.scope
+                c.scope = declScope.parent
+                -- What surrounds the statement travels with it: an `@allow` or an
+                -- `@unsafe` written on the declaration covers its bodies wherever
+                -- they are checked.
+                local allowed: {any} = {}
+                for j, set in ipairs(c.allowed) do
+                    allowed[j] = set
                 end
-            end
-            c.derives.merge(stat, n)
-            -- The refinement is read last, because it speaks about the fields and they
-            -- are only all here now. It is an interface's runtime identity: a record's
-            -- instances are stamped and a struct is its ctype, but an interface has no
-            -- table to stamp at all, so a refinement is the only way one can answer
-            -- `is`.
-            for _, e in ipairs(stat.entries) do
-                if e.kind == "satisfiesDecl" then
-                    if n.predicate then
-                        c.diag("NUPP2122", e, ("%s already declares how it is matched"):format(n.name), nil, {
-                            help = "combine the tests with `and`"
-                        })
-                    else
-                        checkRefinement(stat, n, e)
-                    end
+                local unsafeDepth = c.unsafeDepth
+                deferred[#deferred + 1] = function(): nil
+                    local outer, outerAllowed, outerUnsafe = c.scope, c.allowed, c.unsafeDepth
+                    c.scope, c.allowed, c.unsafeDepth = declScope, allowed, unsafeDepth
+                    finish()
+                    c.scope = outer
+                    publish()
+                    c.allowed, c.unsafeDepth = outerAllowed, outerUnsafe
                 end
-            end
-            -- The clause used to sit in the declaration head. It says the same thing a
-            -- `satisfies` declaration does and reads worse beside the others, so it is
-            -- answered rather than left to parse into nothing.
-            if stat.whereClause then
-                c.diag(
-                    "NUPP2122",
-                    stat.whereClause,
-                    "a refinement is written as a `satisfies` declaration in the body",
-                    nil,
-                    {help = "write `satisfies |self| -> <test>` among the fields"}
-                )
-            end
-            -- An interface whose fields carry literal types has already said what its
-            -- test is: the field admits that value and nothing else. Reading it off is
-            -- what lets a tagged interface answer `is` for a value this program did not
-            -- build, with nothing written.
-            --
-            -- Interfaces only. A record and a struct already answer `is` exactly, so a
-            -- derived test beside either would be a second answer chosen by whether the
-            -- fields happened to be literals, since an interface has no identity for it
-            -- to disagree with.
-            if stat.declKind == "interface" and not n.predicate then
-                local derived = nil
-                for _, name in ipairs(fieldOrder) do
-                    local ft = n.byname[name]
-                    if ft and ft.tag == "literal" then
-                        derived = predicate.both(derived, predicate.equals({name}, ft.constant))
-                    end
-                end
-                n.predicate = derived
-            end
-            if n.intrinsicAffineClaim and n.inherentCleanup then
-                local cleanup = n.inherentCleanup
-                if cleanup.kind == "method" then
-                    local ft = n.byname[cleanup.name as string]
-                    ft = ft and T.unwrapOwnership(ft) or nil
-                    if not ft or ft.tag ~= "func" then
-                        c.diag("NUPP2615", stat.name, ("cleanup method %q must be declared"):format(cleanup.name))
-                    elseif #ft.params ~= 1 or ft.paramPack.tail ~= nil or ft.paramModes[1] ~= "takes" then
-                        c.diag(
-                            "NUPP2615",
-                            stat.name,
-                            ("cleanup method %q must take one consuming self"):format(cleanup.name)
-                        )
-                    elseif ft.params[1] == T.any or not isA(n, T.unwrapOwnership(ft.params[1])) then
-                        c.diag("NUPP2615", stat.name, ("cleanup method %q must accept self"):format(cleanup.name))
-                    elseif #ft.rets ~= 1 or ft.retPack.tail ~= nil or ft.rets[1] ~= T.nil_ then
-                        c.diag("NUPP2615", stat.name, ("cleanup method %q must return nil"):format(cleanup.name))
-                    end
-                elseif cleanup.kind == "function" then
-                    cleanup = c.own.resolveCleanups({cleanup}, stat, stat)[1]
-                    n.inherentCleanup = cleanup
-                    c.own.validateCleanups(n, {cleanup}, stat, "NUPP2615")
-                end
-            end
-            -- A refinement is the runtime test `is` compiles to, and it can only read
-            -- fields. An associated type is erased, so a declaration whose associated
-            -- surface is not settled would answer `is` for values whose associated
-            -- types it cannot check. A fixed one is settled -- every implementor
-            -- answers exactly it -- so a contract that fixes all of them may carry a
-            -- refinement, and one that leaves any defaulted or bare may not.
-            if n.predicate then
-                local associatedMod = require("nupp.compiler.types.associated")
-                for _, owed in ipairs(associatedMod.requirementNames(n)) do
-                    local settled = relations.associatedLookup(n, owed)
-                    -- Settled means resolved, acyclic, and not gradual. `== any` is
-                    -- fixed and still says nothing a run-time test could check, so it
-                    -- does not make a refinement enforceable.
-                    local resolvedTo = settled.resolved
-                    local unsettled = resolvedTo == nil
-                        or settled.reason ~= nil
-                        or settled.gradual == true
-                        or resolvedTo == T.any
-                        or (resolvedTo ~= nil and resolvedTo.tag == "projection")
-                    if unsettled then
-                        c.diag(
-                            "NUPP2122",
-                            stat.name,
-                            ("%s refines, but leaves %q unsettled"):format(n.name, owed),
-                            nil,
-                            {
-                                help = "a refinement is a run-time test and an associated type is erased; "
-                                .. "fix it with `associated type "
-                                .. owed
-                                .. " == <type>`, or drop the refinement"
-                            }
-                        )
-                    end
-                end
-            end
-            checkInheritedDefaults(stat, n, localMembers)
-            checkInheritedRefinements(stat, n)
-            -- The declaration's surface is complete. Anything the relation decided
-            -- about it while it was still being filled was decided about a type that
-            -- did not exist yet, and caching that made the verdict permanent.
-            relations.invalidate()
-            c.popScope()
-            if stat.isAnnotationDefinition then
-                -- The declaration is a metadata schema, not a runtime constructor. Its
-                -- type remains available to the checker.
-            elseif stat.declKind == "struct" then
-                -- A ctype declaration is a witness, not a value constructed from it.
-                c.bindDeclaredVar(stat, T.typeObject(n))
-            elseif stat.declKind == "record" then
-                -- A record's name also holds a value: the runtime table that carries
-                -- its members and is stamped on the instances it builds. That table is
-                -- their metatable, so it has the type of one -- which is what keeps it
-                -- from standing where an instance is wanted, and an instance from
-                -- standing where it is.
-                suggestStruct(stat, n)
             else
-                -- Interfaces with defaults or statics have a declaration table at run
-                -- time. Giving the name its metatable type keeps static access checked;
-                -- an erased interface still has no readable runtime members.
-                c.bindDeclaredVar(stat, T.metatable(n))
+                finish()
+                publish()
             end
-            c.publishType(stat, n, projectEntry)
         end
     end
 end

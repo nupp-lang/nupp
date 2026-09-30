@@ -3150,14 +3150,65 @@ function checkMod.check(
         hoistDeclarations(block)
         local stats = block and block.kind == "block" and block.stats or {}
         local wasNext = c.nextStat
+        -- Declarations written together are all filled before the bodies of the
+        -- records among them are checked, so a method may name a declaration written
+        -- after its record. Nothing but declarations stands between them, so nothing
+        -- can read a body's verdict before it is given. What a later declaration
+        -- binds as a local value is hidden while an earlier one's bodies are
+        -- checked: Lua has not reached that local yet where the method is written.
+        local runDeclarations: {any} = {}
+        local runBodies: {{
+            at: integer,
+            run: function(): nil
+        }} = {}
+
+        local function settleRun(): nil
+            for _, pending in ipairs(runBodies) do
+                local hidden: {[string]: any} = {}
+                for later = (pending.at as integer) + 1, #runDeclarations do
+                    local decl = runDeclarations[later]
+                    if decl.name and not c.qualifierOf(decl) and c.visibilityOf(decl) ~= "global" then
+                        local key = c.declKey(decl)
+                        local bound = c.scope.vars[key]
+                        if bound and hidden[key] == nil then
+                            hidden[key] = bound
+                            c.scope.vars[key] = nil
+                        end
+                    end
+                end
+                pending.run()
+                for key, bound in pairs(hidden) do
+                    c.scope.vars[key] = bound
+                end
+            end
+            runDeclarations, runBodies = {}, {}
+        end
+
         for i, stat in ipairs(stats) do
             c.nextStat = stats[i + 1]
-            checkStat(stat)
+            local decl = stat
+            while decl and (decl.kind == "pragmaStmt" or decl.kind == "exportStmt") do
+                decl = decl.stat
+            end
+            if decl and (decl.kind == "recordDecl" or decl.kind == "typeAlias") then
+                runDeclarations[#runDeclarations + 1] = decl
+                local collected: {any} = {}
+                c.deferredBodies = collected
+                checkStat(stat)
+                c.deferredBodies = nil
+                for _, run in ipairs(collected) do
+                    runBodies[#runBodies + 1] = {at = #runDeclarations, run = run}
+                end
+            else
+                settleRun()
+                checkStat(stat)
+            end
             if c.callMayMutate then
                 c.facts.invalidateForCall()
                 c.callMayMutate = false
             end
         end
+        settleRun()
         c.nextStat = wasNext
         if block and block.kind == "block" and #(c.scope.automaticOwners or {}) > 0 then
             block.automaticOwners = c.scope.automaticOwners

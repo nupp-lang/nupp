@@ -1384,6 +1384,60 @@ function M.inlineMethodsAreHoistedAndNestedAliasesAreQualified()
     )
 end
 
+-- Every declaration written together is filled before any record's bodies are
+-- checked. An inline method used to be checked where its record stood, so it could
+-- not read a field written below it, construct a nested record written after it
+-- (NUPP2202, "no field"), or construct a table-qualified record declared after its
+-- own (NUPP2006) -- although each is there by the time the method can run.
+function M.inlineMethodsSeeDeclarationsWrittenAfterThem()
+    assertClean(
+        table.concat(
+            {
+                "local m = {}",
+                "record m.A",
+                "   function make(self): integer",
+                "      local b = new m.B(v = 3)",
+                "      local nested = new m.A.Inner(w = 4)",
+                "      return b.v + nested.w + self.later + m.B.twice(1)",
+                "   end",
+                "   record Inner",
+                "      w: integer",
+                "      function sum(self, a: m.A): integer return self.w + a.later end",
+                "   end",
+                "   later: integer",
+                "end",
+                "record m.B",
+                "   v: integer",
+                "   function twice(x: integer): integer return x * 2 end",
+                "end",
+                "local total: integer = (new m.A(later = 1)):make()",
+                "return m",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A later `local record` is still not in scope in an earlier record's methods: Lua
+-- has not reached that local where the method is written, so the name would read a
+-- global. Deferring the bodies does not change what they can see.
+function M.aLaterLocalRecordStaysOutOfAnEarlierMethodsScope()
+    local got = diagsOf(table.concat({
+        "local record A",
+        "   function make(self): integer return (new B(v = 3)).v end",
+        "end",
+        "local record B",
+        "   v: integer",
+        "   function again(self): B return new B(v = self.v) end",
+        "end",
+        "print((new A()):make())",
+    }, "\n"))
+    -- An unknown name: NUPP2105 under the strict floor, and in this gradual file a
+    -- construction with no known callable.
+    assert(got:find("NUPP2105:2", 1, true) or got:find("NUPP2006:2", 1, true), got)
+    assert(not got:find(":6", 1, true), "B names itself in its own method: " .. got)
+end
+
 function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
     assertClean(
         table.concat(

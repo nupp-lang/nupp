@@ -658,6 +658,11 @@ because the generated body returns the instance it allocated. Inline method
 signatures are hoisted, so the terminal may be declared later in the same
 record. Invalid constructor declarations are `NUPP2208`.
 
+Method and constructor bodies are checked once every declaration written beside
+their record is filled, so a body may read a field written below it, or build a
+nested record or a table-qualified one declared after it. A later `local`
+declaration stays out of an earlier body's scope, as it does in Lua.
+
 A stored field may be written `name: T = value`, where the value is a closed
 scalar or table constant fitting `T`. Omitted construction fields and
 constructor instances receive the default, and mutable tables are fresh each

@@ -327,6 +327,11 @@ record state.Checker
     --- instantiation would snapshot half-built.
     preclaiming: boolean?
 
+    --- Set by a block around one declaration statement written among others. A
+    --- record's bodies are left in it to be checked once every declaration written
+    --- beside it is filled.
+    deferredBodies: {any}?
+
     --- Aliases currently being resolved, so one that names itself is caught rather than
     --- recurring forever.
     resolvingAlias: any

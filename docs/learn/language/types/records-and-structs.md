@@ -200,6 +200,10 @@ An inline function whose first parameter is named `self` is an instance method,
 emitted on the ordinary method namespace. Without that parameter it is a static
 function, called through the declaration table with `.`. Inline signatures are
 hoisted before any body is checked, so methods may call each other in any order.
+Bodies wait until every declaration written beside their record is filled, so a
+method may read a field written below it, or build a nested record or a
+table-qualified one declared after it. A later `local` declaration is still out
+of an earlier method's scope, as it is in Lua.
 
 ```nupp
 local record Counter
