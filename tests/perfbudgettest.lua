@@ -11,20 +11,26 @@
 -- moved so that raising it is a choice somebody makes on purpose.
 --
 -- The wall-clock budgets beside these are tracked rather than enforced, because only a
--- quiet machine can say whether they held. They were measured on an Apple M5 Pro at
--- the commit that introduced this suite, and `bench/` and the measurements workflow are
--- where they are re-measured:
+-- quiet machine can say whether they held. These are medians on an Apple M5 Pro when
+-- this suite was written, with the budget a regression would have to cross in
+-- brackets; `bench/`, `nupp bench` and the measurements workflow re-measure them:
 --
---   `nupp --version` through bin/nupp                 about 120 ms (15 ms of it the compiler)
---   unchanged whole-project `nupp check` (463 modules) about 0.4 s
---   one module body edited, whole-project check       about 0.8 s
---   an exported type of a 55-importer module edited   about 14 s
---   cold whole-project check, no cache                about 19 s, 2.3 GB peak
---   language server: edit to diagnostics, warm        under 250 ms; hover under 10 ms
+--   `nupp --version` through bin/nupp        110 ms, 16 ms of it the compiler  [150 ms]
+--   a stamped hello-world binary, warm       4.4 ms                            [10 ms]
+--   unchanged whole-project check, 463 mods  0.33 s                            [0.5 s]
+--   one module body edited, then check       0.6 s                             [1 s]
+--   an export of a 55-importer module edited 13.5 s                            [20 s]
+--   cold whole-project check                 19 s, 2.3 GB peak, 0.9 GB live    [25 s, 3 GB]
+--   language server initialize               0.3 s                             [0.6 s]
+--   language server edit to diagnostics      15-250 ms; hover under 10 ms      [500 ms]
+--   bench/simd-mandelbrot, 1024x768          scalar 14.1 ms, SIMD 7.9 ms       [+10%]
 --
--- Each is kept by a deterministic case below where one exists: the walk budget is what
--- keeps the unchanged check near its floor, the recompile count is what keeps the body
--- edit cheap, and the launcher's toolchain questions are held in toolchaintest.
+-- Each is kept by a deterministic case where one exists: the walk budget keeps the
+-- unchanged check and the server's initialize near their floor, the recompile count
+-- keeps an edit cheap, the allocation budget keeps a check linear in the project, the
+-- bytecode and native code-size budgets keep the benchmarks' kernels what was measured
+-- (aotbudgettest holds the native ones), and toolchaintest holds the launcher to one
+-- toolchain question per command.
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -349,6 +355,32 @@ function M.anEditRechecksOnlyWhatItCanReach()
     assert(body == 1, "a private edit checks one module: " .. tostring(body))
     -- m0 is imported by m1 and m2 and by nothing else directly.
     assert(interface == 3, "an export edit checks the module and its two importers: " .. tostring(interface))
+end
+
+-- What a program stamped into a binary weighs. The host is LuaJIT and the base runtime,
+-- and a hello-world payload is a few hundred bytes, so the whole is about 1.2 MB on
+-- arm64 macOS. The ceiling is loose on purpose -- hosts differ by platform -- and is
+-- there for the regression that matters: something large, the code generator or a
+-- facility nobody selected, travelling in every binary.
+local STAMPED_BINARY_BYTES = 3 * 1024 * 1024
+
+function M.aStampedHelloWorldStaysSmall()
+    local dir = temporary()
+    writeFile(
+        dir .. "/nupp.lua",
+        'return {include = {"src"}, build = {default = "app", targets = {app = {\n'
+            .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
+    )
+    writeFile(dir .. "/src/main.nupp", 'print("hello")\n')
+    local out = run(dir, "build")
+    local windows = package.config:sub(1, 1) == "\\"
+    local binary = readFile(dir .. (windows and "/build/app.exe" or "/build/app"))
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(binary, "the hello-world binary was not built: " .. out)
+    assert(
+        #binary <= STAMPED_BINARY_BYTES,
+        ("a stamped hello world is %d bytes, over the budget of %d"):format(#binary, STAMPED_BINARY_BYTES)
+    )
 end
 
 return M

@@ -119,4 +119,71 @@ function M.theBenchmarkKernelsStayWithinTheirNativeCodeBudgets()
     assert(#failures == 0, table.concat(failures, "\n"))
 end
 
+-- A Wasm kernel module is compiled and linked by the code generator itself, and its
+-- size is what a browser downloads and instantiates per kernel. Two small kernels come
+-- to about 1.7 KB when this was set; a module that starts carrying a libc, a runtime
+-- or unstripped debug sections shows as a multiple of that.
+local WASM_MODULE_BYTES = 2560
+
+function M.aWasmKernelModuleStaysSmall()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local function write(path, text)
+        local handle = assert(io.open(dir .. "/" .. path, "wb"))
+        handle:write(text)
+        handle:close()
+    end
+    write(
+        "nupp.lua",
+        'return {include = {"src"}, build = {targets = {native = {\n'
+            .. '   kind = "modules", entries = {"k"}, outDir = "build/native",\n'
+            .. '   aot = "require-wasm", dialect = "luajit", host = "browser",\n}}}}\n'
+    )
+    write("src/k.nupp", table.concat({
+        "module k",
+        "",
+        'local span = require("nupp.mem.span")',
+        "",
+        "@aot",
+        "local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil",
+        "    if #out ~= #input then",
+        '        error("length mismatch", 2)',
+        "    end",
+        "    for i = 1, #out do",
+        "        out[i] = input[i] * factor + 1.0",
+        "    end",
+        "end",
+        "",
+        "@aot",
+        "local function total(borrows input: span.Span<uint8>): number",
+        "    local sum = 0.0",
+        "    for i = 1, #input do",
+        "        sum = sum + input[i]",
+        "    end",
+        "    return sum",
+        "end",
+        "",
+        "export = {scale = scale, total = total}",
+        "",
+    }, "\n"))
+    local pipe = assert(io.popen(("cd '%s' && '%s' build --target native 2>&1"):format(dir, NUPP)))
+    local out = pipe:read("*a")
+    pipe:close()
+    local listing = assert(io.popen(("find '%s/build' -name '*.wasm'"):format(dir)))
+    local modules = {}
+    for path in listing:lines() do
+        local handle = assert(io.open(path, "rb"))
+        modules[#modules + 1] = {path = path, size = #handle:read("*a")}
+        handle:close()
+    end
+    listing:close()
+    os.execute("rm -rf '" .. dir .. "'")
+    test.equal(#modules, 1, "one Wasm module for one source: " .. out)
+    assert(
+        modules[1].size <= WASM_MODULE_BYTES,
+        ("the Wasm kernel module is %d bytes, over the budget of %d"):format(modules[1].size, WASM_MODULE_BYTES)
+    )
+end
+
 return M
