@@ -201,7 +201,9 @@ end
 ---
 --- A GPU AOT body recognizes this call and its immediate callbacks as
 --- structure: the controller does not escape, each `run` is a device barrier,
---- and each stage invocation becomes one local lane.
+--- and each stage invocation becomes one local lane. It runs `groups`
+--- groups, 0 through `groups - 1`, and the device runs the same ones: the
+--- kernel's required `u32.div(#span, size)` never visits a partial group.
 --- @export
 --- @raises string when size is outside the portable workgroup limit
 function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil

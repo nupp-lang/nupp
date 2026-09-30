@@ -144,6 +144,12 @@ local function reduce(
 end
 ```
 
+The group count must be written as `u32.div(u32.wrap(#span), size)`, and the
+kernel runs exactly that many groups, floor(`#span` / `size`), on the CPU and
+on the device alike. When the span is not a whole number of groups, the
+elements past the last whole group are not visited; pad the span to a multiple
+of the workgroup size to cover them.
+
 Generated workgroups admit at most 256 lanes and 16 KiB of scratch. Scratch
 writes are structurally disjoint. `reduceSum` and `inclusiveScan` expand
 to fixed trees whose stage order is the same in the CPU definition and the GPU

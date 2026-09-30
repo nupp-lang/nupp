@@ -1501,6 +1501,107 @@ end
     assert(runOut:find("a sibling ran while synchronizing", 1, true), runOut)
 end
 
+-- A workgroup kernel runs the groups its source names, the required
+-- `u32.div(#span, size)`, which is floor(count / size). The device used to run
+-- ceil(count / size), so a span that is not a whole number of groups had its
+-- tail written on the GPU and left alone on the CPU. The CPU twin below is the
+-- same body without `@aot`, and each count's output is compared with it
+-- element by element: a partial group, a whole number of groups, and fewer
+-- elements than one group.
+function M.gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns()
+    local dir = gpuProject()
+    local body = [[
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        phases:run(function(localIndex: uint32)
+            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)), localIndex)
+            if cursor < #input then
+                if cursor < #output then
+                    output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 1)
+                end
+            end
+        end)
+    end)
+]]
+    local source = assert(io.open(dir .. "/src/gpucheck.nupp", "wb"))
+    source:write(
+        [[
+module gpucheck
+
+local span = require("nupp.mem.span")
+local gpu = require("nupp.gpu")
+
+@aot(target = "gpu")
+local function tiled(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+]] .. body .. [[
+end
+
+local function tiledCpu(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+]] .. body .. [[
+end
+
+export const tiled = tiled
+export const tiledCpu = tiledCpu
+]]
+    )
+    source:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local script = searchPathPrelude()
+        .. [[
+local ffi = require("ffi")
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local gpucheck = require("gpucheck")
+local opened, context = pcall(gpu.open)
+if not opened then
+    assert(tostring(context):find("no suitable compute adapter", 1, true), tostring(context))
+    print("no compute adapter")
+    return
+end
+local UNTOUCHED = 99
+for _, count in ipairs({10, 8, 3}) do
+    local values = ffi.new("uint32_t[?]", count)
+    for index = 0, count - 1 do values[index] = index end
+    local cpu = ffi.new("uint32_t[?]", count)
+    for index = 0, count - 1 do cpu[index] = UNTOUCHED end
+    gpucheck.tiledCpu(span.writeCarray(cpu, count), span.fromCarray(values, count))
+    local device = ffi.new("uint32_t[?]", count)
+    for index = 0, count - 1 do device[index] = UNTOUCHED end
+    local input = context:buffer(array.uint32, count)
+    local output = context:buffer(array.uint32, count)
+    context:upload(input, span.fromCarray(values, count))
+    context:upload(output, span.fromCarray(device, count))
+    gpucheck.tiled:compile(context):bind(output, input):dispatch()
+    context:synchronize()
+    context:download(output, span.writeCarray(device, count))
+    local cells = {}
+    for index = 0, count - 1 do
+        cells[#cells + 1] = ("%d/%d"):format(tonumber(cpu[index]), tonumber(device[index]))
+    end
+    print(("count %d cpu/gpu %s"):format(count, table.concat(cells, " ")))
+    input:close()
+    output:close()
+end
+]]
+    local file = assert(io.open(dir .. "/run.lua", "wb"))
+    assert(file:write(script))
+    file:close()
+    local pipe = assert(io.popen(("cd %q && luajit run.lua 2>&1; echo '__exit__:'$?"):format(dir)))
+    local runOut = pipe:read("*a")
+    pipe:close()
+    test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+    if runOut:find("no compute adapter", 1, true) then
+        io.stderr:write("gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns: no compute adapter, nothing dispatched\n")
+        return
+    end
+    -- Two whole groups of four: the last two elements are never visited.
+    assert(runOut:find("count 10 cpu/gpu 1/1 2/2 3/3 4/4 5/5 6/6 7/7 8/8 99/99 99/99", 1, true), runOut)
+    assert(runOut:find("count 8 cpu/gpu 1/1 2/2 3/3 4/4 5/5 6/6 7/7 8/8\n", 1, true), runOut)
+    assert(runOut:find("count 3 cpu/gpu 99/99 99/99 99/99", 1, true), runOut)
+end
+
 function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()
     local source = [[
 module gpuoverlay

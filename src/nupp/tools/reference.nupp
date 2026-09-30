@@ -2016,6 +2016,13 @@ indices and use its physical extent for cursor bounds. Host transfers and
 dispatch-indexed spans remain dense; broadcast views are read-only because
 their zero strides alias.
 
+A structured kernel calls `gpu.workgroups(groups, size, controller)` with
+`groups` written as `u32.div(u32.wrap(#span), size)` and a literal `size` from
+1 through 256. It runs exactly that many groups, floor(`#span` / `size`), on
+the CPU and on the device alike: when the span is not a whole number of groups,
+the elements past the last whole group are not visited, so pad the span to a
+multiple of `size` to cover them.
+
 A parser builds an ordinary Lua value through the iterative
 `nupp.codec.valuebuilder` stream. See
 [lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)

@@ -962,9 +962,11 @@ function spirv.program(
     -- A folded dispatch overshoots in its last row, so both shapes retire the
     -- invocations past the work. A map keeps `index < count`, decided from the
     -- row and column so that an index past 2^32 cannot wrap back into range.
-    -- A workgroup keeps the groups the unfolded dispatch ran, ceil(count /
-    -- threads); the condition is uniform across a workgroup, so its barriers
-    -- stay in uniform control flow.
+    -- A workgroup keeps the groups its CPU definition runs, the authored
+    -- `u32.div(#span, size)`: floor(count / threads). The host dispatches
+    -- ceil(count / threads), so a span that is not a whole number of groups
+    -- retires its partial group here as well. The condition is uniform across
+    -- a workgroup, so its barriers stay in uniform control flow.
     local count = uniform(dispatchCount, u32Type)
     local inRange = id()
     if workgroup == nil then
@@ -978,13 +980,9 @@ function spirv.program(
         instruction(functions, OP.LogicalAnd, {boolType, tail, sameRow, earlierColumn})
         instruction(functions, OP.LogicalOr, {boolType, inRange, earlierRow, tail})
     else
-        local whole, partial, hasPartial, extra, needed = id(), id(), id(), id(), id()
+        local whole = id()
         instruction(functions, OP.UDiv, {u32Type, whole, count, threadsU})
-        instruction(functions, OP.UMod, {u32Type, partial, count, threadsU})
-        instruction(functions, OP.INotEqual, {boolType, hasPartial, partial, zeroU})
-        instruction(functions, OP.Select, {u32Type, extra, hasPartial, oneU, zeroU})
-        instruction(functions, OP.IAdd, {u32Type, needed, whole, extra})
-        instruction(functions, OP.ULessThan, {boolType, inRange, groupIndex as integer, needed})
+        instruction(functions, OP.ULessThan, {boolType, inRange, groupIndex as integer, whole})
     end
     local bodyLabel, returnLabel = id(), id()
     local entryMerge = id()
