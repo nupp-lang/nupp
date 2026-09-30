@@ -2877,6 +2877,22 @@ print(triangular(5))
     local code, answer = process.capture({root .. "/scripts/toolchain", "kit-archive", "", archive})
     assertEq(code, 0, answer)
     local bytes = read(archive)
+    -- A release compiles the archive's digest into every nupp it builds, so the
+    -- bytes are the kit's names and contents, not the clock, owner or umask of
+    -- whoever archived it: the same kit touched, under another umask and zone,
+    -- archives the same.
+    local again = dir .. "/kits/again.tar.gz"
+    assert(
+        os.execute(
+            ("kit=$(%q kit '' 2>/dev/null) && touch \"$kit\"/* && (umask 077; TZ=Asia/Tokyo %q kit-archive '' %q)"):format(
+                root .. "/scripts/toolchain",
+                root .. "/scripts/toolchain",
+                again
+            )
+        ) == 0
+    )
+    assert(read(again) == bytes, "archiving the same kit again writes the same bytes")
+    os.remove(again)
     local host = assert(require("nupp.tools.build.platform").hostKey())
     local hostAbi = require("nupp.tools.build.package").hostAbiVersion
     local function catalog(digest)

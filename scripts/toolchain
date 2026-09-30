@@ -1551,6 +1551,31 @@ kit_minimum() {
     esac
 }
 
+# A gzip'd POSIX tar of a directory's files whose bytes are a function of
+# their names and contents alone. A release records the kit archive's digest
+# in every nupp it builds, and tar otherwise writes the building user's name,
+# the build's clock and its umask into each header.
+deterministic_archive() {
+    archive_source=$1
+    archive_output=$2
+    archive_staging=$(mktemp -d "${TMPDIR:-/tmp}/nupp-archive.XXXXXX") || return 1
+    cp -R "$archive_source/." "$archive_staging/" || { rm -rf "$archive_staging"; return 1; }
+    rm -f "$archive_staging/.complete"
+    chmod -R u+rwX,go+rX,go-w "$archive_staging"
+    find "$archive_staging" -exec env TZ=UTC touch -h -t 198001010000 {} +
+    case "$(tar --version 2>/dev/null)" in
+        *GNU*) archive_owner="--owner=0 --group=0 --numeric-owner" ;;
+        *) archive_owner="--uid 0 --gid 0 --numeric-owner" ;;
+    esac
+    # shellcheck disable=SC2086 # the owner options are separate words
+    (cd "$archive_staging" && find . -type f | LC_ALL=C sort | sed 's|^\./||' \
+        | COPYFILE_DISABLE=1 tar --format ustar $archive_owner -cf - -T - \
+        | gzip -9n > "$archive_output")
+    archive_status=$?
+    rm -rf "$archive_staging"
+    return $archive_status
+}
+
 build_kit() {
     features=${1:-}
     build_host stub "$features"
@@ -1589,7 +1614,7 @@ build_kit() {
 
     # Which library each symbol binds to, and what each library is.
     nm -m "$probe" | sed -n 's/^ *(undefined) [a-z ]*external \([^ ]*\) (from \([^)]*\)).*/\2 \1/p' \
-        | sort -u > "$out/binds"
+        | LC_ALL=C sort -u > "$out/binds"
     otool -L "$probe" | sed -n '2,$p' > "$out/libraries"
     : > "$out/flags"
     while read -r path rest; do
@@ -1768,8 +1793,8 @@ build_kit_linux() {
     readelf -V -W "$probe" | awk '
         /File: / { for (i = 1; i <= NF; i++) if ($i == "File:") file = $(i + 1) }
         /Name: / && file != "" { for (i = 1; i <= NF; i++) if ($i == "Name:") print $(i + 1), file }
-    ' | sort -u > "$out/versions"
-    readelf --dyn-syms -W "$probe" | awk '$7 == "UND" && $8 != "" { print $4, $8 }' | sort -u > "$out/undefined"
+    ' | LC_ALL=C sort -u > "$out/versions"
+    readelf --dyn-syms -W "$probe" | awk '$7 == "UND" && $8 != "" { print $4, $8 }' | LC_ALL=C sort -u > "$out/undefined"
     : > "$out/flags"
     while IFS= read -r soname; do
         # Where the real library is, for data symbols' sizes.
@@ -2023,8 +2048,7 @@ case "$1" in
         [ "$#" -eq 3 ] || die "usage: scripts/toolchain kit-archive FEATURES OUTPUT"
         build_kit "$2"
         output=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
-        (cd "$KIT_OUT" && find . -type f ! -name .complete | LC_ALL=C sort | sed 's|^\./||' \
-            | COPYFILE_DISABLE=1 tar --format ustar -cf - -T - | gzip -9n > "$output")
+        deterministic_archive "$KIT_OUT" "$output" || die "cannot archive the link kit"
         native_path "$output"
         exit 0
         ;;
