@@ -1492,6 +1492,137 @@ end}
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A copied runner in a temporary directory, with one suite in it and a second
+-- that passes. A lone process-isolated suite runs in the runner's own process;
+-- two are handed to workers, which is the path under test.
+local function runnerProject(suite, source)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(dir .. "/tests/" .. suite .. ".lua", source)
+    write(dir .. "/tests/quiettest.lua", '-- require("nupp.io.process")\nreturn {passes = function() end}\n')
+
+    return dir
+end
+
+-- A case that starts a process which ignores being asked to stop, and outlives
+-- the case. The suite names the process module so it runs in the isolated lane,
+-- where each piece is a worker process of its own.
+local LINGERING = [[
+-- require("nupp.io.process")
+local function linger()
+    assert(os.execute(
+        "sh -c 'trap \"\" HUP INT TERM; echo $$ > lingering.tmp; mv lingering.tmp lingering.pid;"
+        .. " while :; do sleep 1; done' </dev/null >/dev/null 2>&1 &"
+    ) == 0)
+    for _ = 1, 600 do
+        local file = io.open("lingering.pid", "rb")
+        if file then
+            file:close()
+            return
+        end
+        os.execute("sleep 0.1")
+    end
+    error("the lingering process never started")
+end
+]]
+
+local function lingeringPid(dir)
+    local file = io.open(dir .. "/lingering.pid", "rb")
+    if not file then
+        return nil
+    end
+    local pid = tonumber(file:read("*a"):match("%d+"))
+    file:close()
+
+    return pid
+end
+
+local function alive(pid)
+    return os.execute(("kill -0 %d 2>/dev/null"):format(pid)) == 0
+end
+
+local function awaitExit(pid, seconds)
+    for _ = 1, seconds * 10 do
+        if not alive(pid) then
+            return true
+        end
+        os.execute("sleep 0.1")
+    end
+
+    return not alive(pid)
+end
+
+-- Whatever a case leaves running ends with the worker that ran it. Such a
+-- process used to outlive the whole run: two of them spun at a full core each
+-- for days, and one holding a worker's output would have kept the runner
+-- waiting for a report forever.
+function M.aProcessACaseLeavesRunningEndsWithItsWorker()
+    if package.config:sub(1, 1) == "\\" then
+        return test.skip("process groups are POSIX")
+    end
+    local dir = runnerProject("lingertest", LINGERING .. [[
+return {leavesAProcessRunning = linger}
+]])
+    local output, invocation = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q lingertest quiettest --lane=isolated --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    local pid = lingeringPid(dir)
+    local ended = pid ~= nil and awaitExit(pid, 3)
+    if pid then
+        os.execute(("kill -KILL %d 2>/dev/null"):format(pid))
+    end
+    test.equal(invocation.status, 0, "the lingering case failed" .. evidence(invocation))
+    test.equal(require("testjson").decode(output).passed, 2)
+    test.assert(pid, "the case never reported its process")
+    test.assert(ended, "pid " .. tostring(pid) .. " outlived the worker whose case started it")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+-- And when the runner itself is killed on its own -- as a timeout wrapper does,
+-- leaving its workers with nobody to report to -- they end, and what their cases
+-- started ends with them.
+function M.workersEndWhenTheirRunnerIsKilled()
+    if package.config:sub(1, 1) == "\\" then
+        return test.skip("process groups are POSIX")
+    end
+    local dir = runnerProject("stucktest", LINGERING .. [[
+return {staysBusy = function()
+    linger()
+    os.execute("sleep 300")
+end}
+]])
+    assert(
+        os.execute(
+            (
+                "cd %q && { %sNUPP_TEST_BUILD=%q %q stucktest quiettest --lane=isolated --jobs=1 --json </dev/null >/dev/null 2>&1 & echo $! > runner.pid; }"
+            ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+        ) == 0
+    )
+    local runner = tonumber(read(dir .. "/runner.pid"):match("%d+"))
+    local pid
+    for _ = 1, 1200 do
+        pid = lingeringPid(dir)
+        if pid or not alive(runner) then
+            break
+        end
+        os.execute("sleep 0.1")
+    end
+    os.execute(("kill -KILL %d 2>/dev/null"):format(runner))
+    local ended = pid ~= nil and awaitExit(pid, 30)
+    if pid then
+        os.execute(("kill -KILL %d 2>/dev/null"):format(pid))
+    end
+    test.assert(pid, "the case never reported its process")
+    test.assert(ended, "pid " .. tostring(pid) .. " outlived the runner that was killed")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.embeddedWorkersDiscoverFromTheParentCatalogWithoutPopen()
     local dir = os.tmpname()
     os.remove(dir)

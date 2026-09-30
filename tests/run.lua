@@ -785,6 +785,33 @@ do
         -- the outer run was invoked, which is what happened the first time CI
         -- ran this variable across a whole group rather than one suite.
         stopExporting("NUPP_TEST_TRACE_CASES")
+        -- A worker leads a process group of its own, which everything its cases
+        -- start joins, so the parent can end every one of them together: see
+        -- `groupedWorker`. Read once and unexported for the same reason as the two
+        -- above -- a nested runner a case starts is inside this group, and must
+        -- stay there rather than leave it for one of its own.
+        if os.getenv("NUPP_TEST_PROCESS_GROUP") == "1" and ffi.os ~= "Windows" then
+            stopExporting("NUPP_TEST_PROCESS_GROUP")
+            pcall(function()
+                ffi.cdef[[
+                int setpgid(int, int);
+                typedef void (*nupp_test_signal_handler)(int);
+                nupp_test_signal_handler signal(int, nupp_test_signal_handler);
+                ]]
+                C.setpgid(0, 0)
+                -- A shell starts a background command with SIGINT and SIGQUIT
+                -- ignored, and every process this one starts would inherit that.
+                -- The group is signalled on purpose now, so the defaults return.
+                local default = ffi.cast("nupp_test_signal_handler", 0)
+                local ignore = ffi.cast("nupp_test_signal_handler", 1)
+                for _, signal in ipairs({2, 3}) do
+                    local previous = C.signal(signal, default)
+                    if previous ~= ignore then
+                        C.signal(signal, previous)
+                    end
+                end
+            end)
+        end
         stopExporting("NUPP_TEST_FRESH_QUEUE_PIECES")
         stopExporting("NUPP_TEST_SUPERVISED_PIECE")
 
@@ -1291,6 +1318,56 @@ local function call(fn)
         return true
     end
     return pcall(fn)
+end
+
+--- The shell that runs one worker: the command, in a process group of its own,
+--- and the whole group ended once it is done, leaving its exit status in
+--- `$nupp_status` for what follows.
+---
+--- A case that starts a process which outlives it -- a server left running, a
+--- child that ignores its parent going away, one spinning in a native loop --
+--- used to outlive the run as well. Holding the worker's standard output, it
+--- kept this end's read of the report waiting forever; holding nothing, it
+--- spun for days on a core nobody knew was taken. The worker makes itself the
+--- group's leader (`NUPP_TEST_PROCESS_GROUP`), everything it starts is born
+--- into that group, and whatever of it is still there when the worker has
+--- exited is ended: asked first, because a nested worker's shell has a group of
+--- its own to end in turn, and then made to.
+---
+--- The same happens when this shell is told to stop, and when the runner that
+--- started it is gone -- killed on its own, as a timeout wrapper does, with
+--- nothing left to read what the worker writes. A shell cannot put a background
+--- command in a group of its own everywhere (`dash` declines `set -m` without a
+--- terminal), which is why the worker does it itself.
+---
+--- Windows has no process groups to end, so there the worker runs as before.
+---
+--- The grace shrinks with depth. A worker's group holds the shells of any
+--- workers it started in turn, each ending a group of its own when asked; were
+--- the outer grace no longer than theirs, it could end a shell part way through
+--- ending its group and leave that group behind. So each level is given a
+--- second less than the one that started it.
+local groupDepth = tonumber(os.getenv("NUPP_TEST_GROUP_DEPTH") or "") or 0
+
+local function groupedWorker(worker)
+    if package.config:sub(1, 1) == "\\" then
+        return worker .. "; nupp_status=$?"
+    end
+    local grace = math.max(1, 6 - groupDepth)
+
+    return table.concat({
+        "nupp_reap() { kill -0 -$1 2>/dev/null || return 0; kill -TERM -$1 2>/dev/null; nupp_waited=0;"
+            .. " while kill -0 -$1 2>/dev/null && [ $nupp_waited -lt " .. grace .. " ]; do sleep 1;"
+            .. " nupp_waited=$((nupp_waited + 1)); done; kill -KILL -$1 2>/dev/null; }",
+        ("NUPP_TEST_PROCESS_GROUP=1 NUPP_TEST_GROUP_DEPTH=%d %s & nupp_worker=$!"):format(groupDepth + 1, worker),
+        "trap 'nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; exit 143' HUP INT TERM",
+        "( while kill -0 $PPID 2>/dev/null && kill -0 $nupp_worker 2>/dev/null; do sleep 2; done;"
+            .. " kill -0 $PPID 2>/dev/null || { nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; } )"
+            .. " </dev/null >/dev/null 2>&1 & nupp_watch=$!",
+        "wait $nupp_worker; nupp_status=$?",
+        "kill $nupp_watch 2>/dev/null",
+        "nupp_reap $nupp_worker",
+    }, "; ")
 end
 
 local fixtureRoot = buildRoot .. "/test-fixtures"
@@ -2456,18 +2533,12 @@ then
                     local progress = processProgressFd and ("NUPP_TEST_PROGRESS_FD=%d "):format(processProgressFd) or ""
                     local fresh = executionLane == "isolated" and "NUPP_TEST_FRESH_QUEUE_PIECES=1 " or ""
                     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
+                    local worker = (
+                        "%s%s%s%s --json %s --color=%s%s"
+                    ):format(cache, progress, fresh, invocation, lane.arg, colorMode, verbose and " --verbose" or "")
                     local command = (
-                        "{ %s%s%s%s --json %s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'"
-                    ):format(
-                        cache,
-                        progress,
-                        fresh,
-                        invocation,
-                        lane.arg,
-                        colorMode,
-                        verbose and " --verbose" or "",
-                        errors
-                    )
+                        "{ %s; echo \"__status__:$nupp_status\" >&2; } 2>'%s'"
+                    ):format(groupedWorker(worker), errors)
                     running[
                         #running + 1
                     ] = {
@@ -3108,10 +3179,15 @@ end
 local function runFreshPiece(spec)
     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
     local errors = os.tmpname()
+    local worker = ("NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s"):format(
+        invocation,
+        shellQuote(spec),
+        colorMode,
+        verbose and " --verbose" or ""
+    )
     local command = (
-        "{ NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s; "
-        .. "printf '\n__piece_status__:%%d\n' $?; } 2>%s"
-    ):format(invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "", shellQuote(errors))
+        "{ %s; printf '\n__piece_status__:%%d\n' $nupp_status; } 2>%s"
+    ):format(groupedWorker(worker), shellQuote(errors))
     local pipe = io.popen(command, "r")
     if not pipe then
         os.remove(errors)
