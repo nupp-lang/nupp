@@ -996,6 +996,10 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
             return;
         }
     };
+    // Offers stop before the headers can be seen: a caller that polled the
+    // head and then offered more was told its bytes were accepted when
+    // nothing would send them.
+    transfer.close_upload();
     {
         let mut state = transfer
             .state
@@ -1020,7 +1024,6 @@ async fn run_transfer(transfer: Arc<Transfer>, request: OwnedRequest) {
         };
     }
     transfer.notify(TOKEN_HEADERS);
-    transfer.close_upload();
 
     let mut received = 0u64;
     loop {
