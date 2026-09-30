@@ -24,12 +24,26 @@ fi
 
 mkdir -p "$TASK_ROOT/build"
 
+# build/rust runs to a hundred gigabytes, so a plain copy per worktree fills a disk
+# in two or three. Clone where the filesystem can, and copy only where it cannot.
+# A failed clone leaves a partial tree, which is removed before the next attempt;
+# the destination did not exist before this call.
+copy_tree() {
+    if [ "$(uname)" = Darwin ]; then
+        cp -cRp "$1" "$2" 2>/dev/null && return 0
+    else
+        cp -Rp --reflink=auto "$1" "$2" 2>/dev/null && return 0
+    fi
+    rm -rf "$2"
+    cp -Rp "$1" "$2"
+}
+
 copy_if_absent() {
     SOURCE=$1
     DESTINATION=$2
     if [ -e "$SOURCE" ] && [ ! -e "$DESTINATION" ]; then
         mkdir -p "$(dirname "$DESTINATION")"
-        cp -Rp "$SOURCE" "$DESTINATION"
+        copy_tree "$SOURCE" "$DESTINATION"
     fi
 }
 
