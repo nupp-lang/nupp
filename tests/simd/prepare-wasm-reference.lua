@@ -6,9 +6,6 @@
 -- entry at its kernel's unoptimized scalar twin, and scalar-selection.json is
 -- written beside it. PROJECT must already hold the SIMD route's result.json.
 local project, output = assert(arg[1], "PROJECT"), assert(arg[2], "OUTPUT")
-local source = debug.getinfo(1, "S").source:gsub("^@", "")
-local root = assert((source:match("^(.*)/tests/simd/[^/]+$") or "."))
-package.path = root .. "/?.lua;" .. root .. "/build/?.lua;" .. package.path
 
 local function quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
@@ -23,6 +20,13 @@ local function absolute(path)
     pipe:close()
     return here .. "/" .. path
 end
+
+-- Absolute, because the reference build runs from inside OUTPUT: run as
+-- `luajit tests/simd/prepare-wasm-reference.lua`, the root was "." and that
+-- build looked for ./bin/nupp in the wrong directory.
+local source = debug.getinfo(1, "S").source:gsub("^@", "")
+local root = absolute(source:match("^(.*)/tests/simd/[^/]+$") or ".")
+package.path = root .. "/?.lua;" .. root .. "/build/?.lua;" .. package.path
 project, output = absolute(project), absolute(output)
 
 local function run(command)
