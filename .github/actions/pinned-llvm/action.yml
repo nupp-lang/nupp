@@ -113,13 +113,19 @@ runs:
     - id: prefix
       shell: bash
       run: |
-        # A restored toolchain cache can carry another, incomplete tree beside
-        # this one, so the first complete one is taken, not the first one:
-        # one with llvm-config, which is what scripts/toolchain checks. An
-        # artifact uploaded without hidden files lost its `.complete` marker,
-        # so a tree that is otherwise whole gets it back.
+        # A restored toolchain cache can carry another tree beside this one --
+        # incomplete, or left from before a pin bump -- so the first complete
+        # tree of the pinned version is taken, not the first one: one with
+        # llvm-config, which is what scripts/toolchain checks, and whose
+        # configured version is LLVM_VERSION, which it checks too. An artifact
+        # uploaded without hidden files lost its `.complete` marker, so a tree
+        # that is otherwise whole gets it back.
+        want=$(sed -n 's/^LLVM_VERSION=//p' scripts/toolchain.pins)
         tree=
         for candidate in .nupp-cache/toolchain/llvm/*/; do
+          found=$(sed -n 's/^#define LLVM_VERSION_STRING "\(.*\)"$/\1/p' \
+            "${candidate}include/llvm/Config/llvm-config.h" 2>/dev/null)
+          [ "$found" = "$want" ] || continue
           if [ -f "${candidate}bin/llvm-config" ] || [ -f "${candidate}bin/llvm-config.exe" ]; then
             tree=$candidate
             [ -f "${tree}.complete" ] || echo "restored without its marker" > "${tree}.complete"

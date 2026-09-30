@@ -1849,6 +1849,13 @@ llvm_complete() {
     return 0
 }
 
+# The version a tree was configured as, read from the header its configure step
+# generated rather than from `llvm-config`, which a cross-built tree cannot run.
+llvm_tree_version() {
+    sed -n 's/^#define LLVM_VERSION_STRING "\(.*\)"$/\1/p' \
+        "$1/include/llvm/Config/llvm-config.h" 2>/dev/null
+}
+
 # The pins spell their templates the way the other components' do.
 LLVM_DIRECTORY=$(eval "printf '%s' \"$LLVM_DIRECTORY\"")
 LLVM_URL=$(eval "printf '%s' \"$LLVM_URL\"")
@@ -1886,6 +1893,12 @@ build_llvm() {
     if [ -n "${NUPP_LLVM_PREFIX:-}" ]; then
         llvm_complete "$NUPP_LLVM_PREFIX" \
             || die "NUPP_LLVM_PREFIX names $NUPP_LLVM_PREFIX, which has no llvm-config or lld libraries"
+        # Named outright is still not a licence to be another LLVM. A tree left
+        # from before a pin bump used to be linked as though it were the pinned
+        # one, and the artifact key recorded the pin rather than what was linked.
+        llvm_found=$(llvm_tree_version "$NUPP_LLVM_PREFIX")
+        [ "$llvm_found" = "$LLVM_VERSION" ] \
+            || die "NUPP_LLVM_PREFIX names $NUPP_LLVM_PREFIX, which is LLVM ${llvm_found:-of no recorded version}, not the pinned $LLVM_VERSION"
         LLVM_OUT=$NUPP_LLVM_PREFIX
         return 0
     fi

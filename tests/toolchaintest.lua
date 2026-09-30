@@ -207,6 +207,41 @@ function M.aWrongDigestRefusesToBuild()
     )
 end
 
+-- A tree named outright is checked for being the pinned LLVM as well as for being
+-- whole. CI names whichever restored tree it finds first, and one left from before
+-- a pin bump was linked as though it were the pinned one.
+function M.aNamedLlvmTreeOfAnotherVersionIsRefused()
+    local directory = temporary()
+    local function tree(name, version)
+        local prefix = directory .. "/" .. name
+        assert(os.execute("mkdir -p " .. quote(prefix .. "/bin") .. " " .. quote(prefix .. "/lib")) == 0)
+        fakeCompiler(prefix .. "/bin", "llvm-config", version)
+        for _, library in ipairs({"lldCommon", "lldMachO", "lldELF", "lldCOFF", "lldMinGW", "lldWasm"}) do
+            write(prefix .. "/lib/lib" .. library .. ".a", "")
+        end
+        assert(os.execute("mkdir -p " .. quote(prefix .. "/include/llvm/Config")) == 0)
+        write(
+            prefix .. "/include/llvm/Config/llvm-config.h",
+            '#define LLVM_VERSION_MAJOR 1\n#define LLVM_VERSION_STRING "' .. version .. '"\n'
+        )
+        return prefix
+    end
+
+    local environment = {NUPP_TOOLCHAIN_DIR = directory .. "/cache", PATH = "$PATH",}
+    environment.NUPP_LLVM_PREFIX = tree("pinned", pins().LLVM_VERSION)
+    local status, output = run(environment, "llvm")
+    assert(status == 0, "the pinned version was refused:\n" .. output)
+
+    environment.NUPP_LLVM_PREFIX = tree("stale", "1.0.0")
+    status, output = run(environment, "llvm")
+    assert(status ~= 0, "a tree of another LLVM was used as the pinned one:\n" .. output)
+    assert(
+        output:find("which is LLVM 1.0.0, not the pinned " .. pins().LLVM_VERSION, 1, true),
+        "the refusal does not say which versions disagree:\n" .. output
+    )
+    os.execute("rm -rf " .. quote(directory))
+end
+
 -- Offline says which directory to put the archive in, because a builder with no
 -- network has no way to discover that from a failed download.
 function M.offlineNamesTheDirectoryToSupply()
