@@ -1093,10 +1093,19 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 newState.outputs[beside] = true
             end
             local packagedManifest = join(packagedRoot, "units.json")
+            -- Packaged for another process to read, so it is held to its format here
+            -- rather than discovered wrong there.
+            local _, manifestErr = aotPolicy.readUnitsManifest(aotManifest as string)
+            if manifestErr ~= nil then
+                say(opts, "NUPP0001", "nupp: " .. manifestErr .. "\n")
+                return 1
+            end
             if normalize(packagedManifest) ~= normalize(aotManifest as string) then
                 local copied, copyErr = copyFile(aotManifest as string, packagedManifest)
                 if not copied then
-                    io.stderr:write(
+                    say(
+                        opts,
+                        "NUPP0001",
                         ("nupp: cannot put the Wasm AOT manifest beside %s: %s\n"):format(output, tostring(copyErr))
                     )
                     return 1

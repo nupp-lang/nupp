@@ -57,7 +57,8 @@ export async function packageBrowserApp({project, target, output, guest, prebuil
   if (result.aotManifest) {
     const manifestPath = path.resolve(project,result.aotManifest);
     const built = JSON.parse(readFileSync(manifestPath,'utf8'));
-    if (built.schemaVersion !== 3 || built.target !== 'wasm32-unknown-emscripten') throw new Error('Unsupported Wasm build manifest');
+    if (built.schemaVersion !== 3) throw new Error(`${manifestPath} has schemaVersion ${built.schemaVersion}, and this packager reads 3; rebuild it with the matching compiler`);
+    if (built.target !== 'wasm32-unknown-emscripten') throw new Error('Unsupported Wasm build manifest');
     for (const unit of built.units) {
       if (!unit.wasm || !unit.bridge || unit.bridge.abi !== 1 || unit.wasm.split(/[\\/]/).includes('..') || path.isAbsolute(unit.wasm)) throw new Error('Invalid independent Wasm unit');
       const name = `aot/${unit.wasm}`;

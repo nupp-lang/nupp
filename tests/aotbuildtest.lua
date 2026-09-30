@@ -6975,4 +6975,28 @@ end]]
     end
 end
 
+-- The units manifest is read back by another process, so a reader checks its format
+-- exactly and refuses another by naming both versions.
+function M.aUnitsManifestInAnotherFormatIsRefusedOnRead()
+    local path = os.tmpname()
+    local function write(text)
+        local handle = assert(io.open(path, "wb"))
+        handle:write(text)
+        handle:close()
+    end
+    write(('{"schemaVersion":%d,"target":"x","units":[]}'):format(aot.UNITS_SCHEMA_VERSION))
+    local manifest, err = aot.readUnitsManifest(path)
+    assert(manifest and manifest.target == "x", tostring(err))
+    write('{"schemaVersion":2,"target":"x","units":[]}')
+    manifest, err = aot.readUnitsManifest(path)
+    assert(
+        manifest == nil and err:find("schemaVersion 2", 1, true) and err:find("reads " .. aot.UNITS_SCHEMA_VERSION, 1, true),
+        tostring(err)
+    )
+    write("not json")
+    manifest, err = aot.readUnitsManifest(path)
+    assert(manifest == nil and err:find("is not a units manifest", 1, true), tostring(err))
+    os.remove(path)
+end
+
 return M

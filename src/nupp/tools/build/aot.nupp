@@ -1469,6 +1469,33 @@ function aot.writeArchiveProbe(
     ), new bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
 end
 
+--- The format of `aot/units.json`. Another process reads it back -- the browser
+--- packager, a build packaging it beside an executable -- so a reader checks it
+--- exactly and refuses any other, naming both.
+aot.UNITS_SCHEMA_VERSION = 3
+
+--- Reads a units manifest, refusing one written in another format.
+---
+--- @return the manifest, or nil and why it cannot be used
+function aot.readUnitsManifest(path: string): (any?, string?)
+    local text, readErr = fs.readFile(path)
+    if not text then
+        return nil, tostring(readErr)
+    end
+    local document, decodeErr = json.decode(text as string)
+    if type(document) ~= "table" then
+        return nil, path .. " is not a units manifest: " .. tostring(decodeErr or "not a JSON object")
+    end
+    local found = (document as {[string]: any}).schemaVersion
+    if found ~= aot.UNITS_SCHEMA_VERSION then
+        return nil, (
+            "%s has schemaVersion %s, and this compiler reads %d; rebuild it with this compiler"
+        ):format(path, tostring(found), aot.UNITS_SCHEMA_VERSION)
+    end
+
+    return document
+end
+
 --- Writes `aot/units.json`: every unit, its tier and the options it compiled
 --- with.
 function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Emitted}): (string?, string?)
@@ -1498,7 +1525,11 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             unit = one.unit,
         }
     end
-    local document = json.encode({schemaVersion = 3, target = triple, units = json.asArray(units),}) .. "\n"
+    local document = json.encode({
+        schemaVersion = aot.UNITS_SCHEMA_VERSION,
+        target = triple,
+        units = json.asArray(units),
+    }) .. "\n"
     local output = outDir .. "/aot/units.json"
     if fs.readFile(output) ~= document then
         local ok, err = fs.writeFile(output, document)
