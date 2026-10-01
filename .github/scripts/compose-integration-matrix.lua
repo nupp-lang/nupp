@@ -16,7 +16,9 @@ local platforms = {
     },
     {
         variable = "SELECTED_MACOS",
-        entry = {name = "macOS arm64", os = "macos-15", timeout = 110, artifact = "macos-arm64"},
+        -- A cold Rust and toolchain rebuild plus the broad suite runs about 125
+        -- minutes on this three-core runner.
+        entry = {name = "macOS arm64", os = "macos-15", timeout = 150, artifact = "macos-arm64"},
     },
     {
         variable = "SELECTED_WINDOWS",
