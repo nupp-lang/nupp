@@ -602,6 +602,24 @@ jobs:
       # systemd rather than leaving them in a directory. Only runs when the
       # step above failed, and never fails the job itself: this reports on a
       # failure, it is not one.
+      # A run that stops making progress is cancelled by the job timeout with
+      # nothing said about where it stood: every macOS leg from a7deafd88 on
+      # sat at "shell suites joining" for an hour with one Nupp worker that
+      # had finished its suites and never exited. Steps still run after a
+      # cancellation, so this one lists what the run left running and samples
+      # each test process, which names the call it is blocked in.
+      - name: Report a stalled run
+        if: (failure() || cancelled()) && runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        run: |
+          ps -axo pid,ppid,pgid,stat,etime,command \
+            | grep -E 'nupp-test|tests/run|luajit|bin/nupp' | grep -v grep || true
+          for pid in $(pgrep -f 'nupp-test|tests/run' || true); do
+            echo "=== sample $pid"
+            sample "$pid" 2 -file /dev/stdout 2>/dev/null | head -60 || true
+          done
+
       - name: Report a crashed worker
         if: failure() && runner.os == 'Linux'
         continue-on-error: true
