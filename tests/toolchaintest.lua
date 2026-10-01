@@ -357,7 +357,8 @@ function M.handCopiedPinsAgreeWithThePinsFile()
     )
 
     -- The archive names an offline builder is told to supply.
-    local distribution = read(ROOT .. "/docs/reference/distribution.md")
+    -- A Windows checkout carries CRLF line endings; the names are matched by line.
+    local distribution = read(ROOT .. "/docs/reference/distribution.md"):gsub("\r\n", "\n")
     for _, component in ipairs({"LUAJIT", "LUAROCKS", "LPEG"}) do
         local archive = recorded[component .. "_DIRECTORY"]:gsub("%${([A-Z0-9_]+)}", recorded) .. ".tar.gz"
         assert(
