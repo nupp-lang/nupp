@@ -9,7 +9,9 @@
 --
 -- A project whose sources a script prepares first (`prepare.sh`) is skipped: until
 -- the script runs it names an entry that does not exist yet, and the conformance row
--- that runs the script already checks what it builds.
+-- that runs the script already checks what it builds. So is one whose native
+-- packages (`pkgConfig`) this machine's pkg-config cannot resolve: checking it reads
+-- their flags, and CI's runners carry neither simdjson nor a luajit.pc.
 --
 -- Each check starts cold in CI and reads the standard library it reaches, so they run
 -- concurrently rather than one after another.
@@ -45,13 +47,35 @@ local function read(path)
     return content
 end
 
+--- Whether pkg-config resolves every package a manifest names under `pkgConfig`.
+local function nativePackagesResolve(manifest)
+    local packages = {}
+    for value in manifest:gmatch("pkgConfig%s*=%s*(%b{})") do
+        for name in value:gmatch('"([^"]+)"') do
+            packages[#packages + 1] = name
+        end
+    end
+    for value in manifest:gmatch('pkgConfig%s*=%s*"([^"]*)"') do
+        for name in value:gmatch("%S+") do
+            packages[#packages + 1] = name
+        end
+    end
+    if #packages == 0 then
+        return true
+    end
+    local status = os.execute("pkg-config --exists " .. table.concat(packages, " ") .. " >/dev/null 2>&1")
+
+    return status == 0 or status == true
+end
+
 local function projects()
     local pipe = assert(io.popen("cd '" .. ROOT .. "/bench' && ls -d */"))
     local names = {}
     for line in pipe:lines() do
         local name = line:gsub("/$", "")
         local dir = ROOT .. "/bench/" .. name
-        if exists(dir .. "/nupp.lua") and not exists(dir .. "/prepare.sh") then
+        if exists(dir .. "/nupp.lua") and not exists(dir .. "/prepare.sh")
+            and nativePackagesResolve(read(dir .. "/nupp.lua")) then
             names[#names + 1] = name
         end
     end

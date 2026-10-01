@@ -1424,6 +1424,8 @@ export const tiled = tiled
     test.equal(code, 0, out)
     local script = searchPathPrelude()
         .. [[
+-- Unbuffered, so a run that dies in the driver still says how far it got.
+io.stdout:setvbuf("no")
 local ffi = require("ffi")
 local gpu = require("nupp.gpu")
 local span = require("nupp.mem.span")
