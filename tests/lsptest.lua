@@ -1272,7 +1272,9 @@ end
 -- path, which is what the server's working directory resolves `.` to.
 function M.theLaunchRootAndTheClientFolderAreOneFolder()
     local made = makeDir()
-    local real = io.popen("cd '" .. made .. "' && pwd -P")
+    -- Git Bash's `pwd -P` prints an MSYS path (/c/...) that io.open cannot open;
+    -- `pwd -W` prints the Windows one, and fails elsewhere.
+    local real = io.popen("cd '" .. made .. "' && { pwd -W 2>/dev/null || pwd -P; }")
     local dir = real:read("*l")
     real:close()
     writeInto(dir, "nupp.lua", 'return {include = {"."}}\n')

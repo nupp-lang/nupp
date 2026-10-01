@@ -645,7 +645,8 @@ print(table.concat(answers, ' '))
         for _, mode in ipairs({"off", "on"}) do
             local output = dir .. "/" .. mode .. ".log"
             local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
-            local result = readFile(output)
+            -- Windows writes the interpreter's print with CRLF.
+            local result = readFile(output):gsub("\r\n", "\n")
             assertEq(status, 0, mode .. ": " .. result)
             assertEq(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
         end
