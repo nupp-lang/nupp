@@ -14,7 +14,10 @@
 -- their flags, and CI's runners carry neither simdjson nor a luajit.pc.
 --
 -- Each check starts cold in CI and reads the standard library it reaches, so they run
--- concurrently rather than one after another.
+-- two at a time. All of them at once -- eight cold checks, each with its own
+-- comptime worker -- swamped a three-core macOS runner beside the other shell
+-- suites, and every macOS leg sat at the shell-suite join until its timeout.
+local CONCURRENT_CHECKS = 2
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if HERE:sub(1, 1) ~= "/" and not HERE:match("^%a:[/\\]") then
@@ -91,14 +94,17 @@ function M.everyBenchmarkProjectChecks()
     local scratch = os.tmpname()
     os.remove(scratch)
     assert(os.execute("mkdir -p '" .. scratch .. "'") == 0)
-    local commands = {}
-    for _, name in ipairs(names) do
-        commands[#commands + 1] = (
-            "(cd '%s/bench/%s' && NO_COLOR=1 '%s' check >'%s/%s.log' 2>&1; echo $? >'%s/%s.status') &"
-        ):format(ROOT, name, NUPP, scratch, name, scratch, name)
+    for first = 1, #names, CONCURRENT_CHECKS do
+        local commands = {}
+        for index = first, math.min(#names, first + CONCURRENT_CHECKS - 1) do
+            local name = names[index]
+            commands[#commands + 1] = (
+                "(cd '%s/bench/%s' && NO_COLOR=1 '%s' check >'%s/%s.log' 2>&1; echo $? >'%s/%s.status') &"
+            ):format(ROOT, name, NUPP, scratch, name, scratch, name)
+        end
+        commands[#commands + 1] = "wait"
+        os.execute(table.concat(commands, "\n"))
     end
-    commands[#commands + 1] = "wait"
-    os.execute(table.concat(commands, "\n"))
     local problems = {}
     for _, name in ipairs(names) do
         local status = read(scratch .. "/" .. name .. ".status"):match("%d+")
