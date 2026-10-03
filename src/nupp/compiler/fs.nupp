@@ -18,6 +18,20 @@ const path2 = require("nupp.io.path")
 
 local fs = {}
 
+-- A compiler command never changes its own working directory. Remember the one its
+-- relative paths are rooted in instead of crossing the native-provider boundary once
+-- for every file a project walk canonicalizes.
+local workingDirectory: string? = nil
+
+local function currentDirectory(): string
+    if workingDirectory == nil then
+        local cwd = path2.currentDirectory()
+        workingDirectory = cwd and cwd:toString() or "."
+    end
+
+    return workingDirectory as string
+end
+
 local function normalize(path: string): string
     path = path:gsub("\\", "/"):gsub("/+", "/")
     path = path:gsub("^%./", ""):gsub("/%./", "/")
@@ -72,8 +86,7 @@ end
 local function absolute(path: string): string
     path = normalize(path)
     if path:sub(1, 1) ~= "/" and not path:match("^[A-Za-z]:/") then
-        local cwd = path2.currentDirectory()
-        path = join(cwd and cwd:toString() or ".", path)
+        path = join(currentDirectory(), path)
     end
     local prefix = path:match("^([A-Za-z]:)/") or (path:sub(1, 1) == "/" and "/" or "")
     local rest = prefix == "/" and path:sub(2) or path:gsub("^[A-Za-z]:/", "")

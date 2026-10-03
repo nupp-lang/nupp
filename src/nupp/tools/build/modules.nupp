@@ -531,10 +531,17 @@ end
 ---
 --- The one function for it, so the build's records and the hot session's
 --- snapshots cannot disagree about what an interface change is.
-function modules.interfaceHash(moduleType: Type?, exports: any, externalSourceHash: string?): string
+function modules.interfaceHash(
+    moduleType: Type?,
+    exports: any,
+    externalSourceHash: string?,
+    digest: (function(string): string)?
+): string
     exports = exports or {}
 
-    return hash.digest(
+    return (
+        digest or hash.digest
+    )(
         typeFingerprint(
             moduleType
         ) .. "\0definitions\0" .. exportDefinitionFingerprint(
@@ -1639,7 +1646,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
         records[name] = {
             sourcePath = path,
             sourceHash = sourceHash,
-            interfaceHash = modules.interfaceHash(result.moduleType, checkedExports, external and sourceHash or nil),
+            interfaceHash = modules.interfaceHash(
+                result.moduleType,
+                checkedExports,
+                external and sourceHash or nil,
+                contentDigest
+            ),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
             runtimeModules = runtimeModules,
