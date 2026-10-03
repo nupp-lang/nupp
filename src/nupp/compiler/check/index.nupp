@@ -14,6 +14,7 @@ answer of nil rather than a diagnostic -- so they are the same handler.
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
+local generics = require("nupp.compiler.types.generics")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
@@ -283,6 +284,97 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
 
         return T.borrowed(t)
+    end
+
+    --- Resolves one SoA column to its typed span and records the borrow from the row
+    --- view. Dot access reaches this only after real view members have failed;
+    --- bracket access calls it first for a literal string.
+    local function soaColumn(node: any, target: any, descriptor: indexedViews.Descriptor, name: string, at: any): Type
+        local element = rawType(descriptor.element)
+        local ordinal = nil
+        if element.tag == "nominal" then
+            for position, fieldName in ipairs(element.fieldOrder or {}) do
+                if fieldName == name then
+                    ordinal = position
+                    break
+                end
+            end
+        end
+        if not ordinal then
+            c.diag("NUPP2403", at or node, ("%s has no stored SoA field %q"):format(T.tostring(element), name))
+            return T.any
+        end
+        local nominalElement = element as T.Nominal
+
+        local fieldType = c.fieldType(element, name)
+        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, "nupp.mem.span")
+            or nil
+        local exported = exports and exports.types and exports.types[descriptor.writable and "Writable" or "Span"]
+            or nil
+        local projected = nil
+        if exported and exported.tag == "genericAlias" and exported.typeParams[1] then
+            projected = generics.materialize(exported.body, {[exported.typeParams[1]] = fieldType})
+        elseif exported and exported.tag == "nominal" and exported.typeParams and exported.typeParams[1] then
+            projected = generics.instantiate(exported, {[exported.typeParams[1]] = fieldType})
+        end
+        if not projected then
+            return T.any
+        end
+
+        node.soaFieldProjection = {name = name, ordinal = ordinal, writable = descriptor.writable,}
+        local projectedDescriptor = indexedViews.describe(projected)
+        if projectedDescriptor then
+            node.indexedViewOperation = {kind = "field", descriptor = projectedDescriptor, ordinal = ordinal,}
+        end
+        local definition = nominalElement.fieldDefs and nominalElement.fieldDefs[name] or nil
+        local token = at and at.token or at
+        if token then
+            c.markToken(token, definition, fieldType, "property")
+            token.soaColumn = {
+                identity = nominalElement.name .. "." .. name,
+                ordinal = ordinal,
+                access = descriptor.writable and "read-write" or "read-only",
+            }
+        end
+
+        if c.ownershipKind(descriptor.nominal) == "affine" then
+            c.own.expireTemporaryAfterStatement(target)
+        end
+        local entry, nameNode = c.ownershipEntry(target)
+        entry = c.ownershipState(entry)
+        local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
+        local regionRoot, regionPath = c.regionOf(target)
+        regionPath = T.regionField(regionPath, name)
+        local roots = entry and {entry} or c.own.provenanceOwners(target)
+        local base = entry or c.own.pathBase(target)
+        if descriptor.writable and #roots == 0 then
+            c.diag("NUPP2602", target, "an exclusive receiver requires a named or rooted value")
+        else
+            for _, root in ipairs(roots) do
+                if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, not descriptor.writable) then
+                    c.diag(
+                        "NUPP2607",
+                        nameNode or target,
+                        descriptor.writable
+                        and "an exclusive receiver cannot invalidate a value while a derived borrow is live"
+                        or "a shared receiver cannot overlap a live exclusive view",
+                        nil,
+                        c.own.conflictDetails(regionRoot or root, regionPath, not descriptor.writable)
+                    )
+                    break
+                end
+            end
+        end
+        local resultFacts = c.own.capabilityFacts(node)
+        resultFacts.roots = #roots > 0 and roots or nil
+        resultFacts.exclusive = descriptor.writable or nil
+        if regionRoot and regionPath and regionPath ~= "" then
+            resultFacts.regionRoot = regionRoot
+            resultFacts.regionPath = regionPath
+        end
+        node.resolvedType = projected
+
+        return projected
     end
 
     local fieldOf: function(node: cst.DotIndex | cst.SafeIndex): Type
@@ -564,6 +656,9 @@ function index.install(c: state.Checker): state.ExprHandlers
                     }
                 )
                 return T.any
+            end
+            if indexedView and indexedView.adapter == "soa" and not writing then
+                return soaColumn(node, target, indexedView, memberName, member)
             end
             -- A declared metamethod is a name on the metatable, so reaching one through
             -- a `metatable<R>` is reaching the contract and writing one is installing
@@ -856,6 +951,25 @@ function index.install(c: state.Checker): state.ExprHandlers
         local it = c.infer(key)
         local view = indexedViews.describe(ot)
         if view then
+            local literalName = key.kind == "string"
+                and it.tag == "literal"
+                and type(it.constant) == "string"
+                and it.constant
+                or nil
+            if view.adapter == "soa" and literalName then
+                if writing then
+                    c.diag("NUPP2009", node, "an SoA column projection is not assignable", nil, {
+                        help = "index the projected column to read or write one element"
+                    })
+                    return T.any
+                end
+                return soaColumn(node, target, view, literalName as string, key)
+            elseif view.adapter == "soa" and isA(it, T.string) then
+                c.diag("NUPP2403", key, "SoA field projection requires a string literal", nil, {
+                    help = "name one stored struct field so the compiler can select its typed column"
+                })
+                return T.any
+            end
             if not (it == T.any or isA(it, T.integer)) then
                 c.diag("NUPP2004", key, ("indexed view index must be integer, got %s"):format(T.tostring(it)))
             end

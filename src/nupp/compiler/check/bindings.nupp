@@ -350,12 +350,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundInitializer.indexedViewOperation = {kind = "slice", descriptor = descriptor,}
                 elseif descriptor and boundInitializer.name.text == "shared" then
                     boundInitializer.indexedViewOperation = {kind = "shared", descriptor = descriptor,}
-                elseif descriptor and boundInitializer.soaFieldProjection then
-                    boundInitializer.indexedViewOperation = {
-                        kind = "field",
-                        descriptor = descriptor,
-                        ordinal = boundInitializer.soaFieldProjection.ordinal,
-                    }
                 end
             end
             c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)

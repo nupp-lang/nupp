@@ -429,24 +429,46 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         end
         lines[#lines + 1] = "end"
         lines[#lines + 1] = "return run"
+
         return exitEdge(lines)
     end
 
     -- break out of while, repeat, numeric for, and generic for
     assertEq(
-        run({"while true do", "   if flag then nupp.drop(value) break end", "   break", "end", "nupp.drop(value)"}),
+        run({
+            "while true do",
+            "   if flag then nupp.drop(value) break end",
+            "   break",
+            "end",
+            "nupp.drop(value)"
+        }),
         "NUPP2601"
     )
     assertEq(
-        run({"repeat", "   if flag then nupp.drop(value) break end", "until true", "nupp.drop(value)"}),
+        run({
+            "repeat",
+            "   if flag then nupp.drop(value) break end",
+            "until true",
+            "nupp.drop(value)"
+        }),
         "NUPP2601"
     )
     assertEq(
-        run({"for i = 1, 2 do", "   if flag then nupp.drop(value) break end", "end", "nupp.drop(value)"}),
+        run({
+            "for i = 1, 2 do",
+            "   if flag then nupp.drop(value) break end",
+            "end",
+            "nupp.drop(value)"
+        }),
         "NUPP2601"
     )
     assertEq(
-        run({"for _ in ipairs({1, 2}) do", "   if flag then nupp.drop(value) break end", "end", "nupp.drop(value)"}),
+        run({
+            "for _ in ipairs({1, 2}) do",
+            "   if flag then nupp.drop(value) break end",
+            "end",
+            "nupp.drop(value)"
+        }),
         "NUPP2601"
     )
     -- the exit suffix is the same edge
@@ -464,24 +486,38 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     )
     -- continue runs the header again
     assertEq(
-        run({"for i = 1, 2 do", "   if i == 1 then nupp.drop(value) continue end", "end", "nupp.drop(value)"}),
+        run({
+            "for i = 1, 2 do",
+            "   if i == 1 then nupp.drop(value) continue end",
+            "end",
+            "nupp.drop(value)"
+        }),
         "NUPP2609"
     )
     -- a forward goto lands at its label
     assertEq(
-        run({"do", "   if flag then nupp.drop(value) goto done end", "end", "::done::", "nupp.drop(value)"}),
+        run({
+            "do",
+            "   if flag then nupp.drop(value) goto done end",
+            "end",
+            "::done::",
+            "nupp.drop(value)"
+        }),
         "NUPP2601"
     )
     -- controls: every edge discharging it, or none of them, stays clean
     assertEq(
-        run({"while true do", "   if flag then nupp.drop(value) break end", "   nupp.drop(value)", "   break", "end"}),
+        run({
+            "while true do",
+            "   if flag then nupp.drop(value) break end",
+            "   nupp.drop(value)",
+            "   break",
+            "end"
+        }),
         ""
     )
     assertEq(run({"for i = 1, 2 do", "   if flag then break end", "end", "nupp.drop(value)"}), "")
-    assertEq(
-        run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}),
-        ""
-    )
+    assertEq(run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}), "")
     assertEq(run({"for i = 1, 2 do", "   if flag then continue end", "   print(i)", "end", "nupp.drop(value)"}), "")
     -- a loop whose body always returns leaves by its own test with the owner intact
     assertEq(run({"for i = 1, 2 do", "   nupp.drop(value)", "   return", "end", "nupp.drop(value)"}), "")
@@ -5507,8 +5543,12 @@ end
 -- A scope's bound is a duration, named with its unit like every other one in the
 -- runtime; `tasks.deadline()` is the absolute instant it becomes.
 function M.aTaskScopeTakesItsTimeoutInMilliseconds()
-    assertClean("local tasks = require('nupp.tasks')\nwith scope = tasks.open(limit = 2, timeoutMs = 5) do\n   print(scope)\nend")
-    local refused = codes("local tasks = require('nupp.tasks')\nlocal scope = tasks.open(deadline = 5)\nnupp.drop(scope)")
+    assertClean(
+        "local tasks = require('nupp.tasks')\nwith scope = tasks.open(limit = 2, timeoutMs = 5) do\n   print(scope)\nend"
+    )
+    local refused = codes(
+        "local tasks = require('nupp.tasks')\nlocal scope = tasks.open(deadline = 5)\nnupp.drop(scope)"
+    )
     assert(refused:find("NUPP2125", 1, true) == 1, "the old name is not an argument: " .. refused)
 end
 
@@ -6252,8 +6292,8 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
 end
 
 -- A scope joins every child before it settles, so a child body may borrow the scope it
--- is started on: the borrow cannot outlive what it borrows (D-16). It may borrow nothing
--- else, and a scope another scope settles first is something else.
+-- is started on: the borrow cannot outlive what it borrows (D-16). It may borrow
+-- nothing else, and a scope another scope settles first is something else.
 function M.aChildBodyMayBorrowTheScopeThatStartsIt()
     assertClean(
         table.concat(
@@ -8064,10 +8104,7 @@ return answer, returned, log
     for _, level in ipairs({0, 1, 2}) do
         local result, diags = checked(source)
         assertEq(#diags, 0, diags[1] and diags[1].msg)
-        require("nupp.compiler.lua.optimize").run(result, {
-            level = level,
-            filename = 'test.g.nupp'
-        })
+        require("nupp.compiler.lua.optimize").run(result, {level = level, filename = 'test.g.nupp'})
         local code, errors = gen.generate(result, "test.g.nupp")
         assertEq(#errors, 0, errors[1] and errors[1].msg)
         local chunk = assert(loadstring(code))
@@ -8089,8 +8126,8 @@ cdef function update(exclusive x: float*, exclusive y: float*)
 cdef function one(exclusive x: float*)
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
 local rows = particles:write()
-local xs = rows:field("x")
-local ys = rows:field("y")
+local xs = rows.x
+local ys = rows.y
 local xp, count = xs:ref()
 local yp, otherCount = ys:ref()
 ]]

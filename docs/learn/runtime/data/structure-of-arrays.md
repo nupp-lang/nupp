@@ -122,31 +122,33 @@ shared[1].x = 4
 NUPP2009: SoA shared rows are read-only
 ```
 
-## Field spans
+## Column spans
 
-`field("name")` projects one resolved field as a normal typed [](nupp.mem.span)
-view. A shared row view returns `span.Span<Field>`, and an exclusive row view
-returns `span.Writable<Field>`.
+`rows.x` projects one resolved field as a normal typed [](nupp.mem.span) view. A
+shared row view returns `span.Span<Field>`, and an exclusive row view returns
+`span.Writable<Field>`.
 
 ```nupp:fragment
 local span = nupp.mem.span
 
 with
     rows = particles:write(),
-    xs: span.Writable<float> = rows:field("x"),
-    ys: span.Writable<float> = rows:field("y")
+    xs: span.Writable<float> = rows.x,
+    ys: span.Writable<float> = rows.y
 do
     xs[1] = 3.5
     ys[1] = 4.5
 end
 
-local xs: span.Span<float> = particles:read():field("x")
+local xs: span.Span<float> = particles:read().x
 print(xs[1])
 ```
 
-The field name must be a string literal that resolves to a stored field, which
-is what lets the checker assign the exact element type and field identity. A
-dynamic string or a missing field is reported.
+Dot syntax gives real view members precedence. Use a literal bracket projection
+such as `rows["slice"]` when a field has the same name as a view member. The
+literal must resolve to a stored field, which lets the checker assign the exact
+element type and field identity. A dynamic string or a missing field is
+reported.
 
 ## Slices
 
@@ -343,7 +345,7 @@ have fixed C storage. It accepts no records, unions, interfaces, GC-managed
 fields, owned fields, borrowed fields, or variable-size fields.
 
 The container exposes no column pointer, byte offset, or `void **` descriptor
-to checked code. Field spans provide typed contiguous access when a system
+to checked code. Column spans provide typed contiguous access when a system
 needs one column directly.
 
 ## FAQ
@@ -357,9 +359,10 @@ layout](#containers-select-the-layout) for the two layouts side by side.
 
 ### How does a column reach a C function?
 
-Project it with `field("name")` and pass the resulting span, which is the only
-typed contiguous handle on a column. The container itself never yields a column
-pointer. See [](nupp.mem.span) for the span operations a C boundary uses.
+Project it with `rows.name`, or `rows["name"]` when the name collides with a
+view member, and pass the resulting span. It is the only typed contiguous
+handle on a column. The container itself never yields a column pointer. See
+[](nupp.mem.span) for the span operations a C boundary uses.
 
 ### Can a record be stored in an SoA array?
 

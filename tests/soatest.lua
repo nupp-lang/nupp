@@ -90,7 +90,7 @@ end
 local rows = particles:read()
 local copied: Particle = rows[2]
 copied.x = 99
-return rows[1].x + rows[2].x + copied.x + rows:field("x")[4]
+return rows[1].x + rows[2].x + copied.x + rows.x[4]
 ]]
     )
     assertEq(value, 115, "direct, gathered and projected values")
@@ -365,8 +365,8 @@ local span = require("nupp.mem.span")
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
 do
     local rows = particles:write()
-    local xs: span.Writable<float> = rows:field("x")
-    local ys: span.Writable<float> = rows:field("y")
+    local xs: span.Writable<float> = rows.x
+    local ys: span.Writable<float> = rows["y"]
     xs[1] = 3.5
     ys[1] = 4.5
     nupp.drop(xs)
@@ -374,7 +374,7 @@ do
     nupp.drop(rows)
 end
 local rows = particles:read()
-local xs: span.Span<float> = rows:field("x")
+local xs: span.Span<float> = rows.x
 return xs[1] + rows[1].y
 ]]
     )
@@ -388,7 +388,7 @@ function M.fieldTokensCarrySemanticColumnInspectionFacts()
 local particles = soa.allocate(ffi.typeof<Particle>(), 1)
 local rows = particles:read()
 local direct = rows[1].x
-local projected = rows:field("dy")
+local projected = rows["dy"]
 print(direct, projected)
 ]]
     )
@@ -402,6 +402,30 @@ print(direct, projected)
     assertEq(found["Particle.x"].ordinal, 1, "direct field identity")
     assertEq(found["Particle.x"].access, "read-only", "direct field capability")
     assertEq(found["Particle.dy"].ordinal, 4, "projected field identity")
+end
+
+function M.literalBracketsReachColumnsThatCollideWithViewMembers()
+    local value = runs(
+        [[
+local soa = require("nupp.mem.soa")
+local ffi = require("ffi")
+local struct Collision
+    slice: float
+end
+local values = soa.allocate(ffi.typeof<Collision>(), 1)
+do
+    local rows = values:write()
+    local column = rows["slice"]
+    column[1] = 6.5
+    nupp.drop(column)
+    local one = rows:slice(1, 1)
+    nupp.drop(one)
+    nupp.drop(rows)
+end
+return values:read()["slice"][1]
+]]
+    )
+    assertEq(value, 6.5, "brackets select the column while dot keeps the method")
 end
 
 function M.aotBodiesRetainSemanticUnitStrideFieldFacts()
@@ -491,7 +515,7 @@ function M.nonescapingFieldProjectionsUseTheSelectedColumn()
 local particles = soa.allocate(ffi.typeof<Particle>(), 3)
 do
     local rows = particles:write()
-    const xs = rows:field("x")
+    const xs = rows.x
     for index = 1, #xs do
         xs[index] = index * 4
     end
@@ -499,7 +523,7 @@ do
     nupp.drop(rows)
 end
 const readable = particles:read()
-const xs = readable:field("x")
+const xs = readable.x
 const tail = xs:slice(2, 3)
 local total = 0
 for index = 1, #tail do
@@ -546,7 +570,7 @@ function M.fieldProjectionRequiresAResolvedStoredField()
             .. [[
 local particles = soa.allocate(ffi.typeof<Particle>(), 1)
 local name = "x"
-local xs = particles:read():field(name)
+local xs = particles:read()[name]
 print(xs ~= nil)
 ]]
         ),
@@ -559,12 +583,52 @@ print(xs ~= nil)
             PRELUDE
             .. [[
 local particles = soa.allocate(ffi.typeof<Particle>(), 1)
-local xs = particles:read():field("missing")
+const name = "x"
+local xs = particles:read()[name]
+print(xs ~= nil)
+]]
+        ),
+        "NUPP2403",
+        "a constant binding is not literal bracket syntax"
+    )
+
+    assertEq(
+        codes(
+            PRELUDE
+            .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local xs = particles:read()["missing"]
 print(xs ~= nil)
 ]]
         ),
         "NUPP2403",
         "an unknown field is diagnosed at the projection"
+    )
+
+    assertEq(
+        codes(
+            PRELUDE
+            .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local xs = particles:read().missing
+print(xs ~= nil)
+]]
+        ),
+        "NUPP2403",
+        "an unknown dotted field is diagnosed at the projection"
+    )
+
+    assertEq(
+        codes(
+            PRELUDE
+            .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local xs = particles:read():field("x")
+print(xs ~= nil)
+]]
+        ),
+        "NUPP2004",
+        "the former field method is no longer part of the view"
     )
 end
 
@@ -775,7 +839,7 @@ function M.nativeColumnsKeepSourceMappingAndUseExplicitVectors()
     end
     local binding = table.concat(aotBinding.wrapper(program), "\n")
     assert(binding:find("exclusive rows: soa.WriteToken&soa.WriteSpan<Particle>", 1, true), binding)
-    assert(binding:find('rows:field("dx")', 1, true), binding)
+    assert(binding:find('rows["dx"]', 1, true), binding)
     assert(not binding:find("ffi.copy", 1, true), binding)
     assert(not binding:find("exclusive __nuppSoa", 1, true), binding)
     local refusal = aotCompile.legalizeVectors(program, "soa-native.g.nupp", selected)

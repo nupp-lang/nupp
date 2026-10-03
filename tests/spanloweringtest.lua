@@ -421,7 +421,7 @@ local struct Particle
 end
 local function work(exclusive particles: soa.Array<Particle>): nil
     const rows = particles:write()
-    const xs = rows:field("x")
+    const xs = rows.x
     for index = 1, #xs do
         xs[index] = 3.5
     end
@@ -852,11 +852,7 @@ return work
 end
 
 function M.removedSpanMembersAreUnknownMembers()
-    for _, line in ipairs({
-        "print(values.count)",
-        "print(values:get(1).value)",
-        "span.range(1, 1, values)",
-    }) do
+    for _, line in ipairs({"print(values.count)", "print(values:get(1).value)", "span.range(1, 1, values)",}) do
         local _, diagnostics = checked(
             HEADER .. "local function old(borrows values: span.Span<Cell>): nil\n    " .. line .. "\nend\n"
         )
@@ -951,16 +947,33 @@ return Probe
         local probe = assert(loadstring(raw, "@nan-probe-" .. level))()
         for _, bad in ipairs({0 / 0, 1.5}) do
             for _, name in ipairs({
-                "writeTail", "writeSlice", "split", "readTail", "sliceFirst", "sliceLast",
-                "count", "fixedRead", "fixedWrite", "fixedSlice",
+                "writeTail",
+                "writeSlice",
+                "split",
+                "readTail",
+                "sliceFirst",
+                "sliceLast",
+                "count",
+                "fixedRead",
+                "fixedWrite",
+                "fixedSlice",
             }) do
                 local storage = ffi.new("int32_t[4]", {1, 2, 3, 4})
                 local ok, got = pcall(probe[name], storage, bad)
-                assert(not ok, ("-O%d %s(%s) was accepted and gave %s"):format(level, name, tostring(bad), tostring(got)))
-                assert(tostring(got):find("out of bounds", 1, true) or tostring(got):find("cannot be negative", 1, true),
-                    ("-O%d %s(%s): %s"):format(level, name, tostring(bad), tostring(got)))
+                assert(
+                    not ok,
+                    ("-O%d %s(%s) was accepted and gave %s"):format(level, name, tostring(bad), tostring(got))
+                )
+                assert(
+                    tostring(got):find("out of bounds", 1, true) or tostring(got):find("cannot be negative", 1, true),
+                    ("-O%d %s(%s): %s"):format(level, name, tostring(bad), tostring(got))
+                )
                 for at = 0, 3 do
-                    assertEq(storage[at], at + 1, ("-O%d %s(%s) left element %d"):format(level, name, tostring(bad), at + 1))
+                    assertEq(
+                        storage[at],
+                        at + 1,
+                        ("-O%d %s(%s) left element %d"):format(level, name, tostring(bad), at + 1)
+                    )
                 end
             end
         end

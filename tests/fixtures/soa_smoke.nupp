@@ -26,7 +26,7 @@ local function run(): number
 
     local rows = particles:read()
     local second: Particle = rows[2]
-    local xs = rows:field("x")
+    local xs = rows.x
 
     return rows[1].x + second.y + xs[4]
 end

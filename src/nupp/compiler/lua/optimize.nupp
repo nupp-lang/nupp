@@ -2156,7 +2156,7 @@ local function indexedRangeWalk(result, remarks)
             if node.kind == "name" and node.token and candidates[node.token.definition] then
                 local candidate = candidates[node.token.definition]
                 local allowed = directViewUse(node, parent)
-                if parent and parent.kind == "methodCall" and parent.obj == node and parent.indexedViewOperation then
+                if parent and parent.obj == node and parent.indexedViewOperation then
                     local child = byConstructor[parent]
                     if child then
                         candidate.dependencies[child.definition] = true
@@ -2483,11 +2483,7 @@ local function indexedViewParameterTransportPlan(result, remarks)
             end
             if node.kind == "name" and node.token and parameterDefinitions[node.token.definition] then
                 local allowed = directViewUse(node, parent)
-                allowed = allowed
-                    or parent
-                    and parent.kind == "methodCall"
-                    and parent.obj == node
-                    and parent.indexedViewOperation ~= nil
+                allowed = allowed or parent and parent.obj == node and parent.indexedViewOperation ~= nil
                 if not allowed then
                     plan.admitted = false
                     plan.decline = "unsupported-view-operation"

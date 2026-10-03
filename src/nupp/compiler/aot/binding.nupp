@@ -461,10 +461,10 @@ function binding.spanArguments(
                 value = fresh("native_" .. param.name .. "Column")
                 lines[
                     #lines + 1
-                ] = "    local " .. value .. " = " .. param.soa.view .. ":field(" .. string.format(
+                ] = "    local " .. value .. " = " .. param.soa.view .. "[" .. string.format(
                     "%q",
                     param.soa.field
-                ) .. ")"
+                ) .. "]"
             end
             local hasCount = param.soa == nil or param.soa.ordinal == 1
             lines[

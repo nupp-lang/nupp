@@ -2358,84 +2358,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local methodArgs = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
             local positional = positionalOnly(methodArgs)
-            if origin
-                and (origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule) == "nupp.mem.soa"
-                and (origin.name == "Span" or origin.name == "WriteSpan")
-                and member.text == "field"
-            then
-                local fieldArgument = methodArgs[1]
-                local fieldName = literalString(fieldArgument)
-                local element = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
-                local ordinal = nil
-                if fieldName and element and element.tag == "nominal" then
-                    for position, name in ipairs(element.fieldOrder or {}) do
-                        if name == fieldName then
-                            ordinal = position
-                            break
-                        end
-                    end
-                end
-                if not fieldName then
-                    c.diag("NUPP2403", fieldArgument or node, "SoA field projection requires a string literal", nil, {
-                        help = "name one stored struct field so the compiler can select its typed column"
-                    })
-                elseif not ordinal then
-                    c.diag(
-                        "NUPP2403",
-                        fieldArgument or node,
-                        (
-                            "%s has no stored SoA field %q"
-                        ):format(element and T.tostring(element) or "the element type", fieldName)
-                    )
-                else
-                    local resolvedName = fieldName as string
-                    local fieldType = c.fieldType(element, resolvedName)
-                    node.soaFieldProjection = {
-                        name = resolvedName,
-                        ordinal = ordinal,
-                        writable = origin.name == "WriteSpan",
-                    }
-                    local definition = element
-                        and element.tag == "nominal"
-                        and element.fieldDefs
-                        and element.fieldDefs[resolvedName]
-                        or nil
-                    local token = fieldArgument and fieldArgument.kind == "string" and fieldArgument.token or nil
-                    if token then
-                        c.markToken(token, definition, fieldType, "property")
-                        token.soaColumn = {
-                            identity = (element as T.Nominal).name .. "." .. resolvedName,
-                            ordinal = ordinal,
-                            access = origin.name == "WriteSpan" and "read-write" or "read-only",
-                        }
-                    end
-                    local exports = c.env
-                        and c.env.resolveModuleExports
-                        and c.env.resolveModuleExports(c.env, "nupp.mem.span")
-                        or nil
-                    local exported = exports
-                        and exports.types
-                        and exports.types[origin.name == "WriteSpan" and "Writable" or "Span"]
-                        or nil
-                    local projected = nil
-                    if exported and exported.tag == "genericAlias" and exported.typeParams[1] then
-                        projected = generics.materialize(exported.body, {[exported.typeParams[1]] = fieldType})
-                    elseif exported
-                        and exported.tag == "nominal"
-                        and exported.typeParams
-                        and exported.typeParams[1]
-                    then
-                        projected = generics.instantiate(exported, {[exported.typeParams[1]] = fieldType})
-                    end
-                    if projected then
-                        first, rets, pack = projected, {projected}, T.pack({projected})
-                        local descriptor = indexedViews.describe(projected)
-                        if descriptor then
-                            node.indexedViewOperation = {kind = "field", descriptor = descriptor, ordinal = ordinal,}
-                        end
-                    end
-                end
-            end
             if positional and not optional and member.text == "format" and literal and literal.kind == "string" then
                 local format = literalString(literal)
                 local plan = format and debugFormatPlan(format) or nil
@@ -2537,9 +2459,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(receiver)
-                if node.soaFieldProjection then
-                    regionPath = T.regionField(regionPath, node.soaFieldProjection.name)
-                end
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
                 local base = entry or c.own.pathBase(receiver)
                 if #roots == 0 and c.ownershipKind(ot) ~= "affine" then
@@ -2574,9 +2493,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(receiver)
-                if node.soaFieldProjection then
-                    regionPath = T.regionField(regionPath, node.soaFieldProjection.name)
-                end
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
                 local base = entry or c.own.pathBase(receiver)
                 for _, root in ipairs(roots) do

@@ -9087,9 +9087,13 @@ function gen.generate(
             end
             return
 
-        elseif kind == "methodCall" and x.soaFieldProjection and not x.virtualIndexedView then
+        elseif x.soaFieldProjection and not x.virtualIndexedView then
             emit(x.obj)
             e((":fieldBySlot(%d)"):format(x.soaFieldProjection.ordinal), sourceLine(x))
+            return
+
+        elseif x.soaFieldProjection and x.virtualIndexedView then
+            emitDepth.view.count(x.virtualIndexedView.source)
             return
 
         elseif kind == "methodCall" and x.virtualIndexedView then

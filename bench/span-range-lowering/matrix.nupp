@@ -244,7 +244,7 @@ function matrix.soaSharedRoot(count: integer, repeats: integer): number
     local total = 0
     for _ = 1, repeats do
         const rows = storage:read()
-        const xs = rows:field("x")
+        const xs = rows.x
         for index = 1, #xs do
             total += xs[index]
         end
@@ -260,7 +260,7 @@ function matrix.soaWritableRoot(count: integer, repeats: integer): nil
     for _ = 1, repeats do
         const rows = storage:write()
         do
-            const xs = rows:field("x")
+            const xs = rows.x
             for index = 1, #xs do
                 xs[index] += 1
             end

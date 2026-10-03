@@ -1185,7 +1185,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
             return false
         end
-        if expr and expr.kind == "dotIndex" and expectedKind == "affine" then
+        if expr and expr.kind == "dotIndex" and expectedKind == "affine" and not expr.soaFieldProjection then
             local container = expr.obj and own.ownershipState((own.ownershipEntry(expr.obj))) or nil
             local field = expr.name and expr.name.text
             -- An optional owner's field is reached only once the owner is known to be
@@ -1256,7 +1256,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                 container.automaticOwner.movedFields[field] = true
             end
             return true
-        elseif expr and expr.kind == "bracketIndex" and expectedKind == "affine" then
+        elseif expr and expr.kind == "bracketIndex" and expectedKind == "affine" and not expr.soaFieldProjection then
             c.diag("NUPP2602", expr, "computed partial moves cannot prove which affine field moved")
             return false
         end

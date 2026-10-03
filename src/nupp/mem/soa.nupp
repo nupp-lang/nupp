@@ -247,6 +247,9 @@ sealed interface soa.ReadView
 end
 
 --- A shared checked view over SoA rows.
+---
+--- Project a column with `rows.name`. When a field name collides with a view
+--- member, use the literal bracket form `rows["name"]`.
 --- @export
 sealed interface soa.Span<T> is soa.ReadView
     metamethod __len: function(self: Span<T>): integer
@@ -256,21 +259,6 @@ sealed interface soa.Span<T> is soa.ReadView
     ---
     --- The result borrows this view, and omitting `last` runs through to the end.
     slice: function(borrows self: Span<T>, first: integer, last: integer?): soa.Span<T> borrows (self)
-
-    --- Answers one field's column as a [](nupp.mem.span) view over this range.
-    ---
-    --- The name must be a string literal naming a stored field, which is what lets
-    --- the checker give the result that field's element type rather than `any`. A
-    --- dynamic string or a missing field reports `NUPP2403`.
-    ---
-    --- ```nupp:fragment
-    --- const rows = positions:read()
-    --- const velocity: span.Span<float> = rows:field("velocity")
-    --- for index = 1, #velocity do
-    ---     print(velocity[index])
-    --- end
-    --- ```
-    field: function(borrows self: Span<T>, name: string): any borrows (self)
 end
 
 local record SpanImpl<T> is soa.Span<T>
@@ -325,10 +313,6 @@ local record SpanImpl<T> is soa.Span<T>
         ) as soa.Span<T>
     end
 
-    function field(borrows self, name: string): any borrows (self)
-        error("nupp: SoA field projection requires compiler lowering: " .. tostring(name), 2)
-    end
-
     function fieldBySlot(borrows self, ordinal: integer): span.Span<any> borrows (self)
         local pointer = (self.columns[ordinal] as any) + self.offset
         @unsafe
@@ -340,31 +324,14 @@ local record SpanImpl<T> is soa.Span<T>
 end
 
 --- An affine exclusive checked view over SoA rows.
+---
+--- Project a writable column with `rows.name`. When a field name collides with
+--- a view member, use the literal bracket form `rows["name"]`.
 --- @export
 sealed interface soa.WriteSpan<T>
     metamethod __len: function(self: WriteSpan<T>): integer
     metamethod __index: function(borrows self: WriteSpan<T>, index: integer): T
     metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
-
-    --- Answers one field's column as a writable [](nupp.mem.span) view.
-    ---
-    --- Two different fields may be projected at once, because the columns do not
-    --- overlap. The name must be a string literal naming a stored field; a dynamic
-    --- string or a missing field reports `NUPP2403`.
-    ---
-    --- ```nupp:fragment
-    --- do
-    ---     local rows = particles:write()
-    ---     local xs: span.Writable<float> = rows:field("x")
-    ---     local ys: span.Writable<float> = rows:field("y")
-    ---     xs[1] = 3.5
-    ---     ys[1] = 4.5
-    ---     nupp.drop(xs)
-    ---     nupp.drop(ys)
-    ---     nupp.drop(rows)
-    --- end
-    --- ```
-    field: function(exclusive self: WriteSpan<T>, name: string): any borrows (self)
 
     --- Downgrades this writer to a shared row view for the lifetime of the result.
     shared: function(borrows self: WriteSpan<T>): soa.Span<T> borrows (self)
@@ -444,10 +411,6 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         for ordinal, field in ipairs(self.layout.fields) do
             (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
         end
-    end
-
-    function field(exclusive self, name: string): any borrows (self)
-        error("nupp: SoA field projection requires compiler lowering: " .. tostring(name), 2)
     end
 
     function fieldBySlot(exclusive self, ordinal: integer): span.Writable<any> borrows (self)

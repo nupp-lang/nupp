@@ -15,10 +15,10 @@ local function run(count: integer, steps: integer, scalar: boolean, dt: float): 
     local elapsed = 0.0
     local checksum = 0.0
     with rows = entities:write() do
-        local xs: span.Writable<float> = rows:field("x")
-        local ys: span.Writable<float> = rows:field("y")
-        local writeVxs: span.Writable<float> = rows:field("vx")
-        local writeVys: span.Writable<float> = rows:field("vy")
+        local xs: span.Writable<float> = rows.x
+        local ys: span.Writable<float> = rows.y
+        local writeVxs: span.Writable<float> = rows.vx
+        local writeVys: span.Writable<float> = rows.vy
         for index = 1, count do
             xs[index] = index % 17 * 0.25 - 2
             ys[index] = index % 23 * 0.5 - 3

@@ -894,14 +894,14 @@ interpreted execution; LuaJIT can discover the same invariants.
 
 Supported views come from `span.fromString`, shared and writable C arrays,
 `heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices and SoA
-field projections are supported too. Arbitrary indices keep bounds checks.
+column projections are supported too. Arbitrary indices keep bounds checks.
 
 See [AOT SIMD](ahead-of-time/simd.md) for vector lanes in AOT code.
 
 ::: deepdive Removing view allocations
 The pass can remove temporary view objects: `left` and `right` in the earlier
 example become counts, while accesses use the original views. Slices, shared
-downgrades, and SoA field projections combine their offsets without creating
+downgrades, and SoA column projections combine their offsets without creating
 wrapper objects. The source owner stays alive for the accesses.
 
 Direct, nonrecursive local calls may pass or return views as flattened state.
