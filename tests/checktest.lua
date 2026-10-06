@@ -83,6 +83,16 @@ function M.interningIdentity()
     assert(T.nominal("A", "record") ~= T.nominal("A", "record"), "nominals get fresh identity")
 end
 
+function M.functionInterningKeepsVarargSyntax()
+    local base = T.func({T.any}, {T.nil_}, false)
+    local sharedPack = T.pack({T.any}, {kind = "unknown", type = T.any})
+    local fixed = T.funcWith(base, {paramPack = sharedPack})
+    local variadic = T.funcWith(base, {paramPack = sharedPack, vararg = true})
+    assert(fixed ~= variadic, "a fixed and variadic function with one pack are distinct")
+    assert(not fixed.vararg, "the fixed function stays fixed")
+    assert(variadic.vararg, "the variadic function stays variadic")
+end
+
 function M.typeTostring()
     assertEq(T.tostring(T.optional(T.number)), "number?")
     assertEq(T.tostring(T.map(T.string, T.array(T.integer))), "{[string]: {integer}}")
@@ -213,17 +223,20 @@ end
 -- have is reported the way a field it does not have is, rather than checking clean
 -- and calling nil. The terminal is reached through the owner and still resolves.
 function M.anOwnerResolvesMethodsThroughItsUnderlyingType()
-    local owner = table.concat({
-        "local record Buffer",
-        "    n: integer",
-        "    function close(takes self): nil end",
-        "    function size(self): integer return self.n end",
-        "end",
-        "local function open(): affine(Buffer, Buffer.close)",
-        "    return new Buffer(n = 1)",
-        "end",
-        "local owner = open()",
-    }, "\n")
+    local owner = table.concat(
+        {
+            "local record Buffer",
+            "    n: integer",
+            "    function close(takes self): nil end",
+            "    function size(self): integer return self.n end",
+            "end",
+            "local function open(): affine(Buffer, Buffer.close)",
+            "    return new Buffer(n = 1)",
+            "end",
+            "local owner = open()",
+        },
+        "\n"
+    )
     assertEq(diagsOf(owner .. "\nowner:frobnicate()\nowner:close()"), "NUPP2004:10")
     assertClean(owner .. "\nprint(owner:size())\nowner:close()")
 end
@@ -233,45 +246,65 @@ end
 -- the local read by the code between them became the function at run time.
 function M.anExportedFunctionMayNotRedeclareAnEarlierName()
     assertEq(
-        diagsOf(table.concat({
-            "module shadowed",
-            "local fired: integer = 0",
-            "export function bump(): nil",
-            "    fired = fired + 1",
-            "end",
-            "export function fired(): integer",
-            "    return 1",
-            "end",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    "module shadowed",
+                    "local fired: integer = 0",
+                    "export function bump(): nil",
+                    "    fired = fired + 1",
+                    "end",
+                    "export function fired(): integer",
+                    "    return 1",
+                    "end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2008:6"
     )
     assertEq(
-        diagsOf(table.concat({
-            "module shadowed",
-            "local record fired",
-            "    n: integer",
-            "end",
-            "export function fired(): integer return 1 end",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    "module shadowed",
+                    "local record fired",
+                    "    n: integer",
+                    "end",
+                    "export function fired(): integer return 1 end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2008:5"
     )
     assertEq(
-        diagsOf(table.concat({
-            "module shadowed",
-            "export function fired(): integer return 1 end",
-            "export function fired(): integer return 2 end",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    "module shadowed",
+                    "export function fired(): integer return 1 end",
+                    "export function fired(): integer return 2 end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2008:3",
         "two exports are reported once"
     )
-    assertClean(table.concat({
-        "module shadowed",
-        "local count: integer = 0",
-        "export function fired(): integer",
-        "    count = count + 1",
-        "    return count",
-        "end",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "module shadowed",
+                "local count: integer = 0",
+                "export function fired(): integer",
+                "    count = count + 1",
+                "    return count",
+                "end",
+            },
+            "\n"
+        )
+    )
 end
 
 -- An absent member satisfies an optional one only when the source is known to lack
@@ -280,70 +313,98 @@ end
 -- so reading it through `{name: string?}` would hand back a number (CHECKER-04).
 function M.absentOptionalMemberNeedsAClosedSource()
     assertEq(
-        diagsOf(table.concat({
-            "local full = {id = 1, name = 5}",
-            "local narrow: {id: integer} = full",
-            "local view: {@readonly name: string?} = narrow",
-            "return view",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    "local full = {id = 1, name = 5}",
+                    "local narrow: {id: integer} = full",
+                    "local view: {@readonly name: string?} = narrow",
+                    "return view",
+                },
+                "\n"
+            )
+        ),
         "NUPP2001:3"
     )
-    local record = table.concat({
-        "local record User",
-        "    id: integer",
-        "    name: integer",
-        "end",
-        "local function show(v: {@readonly name: string?}): nil",
-        "    if v.name then print(v.name:upper()) end",
-        "end",
-    }, "\n")
+    local record = table.concat(
+        {
+            "local record User",
+            "    id: integer",
+            "    name: integer",
+            "end",
+            "local function show(v: {@readonly name: string?}): nil",
+            "    if v.name then print(v.name:upper()) end",
+            "end",
+        },
+        "\n"
+    )
     assertEq(
-        diagsOf(table.concat({
-            record,
-            "local function forward(h: {@readonly id: integer}): nil show(h) end",
-            "forward(new User(id = 1, name = 5))",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    record,
+                    "local function forward(h: {@readonly id: integer}): nil show(h) end",
+                    "forward(new User(id = 1, name = 5))",
+                },
+                "\n"
+            )
+        ),
         "NUPP2006:8"
     )
     local _, diags = diagsOf(record .. "\nlocal function forward(h: {@readonly id: integer}): nil show(h) end")
     assert(diags[1].msg:find("only a fresh table, a record or a struct may omit", 1, true), diags[1].msg)
     assertEq(
-        diagsOf(table.concat({
-            "local interface Named",
-            "    id: integer",
-            "end",
-            "local function show(v: {@readonly name: string?}): nil end",
-            "local function forward(h: Named): nil show(h) end",
-            "return forward",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Named",
+                    "    id: integer",
+                    "end",
+                    "local function show(v: {@readonly name: string?}): nil end",
+                    "local function forward(h: Named): nil show(h) end",
+                    "return forward",
+                },
+                "\n"
+            )
+        ),
         "NUPP2006:5"
     )
     assertEq(
-        diagsOf(table.concat({
-            "local function show(v: {@readonly name: string?}): nil end",
-            "local function forward(h: {id: integer} & {[string]: number}): nil show(h) end",
-            "return forward",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    "local function show(v: {@readonly name: string?}): nil end",
+                    "local function forward(h: {id: integer} & {[string]: number}): nil show(h) end",
+                    "return forward",
+                },
+                "\n"
+            )
+        ),
         "NUPP2006:2"
     )
-    assertClean(table.concat({
-        "local record User",
-        "    id: integer",
-        "end",
-        "local struct Point",
-        "    x: number",
-        "end",
-        "local function show(v: {@readonly name: string?}): nil",
-        "    if v.name then print(v.name:upper()) end",
-        "end",
-        "show({id = 1})",
-        "show(new User(id = 1))",
-        "local u: User = new User(id = 2)",
-        "show(u)",
-        "show(new Point(1))",
-        "local function viaIndexer(h: {id: integer} & {[string]: string}): nil show(h) end",
-        "return viaIndexer",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "local record User",
+                "    id: integer",
+                "end",
+                "local struct Point",
+                "    x: number",
+                "end",
+                "local function show(v: {@readonly name: string?}): nil",
+                "    if v.name then print(v.name:upper()) end",
+                "end",
+                "show({id = 1})",
+                "show(new User(id = 1))",
+                "local u: User = new User(id = 2)",
+                "show(u)",
+                "show(new Point(1))",
+                "local function viaIndexer(h: {id: integer} & {[string]: string}): nil show(h) end",
+                "return viaIndexer",
+            },
+            "\n"
+        )
+    )
 end
 
 -- The extra parameters of a callable stand where the target's extra arguments
@@ -1422,16 +1483,21 @@ end
 -- has not reached that local where the method is written, so the name would read a
 -- global. Deferring the bodies does not change what they can see.
 function M.aLaterLocalRecordStaysOutOfAnEarlierMethodsScope()
-    local got = diagsOf(table.concat({
-        "local record A",
-        "   function make(self): integer return (new B(v = 3)).v end",
-        "end",
-        "local record B",
-        "   v: integer",
-        "   function again(self): B return new B(v = self.v) end",
-        "end",
-        "print((new A()):make())",
-    }, "\n"))
+    local got = diagsOf(
+        table.concat(
+            {
+                "local record A",
+                "   function make(self): integer return (new B(v = 3)).v end",
+                "end",
+                "local record B",
+                "   v: integer",
+                "   function again(self): B return new B(v = self.v) end",
+                "end",
+                "print((new A()):make())",
+            },
+            "\n"
+        )
+    )
     -- An unknown name: NUPP2105 under the strict floor, and in this gradual file a
     -- construction with no known callable.
     assert(got:find("NUPP2105:2", 1, true) or got:find("NUPP2006:2", 1, true), got)
@@ -2032,12 +2098,17 @@ end
 -- reaches a plain `...: any`, so it fits one. A slot that lends its extra
 -- arguments still refuses a callee free to keep them.
 function M.aBorrowingVarargTailFitsAPlainOne()
-    assertClean(table.concat({
-        "local f1: function(...: any) = print",
-        "local f2: function(...: any): nil = print",
-        "local f3: function(s: string): nil = print",
-        "f1('a') f2('b') f3('c')",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "local f1: function(...: any) = print",
+                "local f2: function(...: any): nil = print",
+                "local f3: function(s: string): nil = print",
+                "f1('a') f2('b') f3('c')",
+            },
+            "\n"
+        )
+    )
     assertEq(
         (diagsOf("local function keep(...: any): nil end\nlocal f: function(borrows ...: any): nil = keep\nf(1)")),
         "NUPP2001:2"
@@ -2057,26 +2128,33 @@ end
 function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local env = require("nupp.compiler.project.env").new(here .. "/..")
-    local spanSource = table.concat({
-        "local span = nupp.mem.span",
-        "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
-        "    for index = 1, #output do output[index] = input[index] end",
-        "end",
-        "return copy",
-    }, "\n")
+    local spanSource = table.concat(
+        {
+            "local span = nupp.mem.span",
+            "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
+            "    for index = 1, #output do output[index] = input[index] end",
+            "end",
+            "return copy",
+        },
+        "\n"
+    )
     assertEq((checkedDiags(spanSource, env)), "", spanSource)
-    local source = table.concat({
-        "local i32 = nupp.math.i32",
-        "local math32 = nupp.math",
-        "local function mask(a: int32, b: int32): (int32, int32, int32)",
-        "    return i32.andBits(a, b), nupp.math.i32.andBits(a, b), math32.i32.andBits(a, b)",
-        "end",
-        "return mask",
-    }, "\n")
+    local source = table.concat(
+        {
+            "local i32 = nupp.math.i32",
+            "local math32 = nupp.math",
+            "local function mask(a: int32, b: int32): (int32, int32, int32)",
+            "    return i32.andBits(a, b), nupp.math.i32.andBits(a, b), math32.i32.andBits(a, b)",
+            "end",
+            "return mask",
+        },
+        "\n"
+    )
     local result = parser.parse(source, "test.g.nupp")
     local diags = check.check(result, "test.g.nupp", env)
     assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
     local identities = {}
+
     local function walk(node)
         if type(node) ~= "table" or node.kind == nil then
             return
@@ -2088,6 +2166,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
             walk(child)
         end
     end
+
     walk(result.root)
     assertEq(table.concat(identities, " "), "i32.andBits i32.andBits i32.andBits")
 end
@@ -2095,32 +2174,49 @@ end
 -- A union of functions is called member-wise: every member has to accept the
 -- arguments, and the result is what any of them may answer.
 function M.aUnionOfFunctionsIsCallableWhenEveryMemberAccepts()
-    local defs = table.concat({
-        "local function a(): nil print('a') end",
-        "local function b(x: string?): nil print('b', x) end",
-        "local function noop(...: any): nil end",
-        "local function one(): integer return 1 end",
-        "local function name(): string return 'n' end",
-        "local function needs(x: string): nil print(x) end",
-    }, "\n") .. "\n"
-    assertClean(defs .. table.concat({
-        "local function run(flag: boolean): nil",
-        "   local h = flag ? a : b",
-        "   h()",
-        "   local log = flag and print or noop",
-        "   log('x')",
-        "   local pick = flag ? one : name",
-        "   local r: integer | string = pick()",
-        "   print(r)",
-        "end",
-        "return run",
-    }, "\n"))
+    local defs = table.concat(
+        {
+            "local function a(): nil print('a') end",
+            "local function b(x: string?): nil print('b', x) end",
+            "local function noop(...: any): nil end",
+            "local function one(): integer return 1 end",
+            "local function name(): string return 'n' end",
+            "local function needs(x: string): nil print(x) end",
+        },
+        "\n"
+    ) .. "\n"
+    assertClean(
+        defs .. table.concat(
+            {
+                "local function run(flag: boolean): nil",
+                "   local h = flag ? a : b",
+                "   h()",
+                "   local log = flag and print or noop",
+                "   log('x')",
+                "   local pick = flag ? one : name",
+                "   local r: integer | string = pick()",
+                "   print(r)",
+                "end",
+                "return run",
+            },
+            "\n"
+        )
+    )
     assertEq(
-        (diagsOf(defs .. "local function run(flag: boolean): nil\n   local f = flag ? a : needs\n   f()\nend\nreturn run")),
+        (
+            diagsOf(
+                defs .. "local function run(flag: boolean): nil\n   local f = flag ? a : needs\n   f()\nend\nreturn run"
+            )
+        ),
         "NUPP2005:9"
     )
     assertEq(
-        (diagsOf(defs .. "local function run(flag: boolean): nil\n   local f = flag ? one : name\n   local n: integer = f()\nend\nreturn run")),
+        (
+            diagsOf(
+                defs
+                .. "local function run(flag: boolean): nil\n   local f = flag ? one : name\n   local n: integer = f()\nend\nreturn run"
+            )
+        ),
         "NUPP2001:9"
     )
 end
@@ -2138,8 +2234,10 @@ function M.plainLuaRefusesWhatLuaJITDoesNotRun()
                 out[#out + 1] = diag.code .. ":" .. diag.line
             end
         end
+
         return table.concat(out, " ")
     end
+
     assertEq(plain("local a = true\nlocal x = a ? 1 : 2\nreturn x"), "")
     assertEq(plain("local y = 7 // 2\nreturn y"), "NUPP1006:1")
     assertEq(plain("local z = 7\nz //= 2\nreturn z"), "NUPP1006:2")

@@ -2,6 +2,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local native = require("nupp.compiler.native")
+local buildNative = require("nupp.tools.build.native")
 local stdlib = require("nupp.compiler.stdlib")
 local standardsurface = require("nupp.compiler.standardsurface")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -305,7 +306,9 @@ return #readable, readable[1].value
 ]]
     local tree = parser.parse(source, "wasm-view.nupp")
     assertEq(
-        #check.check(tree, "wasm-view.nupp", sharedEnv, {host = "browser"}),
+        #check.check(tree, "wasm-view.nupp", sharedEnv, {
+            host = "browser"
+        }),
         0,
         "Wasm views check through both required contracts"
     )
@@ -785,6 +788,7 @@ end
 
 function M.gpuAvailabilityAnswersWithoutRaising()
     local ffi = require("ffi")
+
     local function native(features, createStatus)
         local released = 0
         local fixture = {
@@ -812,10 +816,12 @@ function M.gpuAvailabilityAnswersWithoutRaising()
                 assertEq(status, 0)
             end,
         }
+
         return require("providerstate").nativeGpu(fixture), function()
             return released
         end
     end
+
     local withoutFeature = native(0, 0)
     assertEq(withoutFeature.available(), false, "a provider built without GPU support has no device")
     local noAdapter = native(4, 1)
@@ -2790,7 +2796,7 @@ function M.nativeFeatureOverridesAreTriState()
     assert(resolved["native.json"], "an absent override remains automatic")
     assert(resolved["runtime.path"], "true adds an undetected feature")
 
-    local external = native.sourceEffects("local lpeg = require('lpeg')", "rock.lua", sharedEnv)
+    local external = buildNative.sourceEffects("local lpeg = require('lpeg')", "rock.lua", sharedEnv)
     assert(external["native.lpeg"], "bundled Lua contributes native LPeg")
 end
 

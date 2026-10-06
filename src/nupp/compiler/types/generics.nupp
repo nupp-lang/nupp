@@ -1702,7 +1702,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         end
         return cached
     end
-    local inst = T.nominal(n.name, n.declKind)
+    local inst = T.nominal(n.name, n.declKind, "instantiation\0" .. key)
     inst.origin = n
     inst.lpegPattern = n.lpegPattern
     inst.lpegLibrary = n.lpegLibrary

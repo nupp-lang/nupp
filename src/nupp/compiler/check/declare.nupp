@@ -1653,7 +1653,12 @@ function declare.install(
             t, projectEntry = c.env.declarationType(c.env, c.filename, stat.name.text, kind, c.visibilityOf(stat))
         end
 
-        return t or T.nominal(stat.name.text, kind), projectEntry
+        return t
+            or T.nominal(
+                stat.name.text,
+                kind,
+                (c.filename or "?") .. "\0" .. tostring(stat.name.offset or 0) .. "\0" .. kind
+            ), projectEntry
     end
 
     c.publishType = function(stat, t, projectEntry)
@@ -1936,7 +1941,8 @@ function declare.install(
             for _, e in ipairs(stat.entries) do
                 if e.kind == "recordDecl" then
                     local nestedKind = e.declKind
-                    local nested = e.hoistedType or T.nominal(e.name.text, nestedKind)
+                    local nested = e.hoistedType
+                        or T.nominal(e.name.text, nestedKind, n.id .. "\0nested\0" .. tostring(e.name.offset or 0))
                     e.hoistedType = nested
                     -- A nested declaration's runtime table hangs off its owner's, which
                     -- is what `is` has to compare against.

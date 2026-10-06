@@ -673,7 +673,13 @@ local function finalizeBoundary(c: state.Checker)
     -- was assigned to it, and the surface is rebuilt from the qualified fields.
     if c.moduleTypeFromFields then
         local fields = {}
-        for name, ft in pairs(c.moduleFields) do
+        local names: {string} = {}
+        for name in pairs(c.moduleFields) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local ft = c.moduleFields[name]
             local qualified = qualifyExport(ft, c.moduleFieldValues[name])
             c.moduleFields[name] = qualified as Type
             -- The export table was filled while the declaration was checked, before
@@ -2850,7 +2856,12 @@ function checkMod.check(
         within[#within + 1] = owner
         for _, entry in ipairs(entries or {}) do
             if entry.kind == "recordDecl" then
-                local nested = entry.hoistedType or T.nominal(entry.name.text, entry.declKind)
+                local nested = entry.hoistedType
+                    or T.nominal(
+                        entry.name.text,
+                        entry.declKind,
+                        owner.id .. "\0nested\0" .. tostring(entry.name.offset or 0)
+                    )
                 entry.hoistedType = nested
                 nested.byname = nested.byname or {}
                 nested.writeByname = nested.writeByname or {}
@@ -3582,7 +3593,7 @@ function checkMod.check(
         end
     end
     require("nupp.compiler.compat").checkSyntax(c)
-    require("nupp.compiler.compat").dependencies(c)
+    require("nupp.compiler.compat").dependencies(c, checkMod.check)
     local comptimeNames: {string} = {}
     local comptimeIdentities = {}
     for name in pairs(c.moduleExports.comptimeFunctions or {}) do

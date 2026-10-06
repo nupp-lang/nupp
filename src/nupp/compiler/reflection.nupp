@@ -43,12 +43,35 @@ local function admitsNil(t: any): boolean
     return false
 end
 
-function reflection.describe(root: any, qualifiedName: string?, includeSources: boolean?): any
+function reflection.describe(
+    root: any,
+    qualifiedName: string?,
+    includeSources: boolean?,
+    sourcesOnly: boolean?,
+    nominalReference: (function(any): boolean)?,
+    typeReference: (function(any): any?)?
+): any
     local indices = {}
     local types: {any} = {}
     local sources = {}
 
     local intern
+
+    local reflectedCleanup
+
+    reflectedCleanup = function(cleanup)
+        return cleanup
+            and {
+                kind = cleanup.kind,
+                key = cleanup.key,
+                name = cleanup.name,
+                field = cleanup.field,
+                functionType = intern(cleanup.functionType),
+                constTerm = intern(cleanup.constTerm),
+                cleanup = reflectedCleanup(cleanup.cleanup),
+            }
+            or nil
+    end
 
     local function reflectedAnnotations(applications)
         local out = {}
@@ -83,10 +106,22 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
         local out = {kind = t.tag}
         types[index] = out
         local tag = t.tag
+        local reference = typeReference and typeReference(t) or nil
 
-        if tag == "nominal" then
+        if reference ~= nil then
+            out.kind = "external"
+            out.arena = reference.arena
+            out.node = reference.node
+        elseif tag == "nominal" and nominalReference and nominalReference(t) then
             out.kind = t.declKind
             out.name = t.name
+            out.declarationKey = t.declarationKey
+            out.nominal = true
+            out.external = true
+        elseif tag == "nominal" then
+            out.kind = t.declKind
+            out.name = t.name
+            out.declarationKey = t.declarationKey
             out.moduleName = ((t as any).origin or t as any).moduleName
             out.nominal = true
             out.deriveKey = t.deriveKey
@@ -133,14 +168,40 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.nestedTypes[#out.nestedTypes + 1] = {name = name, type = intern(t.nestedTypes[name])}
             end
             out.associatedTypes = {}
-            for _, name in ipairs(t.associatedOrder or {}) do
+            for _, requirement in ipairs(t.associatedRequirements or {}) do
+                local name = requirement.name
+                local answer = t.associatedAnswers and t.associatedAnswers[name] or nil
                 out.associatedTypes[
                     #out.associatedTypes + 1
                 ] = {
                     name = name,
-                    bound = intern(t.associatedBounds and t.associatedBounds[name]),
-                    answer = intern(t.nestedTypes and t.nestedTypes[name]),
-                    default = t.associatedDefaults and t.associatedDefaults[name] or false,
+                    bound = intern(requirement.bound),
+                    answer = intern(answer and answer.type),
+                    default = answer ~= nil and answer.kind == "default" or false,
+                }
+            end
+            out.hasAssociatedRequirements = t.associatedRequirements ~= nil
+            out.associatedRequirements = {}
+            for position, requirement in ipairs(t.associatedRequirements or {}) do
+                out.associatedRequirements[
+                    position
+                ] = {
+                    name = requirement.name,
+                    bound = intern(requirement.bound),
+                    selfBinder = intern(requirement.selfBinder),
+                }
+            end
+            out.hasAssociatedAnswers = t.associatedAnswers ~= nil
+            out.associatedAnswers = {}
+            for _, name in ipairs(sortedNames(t.associatedAnswers)) do
+                local answer = t.associatedAnswers[name]
+                out.associatedAnswers[
+                    #out.associatedAnswers + 1
+                ] = {
+                    name = name,
+                    type = intern(answer.type),
+                    selfBinder = intern(answer.selfBinder),
+                    answerKind = answer.kind,
                 }
             end
             out.supertypes = {}
@@ -199,10 +260,15 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.construction = {declared = false, params = params}
             end
             out.arrayOf = intern(t.arrayOf)
+            out.hasTypeParameters = t.typeParams ~= nil
+            out.hasTypeBounds = t.typeBounds ~= nil
+            out.hasPackParameters = t.packParams ~= nil
+            out.hasConstParameters = t.constParams ~= nil
+            out.hasParameterKinds = t.paramKinds ~= nil
             out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
             for position, parameter in ipairs(t.typeParams or {}) do
                 out.typeParameters[position] = intern(parameter)
-                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position]) or 0
             end
             for position, parameter in ipairs(t.packParams or {}) do
                 out.packParameters[position] = intern(parameter)
@@ -211,6 +277,9 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.constParameters[position] = intern(parameter)
             end
             out.parameterKinds = t.paramKinds or {}
+            out.hasTypeArguments = t.typeArgs ~= nil
+            out.hasPackArguments = t.packArgs ~= nil
+            out.hasConstArguments = t.constArgs ~= nil
             out.typeArguments = {}
             for _, argument in ipairs(t.typeArgs or {}) do
                 out.typeArguments[#out.typeArguments + 1] = intern(argument)
@@ -224,7 +293,71 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.constArguments[#out.constArguments + 1] = intern(argument)
             end
             out.origin = intern(t.origin)
+            out.selfType = intern(t.selfType)
+            out.predicate = t.predicate
+            out.hasParamDefaults = t.paramDefaults ~= nil
+            out.paramDefaults = {}
+            for position, value in ipairs(t.paramDefaults or {}) do
+                if type(value) == "table" and value.tag == "pack" then
+                    out.paramDefaults[position] = {kind = "typepack", value = intern(value)}
+                elseif type(value) == "table"
+                    and (value.tag == "constLiteral" or value.tag == "constVar" or value.tag == "constOp")
+                then
+                    out.paramDefaults[position] = {kind = "const", value = intern(value)}
+                elseif type(value) == "table" and value.tag then
+                    out.paramDefaults[position] = {kind = "type", value = intern(value)}
+                end
+            end
+            out.hasInheritedDefaults = t.inheritedDefaults ~= nil
+            out.inheritedDefaults = {}
+            for _, name in ipairs(sortedNames(t.inheritedDefaults)) do
+                out.inheritedDefaults[
+                    #out.inheritedDefaults + 1
+                ] = {name = name, owner = intern(t.inheritedDefaults[name])}
+            end
+            out.hasDefaults = t.defaults ~= nil
+            out.hasPrivateFields = t.privateFields ~= nil
+            out.hasFieldDefaults = t.fieldDefaults ~= nil
+            out.hasFieldBorrowSources = t.fieldBorrowSources ~= nil
+            out.hasBorrowedRootFields = t.borrowedRootFields ~= nil
+            out.hasAffineFields = t.affineFields ~= nil
+            out.defaults = t.defaults or {}
+            out.privateFields = t.privateFields or {}
+            out.fieldBorrowSources = t.fieldBorrowSources or {}
+            out.borrowedRootFields = t.borrowedRootFields or {}
+            out.affineFields = t.affineFields or {}
+            out.inherentCleanup = reflectedCleanup(t.inherentCleanup)
+            out.sealedModule = t.sealedModule
+            out.terminalMethod = t.terminalMethod
+            out.intrinsicAffine = t.intrinsicAffine == true
+            out.intrinsicAffineClaim = t.intrinsicAffineClaim == true
+            out.managedCell = t.managedCell == true
+            out.managedAlias = t.managedAlias == true
+            out.lpegPattern = t.lpegPattern == true
+            out.lpegLibrary = t.lpegLibrary == true
+            out.lpegPatternOrigin = intern(t.lpegPatternOrigin)
+            out.runtimePath = t.runtimePath
+            out.cdefName = t.cdefName
+            out.cdefKind = t.cdefKind
+            out.cdefIdentity = t.cdefIdentity
+            out.constructors = {}
+            for position, constructor in ipairs(t.constructors or {}) do
+                out.constructors[position] = intern(constructor)
+            end
+            out.constructorResults = {}
+            for position, entry in ipairs(t.constructorEntries or {}) do
+                out.constructorResults[
+                    position
+                ] = {
+                    result = intern(entry.result),
+                    index = entry.index,
+                    escapesSelf = entry.escapesSelf == true,
+                    movesOwner = entry.movesOwner == true,
+                }
+            end
         elseif tag == "shape" then
+            out.fresh = t.fresh == true
+            out.closed = t.closed == true
             out.fields = {}
             local view = members.view(t)
             for _, field in ipairs(view.ordered) do
@@ -262,13 +395,33 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.varargType = intern(t.varargType)
             out.noReturn = t.noreturn or false
             out.noYield = t.noYield or false
+            out.sendable = t.sendable or false
+            out.comptimeOnly = t.comptimeOnly or false
+            out.foreign = t.foreign or false
+            out.borrowsSelf = t.borrowsSelf or false
             out.borrowedFrom = t.borrowsParam
+            out.hasBorrowedFromMany = t.borrowsParams ~= nil
             out.borrowedFromMany = t.borrowsParams or {}
             out.borrowedResult = t.borrowsResult or 1
+            out.hasPreservesResults = t.preservesResults ~= nil
+            out.hasExplicitPreserves = t.explicitPreserves ~= nil
+            out.hasPartitionResults = t.partitionResults ~= nil
+            out.preservesResults = t.preservesResults or {}
+            out.explicitPreserves = t.explicitPreserves or {}
+            out.preservesPaths = t.preservesPaths or {}
+            out.partitionResults = t.partitionResults or {}
+            if t.predicate then
+                out.predicate = {param = t.predicate.param, type = intern(t.predicate.type)}
+            end
+            out.hasTypeParameters = t.typeParams ~= nil
+            out.hasTypeBounds = t.typeBounds ~= nil
+            out.hasPackParameters = t.packParams ~= nil
+            out.hasConstParameters = t.constParams ~= nil
+            out.hasParameterKinds = t.paramKinds ~= nil
             out.typeParameters, out.typeBounds, out.packParameters = {}, {}, {}
             for position, parameter in ipairs(t.typeParams or {}) do
                 out.typeParameters[position] = intern(parameter)
-                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position]) or 0
             end
             for position, parameter in ipairs(t.packParams or {}) do
                 out.packParameters[position] = intern(parameter)
@@ -282,6 +435,27 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.returnPack = intern(t.retPack)
             out.yieldPack = intern(t.yieldPack)
             out.resumePack = intern(t.resumePack)
+            out.ffiOut = {}
+            for position, output in ipairs(t.ffiOut or {}) do
+                local cleanups = {}
+                for cleanupPosition, cleanup in ipairs(output.cleanups or {}) do
+                    cleanups[cleanupPosition] = reflectedCleanup(cleanup)
+                end
+                out.ffiOut[
+                    position
+                ] = {
+                    kind = output.kind,
+                    name = output.name,
+                    cleanups = cleanups,
+                    transferOnly = output.transferOnly == true,
+                    valueType = intern(output.valueType),
+                    cIndex = output.cIndex,
+                    hasStatus = output.hasStatus == true,
+                    success = output.success,
+                    sourceParams = output.sourceParams or {},
+                    returnIndex = output.returnIndex,
+                }
+            end
         elseif tag == "map" then
             out.readKey = t.readable and intern(t.key) or nil
             out.readValue = t.readable and intern(t.value) or nil
@@ -300,7 +474,13 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
         elseif tag == "pack" then
             out.head = {}
             for position, member in ipairs(t.head or {}) do
-                out.head[position] = {type = intern(member), mode = t.modes and t.modes[position] or "plain"}
+                out.head[
+                    position
+                ] = {
+                    type = intern(member),
+                    mode = t.modes and t.modes[position] or "plain",
+                    name = t.names and t.names[position] or "",
+                }
             end
             local tail = t.tail
             out.tail = tail
@@ -321,7 +501,7 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
             for position, parameter in ipairs(t.typeParams or {}) do
                 out.typeParameters[position] = intern(parameter)
-                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position]) or 0
             end
             for position, parameter in ipairs(t.packParams or {}) do
                 out.packParameters[position] = intern(parameter)
@@ -330,41 +510,79 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.constParameters[position] = intern(parameter)
             end
             out.parameterKinds = t.paramKinds or {}
-        elseif tag == "neutral" and t.op == "comptimeCall" then
-            out.operation = "comptimeTypeCall"
-            out.identity = t.comptimeIdentity
-            out.arguments = {}
-            for position, argument in ipairs(t.comptimeArguments or {}) do
-                if argument.kind == "type" then
-                    out.arguments[position] = {kind = "type", type = intern(argument.value)}
-                elseif argument.kind == "typepack" then
-                    out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
-                else
-                    out.arguments[
-                        position
-                    ] = {kind = "const", value = argument.value.value, domain = argument.value.domain,}
+            out.parameterDefaults = {}
+            for position, value in ipairs(t.paramDefaults or {}) do
+                if type(value) == "table" and value.tag == "pack" then
+                    out.parameterDefaults[position] = {kind = "typepack", value = intern(value)}
+                elseif type(value) == "table"
+                    and (value.tag == "constLiteral" or value.tag == "constVar" or value.tag == "constOp")
+                then
+                    out.parameterDefaults[position] = {kind = "const", value = intern(value)}
+                elseif type(value) == "table" and value.tag then
+                    out.parameterDefaults[position] = {kind = "type", value = intern(value)}
                 end
             end
-            out.bound = intern(t.comptimeBound)
-            out.resultKind = t.comptimeResultPack and "typepack" or "type"
+        elseif tag == "neutral" then
+            out.operation = t.op
+            if t.op == "comptimeCall" then
+                out.identity = t.comptimeIdentity
+                local program = t.comptimeHelper
+                out.program = program
+                    and {
+                        sealedTypeFunction = program.sealedTypeFunction == true,
+                        identity = program.identity,
+                        main = program.main,
+                        serializedHelpers = program.serializedHelpers,
+                    }
+                    or nil
+                out.arguments = {}
+                for position, argument in ipairs(t.comptimeArguments or {}) do
+                    if argument.kind == "type" then
+                        out.arguments[position] = {kind = "type", type = intern(argument.value)}
+                    elseif argument.kind == "typepack" then
+                        out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
+                    else
+                        out.arguments[position] = {kind = "const", term = intern(argument.value),}
+                    end
+                end
+                out.bound = intern(t.comptimeBound)
+                out.resultKind = t.comptimeResultPack and "typepack" or "type"
+            else
+                out.subject = intern(t.subject)
+                out.key = intern(t.key)
+                out.capability = t.capability
+                out.binder = intern(t.binder)
+                out.keys = intern(t.keys)
+                out.value = intern(t.value)
+                out.remap = intern(t.remap)
+                out.constTerm = intern(t.constTerm)
+                out.templateParts = {}
+                for position, part in ipairs(t.templateParts or {}) do
+                    out.templateParts[position] = type(part) == "string" and {literal = part} or {type = intern(part)}
+                end
+            end
         elseif tag == "literal" then
             out.value = t.constant
             out.base = intern(t.base)
         elseif tag == "typevar" then
             out.name = t.name
+            out.identity = t.identity
             out.bound = intern(t.bound)
+            out.default = intern(t.default)
         elseif tag == "typeHandle" then
             out.bound = intern(t.bound)
         elseif tag == "packResult" then
             out.pack = intern(t.pack)
         elseif tag == "packvar" then
             out.name = t.name
+            out.identity = t.identity
         elseif tag == "constLiteral" then
             out.domain = t.domain
             out.value = t.value
         elseif tag == "constVar" then
             out.name = t.name
             out.domain = t.domain
+            out.identity = t.identity
         elseif tag == "constOp" then
             out.operation = t.operation
             out.operands = {}
@@ -382,19 +600,17 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             or tag == "const"
         then
             out.element = intern(t.elem or t.inner)
-            if tag == "affine" then
+            if tag == "array" then
+                out.fresh = t.fresh == true
+                out.elements = {}
+                for position, element in ipairs(t.elems or {}) do
+                    out.elements[position] = intern(element)
+                end
+            elseif tag == "affine" then
                 out.transferOnly = t.transferOnly == true
                 out.cleanups = {}
                 for position, cleanup in ipairs(t.cleanups or {}) do
-                    out.cleanups[
-                        position
-                    ] = {
-                        kind = cleanup.kind,
-                        key = cleanup.key,
-                        name = cleanup.name,
-                        field = cleanup.field,
-                        functionType = intern(cleanup.functionType),
-                    }
+                    out.cleanups[position] = reflectedCleanup(cleanup)
                 end
             end
         elseif tag == "carray" then
@@ -403,6 +619,11 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.countTerm = intern(t.countTerm)
         elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" then
             out.of = intern(t.of)
+        elseif tag == "constrained" then
+            out.base = intern(t.base)
+            out.predicate = t.predicate
+            out.constraintKey = t.constraintKey
+            out.label = t.label
         end
 
         return index
@@ -468,12 +689,18 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
     else
         descriptor.soa.reason = "the reflected type is not a nominal struct"
     end
-    descriptor.fingerprint = hash.sha256("nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor))
-    if includeSources then
+    if not sourcesOnly then
+        descriptor.fingerprint = hash.sha256(
+            "nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor)
+        )
+    end
+    if includeSources or sourcesOnly then
         -- The side table is parent-only and deliberately added after fingerprinting.
         -- Worker transport receives the plain semantic graph, while the parent keeps
         -- the exact permitted nominal identities each graph node came from.
         descriptor.sources = sources
+    end
+    if includeSources then
         for index, node in ipairs(types) do
             if node.nominal then
                 node.referenceFingerprint = reflection.describe(sources[index]).fingerprint

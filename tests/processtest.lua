@@ -452,11 +452,15 @@ function M.aChildThatCannotStartIsAnAnswerNotARaise()
     function backend:spawn(_options)
         return nil, nil, nil, nil, 0, "no such program"
     end
+
     local instance = require("providerstate").load("process", backend)
     local ok, child, reason = pcall(instance.spawn, {args = {"missing"}})
     assertTrue(ok, "spawn did not raise: " .. tostring(child))
     assertEq(child, nil, "there is no child")
-    assertTrue(tostring(reason):find("no such program", 1, true) ~= nil, "and the reason says why: " .. tostring(reason))
+    assertTrue(
+        tostring(reason):find("no such program", 1, true) ~= nil,
+        "and the reason says why: " .. tostring(reason)
+    )
     assertEq(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
 end
 
@@ -1413,6 +1417,7 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
         sleeps = sleeps + 1
         return 0
     end
+
     local child = spawnOn(backend, {args = {"quiet"}})
     local scope = tasks.open()
     local waited = scope:spawn(function()
@@ -1425,6 +1430,20 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     child:close()
 end
 
+function M.aReadInsideATaskScopeKeepsTheChunkThatWokeIt()
+    local tasks = require("nupp.tasks")
+    local backend = fakeBackend({out = {"first", "second"}, err = {}, outDelay = 2, exitAfter = 8, code = 0})
+    local child = spawnOn(backend, {args = {"slow"}})
+    local scope = tasks.open()
+    local read = scope:spawn(function()
+        return child.stdout:read(65536)
+    end)
+    local chunk = read:await()
+    scope:close()
+    child:close()
+    assertEq(chunk, "first", "the readiness probe's bytes reach the waiting read")
+end
+
 function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     -- The drain loop parks for one pass at a time. A pass that moved nothing used to
     -- resume it at once, so under the built-in driver the loop polled flat out.
@@ -1435,6 +1454,7 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
         sleeps = sleeps + 1
         return 0
     end
+
     local child = spawnOn(backend, {args = {"slow"}})
     local scope = tasks.open()
     local drained = scope:spawn(function()

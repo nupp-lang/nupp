@@ -200,12 +200,17 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
         if not node or cst.isToken(node) then
             return
         end
-        if node.kind == "call"
-            and node.obj
-            and node.obj.kind == "name"
-            and node.obj.token
-            and node.obj.token.text == "require"
-        then
+        local callee = node.kind == "call" and node.obj or nil
+        local directRequire = callee and callee.kind == "name" and callee.token and callee.token.text == "require"
+        local globalRequire = callee
+            and callee.kind == "dotIndex"
+            and callee.name
+            and callee.name.text == "require"
+            and callee.obj
+            and callee.obj.kind == "name"
+            and callee.obj.token
+            and callee.obj.token.text == "_G"
+        if directRequire or globalRequire then
             local argument = node.args and node.args.exprs and node.args.exprs[1]
             local name = argument and annotationString(argument)
             if name then

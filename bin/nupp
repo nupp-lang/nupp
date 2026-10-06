@@ -510,7 +510,7 @@ case "${1:-}" in
     # not recognize is not the answer it asked for. It is also how a generator
     # worker came to be queued behind the build lock its own parent was holding,
     # and to be reported as a worker that timed out.
-    __comptime-worker|__comptime-worker-service|__generator-worker|__lsp-reader) rebuild=no ;;
+    __comptime-worker|__comptime-worker-service|__generator-worker|__parallel-check-service|__lsp-reader) rebuild=no ;;
     build)  rebuild=no
             if in_this_tree; then hold_build_lock=yes; else wait_for_build=yes; fi ;;
     clean)  rebuild=no

@@ -1,0 +1,419 @@
+module nupp.tools.build.moduleobject
+
+-- A relocatable, plain-data view of one parsed module. Workers can emit these
+-- without checker identities: declarations and references are named by stable
+-- source keys, and the parent links module references before any body result is
+-- accepted.
+
+local cst = require("nupp.compiler.syntax.cst")
+
+local moduleobject = {}
+
+local function dottedPath(node): (string?, {string}?, integer?)
+    local parts = {}
+    local current = node
+    local firstOffset = nil
+    while current and current.kind == "dotIndex" do
+        if not current.name then
+            return nil
+        end
+        table.insert(parts, 1, current.name.text)
+        firstOffset = current.name.offset
+        current = current.obj
+    end
+    if not current or current.kind ~= "name" or not current.token then
+        return nil
+    end
+    table.insert(parts, 1, current.token.text)
+    firstOffset = current.token.offset
+
+    return table.concat(parts, "."), parts, firstOffset
+end
+
+local function qualifiedReference(node, index): any?
+    local written, parts, offset = dottedPath(node)
+    if not written or not parts then
+        return nil
+    end
+    local candidate = written
+    local suffix = {}
+    while candidate do
+        if index.declaredModules and index.declaredModules[candidate] then
+            return {opcode = "patch-module-member", module = candidate, members = suffix, offset = offset,}
+        end
+        local head, tail = candidate:match("^(.*)%.([^.]+)$")
+        if not head then
+            break
+        end
+        table.insert(suffix, 1, tail)
+        candidate = head
+    end
+
+    return nil
+end
+
+function moduleobject.emit(path: string, parsed: any, header: any, index: any): any
+    local symbols: {any} = {}
+    local occurrences: {[string]: integer} = {}
+    for _, declaration in ipairs(header.declarations or {}) do
+        local key = table.concat({declaration.name, declaration.kind, declaration.visibility}, "\0")
+        local occurrence = (occurrences[key] or 0) + 1
+        occurrences[key] = occurrence
+        symbols[
+            #symbols + 1
+        ] = {
+            opcode = "declare-symbol",
+            id = table.concat(
+                {path, declaration.name, declaration.kind, declaration.visibility, tostring(occurrence)},
+                "\0"
+            ),
+            name = declaration.name,
+            kind = declaration.kind,
+            visibility = declaration.visibility,
+            signature = declaration.signature,
+            offset = declaration.token and declaration.token.offset or 0,
+        }
+    end
+
+    local references: {any} = {}
+    local dependencySet: {[string]: boolean} = {}
+    for _, name in ipairs(header.dependencies or {}) do
+        if not index.supportedModules or index.supportedModules[name] ~= false then
+            dependencySet[name] = true
+            references[#references + 1] = {opcode = "load-module", module = name, members = {}, offset = 0,}
+        end
+    end
+
+    local function walk(node, insideDot)
+        if node == nil or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" and node.obj and node.obj.kind == "dotIndex" and node.obj.name then
+            local member = node.obj.name.text
+            local intrinsicModule = (member == "push" or member == "pop") and "nupp.profile.zone"
+                or member == "keep" and "nupp.bench"
+                or nil
+            if intrinsicModule ~= nil then
+                dependencySet[intrinsicModule as string] = true
+                references[
+                    #references + 1
+                ] = {
+                    opcode = "patch-intrinsic",
+                    module = intrinsicModule,
+                    members = {member},
+                    offset = node.obj.name.offset,
+                }
+            end
+        end
+        if node.kind == "dotIndex" and not insideDot then
+            local reference = qualifiedReference(node, index)
+            if reference then
+                if not index.supportedModules or index.supportedModules[reference.module] ~= false then
+                    dependencySet[reference.module] = true
+                    references[#references + 1] = reference
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child, node.kind == "dotIndex")
+        end
+    end
+
+    walk(parsed.root, false)
+    local dependencies: {string} = {}
+    for name in pairs(dependencySet) do
+        dependencies[#dependencies + 1] = name
+    end
+    table.sort(dependencies)
+    table.sort(references, function(left, right)
+        if left.offset ~= right.offset then
+            return left.offset < right.offset
+        end
+        if left.module ~= right.module then
+            return left.module < right.module
+        end
+
+        return left.opcode < right.opcode
+    end)
+
+    return {
+        schema = 1,
+        kind = "nupp-module-object",
+        path = path,
+        moduleName = header.moduleName,
+        declaredModuleName = header.declaredModuleName,
+        symbols = symbols,
+        references = references,
+        dependencies = dependencies,
+    }
+end
+
+function moduleobject.link(objects: {any}): any
+    local byName: {[string]: any} = {}
+    local byPath: {[string]: any} = {}
+    for _, object in ipairs(objects) do
+        if object.moduleName then
+            byName[object.moduleName] = object
+        end
+        byPath[object.path] = object
+    end
+
+    local edges: {[string]: {string}} = {}
+    for _, object in ipairs(objects) do
+        local targets: {string} = {}
+        local seen: {[string]: boolean} = {}
+        for _, dependency in ipairs(object.dependencies or {}) do
+            local target = byName[dependency]
+            if target and not seen[target.path] then
+                seen[target.path] = true
+                targets[#targets + 1] = target.path
+            end
+        end
+        table.sort(targets)
+        edges[object.path] = targets
+    end
+
+    local nextIndex: integer = 0
+    local indices: {[string]: integer} = {}
+    local low: {[string]: integer} = {}
+    local open: {string} = {}
+    local onOpen: {[string]: boolean} = {}
+    local components: {{string}} = {}
+
+    local function visit(path)
+        nextIndex = nextIndex + 1
+        indices[path], low[path] = nextIndex, nextIndex
+        open[#open + 1] = path
+        onOpen[path] = true
+        for _, target in ipairs(edges[path] or {}) do
+            if indices[target] == nil then
+                visit(target)
+                low[path] = math.min(low[path] as integer, low[target] as integer)
+            elseif onOpen[target] then
+                low[path] = math.min(low[path] as integer, indices[target] as integer)
+            end
+        end
+        if low[path] == indices[path] then
+            local component: {string} = {}
+            repeat
+                local member = open[#open]
+                open[#open] = nil
+                onOpen[member] = nil
+                component[#component + 1] = member
+            until member == path
+            table.sort(component)
+            components[#components + 1] = component
+        end
+    end
+
+    local paths: {string} = {}
+    for path in pairs(byPath) do
+        paths[#paths + 1] = path
+    end
+    table.sort(paths)
+    for _, path in ipairs(paths) do
+        if indices[path] == nil then
+            visit(path)
+        end
+    end
+
+    local componentOf: {[string]: integer} = {}
+    local cyclicModules: integer = 0
+    for componentIndex, component in ipairs(components) do
+        for _, path in ipairs(component) do
+            componentOf[path] = componentIndex
+        end
+        if #component > 1 then
+            cyclicModules = cyclicModules + #component
+        else
+            local selfPath = component[1] as string
+            local selfEdges = edges[selfPath]
+            for _, target in ipairs(selfEdges or {}) do
+                if target == selfPath then
+                    cyclicModules = cyclicModules + 1
+                end
+            end
+        end
+    end
+
+    local dependencies: {[integer]: {[integer]: boolean}} = {}
+    local dependents: {[integer]: {[integer]: boolean}} = {}
+    for componentIndex = 1, #components do
+        dependencies[componentIndex] = {}
+        dependents[componentIndex] = {}
+    end
+    for path, targets in pairs(edges) do
+        local owner = componentOf[path] as integer
+        local ownerDependencies = dependencies[owner] as {[integer]: boolean}
+        for _, target in ipairs(targets) do
+            local dependency = componentOf[target] as integer
+            if owner ~= dependency and not ownerDependencies[dependency] then
+                ownerDependencies[dependency] = true
+                (dependents[dependency] as {[integer]: boolean})[owner] = true
+            end
+        end
+    end
+
+    local ready: {integer} = {}
+    for componentIndex = 1, #components do
+        if next(dependencies[componentIndex] as {[integer]: boolean}) == nil then
+            ready[#ready + 1] = componentIndex
+        end
+    end
+    local layers: integer = 0
+    local peakReady: integer = 0
+    local completed: {[integer]: boolean} = {}
+    while #ready > 0 do
+        layers = layers + 1
+        peakReady = math.max(peakReady, #ready)
+        local current = ready
+        ready = {}
+        for _, componentIndex in ipairs(current) do
+            completed[componentIndex] = true
+            for dependent in pairs(dependents[componentIndex] as {[integer]: boolean}) do
+                local dependentDependencies = dependencies[dependent] as {[integer]: boolean}
+                dependentDependencies[componentIndex] = nil
+                if next(dependentDependencies) == nil and not completed[dependent] then
+                    ready[#ready + 1] = dependent
+                end
+            end
+        end
+        table.sort(ready)
+    end
+
+    return {
+        objects = #objects,
+        edges = edges,
+        components = components,
+        componentCount = #components,
+        cyclicModules = cyclicModules,
+        layers = layers,
+        peakReady = peakReady,
+    }
+end
+
+-- Clusters strongly connected components for isolated semantic workers. Keeping
+-- adjacent components together lets a worker reuse the dependency types already in
+-- its own checker session; the size ceiling prevents the cheapest answer from being
+-- one serial group.
+function moduleobject.partition(linked: any, jobCount: integer, pathWeights: {[string]: integer}?): any
+    local components = linked.components as {{string}}
+    local edges = linked.edges as {[string]: {string}}
+    local componentOf: {[string]: integer} = {}
+    local weights: {[integer]: integer} = {}
+    local largest: integer = 0
+    local totalWeight: integer = 0
+    for componentIndex, component in ipairs(components) do
+        local weight: integer = 0
+        for _, path in ipairs(component) do
+            weight = weight + (pathWeights and pathWeights[path] or 1)
+            componentOf[path] = componentIndex
+        end
+        weights[componentIndex] = weight
+        totalWeight = totalWeight + weight
+        largest = math.max(largest, weight)
+    end
+
+    local adjacency: {[integer]: {[integer]: integer}} = {}
+    local degrees: {[integer]: integer} = {}
+    for componentIndex = 1, #components do
+        adjacency[componentIndex] = {}
+        degrees[componentIndex] = 0
+    end
+    for path, targets in pairs(edges) do
+        local owner = componentOf[path] as integer
+        for _, target in ipairs(targets) do
+            local dependency = componentOf[target] as integer
+            if owner ~= dependency then
+                local ownerEdges = adjacency[owner] as {[integer]: integer}
+                local dependencyEdges = adjacency[dependency] as {[integer]: integer}
+                ownerEdges[dependency] = (ownerEdges[dependency] or 0) + 1
+                dependencyEdges[owner] = (dependencyEdges[owner] or 0) + 1
+                degrees[owner] = (degrees[owner] or 0) + 1
+                degrees[dependency] = (degrees[dependency] or 0) + 1
+            end
+        end
+    end
+
+    local order: {integer} = {}
+    for componentIndex = 1, #components do
+        order[#order + 1] = componentIndex
+    end
+    table.sort(order, function(left, right)
+        local leftWeight, rightWeight = weights[left] or 0, weights[right] or 0
+        if leftWeight ~= rightWeight then
+            return leftWeight > rightWeight
+        end
+        local leftDegree, rightDegree = degrees[left] or 0, degrees[right] or 0
+        if leftDegree ~= rightDegree then
+            return leftDegree > rightDegree
+        end
+
+        return (components[left] as {string})[1] < (components[right] as {string})[1]
+    end)
+
+    local assignments: {[integer]: integer} = {}
+    local sizes: {integer} = {}
+    local groups: {{string}} = {}
+    for worker = 1, jobCount do
+        sizes[worker] = 0
+        groups[worker] = {}
+    end
+    local targetSize = math.ceil(totalWeight / jobCount) as integer
+    local maxSize = math.max(largest, math.ceil(targetSize * 1.1)) as integer
+    for _, componentIndex in ipairs(order) do
+        local weight = weights[componentIndex] as integer
+        local bestWorker: integer? = nil
+        local bestLinks: integer = -1
+        local bestSize: integer = 0
+        for worker = 1, jobCount do
+            if (sizes[worker] as integer) + weight <= maxSize then
+                local links: integer = 0
+                for neighbor, count in pairs(adjacency[componentIndex] as {[integer]: integer}) do
+                    if assignments[neighbor] == worker then
+                        links = links + count
+                    end
+                end
+                if bestWorker == nil
+                    or links > bestLinks
+                    or links == bestLinks and (sizes[worker] as integer) < bestSize
+                then
+                    bestWorker = worker
+                    bestLinks = links
+                    bestSize = sizes[worker] as integer
+                end
+            end
+        end
+        if bestWorker == nil then
+            for worker = 1, jobCount do
+                if bestWorker == nil or (sizes[worker] as integer) < bestSize then
+                    bestWorker = worker
+                    bestSize = sizes[worker] as integer
+                end
+            end
+        end
+        local assigned = bestWorker as integer
+        assignments[componentIndex] = assigned
+        sizes[assigned] = (sizes[assigned] as integer) + weight
+        for _, path in ipairs(components[componentIndex] as {string}) do
+            (groups[assigned] as {string})[#(groups[assigned] as {string}) + 1] = path
+        end
+    end
+
+    local cutEdges: integer = 0
+    for path, targets in pairs(edges) do
+        local owner = assignments[componentOf[path] as integer]
+        for _, target in ipairs(targets) do
+            if assignments[componentOf[target] as integer] ~= owner then
+                cutEdges = cutEdges + 1
+            end
+        end
+    end
+    for _, group in ipairs(groups) do
+        table.sort(group)
+    end
+
+    return {groups = groups, sizes = sizes, assignments = assignments, cutEdges = cutEdges, maxSize = maxSize,}
+end
+
+export = moduleobject

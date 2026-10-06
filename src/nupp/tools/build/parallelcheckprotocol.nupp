@@ -1,0 +1,169 @@
+@!internal
+
+module nupp.tools.build.parallelcheckprotocol
+
+--[[
+The versioned binary payload shared by the cold-check coordinator and workers.
+
+Framing belongs to the process endpoints: an ASCII byte count, a newline, then
+exactly that many bytes. The payload is native plain-data encoding when the host
+provides it and byte-safe JSON otherwise.
+]]
+
+local json = require("nupp.codec.json")
+local hash = require("nupp.compiler.hash")
+local stable = require("nupp.compiler.stable")
+local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
+
+local protocol = {}
+
+--- Fingerprints the immutable part of one worker request.
+function protocol.requestFingerprint(request: any): string
+    local sources: {any} = {}
+    for _, source in ipairs(request.sources or {}) do
+        sources[#sources + 1] = {path = source.path, hash = source.hash,}
+    end
+    local imports: {string} = {}
+    for _, import in ipairs(request.imports or {}) do
+        imports[#imports + 1] = import.fingerprint
+    end
+
+    return hash.sha256(
+        "nupp.parallel-check-request\0v1\0" .. stable({
+            schema = request.schema,
+            requestId = request.requestId,
+            sessionKey = request.sessionKey,
+            paths = request.paths,
+            exportPaths = request.exportPaths,
+            sources = sources,
+            imports = imports,
+        })
+    )
+end
+
+local function escapeBytes(text: string): string
+    if not text:find("[\128-\255\\]") then
+        return text
+    end
+
+    return (text:gsub("[\128-\255\\]", function(byte: string): string
+        return ("\\x%02X"):format(byte:byte())
+    end))
+end
+
+local function restoreBytes(text: string): string
+    if not text:find("\\", 1, true) then
+        return text
+    end
+
+    return (text:gsub("\\x(%x%x)", function(digits: string): string
+        return string.char(tonumber(digits, 16) as integer)
+    end))
+end
+
+local function transport(value: any, seen: {[any]: any}?): any
+    if type(value) == "string" then
+        return escapeBytes(value as string)
+    end
+    if value == json.NULL or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local copied = {}
+    seen[value] = copied
+    local otherKeys, maximum = false, 0
+    for key, item in pairs(value) do
+        if type(key) == "number" and key >= 1 and key % 1 == 0 then
+            maximum = math.max(maximum, key)
+        else
+            otherKeys = true
+        end
+        copied[type(key) == "string" and escapeBytes(key as string) or key] = transport(item, seen)
+    end
+    if not otherKeys then
+        for index = 1, maximum do
+            if copied[index] == nil then
+                copied[index] = json.NULL
+            end
+        end
+
+        return json.asArray(copied)
+    end
+
+    return copied
+end
+
+function protocol.encode(value: any): string
+    if hasBuffer then
+        return "B" .. nativeBuffer.encode({schema = 1, value = value})
+    end
+
+    return "J" .. json.encode(transport(value))
+end
+
+local function restore(value: any, seen: {[any]: boolean}?): any
+    if type(value) == "string" then
+        return restoreBytes(value as string)
+    end
+    if value == json.NULL or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return value
+    end
+    seen[value] = true
+    local renamed: {{string}}? = nil
+    for key, item in pairs(value) do
+        value[key] = restore(item, seen)
+        if type(key) == "string" then
+            local restored = restoreBytes(key as string)
+            if restored ~= key then
+                local list = renamed or {}
+                list[#list + 1] = {key as string, restored}
+                renamed = list
+            end
+        end
+    end
+    for _, pair in ipairs(renamed or {}) do
+        value[pair[2]] = value[pair[1]]
+        value[pair[1]] = nil
+    end
+
+    return value
+end
+
+function protocol.decode(text: string): (any?, string?)
+    local encoding = text:sub(1, 1)
+    if encoding == "B" then
+        if not hasBuffer then
+            return nil, "binary parallel-check payloads are unavailable on this host"
+        end
+        local decoded, envelope = pcall(nativeBuffer.decode, text:sub(2))
+        if not decoded or type(envelope) ~= "table" or envelope.schema ~= 1 or type(envelope.value) ~= "table" then
+            return nil, "the binary parallel-check payload is malformed"
+        end
+
+        return envelope.value, nil
+    end
+    local payload = encoding == "J" and text:sub(2) or text
+    local value, problem = json.decode(payload, json.NULL)
+    if type(value) ~= "table" then
+        return nil, tostring(problem or "the frame is not a JSON object")
+    end
+
+    return restore(value), nil
+end
+
+protocol.MAX_FRAME = 268435456
+
+function protocol.frame(value: any): string
+    local payload = protocol.encode(value)
+
+    return tostring(#payload) .. "\n" .. payload
+end
+
+export = protocol

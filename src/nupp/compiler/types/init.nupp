@@ -184,6 +184,7 @@ record types.ConstVar
     tag: 'constVar'
     name: string
     domain: string
+    identity: string?
 end
 
 --- One operation in the deliberately closed const expression grammar.
@@ -356,6 +357,7 @@ record types.PackVar
     id: string = ""
     tag: 'packvar'
     name: string
+    identity: string?
 end
 
 --- How the rest of a value sequence is described. `kind` says which field beside it
@@ -578,6 +580,7 @@ record types.TypeVar
     id: string = ""
     tag: 'typevar'
     name: string
+    identity: string?
 
     --- Upper bound declared with `T is Bound`, when one exists.
     bound: types.Type?
@@ -776,6 +779,10 @@ record types.Nominal
     tag: 'nominal'
     name: string
     declKind: string
+
+    --- Stable declaration-site identity used when this nominal crosses a compiler
+    --- worker boundary.
+    declarationKey: string?
 
     --- Resolved typed metadata attached to this declaration. The values remain
     --- semantic annotation applications rather than source text so reflection and
@@ -1063,6 +1070,9 @@ local packVarArena: {[string]: types.PackVar} = {}
 local capabilityArena: {[string]: types.Capability} = {}
 local capabilityIdentity = setmetatable({}, {__mode = "k"})
 local nextCapabilityIdentity: integer = 0
+local identityNamespace = ""
+local declarationNamespace = ""
+local capabilityBase: integer = 0
 local constArena: {[string]: types.ConstTerm} = {}
 
 local function flowIdentity(value: any): integer
@@ -1074,9 +1084,9 @@ local function flowIdentity(value: any): integer
         return found
     end
     nextCapabilityIdentity = nextCapabilityIdentity + 1
-    capabilityIdentity[value] = nextCapabilityIdentity
+    capabilityIdentity[value] = capabilityBase + nextCapabilityIdentity
 
-    return nextCapabilityIdentity
+    return capabilityBase + nextCapabilityIdentity
 end
 
 --- The serial an interned thing is known by.
@@ -1097,7 +1107,7 @@ local nextSerial: integer = 0
 local function serial(prefix: string): string
     nextSerial = nextSerial + 1
 
-    return prefix .. nextSerial
+    return prefix .. identityNamespace .. nextSerial
 end
 
 --- Marks a serial carries, so the questions that used to be asked of a structural id
@@ -2532,7 +2542,7 @@ function types.packvar(name: string, identity: string?): types.PackVar
     if found then
         return found
     end
-    local made = new types.PackVar(tag = "packvar", name = name)
+    local made = new types.PackVar(tag = "packvar", name = name, identity = identity)
     made.id = "!p" .. serial("pv")
     packVarArena[key] = made
 
@@ -2570,7 +2580,7 @@ function types.constvar(name: string, domain: string, identity: string?): types.
     if found then
         return found as types.ConstVar
     end
-    local made = new types.ConstVar(tag = "constVar", name = name, domain = domain)
+    local made = new types.ConstVar(tag = "constVar", name = name, domain = domain, identity = identity)
     made.id = "!c" .. serial("c")
     constArena[key] = made
 
@@ -2880,6 +2890,9 @@ function types.func(
         )
     retPack = retPack or types.pack(rets)
     local key = "fn" .. paramPack.id .. ":" .. retPack.id
+    if vararg then
+        key = key .. "|vararg"
+    end
     if predicate then
         key = key .. "|is" .. predicate.param .. ":" .. predicate.type.id
     end
@@ -3346,7 +3359,7 @@ function types.typevar(name: string, identity: string?): types.Type
         return existing
     end
 
-    return intern(internKey, new types.TypeVar(tag = "typevar", name = name))
+    return intern(internKey, new types.TypeVar(tag = "typevar", name = name, identity = identity))
 end
 
 function types.typeHandle(bound: types.Type): types.Type
@@ -3457,6 +3470,10 @@ function types.comptimeCall(
 
     local existing = interned(id)
     if existing then
+        local neutral = existing as types.Neutral
+        if helper ~= nil and neutral.comptimeHelper == nil then
+            neutral.comptimeHelper = helper
+        end
         return existing
     end
 
@@ -3683,7 +3700,7 @@ local nominalCounter: integer = 0
 ---
 --- @param name what the declaration called it
 --- @param declKind "record", "interface" or "struct"
-function types.nominal(name: string, declKind: string): types.Nominal
+function types.nominal(name: string, declKind: string, identity: string?): types.Nominal
     nominalCounter = nominalCounter + 1
     local t = new types.Nominal(
         tag = "nominal",
@@ -3694,9 +3711,14 @@ function types.nominal(name: string, declKind: string): types.Nominal
         staticByname = {},
         staticWriteByname = {},
         metamethods = {},
-        nestedTypes = {}
+        nestedTypes = {},
+        declarationKey = identity
     )
-    t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
+    if identity ~= nil and declarationNamespace ~= "" then
+        t.id = "nominal#" .. declarationNamespace .. identity
+    else
+        t.id = "nominal#" .. identityNamespace .. nominalCounter .. "(" .. name .. ")"
+    end
 
     return t
 end
@@ -4128,6 +4150,27 @@ function types.identity(): types.Identity
         capability = nextCapabilityIdentity,
         nominal = nominalCounter,
     }
+end
+
+--- Gives newly allocated checker identities a worker-specific namespace.
+---
+--- Compiler-owned types allocated before this call keep their shared identities.
+--- A worker calls this once before it opens a project environment, so types made by
+--- different workers cannot claim the same process-local serial after transport.
+---
+--- @raises string when the namespace is invalid or changes after being set
+function types.setIdentityNamespace(namespace: string, lane: integer): nil
+    if namespace == "" or lane < 1 or lane > 1000 then
+        error("invalid type identity namespace", 2)
+    end
+    local wanted = "@" .. namespace .. ":"
+    local serialNamespace = wanted .. tostring(lane) .. ":"
+    if identityNamespace ~= "" and identityNamespace ~= serialNamespace then
+        error("type identity namespace already set", 2)
+    end
+    identityNamespace = serialNamespace
+    declarationNamespace = wanted
+    capabilityBase = lane * 1000000000
 end
 
 --- Puts a type into the arena named `bucket` under `key`, unless one is already

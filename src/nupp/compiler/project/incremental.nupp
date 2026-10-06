@@ -117,6 +117,9 @@ record incremental.Inc
     --- Parse and check diagnostics for one file, plus the parse itself.
     checkFile: function(path: string): incremental.CheckResult
 
+    --- Checks a module whose dependencies the caller has already made ready.
+    checkReadyFile: function(path: string): incremental.CheckResult
+
     --- The overlay-aware project declaration and module index.
     projectIndex: function(): any
 
@@ -125,6 +128,9 @@ record incremental.Inc
 
     --- The text one file's parse saw: its open overlay, or disk.
     fileText: function(path: string): string?
+
+    --- The overlay-aware parse used by project headers and semantic checking.
+    parseResult: function(path: string): any?
 
     --- Bytes of a non-module filesystem input observed by a checker query.
     externalFile: function(path: string): string?
@@ -138,6 +144,15 @@ record incremental.Inc
     --- The module names this file requires, sorted. Read from the recorded query edges,
     --- so the build planner need not know how memos are laid out.
     moduleDependencies: function(path: string): {string}
+
+    --- The checked interface a dependency worker needs to consume this module.
+    moduleSemantic: function(name: string, path: string?): any
+
+    --- Installs a checked dependency without checking its source in this session.
+    importModule: function(name: string, semantic: any)
+
+    --- Installs checked dependencies as one query revision.
+    importModules: function(semantics: {[string]: any})
 
     --- Keyed project-index reads made while checking this module. Persisted by the
     --- build so a later process can reuse the module when unrelated declarations move.
@@ -205,6 +220,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local traceInspection = opts.traceInspection == true
     local q = query.new()
     local activeModules = {}
+    local importedModules: {[string]: any} = {}
 
     ---------------------------------------------------------------------
     -- Project files and checkpoints
@@ -639,6 +655,15 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                     if not target or activeModules[target] then
                         return nil
                     end
+                    local imported = importedModules[name]
+                    if imported then
+                        return {
+                            path = target,
+                            compatDiagnostics = imported.diags or {},
+                            source = imported.source,
+                            declarationOnly = target:match("%.d%.nupp$") ~= nil,
+                        }
+                    end
                     local checked = self:get("checkModule", target)
 
                     return {
@@ -653,6 +678,26 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                     local target = modulePath(self, name)
                     local active = target and activeModules[target]
                     return exports or active and active.declared and active.exports or nil
+                end,
+                exportedNominal = function(_, moduleName, typeName)
+                    local imported = importedModules[moduleName]
+                    if imported then
+                        local exports = imported.exports
+                        local exported = exports and exports.types and exports.types[typeName] or nil
+                        if exported and exported.tag == "genericAlias" then
+                            exported = exported.body
+                        end
+                        if exported
+                        and exported.tag == "nominal"
+                        and (exported.declKind == "record" or exported.declKind == "struct")
+                        then
+                            return exported, exports and exports.typeDefs and exports.typeDefs[typeName]
+                        end
+
+                        return nil
+                    end
+
+                    return envMod.exportedNominal(env, moduleName, typeName)
                 end,
                 moduleInitializing = function(_, name)
                     local target = modulePath(self, name)
@@ -762,6 +807,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define(
         "moduleInterface",
         function(self, name)
+            local imported = importedModules[name]
+            if imported then
+                return imported.interface
+            end
             local path = modulePath(self, name)
             if not path then
                 -- project files shadow bundled declarations; see env.resolveModule
@@ -852,6 +901,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define(
         "moduleExports",
         function(self, name)
+            local imported = importedModules[name]
+            if imported then
+                return imported.exports
+            end
             local path = modulePath(self, name)
             if not path then
                 -- Type-side lookups need the bundled declaration's exports just as the
@@ -873,6 +926,12 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         "moduleCallGuarantees",
         function(self, key)
             local module, member = key:match("^([^%z]+)%z(.+)$")
+            local imported = module and importedModules[module] or nil
+            if imported then
+                local importedExports = imported.exports
+                return importedExports and importedExports.callGuarantees and importedExports.callGuarantees[member]
+                or nil
+            end
             local path = module and modulePath(self, module) or nil
             local exports
             if path then
@@ -1098,6 +1157,21 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return q:get("checkModule", path)
     end
 
+    local function apiCheckReadyFile(path: string): incremental.CheckResult
+        -- The ready scheduler enters a component through its public interface, as an
+        -- ordinary require does. Entering through checkModule directly lets a
+        -- re-entrant edge in a require cycle memoize a nil moduleInterface after the
+        -- module itself has finished, and every later dependent then observes
+        -- `unknown`. The outer interface query is what replaces that temporary cycle
+        -- answer with the completed declaration surface.
+        local name = checkedModuleName(path)
+        if name ~= nil then
+            q:get("moduleInterface", name as string)
+        end
+
+        return q:get("checkModule", path)
+    end
+
     local function apiProjectIndex(): any
         return q:get("projectIndex", "root")
     end
@@ -1112,6 +1186,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- shift every offset it computes.
     local function apiFileText(path: string): string?
         return q:get("fileText", path)
+    end
+
+    local function apiParseResult(path: string): any?
+        return q:get("parse", path)
     end
 
     local function apiExternalFile(path: string): string?
@@ -1144,6 +1222,53 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         table.sort(names)
 
         return names
+    end
+
+    local function apiModuleSemantic(name: string, knownPath: string?): any
+        local path = knownPath or modulePath(q, name)
+        local checked = path and q:get("checkModule", path) or nil
+
+        return {
+            interface = checked
+            and {
+                type = checked.moduleType,
+                nominalEffectFingerprint = checked.exports and checked.exports.nominalEffectFingerprint,
+                deriveInterfaceFingerprint = checked.exports and checked.exports.deriveInterfaceFingerprint,
+            }
+            or q:get("moduleInterface", name),
+            exports = checked and checked.exports or q:get("moduleExports", name),
+            diags = checked and checked.diags or {},
+            source = checked and checked.result and checked.result.source or nil,
+        }
+    end
+
+    local function apiImportModules(semantics: {[string]: any}): nil
+        local inputs: {any} = {}
+        for name, semantic in pairs(semantics) do
+            importedModules[name] = semantic
+            inputs[#inputs + 1] = {name = "moduleInterface", key = name, value = semantic.interface}
+            inputs[#inputs + 1] = {name = "moduleExports", key = name, value = semantic.exports}
+            -- These sidecars are derived rather than direct inputs. A memo made while
+            -- the module was local depends on `checkModule`; validating that memo
+            -- after the module becomes imported would pull its source before the
+            -- definition gets a chance to observe `importedModules`.
+            local prefix = name .. "\0"
+            for _, queryName in ipairs({"moduleCallGuarantees", "moduleCallGuarantee"}) do
+                local memo = q.memo[queryName]
+                if memo ~= nil then
+                    for key in pairs(memo) do
+                        if type(key) == "string" and key:sub(1, #prefix) == prefix then
+                            memo[key] = nil
+                        end
+                    end
+                end
+            end
+        end
+        q:setInputs(inputs)
+    end
+
+    local function apiImportModule(name: string, semantic: any): nil
+        apiImportModules({[name] = semantic})
     end
 
     local PROJECT_QUERY = {
@@ -1299,13 +1424,18 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         closeDocument = apiCloseDocument,
         diskChanged = apiDiskChanged,
         checkFile = apiCheckFile,
+        checkReadyFile = apiCheckReadyFile,
         projectIndex = apiProjectIndex,
         projectFiles = apiProjectFiles,
         fileText = apiFileText,
+        parseResult = apiParseResult,
         externalFile = apiExternalFile,
         projectHeader = apiProjectHeader,
         modulePath = apiModulePath,
         moduleDependencies = apiModuleDependencies,
+        moduleSemantic = apiModuleSemantic,
+        importModule = apiImportModule,
+        importModules = apiImportModules,
         projectDependencies = apiProjectDependencies,
         projectDependencyFingerprint = apiProjectDependencyFingerprint,
         projectDependencyPaths = apiProjectDependencyPaths,

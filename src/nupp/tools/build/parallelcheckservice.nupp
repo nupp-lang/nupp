@@ -1,0 +1,63 @@
+@!internal
+
+module nupp.tools.build.parallelcheckservice
+
+--[[
+The persistent child process for cold semantic checking.
+]]
+
+local protocol = require("nupp.tools.build.parallelcheckprotocol")
+local modules = require("nupp.tools.build.modules")
+
+local service = {}
+
+local function response(value: any): string
+    local encoded, answer = pcall(protocol.encode, value)
+    if encoded then
+        return answer
+    end
+
+    return protocol.encode({
+        ok = false,
+        problem = "parallel check worker could not encode its response: " .. tostring(answer)
+    })
+end
+
+function service.main(): integer
+    while true do
+        local header = io.read("*l")
+        if header == nil then
+            break
+        end
+        local length = tonumber(header)
+        local frame = length and length >= 0 and length <= protocol.MAX_FRAME and io.read(length) or nil
+        local request: any? = nil
+        local problem: string? = "invalid parallel check frame"
+        if frame then
+            request, problem = protocol.decode(frame)
+        end
+        local answer: any
+        if request == nil
+            or request.schema ~= 1
+            or type(request.requestId) ~= "number"
+            or request.requestId < 1
+            or request.requestId ~= math.floor(request.requestId)
+            or request.fingerprint ~= protocol.requestFingerprint(request)
+        then
+            answer = {ok = false, problem = "invalid parallel check request: " .. tostring(problem)}
+        else
+            local ok, result = pcall(modules.parallelCheckWorker, request)
+            answer = ok and result or {ok = false, problem = tostring(result)}
+        end
+        answer.schema = 1
+        answer.requestId = request and request.requestId or 0
+        answer.requestFingerprint = request and request.fingerprint or nil
+        local encoded = response(answer)
+        io.write(tostring(#encoded), "\n", encoded)
+        io.stdout:flush()
+    end
+
+    return 0
+end
+
+export = service

@@ -128,6 +128,23 @@ function query.Q:setInput(name: string, key: any, value: any)
     byName[key] = {value = value, changedAt = self.revision}
 end
 
+--- Sets related inputs at one revision.
+---
+--- A semantic interface and its exports are one observation. Installing a dependency
+--- bundle one field at a time made every field invalidate the graph separately even
+--- though no query could run between them.
+function query.Q:setInputs(values: {any})
+    if #values == 0 then
+        return
+    end
+    self.revision = self.revision + 1
+    for _, input in ipairs(values) do
+        local byName = self.inputs[input.name] or {}
+        self.inputs[input.name] = byName
+        byName[input.key] = {value = input.value, changedAt = self.revision}
+    end
+end
+
 --- Removes an overlay, so a derived definition (a disk read, say) takes over again.
 function query.Q:clearInput(name: string, key: any)
     self.revision = self.revision + 1

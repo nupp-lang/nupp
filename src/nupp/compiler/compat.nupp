@@ -316,7 +316,7 @@ local function literalArgument(node: any): any
 end
 
 --- Verify runtime imports even when the caller obtained require through an alias.
-function compat.dependencies(checker: any)
+function compat.dependencies(checker: any, checkSource: function(any, string?, any, any): any)
     if checker.opts.compat ~= "lua51" or checker.declarationFile then
         return
     end
@@ -460,7 +460,7 @@ function compat.dependencies(checker: any)
                                 if #parsed.errors > 0 then
                                     audited[key] = parsed.errors
                                 else
-                                    audited[key] = require("nupp.compiler.check").check(parsed, key, env, {
+                                    audited[key] = checkSource(parsed, key, env, {
                                         compat = "lua51",
                                         moduleName = name,
                                         _compatModules = audited,
@@ -506,7 +506,7 @@ function compat.dependencies(checker: any)
                     local parsed = require("nupp.compiler.syntax.parser").parse(source, name)
                     local diagnostics: any = parsed.errors
                     if #diagnostics == 0 then
-                        diagnostics = require("nupp.compiler.check").check(parsed, name, env, {
+                        diagnostics = checkSource(parsed, name, env, {
                             compat = "lua51",
                             strict = false,
                             _compatLoadDepth = depth + 1,
