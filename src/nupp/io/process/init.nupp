@@ -1217,6 +1217,7 @@ await = function(
     -- What the wait sleeps on, taken afresh before each park: the streams a wait is
     -- interested in change as they end.
     local wanted: shared.Interest? = nil
+    local satisfied = false
 
     -- Built once rather than per pass: this is already the slow path.
     local function subscribe(resume: function(boolean), context: any): function()?
@@ -1225,7 +1226,13 @@ await = function(
             50,
             function(): integer
                 local moved = pumpOnce(self)
-                if ready() or stopAt ~= nil and self.backend:now() >= stopAt or moved > 0 then
+                if ready() then
+                    satisfied = true
+                    resume(true)
+
+                    return 1
+                end
+                if stopAt ~= nil and self.backend:now() >= stopAt or moved > 0 then
                     resume(true)
 
                     return 1
@@ -1259,7 +1266,11 @@ await = function(
             return true
         end
         wanted = interest()
+        satisfied = false
         suspension.suspend(operation, subscribe)
+        if satisfied then
+            return true
+        end
     end
 
     return true

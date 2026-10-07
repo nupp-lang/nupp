@@ -1425,6 +1425,20 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     child:close()
 end
 
+function M.aReadInsideATaskScopeKeepsTheChunkThatWokeIt()
+    local tasks = require("nupp.tasks")
+    local backend = fakeBackend({out = {"first", "second"}, err = {}, outDelay = 2, exitAfter = 8, code = 0})
+    local child = spawnOn(backend, {args = {"slow"}})
+    local scope = tasks.open()
+    local read = scope:spawn(function()
+        return child.stdout:read(65536)
+    end)
+    local chunk = read:await()
+    scope:close()
+    child:close()
+    assertEq(chunk, "first", "the readiness probe's bytes reach the waiting read")
+end
+
 function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     -- The drain loop parks for one pass at a time. A pass that moved nothing used to
     -- resume it at once, so under the built-in driver the loop polled flat out.
