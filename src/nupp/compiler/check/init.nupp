@@ -673,7 +673,13 @@ local function finalizeBoundary(c: state.Checker)
     -- was assigned to it, and the surface is rebuilt from the qualified fields.
     if c.moduleTypeFromFields then
         local fields = {}
-        for name, ft in pairs(c.moduleFields) do
+        local names: {string} = {}
+        for name in pairs(c.moduleFields) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local ft = c.moduleFields[name]
             local qualified = qualifyExport(ft, c.moduleFieldValues[name])
             c.moduleFields[name] = qualified as Type
             -- The export table was filled while the declaration was checked, before
