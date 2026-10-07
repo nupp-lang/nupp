@@ -2159,6 +2159,20 @@ local function unifyConst(param: T.ConstTerm, arg: T.ConstTerm, map: Bindings): 
     end
 end
 
+--- The structures `table` is gradual toward, as `relations` admits it into them. A
+--- `table` argument is evidence for such a parameter the way `any` is: it says
+--- nothing about the binders inside, so each of them is gradual rather than unbound.
+local function tableGradualToward(param: Type): boolean
+    local tag = param.tag
+    return tag == "array"
+        or tag == "map"
+        or tag == "tuple"
+        or tag == "shape"
+        or tag == "metatable"
+        or tag == "typeobject"
+        or tag == "nominal"
+end
+
 function generics.unify(param: Type, arg: Type, map: Bindings): nil
     local originalArg = arg
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
@@ -2177,7 +2191,7 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
     if not T.hasTypevar(param) then
         return
     end
-    if arg == T.any then
+    if arg == T.any or arg == T.table_ and tableGradualToward(param) then
         collectBinders(param, gradualFor(map))
         return
     end
@@ -2219,8 +2233,6 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         local element = sequenceElement(arg)
         if element then
             unifyInvariant(param.elem, element, map)
-        elseif arg == T.table_ then
-            collectBinders(param, gradualFor(map))
         end
     elseif tag == "metatable" then
         -- `metatable<T>` is how a registrar asks for a declaration's own table, so the

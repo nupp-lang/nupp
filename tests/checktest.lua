@@ -2033,6 +2033,58 @@ function M.castsAreTrusted()
     assertClean("local x: number = ('5' as any) as number")
 end
 
+-- `table` is gradual toward table structures, so a call takes it as evidence the
+-- way it takes `any`: the binders a `table` argument meets read as `any` rather
+-- than reporting NUPP2148 for parameters nothing bound.
+function M.tableArgumentIsGradualEvidence()
+    local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+    local env = require("nupp.compiler.project.env").new(here .. "/..")
+    local function strictDiags(source)
+        local result = parser.parse(source, "walk.nupp")
+        assertEq(#result.errors, 0, "syntax errors")
+        local out = {}
+        for j, d in ipairs(check.check(result, "walk.nupp", env)) do
+            out[j] = d.code .. ":" .. d.line .. " " .. d.msg
+        end
+
+        return table.concat(out, "\n")
+    end
+    assertEq(
+        strictDiags(
+            "local m = {}\n"
+                .. "function m.walk(source: table): (string, integer)\n"
+                .. "    for key, value in pairs(source) do\n"
+                .. "        local s: string, n: integer = key, value\n"
+                .. "        return s, n\n"
+                .. "    end\n"
+                .. "    for _, value in ipairs(source) do\n"
+                .. "        local s: string = value\n"
+                .. "        return s, 0\n"
+                .. "    end\n"
+                .. "    return '', 0\n"
+                .. "end\n"
+                .. "return m"
+        ),
+        "",
+        "pairs and ipairs read a table's entries as any"
+    )
+    assertEq(
+        strictDiags(
+            "local m = {}\n"
+                .. "local function firstKey<K, V>(t: {[K]: V}): K?\n    return (next(t))\nend\n"
+                .. "local function pick<T>(t: {value: T}): T\n    return t.value\nend\n"
+                .. "function m.use(source: table): (string?, integer)\n"
+                .. "    local s: string? = firstKey(source)\n"
+                .. "    local n: integer = pick(source)\n"
+                .. "    return s, n\n"
+                .. "end\n"
+                .. "return m"
+        ),
+        "",
+        "a map or shape parameter binds any from a table"
+    )
+end
+
 function M.gradualDefaults()
     -- unannotated and unknown things check silently
     assertClean("print(unknown_global.deep.chain(1, 2))")
