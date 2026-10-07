@@ -184,7 +184,9 @@ Unification makes four decisions a partly inferred call depends on:
 - **An `any` argument does not bind a parameter.** It is gradual evidence, so a
   result using that parameter is `any` deliberately.
 - **A destination can answer an otherwise open result parameter.** In
-  `local value: string = make()`, the destination supplies `string`.
+  `local value: string = make()`, the destination supplies `string`. An
+  annotated binding, an assigned variable or field, a declared result, and a
+  field `new R(field = make())` fills are destinations; an argument is not.
 - **A parameter with no evidence takes its declared default.** An open result
   parameter without a default is an error instead of silently becoming `any`.
 

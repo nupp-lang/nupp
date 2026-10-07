@@ -402,6 +402,32 @@ function M.anUninferredResultParameterIsAnError()
     clean(body .. "local value: string = make()\nreturn value\n")
 end
 
+-- A constructed field is a destination as an assigned one is, so a call filling it
+-- takes a result binder from the field's type. A generic record's field qualifies
+-- once the fields before it have answered the record's own binders.
+function M.aConstructedFieldIsADestination()
+    local body = table.concat(
+        {
+            "local function make<V>(): {V}",
+            "   return {}",
+            "end",
+            "local record Holder",
+            "   items: {integer}",
+            "end",
+            "local record Box<T>",
+            "   default: T",
+            "   items: {T}",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
+    clean(body .. "local holder = new Holder(items = make())\nholder.items = make()\nreturn holder\n")
+    clean(body .. "local box = new Box(default = 1, items = make())\nlocal n: integer = box.items[1] or 0\nreturn n\n")
+    clean(body .. "local box = new Box<string>(default = 'x', items = make())\nreturn box\n")
+    -- a field whose type waits on a later one has nothing settled to offer
+    reports(body .. "local box = new Box(items = make(), default = 1)\nreturn box\n", "NUPP2148")
+end
+
 function M.explicitTypeArgumentsStayFixedAgainstArguments()
     reports(
         table.concat({"local function identity<T>(value: T): T return value end", "return identity<string>(1)",}, "\n"),

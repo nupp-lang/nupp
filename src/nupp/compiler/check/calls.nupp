@@ -1545,6 +1545,25 @@ function calls.install(c: state.Checker): calls.Ops
                 ft = specializeSelf(calleeT, ft, generics.ownInstance(calleeT))
                 bound[fname] = true
                 bindings[#bindings + 1] = {name = fname, node = value}
+                -- A field is a destination the way an assigned one is: `r.f = make()`
+                -- resolves make's result binder from the field, so `new R(f = make())`
+                -- does too. Only once the field's type is settled -- a binder of the
+                -- record nothing has answered yet would hand the call a guess.
+                if value.kind == "call" or value.kind == "safeCall" then
+                    local settled = true
+                    local mentioned = generics.bindersInPack(T.pack({ft}))
+                    for _, binder in ipairs(calleeT.typeParams or {}) do
+                        if mentioned[binder] and (genericMap == nil or genericMap[binder] == nil) then
+                            settled = false
+                        end
+                    end
+                    for _, binder in ipairs(calleeT.packParams or {}) do
+                        settled = settled and not mentioned[binder]
+                    end
+                    if settled and value.expectedResult == nil then
+                        value.expectedResult = genericMap and generics.rebind(ft, genericMap) or ft
+                    end
+                end
                 local vt = c.infer(value)
                 constructionFields[fname] = {node = value, type = vt}
                 local _, regionPath = c.regionOf(value)
