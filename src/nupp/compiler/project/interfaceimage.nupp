@@ -245,7 +245,34 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
             comptimeFunctions = {},
             diags = semantic.diags or {},
             source = semantic.source,
+            annotations = {},
         }
+        -- Only what checking an application reads: the declaration and member
+        -- definitions are navigation, which a worker's check does not do.
+        for _, definition in ipairs(semantic.annotations or {}) do
+            local members: {any} = {}
+            for _, memberName in ipairs(definition.memberOrder or {}) do
+                local member = definition.members[memberName]
+                members[
+                    #members + 1
+                ] = {
+                    name = memberName,
+                    type = addRoot(member.type),
+                    optional = member.optional == true,
+                    reference = member.reference == true,
+                }
+            end
+            entry.annotations[
+                #entry.annotations + 1
+            ] = {
+                name = definition.name,
+                arguments = definition.arguments,
+                targets = definition.targets,
+                members = members,
+                singleValue = definition.singleValue,
+                source = definition.source,
+            }
+        end
         for _, name in ipairs(sortedNames(exports.types)) do
             entry.types[#entry.types + 1] = {name = name, root = addRoot(exports.types[name]),}
         end
@@ -610,6 +637,11 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
         for _, program in ipairs(entry.comptimeFunctions) do
             program.signature = program.signature and tuple.members[program.signature] or nil
             program.deriveInterface = program.deriveInterface and tuple.members[program.deriveInterface] or nil
+        end
+        for _, definition in ipairs(entry.annotations) do
+            for _, member in ipairs(definition.members) do
+                member.type = tuple.members[member.type]
+            end
         end
     end
     local name = arenaName()
@@ -1310,6 +1342,33 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
                 runtimeHelpers = encoded.runtimeHelpers,
             }
         end
+        local annotations: {any} = {}
+        for _, encoded in ipairs(entry.annotations or {}) do
+            local members: {[string]: any} = {}
+            local order: {string} = {}
+            for _, member in ipairs(encoded.members or {}) do
+                members[
+                    member.name
+                ] = {
+                    name = member.name,
+                    type = build(member.type),
+                    optional = member.optional == true,
+                    reference = member.reference == true or nil,
+                }
+                order[#order + 1] = member.name
+            end
+            annotations[
+                #annotations + 1
+            ] = {
+                name = encoded.name,
+                arguments = encoded.arguments,
+                targets = encoded.targets,
+                members = members,
+                memberOrder = order,
+                singleValue = encoded.singleValue,
+                source = encoded.source,
+            }
+        end
         semantics[
             entry.name
         ] = {
@@ -1321,6 +1380,7 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
             exports = exports,
             diags = entry.diags or {},
             source = entry.source,
+            annotations = annotations,
         }
     end
 

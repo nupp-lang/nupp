@@ -97,7 +97,8 @@ type annotations.Registry = {
     get: function(self: any, name: string): any,
     accepts: function(self: any, definition: any, node: any): boolean,
     describeTargets: function(self: any, definition: any): string,
-    removeSource: function(self: any, source: any): nil
+    removeSource: function(self: any, source: any): nil,
+    definedBy: function(self: any, source: any): {any}
 }
 
 local Registry = {}
@@ -181,6 +182,23 @@ function Registry:removeSource(source)
             self.byname[name] = nil
         end
     end
+end
+
+--- The definitions `source` declared, by name.
+function Registry:definedBy(source)
+    local names = {}
+    for name, definition in pairs(self.byname) do
+        if source ~= nil and sameSource(definition.source, source) then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    local out = {}
+    for index, name in ipairs(names) do
+        out[index] = self.byname[name]
+    end
+
+    return out
 end
 
 function Registry:get(name)
@@ -457,6 +475,7 @@ function annotations.new(withBuiltins: boolean?): annotations.Registry
             accepts = Registry.accepts,
             describeTargets = Registry.describeTargets,
             removeSource = Registry.removeSource,
+            definedBy = Registry.definedBy,
         },
         Registry
     )

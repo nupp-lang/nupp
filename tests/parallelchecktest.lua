@@ -328,6 +328,63 @@ return {value = value}
     assert(require("nupp.io.files").remove(directory, true))
 end
 
+-- Checking an `@annotation` declaration registers it with the environment rather
+-- than exporting it. A worker that imports the declaring module instead of checking
+-- it must still know the annotation, or every application it checks is unknown and
+-- the coordinator caches that answer for the next warm check to repeat.
+function M.projectAnnotationsReachEveryWorker()
+    local directory = os.tmpname()
+    os.remove(directory)
+    write(directory .. "/nupp.lua", 'return {include = {"src"}}\n')
+    write(
+        directory .. "/src/lib/ann.nupp",
+        [[
+module lib.ann
+
+@annotation(targets = {"record", "struct"})
+export record tag
+    name: string?
+end
+
+export function noop(): nil
+end
+]]
+    )
+    for index = 1, 6 do
+        write(
+            directory .. ("/src/use%d.nupp"):format(index),
+            ([[
+const ann = require("lib.ann")
+
+@tag(name = "x")
+local record Marked%d
+    value: number = 0
+end
+
+local function make(): number
+    ann.noop()
+    local marked = new Marked%d(value = 1)
+    return marked.value
+end
+
+return {make = make}
+]]):format(index, index)
+        )
+    end
+
+    local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
+    assertEq(serialCode, 0, "serial fixture: " .. json.encode(serialReport.diagnostics))
+    local code, report, state = coldCheck(directory, {NUPP_CHECK_JOBS = "4"})
+    assertEq(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    assertEq(#report.diagnostics, 0, "parallel diagnostics: " .. json.encode(report.diagnostics))
+    assertEq(code, 0, "parallel exit status")
+    assertEq(state, serialState, "parallel check records")
+    local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
+    assertEq(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
+
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     local directory = tempProject(false)
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
