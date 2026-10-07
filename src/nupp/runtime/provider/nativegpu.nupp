@@ -82,35 +82,22 @@ local type KernelView = {
 }
 
 record gpu.Binding is api.Binding
-    @readonly
-    _anchor: any
+    @readonly _anchor: any
 
     --- The kernel's state, which the binding reads but does not own.
-    @readonly
-    _kernel: KernelView
+    @readonly _kernel: KernelView
 
-    @readonly
-    _read: {integer}
-    @readonly
-    _write: {integer}
-    @readonly
-    _readCounts: {integer}
-    @readonly
-    _writeCounts: {integer}
-    @readonly
-    _readOffsets: {integer}
-    @readonly
-    _writeOffsets: {integer}
-    @readonly
-    _bufferStates: {any}
-    @readonly
-    _context: any
-    @readonly
-    _handle: any
-    @readonly
-    _uniformBytes: integer
-    @readonly
-    _readonlyBuffers: integer
+    @readonly _read: {integer}
+    @readonly _write: {integer}
+    @readonly _readCounts: {integer}
+    @readonly _writeCounts: {integer}
+    @readonly _readOffsets: {integer}
+    @readonly _writeOffsets: {integer}
+    @readonly _bufferStates: {any}
+    @readonly _context: any
+    @readonly _handle: any
+    @readonly _uniformBytes: integer
+    @readonly _readonlyBuffers: integer
     _spanCounts: {integer}
     _spanOffsets: {integer}
     _released: boolean
@@ -120,8 +107,7 @@ record gpu.Binding is api.Binding
     close: @nosuspend function(borrows self: gpu.Binding): nil
 
     --- Number of elements dispatched by this binding.
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
     --- span asks for `matchCount`, which holds the buffer to one element per
@@ -674,8 +660,7 @@ function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, un
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end
     local spans = #self._spanCounts
-    @unsafe
-    do
+    @unsafe do
         local words = ffi.cast<uint32[?]>(uniforms)
         words[0] = self.count
         for index = 1, spans do

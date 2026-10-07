@@ -60,33 +60,21 @@ local type KernelView = {
 }
 
 record gpu.Binding is api.Binding
-    @readonly
-    _anchor: any
+    @readonly _anchor: any
 
     --- The kernel's state, which the binding reads but does not own.
-    @readonly
-    _kernel: KernelView
+    @readonly _kernel: KernelView
 
-    @readonly
-    _read: {integer}
-    @readonly
-    _write: {integer}
-    @readonly
-    _readCounts: {integer}
-    @readonly
-    _writeCounts: {integer}
-    @readonly
-    _readOffsets: {integer}
-    @readonly
-    _writeOffsets: {integer}
-    @readonly
-    _bufferStates: {any}
-    @readonly
-    _context: any
-    @readonly
-    _uniformBytes: integer
-    @readonly
-    _readonlyBuffers: integer
+    @readonly _read: {integer}
+    @readonly _write: {integer}
+    @readonly _readCounts: {integer}
+    @readonly _writeCounts: {integer}
+    @readonly _readOffsets: {integer}
+    @readonly _writeOffsets: {integer}
+    @readonly _bufferStates: {any}
+    @readonly _context: any
+    @readonly _uniformBytes: integer
+    @readonly _readonlyBuffers: integer
     _released: boolean
 
     --- Releases the binding's attachments without suspending. The kernel and
@@ -94,8 +82,7 @@ record gpu.Binding is api.Binding
     close: @nosuspend function(borrows self: gpu.Binding): nil
 
     --- Number of elements dispatched by this binding.
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
     --- span asks for `matchCount`, which holds the buffer to one element per

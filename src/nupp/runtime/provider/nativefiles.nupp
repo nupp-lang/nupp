@@ -395,8 +395,7 @@ local function slice(text: string): any
     -- The slice points into the Lua string; every caller hands it to C and returns
     -- while `text` is still a live argument of its own, so the string outlives the
     -- call.
-    @unsafe
-    do
+    @unsafe do
         value.data = text
     end
     value.length = #text
@@ -587,14 +586,10 @@ end
 --- it goes wherever a byte stream does.
 --- @export
 export record File is io.Reader, io.Writer
-    @private
-    _handle: any
-    @private
-    _closed: boolean
-    @private
-    _scratch: any
-    @private
-    _capacity: integer
+    @private _handle: any
+    @private _closed: boolean
+    @private _scratch: any
+    @private _capacity: integer
 
     --- Reads up to `count` bytes at the cursor.
     ---
@@ -866,12 +861,9 @@ end
 --- can take, then put it where it belongs.
 --- @export
 export record TemporaryPath is nupp.Closeable
-    @private
-    _text: string
-    @private
-    _directory: boolean
-    @private
-    _closed: boolean
+    @private _text: string
+    @private _directory: boolean
+    @private _closed: boolean
 
     --- Returns the created path's text.
     --- @param self this temporary path
@@ -974,8 +966,7 @@ local function described(path: string | paths.Path, follow: boolean, level: inte
     -- element handed back: an element is an interior reference that does not anchor
     -- its array, so returning one would let the storage it points into be collected
     -- under the caller.
-    @unsafe
-    do
+    @unsafe do
         found = {
             kind = record[0].kind,
             readOnly = record[0].read_only ~= 0,

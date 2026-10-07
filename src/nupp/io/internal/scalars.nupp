@@ -120,14 +120,10 @@ local taken: function(borrows self: ScalarReader, need: integer): string
 
 --- The storage behind a scalar reader.
 local record Scalars is ScalarReader
-    @private
-    _pending: string
-    @private
-    _reader: any
-    @private
-    _queue: any
-    @private
-    _closed: boolean
+    @private _pending: string
+    @private _reader: any
+    @private _queue: any
+    @private _closed: boolean
     close: @nosuspend function(takes self: Scalars): nil
 
     function remaining(self): integer?
@@ -335,14 +331,10 @@ local put: function(borrows self: ScalarWriter, bytes: string): nil
 
 --- The storage behind a scalar writer.
 local record ScalarSink is ScalarWriter
-    @private
-    _buffer: any
-    @private
-    _writer: any
-    @private
-    _ownsBuffer: boolean
-    @private
-    _closed: boolean
+    @private _buffer: any
+    @private _writer: any
+    @private _ownsBuffer: boolean
+    @private _closed: boolean
     close: @nosuspend function(takes self: ScalarSink): nil
 
     function writeBytes(borrows self, bytes: string): ScalarWriter borrows (self)

@@ -1525,8 +1525,7 @@ local spawnSurface: function<F is workers.Submittable>(
     F,
     ...: unpackof contracts.Submitted(F)
 ): workers.Task<F>
-@unsafe
-do
+@unsafe do
     spawnSurface = spawnImpl as any
 end
 

@@ -32,18 +32,12 @@ export sealed interface Lines is nupp.Closeable
 end
 
 local record LineReader is Lines
-    @private
-    _source: Reader
-    @private
-    _held: string
-    @private
-    _at: integer
-    @private
-    _limit: integer
-    @private
-    _closed: boolean
-    @private
-    _ended: boolean
+    @private _source: Reader
+    @private _held: string
+    @private _at: integer
+    @private _limit: integer
+    @private _closed: boolean
+    @private _ended: boolean
 
     function isReleased(self): boolean
         return self._closed

@@ -1156,8 +1156,7 @@ local forkSurface: function<F is Submittable>(
     ...: unpackof nupp.workers.spi.Submitted(F)
 ): tasks.Task<F> borrows (self)
 local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
-@unsafe
-do
+@unsafe do
     -- `spawnChild` is the ownership implementation boundary: the runtime stores
     -- the transferred body in a coroutine and stores the scope state in the handle.
     -- This contract exposes those two facts to authored code without sending either
@@ -1208,13 +1207,11 @@ end
 --- @return the handle for its result
 --- @raises any the scope's failure
 --- @raises tasks.Cancellation its cancellation, where a deadline passed
-@unsafe
-do
+@unsafe do
     tasks.Scope.spawn = spawnSurface as any
 end
 
-@unsafe
-do
+@unsafe do
     tasks.Scope._spawnNamed = spawnNamedSurface as any
 end
 
@@ -1237,8 +1234,7 @@ end
 --- @return the handle for its result
 --- @raises any the scope's failure
 --- @raises tasks.Cancellation its cancellation, where a deadline passed
-@unsafe
-do
+@unsafe do
     tasks.Scope.fork = forkSurface as any
 end
 
@@ -1260,8 +1256,7 @@ end
 --- ```
 ---
 --- @param reason why, for whoever catches the cancellation
-@unsafe
-do
+@unsafe do
     tasks.Scope.cancel = cancelSurface as any
 end
 
@@ -1525,8 +1520,7 @@ end
 ---
 --- @raises any the first failure a child had
 --- @raises tasks.Cancellation the cancellation a deadline caused
-@unsafe
-do
+@unsafe do
     -- The scope's state outlives the owner this consumes: handles reach it after
     -- close, and closing again is a no-op.
     tasks.Scope.close = function(scope: any): nil
@@ -1712,8 +1706,7 @@ end
 
 local gather: function<T>(scoped bodies: {function(): T}): ({T?}, {any})
     & function<T>(takes bodies: {function(): T}): ({T?}, {any})
-@unsafe
-do
+@unsafe do
     -- Both contracts execute synchronously. The owning arm additionally lets
     -- `gatherImpl` call or drop every affine body exactly once.
     gather = gatherImpl as any
@@ -1790,8 +1783,7 @@ end
 
 local race: function<T>(scoped bodies: {function(): T}): (T?, integer?)
     & function<T>(takes bodies: {function(): T}): (T?, integer?)
-@unsafe
-do
+@unsafe do
     -- Both contracts execute synchronously. The owning arm additionally lets
     -- `raceImpl` call or drop every affine body exactly once.
     race = raceImpl as any

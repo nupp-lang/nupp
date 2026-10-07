@@ -36,12 +36,10 @@ end
 --- Immutable algorithm identity, output metadata, and a factory for fresh state.
 export interface Algorithm
     --- Canonical algorithm name, matching the catalog map key.
-    @readonly
-    name: string
+    @readonly name: string
 
     --- Number of meaningful checksum bits.
-    @readonly
-    width: integer
+    @readonly width: integer
 
     --- Creates independent owned state; self is the retained descriptor.
     create: function(self: Algorithm): State
@@ -49,10 +47,8 @@ end
 
 --- A selectable implementation catalog. Extra descriptor members are permitted.
 export interface Provider
-    @readonly
-    priority: integer?
+    @readonly priority: integer?
 
     --- Canonical names mapped to checked, independent-state factories.
-    @readonly
-    algorithms: {[string]: Algorithm}
+    @readonly algorithms: {[string]: Algorithm}
 end

@@ -27,11 +27,8 @@ local array = {}
 -- Element witnesses name a representation without loading its allocator.
 -- Species queries remain ordinary values even on hosts without native storage.
 record array.Scalar<T>
-    @private
-    _elementType: T?
-    @private
-    @readonly
-    physical: string
+    @private _elementType: T?
+    @private @readonly physical: string
 end
 
 --- A witness for an element the checker admits only in storage positions.
@@ -56,11 +53,8 @@ const array.float = new array.Scalar(_elementType = nil as float, physical = "fl
 const array.number = new array.Scalar(_elementType = nil as number, physical = "number")
 
 record array.Array<T>
-    @private
-    @readonly
-    pointer: T[?]
-    @readonly
-    count: integer
+    @private @readonly pointer: T[?]
+    @readonly count: integer
     read: function(borrows self: Array<T>): Span<T> borrows (self)
     write: function(exclusive self: Array<T>): Writable<T> borrows (self)
 end
@@ -96,11 +90,8 @@ end
 
 --- Owned bytes, with the same checked view vocabulary as scalar arrays.
 record array.Bytes
-    @private
-    @readonly
-    pointer: uint8[?]
-    @readonly
-    count: integer
+    @private @readonly pointer: uint8[?]
+    @readonly count: integer
 
     function read(borrows self): ByteSpan borrows (self)
         return require("nupp.mem.span").fromCarray(self.pointer, self.count)

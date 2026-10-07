@@ -360,20 +360,12 @@ record net.DirectionView is Reader, Writer
     --- The same platform and handle the connection has. Not the connection
     --- itself: a view that held one would own it, and closing the view would
     --- release a socket somebody else is still using.
-    @private
-    @readonly
-    _provider: contract.Provider
+    @private @readonly _provider: contract.Provider
 
-    @private
-    @readonly
-    _handle: any
-    @private
-    @readonly
-    _writing: boolean
-    @private
-    _ended: boolean
-    @private
-    _highWater: integer
+    @private @readonly _handle: any
+    @private @readonly _writing: boolean
+    @private _ended: boolean
+    @private _highWater: integer
 
     --- @raises string when count is not a positive integer
     function read(exclusive self, count: integer): (string?, string?)
@@ -518,16 +510,11 @@ end
 --- borrows this and ends a direction, while `close` here ends the connection.
 --- @export
 record net.Stream is Reader, Writer
-    @private
-    _provider: contract.Provider
-    @private
-    _handle: any
-    @private
-    _closed: boolean
-    @private
-    _shutdown: boolean
-    @private
-    _highWater: integer
+    @private _provider: contract.Provider
+    @private _handle: any
+    @private _closed: boolean
+    @private _shutdown: boolean
+    @private _highWater: integer
 
     --- Whether this side has released the connection.
     function isReleased(self): boolean
@@ -857,14 +844,10 @@ end
 --- A listening socket.
 --- @export
 record net.Listener is nupp.Closeable
-    @private
-    _provider: contract.Provider
-    @private
-    _handle: any
-    @private
-    _closed: boolean
-    @private
-    _highWater: integer
+    @private _provider: contract.Provider
+    @private _handle: any
+    @private _closed: boolean
+    @private _highWater: integer
 
     --- The port this listener actually bound, which is what a caller who asked
     --- for zero needs.
@@ -942,12 +925,9 @@ end
 --- into a run, because the boundaries between them are the protocol.
 --- @export
 record net.Datagram is nupp.Closeable
-    @private
-    _provider: contract.Provider
-    @private
-    _handle: any
-    @private
-    _closed: boolean
+    @private _provider: contract.Provider
+    @private _handle: any
+    @private _closed: boolean
 
     --- The port this socket actually bound.
     function port(self): integer

@@ -128,21 +128,16 @@ local releaseStream: function(borrows stream: process.Reader | process.Writer | 
 --- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
 record process.Reader is Reader2
-    @private
-    owner: any
-    @private
-    handle: any
-    @private
-    closed: boolean
-    @private
-    eof: boolean
+    @private owner: any
+    @private handle: any
+    @private closed: boolean
+    @private eof: boolean
 
     --- Takes what one stream has without waiting, as `poll` answers it: the bytes, or
     --- nil and whether the stream has ended. Shared by every read, so end of stream has
     --- one place that decides it.
     --- @raises string when the provider returns an invalid result
-    @private
-    takeNow: function(self: process.Reader, wanted: integer): (string?, boolean)
+    @private takeNow: function(self: process.Reader, wanted: integer): (string?, boolean)
 
     --- Whether the far end has finished and every byte it sent has been taken, or
     --- this end has been closed. A read answers empty exactly when this is true.
@@ -328,19 +323,15 @@ end
 --- three pipes cannot afford to wait for. The completion-oriented `write` remains the
 --- ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
 record process.Writer is Writer2
-    @private
-    owner: any
-    @private
-    handle: any
-    @private
-    closed: boolean
+    @private owner: any
+    @private handle: any
+    @private closed: boolean
 
     --- Whether the far end has gone, which is not the same as this end being shut.
     --- `closed` means the platform has released this stream; `gone` means nobody is
     --- reading the far end any more. A broken pipe sets only `gone`, because this end
     --- is still ours to close.
-    @private
-    gone: boolean
+    @private gone: boolean
 
     --- Whether the far end has gone, so that no amount of waiting will deliver another
     --- byte, or this end has been closed.
@@ -618,8 +609,7 @@ end
 --- releases every stream, and the same runs when its scope ends. Reading a stream
 --- or waiting for the exit suspends, so a caller under a scheduler keeps its frame.
 record process.Process is nupp.Closeable
-    @private
-    state: Child
+    @private state: Child
 
     --- Operating-system process identifier.
     pid: integer
@@ -845,8 +835,7 @@ record process.Process is nupp.Closeable
     --- could not finish leaves each piece's own flag, and the next call skips whatever
     --- is already given back.
     --- @raises string when closing a stream or releasing the child fails
-    @private
-    teardown: function(self: process.Process): nil
+    @private teardown: function(self: process.Process): nil
 
     --- Closes every stream, ends the child if it is still running, waits for it to
     --- actually finish, and releases it. What runs when the owner leaves its scope.

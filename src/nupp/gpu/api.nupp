@@ -38,80 +38,63 @@ interface gpu.Buffer<T> is nupp.Closeable
     _elementType: Span<T>?
 
     --- Number of logical elements in this buffer or view.
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- Returns the logical shape in elements.
-    @readonly
-    dimensions: function(borrows self: gpu.Buffer<T>): {integer}
+    @readonly dimensions: function(borrows self: gpu.Buffer<T>): {integer}
 
     --- Returns the element strides for the logical view.
-    @readonly
-    strides: function(borrows self: gpu.Buffer<T>): {integer}
+    @readonly strides: function(borrows self: gpu.Buffer<T>): {integer}
 
     --- Creates a context-borrowed view at a zero-based origin with the requested
     --- shape.
-    @readonly
-    subview: function(
+    @readonly subview: function(
         borrows self: gpu.Buffer<T>,
         origin: {integer},
         shape: {integer}
     ): affine(gpu.Buffer<T>) borrows (self)
 
     --- Returns the canonical tensor layout for this view.
-    @readonly
-    layout: function(borrows self: gpu.Buffer<T>): TensorLayout
+    @readonly layout: function(borrows self: gpu.Buffer<T>): TensorLayout
 
     --- Reports whether this buffer or view occupies one dense element range.
-    @readonly
-    isDense: function(borrows self: gpu.Buffer<T>): boolean
+    @readonly isDense: function(borrows self: gpu.Buffer<T>): boolean
 
     --- Reports whether every logical element maps to a distinct storage element.
     --- A false result also covers a stride proof that was inconclusive.
-    @readonly
-    isInjective: function(borrows self: gpu.Buffer<T>): boolean
+    @readonly isInjective: function(borrows self: gpu.Buffer<T>): boolean
 
     --- Creates a view using the supplied checked layout without copying storage.
     --- The layout must fit within the root allocation.
-    @readonly
-    view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (self)
+    @readonly view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (self)
 end
 
 --- Compiled kernel borrowing the context that created it. The generated
 --- kernel wrapper owns one and closes it.
 interface gpu.Kernel
     --- Releases the compiled kernel without suspending.
-    @readonly
-    close: @nosuspend function(borrows self: gpu.Kernel): nil
+    @readonly close: @nosuspend function(borrows self: gpu.Kernel): nil
 end
 
 --- Generated shader representations and their entry point.
 --- At least one supplied representation must be supported by the selected device.
 record gpu.ArtifactSet
     --- Optional SPIR-V artifact bytes.
-    @readonly
-    spirv: string?
+    @readonly spirv: string?
 
     --- Optional WGSL shader source.
-    @readonly
-    wgsl: string?
+    @readonly wgsl: string?
 
     --- Name of the entry point within the supplied artifacts.
-    @readonly
-    entrypoint: string
+    @readonly entrypoint: string
 
     --- Authored kernel identity carried into optional execution cost records.
-    @readonly
-    sourceFile: string?
+    @readonly sourceFile: string?
 
-    @readonly
-    sourceLine: integer?
-    @readonly
-    artifactId: string?
-    @readonly
-    readonlyNames: {string}?
-    @readonly
-    writableNames: {string}?
+    @readonly sourceLine: integer?
+    @readonly artifactId: string?
+    @readonly readonlyNames: {string}?
+    @readonly writableNames: {string}?
 end
 
 --- Bound kernel invocation retaining its context and attached buffers. The
@@ -119,17 +102,14 @@ end
 interface gpu.Binding
     --- Releases the binding's attachments without suspending. The kernel and
     --- buffers it named remain their owners'.
-    @readonly
-    close: @nosuspend function(borrows self: gpu.Binding): nil
+    @readonly close: @nosuspend function(borrows self: gpu.Binding): nil
 
     --- Number of logical elements dispatched.
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- Attaches a same-context buffer to a zero-based read slot.
     --- `matchCount` requires a dense buffer element per dispatched element.
-    @readonly
-    setRead: function<T>(
+    @readonly setRead: function<T>(
         borrows self: gpu.Binding,
         slot: integer,
         borrows buffer: gpu.Buffer<T>,
@@ -138,8 +118,7 @@ interface gpu.Binding
 
     --- Attaches a same-context, injective buffer to a zero-based writable slot.
     --- `matchCount` also requires a dense element per dispatched element.
-    @readonly
-    setWrite: function<T>(
+    @readonly setWrite: function<T>(
         borrows self: gpu.Binding,
         slot: integer,
         borrows buffer: gpu.Buffer<T>,
@@ -147,13 +126,11 @@ interface gpu.Binding
     ): nil
 
     --- Dispatches using the generated scalar uniform words.
-    @readonly
-    dispatchWords: function(borrows self: gpu.Binding, scalars: {uint32}): nil
+    @readonly dispatchWords: function(borrows self: gpu.Binding, scalars: {uint32}): nil
 
     --- Dispatches from the exact packed uniform layout and byte count.
     --- The provider must validate the byte count against the compiled kernel.
-    @readonly
-    dispatchPacked: function(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+    @readonly dispatchPacked: function(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
 end
 
 --- Device operations shared by application and provider contexts.
@@ -162,13 +139,11 @@ interface gpu.Context is nupp.Closeable
     close: @nosuspend function(takes self: gpu.Context): nil
 
     --- Returns a diagnostic name for the selected device implementation.
-    @readonly
-    driver: function(borrows self: gpu.Context): string
+    @readonly driver: function(borrows self: gpu.Context): string
 
     --- Allocates a typed resident device buffer. The element is named by its
     --- array witness, such as `nupp.mem.array.float`, or by a struct declaration.
-    @readonly
-    buffer: function<T>(
+    @readonly buffer: function<T>(
         borrows self: gpu.Context,
         element: Scalar<T> | Type<T>,
         count: integer
@@ -176,36 +151,34 @@ interface gpu.Context is nupp.Closeable
 
     --- Allocates typed storage with the requested logical shape, its element
     --- named as `buffer` names it.
-    @readonly
-    tensor: function<T>(
+    @readonly tensor: function<T>(
         borrows self: gpu.Context,
         element: Scalar<T> | Type<T>,
         shape: {integer}
     ): affine(gpu.Buffer<T>) borrows (self)
 
     --- Copies borrowed host-span data into a same-sized dense buffer or view.
-    @readonly
-    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: Span<T>): nil
+    @readonly upload: function<T>(
+        borrows self: gpu.Context,
+        borrows buffer: gpu.Buffer<T>,
+        borrows source: Span<T>
+    ): nil
 
     --- Queues a dense buffer or view readback for synchronization and reading.
-    @readonly
-    enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    @readonly enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
 
     --- Waits for queued device work and readbacks to complete.
-    @readonly
-    synchronize: function(borrows self: gpu.Context): nil
+    @readonly synchronize: function(borrows self: gpu.Context): nil
 
     --- Copies a synchronized readback into a same-sized exclusive destination.
-    @readonly
-    readDownloaded: function<T>(
+    @readonly readDownloaded: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
         exclusive destination: WriteSpan<T>
     ): nil
 
     --- Queues, synchronizes, and copies a dense readback into the destination.
-    @readonly
-    download: function<T>(
+    @readonly download: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
         exclusive destination: WriteSpan<T>
@@ -217,8 +190,7 @@ interface gpu.KernelContext is gpu.Context
     --- Compiles compatible artifacts with exact read/write slot counts and uniform
     --- size. threads carries the generated workgroup requirement when specified. Reject
     --- unsupported layouts or device limits before returning a kernel.
-    @readonly
-    compileGenerated: function(
+    @readonly compileGenerated: function(
         borrows self: gpu.KernelContext,
         artifacts: gpu.ArtifactSet,
         readonlyBuffers: integer,
@@ -228,8 +200,7 @@ interface gpu.KernelContext is gpu.Context
     ): gpu.Kernel borrows (self)
 
     --- Creates a binding for count elements using this context's live kernel.
-    @readonly
-    bindKernel: function(
+    @readonly bindKernel: function(
         borrows self: gpu.KernelContext,
         borrows kernel: gpu.Kernel,
         count: integer
@@ -237,8 +208,7 @@ interface gpu.KernelContext is gpu.Context
 end
 
 interface gpu.Shared<T>
-    @readonly
-    count: integer
+    @readonly count: integer
 
     metamethod __len: function(borrows self: gpu.Shared<T>): integer
     metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
@@ -248,23 +218,19 @@ end
 interface gpu.Phases
 
     --- Allocates fresh zero-based scratch for this workgroup.
-    @readonly
-    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+    @readonly scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
 
     --- Runs one stage to completion in ascending local-index order.
-    @readonly
-    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+    @readonly run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
 
     --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
     --- tree. The sum is left in element zero.
-    @readonly
-    reduceSum: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+    @readonly reduceSum: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
 
     --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
     --- same-sized scratch array used for disjoint ping-pong stages; the result
     --- is left in `values`.
-    @readonly
-    inclusiveScan: function(
+    @readonly inclusiveScan: function(
         borrows self: gpu.Phases,
         exclusive values: gpu.Shared<uint32>,
         exclusive temporary: gpu.Shared<uint32>

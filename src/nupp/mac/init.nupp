@@ -43,15 +43,12 @@ export type Mac = context.Digest
 --- Immutable MAC metadata and a keyed context factory.
 export record Algorithm
     --- Canonical authentication algorithm name.
-    @readonly
-    name: string
+    @readonly name: string
 
     --- Fixed authentication output size in bytes.
-    @readonly
-    digestSize: integer
+    @readonly digestSize: integer
 
-    @private
-    implementation: provider.Algorithm
+    @private implementation: provider.Algorithm
 
     --- Creates independent owned state initialized with the raw-byte key.
     --- @return the unfinished keyed context

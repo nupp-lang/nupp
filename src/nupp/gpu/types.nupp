@@ -30,28 +30,19 @@ const gpu.PORTABLE_SCRATCH_BYTES = 16384
 --- @export
 record gpu.Buffer<T> is api.Buffer<T>
     _elementType: Span<T>?
-    @readonly
-    _anchor: any
-    @readonly
-    _context: any
-    @readonly
-    _handle: any
-    @readonly
-    _width: integer
-    @readonly
-    _offset: integer
-    @readonly
-    _capacity: integer
-    @readonly
-    _state: {released: boolean}
-    @readonly
-    _root: boolean
+    @readonly _anchor: any
+    @readonly _context: any
+    @readonly _handle: any
+    @readonly _width: integer
+    @readonly _offset: integer
+    @readonly _capacity: integer
+    @readonly _state: {released: boolean}
+    @readonly _root: boolean
     _shape: {integer}
     _strides: {integer}
 
     --- Number of logical elements in this buffer or view.
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- Releases a root buffer's allocation through its context, or ends a
     --- view, without suspending. A buffer whose context already closed has
@@ -94,18 +85,12 @@ end
 --- One compiled compute entry owned by its context.
 --- @internal
 record gpu.Kernel is api.Kernel
-    @readonly
-    _anchor: any
-    @readonly
-    _handle: any
-    @readonly
-    _uniformBytes: integer
-    @readonly
-    _readonlyBuffers: integer
-    @readonly
-    _writableBuffers: integer
-    @readonly
-    _threads: integer
+    @readonly _anchor: any
+    @readonly _handle: any
+    @readonly _uniformBytes: integer
+    @readonly _readonlyBuffers: integer
+    @readonly _writableBuffers: integer
+    @readonly _threads: integer
     _released: boolean
 
     --- Releases the compiled kernel through its context without suspending.
@@ -135,8 +120,7 @@ gpu.ArtifactSet = api.ArtifactSet
 --- @export
 record gpu.Shared<T> is api.Shared<T>
     _values: {T}
-    @readonly
-    count: integer
+    @readonly count: integer
 
     metamethod __len: function(borrows self: gpu.Shared<T>): integer
     metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
@@ -146,8 +130,7 @@ end
 --- The ordered stages and scratch belonging to one workgroup.
 --- @export
 record gpu.Phases is api.Phases
-    @readonly
-    _size: integer
+    @readonly _size: integer
 
     --- Allocates fresh zero-based scratch for this workgroup.
     scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>

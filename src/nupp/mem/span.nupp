@@ -203,8 +203,7 @@ end
 --- @param writable the write range, spent by this call
 --- @export
 function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
-    @nosuspend
-    do
+    @nosuspend do
         local _raw = @unsafe nupp.release(writable)
     end
 end
@@ -237,17 +236,10 @@ end
 
 --- The sole runtime representation of a dynamic shared span.
 local record SpanImpl<T> is span.Span<T>
-    @private
-    @readonly
-    anchor: any
-    @private
-    @readonly
-    pointer: const T[?] borrows (anchor)
-    @private
-    @readonly
-    offset: integer
-    @readonly
-    count: integer
+    @private @readonly anchor: any
+    @private @readonly pointer: const T[?] borrows (anchor)
+    @private @readonly offset: integer
+    @readonly count: integer
 
     --- Returns one element after checking the one-based index.
     --- @raises string when index is not an integer from 1 through count
@@ -255,8 +247,7 @@ local record SpanImpl<T> is span.Span<T>
         if index % 1 ~= 0 or index < 1 or index > self.count then
             error("nupp: span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             return self.pointer[self.offset + index - 1]
         end
     end
@@ -279,8 +270,7 @@ local record SpanImpl<T> is span.Span<T>
 
     --- Exposes the checked range as a const pointer/count pair for a native call.
     function ref(self: SpanImpl<T>): (const T[?] borrows (self), integer)
-        @unsafe
-        do
+        @unsafe do
             if self.offset == 0 then
                 return self.pointer as const T[?], self.count as integer
             end
@@ -299,24 +289,16 @@ end
 
 --- The sole runtime representation of a fixed shared span.
 local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
-    @private
-    @readonly
-    anchor: any
-    @private
-    @readonly
-    pointer: const T[?] borrows (anchor)
-    @private
-    @readonly
-    offset: integer
-    @readonly
-    count: N
+    @private @readonly anchor: any
+    @private @readonly pointer: const T[?] borrows (anchor)
+    @private @readonly offset: integer
+    @readonly count: N
 
     function get(self: FixedSpanImpl<T, N>, index: integer): T
         if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("nupp: span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             return self.pointer[self.offset + index - 1]
         end
     end
@@ -336,8 +318,7 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
     end
 
     function ref(self: FixedSpanImpl<T, N>): (const T[?] borrows (self), integer)
-        @unsafe
-        do
+        @unsafe do
             if self.offset == 0 then
                 return self.pointer as const T[?], self.count as integer
             end
@@ -352,17 +333,13 @@ end
 --- relate to their anchor.
 --- @export
 record span.WriteSplit<T>
-    @private
-    @readonly
-    anchor: any
+    @private @readonly anchor: any
 
     --- The first `mid` elements, writable independently of `right`.
-    @readonly
-    left: span.WriteSpan<T> borrows (anchor)
+    @readonly left: span.WriteSpan<T> borrows (anchor)
 
     --- Everything after them, writable independently of `left`.
-    @readonly
-    right: span.WriteSpan<T> borrows (anchor)
+    @readonly right: span.WriteSpan<T> borrows (anchor)
 end
 
 --- An affine checked write range. Its live token keeps the source under an
@@ -433,17 +410,10 @@ type span.FixedWritable<T, const N: integer> = affine(span.FixedWriteSpan<T, N>,
 
 --- The sole runtime representation of a dynamic writable span.
 local record WriteSpanImpl<T> is span.WriteSpan<T>
-    @private
-    @readonly
-    anchor: any
-    @private
-    @readonly
-    pointer: T[?] borrows (anchor)
-    @private
-    @readonly
-    offset: integer
-    @readonly
-    count: integer
+    @private @readonly anchor: any
+    @private @readonly pointer: T[?] borrows (anchor)
+    @private @readonly offset: integer
+    @readonly count: integer
 
     --- Ends this affine write range. It is also the automatic scope-exit drop.
     drop: @nosuspend function(takes self: WriteSpanImpl<T>): nil
@@ -454,8 +424,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         if index % 1 ~= 0 or index < 1 or index > self.count then
             error("nupp: write span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             local elementOffset = self.offset + index - 1
             local pointer = (self.pointer as T*) + elementOffset
             return borrowFrom(pointer, self)
@@ -468,8 +437,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         if index % 1 ~= 0 or index < 1 or index > self.count then
             error("nupp: write span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             return self.pointer[self.offset + index - 1]
         end
     end
@@ -478,16 +446,14 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         if index % 1 ~= 0 or index < 1 or index > self.count then
             error("nupp: write span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             self.pointer[self.offset + index - 1] = value
         end
     end
 
     --- Exposes the checked range as a mutable pointer/count pair for a native call.
     function ref(exclusive self: WriteSpanImpl<T>): (T[?] borrows (self), integer)
-        @unsafe
-        do
+        @unsafe do
             if self.offset == 0 then
                 return self.pointer as T[?], self.count as integer
             end
@@ -528,8 +494,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         if mid % 1 ~= 0 or mid < 0 or mid > self.count then
             error("nupp: write span split point out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             local left, right = nupp.partition(
                 self,
                 new WriteSpanImpl(
@@ -553,17 +518,10 @@ end
 
 --- The sole runtime representation of a fixed writable span.
 local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N>
-    @private
-    @readonly
-    anchor: any
-    @private
-    @readonly
-    pointer: T[?] borrows (anchor)
-    @private
-    @readonly
-    offset: integer
-    @readonly
-    count: N
+    @private @readonly anchor: any
+    @private @readonly pointer: T[?] borrows (anchor)
+    @private @readonly offset: integer
+    @readonly count: N
 
     drop: @nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
@@ -571,8 +529,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("nupp: write span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             local elementOffset = self.offset + index - 1
             local pointer = (self.pointer as T*) + elementOffset
             return borrowFrom(pointer, self)
@@ -585,8 +542,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("nupp: write span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             return self.pointer[self.offset + index - 1]
         end
     end
@@ -595,15 +551,13 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         if index % 1 ~= 0 or index < 1 or index > (self.count as integer) then
             error("nupp: write span index out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             self.pointer[self.offset + index - 1] = value
         end
     end
 
     function ref(exclusive self: FixedWriteSpanImpl<T, N>): (T[?] borrows (self), integer)
-        @unsafe
-        do
+        @unsafe do
             if self.offset == 0 then
                 return self.pointer as T[?], self.count as integer
             end
@@ -643,8 +597,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         if mid % 1 ~= 0 or mid < 0 or mid > (self.count as integer) then
             error("nupp: write span split point out of bounds", 2)
         end
-        @unsafe
-        do
+        @unsafe do
             local left, right = nupp.partition(
                 self,
                 new WriteSpanImpl(
@@ -666,15 +619,13 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
 end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
-    @nosuspend
-    do
+    @nosuspend do
         local _raw = @unsafe nupp.release(self)
     end
 end
 
 function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
-    @nosuspend
-    do
+    @nosuspend do
         local _raw = @unsafe nupp.release(self)
     end
 end
@@ -723,8 +674,7 @@ local function foreignSpan<T>(
     count: integer,
     element: ctype<T>
 ): span.Span<T>
-    @unsafe
-    do
+    @unsafe do
         local typed = physical.castElements(element, pointer)
         return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<T>
     end

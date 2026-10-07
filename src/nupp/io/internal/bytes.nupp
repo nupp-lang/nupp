@@ -257,10 +257,8 @@ local newView: function(bytes: string): affine(ByteView)
 ----------------------------------------------------------------------------
 
 local record Snapshot is ByteView
-    @private
-    _bytes: string
-    @private
-    _closed: boolean
+    @private _bytes: string
+    @private _closed: boolean
 
     close: @nosuspend function(takes self: Snapshot): nil
 
@@ -335,14 +333,10 @@ local newWriteLease: function(
 ): affine(BufferWriteLease, destroyLease) borrows (buffer)
 
 local record HeapBuffer is Buffer
-    @private
-    _data: uint8[?]
-    @private
-    _length: integer
-    @private
-    _capacity: integer
-    @private
-    _closed: boolean
+    @private _data: uint8[?]
+    @private _length: integer
+    @private _capacity: integer
+    @private _closed: boolean
 
     close: @nosuspend function(takes self: HeapBuffer): nil
 
@@ -371,8 +365,7 @@ local record HeapBuffer is Buffer
         local wanted = integer_(length, "io.Buffer length", 2)
         if wanted > self._length then
             reserve(self, wanted)
-            @unsafe
-            do
+            @unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.fill((root as uint8*) + self._length, wanted - self._length, 0)
             end
@@ -395,15 +388,13 @@ local record HeapBuffer is Buffer
         local ending = sizeSum(from, #bytes, "io.Buffer range", 2)
         reserve(self, ending)
         if from > self._length then
-            @unsafe
-            do
+            @unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.fill((root as uint8*) + self._length, from - self._length, 0)
             end
         end
         if #bytes > 0 then
-            @unsafe
-            do
+            @unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.copy((root as uint8*) + from, bytes, #bytes)
             end
@@ -454,21 +445,11 @@ local record HeapBuffer is Buffer
 end
 
 local record WriteLease is BufferWriteLease
-    @private
-    @readonly
-    anchor: any
-    @private
-    @readonly
-    state: any
-    @private
-    @readonly
-    pointer: uint8[?]
-    @private
-    @readonly
-    offset: integer
-    @private
-    @readonly
-    count: integer
+    @private @readonly anchor: any
+    @private @readonly state: any
+    @private @readonly pointer: uint8[?]
+    @private @readonly offset: integer
+    @private @readonly count: integer
 
     drop: @nosuspend function(takes self: WriteLease): nil
 
@@ -486,8 +467,7 @@ local record WriteLease is BufferWriteLease
         opened(target._closed, "io.Buffer", 2)
         if used > 0 then
             if raw.offset > target._length then
-                @unsafe
-                do
+                @unsafe do
                     local root = borrowFrom(target._data as voidptr, target)
                     physical.fill(
                         (root as uint8*) + (target._length as integer),
@@ -524,16 +504,10 @@ local record BufferWriter is Writer
     --- Spends the writer; defined after the record, so `close` can reach it.
     drop: function(takes self: BufferWriter): nil
 
-    @private
-    @readonly
-    anchor: any
-    @private
-    @readonly
-    _buffer: any
-    @private
-    _at: integer
-    @private
-    _closed: boolean
+    @private @readonly anchor: any
+    @private @readonly _buffer: any
+    @private _at: integer
+    @private _closed: boolean
 
     --- Appends bytes.
     --- @param self this writer
@@ -624,8 +598,7 @@ local function copyString(
     count: integer
 ): nil
     local pointer = destination:ref()
-    @unsafe
-    do
+    @unsafe do
         local source = physical.borrowString(bytes)
         physical.copy(pointer, (source as const uint8*) + offset, count)
     end
@@ -864,8 +837,7 @@ function HeapBuffer.close(takes self: HeapBuffer): nil
 end
 
 function WriteLease.drop(takes self: WriteLease): nil
-    @nosuspend
-    do
+    @nosuspend do
         local _raw = @unsafe nupp.release(self)
     end
 end

@@ -80,12 +80,9 @@ local sharedbytes = {}
 --- moves a reference, never the bytes; reading happens in place through a
 --- borrowed byte view, and `toString` is the one explicit copy into a Lua state.
 record sharedbytes.Region
-    @private
-    _handle: any
-    @private
-    _first: integer
-    @private
-    _length: integer
+    @private _handle: any
+    @private _first: integer
+    @private _length: integer
 
     --- How many bytes the region holds.
     length: @nosuspend function(sharedbytes.Region): integer
@@ -164,8 +161,7 @@ function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
     end
 
     local bytes = ffi.cast<uint8*>(pointer)
-    @unsafe
-    do
+    @unsafe do
         local start = borrowFrom((bytes + byteOffset) as voidptr, self)
         return foreignSpan(self, start, 0, self._length // width, element)
     end
@@ -214,8 +210,7 @@ end
 
 --- A growable engine allocation that becomes a region when frozen.
 record sharedbytes.Builder is sharedbytes.BuilderToken
-    @private
-    _handle: any
+    @private _handle: any
 
     --- Appends the chunk's bytes to the builder's storage.
     append: @nosuspend function(sharedbytes.Builder, string): nil

@@ -20,17 +20,14 @@ The facade exports the retained open function directly.
 local types = require("nupp.gpu.api")
 
 export interface Provider
-    @readonly
-    priority: integer?
+    @readonly priority: integer?
 
     --- Reports whether `open` can answer a device now, without raising.
-    @readonly
-    available: function(): boolean
+    @readonly available: function(): boolean
 
     --- Opens an owned, closeable device context.
     --- Raises if the host cannot provide a compatible device.
-    @readonly
-    open: function(): types.KernelContext
+    @readonly open: function(): types.KernelContext
 end
 
 --- Complete shared context protocol, including generated-kernel operations.

@@ -192,8 +192,7 @@ export type JSONEncodable = contracts.JSONEncodable
 export type Writer = contracts.Writer
 
 local record WriterImpl is Writer
-    @private
-    raw: any
+    @private raw: any
 
     function startArray(exclusive self): Writer borrows (self)
         self.raw:startArray()

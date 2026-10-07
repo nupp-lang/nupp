@@ -44,8 +44,7 @@ cdef function free(takes pointer: voidptr)
 local free_nosuspend = free as @nosuspend function(takes pointer: voidptr): nil
 
 local function finish_array(takes self: any): nil
-    @nosuspend
-    do
+    @nosuspend do
         local raw = @unsafe nupp.release(self)
         local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
         -- The husk outlives the free wherever a dynamic reference still sees
@@ -76,12 +75,10 @@ end
 --- from its pointer in checked code.
 --- @export
 record heap.Array<T> is heap.ArrayToken
-    @private
-    pointer: T[?]
+    @private pointer: T[?]
 
     --- How many elements the allocation holds.
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- Frees the allocation. `nupp.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
@@ -154,8 +151,7 @@ function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<
     -- records the relationship already established by the ctype<T> argument.
     local pointerSpec = "$ *"
     local pointerType = ffi.typeof(pointerSpec, element)
-    @unsafe
-    do
+    @unsafe do
         local pointer = ffi.cast(pointerType, raw) as T[?]
         local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
         return array
@@ -185,8 +181,7 @@ local POINTER_SIZE = ffi.sizeof("void *") as integer
 local getmetatable_nosuspend = getmetatable as @nosuspend function(any): any
 local movedProbe = heap.allocate(ffi.typeof<int32>(), 0)
 local arrayMetatable: any = nil
-@nosuspend
-do
+@nosuspend do
     local raw = @unsafe nupp.release(movedProbe)
     arrayMetatable = getmetatable_nosuspend(raw)
     local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
@@ -238,8 +233,7 @@ rawset(heap as table, "__heapArrayFree", function(pointer: any): nil
     if type(pointer) == "string" then
         raw = (ffi.cast("void * const *", pointer) as any)[0]
     end
-    @nosuspend
-    do
+    @nosuspend do
         local owned = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>((ffi.cast("void *", raw)))
         free_nosuspend(owned)
     end

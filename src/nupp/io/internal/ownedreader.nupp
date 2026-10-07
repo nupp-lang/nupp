@@ -14,14 +14,10 @@ local DEFAULT_READ = 65536
 -- A completed host transfer can give its allocation to a reader directly.
 -- Unlike Buffer:newReader's snapshot, this consumes the owner and copies no bytes.
 local record MemoryReader is Reader
-    @private
-    _data: uint8[?]
-    @private
-    _length: integer
-    @private
-    _at: integer
-    @private
-    _closed: boolean
+    @private _data: uint8[?]
+    @private _length: integer
+    @private _at: integer
+    @private _closed: boolean
 
     function read(exclusive self, count: integer): (string?, string?)
         if self._closed then
@@ -30,8 +26,7 @@ local record MemoryReader is Reader
         local wanted = positive(count, "Reader:read count", 2)
         local taking = math.min(wanted, self._length - self._at) as integer
         local bytes: string
-        @unsafe
-        do
+        @unsafe do
             local root = borrowFrom(self._data as voidptr, self)
             bytes = physical.string((root as uint8*) + self._at, taking)
         end
@@ -51,8 +46,7 @@ local record MemoryReader is Reader
         end
         local taking = math.min(wanted, self._length - self._at) as integer
         local pointer = destination:ref()
-        @unsafe
-        do
+        @unsafe do
             local root = borrowFrom(self._data as voidptr, self)
             physical.copy(pointer, (root as uint8*) + self._at, taking)
         end

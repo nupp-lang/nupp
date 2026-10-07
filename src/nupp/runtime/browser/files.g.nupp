@@ -271,10 +271,8 @@ function files.glob(pattern: string): (nil, string?)
 end
 
 local record File is io.Reader, io.Writer
-    @private
-    _handle: integer
-    @private
-    _closed: boolean
+    @private _handle: integer
+    @private _closed: boolean
 
     function read(exclusive self, count: integer): (string?, string?)
         if self._closed then

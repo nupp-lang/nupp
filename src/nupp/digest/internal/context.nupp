@@ -56,12 +56,9 @@ local record StateOwner is nupp.Closeable
 end
 
 local record Context is Digest
-    @private
-    state: affine(provider.State)
-    @private
-    name: string
-    @private
-    size: integer
+    @private state: affine(provider.State)
+    @private name: string
+    @private size: integer
 
     function close(takes self): nil
         self.state:close()

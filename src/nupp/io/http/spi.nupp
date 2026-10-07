@@ -27,64 +27,50 @@ export type Body = ResponseBody
 
 export interface Response is nupp.Closeable
     --- HTTP response status code.
-    @readonly
-    status: integer
+    @readonly status: integer
 
     --- Observed protocol version, absent when the host cannot expose it.
-    @readonly
-    version: Version?
+    @readonly version: Version?
 
     --- Canonical final response URI, including completed redirects.
-    @readonly
-    url: URI
+    @readonly url: URI
 
     --- Owned response reader whose lifetime is governed by the response.
-    @readonly
-    body: Body
+    @readonly body: Body
 
     --- Reports whether the status is in the successful 2xx range.
-    @readonly
-    ok: function(self: Response): boolean
+    @readonly ok: function(self: Response): boolean
 
     --- Returns one header value by case-insensitive name, or nil if absent.
-    @readonly
-    header: function(self: Response, name: string): string?
+    @readonly header: function(self: Response, name: string): string?
 
     --- Returns all values for a case-insensitive header name.
-    @readonly
-    headerValues: function(self: Response, name: string): {string}
+    @readonly headerValues: function(self: Response, name: string): {string}
 
     --- Returns a fresh response header mapping keyed by lowercase name.
     --- Repeated values are joined with `, ` except `set-cookie`, whose first value
     --- is returned; use `headerValues` to preserve every value.
-    @readonly
-    headers: function(self: Response): {[string]: string}
+    @readonly headers: function(self: Response): {[string]: string}
 end
 
 export interface Client is nupp.Closeable
     --- Services outstanding client work, waiting up to the given milliseconds
     --- for some of it to move, while holding exclusive client access.
-    @readonly
-    pump: function(exclusive self: Client, timeoutMs: integer?): nil
+    @readonly pump: function(exclusive self: Client, timeoutMs: integer?): nil
 
     --- Returns the number of outstanding requests or transfers.
-    @readonly
-    pending: function(self: Client): integer
+    @readonly pending: function(self: Client): integer
 
     --- Borrows the Request while sending and returns an owned Response or an error.
-    @readonly
-    send: function(self: Client, borrows request: Request): (Response?, Error?)
+    @readonly send: function(self: Client, borrows request: Request): (Response?, Error?)
 end
 
 export interface Provider
-    @readonly
-    priority: integer?
+    @readonly priority: integer?
 
     --- Constructs an owned client with the requested transport policy.
-    @readonly
-    newClient: function(options: Options?): Client
+    @readonly newClient: function(options: Options?): Client
 
     --- Reports the guarantees this implementation actually provides.
-    @readonly
-    capabilities: function(): Capabilities
+    @readonly capabilities: function(): Capabilities
 end

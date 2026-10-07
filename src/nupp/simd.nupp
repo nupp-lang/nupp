@@ -72,12 +72,10 @@ local simd = {}
 --- @export
 interface simd.Reducer<T>
     --- Contributes to the reduction; the concrete reducer states its parameters.
-    @readonly
-    add: function(self: simd.Reducer<T>, value: never, ...: never): nil
+    @readonly add: function(self: simd.Reducer<T>, value: never, ...: never): nil
 
     --- Answers the finished reduction.
-    @readonly
-    value: function(self: simd.Reducer<T>): T
+    @readonly value: function(self: simd.Reducer<T>): T
 end
 
 --- `T` itself, written where an argument should not decide what `T` is: an
@@ -147,8 +145,7 @@ local reducer: {
 --- A floating-point sum committed in logical iteration order.
 --- @export
 record simd.OrderedSum is simd.Reducer<number>
-    @private
-    total: number
+    @private total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -170,10 +167,8 @@ end
 --- A floating-point sum using the width-independent adjacent-pair tree.
 --- @export
 record simd.PairwiseSum is simd.Reducer<number>
-    @private
-    partials: {number?}
-    @private
-    count: integer
+    @private partials: {number?}
+    @private count: integer
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -227,8 +222,7 @@ end
 --- a left fold. Native lowering may use several accumulators.
 --- @export
 record simd.AlgebraicSum is simd.Reducer<number>
-    @private
-    total: number
+    @private total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -265,10 +259,8 @@ end
 --- not lose its correction, which is the case plain Kahan gets wrong.
 --- @export
 record simd.CompensatedSum is simd.Reducer<number>
-    @private
-    total: number
-    @private
-    compensation: number
+    @private total: number
+    @private compensation: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -296,8 +288,7 @@ end
 --- A floating-point product committed in logical iteration order.
 --- @export
 record simd.OrderedProduct is simd.Reducer<number>
-    @private
-    total: number
+    @private total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -319,10 +310,8 @@ end
 --- A floating-point product using the width-independent adjacent-pair tree.
 --- @export
 record simd.PairwiseProduct is simd.Reducer<number>
-    @private
-    partials: {number?}
-    @private
-    count: integer
+    @private partials: {number?}
+    @private count: integer
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -373,8 +362,7 @@ end
 --- A floating-point product whose named contract permits reassociation.
 --- @export
 record simd.AlgebraicProduct is simd.Reducer<number>
-    @private
-    total: number
+    @private total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -396,8 +384,7 @@ end
 --- A dot product committed in logical iteration order without contraction.
 --- @export
 record simd.OrderedDot is simd.Reducer<number>
-    @private
-    total: number
+    @private total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -424,8 +411,7 @@ end
 --- A non-contracting dot product using the adjacent-pair sum tree.
 --- @export
 record simd.PairwiseDot is simd.Reducer<number>
-    @private
-    sum: simd.PairwiseSum
+    @private sum: simd.PairwiseSum
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -452,8 +438,7 @@ end
 --- A dot product permitting reassociation and multiply-add contraction.
 --- @export
 record simd.AlgebraicDot is simd.Reducer<number>
-    @private
-    total: number
+    @private total: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -548,10 +533,8 @@ end
 --- to i32 or u32; i64 and u64 never pass through a Lua double.
 --- @export
 record simd.WrappingSum<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    total: T
-    @private
-    operation: function(T, T): T
+    @private total: T
+    @private operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -572,10 +555,8 @@ end
 
 --- @export
 record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    total: T
-    @private
-    operation: function(T, T): T
+    @private total: T
+    @private operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -596,10 +577,8 @@ end
 
 --- @export
 record simd.AndBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    total: T
-    @private
-    operation: function(T, T): T
+    @private total: T
+    @private operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -620,10 +599,8 @@ end
 
 --- @export
 record simd.OrBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    total: T
-    @private
-    operation: function(T, T): T
+    @private total: T
+    @private operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -644,10 +621,8 @@ end
 
 --- @export
 record simd.XorBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    total: T
-    @private
-    operation: function(T, T): T
+    @private total: T
+    @private operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -814,8 +789,7 @@ end
 --- Whether any contribution is true; false for an empty loop.
 --- @export
 record simd.Any is simd.Reducer<boolean>
-    @private
-    total: boolean
+    @private total: boolean
 
     function add(self, value: boolean): nil
         self.total = self.total or value
@@ -835,8 +809,7 @@ end
 --- Whether every contribution is true; true for an empty loop.
 --- @export
 record simd.All is simd.Reducer<boolean>
-    @private
-    total: boolean
+    @private total: boolean
 
     function add(self, value: boolean): nil
         self.total = self.total and value
@@ -856,8 +829,7 @@ end
 --- Counts true contributions exactly, modulo 2^64.
 --- @export
 record simd.Count is simd.Reducer<uint64>
-    @private
-    total: uint64
+    @private total: uint64
 
     function add(self, value: boolean): nil
         self.total = self.total + (value and 1ULL or 0ULL)
@@ -881,8 +853,7 @@ end
 --- An integer extremum including its initial value.
 --- @export
 record simd.IntegerMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    best: T
+    @private best: T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -916,12 +887,9 @@ end
 --- First one-based logical position of the integer extremum; zero when empty.
 --- @export
 record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64> is simd.Reducer<integer>
-    @private
-    best: T?
-    @private
-    position: integer
-    @private
-    count: integer
+    @private best: T?
+    @private position: integer
+    @private count: integer
 
     function add(self, value: T): nil
         self.count = self.count + 1
@@ -946,8 +914,7 @@ end
 --- An integer extremum including its initial value.
 --- @export
 record simd.IntegerMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
-    @private
-    best: T
+    @private best: T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -981,12 +948,9 @@ end
 --- First one-based logical position of the integer extremum; zero when empty.
 --- @export
 record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64> is simd.Reducer<integer>
-    @private
-    best: T?
-    @private
-    position: integer
-    @private
-    count: integer
+    @private best: T?
+    @private position: integer
+    @private count: integer
 
     function add(self, value: T): nil
         self.count = self.count + 1
@@ -1028,8 +992,7 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingMin is simd.Reducer<number>
-    @private
-    best: number
+    @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1060,12 +1023,9 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingArgMin is simd.Reducer<integer>
-    @private
-    best: number
-    @private
-    position: integer
-    @private
-    count: integer
+    @private best: number
+    @private position: integer
+    @private count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1090,8 +1050,7 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingMax is simd.Reducer<number>
-    @private
-    best: number
+    @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1122,12 +1081,9 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingArgMax is simd.Reducer<integer>
-    @private
-    best: number
-    @private
-    position: integer
-    @private
-    count: integer
+    @private best: number
+    @private position: integer
+    @private count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1152,8 +1108,7 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberMin is simd.Reducer<number>
-    @private
-    best: number
+    @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1184,12 +1139,9 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberArgMin is simd.Reducer<integer>
-    @private
-    best: number
-    @private
-    position: integer
-    @private
-    count: integer
+    @private best: number
+    @private position: integer
+    @private count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1214,8 +1166,7 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberMax is simd.Reducer<number>
-    @private
-    best: number
+    @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1246,12 +1197,9 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberArgMax is simd.Reducer<integer>
-    @private
-    best: number
-    @private
-    position: integer
-    @private
-    count: integer
+    @private best: number
+    @private position: integer
+    @private count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1426,8 +1374,7 @@ end
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.
 --- @export
 sealed interface simd.Species<T, S>
-    @readonly
-    lanes: uint32
+    @readonly lanes: uint32
 
     --- Converts each lane using LuaJIT FFI numeric conversion rules. Integer
     --- narrowing keeps low bits; float-to-integer truncates through int64,

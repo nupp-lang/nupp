@@ -72,8 +72,7 @@ end
 --- Immutable format identity and state factories.
 export interface Format
     --- Canonical format name, matching the catalog map key.
-    @readonly
-    name: string
+    @readonly name: string
 
     --- Creates independent encoder state for checked format options.
     createEncoder: function(self: Format, options: FormatOptions?): Encoder
@@ -84,10 +83,8 @@ end
 
 --- A selectable implementation catalog.
 export interface Provider
-    @readonly
-    priority: integer?
+    @readonly priority: integer?
 
     --- Canonical names mapped to checked, independent-state factories.
-    @readonly
-    formats: {[string]: Format}
+    @readonly formats: {[string]: Format}
 end

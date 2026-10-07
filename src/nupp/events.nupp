@@ -241,29 +241,19 @@ end
 --- pays for the observers it has and not for the entities it could have.
 --- @export
 record events.Observers<A>
-    @private
-    byAddress: {[A]: {[integer]: any}}
+    @private byAddress: {[A]: {[integer]: any}}
 
     --- How many registrations are live across every address.
-    @readonly
-    count: integer
+    @readonly count: integer
 
-    @private
-    depth: integer
-    @private
-    pending: boolean
-    @private
-    dirty: {[A]: boolean}
-    @private
-    detached: {any}
-    @private
-    freeLists: {any}
-    @private
-    freeMaps: {any}
-    @private
-    allocators: {[integer]: any}
-    @private
-    ownedArenas: {any}
+    @private depth: integer
+    @private pending: boolean
+    @private dirty: {[A]: boolean}
+    @private detached: {any}
+    @private freeLists: {any}
+    @private freeMaps: {any}
+    @private allocators: {[integer]: any}
+    @private ownedArenas: {any}
 end
 
 --- Empty observer state for a new source.

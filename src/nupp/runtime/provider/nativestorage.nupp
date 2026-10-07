@@ -54,8 +54,7 @@ end
 
 export function decodeUint8(bytes: string): uint32
     local holder = ffi.new<uint8[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 1)
         return holder[0]
     end
@@ -63,8 +62,7 @@ end
 
 export function encodeUint8(value: uint32): string
     local holder = ffi.new<uint8[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -73,8 +71,7 @@ end
 
 export function decodeInt8(bytes: string): int32
     local holder = ffi.new<int8[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 1)
         return holder[0]
     end
@@ -82,8 +79,7 @@ end
 
 export function encodeInt8(value: int32): string
     local holder = ffi.new<int8[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -92,8 +88,7 @@ end
 
 export function decodeUint16(bytes: string): uint32
     local holder = ffi.new<uint16[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 2)
         return holder[0]
     end
@@ -101,8 +96,7 @@ end
 
 export function encodeUint16(value: uint32): string
     local holder = ffi.new<uint16[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -111,8 +105,7 @@ end
 
 export function decodeInt16(bytes: string): int32
     local holder = ffi.new<int16[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 2)
         return holder[0]
     end
@@ -120,8 +113,7 @@ end
 
 export function encodeInt16(value: int32): string
     local holder = ffi.new<int16[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -130,8 +122,7 @@ end
 
 export function decodeUint32(bytes: string): uint32
     local holder = ffi.new<uint32[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 4)
         return holder[0]
     end
@@ -139,8 +130,7 @@ end
 
 export function encodeUint32(value: uint32): string
     local holder = ffi.new<uint32[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -149,8 +139,7 @@ end
 
 export function decodeInt32(bytes: string): int32
     local holder = ffi.new<int32[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 4)
         return holder[0]
     end
@@ -158,8 +147,7 @@ end
 
 export function encodeInt32(value: int32): string
     local holder = ffi.new<int32[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -168,8 +156,7 @@ end
 
 export function decodeUint64(bytes: string): uint64
     local holder = ffi.new<uint64[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 8)
         return holder[0]
     end
@@ -177,8 +164,7 @@ end
 
 export function encodeUint64(value: uint64): string
     local holder = ffi.new<uint64[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -187,8 +173,7 @@ end
 
 export function decodeInt64(bytes: string): int64
     local holder = ffi.new<int64[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 8)
         return holder[0]
     end
@@ -196,8 +181,7 @@ end
 
 export function encodeInt64(value: int64): string
     local holder = ffi.new<int64[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -206,8 +190,7 @@ end
 
 export function decodeFloat32(bytes: string): float
     local holder = ffi.new<float[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 4)
         return holder[0]
     end
@@ -215,8 +198,7 @@ end
 
 export function encodeFloat32(value: number): string
     local holder = ffi.new<float[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -225,8 +207,7 @@ end
 
 export function decodeFloat64(bytes: string): number
     local holder = ffi.new<number[1]>()
-    @unsafe
-    do
+    @unsafe do
         ffi.copy(holder, bytes, 8)
         return holder[0]
     end
@@ -234,8 +215,7 @@ end
 
 export function encodeFloat64(value: number): string
     local holder = ffi.new<number[1]>()
-    @unsafe
-    do
+    @unsafe do
         holder[0] = value
     end
 
@@ -249,8 +229,7 @@ end
 export function castElements<T>(element: ctype<T>, pointer: any): any
     local pointerSpec = "const $ *"
     local pointerType = ffi.typeof(pointerSpec, element)
-    @unsafe
-    do
+    @unsafe do
         return ffi.cast(pointerType, pointer) as T[?]
     end
 end

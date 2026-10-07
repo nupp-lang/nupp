@@ -35,25 +35,14 @@ local function copied(values: {integer}): {integer}
 end
 
 record layout.Layout
-    @private
-    @readonly
-    _offset: integer
-    @private
-    _shape: {integer}
-    @private
-    _strides: {integer}
-    @private
-    @readonly
-    _extent: integer
-    @private
-    @readonly
-    _dense: boolean
-    @private
-    @readonly
-    _injective: boolean
+    @private @readonly _offset: integer
+    @private _shape: {integer}
+    @private _strides: {integer}
+    @private @readonly _extent: integer
+    @private @readonly _dense: boolean
+    @private @readonly _injective: boolean
 
-    @readonly
-    count: integer
+    @readonly count: integer
 
     --- The element offset of the layout's first element.
     function offset(borrows self): integer

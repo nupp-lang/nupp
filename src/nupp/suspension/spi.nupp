@@ -154,13 +154,11 @@ export type Suspend = function<T>(operation: string, subscribe: function(functio
 export type Create = function<A..., R...>(body: function(A...): R...): thread
 
 export interface Provider
-    @readonly
-    priority: integer?
+    @readonly priority: integer?
 
     --- Registers a named poll source with a poll order and optional blocking waiter.
     --- The optional active predicate controls whether the source can make progress.
-    @readonly
-    source: function(
+    @readonly source: function(
         name: string,
         order: integer,
         poll: function(): integer,
@@ -169,26 +167,20 @@ export interface Provider
     ): Source
 
     --- Polls registered sources and returns the amount of progress reported.
-    @readonly
-    poll: function(): integer
+    @readonly poll: function(): integer
 
     --- Subscribes once, then waits for one typed result through the active handler.
-    @readonly
-    suspend: Suspend
+    @readonly suspend: Suspend
 
     --- Installs a handler and returns affine restoration state.
-    @readonly
-    install: function(handler: Handler, transparent: boolean?): affine(Installed)
+    @readonly install: function(handler: Handler, transparent: boolean?): affine(Installed)
 
     --- Creates a coroutine preserving the active suspension context and result pack.
-    @readonly
-    create: Create
+    @readonly create: Create
 
     --- Reports whether an installed handler owns the current suspension context.
-    @readonly
-    handled: function(): boolean
+    @readonly handled: function(): boolean
 
     --- Reports whether this execution context can perform a suspension.
-    @readonly
-    canSuspend: function(): boolean
+    @readonly canSuspend: function(): boolean
 end

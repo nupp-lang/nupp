@@ -96,8 +96,7 @@ end
 local newPath: function(provider: string, root: string, parts: {string}): ApplicationPath
 
 local record PathImpl is ApplicationPath
-    @private
-    _text: string
+    @private _text: string
 
     function join(self, ...: string): ApplicationPath
         local descriptor = assert(descriptors[self])

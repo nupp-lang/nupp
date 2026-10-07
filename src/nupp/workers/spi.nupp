@@ -278,29 +278,23 @@ end
 --- Complete worker implementation protocol, including structured-task integration.
 --- Implement generic spawn and ownership guarantees through the shared scope types.
 export interface Provider
-    @readonly
-    priority: integer?
+    @readonly priority: integer?
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.
-    @readonly
-    openScope: function(deadline: number?, observer: any): Scope
+    @readonly openScope: function(deadline: number?, observer: any): Scope
 
     --- Waits for a task and returns status, packed values, exact count, and problem.
     --- Status is done, failed, or cancelled; cancellation preserves its shared
     --- identity.
-    @readonly
-    settle: function(task: any): (string, {any}?, integer, any)
+    @readonly settle: function(task: any): (string, {any}?, integer, any)
 
     --- Runs provider scheduler progress using its retained lane state.
-    @readonly
-    runScheduler: function(): nil
+    @readonly runScheduler: function(): nil
 
     --- Associates an executable function with its module/member identity.
-    @readonly
-    defineSendable: function(moduleName: string, member: string, fn: any): nil
+    @readonly defineSendable: function(moduleName: string, member: string, fn: any): nil
 
     --- Describes a submitted function and captures for destination-lane execution.
-    @readonly
-    describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
+    @readonly describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
 end

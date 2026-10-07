@@ -253,19 +253,13 @@ export interface CompressionWriter is io.Writer
 end
 
 local record Writer is CompressionWriter
-    @private
-    state: affine(provider.Encoder)
-    @private
-    destination: affine(io.Writer)
-    @private
-    output: uint8[?]
-    @private
-    capacity: integer
+    @private state: affine(provider.Encoder)
+    @private destination: affine(io.Writer)
+    @private output: uint8[?]
+    @private capacity: integer
 
-    @private
-    drain: function(exclusive self: Writer, count: integer): (boolean, string?)
-    @private
-    abort: @nosuspend function(takes self: Writer): nil
+    @private drain: function(exclusive self: Writer, count: integer): (boolean, string?)
+    @private abort: @nosuspend function(takes self: Writer): nil
 
     function write(exclusive self, bytes: string): (boolean, string?)
         local input = span.fromString(bytes)
@@ -427,39 +421,25 @@ local function makeWriter(
 end
 
 local record Reader is io.Reader
-    @private
-    state: affine(provider.Decoder)
-    @private
-    source: affine(io.Reader)
-    @private
-    input: uint8[?]
-    @private
-    capacity: integer
-    @private
-    inputAt: integer
-    @private
-    inputLength: integer
-    @private
-    inputTotal: integer
-    @private
-    outputTotal: integer
-    @private
-    maxOutputBytes: integer?
-    @private
-    maxExpansionRatio: number?
-    @private
-    streamFinished: boolean
-    @private
-    ended: boolean
+    @private state: affine(provider.Decoder)
+    @private source: affine(io.Reader)
+    @private input: uint8[?]
+    @private capacity: integer
+    @private inputAt: integer
+    @private inputLength: integer
+    @private inputTotal: integer
+    @private outputTotal: integer
+    @private maxOutputBytes: integer?
+    @private maxExpansionRatio: number?
+    @private streamFinished: boolean
+    @private ended: boolean
 
     function close(takes self): nil
         closeBoth(self.state, self.source)
     end
 
-    @private
-    refill: function(self: Reader): (boolean?, string?)
-    @private
-    account: function(self: Reader, consumed: integer, written: integer): string?
+    @private refill: function(self: Reader): (boolean?, string?)
+    @private account: function(self: Reader, consumed: integer, written: integer): string?
 
     function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local destinationLength: integer
@@ -662,11 +642,9 @@ end
 --- Retained compression format descriptor.
 export record Format
     --- Canonical format name.
-    @readonly
-    name: string
+    @readonly name: string
 
-    @private
-    implementation: provider.Format
+    @private implementation: provider.Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match

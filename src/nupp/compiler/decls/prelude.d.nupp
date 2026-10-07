@@ -1086,45 +1086,35 @@ record nupp.derive
     --- name; pass this value to `field` to read it.
     record Field
         --- The name as written.
-        @readonly
-        name: string
+        @readonly name: string
 
         --- The field's `---` documentation text, with markers and tags removed.
-        @readonly
-        documentation: string?
+        @readonly documentation: string?
 
         --- Whether the field can be read, and so whether `field` admits it.
-        @readonly
-        readable: boolean
+        @readonly readable: boolean
 
         --- Whether the field can be written.
-        @readonly
-        writable: boolean
+        @readonly writable: boolean
 
         --- A transported handle for the read type, or nil for a write-only field.
-        @readonly
-        readType: any?
+        @readonly readType: any?
 
         --- A transported handle for the write type, or nil for a read-only field.
-        @readonly
-        writeType: any?
+        @readonly writeType: any?
 
         --- Whether omission during construction supplies a declaration-owned default.
-        @readonly
-        hasDefault: boolean
+        @readonly hasDefault: boolean
 
         --- The source-free constant default value. Read only when `hasDefault` is true.
-        @readonly
-        defaultValue: any
+        @readonly defaultValue: any
 
         --- The field's typed annotations in source order, `@json` and `@debug` among
         --- them.
-        @readonly
-        annotations: {nupp.reflect.Annotation}
+        @readonly annotations: {nupp.reflect.Annotation}
 
         --- Points this provider's `error` at this field.
-        @readonly
-        reference: Reference
+        @readonly reference: Reference
     end
 
     --- The immutable semantic view passed to an `@comptime function` provider.
@@ -1136,65 +1126,50 @@ record nupp.derive
     --- a provider cannot specialize for arguments a later instantiation supplies.
     record Info
         --- The projection's schema version, currently 2.
-        @readonly
-        schema: integer
+        @readonly schema: integer
 
         --- What the owner was declared as: `record`, `struct`, or `interface`.
-        @readonly
-        kind: string
+        @readonly kind: string
 
         --- The owner's declared name.
-        @readonly
-        name: string
+        @readonly name: string
 
         --- The declaration's module-qualified name, independent of filesystem paths.
-        @readonly
-        qualifiedName: string
+        @readonly qualifiedName: string
 
         --- How the declaration is bound: `local`, `module`, `global`, or `nested`.
-        @readonly
-        visibility: string
+        @readonly visibility: string
 
         --- The declaration's `---` documentation text, with markers and tags removed.
-        @readonly
-        documentation: string?
+        @readonly documentation: string?
 
         --- The stable identity of the provider being run.
-        @readonly
-        providerIdentity: string
+        @readonly providerIdentity: string
 
         --- The stable identity of the owning declaration.
-        @readonly
-        ownerIdentity: string
+        @readonly ownerIdentity: string
 
         --- A transported handle for the owner's type, accepted by `claims`.
-        @readonly
-        ownerType: any
+        @readonly ownerType: any
 
         --- A transported handle for the one interface this provider implements.
-        @readonly
-        interfaceType: any
+        @readonly interfaceType: any
 
         --- The written stored fields, in declaration order.
-        @readonly
-        fields: {Field}
+        @readonly fields: {Field}
 
         --- The owner's own typed annotations, in source order.
-        @readonly
-        annotations: {nupp.reflect.Annotation}
+        @readonly annotations: {nupp.reflect.Annotation}
 
         --- Whether the declaration writes a constructor.
-        @readonly
-        hasConstructor: boolean
+        @readonly hasConstructor: boolean
 
         --- Points this provider's `error` at the declaration as a whole.
-        @readonly
-        reference: Reference
+        @readonly reference: Reference
 
         --- A digest of everything above. Two owners with one fingerprint share one
         --- evaluation, so a provider must decide from `Info` and nothing else.
-        @readonly
-        fingerprint: string
+        @readonly fingerprint: string
     end
 
     --- One value a generated call passes.
@@ -1983,12 +1958,9 @@ record nupp.reflect
     --- is read before any module is. `_valueType` is never present; it mentions
     --- `T` in both positions so that keys are invariant.
     interface ExtensionKey<T>
-        @readonly
-        id: integer
-        @readonly
-        name: string?
-        @readonly
-        _valueType: (function(value: T?): T?)?
+        @readonly id: integer
+        @readonly name: string?
+        @readonly _valueType: (function(value: T?): T?)?
     end
 
     --- One checked member supplied to a reflected typed annotation.
@@ -2025,22 +1997,16 @@ record nupp.reflect
     --- assert(Serialization == "user_id:StringCodec")
     --- ```
     record AnnotationArgument
-        @readonly
-        name: string
-        @readonly
-        kind: "value" | "nil" | "type"
-        @readonly
-        value: any?
-        @readonly
-        type: integer?
+        @readonly name: string
+        @readonly kind: "value" | "nil" | "type"
+        @readonly value: any?
+        @readonly type: integer?
     end
 
     --- One typed annotation application, retaining source order.
     record Annotation
-        @readonly
-        name: string
-        @readonly
-        arguments: {AnnotationArgument}
+        @readonly name: string
+        @readonly arguments: {AnnotationArgument}
     end
 
     --- One stored field projected directly from the reflected root type.
@@ -2064,56 +2030,33 @@ record nupp.reflect
     --- assert(DefaultFormat == "compact")
     --- ```
     record Field
-        @readonly
-        name: string
-        @readonly
-        kind: string
-        @readonly
-        typeName: string?
-        @readonly
-        type: integer?
-        @readonly
-        readable: boolean
-        @readonly
-        writable: boolean
-        @readonly
-        hasDefault: boolean
-        @readonly
-        defaultValue: any
-        @readonly
-        annotations: {Annotation}
+        @readonly name: string
+        @readonly kind: string
+        @readonly typeName: string?
+        @readonly type: integer?
+        @readonly readable: boolean
+        @readonly writable: boolean
+        @readonly hasDefault: boolean
+        @readonly defaultValue: any
+        @readonly annotations: {Annotation}
     end
 
     --- One named or positional edge in the indexed semantic type graph.
     record Entry
-        @readonly
-        name: string?
-        @readonly
-        type: integer?
-        @readonly
-        read: integer?
-        @readonly
-        write: integer?
-        @readonly
-        readable: boolean?
-        @readonly
-        writable: boolean?
-        @readonly
-        hasDefault: boolean?
-        @readonly
-        defaultValue: any
-        @readonly
-        mode: string?
-        @readonly
-        bound: integer?
-        @readonly
-        answer: integer?
-        @readonly
-        default: boolean?
-        @readonly
-        annotations: {Annotation}?
-        @readonly
-        [string]: any
+        @readonly name: string?
+        @readonly type: integer?
+        @readonly read: integer?
+        @readonly write: integer?
+        @readonly readable: boolean?
+        @readonly writable: boolean?
+        @readonly hasDefault: boolean?
+        @readonly defaultValue: any
+        @readonly mode: string?
+        @readonly bound: integer?
+        @readonly answer: integer?
+        @readonly default: boolean?
+        @readonly annotations: {Annotation}?
+        @readonly [string]: any
     end
 
     --- One node in an `Info` semantic type graph.
@@ -2138,78 +2081,44 @@ record nupp.reflect
     --- assert(HandlerShape == "message:string->boolean")
     --- ```
     record Node
-        @readonly
-        kind: string
-        @readonly
-        name: string?
-        @readonly
-        nominal: boolean?
-        @readonly
-        annotations: {Annotation}?
-        @readonly
-        fields: {Entry}?
-        @readonly
-        staticFields: {Entry}?
-        @readonly
-        metamethods: {Entry}?
-        @readonly
-        nestedTypes: {Entry}?
-        @readonly
-        associatedTypes: {Entry}?
-        @readonly
-        members: {integer}?
-        @readonly
-        parameters: {Entry}?
-        @readonly
-        returns: {integer}?
-        @readonly
-        typeParameters: {integer}?
-        @readonly
-        typeBounds: {integer}?
-        @readonly
-        packParameters: {integer}?
-        @readonly
-        constParameters: {integer}?
-        @readonly
-        parameterKinds: {string}?
-        @readonly
-        typeArguments: {integer}?
-        @readonly
-        packArguments: {integer}?
-        @readonly
-        constArguments: {integer}?
-        @readonly
-        supertypes: {integer}?
-        @readonly
-        element: integer?
-        @readonly
-        body: integer?
-        @readonly
-        of: integer?
-        @readonly
-        origin: integer?
-        @readonly
-        noReturn: boolean?
-        @readonly
-        noYield: boolean?
-        @readonly
-        [string]: any
+        @readonly kind: string
+        @readonly name: string?
+        @readonly nominal: boolean?
+        @readonly annotations: {Annotation}?
+        @readonly fields: {Entry}?
+        @readonly staticFields: {Entry}?
+        @readonly metamethods: {Entry}?
+        @readonly nestedTypes: {Entry}?
+        @readonly associatedTypes: {Entry}?
+        @readonly members: {integer}?
+        @readonly parameters: {Entry}?
+        @readonly returns: {integer}?
+        @readonly typeParameters: {integer}?
+        @readonly typeBounds: {integer}?
+        @readonly packParameters: {integer}?
+        @readonly constParameters: {integer}?
+        @readonly parameterKinds: {string}?
+        @readonly typeArguments: {integer}?
+        @readonly packArguments: {integer}?
+        @readonly constArguments: {integer}?
+        @readonly supertypes: {integer}?
+        @readonly element: integer?
+        @readonly body: integer?
+        @readonly of: integer?
+        @readonly origin: integer?
+        @readonly noReturn: boolean?
+        @readonly noYield: boolean?
+        @readonly [string]: any
     end
 
     --- One top-level stored struct field available as a SoA column.
     record SoAField
-        @readonly
-        name: string
-        @readonly
-        identity: string
-        @readonly
-        ordinal: integer
-        @readonly
-        type: integer?
-        @readonly
-        ctype: string?
-        @readonly
-        eligible: boolean
+        @readonly name: string
+        @readonly identity: string
+        @readonly ordinal: integer
+        @readonly type: integer?
+        @readonly ctype: string?
+        @readonly eligible: boolean
     end
 
     --- Target-independent semantic inputs to SoA storage derivation.
@@ -2234,14 +2143,10 @@ record nupp.reflect
     --- assert(ParticleColumns == "x,y")
     --- ```
     record SoAInfo
-        @readonly
-        schema: integer
-        @readonly
-        eligible: boolean
-        @readonly
-        reason: string?
-        @readonly
-        fields: {SoAField}
+        @readonly schema: integer
+        @readonly eligible: boolean
+        @readonly reason: string?
+        @readonly fields: {SoAField}
     end
 
     --- An immutable compile-time description of one resolved semantic type.
@@ -2267,26 +2172,16 @@ record nupp.reflect
     --- assert(PairDescription:match(":2$") ~= nil)
     --- ```
     record Info
-        @readonly
-        schema: integer
-        @readonly
-        root: integer
-        @readonly
-        types: {Node}
-        @readonly
-        kind: string
-        @readonly
-        name: string
-        @readonly
-        qualifiedName: string
-        @readonly
-        fields: {Field}
-        @readonly
-        annotations: {Annotation}
-        @readonly
-        soa: SoAInfo
-        @readonly
-        fingerprint: string
+        @readonly schema: integer
+        @readonly root: integer
+        @readonly types: {Node}
+        @readonly kind: string
+        @readonly name: string
+        @readonly qualifiedName: string
+        @readonly fields: {Field}
+        @readonly annotations: {Annotation}
+        @readonly soa: SoAInfo
+        @readonly fingerprint: string
     end
 
     --- An opaque field-codec recipe returned inside `comptime`.
