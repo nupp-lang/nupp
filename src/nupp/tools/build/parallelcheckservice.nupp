@@ -9,22 +9,27 @@ One frame in is one request and one frame out is its answer, carrying the reques
 id back so the coordinator can tell an answer from a stale one.
 ]]
 
-local cache = require("nupp.tools.build.cache")
 local clock = require("nupp.time")
 local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
-local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local modules = require("nupp.tools.build.modules")
-local native = require("nupp.compiler.native")
 local protocol = require("nupp.tools.build.parallelcheckprotocol")
 local workerchannel = require("nupp.compiler.workerchannel")
 
 local normalize, join = fs.normalize, fs.join
 local readFile = fs.readFile
-local jsonArray = cache.jsonArray
 
 local service = {}
+
+-- Workers never run under an ahead-of-time policy, so lowering refuses nothing.
+local function noRefusals(_: string, _: string, _: any): ({any}, boolean)
+    return {}, false
+end
+
+local function noAotKey(): string
+    return ""
+end
 
 -- One session per worker process, opened by its first check request.
 local workerContext: any? = nil
@@ -65,7 +70,15 @@ local function openContext(init: any): any
         root = init.root,
         outDir = init.outDir,
         projectPaths = init.projectPaths,
+        config = init.config,
+        target = init.target,
+        build = init.build == true,
+        constSelection = init.constSelection,
+        linked = {} as {[string]: boolean},
     } as any
+    for _, name in ipairs(init.linked or {}) do
+        context.linked[name] = true
+    end
     context.session = modules.session(
         init.root,
         init.outDir,
@@ -144,9 +157,11 @@ local function checkBatch(request: any): any
     local decodedAt = clock.now()
 
     -- A cold worker receives an exact dependency-ready source set, so it produces the
-    -- check-only cache records directly rather than re-entering the build driver.
+    -- cache records directly rather than re-entering the build driver. They come from
+    -- the function the serial build uses, so they cannot differ from its own.
     local emptySpecializationHash = contentDigest("")
     local records: {[string]: any} = {}
+    local codes: {[string]: string} = {}
     local diagnostics: {any} = {}
     local unchecked: {string} = {}
     local checkStarted = clock.now()
@@ -163,55 +178,36 @@ local function checkBatch(request: any): any
             local result = session.inc.checkReadyFile(path)
             semanticMs = semanticMs + clock.now() - semanticStarted
             local recordStarted = clock.now()
-            local checkedDiags = jsonArray({} as {any})
             for _, diagnostic in ipairs(result.diags or {}) do
-                checkedDiags[#checkedDiags + 1] = diagnostic
                 diagnostics[#diagnostics + 1] = diagnostic
             end
-            local effectNames: {string} = {}
-            for effect in pairs(result.result and result.result.effects or {}) do
-                effectNames[#effectNames + 1] = effect
-            end
-            local moduleEffect = native.forModule(name)
-            if moduleEffect ~= nil then
-                local found = false
-                for _, effect in ipairs(effectNames) do
-                    found = found or effect == moduleEffect
-                end
-                if not found then
-                    effectNames[#effectNames + 1] = moduleEffect
-                end
-            end
-            table.sort(effectNames)
-            local external = path:match("%.d%.nupp$") ~= nil or envMod.isDependencyTypePath(session.inc.env, path)
-            records[
-                name
-            ] = {
-                sourcePath = path,
+            local compiled = modules.compileChecked({
+                name = name,
+                path = path,
                 sourceHash = sourceHash,
-                interfaceHash = modules.interfaceHash(
-                    result.moduleType,
-                    result.exports or {},
-                    external and sourceHash or nil,
-                    contentDigest
-                ),
-                dependencies = jsonArray(session.inc.moduleDependencies(path)),
-                runtimeModules = jsonArray({} as {string}),
-                projectDependencies = jsonArray(session.inc.projectDependencies(path)),
-                externalInputs = jsonArray(session.inc.externalInputs(path)),
-                effects = jsonArray(effectNames),
-                output = not external and join(context.root, join(context.outDir, name:gsub("%.", "/") .. ".lua"))
-                or nil,
-                external = external or nil,
-                diags = checkedDiags,
-                aotRefusals = jsonArray({} as {any}),
-                materializations = jsonArray(materializeObserve.collect(result.result and result.result.root, path)),
-                derives = jsonArray(result.result and result.result.deriveObservations or {}),
-                optimizationRemarks = jsonArray({} as {any}),
-                allocationSites = jsonArray({} as {any}),
-                optimizationAccounted = false,
+                checked = result,
+                inc = session.inc,
+                root = context.root,
+                outDir = context.outDir,
+                config = context.config,
+                target = context.target,
+                checkOnly = not context.build,
+                external = path:match("%.d%.nupp$") ~= nil
+                or envMod.isDependencyTypePath(session.inc.env, path) and not context.linked[name],
+                constSelection = context.constSelection,
                 specializationHash = emptySpecializationHash,
-            }
+                rewritten = false,
+                authoredLints = nil,
+                aotRefusals = noRefusals,
+                aotKey = noAotKey,
+                compilerRuntime = nil,
+                contentDigest = contentDigest,
+                generating = nil,
+            })
+            records[name] = compiled.record
+            if compiled.code ~= nil and compiled.record.artifactHash ~= nil then
+                codes[name] = compiled.code as string
+            end
             recordMs = recordMs + clock.now() - recordStarted
         end
     end
@@ -288,6 +284,7 @@ local function checkBatch(request: any): any
     return {
         ok = true,
         modules = records,
+        codes = codes,
         interface = produced,
         diagnostics = diagnostics,
         stats = {

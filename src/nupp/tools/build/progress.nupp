@@ -64,7 +64,7 @@ type progress.AotFacts = {
     externalCommands: number
 }
 
---- How a cold project check used semantic workers, when it considered them.
+--- How a cold project check or build used workers, when it considered them.
 type progress.ParallelFacts = {
     --- `parallel`, `serial`, or `serial-fallback`.
     mode: string,
@@ -100,8 +100,8 @@ type progress.Timing = {
     --- What the ahead-of-time policy did, absent when the build ran none.
     aot: progress.AotFacts?,
 
-    --- How a cold project check used semantic workers, absent for warm and narrow
-    --- checks and for builds.
+    --- How a cold project check or build used workers, absent for warm runs and
+    --- runs over named files.
     parallel: progress.ParallelFacts?
 }
 
@@ -362,7 +362,7 @@ record progress.Reporter
         self.aotFacts = facts
     end
 
-    --- Records how a cold check used or declined semantic workers.
+    --- Records how a cold check or build used or declined workers.
     function parallelCounted(self, facts: progress.ParallelFacts): nil
         self.parallelFacts = facts
     end

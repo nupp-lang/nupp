@@ -495,6 +495,26 @@ report.DIAGNOSTIC = {
 --- that name, so one reader handles all of them.
 report.DIAGNOSTICS = {type = "array", items = report.DIAGNOSTIC}
 
+--- `timing.parallel` in `check --json` and `build --json`.
+report.PARALLEL = {
+    type = "object",
+    description = "How a cold whole-project check or build used its workers. Absent when "
+    .. "they were not considered: a warm run, a run over named files.",
+    properties = {
+        mode = {type = "string", enum = {"parallel", "serial", "serial-fallback"},},
+        workers = {type = "integer"},
+        retries = {type = "integer"},
+        batches = {type = "integer"},
+        rechecked = {
+            type = "integer",
+            description = "Worker-produced modules done again in the coordinating process "
+            .. "because their records did not validate. Present only in parallel mode.",
+        },
+        reason = {type = "string", description = "Why the run selected or returned to a single process.",},
+    },
+    required = {"mode", "workers", "retries", "batches"},
+}
+
 --- The field every `--json` document carries, and requires. It equals `status == 0`,
 --- and false always comes with at least one error diagnostic that has a code.
 report.OK = {

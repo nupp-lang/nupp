@@ -737,20 +737,28 @@ A cold whole-project check uses semantic workers when the project has at least
 the available parallelism. Warm checks, checks of named files, smaller projects,
 and targets with an ahead-of-time policy stay in one process.
 
-`NUPP_CHECK_JOBS` sets the worker count and bypasses the workload floor. A count
-is capped at eight and at the number of modules. Set it to `1` to select the
-serial checker:
+A cold `nupp build` uses the same workers on the same terms, and each worker also
+optimizes and generates the modules it checked; the coordinating process writes
+what they generated. The artifacts are byte-for-byte the ones a single process
+writes. One more case stays in one process: an optimized build of a project that
+declares a function with a `const` type parameter, because constant
+specialization is planned across every module at once. `timing.parallel.reason`
+says so when it happens.
+
+`NUPP_CHECK_JOBS` sets the worker count, for checks and builds alike, and
+bypasses the workload floor. A count is capped at eight and at the number of
+modules. Set it to `1` to keep the work in one process:
 
 ```bash
 NUPP_CHECK_JOBS=1 nupp check
-NUPP_CHECK_JOBS=4 nupp check
+NUPP_CHECK_JOBS=4 nupp build
 ```
 
 A worker that stops is restarted once. A second failure returns the whole check
-to the serial checker, discarding every partial parallel record first. The
+or build to a single process, discarding every partial parallel record first. The
 `timing.parallel` object in `--json` reports `parallel`, `serial`, or
-`serial-fallback`, with worker, retry, and batch counts and a reason when the
-serial checker was selected. A parallel check also reports `rechecked`, the
+`serial-fallback`, with worker, retry, and batch counts and a reason when a
+single process was selected. A parallel run also reports `rechecked`, the
 modules the coordinating process checked again because a worker's record of
 them no longer held once the whole project was in view.
 

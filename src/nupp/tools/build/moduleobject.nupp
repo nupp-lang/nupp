@@ -85,9 +85,19 @@ function moduleobject.emit(path: string, parsed: any, header: any, index: any): 
         end
     end
 
+    -- A local function with a `const` type parameter is what a build's const
+    -- specialization plans across modules, so a parallel build declines a project
+    -- that has one. Over-approximated: any const parameter counts.
+    local constGenerics = false
+
     local function walk(node, insideDot)
         if node == nil or cst.isToken(node) then
             return
+        end
+        if node.kind == "localFuncStmt" and node.body and node.body.generics then
+            for _, isConst in pairs(node.body.generics.consts or {}) do
+                constGenerics = constGenerics or isConst == true
+            end
         end
         if node.kind == "call" and node.obj and node.obj.kind == "dotIndex" and node.obj.name then
             local intrinsicModule = receiverIntrinsics[node.obj.name.text]
@@ -117,7 +127,12 @@ function moduleobject.emit(path: string, parsed: any, header: any, index: any): 
     end
     table.sort(dependencies)
 
-    return {path = path, moduleName = header.moduleName, dependencies = dependencies,}
+    return {
+        path = path,
+        moduleName = header.moduleName,
+        dependencies = dependencies,
+        constGenerics = constGenerics or nil,
+    }
 end
 
 --- Links objects into strongly connected components, dependencies first, and the

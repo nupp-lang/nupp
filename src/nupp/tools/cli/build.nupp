@@ -153,6 +153,7 @@ local REPORT_SCHEMA = {
                     type = "integer",
                     description = "Logical const-specialized bodies emitted independently of module count.",
                 },
+                parallel = require("nupp.tools.cli.report").PARALLEL,
                 phases = {
                     type = "array",
                     description = "Every activity that took measurable time, longest "

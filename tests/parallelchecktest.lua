@@ -241,6 +241,50 @@ local function coldCheck(directory, environment)
     return code, report, checkState(directory)
 end
 
+-- Every file a build wrote, by path relative to `build`, caches aside.
+local function buildOutputs(directory)
+    local outputs = {}
+    local list = assert(io.popen(("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(
+        directory
+    )))
+    for path in list:lines() do
+        local file = assert(io.open(directory .. "/build/" .. path, "rb"))
+        outputs[path] = file:read("*a")
+        file:close()
+    end
+    list:close()
+
+    return outputs
+end
+
+-- A build from nothing but the caches every command keeps, which a check would also
+-- have had: no build state and no artifact.
+local function coldBuild(directory, environment, extra)
+    os.execute(
+        ("cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
+        .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"):format(directory)
+    )
+    local argv = {NUPP, "build", "--json"}
+    for _, argument in ipairs(extra or {}) do
+        argv[#argv + 1] = argument
+    end
+    local code, output = process.capture(argv, {cwd = directory, env = environment})
+    local decoded, report = pcall(json.decode, output)
+    assert(decoded, tostring(report) .. "\n" .. output)
+    local outputs = buildOutputs(directory)
+    local state = json.decode(assert(outputs["./.nupp-state.json"], "the build wrote no state"))
+    outputs["./.nupp-state.json"] = nil
+    -- How long a derive took, and whether this process had expanded it already, say
+    -- nothing about the module.
+    for _, record in pairs(state.modules or {}) do
+        for _, derive in ipairs(record.derives or {}) do
+            derive.durationMs, derive.cached = nil, nil
+        end
+    end
+
+    return code, report, stable(outputs), stable(state)
+end
+
 local M = {}
 
 function M.workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism()
@@ -385,6 +429,65 @@ return {make = make}
     assertEq(state, serialState, "parallel check records")
     local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
     assertEq(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
+
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
+-- A build generates in the worker that checked, so what a parallel build writes has
+-- to be what the serial build writes, byte for byte, at every optimization level.
+function M.parallelBuildsWriteWhatSerialBuildsWrite()
+    local directory = tempProject(false)
+    for _, level in ipairs({"-O0", "-O2"}) do
+        local serialCode, serialReport, serialOutputs, serialState = coldBuild(
+            directory,
+            {NUPP_CHECK_JOBS = "1"},
+            {level}
+        )
+        assertEq(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
+        local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"}, {level})
+        assertEq(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
+        assertEq(report.timing.parallel.mode, "parallel", level .. " parallel timing mode")
+        assertEq(report.timing.parallel.rechecked, 0, level .. " worker records survive validation")
+        assertEq(outputs, serialOutputs, level .. " build outputs")
+        assertEq(state, serialState, level .. " build state")
+    end
+
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
+-- Const specialization is planned across every module of a build at once. A
+-- project declaring a const-generic function is built in one process, and says so;
+-- its check, which plans nothing, still uses workers.
+function M.constGenericProjectsBuildSerially()
+    local directory = tempProject(false)
+    write(
+        directory .. "/src/scaled.nupp",
+        [[
+local function doubled<const N: integer>(value: number, count: N): number
+    local total = value
+    for _ = 1, count as integer do
+        total = total * 2.0
+    end
+    return total
+end
+
+local function four(): number
+    return doubled(1, 2)
+end
+
+return {four = four}
+]]
+    )
+    local code, report = coldBuild(directory, {NUPP_CHECK_JOBS = "2"}, {"-O2"})
+    assertEq(code, 0, "const-generic build: " .. json.encode(report.diagnostics))
+    assertEq(report.timing.parallel.mode, "serial", "the build stays in one process")
+    assert(
+        tostring(report.timing.parallel.reason):find("const-generic", 1, true),
+        "the build says why: " .. tostring(report.timing.parallel.reason)
+    )
+    local checkCode, checkReport = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
+    assertEq(checkCode, 0, "const-generic check")
+    assertEq(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
 
     assert(require("nupp.io.files").remove(directory, true))
 end

@@ -63,13 +63,16 @@ local function serialFacts(reason: string?): any
     return {mode = "serial", workers = 1, retries = 0, batches = 0, reason = reason}
 end
 
---- Checks a cold project in dependency-ready components.
+--- Checks, or builds, a cold project in dependency-ready components.
 ---
 --- `input` carries `queue` (the build's `{name, path}` work list), `inc` (the
 --- coordinator's session), `root`, `outDir`, `config`, `target`, `strict`, `state`
---- (the new build state) and `reporter`. Answers the check records by module name,
---- or nil and why the serial checker should run instead. Either way the reporter is
---- told how the check used its workers.
+--- (the new build state) and `reporter`. A build also sets `build`, the
+--- `constSelection` its modules generate against, and the `linked` dependency
+--- modules it compiles from source. Answers `{records, codes}` -- the records by
+--- module name and, for a build, the Lua each generated -- or nil and why this
+--- process should do the work instead. Either way the reporter is told how the run
+--- used its workers.
 function parallelcheck.run(input: any): (any?, string?)
     local report = input.reporter
     local inc = input.inc
@@ -130,7 +133,7 @@ function parallelcheck.run(input: any): (any?, string?)
         return declined(plan.reason)
     end
 
-    report:at("parallel check")
+    report:at(input.build and "parallel build" or "parallel check")
     local tasks = require("nupp.tasks")
     local suspension = require("nupp.suspension")
     local process = require("nupp.compiler.process")
@@ -315,6 +318,17 @@ function parallelcheck.run(input: any): (any?, string?)
     if not linkedOk then
         return abandon(linked)
     end
+    if input.build and input.constSelection ~= nil then
+        for _, object in ipairs(objects) do
+            if object.constGenerics then
+                closeChildren(true)
+
+                return declined(
+                    object.path .. " declares a const-generic function, which a build specializes across modules"
+                )
+            end
+        end
+    end
     local components = linked.components as {{string}}
     local componentDependencies = linked.dependencies as {{integer}}
     local componentDependents = linked.dependents as {{integer}}
@@ -486,6 +500,9 @@ function parallelcheck.run(input: any): (any?, string?)
                 projectPaths = projectPaths,
                 staged = input.staged,
                 strict = input.strict,
+                build = input.build == true,
+                constSelection = input.constSelection,
+                linked = input.linked,
             }
         end
 
@@ -493,6 +510,7 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     local checked: {[string]: any} = {}
+    local codes: {[string]: string} = {}
     local completedBundles: integer = 0
 
     local function accept(worker: integer, component: integer, request: any, answer: any): nil
@@ -533,6 +551,9 @@ function parallelcheck.run(input: any): (any?, string?)
         end
         for name, record in pairs(answer.modules or {}) do
             checked[name] = record
+        end
+        for name, code in pairs(answer.codes or {}) do
+            codes[name] = code
         end
         local produced = answer.interface
         if produced ~= nil then
@@ -637,7 +658,7 @@ function parallelcheck.run(input: any): (any?, string?)
     report:parallelCounted({mode = "parallel", workers = jobCount, retries = state.retries, batches = state.batches,})
     report:at("resolve")
 
-    return checked, nil
+    return {records = checked, codes = codes}, nil
 end
 
 export = parallelcheck

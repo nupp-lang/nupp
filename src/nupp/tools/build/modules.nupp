@@ -617,6 +617,13 @@ local function copyModuleRecord(record)
     for _, effect in ipairs(record.effects or {}) do
         effects[#effects + 1] = effect
     end
+
+    -- A record that crossed a worker pipe has lost its array marks, and an empty list
+    -- written unmarked is a JSON object. These are lists whichever way they came.
+    local function list(items: {any}?): {any}?
+        return items ~= nil and jsonArray(items as {any}) or nil
+    end
+
     local projectDependencies = jsonArray({} as {DependencyRecord})
     for _, dependency in ipairs(record.projectDependencies or {}) do
         projectDependencies[
@@ -637,17 +644,17 @@ local function copyModuleRecord(record)
         effects = effects,
         output = record.output,
         external = record.external,
-        diags = record.diags,
-        aotRefusals = record.aotRefusals,
+        diags = list(record.diags),
+        aotRefusals = list(record.aotRefusals),
         aotKey = record.aotKey,
-        aotFamilies = record.aotFamilies,
-        aotGraphRefusals = record.aotGraphRefusals,
+        aotFamilies = list(record.aotFamilies),
+        aotGraphRefusals = list(record.aotGraphRefusals),
         aotGraphKey = record.aotGraphKey,
         coverage = record.coverage,
-        materializations = record.materializations,
-        derives = record.derives,
-        optimizationRemarks = record.optimizationRemarks,
-        allocationSites = record.allocationSites,
+        materializations = list(record.materializations),
+        derives = list(record.derives),
+        optimizationRemarks = list(record.optimizationRemarks),
+        allocationSites = list(record.allocationSites),
         optimizationAccounted = record.optimizationAccounted,
         specializationHash = record.specializationHash,
     }
@@ -830,6 +837,282 @@ end
 --- already said its body did not move.
 local GUARANTEE_QUERY = {moduleCallGuarantees = true, moduleCallGuarantee = true}
 
+--- The runtime modules generated code requires, as a build packages them.
+local function runtimeImports(name: string, code: string, config: Config, target: Target): any
+    local required = gen.runtimeModules(code)
+    -- Watch generation reaches its registry through a global rather than a
+    -- require, so nothing in the generated code says the module it needs is
+    -- there. Naming it here is what packages it.
+    if config._reload then
+        required[#required + 1] = "nupp.runtime.hotreload"
+    end
+    if name == "nupp.spi" then
+        required[#required + 1] = "nupp.spi.index"
+    elseif name == "nupp.spi.index" then
+        for _, provider in ipairs(config._spiEntries or {}) do
+            required[#required + 1] = provider.implementation
+        end
+    end
+    local unique, seen = {}, {}
+    for _, dependency in ipairs(required) do
+        if not seen[dependency] and moduleTargets.supports(dependency, target.host) then
+            seen[dependency] = true
+            unique[#unique + 1] = dependency
+        end
+    end
+    table.sort(unique)
+
+    return jsonArray(unique)
+end
+
+--- The names of the `@aot` const-generic families a lowered module declares.
+local function aotFamilies(path: string, checked: any): {string}?
+    local candidates, plans = {}, {}
+    constspecialize.collectCandidates(checked, path, candidates, plans)
+    local names: {string} = {}
+    for _, plan in ipairs(plans) do
+        if plan.requiredAot then
+            names[#names + 1] = plan.name
+        end
+    end
+    if #names == 0 then
+        return nil
+    end
+    table.sort(names)
+
+    return jsonArray(names)
+end
+
+--- One checked module, and what a build needs to say about it.
+type modules.CompileJob = {
+    name: string,
+    path: string,
+    sourceHash: string,
+
+    --- What the incremental graph's check of `path` answered.
+    checked: any,
+    inc: Inc,
+    root: string,
+    outDir: string,
+    config: Config,
+    target: Target,
+    checkOnly: boolean,
+
+    --- A declaration file or a dependency's types: checked, never generated.
+    external: boolean,
+
+    constSelection: any?,
+    specializationHash: string,
+
+    --- An `@aot` policy handed the checker a rewritten source, and the lints the
+    --- policy took from the file as written instead.
+    rewritten: boolean,
+    authoredLints: {any}?,
+
+    --- What lowering refuses, and the key a lowered module is recorded under. A
+    --- build without an ahead-of-time policy refuses nothing.
+    aotRefusals: function(name: string, path: string, checked: any): ({any}, boolean),
+    aotKey: function(): string,
+
+    compilerRuntime: boolean?,
+    contentDigest: function(string): string,
+
+    --- Called just before generation starts, for a progress line.
+    generating: (function(name: string): nil)?
+}
+
+--- What compiling one module produced.
+type modules.Compiled = {
+    record: any,
+
+    --- The generated Lua, when the module generated and generation succeeded.
+    code: string?,
+
+    --- Everything the module had to say this time, generation included.
+    said: {any},
+    generated: boolean,
+    generateMs: number
+}
+
+--- Lowers and generates one checked module, unless it is a check, and describes it
+--- as the record a later build reuses.
+---
+--- The serial build and a parallel build worker both come through here, so what a
+--- record holds and the code it describes cannot depend on which process made it.
+function modules.compileChecked(job: modules.CompileJob): modules.Compiled
+    local name, path, result = job.name, job.path, job.checked
+    local config, target, inc = job.config, job.target, job.inc
+    -- What checking found, once the substitution below is accounted for. The
+    -- record keeps this list rather than the checker's own, because a reused
+    -- record replays its diagnostics and the checker's list describes the
+    -- rewritten text: replaying it would report the `unused-binding` the first
+    -- build had already answered from the file as written.
+    local checkedDiags: {any} = {}
+    -- An `@aot` policy that links hands the checker this source with each
+    -- compiled declaration replaced by the wrapper that calls it, body and
+    -- all. A binding the removed body was the only reader of then has no
+    -- reader in the text being checked, and `unused-binding` says so against
+    -- a line the author would find still using the name.
+    --
+    -- That lint describes the shape of a file somebody wrote, and a rewritten
+    -- one is not that file, so its answer is dropped and the one the policy
+    -- took from the file as written is reported instead. The lint is not
+    -- lost, and it is not answered twice.
+    for _, diag in ipairs(result.diags or {}) do
+        if not (job.rewritten and diag.code == "NUPP2507") then
+            checkedDiags[#checkedDiags + 1] = diag
+        end
+    end
+    if job.rewritten then
+        for _, diag in ipairs(job.authoredLints or {}) do
+            checkedDiags[#checkedDiags + 1] = diag
+        end
+    end
+    local mine = {}
+    for _, diag in ipairs(checkedDiags) do
+        mine[#mine + 1] = diag
+    end
+    local fatal = false
+    for _, diag in ipairs(mine) do
+        fatal = fatal or isFatal(diag)
+    end
+    local external = job.external
+    -- Lowered only once the checker is satisfied, as a build lowers only a source
+    -- that checks: a refusal about a program already refused says nothing new.
+    local refusals = jsonArray({} as {any})
+    local aotKey: string? = nil
+    local families: {string}? = nil
+    if not fatal and not external then
+        local found, lowered = job.aotRefusals(name, path, result.result)
+        for _, diag in ipairs(found) do
+            refusals[#refusals + 1] = diag
+        end
+        aotKey = lowered and job.aotKey() or nil
+        families = lowered and aotFamilies(path, result.result) or nil
+    end
+    local depNames = inc.moduleDependencies(path)
+    local effectNames: {string} = {}
+    if fatal or job.checkOnly or external then
+        for effect in pairs(result.result and result.result.effects or {}) do
+            effectNames[#effectNames + 1] = effect
+        end
+        table.sort(effectNames)
+    end
+    local output: string? = nil
+    if not external then
+        output = join(job.root, join(job.outDir, name:gsub("%.", "/") .. ".lua"))
+    end
+    local artifactHash, code, coverage
+    local optimizationRemarks = jsonArray({} as {any})
+    local allocationSites = jsonArray({} as {any})
+    local optimizationAccounted = false
+    local runtimeModules = jsonArray({} as {string})
+    local generated = false
+    local generateMs: number = 0
+    if not external and not fatal and not job.checkOnly then
+        if job.generating ~= nil then
+            job.generating(name)
+        end
+        local startedGenerating = progress.now()
+        local genDiags
+        local remarks = optimize.run(result.result, {
+            level = config._optLevel or 0,
+            filename = path,
+            disabled = config._disabledPasses,
+            constSelection = job.constSelection,
+        })
+        optimizationAccounted = true
+        for _, note in ipairs(remarks) do
+            optimizationRemarks[#optimizationRemarks + 1] = note
+        end
+        for _, site in ipairs(optimize.allocationSites(result.result)) do
+            allocationSites[#allocationSites + 1] = {file = path, kind = site.kind, line = site.line, col = site.col,}
+        end
+        local emittedEffects
+        -- A reload component is generated the way `nupp run --watch` generates:
+        -- one slot array per module, every named function dispatching through
+        -- it, and the same registration calls. What makes it a component rather
+        -- than a watch run is who seals it and who holds the compiler session,
+        -- both of which packaging and the host settle later.
+        local hotRequest: any = config._reload
+            and {mode = "initial", module = name, libraries = config._reloadLibraries or {}}
+            or nil
+        code, genDiags, coverage, emittedEffects = gen.generate(
+            result.result,
+            path,
+            config._coverage and {path = path} or nil,
+            hotRequest,
+            nil,
+            ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
+        )
+        -- Generation is the last word on runtime reachability: it has now seen
+        -- which checked nodes survived folding, comptime erasure, materialization,
+        -- and lowering. Persist the same set that selected the generated prologue
+        -- so packaging carries only features the generated Lua uses.
+        result.result.effects = emittedEffects
+        runtimeModules = runtimeImports(name, code, config, target)
+        for effect in pairs(emittedEffects) do
+            effectNames[#effectNames + 1] = effect
+        end
+        table.sort(effectNames)
+        generated = true
+        for _, diag in ipairs(genDiags) do
+            mine[#mine + 1] = diag
+        end
+        if #genDiags == 0 then
+            artifactHash = job.contentDigest(code)
+        end
+        generateMs = progress.now() - startedGenerating
+    end
+    local moduleEffect = native.forModule(name)
+    if moduleEffect ~= nil then
+        local found = false
+        for _, effect in ipairs(effectNames) do
+            found = found or effect == moduleEffect
+        end
+        if not found then
+            effectNames[#effectNames + 1] = moduleEffect;
+            table.sort(effectNames)
+        end
+    end
+    local checkedExports = result.exports or {}
+    local record = {
+        sourcePath = path,
+        sourceHash = job.sourceHash,
+        interfaceHash = modules.interfaceHash(
+            result.moduleType,
+            checkedExports,
+            external and job.sourceHash or nil,
+            job.contentDigest
+        ),
+        artifactHash = artifactHash,
+        dependencies = jsonArray(depNames),
+        runtimeModules = runtimeModules,
+        compilerRuntime = job.compilerRuntime or nil,
+        projectDependencies = jsonArray(inc.projectDependencies(path)),
+        externalInputs = jsonArray(inc.externalInputs(path)),
+        effects = jsonArray(effectNames),
+        output = output,
+        external = external or nil,
+        -- Only what checking found. Generation runs once per artifact and a reused
+        -- module does not run it again, so its remarks belong to the run that
+        -- produced them and not to the record.
+        diags = jsonArray(checkedDiags),
+        aotRefusals = refusals,
+        aotKey = aotKey,
+        aotFamilies = families,
+        coverage = coverage,
+        materializations = jsonArray(materializeObserve.collect(result.result and result.result.root, path)),
+        derives = jsonArray(result.result and result.result.deriveObservations or {}),
+        optimizationRemarks = optimizationRemarks,
+        allocationSites = allocationSites,
+        optimizationAccounted = optimizationAccounted,
+        specializationHash = job.specializationHash,
+    }
+
+    return {record = record, code = code, said = mine, generated = generated, generateMs = generateMs,}
+end
+
 local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
     any
 }?, checkState: Value?,
@@ -993,33 +1276,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local function compatibleModule(name: string): boolean
         return moduleTargets.supports(name, target.host)
-    end
-
-    local function runtimeImports(name: string, code: string): any
-        local required = gen.runtimeModules(code)
-        -- Watch generation reaches its registry through a global rather than a
-        -- require, so nothing in the generated code says the module it needs is
-        -- there. Naming it here is what packages it.
-        if config._reload then
-            required[#required + 1] = "nupp.runtime.hotreload"
-        end
-        if name == "nupp.spi" then
-            required[#required + 1] = "nupp.spi.index"
-        elseif name == "nupp.spi.index" then
-            for _, provider in ipairs(config._spiEntries or {}) do
-                required[#required + 1] = provider.implementation
-            end
-        end
-        local unique, seen = {}, {}
-        for _, dependency in ipairs(required) do
-            if not seen[dependency] and compatibleModule(dependency) then
-                seen[dependency] = true
-                unique[#unique + 1] = dependency
-            end
-        end
-        table.sort(unique)
-
-        return jsonArray(unique)
     end
 
     local linkRuntimeSource: function(name: string): nil
@@ -1219,15 +1475,37 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    local parallelChecked: {[string]: boolean} = {}
+    local suppliedConstSelection = (target as any)._constSelection
+    local constEnabled = not checkOnly and (config._optLevel or 0) >= 1 and not (config._disabledPasses or {})["OPT-8"]
 
-    -- A cold whole-project check may be done by workers. Their records become the
-    -- cache candidate the validator below consumes, as an earlier run's would. It
+    -- Modules workers checked, the generated code of the ones they built, and the
+    -- ones whose records this build then accepted.
+    local parallelChecked: {[string]: boolean} = {}
+    local parallelCode: {[string]: string} = {}
+    local parallelAccepted: {[string]: boolean} = {}
+
+    -- A cold whole-project check or build may be done by workers. Their records become
+    -- the cache candidate the validator below consumes, as an earlier run's would. It
     -- runs before runtime linking, which then reads the dependencies those records
     -- carry instead of checking each runtime module here to discover them.
-    if checkOnly and narrow == nil and next(oldState.modules or {}) == nil and next(overlays or {}) == nil then
+    --
+    -- A build's const specialization is planned across every module at once, which
+    -- workers cannot do. Workers build only a project that gives that planner nothing
+    -- to plan, so the selection each of them generates against is the empty one this
+    -- process would have reached; a project declaring a const-generic function is
+    -- built here.
+    if narrow == nil
+        and next(oldState.modules or {}) == nil
+        and next(overlays or {}) == nil
+        and suppliedConstSelection == nil
+    then
         local parallelcheck = require("nupp.tools.build.parallelcheck")
-        local checked = parallelcheck.run({
+        local linked: {string} = {}
+        for name in pairs(linkedModules) do
+            linked[#linked + 1] = name
+        end
+        table.sort(linked)
+        local produced = parallelcheck.run({
             queue = queue,
             inc = inc,
             root = root,
@@ -1238,24 +1516,31 @@ local function buildModules(root: string, outDir: string, config: Config, target
             state = newState,
             staged = opened.staged,
             reporter = report,
+            build = not checkOnly,
+            constSelection = constEnabled and {accepted = {}, declined = {}} or nil,
+            linked = linked,
         })
-        if checked ~= nil then
-            for name in pairs(checked) do
+        if produced ~= nil then
+            for name in pairs(produced.records) do
                 parallelChecked[name] = true
             end
-            oldState.modules = checked
+            for name, code in pairs(produced.codes) do
+                parallelCode[name] = code
+            end
+            oldState.modules = produced.records
             oldState.moduleCompilerHash = newState.moduleCompilerHash
             oldState.configHash = newState.configHash
             cacheCompatible = true
         end
     end
 
-    local suppliedConstSelection = (target as any)._constSelection
-    local constEnabled = not checkOnly and (config._optLevel or 0) >= 1 and not (config._disabledPasses or {})["OPT-8"]
     local specializationPlans: {any} = {}
     local acceptedSpecializations: {any} = {}
     local declinedSpecializations: {any} = {}
-    if constEnabled then
+    -- Workers built only a project with nothing to specialize, so there is nothing
+    -- to plan, and checking every module here to find that out again is the work
+    -- they were there to do.
+    if constEnabled and next(parallelChecked) == nil then
         -- Check the deliverable once before emission so incoming calls can request a
         -- body from the module that declares it.  This is emission dependency
         -- discovery, not a reverse type dependency: the incremental checker memoizes
@@ -1389,7 +1674,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return true
         end
         addingCarriedRuntime[name] = true
-        local required = runtimeImports(name, text)
+        local required = runtimeImports(name, text, config, target)
         local carriedEffects = jsonArray({} as {string})
         if carriedRecord then
             for _, effect in ipairs(carriedRecord.effects or {}) do
@@ -1539,199 +1824,54 @@ local function buildModules(root: string, outDir: string, config: Config, target
         return aotcheck.refusals(text as string, path, checked, target as any), true
     end
 
-    --- The names of the `@aot` const-generic families a lowered module declares.
-    local function aotFamilies(path: string, checked: any): {string}?
-        local candidates, plans = {}, {}
-        constspecialize.collectCandidates(checked, path, candidates, plans)
-        local names: {string} = {}
-        for _, plan in ipairs(plans) do
-            if plan.requiredAot then
-                names[#names + 1] = plan.name
-            end
-        end
-        if #names == 0 then
-            return nil
-        end
-        table.sort(names)
-
-        return jsonArray(names)
-    end
+    -- Links what one compiled module requires, from its record.
+    local linkCompiled: function(name: string, record: any): nil
 
     local function compile(name, path, sourceHash)
         local external = path:match("%.d%.nupp$") ~= nil
             or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
-        -- What checking found, once the substitution below is accounted for. The
-        -- record keeps this list rather than the checker's own, because a reused
-        -- record replays its diagnostics and the checker's list describes the
-        -- rewritten text: replaying it would report the `unused-binding` the first
-        -- build had already answered from the file as written.
-        local checkedDiags: {any} = {}
-        -- An `@aot` policy that links hands the checker this source with each
-        -- compiled declaration replaced by the wrapper that calls it, body and
-        -- all. A binding the removed body was the only reader of then has no
-        -- reader in the text being checked, and `unused-binding` says so against
-        -- a line the author would find still using the name.
-        --
-        -- That lint describes the shape of a file somebody wrote, and a rewritten
-        -- one is not that file, so its answer is dropped and the one the policy
-        -- took from the file as written is reported instead. The lint is not
-        -- lost, and it is not answered twice.
-        local rewritten = substituted[normalize(path)] ~= nil
-        for _, diag in ipairs(result.diags or {}) do
-            if not (rewritten and diag.code == "NUPP2507") then
-                checkedDiags[#checkedDiags + 1] = diag
-            end
-        end
-        if rewritten then
-            for _, diag in ipairs(authoredLints[normalize(path)] or {}) do
-                checkedDiags[#checkedDiags + 1] = diag
-            end
-        end
-        local mine = {}
-        for _, diag in ipairs(checkedDiags) do
-            mine[#mine + 1] = diag
-        end
-        local fatal = isFatalIn(mine)
-        -- Lowered only once the checker is satisfied, as a build lowers only a source
-        -- that checks: a refusal about a program already refused says nothing new.
-        local refusals = jsonArray({} as {any})
-        local aotKey: string? = nil
-        local families: {string}? = nil
-        if not fatal and not external then
-            local found, lowered = aotRefusals(name, path, result.result)
-            for _, diag in ipairs(found) do
-                refusals[#refusals + 1] = diag
-            end
-            aotKey = lowered and currentAotKey() or nil
-            families = lowered and aotFamilies(path, result.result) or nil
-        end
-        local depNames = inc.moduleDependencies(path)
-        local effectNames: {string} = {}
-        if fatal or checkOnly or external then
-            for effect in pairs(result.result and result.result.effects or {}) do
-                effectNames[#effectNames + 1] = effect
-            end
-            table.sort(effectNames)
-        end
-        local output: string? = nil
-        if not external then
-            output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
-        end
-        local artifactHash, code, coverage
-        local optimizationRemarks = jsonArray({} as {any})
-        local allocationSites = jsonArray({} as {any})
-        local optimizationAccounted = false
-        local runtimeModules = jsonArray({} as {string})
-        if not external and not fatal and not checkOnly then
-            report:at("generate")
-            report:step("generating " .. name)
-            local startedGenerating = progress.now()
-            local genDiags
-            local remarks = optimize.run(result.result, {
-                level = config._optLevel or 0,
-                filename = path,
-                disabled = config._disabledPasses,
-                constSelection = constSelection,
-            })
-            optimizationAccounted = true
-            for _, note in ipairs(remarks) do
-                optimizationRemarks[#optimizationRemarks + 1] = note
-            end
-            for _, site in ipairs(optimize.allocationSites(result.result)) do
-                allocationSites[
-                    #allocationSites + 1
-                ] = {file = path, kind = site.kind, line = site.line, col = site.col,}
-            end
-            local emittedEffects
-            -- A reload component is generated the way `nupp run --watch` generates:
-            -- one slot array per module, every named function dispatching through
-            -- it, and the same registration calls. What makes it a component rather
-            -- than a watch run is who seals it and who holds the compiler session,
-            -- both of which packaging and the host settle later.
-            local hotRequest: any = config._reload
-                and {mode = "initial", module = name, libraries = config._reloadLibraries or {}}
-                or nil
-            code, genDiags, coverage, emittedEffects = gen.generate(
-                result.result,
-                path,
-                config._coverage and {path = path} or nil,
-                hotRequest,
-                nil,
-                ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
-            )
-            -- Generation is the last word on runtime reachability: it has now seen
-            -- which checked nodes survived folding, comptime erasure, materialization,
-            -- and lowering. Persist the same set that selected the generated prologue
-            -- so packaging carries only features the generated Lua uses.
-            result.result.effects = emittedEffects
-            runtimeModules = runtimeImports(name, code)
-            for effect in pairs(emittedEffects) do
-                effectNames[#effectNames + 1] = effect
-            end
-            table.sort(effectNames)
-            stats.generatedModules = stats.generatedModules + 1
-            for _, diag in ipairs(genDiags) do
-                mine[#mine + 1] = diag
-            end
-            if #genDiags == 0 then
-                artifactHash = contentDigest(code)
-            end
-            generateMs[name] = (generateMs[name] or 0) + (progress.now() - startedGenerating)
-        end
-        local moduleEffect = native.forModule(name)
-        if moduleEffect ~= nil then
-            local found = false
-            for _, effect in ipairs(effectNames) do
-                found = found or effect == moduleEffect
-            end
-            if not found then
-                effectNames[#effectNames + 1] = moduleEffect;
-                table.sort(effectNames)
-            end
-        end
-        said[name] = mine
-        local materializations = materializeObserve.collect(result.result and result.result.root, path)
-        local derives = result.result and result.result.deriveObservations or {}
-        local projectDependencies = inc.projectDependencies(path)
-        local checkedExports = result.exports or {}
-        records[name] = {
-            sourcePath = path,
+        local compiled = modules.compileChecked({
+            name = name,
+            path = path,
             sourceHash = sourceHash,
-            interfaceHash = modules.interfaceHash(
-                result.moduleType,
-                checkedExports,
-                external and sourceHash or nil,
-                contentDigest
-            ),
-            artifactHash = artifactHash,
-            dependencies = jsonArray(depNames),
-            runtimeModules = runtimeModules,
-            compilerRuntime = packagedRuntimeModules[name] or nil,
-            projectDependencies = jsonArray(projectDependencies),
-            externalInputs = jsonArray(inc.externalInputs(path)),
-            effects = jsonArray(effectNames),
-            output = output,
-            external = external or nil,
-            -- Only what checking found. Generation runs once per artifact and a reused
-            -- module does not run it again, so its remarks belong to the run that
-            -- produced them and not to the record.
-            diags = jsonArray(checkedDiags),
-            aotRefusals = refusals,
-            aotKey = aotKey,
-            aotFamilies = families,
-            coverage = coverage,
-            materializations = jsonArray(materializations),
-            derives = jsonArray(derives),
-            optimizationRemarks = optimizationRemarks,
-            allocationSites = allocationSites,
-            optimizationAccounted = optimizationAccounted,
+            checked = result,
+            inc = inc,
+            root = root,
+            outDir = outDir,
+            config = config,
+            target = target,
+            checkOnly = checkOnly == true,
+            external = external,
+            constSelection = constSelection,
             specializationHash = specializationHashes[normalize(path)] or emptySpecializationHash,
-        }
-        codeFor[name] = code
+            rewritten = substituted[normalize(path)] ~= nil,
+            authoredLints = authoredLints[normalize(path)],
+            aotRefusals = aotRefusals,
+            aotKey = currentAotKey,
+            compilerRuntime = packagedRuntimeModules[name],
+            contentDigest = contentDigest,
+            generating = function(generatingName: string): nil
+                report:at("generate")
+                report:step("generating " .. generatingName)
+            end,
+        })
+        if compiled.generated then
+            stats.generatedModules = stats.generatedModules + 1
+            generateMs[name] = (generateMs[name] or 0) + compiled.generateMs
+        end
+        said[name] = compiled.said
+        records[name] = compiled.record
+        codeFor[name] = compiled.code
         reused[name] = nil
-        linkSelectedDependencies(name, depNames, effectNames)
+        linkCompiled(name, compiled.record)
+    end
+
+    linkCompiled = function(name: string, record: any): nil
+        local depNames = record.dependencies
+        local runtimeModules = record.runtimeModules
+        linkSelectedDependencies(name, depNames, record.effects)
         for _, runtimeModule in ipairs(runtimeModules) do
             if not addCarriedRuntime(runtimeModule) then
                 linkPackagedRuntime(runtimeModule)
@@ -1840,10 +1980,30 @@ local function buildModules(root: string, outDir: string, config: Config, target
                         end
                     end
                 end
-                if usable and previous and not checkOnly and not external then
+                local builtCode = parallelCode[item.name]
+                if usable and previous and builtCode ~= nil then
+                    -- A worker's artifact is not on disk yet: it is the code the
+                    -- worker handed back, and is written below with everything else.
+                    usable = previous.artifactHash ~= nil and contentDigest(builtCode) == previous.artifactHash
+                elseif usable and previous and not checkOnly and not external then
                     usable = previous.artifactHash ~= nil and hashFile(output as string) == previous.artifactHash
                 end
-                if usable and previous then
+                if usable and previous and parallelChecked[item.name] then
+                    parallelAccepted[item.name] = true
+                end
+                if usable and previous and builtCode ~= nil then
+                    -- Built rather than reused: a worker did this run's work.
+                    local record = copyModuleRecord(previous)
+                    record.output = output
+                    record.external = external or nil
+                    records[item.name] = record
+                    codeFor[item.name] = builtCode
+                    reused[item.name] = nil
+                    said[item.name] = previous.diags
+                    stats.checkedModules = stats.checkedModules + 1
+                    stats.generatedModules = stats.generatedModules + 1
+                    linkCompiled(item.name, record)
+                elseif usable and previous then
                     records[item.name] = copyModuleRecord(previous)
                     records[item.name].output = output
                     records[item.name].external = external or nil
@@ -2098,7 +2258,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             else
                 compiledModules = compiledModules + 1
             end
-            if parallelChecked[name] and not reused[name] then
+            if parallelChecked[name] and not parallelAccepted[name] then
                 rechecked = rechecked + 1
             end
         end
