@@ -1260,7 +1260,22 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local function projectFingerprint(name, key)
         local value = q:get(name, key)
         if name == "projectEntries" or name == "projectPathEntries" or name == "projectAnnotations" then
-            value = entryListSurface(value)
+            -- Staging a carried module also opens it, which puts its declarations in
+            -- the project index from then on; unstaged, they are not indexed at all.
+            -- What it declares for its own module is reached through that module,
+            -- never by an unqualified name, so only its globals can change an answer
+            -- read here, and those still count.
+            local kept: {any} = {}
+            for _, entry in ipairs(value or {}) do
+                if entry.visibility == "global"
+                    or entry.moduleName == nil
+                    or entry.path == nil
+                    or not envMod.isStagedBundledSource(env, entry.moduleName, entry.path)
+                then
+                    kept[#kept + 1] = entry
+                end
+            end
+            value = entryListSurface(kept)
         elseif name == "projectModulePath"
             and type(value) == "string"
             and envMod.isStagedBundledSource(env, key, value)

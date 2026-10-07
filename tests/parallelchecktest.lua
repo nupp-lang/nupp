@@ -312,7 +312,11 @@ local function value(path: string): number
     return clock.stamp(path) + time.now() + exists + %d
 end
 
-return {value = value}
+local function described(info: files.Info?): boolean
+    return info ~= nil
+end
+
+return {value = value, described = described}
 ]]):format(index)
         )
     end
