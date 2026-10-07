@@ -54,6 +54,11 @@ const PARALLEL_CHECK_MIN_BYTES = 262144
 const PARALLEL_CHECK_MAX_AUTOMATIC_WORKERS = 6
 const PARALLEL_CHECK_MAX_REQUESTED_WORKERS = 8
 const PARALLEL_CHECK_WORKER_TIMEOUT_MS = 120000
+-- A live store is touched whenever a worker publishes an interface, and no request
+-- may run longer than the timeout above. A day leaves concurrent checks far outside
+-- the deletion window while eventually collecting what a killed coordinator left.
+const PARALLEL_CHECK_STALE_STORE_MS = 86400000
+const PARALLEL_CHECK_STORE_PREFIX = "parallel-check-"
 
 --- Selects the semantic worker count for a cold project check.
 ---
@@ -1388,7 +1393,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
         local function abandon(reason: any): nil
             closeChildren(true)
-            if tasks.isCancelled(reason) then
+            -- LuaJIT delivers SIGINT as this error at the interrupted instruction.
+            -- Protected worker scopes must not turn Ctrl-C into a successful serial
+            -- retry after the user asked the whole command to stop.
+            if tasks.isCancelled(reason) or tostring(reason):match("interrupted!$") ~= nil then
                 error(reason, 0)
             end
             report:parallelCounted({
@@ -1438,7 +1446,30 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
 
         if jobCount > 1 then
-            interfaceStore = join(root, join(outDir, "cache/parallel-check-" .. fs.stagingSuffix()))
+            local cacheDirectory = join(root, join(outDir, "cache"))
+            local staleAfter = os.getenv("NUPP_TEST_PARALLEL_CHECK_STALE") and 0 or PARALLEL_CHECK_STALE_STORE_MS
+            local now = clock.wallTime()
+            -- A directory rather than a broad cache sweep: other build data is never
+            -- ours, and a recent peer may be another check of this same project.
+            for _, entry in ipairs(files.list(cacheDirectory) or {}) do
+                if entry.kind == "directory"
+                    and entry.name:sub(1, #PARALLEL_CHECK_STORE_PREFIX) == PARALLEL_CHECK_STORE_PREFIX
+                then
+                    local path = join(cacheDirectory, entry.name)
+                    local info = files.info(path)
+                    if info ~= nil and now - info.modified >= staleAfter then
+                        local removed, removeProblem = files.remove(path, true)
+                        if not removed and os.getenv("NUPP_PARALLEL_CHECK_TRACE") then
+                            io.stderr:write(
+                                "parallel cold check could not remove stale interface store: " .. tostring(
+                                    removeProblem
+                                ) .. "\n"
+                            )
+                        end
+                    end
+                end
+            end
+            interfaceStore = join(cacheDirectory, PARALLEL_CHECK_STORE_PREFIX .. fs.stagingSuffix())
             if not fs.mkdir(interfaceStore as string) then
                 abandon("cannot create the parallel interface store")
                 return
@@ -2013,6 +2044,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             local producedInterface = answer.interfaceRef or answer.interfaceBundle
             if producedInterface ~= nil then
+                if os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "interface" and producedInterface.path ~= nil then
+                    local encoded = readFile(producedInterface.path)
+                    if encoded == nil or contentDigest(encoded as string) ~= producedInterface.transportFingerprint then
+                        error("injected parallel interface transport failed validation", 0)
+                    end
+                end
                 local completedBundle = {
                     image = producedInterface,
                     names = answer.interfaceNames or {},

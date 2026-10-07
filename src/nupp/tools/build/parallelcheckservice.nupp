@@ -25,6 +25,14 @@ end
 
 function service.main(): integer
     local failure = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE")
+    local pidFile = os.getenv("NUPP_TEST_PARALLEL_CHECK_PID_FILE")
+    if pidFile ~= nil then
+        local file = io.open(pidFile, "ab")
+        if file ~= nil then
+            file:write(tostring(require("nupp.compiler.fs").processId() or 0), "\n")
+            file:close()
+        end
+    end
     if failure == "exit" then
         return 86
     elseif failure == "hang" then
@@ -52,6 +60,18 @@ function service.main(): integer
         then
             answer = {ok = false, problem = "invalid parallel check request: " .. tostring(problem)}
         else
+            local pause = tonumber(os.getenv("NUPP_TEST_PARALLEL_CHECK_PAUSE_MS") or "")
+            if pause ~= nil and pause > 0 then
+                local activeFile = os.getenv("NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE")
+                if activeFile ~= nil then
+                    local file = io.open(activeFile, "ab")
+                    if file ~= nil then
+                        file:write(tostring(require("nupp.compiler.fs").processId() or 0), "\n")
+                        file:close()
+                    end
+                end
+                require("nupp.time").sleep(pause)
+            end
             local ok, result = pcall(modules.parallelCheckWorker, request)
             answer = ok and result or {ok = false, problem = tostring(result)}
         end

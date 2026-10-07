@@ -6,6 +6,7 @@ local modules = require("nupp.tools.build.modules")
 local process = require("nupp.compiler.process")
 local stable = require("nupp.compiler.stable")
 local store = require("nupp.compiler.project.store")
+local time = require("nupp.time")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -203,9 +204,36 @@ local function checkState(directory)
 end
 
 local function noInterfaceStore(directory)
-    for _, path in ipairs(fs.listFiles(directory .. "/build/cache")) do
-        assert(not path:find("/parallel%-check%-"), "parallel interface file survived: " .. path)
+    local entries = require("nupp.io.files").list(directory .. "/build/cache") or {}
+    for _, entry in ipairs(entries) do
+        assert(not entry.name:find("^parallel%-check%-"), "parallel interface store survived: " .. entry.name)
     end
+end
+
+local function workerPids(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return {}
+    end
+    local pids = {}
+    for line in file:lines() do
+        local pid = tonumber(line)
+        if pid and pid > 1 then
+            pids[pid] = true
+        end
+    end
+    file:close()
+
+    return pids
+end
+
+local function countKeys(values)
+    local count = 0
+    for _ in pairs(values) do
+        count = count + 1
+    end
+
+    return count
 end
 
 local function coldCheck(directory, environment)
@@ -275,6 +303,97 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
         noInterfaceStore(directory)
     end
 
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
+function M.anInterruptedCheckLeavesNoWorkersAndItsStoreIsScavenged()
+    if package.config:sub(1, 1) == "\\" then
+        return
+    end
+    local ffi = require("ffi")
+    pcall(ffi.cdef, "int kill(int, int);")
+    local lookup = assert(io.popen("command -v perl"))
+    local perl = lookup:read("*l")
+    lookup:close()
+    if not perl or perl == "" then
+        return
+    end
+    local directory = tempProject(false)
+    local pidFile = directory .. "/workers.pid"
+    local activeFile = directory .. "/active.pid"
+    local child = assert(process.startIsolated({
+        perl,
+        "-MPOSIX=:signal_h",
+        "-e",
+        '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
+            .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
+        NUPP,
+        "check",
+        "--quiet",
+    }, {
+        cwd = directory,
+        env = {
+            NUPP_CHECK_JOBS = "2",
+            NUPP_PARALLEL_CHECK_TRACE = "1",
+            NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
+            NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
+            NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
+        },
+    }))
+    local deadline = time.now() + 5000
+    local pids = workerPids(pidFile)
+    while countKeys(pids) < 2 do
+        assert(time.now() < deadline, "parallel workers did not start")
+        time.sleep(10)
+        pids = workerPids(pidFile)
+    end
+    while next(workerPids(activeFile)) == nil do
+        assert(time.now() < deadline, "parallel workers did not begin a request")
+        time.sleep(10)
+    end
+    assertEq(ffi.C.kill(-child.pid, 2), 0, "send SIGINT")
+    local exit = child:wait()
+    local said = ""
+    while true do
+        local chunk = child.stderr:poll()
+        if chunk == nil then
+            break
+        end
+        said = said .. chunk
+    end
+    child:close()
+    assert(
+        not exit:succeeded(),
+        ("the interrupted check did not stop: code=%s killed=%s timedOut=%s"):format(
+            tostring(exit.exitCode),
+            tostring(exit.killed),
+            tostring(exit.timedOut)
+        )
+            .. " output="
+            .. said
+    )
+
+    deadline = time.now() + 5000
+    for pid in pairs(pids) do
+        while ffi.C.kill(pid, 0) == 0 and time.now() < deadline do
+            time.sleep(10)
+        end
+        assert(ffi.C.kill(pid, 0) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))
+    end
+
+    local stale = directory .. "/build/cache/parallel-check-crashed"
+    assert(process.run(process.mkdirCommand(stale)) == 0)
+    write(stale .. "/partial.buf", "partial")
+    time.sleep(10)
+    local code = process.capture({NUPP, "check", "--quiet"}, {
+        cwd = directory,
+        env = {
+            NUPP_CHECK_JOBS = "2",
+            NUPP_TEST_PARALLEL_CHECK_STALE = "1",
+        },
+    })
+    assertEq(code, 0, "check after interrupted store")
+    noInterfaceStore(directory)
     assert(require("nupp.io.files").remove(directory, true))
 end
 
