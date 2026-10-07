@@ -24,6 +24,12 @@ local function response(value: any): string
 end
 
 function service.main(): integer
+    local failure = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE")
+    if failure == "exit" then
+        return 86
+    elseif failure == "hang" then
+        require("nupp.time").sleep(1000)
+    end
     while true do
         local header = io.read("*l")
         if header == nil then

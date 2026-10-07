@@ -49,6 +49,22 @@ local REPORT_SCHEMA = {
                 compiledModules = {type = "integer"},
                 reusedModules = {type = "integer"},
                 specializedBodies = {type = "integer"},
+                parallel = {
+                    type = "object",
+                    description = "How a cold whole-project check used semantic workers. "
+                    .. "Absent for warm checks and checks of named files.",
+                    properties = {
+                        mode = {type = "string", enum = {"parallel", "serial", "serial-fallback"},},
+                        workers = {type = "integer"},
+                        retries = {type = "integer"},
+                        batches = {type = "integer"},
+                        reason = {
+                            type = "string",
+                            description = "Why the check selected or returned to the serial checker.",
+                        },
+                    },
+                    required = {"mode", "workers", "retries", "batches"},
+                },
                 phases = {
                     type = "array",
                     description = "Every activity that took measurable time, longest "

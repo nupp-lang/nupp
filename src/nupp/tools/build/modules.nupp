@@ -49,6 +49,35 @@ local modules = {}
 local parallelWorkerContext: any? = nil
 local parallelWorkerInitialized = false
 
+const PARALLEL_CHECK_MIN_MODULES = 64
+const PARALLEL_CHECK_MIN_BYTES = 262144
+const PARALLEL_CHECK_MAX_AUTOMATIC_WORKERS = 6
+const PARALLEL_CHECK_MAX_REQUESTED_WORKERS = 8
+const PARALLEL_CHECK_WORKER_TIMEOUT_MS = 120000
+
+--- Selects the semantic worker count for a cold project check.
+---
+--- An explicit count bypasses the workload floor. One worker selects the ordinary
+--- serial checker, which keeps `NUPP_CHECK_JOBS=1` as the recovery control.
+function modules.parallelCheckPlan(
+    moduleCount: integer,
+    sourceBytes: integer,
+    available: integer,
+    requested: number?
+): any
+    if requested ~= nil then
+        local workers = math.max(1, math.min(math.floor(requested), PARALLEL_CHECK_MAX_REQUESTED_WORKERS, moduleCount))
+
+        return {workers = workers, reason = workers == 1 and "requested serial checking" or nil, requested = true,}
+    end
+    if moduleCount < PARALLEL_CHECK_MIN_MODULES or sourceBytes < PARALLEL_CHECK_MIN_BYTES then
+        return {workers = 1, reason = "the project is below the parallel workload floor", requested = false,}
+    end
+    local workers = math.max(1, math.min(available, PARALLEL_CHECK_MAX_AUTOMATIC_WORKERS, moduleCount))
+
+    return {workers = workers, reason = workers == 1 and "the host has one available worker" or nil, requested = false,}
+end
+
 local function hiddenDirectory(name: string): boolean
     return name:sub(1, 1) == "."
 end
@@ -1222,26 +1251,36 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- Checks a cold project in dependency-ready batches and installs the resulting
     --- records as the cache candidate the ordinary validator below consumes.
     local function precheckColdProject(): nil
-        if not checkOnly
-            or narrow ~= nil
-            or #queue < 32
-            or next(oldState.modules or {}) ~= nil
-            or next(overlays or {}) ~= nil
-            or os.getenv("NUPP_SERIAL_CHECK") ~= nil
-            or os.getenv("NUPP_EXPERIMENTAL_PARALLEL_CHECK") ~= "1"
-            or aotcheck.applies(target.aot)
-        then
+        if not checkOnly or narrow ~= nil or next(oldState.modules or {}) ~= nil or next(overlays or {}) ~= nil then
+            return
+        end
+        if os.getenv("NUPP_SERIAL_CHECK") ~= nil then
+            report:parallelCounted({
+                mode = "serial",
+                workers = 1,
+                retries = 0,
+                batches = 0,
+                reason = "NUPP_SERIAL_CHECK disabled semantic workers",
+            })
+            return
+        end
+        if aotcheck.applies(target.aot) then
+            report:parallelCounted({
+                mode = "serial",
+                workers = 1,
+                retries = 0,
+                batches = 0,
+                reason = "the target applies an ahead-of-time policy",
+            })
             return
         end
         local system = require("nupp.system")
         local requested = tonumber(os.getenv("NUPP_CHECK_JOBS") or "")
-        local automatic = math.min(system.availableParallelism(), 6)
-        local jobCount = math.max(1, math.min(math.floor(requested or automatic), 8, #queue))
-        local moduleobject = require("nupp.tools.build.moduleobject")
         local declaredModules: {[string]: boolean} = {}
         local supportedModules: {[string]: boolean} = {}
         local projectPaths: {string} = {}
         local sourceBytes: {[string]: integer} = {}
+        local sourceByteCount: integer = 0
         for _, item in ipairs(queue) do
             declaredModules[item.name] = true
             supportedModules[item.name] = moduleTargets.supports(item.name, target.host)
@@ -1251,7 +1290,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 return
             end
             sourceBytes[item.path] = #(text as string)
+            sourceByteCount = sourceByteCount + #(text as string)
         end
+        local plan = modules.parallelCheckPlan(#queue, sourceByteCount, system.availableParallelism(), requested)
+        local jobCount = plan.workers as integer
+        if jobCount == 1 then
+            report:parallelCounted({mode = "serial", workers = 1, retries = 0, batches = 0, reason = plan.reason,})
+            return
+        end
+        report:at("parallel check")
+        local moduleobject = require("nupp.tools.build.moduleobject")
         local objects: {any} = {}
         local components: {{string}} = {}
         local byPath: {[string]: any} = {}
@@ -1328,19 +1376,38 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
             children = {}
             if interfaceStore ~= nil then
-                files.remove(interfaceStore as string, true)
+                local removed, removeProblem = files.remove(interfaceStore as string, true)
+                if not removed and os.getenv("NUPP_PARALLEL_CHECK_TRACE") then
+                    io.stderr:write(
+                        "parallel cold check could not remove its interface store: " .. tostring(removeProblem) .. "\n"
+                    )
+                end
                 interfaceStore = nil
             end
         end
 
         local function abandon(reason: any): nil
             closeChildren(true)
+            if tasks.isCancelled(reason) then
+                error(reason, 0)
+            end
+            report:parallelCounted({
+                mode = "serial-fallback",
+                workers = jobCount,
+                retries = workerRetries,
+                batches = math.floor(workerStats.batches or 0) as integer,
+                reason = tostring(reason),
+            })
+            report:at("resolve")
             if os.getenv("NUPP_PARALLEL_CHECK_TRACE") then
                 io.stderr:write("parallel cold check fell back: " .. tostring(reason) .. "\n")
             end
         end
 
         local function startChild(index: integer): nil
+            if os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "start" then
+                error("injected parallel check worker start failure", 0)
+            end
             local child, problem = process.startIsolated({executable, "__parallel-check-service"})
             if child == nil or child.stdin == nil or child.stdout == nil then
                 if child ~= nil then
@@ -1371,8 +1438,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
 
         if jobCount > 1 then
-            local storeNonce = tostring(fs.processId() or 0) .. "-" .. tostring(math.floor(clock.now() * 1000))
-            interfaceStore = join(root, "build/cache/parallel-check-" .. storeNonce)
+            interfaceStore = join(root, join(outDir, "cache/parallel-check-" .. fs.stagingSuffix()))
             if not fs.mkdir(interfaceStore as string) then
                 abandon("cannot create the parallel interface store")
                 return
@@ -1422,7 +1488,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             local child = children[index]
             local frame = protocol.frame(request)
             requestBytes = requestBytes + #frame
-            local deadline = clock.now() + 600000
+            local deadline = clock.now() + (
+                os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "hang" and 100 or PARALLEL_CHECK_WORKER_TIMEOUT_MS
+            )
             if child.stdin:send(frame, deadline) ~= #frame then
                 error("parallel check worker stopped accepting requests", 0)
             end
@@ -1459,18 +1527,19 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     end
                 end
                 drainWorkerStderr(index)
-                local chunk, readProblem = child.stdout:read(65536)
-                if chunk ~= nil and chunk ~= "" then
+                if clock.now() >= deadline then
+                    error("parallel check worker timed out", 0)
+                end
+                local chunk, ended = child.stdout:poll(
+                    65536,
+                    math.max(1, math.min(50, math.floor(deadline - clock.now())))
+                )
+                if chunk ~= nil then
                     buffers[index] = buffers[index] .. chunk
-                else
+                elseif ended or not child:isRunning() then
                     drainWorkerStderr(index)
                     local said = workerSaid[index]
-                    error(
-                        "parallel check worker stopped before answering" .. (
-                            readProblem ~= nil and (": " .. tostring(readProblem)) or ""
-                        ) .. (said ~= "" and (": " .. said) or ""),
-                        0
-                    )
+                    error("parallel check worker stopped before answering" .. (said ~= "" and (": " .. said) or ""), 0)
                 end
             end
         end
@@ -2048,6 +2117,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
         end
         closeChildren()
+        report:parallelCounted({
+            mode = "parallel",
+            workers = jobCount,
+            retries = workerRetries,
+            batches = math.floor(workerStats.batches or 0) as integer,
+        })
+        report:at("resolve")
         oldState.modules = checked
         oldState.moduleCompilerHash = newState.moduleCompilerHash
         oldState.configHash = newState.configHash
@@ -3457,14 +3533,19 @@ function modules.parallelCheckBatch(request: any, context: any?): (any, any)
             table.sort(prerequisites)
             local interfacePath = join(request.interfaceStore, interfaceBundle.fingerprint .. ".buf")
             local interfaceBytes = interfaceProtocol.encode(interfaceBundle)
-            local written, writeProblem = writeFile(interfacePath, interfaceBytes)
+            local transportFingerprint = contentDigest(interfaceBytes)
+            local storedBytes = interfaceBytes
+            if os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "interface" then
+                storedBytes = storedBytes .. "\0injected damage"
+            end
+            local written, writeProblem = writeFile(interfacePath, storedBytes)
             if not written then
                 return {ok = false, problem = "interface store: " .. tostring(writeProblem)}, context
             end
             interfaceRef = {
                 path = interfacePath,
                 fingerprint = interfaceBundle.fingerprint,
-                transportFingerprint = contentDigest(interfaceBytes),
+                transportFingerprint = transportFingerprint,
                 prerequisites = prerequisites,
                 nodes = #(interfaceBundle.descriptor.types or {}),
             }

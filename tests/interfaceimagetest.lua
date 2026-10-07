@@ -200,6 +200,60 @@ function M.referencesPreviouslyLoadedStructuralArenas()
     assertEq(second.consumer.exports.types.Value, first.producer.exports.types.Value, "mounted arena identity")
 end
 
+function M.roundTripsDefinitionsComptimeProgramsEffectsAndDiagnostics()
+    local value = T.func({T.string}, {T.integer}, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, {"text"})
+    local sample = semantic("sample", value)
+    sample.exports.typeDefs.Value = {
+        filename = "/project/sample.nupp",
+        name = "Value",
+        kind = "type",
+        deprecated = {reason = "old", replacement = "Other"},
+        exactCallExport = {module = "sample", member = "Value", identity = "sample.Value"},
+    }
+    sample.exports.valueDefs.value = {
+        filename = "/project/sample.nupp",
+        name = "value",
+        kind = "value",
+        comptimeOnly = true,
+    }
+    sample.exports.nominalEffectFingerprint = "effects"
+    sample.exports.deriveInterfaceFingerprint = "derives"
+    sample.exports.comptimeFunctionFingerprint = "comptime"
+    sample.exports.callGuarantees = {value = {noYield = true, effects = {"io.read"}},}
+    sample.exports.comptimeFunctions.Make = {
+        sealedTypeFunction = true,
+        identity = "sample.Make",
+        main = "return 1",
+        serializedHelpers = {"helper"},
+        signature = value,
+        definition = {filename = "/project/sample.nupp", name = "Make", kind = "function"},
+        bodyFingerprint = "body",
+        deriveProvider = true,
+        deriveInterface = T.shape({{name = "made", read = T.string}}),
+        providerModule = "sample.provider",
+        providerModuleLocal = "provider",
+        runtimeHelpers = {"runtime.helper"},
+    }
+    sample.diags = {{code = "NUPP2001", msg = "fixture diagnostic"}}
+    sample.source = "return sample"
+
+    local image = assert(interfaceimage.encode({sample = sample}))
+    local decoded = assert(interfaceimage.decode(image)).sample
+    local exports = decoded.exports
+    assertEq(exports.nominalEffectFingerprint, "effects", "nominal effect fingerprint")
+    assertEq(exports.deriveInterfaceFingerprint, "derives", "derive interface fingerprint")
+    assertEq(exports.comptimeFunctionFingerprint, "comptime", "comptime fingerprint")
+    assertEq(exports.callGuarantees.value.effects[1], "io.read", "call effects")
+    assertEq(exports.typeDefs.Value.deprecated.replacement, "Other", "type definition metadata")
+    assertEq(exports.typeDefs.Value.exactCallExport.identity, "sample.Value", "exact call export")
+    assertEq(exports.valueDefs.value.comptimeOnly, true, "value definition metadata")
+    assertEq(exports.comptimeFunctions.Make.signature.tag, "func", "comptime signature")
+    assertEq(exports.comptimeFunctions.Make.deriveInterface.tag, "shape", "derive interface")
+    assertEq(exports.comptimeFunctions.Make.runtimeHelpers[1], "runtime.helper", "runtime helpers")
+    assertEq(decoded.diags[1].code, "NUPP2001", "diagnostics")
+    assertEq(decoded.source, "return sample", "source")
+end
+
 function M.rejectsUnknownSchemasCorruptionAndMissingArenas()
     local image = select(2, roundTrip(T.string))
     local schema = image.schema
