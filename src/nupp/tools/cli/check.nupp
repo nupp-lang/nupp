@@ -58,6 +58,11 @@ local REPORT_SCHEMA = {
                         workers = {type = "integer"},
                         retries = {type = "integer"},
                         batches = {type = "integer"},
+                        rechecked = {
+                            type = "integer",
+                            description = "Worker-checked modules checked again in the coordinator "
+                            .. "because their records did not validate. Present only in parallel mode.",
+                        },
                         reason = {
                             type = "string",
                             description = "Why the check selected or returned to the serial checker.",

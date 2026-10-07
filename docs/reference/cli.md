@@ -750,7 +750,9 @@ A worker that stops is restarted once. A second failure returns the whole check
 to the serial checker, discarding every partial parallel record first. The
 `timing.parallel` object in `--json` reports `parallel`, `serial`, or
 `serial-fallback`, with worker, retry, and batch counts and a reason when the
-serial checker was selected.
+serial checker was selected. A parallel check also reports `rechecked`, the
+modules the coordinating process checked again because a worker's record of
+them no longer held once the whole project was in view.
 
 `NUPP_PARALLEL_CHECK_TRACE=1` is a diagnostic aid. It writes one line of
 scheduler counters to standard error when a parallel check finishes -- where the

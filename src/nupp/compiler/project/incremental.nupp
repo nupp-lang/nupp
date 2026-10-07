@@ -1254,6 +1254,14 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         local value = q:get(name, key)
         if name == "projectEntries" or name == "projectPathEntries" or name == "projectAnnotations" then
             value = entryListSurface(value)
+        elseif name == "projectModulePath"
+            and type(value) == "string"
+            and envMod.isStagedBundledSource(env, key, value)
+        then
+            -- Staged or not, the module is the carried source. A build stages as it
+            -- goes, so which answer a dependent recorded depends only on how far
+            -- the build had got when it was checked.
+            value = nil
         end
 
         return contentDigest(stable(value))

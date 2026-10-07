@@ -274,6 +274,60 @@ function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
     assert(require("nupp.io.files").remove(directory, true))
 end
 
+-- Checking a module whose effects need a feature runtime stages that runtime's
+-- carried source, and from then on the name resolves to the staged file. Workers
+-- check with nothing staged, so every record that names such a module was taken
+-- before the move and validated after it: the fingerprint has to say both are the
+-- same carried module or the coordinator checks the project a second time.
+function M.recordsNamingStagedStandardModulesAreReused()
+    local directory = os.tmpname()
+    os.remove(directory)
+    write(directory .. "/nupp.lua", 'return {include = {"src"}}\n')
+    write(
+        directory .. "/src/clock.nupp",
+        [[
+local files = require("nupp.io.files")
+local time = require("nupp.time")
+
+local function stamp(path: string): number
+    if files.exists(path) then
+        return time.now()
+    end
+    return 0
+end
+
+return {stamp = stamp}
+]]
+    )
+    for index = 1, 6 do
+        write(
+            directory .. ("/src/user%d.nupp"):format(index),
+            ([[
+local clock = require("clock")
+local files = require("nupp.io.files")
+local time = require("nupp.time")
+
+local function value(path: string): number
+    local exists = files.exists(path) and 1 or 0
+    return clock.stamp(path) + time.now() + exists + %d
+end
+
+return {value = value}
+]]):format(index)
+        )
+    end
+
+    local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
+    assertEq(serialCode, 0, "serial fixture")
+    local code, report, state = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
+    assertEq(code, 0, "parallel exit status")
+    assertEq(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    assertEq(report.timing.parallel.rechecked, 0, "worker records survive validation")
+    assertEq(state, serialState, "parallel check records")
+
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     local directory = tempProject(false)
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})

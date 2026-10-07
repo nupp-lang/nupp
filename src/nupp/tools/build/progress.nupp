@@ -73,6 +73,11 @@ type progress.ParallelFacts = {
     retries: integer,
     batches: integer,
 
+    --- How many worker-checked modules the coordinator checked again because
+    --- their record did not survive validation. Present only when the check
+    --- stayed parallel.
+    rechecked: integer?,
+
     --- Why a serial check was selected after the parallel path was considered.
     reason: string?
 }
