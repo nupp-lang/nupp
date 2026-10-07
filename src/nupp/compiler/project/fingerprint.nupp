@@ -337,8 +337,14 @@ end
 --- `cacheDir` is where the answer is kept between commands. Computing it lexes the
 --- whole built tree, which is a tenth of a second and far too much to spend on every
 --- command; the store makes it once per compiler. Passing no directory computes it in
---- this process, which is what a caller with nowhere to write does.
-local function moduleGraph(cacheDir: string?, digest: function(string): string): fingerprint.ModuleGraph?
+--- this process, which is what a caller with nowhere to write does. `readOnly` reads
+--- a kept graph but never writes one, for a process that must not publish to stores
+--- another process owns.
+local function moduleGraph(
+    cacheDir: string?,
+    digest: function(string): string,
+    readOnly: boolean?
+): fingerprint.ModuleGraph?
     if graphAttempted and (graphMemo == nil or cacheDir == nil or graphStoredIn[cacheDir]) then
         return graphMemo
     end
@@ -354,7 +360,9 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
     local root = dirname(dirname(dir))
     local store = nil
     if cacheDir then
-        graphStoredIn[cacheDir] = true
+        if not readOnly then
+            graphStoredIn[cacheDir] = true
+        end
         store = require(
             "nupp.compiler.project.store"
         ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
@@ -366,8 +374,10 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
         end
         -- Computed already by a caller with nowhere to keep it.
         if graphMemo ~= nil then
-            store.set(graphMemo)
-            store.save()
+            if not readOnly then
+                store.set(graphMemo)
+                store.save()
+            end
 
             return graphMemo
         end
@@ -420,7 +430,7 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
         graph.edges[name] = edges
     end
     graphMemo = graph
-    if store then
+    if store and not readOnly then
         store.set(graph)
         store.save()
     end
@@ -462,10 +472,13 @@ local subsystemMemo: {[string]: string} = {}
 --- module is not in it, and for a bundled compiler, which is one file. Every fallback
 --- costs work that turns out to have been unnecessary and none of them changes an
 --- answer.
+---
+--- `readOnly` reads the kept module graph without writing one back.
 function fingerprint.subsystemFingerprint(
     roots: {string},
     cacheDir: string?,
-    contentDigest: (function(string): string)?
+    contentDigest: (function(string): string)?,
+    readOnly: boolean?
 ): string
     local digest = contentDigest or hash.digest
     local ordered: {string} = {}
@@ -478,7 +491,7 @@ function fingerprint.subsystemFingerprint(
     if remembered then
         return remembered
     end
-    local graph = moduleGraph(cacheDir, digest)
+    local graph = moduleGraph(cacheDir, digest, readOnly)
     local answer = nil
     if graph then
         local reached: {[string]: boolean} = {}

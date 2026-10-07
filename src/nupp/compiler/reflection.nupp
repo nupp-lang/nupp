@@ -10,6 +10,7 @@ local T = require("nupp.compiler.types")
 local record reflection
     SCHEMA: integer
     describe: function(any, string?, boolean?): any
+    graph: function(any, any?): (integer?, {any}, {any})
 end
 
 reflection.SCHEMA = 4
@@ -24,9 +25,6 @@ local function sortedNames(values)
     return names
 end
 
---- Converts the checker's interned, possibly recursive graph into plain acyclic data.
---- Every type appears once in `types`; edges are integer indices, so recursive
---- declarations survive JSON transport without exposing checker objects or identities.
 --- Whether a stored field may be left out of a construction: nil fits its type.
 local function admitsNil(t: any): boolean
     if t == T.nil_ or t == T.any or t == T.unknown then
@@ -43,7 +41,18 @@ local function admitsNil(t: any): boolean
     return false
 end
 
-function reflection.describe(root: any, qualifiedName: string?, includeSources: boolean?): any
+--- Converts the checker's interned, possibly recursive graph into plain acyclic data.
+--- Every type appears once in `types`; edges are integer indices, so recursive
+--- declarations survive JSON transport without exposing checker objects or identities.
+---
+--- `hooks` is for a reader that needs more than the public descriptor, and is never
+--- given by `describe`. `hooks.reference(t, intern)` may answer a node to stand for
+--- `t` instead of describing it; `hooks.extend(t, node, intern)` may add to the node
+--- `t` was described as. Both receive the walk's `intern`, so whatever they add is
+--- an edge in the same graph.
+---
+--- @return the root's index, the nodes, and the type each node was made from
+function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
     local indices = {}
     local types: {any} = {}
     local sources = {}
@@ -83,6 +92,12 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
         local out = {kind = t.tag}
         types[index] = out
         local tag = t.tag
+        local reference = hooks and hooks.reference and hooks.reference(t, intern) or nil
+        if reference ~= nil then
+            types[index] = reference
+
+            return index
+        end
 
         if tag == "nominal" then
             out.kind = t.declKind
@@ -406,11 +421,18 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
         elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" then
             out.of = intern(t.of)
         end
+        if hooks and hooks.extend then
+            hooks.extend(t, out, intern)
+        end
 
         return index
     end
 
-    local rootIndex = intern(root)
+    return intern(root), types, sources
+end
+
+function reflection.describe(root: any, qualifiedName: string?, includeSources: boolean?): any
+    local rootIndex, types, sources = reflection.graph(root)
     local descriptor = {schema = reflection.SCHEMA, root = rootIndex, types = types, qualifiedName = qualifiedName,}
     local rootType = types[rootIndex or 0] or {}
     descriptor.kind = rootType.kind

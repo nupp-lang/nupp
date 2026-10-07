@@ -1,0 +1,1330 @@
+@!internal
+
+module nupp.compiler.project.interfaceimage
+
+--[[
+Versioned module interfaces for semantic workers.
+
+An image contains stable declaration and binder slots plus an acyclic semantic type
+graph. Loading never adopts a producer's type ids. It allocates nominal and binder
+placeholders first, rebuilds every structural node through `types`, and only then
+patches declaration surfaces. The receiving checker therefore interns an imported
+structural type exactly as it would have built that type itself.
+
+The graph is `reflection.graph`'s, extended here with what a checker needs and a
+derive must never see: declaration keys, private and borrow state, overload entries,
+foreign-output contracts and the rest. None of it reaches the public descriptor.
+]]
+
+local generics = require("nupp.compiler.types.generics")
+local reflection = require("nupp.compiler.reflection")
+local T = require("nupp.compiler.types")
+
+local interfaceimage = {}
+
+interfaceimage.SCHEMA = 3
+
+--- What `interfaceimage.encode` is told about the run it encodes for.
+type interfaceimage.EncodeOptions = {
+    --- Where every type an earlier image carried lives, by arena and node. A type
+    --- found here is referenced rather than described again.
+    origins: {[any]: any}?,
+
+    --- The arenas this process holds, by name. Encoding adds the new image's.
+    arenas: {[string]: {any}}?,
+
+    --- Every source file the project checks. A project-index declaration of one of
+    --- them that this image does not own is referenced by key, because every reader
+    --- indexes the same project.
+    projectPaths: {string}?
+}
+
+--- What `interfaceimage.decode` loads into.
+type interfaceimage.DecodeOptions = {
+    --- Nominals by declaration key: the reader's project index, and every
+    --- declaration earlier images allocated.
+    nominals: {[string]: any}?,
+
+    --- Mounted arenas by name. Decoding mounts the new image's.
+    arenas: {[string]: {any}}?,
+
+    --- Where each mounted type came from, so encoding can reference it.
+    origins: {[any]: any}?
+}
+
+local PRIMITIVES: {
+    [string]: any
+} = {
+    any = T.any,
+    unknown = T.unknown,
+    never = T.never,
+    open = T.open,
+    ["nil"] = T.nil_,
+    boolean = T.boolean,
+    string = T.string,
+    number = T.number,
+    integer = T.integer,
+    ["table"] = T.table_,
+    thread = T.thread,
+    userdata = T.userdata,
+    float = T.float,
+    cdata = T.cdata,
+    cstring = T.cstring,
+    voidptr = T.voidptr,
+    int8 = T.int8,
+    int16 = T.int16,
+    int32 = T.int32,
+    int64 = T.int64,
+    uint8 = T.uint8,
+    uint16 = T.uint16,
+    uint32 = T.uint32,
+    uint64 = T.uint64,
+    type = T.type_,
+    typepack = T.typepack,
+    functionconst = T.functionConst,
+}
+
+local function sortedNames(values: any): {string}
+    local names: {string} = {}
+    for name in pairs(values or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+local function copyToken(token: any): any?
+    if type(token) ~= "table" then
+        return nil
+    end
+
+    return {
+        kind = token.kind,
+        text = token.text,
+        offset = token.offset,
+        line = token.line,
+        col = token.col,
+        missing = token.missing == true or nil,
+    }
+end
+
+local function copyDefinition(definition: any): any?
+    if type(definition) ~= "table" then
+        return nil
+    end
+    local copied = {
+        filename = definition.filename,
+        name = definition.name,
+        kind = definition.kind,
+        token = copyToken(definition.token),
+        deprecated = definition.deprecated,
+        comptimeOnly = definition.comptimeOnly,
+        moduleName = definition.moduleName,
+        namespacePath = definition.namespacePath,
+        scalarIntrinsic = definition.scalarIntrinsic,
+        associated = definition.associated,
+        cdefIdentity = definition.cdefIdentity,
+    }
+    local exact = definition.exactCallExport
+    if type(exact) == "table" then
+        copied.exactCallExport = {module = exact.module, member = exact.member, identity = exact.identity,}
+    end
+
+    return copied
+end
+
+local function copyDefinitions(values: any): {any}
+    local copied: {any} = {}
+    for _, name in ipairs(sortedNames(values)) do
+        copied[#copied + 1] = {name = name, definition = copyDefinition(values[name]),}
+    end
+
+    return copied
+end
+
+local function restoreDefinitions(values: any): {[string]: any}
+    local restored: {[string]: any} = {}
+    for _, entry in ipairs(values or {}) do
+        restored[entry.name] = entry.definition
+    end
+
+    return restored
+end
+
+local nextArena: integer = 0
+local processToken = ""
+
+--- A name for a new arena, unique among every process of a run.
+---
+--- An arena is only ever named, never compared: the bytes that carry it are checked
+--- against their own digest, so a name has to be distinct and nothing more. The
+--- process id keeps a restarted worker from reusing a name its predecessor issued.
+local function arenaName(): string
+    if processToken == "" then
+        local pid = require("nupp.compiler.fs").processId()
+        processToken = pid ~= nil and tostring(pid) or tostring({}):match("(%x+)$") or "0"
+    end
+    nextArena = nextArena + 1
+
+    return "image-" .. processToken .. "-" .. tostring(nextArena)
+end
+
+--- The positions of a defaults list, dense, so a reader never stops at a hole.
+local function encodeDefaults(values: any, intern: function(any): integer?): {any}
+    local count: integer = 0
+    for position in pairs(values or {}) do
+        if type(position) == "number" and position > count then
+            count = position as integer
+        end
+    end
+    local encoded: {any} = {}
+    for position = 1, count do
+        local value = values[position]
+        if type(value) == "table" and value.tag == "pack" then
+            encoded[position] = {kind = "typepack", value = intern(value)}
+        elseif type(value) == "table"
+            and (value.tag == "constLiteral" or value.tag == "constVar" or value.tag == "constOp")
+        then
+            encoded[position] = {kind = "const", value = intern(value)}
+        elseif type(value) == "table" and value.tag then
+            encoded[position] = {kind = "type", value = intern(value)}
+        else
+            encoded[position] = {kind = "none"}
+        end
+    end
+
+    return encoded
+end
+
+--- Bounds beside their parameters, with 0 where a parameter has none.
+local function encodeBounds(parameters: any, bounds: any, intern: function(any): integer?): {any}
+    local encoded: {any} = {}
+    for position in ipairs(parameters or {}) do
+        encoded[position] = intern(bounds and bounds[position]) or 0
+    end
+
+    return encoded
+end
+
+--- Encodes a set of completed module semantics as one shared type arena.
+function interfaceimage.encode(semantics: {[string]: any}, options: interfaceimage.EncodeOptions?): (any?, string?)
+    local origins = options and options.origins or nil
+    local arenas = options and options.arenas or nil
+    local roots: {any} = {}
+    local entries: {any} = {}
+    local ownedPaths: {[string]: boolean} = {}
+    local projectPaths: {[string]: boolean} = {}
+    for _, path in ipairs(options and options.projectPaths or {}) do
+        projectPaths[path] = true
+    end
+
+    local function addRoot(t: any): integer
+        roots[#roots + 1] = t
+
+        return #roots
+    end
+
+    for _, moduleName in ipairs(sortedNames(semantics)) do
+        local semantic = semantics[moduleName]
+        local exports = semantic.exports or {}
+        if semantic.path then
+            ownedPaths[semantic.path] = true
+        end
+        local entry = {
+            name = moduleName,
+            interface = addRoot(semantic.interface and semantic.interface.type or T.unknown),
+            types = {},
+            values = {},
+            typeDefs = copyDefinitions(exports.typeDefs),
+            valueDefs = copyDefinitions(exports.valueDefs),
+            nominalEffectFingerprint = exports.nominalEffectFingerprint,
+            deriveInterfaceFingerprint = exports.deriveInterfaceFingerprint,
+            comptimeFunctionFingerprint = exports.comptimeFunctionFingerprint,
+            callGuarantees = exports.callGuarantees,
+            comptimeFunctions = {},
+            diags = semantic.diags or {},
+            source = semantic.source,
+        }
+        for _, name in ipairs(sortedNames(exports.types)) do
+            entry.types[#entry.types + 1] = {name = name, root = addRoot(exports.types[name]),}
+        end
+        for _, name in ipairs(sortedNames(exports.values)) do
+            entry.values[#entry.values + 1] = {name = name, root = addRoot(exports.values[name]),}
+        end
+        for _, name in ipairs(sortedNames(exports.comptimeFunctions)) do
+            local program = exports.comptimeFunctions[name]
+            entry.comptimeFunctions[
+                #entry.comptimeFunctions + 1
+            ] = {
+                name = name,
+                sealedTypeFunction = program.sealedTypeFunction == true,
+                identity = program.identity,
+                main = program.main,
+                serializedHelpers = program.serializedHelpers,
+                signature = program.signature and addRoot(program.signature) or nil,
+                definition = copyDefinition(program.definition),
+                bodyFingerprint = program.bodyFingerprint,
+                deriveProvider = program.deriveProvider == true,
+                deriveInterface = program.deriveInterface and addRoot(program.deriveInterface) or nil,
+                providerModule = program.providerModule,
+                providerModuleLocal = program.providerModuleLocal,
+                runtimeHelpers = program.runtimeHelpers,
+            }
+        end
+        entries[#entries + 1] = entry
+    end
+
+    --- A project-index declaration of a file this image does not own: every reader
+    --- indexed it too, so the key alone finds the reader's own.
+    local function externalNominal(source: any): boolean
+        local path = source.indexedPath
+        return path ~= nil and projectPaths[path] == true and not ownedPaths[path]
+    end
+
+    local rootTuple = T.tuple(roots)
+
+    local function reference(t: any, intern: function(any): integer?): any?
+        local origin = t ~= rootTuple and origins and origins[t] or nil
+        if origin ~= nil then
+            return {kind = "external", arena = origin.arena, node = origin.node}
+        end
+        if t.tag ~= "nominal" then
+            return nil
+        end
+        if t.origin ~= nil then
+            -- An application is its declaration and arguments. The reader asks its own
+            -- `generics.instantiate` for it, so it is the one that reader's checker
+            -- finds when it applies the same declaration to the same arguments.
+            local node = {
+                kind = t.declKind,
+                name = t.name,
+                nominal = true,
+                instantiation = true,
+                origin = intern(t.origin),
+                typeArguments = {},
+                packArguments = {},
+                constArguments = {},
+            }
+            for position, argument in ipairs(t.typeArgs or {}) do
+                node.typeArguments[position] = intern(argument)
+            end
+            for position, argument in ipairs(t.packArgs or {}) do
+                node.packArguments[position] = intern(argument)
+            end
+            for position, argument in ipairs(t.constArgs or {}) do
+                node.constArguments[position] = intern(argument)
+            end
+
+            return node
+        end
+        if externalNominal(t) then
+            return {
+                kind = t.declKind,
+                name = t.name,
+                declarationKey = t.declarationKey,
+                nominal = true,
+                external = true,
+            }
+        end
+
+        return nil
+    end
+
+    local function extend(t: any, out: any, intern: function(any): integer?): nil
+        local function cleanupOf(cleanup: any): any?
+            return cleanup
+                and {
+                    kind = cleanup.kind,
+                    key = cleanup.key,
+                    name = cleanup.name,
+                    field = cleanup.field,
+                    functionType = intern(cleanup.functionType),
+                    constTerm = intern(cleanup.constTerm),
+                    cleanup = cleanupOf(cleanup.cleanup),
+                }
+                or nil
+        end
+
+        local function methodEntry(entry: any): any
+            return {
+                signature = intern(entry.signature),
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = copyDefinition(entry.definition),
+            }
+        end
+
+        local function methodGroups(groups: any): {any}
+            local encoded: {any} = {}
+            for _, name in ipairs(sortedNames(groups)) do
+                local group: {any} = {}
+                for _, entry in ipairs(groups[name] or {}) do
+                    group[#group + 1] = methodEntry(entry)
+                end
+                encoded[#encoded + 1] = {name = name, entries = group,}
+            end
+
+            return encoded
+        end
+
+        local tag = t.tag
+        if tag == "nominal" then
+            out.declarationKey = t.declarationKey
+            out.associatedRequirements = {}
+            out.hasAssociatedRequirements = t.associatedRequirements ~= nil
+            for position, requirement in ipairs(t.associatedRequirements or {}) do
+                out.associatedRequirements[
+                    position
+                ] = {
+                    name = requirement.name,
+                    bound = intern(requirement.bound),
+                    selfBinder = intern(requirement.selfBinder),
+                    definition = copyDefinition(requirement.definition),
+                }
+            end
+            out.hasAssociatedAnswers = t.associatedAnswers ~= nil
+            out.associatedAnswers = {}
+            for _, name in ipairs(sortedNames(t.associatedAnswers)) do
+                local answer = t.associatedAnswers[name]
+                out.associatedAnswers[
+                    #out.associatedAnswers + 1
+                ] = {
+                    name = name,
+                    type = intern(answer.type),
+                    selfBinder = intern(answer.selfBinder),
+                    answerKind = answer.kind,
+                    definition = copyDefinition(answer.definition),
+                }
+            end
+            out.hasTypeParameters = t.typeParams ~= nil
+            out.hasTypeBounds = t.typeBounds ~= nil
+            out.hasPackParameters = t.packParams ~= nil
+            out.hasConstParameters = t.constParams ~= nil
+            out.hasParameterKinds = t.paramKinds ~= nil
+            out.typeBounds = encodeBounds(t.typeParams, t.typeBounds, intern)
+            out.hasTypeArguments = t.typeArgs ~= nil
+            out.hasPackArguments = t.packArgs ~= nil
+            out.hasConstArguments = t.constArgs ~= nil
+            out.selfType = intern(t.selfType)
+            out.predicate = t.predicate
+            out.hasParamDefaults = t.paramDefaults ~= nil
+            out.paramDefaults = encodeDefaults(t.paramDefaults, intern)
+            out.hasInheritedDefaults = t.inheritedDefaults ~= nil
+            out.inheritedDefaults = {}
+            for _, name in ipairs(sortedNames(t.inheritedDefaults)) do
+                out.inheritedDefaults[
+                    #out.inheritedDefaults + 1
+                ] = {name = name, owner = intern(t.inheritedDefaults[name])}
+            end
+            out.hasDefaults = t.defaults ~= nil
+            out.hasPrivateFields = t.privateFields ~= nil
+            out.hasFieldDefaults = t.fieldDefaults ~= nil
+            out.hasFieldBorrowSources = t.fieldBorrowSources ~= nil
+            out.hasBorrowedRootFields = t.borrowedRootFields ~= nil
+            out.hasAffineFields = t.affineFields ~= nil
+            out.defaults = t.defaults or {}
+            out.privateFields = t.privateFields or {}
+            out.fieldBorrowSources = t.fieldBorrowSources or {}
+            out.borrowedRootFields = t.borrowedRootFields or {}
+            out.affineFields = t.affineFields or {}
+            out.inherentCleanup = cleanupOf(t.inherentCleanup)
+            out.sealedModule = t.sealedModule
+            out.terminalMethod = t.terminalMethod
+            out.intrinsicAffine = t.intrinsicAffine == true
+            out.intrinsicAffineClaim = t.intrinsicAffineClaim == true
+            out.managedCell = t.managedCell == true
+            out.managedAlias = t.managedAlias == true
+            out.lpegPattern = t.lpegPattern == true
+            out.lpegLibrary = t.lpegLibrary == true
+            out.lpegPatternOrigin = intern(t.lpegPatternOrigin)
+            out.runtimePath = t.runtimePath
+            out.cdefName = t.cdefName
+            out.cdefKind = t.cdefKind
+            out.cdefIdentity = t.cdefIdentity
+            out.constructors = {}
+            for position, constructor in ipairs(t.constructors or {}) do
+                out.constructors[position] = intern(constructor)
+            end
+            out.constructorResults = {}
+            for position, entry in ipairs(t.constructorEntries or {}) do
+                out.constructorResults[
+                    position
+                ] = {
+                    result = intern(entry.result),
+                    index = entry.index,
+                    escapesSelf = entry.escapesSelf == true,
+                    movesOwner = entry.movesOwner == true,
+                }
+            end
+            out.fieldDefinitions = copyDefinitions(t.fieldDefs)
+            out.writeFieldDefinitions = copyDefinitions(t.writeFieldDefs)
+            out.staticFieldDefinitions = copyDefinitions(t.staticFieldDefs)
+            out.staticWriteFieldDefinitions = copyDefinitions(t.staticWriteFieldDefs)
+            out.methodEntries = methodGroups(t.methodEntries)
+            out.methodDispatchEntries = methodGroups(t.methodDispatchEntries)
+            out.staticEntries = methodGroups(t.staticEntries)
+            out.overloadedMethods = sortedNames(t.overloadedMethods)
+            out.overloadedStatics = sortedNames(t.overloadedStatics)
+            out.defaultEntries = {}
+            for _, slot in ipairs(sortedNames(t.defaultEntries)) do
+                local entry = t.defaultEntries[slot]
+                out.defaultEntries[
+                    #out.defaultEntries + 1
+                ] = {
+                    slot = slot,
+                    name = entry.name,
+                    member = entry.member,
+                    runtimeSlot = entry.slot,
+                    entry = entry.entry and methodEntry(entry.entry) or nil,
+                }
+            end
+        elseif tag == "shape" then
+            out.fresh = t.fresh == true
+            out.closed = t.closed == true
+        elseif tag == "func" then
+            out.sendable = t.sendable or false
+            out.comptimeOnly = t.comptimeOnly or false
+            out.foreign = t.foreign or false
+            out.borrowsSelf = t.borrowsSelf or false
+            out.hasBorrowedFromMany = t.borrowsParams ~= nil
+            out.hasPreservesResults = t.preservesResults ~= nil
+            out.hasExplicitPreserves = t.explicitPreserves ~= nil
+            out.hasPartitionResults = t.partitionResults ~= nil
+            out.preservesResults = t.preservesResults or {}
+            out.explicitPreserves = t.explicitPreserves or {}
+            out.preservesPaths = t.preservesPaths or {}
+            out.partitionResults = t.partitionResults or {}
+            if t.predicate then
+                out.predicate = {param = t.predicate.param, type = intern(t.predicate.type)}
+            end
+            out.hasTypeParameters = t.typeParams ~= nil
+            out.hasTypeBounds = t.typeBounds ~= nil
+            out.hasPackParameters = t.packParams ~= nil
+            out.hasConstParameters = t.constParams ~= nil
+            out.hasParameterKinds = t.paramKinds ~= nil
+            out.typeBounds = encodeBounds(t.typeParams, t.typeBounds, intern)
+            out.ffiOut = {}
+            for position, output in ipairs(t.ffiOut or {}) do
+                local cleanups: {any} = {}
+                for cleanupPosition, cleanup in ipairs(output.cleanups or {}) do
+                    cleanups[cleanupPosition] = cleanupOf(cleanup)
+                end
+                out.ffiOut[
+                    position
+                ] = {
+                    kind = output.kind,
+                    name = output.name,
+                    cleanups = cleanups,
+                    transferOnly = output.transferOnly == true,
+                    valueType = intern(output.valueType),
+                    cIndex = output.cIndex,
+                    hasStatus = output.hasStatus == true,
+                    success = output.success,
+                    sourceParams = output.sourceParams or {},
+                    returnIndex = output.returnIndex,
+                }
+            end
+        elseif tag == "pack" then
+            for position, member in ipairs(out.head or {}) do
+                member.name = t.names and t.names[position] or ""
+            end
+        elseif tag == "genericAlias" then
+            out.typeBounds = encodeBounds(t.typeParams, t.typeBounds, intern)
+            out.parameterDefaults = encodeDefaults(t.paramDefaults, intern)
+        elseif tag == "neutral" then
+            out.operation = t.op
+            if t.op == "comptimeCall" then
+                out.identity = t.comptimeIdentity
+                local program = t.comptimeHelper
+                out.program = program
+                    and {
+                        sealedTypeFunction = program.sealedTypeFunction == true,
+                        identity = program.identity,
+                        main = program.main,
+                        serializedHelpers = program.serializedHelpers,
+                    }
+                    or nil
+                out.arguments = {}
+                for position, argument in ipairs(t.comptimeArguments or {}) do
+                    if argument.kind == "type" then
+                        out.arguments[position] = {kind = "type", type = intern(argument.value)}
+                    elseif argument.kind == "typepack" then
+                        out.arguments[position] = {kind = "typepack", pack = intern(argument.value)}
+                    else
+                        out.arguments[position] = {kind = "const", term = intern(argument.value)}
+                    end
+                end
+                out.bound = intern(t.comptimeBound)
+                out.resultKind = t.comptimeResultPack and "typepack" or "type"
+            else
+                out.subject = intern(t.subject)
+                out.key = intern(t.key)
+                out.capability = t.capability
+                out.binder = intern(t.binder)
+                out.keys = intern(t.keys)
+                out.value = intern(t.value)
+                out.remap = intern(t.remap)
+                out.constTerm = intern(t.constTerm)
+                out.templateParts = {}
+                for position, part in ipairs(t.templateParts or {}) do
+                    out.templateParts[position] = type(part) == "string" and {literal = part} or {type = intern(part)}
+                end
+            end
+        elseif tag == "typevar" then
+            out.identity = t.identity
+            out.default = intern(t.default)
+        elseif tag == "packvar" or tag == "constVar" then
+            out.identity = t.identity
+        elseif tag == "array" then
+            out.fresh = t.fresh == true
+            out.elements = {}
+            for position, element in ipairs(t.elems or {}) do
+                out.elements[position] = intern(element)
+            end
+        elseif tag == "affine" then
+            for position, cleanup in ipairs(t.cleanups or {}) do
+                out.cleanups[position] = cleanupOf(cleanup)
+            end
+        elseif tag == "constrained" then
+            out.base = intern(t.base)
+            out.predicate = t.predicate
+            out.constraintKey = t.constraintKey
+            out.label = t.label
+        end
+    end
+
+    local rootIndex, nodes, sources = reflection.graph(rootTuple, {reference = reference, extend = extend})
+    local tuple = nodes[rootIndex or 0]
+    if type(tuple) ~= "table" or tuple.kind ~= "tuple" or type(tuple.members) ~= "table" then
+        return nil, "module interface root is not a tuple"
+    end
+    for _, entry in ipairs(entries) do
+        entry.interface = tuple.members[entry.interface]
+        for _, exported in ipairs(entry.types) do
+            exported.root = tuple.members[exported.root]
+        end
+        for _, exported in ipairs(entry.values) do
+            exported.root = tuple.members[exported.root]
+        end
+        for _, program in ipairs(entry.comptimeFunctions) do
+            program.signature = program.signature and tuple.members[program.signature] or nil
+            program.deriveInterface = program.deriveInterface and tuple.members[program.deriveInterface] or nil
+        end
+    end
+    local name = arenaName()
+    local image = {
+        schema = interfaceimage.SCHEMA,
+        fingerprint = name,
+        descriptor = {root = rootIndex, types = nodes},
+        modules = entries,
+    }
+    if origins ~= nil and arenas ~= nil then
+        local arena: {any} = {}
+        arenas[name] = arena
+        for index, source in ipairs(sources) do
+            arena[index] = source
+            if origins[source] == nil then
+                origins[source] = {arena = name, node = index}
+            end
+        end
+    end
+
+    return image, nil
+end
+
+local function exactInteger(value: any): boolean
+    return type(value) == "number" and value == math.floor(value) and value > 0
+end
+
+--- Loads an interface arena through local type constructors.
+---
+--- `image.fingerprint` names the arena; it says nothing about the contents. The
+--- transport that delivered the image vouches for its bytes.
+function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions?): (any?, string?)
+    if type(image) ~= "table"
+        or image.schema ~= interfaceimage.SCHEMA
+        or type(image.descriptor) ~= "table"
+        or type(image.descriptor.types) ~= "table"
+        or type(image.modules) ~= "table"
+        or type(image.fingerprint) ~= "string"
+    then
+        return nil, "the module interface image is malformed"
+    end
+    local name = image.fingerprint as string
+    local nodes = image.descriptor.types
+    local namespace = "interface\0" .. name .. "\0"
+    local built: {any} = {}
+    local active: {[integer]: boolean} = {}
+    local nominalMap = options and options.nominals or {}
+    local arenaMap = options and options.arenas or {}
+    local origins = options and options.origins or nil
+    local declarations: {integer} = {}
+    local reserved: {any} = {}
+
+    -- Recursive declarations and binders are slots. Allocate every slot before a
+    -- structural constructor sees an edge to it.
+    for index, node in ipairs(nodes) do
+        if type(node) ~= "table" or type(node.kind) ~= "string" then
+            return nil, "the module interface has a malformed type node"
+        end
+        if node.kind == "external" then
+            local arena = type(node.arena) == "string" and arenaMap[node.arena] or nil
+            if arena == nil or not exactInteger(node.node) or arena[node.node] == nil then
+                return nil, "the module interface references unavailable arena " .. tostring(
+                    node.arena
+                ) .. " node " .. tostring(node.node)
+            end
+            built[index] = arena[node.node]
+        elseif node.instantiation then
+            -- Built once its declaration's parameters are known.
+        elseif node.nominal then
+            local key = type(node.declarationKey) == "string" and node.declarationKey
+                or namespace .. "nominal\0" .. tostring(index)
+            local nominal = nominalMap[key]
+            if node.external and (nominal == nil or nominal.selfType == nil) then
+                return nil, "the module interface references unavailable declaration " .. tostring(
+                    node.name
+                ) .. " (" .. tostring(key) .. ")"
+            end
+            if nominal == nil then
+                nominal = T.nominal(node.name or "?", node.kind, node.declarationKey)
+                nominalMap[key] = nominal
+            end
+            built[index] = nominal
+            if not node.external then
+                declarations[#declarations + 1] = index
+            end
+        elseif node.kind == "typevar" then
+            built[index] = T.typevar(node.name or "T", node.identity or namespace .. "type\0" .. tostring(index))
+        elseif node.kind == "packvar" then
+            built[index] = T.packvar(node.name or "P", node.identity or namespace .. "pack\0" .. tostring(index))
+        elseif node.kind == "constVar" then
+            built[
+                index
+            ] = T.constvar(
+                node.name or "C",
+                node.domain or "unknown",
+                node.identity or namespace .. "const\0" .. tostring(index)
+            )
+        end
+    end
+
+    local build
+
+    local function edge(index: any): any
+        if not exactInteger(index) or index > #nodes then
+            error("module interface has an invalid type edge", 0)
+        end
+
+        return build(index)
+    end
+
+    local function optional(index: any): any?
+        return index ~= nil and edge(index) or nil
+    end
+
+    local function edgeArray(indices: any): {any}
+        local values: {any} = {}
+        for position, index in ipairs(indices or {}) do
+            if index ~= 0 then
+                values[position] = edge(index)
+            end
+        end
+
+        return values
+    end
+
+    local function optionalEdgeArray(indices: any, present: boolean?): {any}?
+        if not present and #(indices or {}) == 0 then
+            return nil
+        end
+
+        return edgeArray(indices)
+    end
+
+    local function defaultsOf(encoded: any): {any}
+        local values: {any} = {}
+        local list = encoded or {}
+        for position = 1, #list do
+            local entry = list[position]
+            if entry.kind ~= "none" then
+                values[position] = edge(entry.value)
+            end
+        end
+
+        return values
+    end
+
+    local function cleanupOf(cleanup: any): any
+        local functionType = optional(cleanup.functionType)
+        local term = optional(cleanup.constTerm)
+        if cleanup.kind == "function" then
+            if term then
+                return T.constFunctionCleanup(term, cleanup.name, functionType)
+            end
+            return T.functionCleanup(cleanup.key or cleanup.name or "?", cleanup.name or "?", functionType)
+        elseif cleanup.kind == "closure" then
+            return T.closureCleanup()
+        elseif cleanup.kind == "method" then
+            return T.methodCleanup(cleanup.name or "?")
+        elseif cleanup.kind == "dropfield" then
+            return T.dropFieldCleanup(cleanup.field or "?")
+        elseif cleanup.kind == "field" then
+            return T.fieldCleanup(cleanup.field or "?", cleanupOf(cleanup.cleanup or {}))
+        end
+        error("module interface has an unknown cleanup kind", 0)
+    end
+
+    build = function(index)
+        local known = built[index]
+        if known ~= nil then
+            return known
+        end
+        local node = nodes[index]
+        if active[index] then
+            error("module interface has a structural type cycle", 0)
+        end
+        active[index] = true
+        local kind = node.kind
+        local made = PRIMITIVES[kind]
+        if made then
+            -- Primitive table above is the complete mapping.
+        elseif node.instantiation then
+            local origin = edge(node.origin)
+            if type(origin) ~= "table" or origin.tag ~= "nominal" then
+                error("module interface applies something that is not a declaration", 0)
+            end
+            local map: {[any]: any} = {}
+            for position, binder in ipairs(origin.typeParams or {}) do
+                map[binder] = optional((node.typeArguments or {})[position])
+            end
+            for position, binder in ipairs(origin.packParams or {}) do
+                map[binder] = optional((node.packArguments or {})[position])
+            end
+            for position, binder in ipairs(origin.constParams or {}) do
+                map[binder] = optional((node.constArguments or {})[position])
+            end
+            made = generics.reserveInstantiation(origin, map)
+            reserved[#reserved + 1] = {origin = origin, map = map}
+        elseif kind == "literal" then
+            made = T.literal(node.value, edge(node.base))
+        elseif kind == "constrained" then
+            made = T.constrained(edge(node.base), node.predicate, node.constraintKey, node.label)
+        elseif kind == "array" then
+            local elements = node.elements
+            made = T.array(
+                edge(node.element),
+                elements and #elements > 0 and edgeArray(elements) or nil,
+                node.fresh == true
+            )
+        elseif kind == "map" then
+            made = T.indexer(
+                optional(node.readKey),
+                optional(node.readValue),
+                optional(node.writeKey),
+                optional(node.writeValue)
+            )
+        elseif kind == "tuple" then
+            made = T.tuple(edgeArray(node.members))
+        elseif kind == "shape" then
+            local fields: {any} = {}
+            for _, field in ipairs(node.fields or {}) do
+                fields[#fields + 1] = {name = field.name, read = optional(field.read), write = optional(field.write),}
+            end
+            local indexer = node.index or {}
+            made = T.shape(
+                fields,
+                {
+                    readKey = optional(indexer.readKey),
+                    readValue = optional(indexer.readValue),
+                    writeKey = optional(indexer.writeKey),
+                    writeValue = optional(indexer.writeValue),
+                },
+                node.fresh == true,
+                node.closed == true
+            )
+        elseif kind == "union" then
+            made = T.union(edgeArray(node.members))
+        elseif kind == "intersection" then
+            made = T.intersection(edgeArray(node.members))
+        elseif kind == "ptr" then
+            made = T.ptr(edge(node.element))
+        elseif kind == "carray" then
+            made = T.carray(edge(node.element), node.count, optional(node.countTerm))
+        elseif kind == "const" then
+            made = T.constOf(edge(node.element))
+        elseif kind == "borrowed" then
+            made = T.borrowed(edge(node.element))
+        elseif kind == "pinned" then
+            made = T.pinned(edge(node.element))
+        elseif kind == "affine" then
+            local cleanups: {any} = {}
+            for _, cleanup in ipairs(node.cleanups or {}) do
+                cleanups[#cleanups + 1] = cleanupOf(cleanup)
+            end
+            made = T.affine(edge(node.element), cleanups, node.transferOnly == true)
+        elseif kind == "ctype" then
+            made = T.ctype(edge(node.of))
+        elseif kind == "metatable" then
+            made = T.metatable(edge(node.of))
+        elseif kind == "typeobject" then
+            made = T.typeObject(edge(node.of))
+        elseif kind == "projection" then
+            made = T.projection(edge(node.of), node.name)
+        elseif kind == "pack" then
+            local head, modes, names = {}, {}, {}
+            for position, member in ipairs(node.head or {}) do
+                head[position] = edge(member.type)
+                modes[position] = member.mode or "plain"
+                names[position] = member.name or ""
+            end
+            local tail = node.tail
+            local builtTail = tail
+                and {
+                    kind = tail.kind,
+                    type = optional(tail.type),
+                    var = optional(tail.variable),
+                    mode = tail.mode,
+                    id = tail.id,
+                }
+                or nil
+            made = T.pack(head, builtTail, modes, names)
+            if #(node.alternatives or {}) > 0 then
+                made = T.packUnion(edgeArray(node.alternatives))
+            end
+        elseif kind == "protocolThread" then
+            made = T.protocolThread(
+                edge(node.startPack),
+                edge(node.resumePack),
+                edge(node.yieldPack),
+                edge(node.returnPack)
+            )
+        elseif kind == "function" or kind == "func" then
+            local params, modes, names = {}, {}, {}
+            for position, parameter in ipairs(node.parameters or {}) do
+                params[position] = edge(parameter.type)
+                modes[position] = parameter.mode or "plain"
+                names[position] = parameter.name or ""
+            end
+            local predicate = node.predicate and {param = node.predicate.param, type = edge(node.predicate.type),}
+                or nil
+            local ffiOut: {any} = {}
+            for position, output in ipairs(node.ffiOut or {}) do
+                local cleanups: {any} = {}
+                for cleanupPosition, cleanup in ipairs(output.cleanups or {}) do
+                    cleanups[cleanupPosition] = cleanupOf(cleanup)
+                end
+                ffiOut[
+                    position
+                ] = {
+                    kind = output.kind,
+                    name = output.name,
+                    cleanups = cleanups,
+                    transferOnly = output.transferOnly == true,
+                    valueType = optional(output.valueType),
+                    cIndex = output.cIndex,
+                    hasStatus = output.hasStatus == true,
+                    success = output.success,
+                    sourceParams = output.sourceParams or {},
+                    returnIndex = output.returnIndex,
+                }
+            end
+            made = T.func(
+                params,
+                edgeArray(node.returns),
+                node.vararg == true,
+                modes,
+                predicate,
+                optionalEdgeArray(node.typeParameters, node.hasTypeParameters),
+                optionalEdgeArray(node.typeBounds, node.hasTypeBounds),
+                node.borrowedFrom,
+                node.borrowsSelf == true,
+                node.hasBorrowedFromMany and node.borrowedFromMany or nil,
+                ffiOut,
+                optional(node.varargType),
+                node.noReturn == true,
+                optional(node.parameterPack),
+                optional(node.returnPack),
+                optionalEdgeArray(node.packParameters, node.hasPackParameters),
+                optional(node.yieldPack),
+                optional(node.resumePack),
+                node.noYield == true,
+                names,
+                node.hasPreservesResults and node.preservesResults or nil,
+                node.foreign == true,
+                optionalEdgeArray(node.constParameters, node.hasConstParameters),
+                node.hasParameterKinds and node.parameterKinds or nil,
+                node.hasPartitionResults and node.partitionResults or nil,
+                node.comptimeOnly == true,
+                node.hasExplicitPreserves and node.explicitPreserves or nil,
+                node.sendable == true,
+                node.borrowedResult
+            )
+        elseif kind == "genericAlias" then
+            made = T.genericAlias(
+                node.name,
+                edge(node.body),
+                edgeArray(node.typeParameters),
+                edgeArray(node.typeBounds),
+                edgeArray(node.packParameters),
+                edgeArray(node.constParameters),
+                node.parameterKinds,
+                defaultsOf(node.parameterDefaults)
+            )
+        elseif kind == "typeHandle" then
+            made = T.typeHandle(edge(node.bound))
+        elseif kind == "packResult" then
+            made = T.packResult(edge(node.pack))
+        elseif kind == "constLiteral" then
+            made = T.constLiteral(node.domain, node.value)
+        elseif kind == "constOp" then
+            made = T.constOp(node.operation, edgeArray(node.operands))
+        elseif kind == "neutral" then
+            if node.operation == "comptimeCall" then
+                local arguments: {any} = {}
+                for position, argument in ipairs(node.arguments or {}) do
+                    arguments[position] = argument.kind == "type" and {kind = "type", value = edge(argument.type),}
+                        or argument.kind == "typepack" and {kind = "typepack", value = edge(argument.pack),}
+                        or {kind = "const", value = edge(argument.term),}
+                end
+                made = T.comptimeCall(
+                    node.identity,
+                    node.program,
+                    arguments,
+                    optional(node.bound),
+                    node.resultKind == "typepack"
+                )
+            else
+                local parts: {any} = {}
+                for position, part in ipairs(node.templateParts or {}) do
+                    parts[position] = part.literal ~= nil and part.literal or edge(part.type)
+                end
+                made = T.neutral(
+                    node.operation,
+                    optional(node.subject),
+                    optional(node.key),
+                    node.capability,
+                    optional(node.binder),
+                    optional(node.keys),
+                    optional(node.value),
+                    optional(node.remap),
+                    optional(node.constTerm),
+                    parts
+                )
+            end
+        else
+            error("module interface uses unsupported semantic kind " .. tostring(kind), 0)
+        end
+        if made == nil then
+            error("module interface could not build semantic kind " .. tostring(kind), 0)
+        end
+        active[index] = nil
+        built[index] = made
+
+        return made
+    end
+
+    local function decodeAnnotations(applications: any): {any}
+        local decoded: {any} = {}
+        for _, application in ipairs(applications or {}) do
+            local arguments: {any} = {}
+            for _, argument in ipairs(application.arguments or {}) do
+                arguments[
+                    #arguments + 1
+                ] = {
+                    name = argument.name,
+                    kind = argument.kind,
+                    type = optional(argument.type),
+                    value = argument.value,
+                }
+            end
+            decoded[#decoded + 1] = {name = application.name, arguments = arguments,}
+        end
+
+        return decoded
+    end
+
+    --- What a declaration is before any of its members: names, definitions,
+    --- flags and parameters. Every declaration's comes first, so an application
+    --- met while members are filled can already be keyed by its parameters.
+    local function declareNominal(index: integer): nil
+        local node = nodes[index]
+        local nominal = built[index]
+        nominal.name = node.name
+        nominal.declKind = node.kind
+        nominal.declarationKey = node.declarationKey
+        nominal.moduleName = node.moduleName
+        nominal.deriveKey = node.deriveKey
+        nominal.fieldDefs = restoreDefinitions(node.fieldDefinitions)
+        nominal.writeFieldDefs = restoreDefinitions(node.writeFieldDefinitions)
+        nominal.staticFieldDefs = restoreDefinitions(node.staticFieldDefinitions)
+        nominal.staticWriteFieldDefs = restoreDefinitions(node.staticWriteFieldDefinitions)
+        nominal.fieldOrder = {}
+        for _, field in ipairs(node.fields or {}) do
+            nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
+        end
+        nominal.fieldDefaults = node.hasFieldDefaults and {} or nil
+        for _, field in ipairs(node.fields or {}) do
+            if field.hasDefault then
+                (nominal.fieldDefaults as {[string]: any})[field.name] = {value = field.defaultValue}
+            end
+        end
+        nominal.typeParams = optionalEdgeArray(node.typeParameters, node.hasTypeParameters)
+        nominal.packParams = optionalEdgeArray(node.packParameters, node.hasPackParameters)
+        nominal.constParams = optionalEdgeArray(node.constParameters, node.hasConstParameters)
+        nominal.paramKinds = node.hasParameterKinds and node.parameterKinds or nil
+        nominal.predicate = node.predicate
+        nominal.defaults = node.hasDefaults and node.defaults or nil
+        nominal.privateFields = node.hasPrivateFields and node.privateFields or nil
+        nominal.fieldBorrowSources = node.hasFieldBorrowSources and node.fieldBorrowSources or nil
+        nominal.borrowedRootFields = node.hasBorrowedRootFields and node.borrowedRootFields or nil
+        nominal.affineFields = node.hasAffineFields and node.affineFields or nil
+        nominal.sealedModule = node.sealedModule
+        nominal.terminalMethod = node.terminalMethod
+        nominal.intrinsicAffine = node.intrinsicAffine == true or nil
+        nominal.intrinsicAffineClaim = node.intrinsicAffineClaim == true or nil
+        nominal.managedCell = node.managedCell == true or nil
+        nominal.managedAlias = node.managedAlias == true or nil
+        nominal.lpegPattern = node.lpegPattern == true or nil
+        nominal.lpegLibrary = node.lpegLibrary == true or nil
+        nominal.runtimePath = node.runtimePath
+        nominal.cdefName = node.cdefName
+        nominal.cdefKind = node.cdefKind
+        nominal.cdefIdentity = node.cdefIdentity
+    end
+
+    --- Everything of a declaration that is an edge to another type.
+    local function populateNominal(index: integer): nil
+        local node = nodes[index]
+        local nominal = built[index]
+        nominal.annotations = decodeAnnotations(node.annotations)
+        nominal.byname, nominal.writeByname = {}, {}
+        for _, field in ipairs(node.fields or {}) do
+            if field.read then
+                nominal.byname[field.name] = edge(field.read)
+            end
+            if field.write then
+                nominal.writeByname[field.name] = edge(field.write)
+            end
+            local definition = nominal.fieldDefs[field.name]
+            if definition ~= nil then
+                definition.annotations = decodeAnnotations(field.annotations)
+            end
+        end
+        nominal.staticByname, nominal.staticWriteByname = {}, {}
+        for _, field in ipairs(node.staticFields or {}) do
+            if field.read then
+                nominal.staticByname[field.name] = edge(field.read)
+            end
+            if field.write then
+                nominal.staticWriteByname[field.name] = edge(field.write)
+            end
+        end
+        nominal.indexReadKey = node.index and optional(node.index.readKey) or nil
+        nominal.indexReadValue = node.index and optional(node.index.readValue) or nil
+        nominal.indexWriteKey = node.index and optional(node.index.writeKey) or nil
+        nominal.indexWriteValue = node.index and optional(node.index.writeValue) or nil
+        nominal.metamethods = {}
+        for _, metamethod in ipairs(node.metamethods or {}) do
+            nominal.metamethods[metamethod.name] = edge(metamethod.type)
+        end
+        nominal.nestedTypes = {}
+        for _, nested in ipairs(node.nestedTypes or {}) do
+            nominal.nestedTypes[nested.name] = edge(nested.type)
+        end
+        nominal.associatedRequirements = node.hasAssociatedRequirements and {} or nil
+        for position, requirement in ipairs(node.associatedRequirements or {}) do
+            (
+                nominal.associatedRequirements as {any}
+            )[
+                position
+            ] = new T.AssociatedRequirement(
+                name = requirement.name,
+                bound = optional(requirement.bound),
+                selfBinder = optional(requirement.selfBinder),
+                definition = requirement.definition
+            )
+        end
+        nominal.associatedAnswers = node.hasAssociatedAnswers and {} or nil
+        for _, answer in ipairs(node.associatedAnswers or {}) do
+            (
+                nominal.associatedAnswers as {[string]: any}
+            )[
+                answer.name
+            ] = new T.AssociatedAnswer(
+                type = edge(answer.type),
+                selfBinder = optional(answer.selfBinder),
+                kind = answer.answerKind or "answer",
+                definition = answer.definition
+            )
+        end
+        nominal.supertypes = edgeArray(node.supertypes)
+        nominal.arrayOf = optional(node.arrayOf)
+        nominal.typeBounds = optionalEdgeArray(node.typeBounds, node.hasTypeBounds)
+        nominal.typeArgs = optionalEdgeArray(node.typeArguments, node.hasTypeArguments)
+        nominal.packArgs = optionalEdgeArray(node.packArguments, node.hasPackArguments)
+        nominal.constArgs = optionalEdgeArray(node.constArguments, node.hasConstArguments)
+        nominal.selfType = optional(node.selfType)
+        nominal.paramDefaults = node.hasParamDefaults and defaultsOf(node.paramDefaults) or nil
+        nominal.inheritedDefaults = node.hasInheritedDefaults and {} or nil
+        for _, entry in ipairs(node.inheritedDefaults or {}) do
+            (nominal.inheritedDefaults as {[string]: any})[entry.name] = edge(entry.owner)
+        end
+        nominal.inherentCleanup = node.inherentCleanup and cleanupOf(node.inherentCleanup) or nil
+        nominal.lpegPatternOrigin = optional(node.lpegPatternOrigin)
+        nominal.constructors = edgeArray(node.constructors)
+        nominal.constructorEntries = {}
+        for position, result in ipairs(node.constructorResults or {}) do
+            nominal.constructorEntries[
+                position
+            ] = {
+                signature = nominal.constructors[position],
+                result = optional(result.result),
+                index = result.index or position,
+                escapesSelf = result.escapesSelf == true,
+                movesOwner = result.movesOwner == true,
+            }
+        end
+
+        local function decodeMethodEntry(entry: any): any
+            return {
+                signature = edge(entry.signature),
+                declaration = nil,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+
+        local function decodeMethodGroups(groups: any): {[string]: {any}}
+            local decoded: {[string]: {any}} = {}
+            for _, group in ipairs(groups or {}) do
+                local entries: {any} = {}
+                for _, entry in ipairs(group.entries or {}) do
+                    entries[#entries + 1] = decodeMethodEntry(entry)
+                end
+                decoded[group.name] = entries
+            end
+
+            return decoded
+        end
+
+        nominal.methodEntries = decodeMethodGroups(node.methodEntries)
+        nominal.methodDispatchEntries = decodeMethodGroups(node.methodDispatchEntries)
+        nominal.staticEntries = decodeMethodGroups(node.staticEntries)
+        nominal.overloadedMethods = {}
+        for _, name in ipairs(node.overloadedMethods or {}) do
+            nominal.overloadedMethods[name] = true
+        end
+        nominal.overloadedStatics = {}
+        for _, name in ipairs(node.overloadedStatics or {}) do
+            nominal.overloadedStatics[name] = true
+        end
+        nominal.defaultEntries = {}
+        for _, entry in ipairs(node.defaultEntries or {}) do
+            nominal.defaultEntries[
+                entry.slot
+            ] = {
+                name = entry.name,
+                member = entry.member,
+                slot = entry.runtimeSlot,
+                entry = entry.entry and decodeMethodEntry(entry.entry) or nil,
+            }
+        end
+    end
+
+    local ok, problem = pcall(function(): nil
+        for _, index in ipairs(declarations) do
+            declareNominal(index)
+        end
+        -- A binder's bound may mention the binder, so it is set once here rather
+        -- than whenever an edge reaches the binder.
+        for index, node in ipairs(nodes) do
+            if node.kind == "typevar" then
+                local binder = built[index]
+                binder.bound = optional(node.bound)
+                binder.default = optional(node.default)
+            end
+        end
+        for _, index in ipairs(declarations) do
+            populateNominal(index)
+        end
+        for index = 1, #nodes do
+            build(index)
+        end
+        -- Every declaration is whole now, so the applications reserved while they
+        -- were filled can be completed from them.
+        for _, application in ipairs(reserved) do
+            generics.instantiate(application.origin, application.map)
+        end
+    end)
+    if not ok then
+        return nil, tostring(problem)
+    end
+    arenaMap[name] = built
+    if origins ~= nil then
+        for index, value in ipairs(built) do
+            if origins[value] == nil then
+                origins[value] = {arena = name, node = index}
+            end
+        end
+    end
+
+    local semantics: {[string]: any} = {}
+    for _, entry in ipairs(image.modules) do
+        local exports = {
+            types = {},
+            typeDefs = restoreDefinitions(entry.typeDefs),
+            values = {},
+            valueDefs = restoreDefinitions(entry.valueDefs),
+            comptimeFunctions = {},
+            nominalEffectFingerprint = entry.nominalEffectFingerprint,
+            deriveInterfaceFingerprint = entry.deriveInterfaceFingerprint,
+            comptimeFunctionFingerprint = entry.comptimeFunctionFingerprint,
+            callGuarantees = entry.callGuarantees,
+        }
+        for _, exported in ipairs(entry.types or {}) do
+            exports.types[exported.name] = build(exported.root)
+        end
+        for _, exported in ipairs(entry.values or {}) do
+            exports.values[exported.name] = build(exported.root)
+        end
+        for _, encoded in ipairs(entry.comptimeFunctions or {}) do
+            local deriveInterface = encoded.deriveInterface and build(encoded.deriveInterface) or nil
+            exports.comptimeFunctions[
+                encoded.name
+            ] = {
+                sealedTypeFunction = encoded.sealedTypeFunction == true,
+                identity = encoded.identity,
+                main = encoded.main,
+                serializedHelpers = encoded.serializedHelpers,
+                signature = encoded.signature and build(encoded.signature) or nil,
+                definition = encoded.definition,
+                bodyFingerprint = encoded.bodyFingerprint,
+                deriveProvider = encoded.deriveProvider == true,
+                deriveInterface = deriveInterface,
+                deriveInterfaceIdentity = deriveInterface and deriveInterface.id or nil,
+                providerModule = encoded.providerModule,
+                providerModuleLocal = encoded.providerModuleLocal,
+                runtimeHelpers = encoded.runtimeHelpers,
+            }
+        end
+        semantics[
+            entry.name
+        ] = {
+            interface = {
+                type = build(entry.interface),
+                nominalEffectFingerprint = entry.nominalEffectFingerprint,
+                deriveInterfaceFingerprint = entry.deriveInterfaceFingerprint,
+            },
+            exports = exports,
+            diags = entry.diags or {},
+            source = entry.source,
+        }
+    end
+
+    return semantics, nil
+end
+
+export = interfaceimage
