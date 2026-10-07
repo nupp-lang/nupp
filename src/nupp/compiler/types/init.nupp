@@ -2879,6 +2879,12 @@ function types.func(
             modes
         )
     retPack = retPack or types.pack(rets)
+    -- Whether a function takes extra arguments is what its parameter pack says. A
+    -- caller handing in a pack can disagree with its own `vararg` -- a substitution
+    -- that binds `P...` to a fixed list leaves the flag set and the tail gone -- and
+    -- the flag is not part of the key, so the first spelling interned used to decide
+    -- it for every later one. Read from the pack, one pack is one function.
+    vararg = paramPack.tail ~= nil
     local key = "fn" .. paramPack.id .. ":" .. retPack.id
     if predicate then
         key = key .. "|is" .. predicate.param .. ":" .. predicate.type.id

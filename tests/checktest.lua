@@ -83,6 +83,28 @@ function M.interningIdentity()
     assert(T.nominal("A", "record") ~= T.nominal("A", "record"), "nominals get fresh identity")
 end
 
+function M.functionInterningDerivesVarargFromItsPack()
+    local base = T.func({T.any}, {T.nil_}, false)
+    local sharedPack = T.pack({T.any}, {kind = "unknown", type = T.any})
+    local unsaid = T.funcWith(base, {paramPack = sharedPack})
+    local said = T.funcWith(base, {paramPack = sharedPack, vararg = true})
+    assert(unsaid == said, "one pack interns one function, whichever spelling came first")
+    assert(said.vararg, "a pack with a tail takes extra arguments")
+    -- Binding `P...` to a fixed list leaves no tail, and what is left is the
+    -- function a fixed signature spells, not a variadic twin of it.
+    local packVar = T.packvar("P", "checktest:vararg-substitution")
+    local callback = T.func({}, {T.nil_}, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, T.pack({}, {
+        kind = "generic",
+        var = packVar,
+    }))
+    assert(callback.vararg, "a pack binder tail is variadic")
+    local generics = require("nupp.compiler.types.generics")
+    local bound = generics.materialize(callback, {[packVar] = T.pack({T.integer, T.string})})
+    local written = T.funcWith(T.func({T.integer, T.string}, {T.nil_}, false), {})
+    assert(bound == written, T.tostring(bound) .. " is not the written " .. T.tostring(written))
+    assert(not bound.vararg, "the bound function is fixed")
+end
+
 function M.typeTostring()
     assertEq(T.tostring(T.optional(T.number)), "number?")
     assertEq(T.tostring(T.map(T.string, T.array(T.integer))), "{[string]: {integer}}")
