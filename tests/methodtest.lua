@@ -1964,6 +1964,69 @@ function M.aDeclaredMetamethodIsHeldToItsContract()
     assertEq(diagsOf(v .. "function V.__add(a: V, b: integer): V\n   return a\nend"), "NUPP2123:6")
 end
 
+-- A generic record's own parameters are in scope inside its body only, so a method
+-- defined after it binds them itself. The refusal names the spelling that does.
+function M.anOuterMethodIsToldToBindTheRecordsParameters()
+    local box = table.concat({"local record Box<T>", "   default: T", "end", ""}, "\n")
+    local src = box .. "function Box:get(value: T): T\n   return value\nend\nreturn Box"
+    local result = parser.parse(src, "test.g.nupp")
+    local diags = check.check(result, "test.g.nupp", env)
+    assertEq(#diags, 2, "both mentions of T are unknown")
+    for _, d in ipairs(diags) do
+        assertEq(d.code, "NUPP2101")
+        assert(d.help and d.help:find("function Box.get<T>(self: Box<T>, ...)", 1, true), tostring(d.help))
+    end
+    -- the spelling it names, which is a method once the body declares the member
+    assertEq(
+        run(
+            table.concat(
+                {
+                    "local record Box<T>",
+                    "   default: T",
+                    "   get: function(self, value: T): T",
+                    "end",
+                    "function Box.get<T>(self: Box<T>, value: T): T",
+                    "   return value",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "local got: integer = box:get(2)",
+                    "return got",
+                },
+                "\n"
+            )
+        ),
+        2
+    )
+    -- a static one binds them on the function
+    local static = box .. "function Box.make(value: T): T\n   return value\nend\nreturn Box"
+    local made = check.check(parser.parse(static, "test.g.nupp"), "test.g.nupp", env)
+    assert(made[1] and made[1].help:find("function Box.make<T>(...)", 1, true), tostring(made[1] and made[1].help))
+end
+
+-- `function Box:m()` on a generic record receives one of Box's values, which is the
+-- declaration applied to its own binders. It used to receive the bare declaration,
+-- which no instance is, so the method could never be called.
+function M.anOuterMethodOnAGenericRecordReceivesAnInstance()
+    assertEq(
+        run(
+            table.concat(
+                {
+                    "local record Box<T>",
+                    "   default: T",
+                    "end",
+                    "function Box:describe(): string",
+                    "   return 'box of ' .. tostring(self.default)",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "return box:describe()",
+                },
+                "\n"
+            )
+        ),
+        "box of 1"
+    )
+end
+
 -- A `metatable<T>` annotation says whose metatable it is as readily as a
 -- parameter does, so the literal under one is held to the same rules wherever
 -- it is written.

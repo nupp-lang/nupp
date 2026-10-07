@@ -540,6 +540,17 @@ record state.Checker
     --- bodies are checked so a read may resolve a later declaration's signature.
     moduleFunctionDeclarations: {[string]: any}
 
+    --- The declaration a `function R.m` / `function R:m` being checked attaches to,
+    --- so a type name it cannot resolve can say when the name is one of R's own
+    --- parameters, which are in scope only inside R's body.
+    definingOwner: T.Nominal?
+
+    --- The member name that declaration gives the function.
+    definingMember: string?
+
+    --- Whether that function is written `R:m`, so it is an instance method.
+    definingMethod: boolean?
+
     --- Publishes a collected module function in the current flow scope.
     resolveModuleFunction: function(name: string): Type?
 

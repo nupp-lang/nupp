@@ -1814,7 +1814,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
         if fname.method then
-            selfType = owner or T.any
+            -- The receiver is one of the owner's values, which for a generic owner
+            -- is the declaration applied to its own binders; a call binds them from
+            -- the instance it is made on, as it does for an inline method.
+            selfType = owner and require("nupp.compiler.types.generics").ownInstance(owner) or T.any
         end
         -- `function R.drop(takes self: R)` may define the terminal its parameter's
         -- type selects; the body audit reads the member name to tell.
@@ -1826,7 +1829,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             or nil
         body.jitDefinition = earlyMemberDefinition or (fname.base and fname.base.definition or nil)
         local diagnosticsBefore = #c.diags
+        local priorOwner, priorMember, priorMethod = c.definingOwner, c.definingMember, c.definingMethod
+        c.definingOwner, c.definingMember, c.definingMethod = owner, member, fname.method ~= nil
         local ft = c.checkFuncbody(body, selfType)
+        c.definingOwner, c.definingMember, c.definingMethod = priorOwner, priorMember, priorMethod
         if #c.diags == diagnosticsBefore then
             preferComptime.check(c, stat, body, selfType ~= nil)
         end

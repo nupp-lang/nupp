@@ -3065,7 +3065,10 @@ function checkMod.check(
                     members = isStatic and nominalOwner.staticByname or nominalOwner.byname
                 end
                 if nominalOwner and members and member and not members[member] then
-                    local signature = c.signatureOf(decl.body, fname.method and nominalOwner or nil)
+                    local signature = c.signatureOf(
+                        decl.body,
+                        fname.method and nominalOwner and generics.ownInstance(nominalOwner) or nil
+                    )
                     members[member] = signature
                     if not isStatic then
                         nominalOwner.writeByname[member] = signature

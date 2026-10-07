@@ -1588,11 +1588,42 @@ function resolve.install(c: state.Checker): nil
             for _, candidate in ipairs(spelling or {}) do
                 fixes[#fixes + 1] = candidate
             end
+            -- `function Box:m(value: T)` reads as though Box's own `T` were in scope,
+            -- and it is only inside Box's body. Saying so is the useful answer; a
+            -- spelling suggestion would point somewhere else entirely.
+            local owner = c.definingOwner
+            local ownParameters: {string}? = nil
+            if owner and owner.typeParams then
+                local names: {string} = {}
+                local found = false
+                for _, binder in ipairs(owner.typeParams) do
+                    local binderName = (binder as T.TypeVar).name
+                    names[#names + 1] = binderName
+                    found = found or binderName == name
+                end
+                ownParameters = found and names or nil
+            end
+            local help = #fixes > 0 and "use one of the suggested type names"
+                or "declare the type, qualify its module, or correct the spelling"
+            if ownParameters and owner then
+                local params = table.concat(ownParameters, ", ")
+                local member = c.definingMember or "name"
+                if c.definingMethod then
+                    help = (
+                        "%s is a parameter of %s, in scope only inside its body: write the method there, "
+                        .. "or declare `%s: function(self, ...)` there and define it as "
+                        .. "function %s.%s<%s>(self: %s<%s>, ...)"
+                    ):format(name, owner.name, member, owner.name, member, params, owner.name, params)
+                else
+                    help = (
+                        "%s is a parameter of %s, in scope only inside its body; bind it on the function: "
+                        .. "function %s.%s<%s>(...)"
+                    ):format(name, owner.name, owner.name, member, params)
+                end
+                fixes = {}
+            end
             if not recoverForeign(node, ("annotated Lua names unknown type %q"):format(name)) then
-                c.diag("NUPP2101", base, ("unknown type name %q"):format(name), fixes, {
-                    help = #fixes > 0 and "use one of the suggested type names"
-                    or "declare the type, qualify its module, or correct the spelling"
-                })
+                c.diag("NUPP2101", base, ("unknown type name %q"):format(name), fixes, {help = help})
             end
             return T.any
         elseif kind == "tliteral" then
