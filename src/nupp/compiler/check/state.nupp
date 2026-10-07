@@ -648,6 +648,10 @@ record state.Checker
     --- published under.
     declaredNominal: function(stat: any, kind: string): (any, any)
 
+    --- Readies a nominal's member tables for this check the first time it reaches
+    --- the nominal, dropping whatever an earlier check of the same source published.
+    beginNominal: function(n: any)
+
     --- Publishes a declaration to the module and the project.
     publishType: function(stat: any, t: Type?, projectEntry: any?)
 

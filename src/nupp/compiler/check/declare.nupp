@@ -1850,10 +1850,7 @@ function declare.install(
             n.awaitingBody = nil
             -- keep what hoisting already published: the methods declared further down
             -- the block are on it
-            n.byname = n.byname or {}
-            n.writeByname = n.writeByname or {}
-            n.staticByname = n.staticByname or {}
-            n.staticWriteByname = n.staticWriteByname or {}
+            c.beginNominal(n)
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
             local methodEntries: {[string]: {any}} = {}

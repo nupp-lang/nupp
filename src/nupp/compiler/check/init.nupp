@@ -2843,6 +2843,25 @@ function checkMod.check(
 
     c.checkStat = checkStat
 
+    -- A nominal can outlive the check that declared it: a project-index skeleton keeps
+    -- its identity across rechecks, and a nested one is kept on the parse it was
+    -- hoisted from, which a recheck reuses. What an earlier check published on it is
+    -- not this one's to read. A method that check already listed was skipped by the
+    -- hoisting below, and with it every lookup its signature makes, so a recheck
+    -- neither saw what a first check would nor recorded the project reads that could
+    -- change it. Each check starts the members over the first time it reaches one.
+    local begunNominals: {[any]: boolean} = {}
+    c.beginNominal = function(n: any)
+        if begunNominals[n] then
+            return
+        end
+        begunNominals[n] = true
+        n.byname = {}
+        n.writeByname = {}
+        n.staticByname = {}
+        n.staticWriteByname = {}
+    end
+
     --- Gives a hoisted nominal the identities of records nested anywhere beneath it.
     --- Their bodies are still filled when the owning declaration is checked, but an
     --- earlier statement may already name `Owner.Nested`. Each one joins `hoisted`
@@ -2859,10 +2878,7 @@ function checkMod.check(
                 local nested = entry.hoistedType
                     or T.nominal(entry.name.text, entry.declKind, T.nestedDeclarationKey(owner, entry.name.offset))
                 entry.hoistedType = nested
-                nested.byname = nested.byname or {}
-                nested.writeByname = nested.writeByname or {}
-                nested.staticByname = nested.staticByname or {}
-                nested.staticWriteByname = nested.staticWriteByname or {}
+                c.beginNominal(nested)
                 nested.runtimePath = (owner.runtimePath or owner.name) .. "." .. entry.name.text
                 nested.awaitingBody = true
                 owner.nestedTypes[entry.name.text] = nested
@@ -2922,10 +2938,7 @@ function checkMod.check(
                 n.deriveDeclaration = decl
                 n.deriveClaimsComplete = nil
                 n.deriveClaimedContracts = nil
-                n.byname = n.byname or {}
-                n.writeByname = n.writeByname or {}
-                n.staticByname = n.staticByname or {}
-                n.staticWriteByname = n.staticWriteByname or {}
+                c.beginNominal(n)
                 if decl.declKind == "interface" and decl.sealedTok then
                     n.sealedModule = c.result.moduleName or c.filename
                 end
