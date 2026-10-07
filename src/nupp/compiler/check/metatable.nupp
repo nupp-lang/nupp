@@ -104,8 +104,41 @@ function metatable.install(c: state.Checker): metatable.Ops
         return false
     end
 
+    --- The contract as every instance of a generic declaration holds it. One metatable
+    --- serves `Box<integer>` and `Box<string>` alike, so what is installed on it has to
+    --- work for whatever the declaration's binders stand for. Left free, those binders
+    --- are gradual and a value returning a string where the contract says `T` fits;
+    --- quantified over them, a generic value is compared against fixed witnesses the
+    --- way one generic function is against another.
+    local function quantified(contract: Type, of: Type?): Type
+        local owner = of and rawType(of) or nil
+        while owner and (owner.tag == "metatable" or owner.tag == "typeobject") do
+            owner = rawType(owner.of)
+        end
+        if not owner or owner.tag ~= "nominal" or owner.typeArgs then
+            return contract
+        end
+        local params = owner.typeParams
+        if not params or #params == 0 or #(owner.packParams or {}) > 0 or #(owner.constParams or {}) > 0 then
+            return contract
+        end
+        local bare = rawType(contract)
+        if bare.tag ~= "func" then
+            return contract
+        end
+        local signature = bare as T.Func
+        if #(signature.typeParams or {}) > 0
+            or #(signature.packParams or {}) > 0
+            or #(signature.constParams or {}) > 0
+        then
+            return contract
+        end
+
+        return T.funcWith(signature, {typeParams = params, typeBounds = owner.typeBounds or false})
+    end
+
     function ops.checkContract(at: any, name: string, valueT: Type, contract: Type, of: Type?)
-        local ok, why = isA(valueT, contract)
+        local ok, why = isA(valueT, quantified(contract, of))
         if ok then
             return
         end

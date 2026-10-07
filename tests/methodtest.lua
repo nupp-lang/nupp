@@ -1855,6 +1855,59 @@ function M.aContractIsInstalledOnTheRecordsOwnTable()
     assertEq(diagsOf(i64 .. "\nI64.__totring = tostring"), "NUPP2004:5")
 end
 
+-- A generic record's contract is installed on the one table every instance
+-- shares. Its `self` used to be the unapplied declaration, which nothing can be
+-- written as, and a generic literal's inferred `preserves value` was compared
+-- against a contract that never spelled one, so no literal fulfilled it.
+function M.aGenericRecordsContractIsInstalledByALiteral()
+    local function box(contract)
+        return table.concat(
+            {"local record Box<T>", "   default: T", "   metamethod __call: " .. contract, "end", ""},
+            "\n"
+        )
+    end
+    local identity = table.concat(
+        {
+            "Box.__call = function<T>(self: Box<T>, value: T): T",
+            "   return value",
+            "end",
+            "local box = new Box(default = 1)",
+            "local made: integer = box(2)",
+            "return made",
+        },
+        "\n"
+    )
+    assertEq(run(box("function(self, value: T): T") .. identity), 2)
+    assertEq(run(box("function(self: Box<T>, value: T): T") .. identity), 2)
+    -- the contract is the literal's slot, so an unannotated one takes its types
+    assertEq(
+        run(
+            box("function(self, value: T): T") .. table.concat(
+                {
+                    "Box.__call = function(self, value)",
+                    "   return self.default",
+                    "end",
+                    "local box = new Box(default = 1)",
+            "local made: integer = box(2)",
+                    "return made",
+                },
+                "\n"
+            )
+        ),
+        1
+    )
+    -- and it still holds for every instance, not only the ones the literal names
+    assertEq(
+        diagsOf(
+            box("function(self, value: T): T") .. table.concat(
+                {"Box.__call = function<T>(self: Box<T>, value: T): string", "   return 'x'", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2123:5"
+    )
+end
+
 -- A `metatable<T>` annotation says whose metatable it is as readily as a
 -- parameter does, so the literal under one is held to the same rules wherever
 -- it is written.

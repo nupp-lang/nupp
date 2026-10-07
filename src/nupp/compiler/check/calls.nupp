@@ -885,8 +885,12 @@ function calls.install(c: state.Checker): calls.Ops
             return #contracts > 0 and T.intersection(contracts) or nil
         end
         if t.tag == "nominal" and t.metamethods then
+            -- Reached through the declaration rather than one of its values, `self`
+            -- is the declaration applied to its own binders, the way it reads inside
+            -- the body. The unapplied declaration is a type nothing can be written
+            -- as, so a contract naming it could not be fulfilled by any function.
             local ft = t.metamethods[name]
-            return ft and specializeSelf(t, ft, t) or nil
+            return ft and specializeSelf(t, ft, generics.ownInstance(t)) or nil
         end
 
         return nil

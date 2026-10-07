@@ -1472,6 +1472,23 @@ function functions.install(c: state.Checker): state.StatHandlers
             typeParams ~= nil,
             true
         )
+        -- An inferred relation is what the body happens to allow, not something the
+        -- literal promised, and a literal written into a slot takes its relations from
+        -- that slot the way it takes its parameter types and modes. Left as inferred,
+        -- `function<T>(value: T): T return value end` could fill no slot that did not
+        -- spell `preserves value`, since callable assignment keeps relations exactly.
+        -- One the literal spelled is still its own and is still compared.
+        local expectedSignature = expected and rawType(expected) or nil
+        if preservesResults and expectedSignature and expectedSignature.tag == "func" then
+            local wanted = (expectedSignature as T.Func).preservesResults or {}
+            local conformed = {}
+            for result, source in pairs(preservesResults) do
+                if (explicitPreserves and explicitPreserves[result]) or wanted[result] == source then
+                    conformed[result] = source
+                end
+            end
+            preservesResults = next(conformed) and conformed or nil
+        end
         local callable = T.func(
             params,
             rets,

@@ -299,6 +299,42 @@ function M.callableAssignmentCannotEraseAPreservationRelation()
         ),
         "NUPP2001"
     )
+    -- A literal that spells the relation has promised it, wherever it is written.
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local plain: function<T>(takes value: T): T = function<T>(takes value: T): T preserves value",
+                    "   return value",
+                    "end",
+                    "print(plain)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001"
+    )
+end
+
+-- An inferred relation is what a body happens to allow rather than a promise, so a
+-- literal written into a slot takes its relations from the slot, as it does its
+-- parameter types. Inferred apart, an identity literal fitted no slot that did not
+-- spell `preserves`.
+function M.aLiteralTakesItsInferredRelationsFromItsSlot()
+    assertClean(
+        table.concat(
+            {
+                "local plain: function<T>(value: T): T = function<T>(value: T): T",
+                "   return value",
+                "end",
+                "local preserving: function<T>(value: T): T preserves value = function<T>(value: T): T",
+                "   return value",
+                "end",
+                "print(plain(1), preserving(2))",
+            },
+            "\n"
+        )
+    )
 end
 
 function M.assertPreservesAndNarrowsAnOptionalOwner()

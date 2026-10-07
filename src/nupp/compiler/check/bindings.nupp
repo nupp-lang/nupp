@@ -986,6 +986,28 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     if declared and value.expectedResult == nil then
                         value.expectedResult = declared
                     end
+                elseif value
+                    and (value.kind == "funcExpr" or value.kind == "shortfn")
+                    and target.kind == "dotIndex"
+                    and target.name
+                then
+                    -- Installing a declared metamethod: the contract is the literal's
+                    -- slot the way an annotation is a local's, so the literal is
+                    -- checked against it rather than inferred apart and compared.
+                    -- A metatable reached through a value has a type the path reads;
+                    -- a declaration's own table is named in the type namespace, the
+                    -- way `function R.m()` finds its owner.
+                    local receiver = c.refType(target.obj)
+                    local bare = receiver and rawType(receiver) or nil
+                    if not (bare and (bare.tag == "metatable" or bare.tag == "typeobject")) then
+                        local key = target.obj and pathKey(target.obj) or nil
+                        local named = key and c.lookupType(key) or nil
+                        bare = named and named.tag == "nominal" and named or nil
+                    end
+                    local contract = bare and c.metamethodOf(bare, target.name.text) or nil
+                    if contract and rawType(contract).tag == "func" then
+                        value.expectedCallable = contract
+                    end
                 end
             end
         end
