@@ -137,8 +137,34 @@ function metatable.install(c: state.Checker): metatable.Ops
         return T.funcWith(signature, {typeParams = params, typeBounds = owner.typeBounds or false})
     end
 
+    --- The value with only the relations it promised or the contract states. A relation
+    --- inferred from a body is what that body happens to allow; a function declared
+    --- apart from its contract had nothing to take one from, so it is the contract's
+    --- to supply here, the way a literal written into a slot takes the slot's.
+    local function conformed(valueT: Type, contract: Type): Type
+        local value, wanted = rawType(valueT), rawType(contract)
+        if value.tag ~= "func" or wanted.tag ~= "func" or valueT ~= value then
+            return valueT
+        end
+        local signature = value as T.Func
+        local inferred = signature.preservesResults
+        if not inferred then
+            return valueT
+        end
+        local explicit = signature.explicitPreserves or {}
+        local stated = (wanted as T.Func).preservesResults or {}
+        local kept = {}
+        for result, source in pairs(inferred) do
+            if explicit[result] or stated[result] == source then
+                kept[result] = source
+            end
+        end
+
+        return T.funcWith(signature, {preservesResults = next(kept) and kept or false})
+    end
+
     function ops.checkContract(at: any, name: string, valueT: Type, contract: Type, of: Type?)
-        local ok, why = isA(valueT, quantified(contract, of))
+        local ok, why = isA(conformed(valueT, contract), quantified(contract, of))
         if ok then
             return
         end

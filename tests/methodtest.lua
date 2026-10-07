@@ -1908,6 +1908,62 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
     )
 end
 
+-- `function R.__add(...)` installs a contract exactly as `R.__add = function` does,
+-- so the two spellings answer to one check. The declaration form used to be
+-- stored as an ordinary static member and compared against nothing.
+function M.aDeclaredMetamethodIsHeldToItsContract()
+    local box = table.concat(
+        {"local record Box<T>", "   default: T", "   metamethod __call: function(self, value: T): T", "end", ""},
+        "\n"
+    )
+    assertEq(
+        run(
+            box .. table.concat(
+                {
+                    "function Box.__call<T>(self: Box<T>, value: T): T",
+                    "   return value",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "local made: integer = box(2)",
+                    "return made",
+                },
+                "\n"
+            )
+        ),
+        2
+    )
+    assertEq(
+        diagsOf(box .. "function Box.__call<T>(self: Box<T>, value: T): string\n   return 'x'\nend"),
+        "NUPP2123:5"
+    )
+    local v = table.concat(
+        {
+            "local record V",
+            "   x: number",
+            "   metamethod __add: function(self, other: V): V",
+            "   metamethod __len: function(self): integer",
+            "end",
+            "",
+        },
+        "\n"
+    )
+    assertClean(
+        v .. table.concat(
+            {
+                "function V.__add(a: V, b: V): V",
+                "   return new V(x = a.x + b.x)",
+                "end",
+                "function V:__len(): integer",
+                "   return 1",
+                "end",
+            },
+            "\n"
+        )
+    )
+    assertEq(diagsOf(v .. "function V:__len(): string\n   return 'x'\nend"), "NUPP2123:6")
+    assertEq(diagsOf(v .. "function V.__add(a: V, b: integer): V\n   return a\nend"), "NUPP2123:6")
+end
+
 -- A `metatable<T>` annotation says whose metatable it is as readily as a
 -- parameter does, so the literal under one is held to the same rules wherever
 -- it is written.

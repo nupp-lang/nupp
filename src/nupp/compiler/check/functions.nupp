@@ -1889,6 +1889,29 @@ function functions.install(c: state.Checker): state.StatHandlers
             stat.structOwner = owner.runtimePath or ownerKey
             stat.memberName = member
         end
+        local contract = owner and member and owner.metamethods and owner.metamethods[member] or nil
+        if contract then
+            -- `function R.__add(...)` installs the contract R declares exactly as
+            -- `R.__add = function(...)` does, so it answers to the same check. Its
+            -- receiver is the declaration applied to its own binders, the way the
+            -- contract reads it.
+            local supplied = fname.method
+                and require(
+                    "nupp.compiler.types.generics"
+                ).addSelf(
+                    ft,
+                    require("nupp.compiler.types.generics").ownInstance(owner as T.Nominal),
+                    body.receiverMode
+                )
+                or ft
+            c.checkMetamethodValue(
+                memberTok or fname,
+                member,
+                supplied,
+                c.metamethodOf(owner, member) or contract,
+                owner
+            )
+        end
         if owner and member and ft.tag == "func" then
             -- What the declaration already said this member is. A definition written
             -- after the body fills that member rather than replacing it, so it is held
