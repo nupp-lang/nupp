@@ -1648,6 +1648,27 @@ local function inlineRemarks(remarks, message)
     return count
 end
 
+--- A splice copies the helper's expression and nothing its annotations point at.
+--- An overloaded method call keeps its candidate signatures, a bound in one of
+--- them names an exported interface, and that declaration and its `export`
+--- statement name each other: a copy that followed them never came back.
+function M.inliningCopiesOnlyTheHelpersOwnTree()
+    local code, remarks = compile(
+        "module test\n"
+        .. "export interface Component\n    id: integer\nend\n"
+        .. "export record World\n"
+        .. "    get: (function<C is Component>(self: World, component: C): integer)\n"
+        .. "        & (function(self: World, name: string): integer)\n"
+        .. "end\n"
+        .. "local function readOf(world: World, component: Component): integer\n"
+        .. "    return world:get(component)\nend\n"
+        .. "export function read(world: World, component: Component): integer\n"
+        .. "    return readOf(world, component)\nend\n"
+    )
+    assertEq(inlineRemarks(remarks, "inlines readOf"), 1, "the helper was inlined")
+    assertTrue(code:find("return ( world : get ( component ) )", 1, true) ~= nil, code)
+end
+
 function M.keepsACallThatWouldDuplicateComputation()
     local code, remarks = compile(
         "local function twice(v: number): number return v + v end\n"

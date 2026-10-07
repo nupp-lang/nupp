@@ -2665,14 +2665,22 @@ local function referencedNames(node, found, fields)
     return found
 end
 
--- One node copied, with each parameter read replaced by a copy of its argument.
--- `subs` holds the arguments and `params` the parameters' definitions, by name.
+-- How deep a splice looks through a plain annotation table for nodes of the copied
+-- tree. `recordFields` is the deepest the checker writes: a list of bindings, each
+-- naming its value expression.
+local SPLICE_ANNOTATION_DEPTH = 3
+
+-- The syntax a splice owns, copied: the array part, which is every child the parser
+-- added, with each parameter read replaced by a copy of its argument. `copies` maps
+-- each original to its copy and `owned` lists the nodes whose named fields are still
+-- to be filled, which waits until the whole tree has a copy to name.
 --
 -- Copied tokens take the call's position. The tokens came from the helper, but the
 -- code is being generated where the call was written, and this pass may not move a
 -- line to somewhere it was not.
 local spliceCopy
-spliceCopy = function(node, subs, at, params)
+local spliceTree
+spliceTree = function(node, subs, at, params, copies, owned)
     if isToken(node) then
         local copied = {}
         for key, value in pairs(node) do
@@ -2681,6 +2689,7 @@ spliceCopy = function(node, subs, at, params)
         copied.line = at.line
         copied.col = at.col
         copied.offset = at.offset
+        copies[node] = copied
 
         return copied
     end
@@ -2688,50 +2697,82 @@ spliceCopy = function(node, subs, at, params)
         -- Only a read of the parameter itself: a helper inlined into this body
         -- earlier may have brought a free name spelled like a parameter.
         if node.token.definition == params[node.token.text] then
-            return spliceCopy(subs[node.token.text], {}, at, {})
+            local copied = spliceCopy(subs[node.token.text], {}, at, {})
+            copies[node] = copied
+
+            return copied
         end
     end
 
-    local copied, mapped = {}, {}
+    local copied = {}
     for index, child in ipairs(node) do
-        local fresh = spliceCopy(child, subs, at, params)
-        copied[index] = fresh
-        mapped[child] = fresh
+        copied[index] = spliceTree(child, subs, at, params, copies, owned)
     end
-    -- A named field usually aliases one of the array children, so it has to name the
-    -- copy. Leaving it on the original is how a rewritten tree keeps generating the
-    -- tree it replaced.
-    --
-    -- Usually, not always: a field can hold a node the array part does not, and then
-    -- there is no copy to name and the original has to be spliced in its own right.
-    -- Handing back the original there is worse than leaving a stale alias, because the
-    -- original still reads the helper's parameters -- the substitution simply does not
-    -- reach it, and the parameter survives into the caller as a free name.
-    for key, value in pairs(node) do
-        if type(key) ~= "number" then
-            if mapped[value] then
-                copied[key] = mapped[value]
-            elseif type(value) == "table" and not isToken(value) and (value as any).kind ~= nil then
-                copied[key] = spliceCopy(value, subs, at, params)
-            elseif type(value) == "table" and not isToken(value) and #value > 0 then
-                local list = {}
-                for index, entry in ipairs(value) do
-                    if mapped[entry] then
-                        list[index] = mapped[entry]
-                    elseif type(entry) == "table" then
-                        list[index] = spliceCopy(entry as any, subs, at, params)
-                    else
-                        list[index] = entry
-                    end
+    copies[node] = copied
+    owned[#owned + 1] = node
+
+    return copied
+end
+
+-- One named field's value for the copy. A node or token of the copied tree becomes
+-- its copy, wherever in the tree it stands: `new R(...)` keeps its field values in
+-- `recordFields` as well as in its arguments, and naming the original there would
+-- generate the helper's parameter in the caller as a free name.
+--
+-- Anything else is shared rather than copied, because it is not the helper's to
+-- copy: a type, a declaration, an enclosing statement. Following those copied the
+-- program reachable from the expression, and a declaration and its `export`
+-- statement name each other, so the copy never finished. A plain table holding
+-- nodes of the tree is copied with them renamed; one holding none is shared.
+local function spliceField(value, copies, depth)
+    if type(value) ~= "table" then
+        return value
+    end
+    local copied = copies[value]
+    if copied then
+        return copied
+    end
+    if isToken(value) or rawget(value, "kind") ~= nil or rawget(value, "tag") ~= nil then
+        return value
+    end
+    if depth >= SPLICE_ANNOTATION_DEPTH or getmetatable(value) ~= nil then
+        return value
+    end
+    local result = value
+    for key, entry in pairs(value) do
+        local freshKey, fresh = spliceField(key, copies, depth + 1), spliceField(entry, copies, depth + 1)
+        if freshKey ~= key or fresh ~= entry then
+            if result == value then
+                result = {}
+                for k, v in pairs(value) do
+                    result[k] = v
                 end
-                copied[key] = list
-            else
-                copied[key] = value
+            end
+            result[key] = nil
+            result[freshKey] = fresh
+        end
+    end
+
+    return result
+end
+
+-- The helper's expression copied for one call, with each parameter read replaced by
+-- a copy of its argument. `subs` holds the arguments and `params` the parameters'
+-- definitions, by name. Each argument is spliced on its own, so a node of one copy
+-- never names a node of another.
+spliceCopy = function(node, subs, at, params)
+    local copies, owned = {}, {}
+    local root = spliceTree(node, subs, at, params, copies, owned)
+    for _, original in ipairs(owned) do
+        local copied = copies[original]
+        for key, value in pairs(original) do
+            if type(key) ~= "number" then
+                copied[key] = spliceField(value, copies, 0)
             end
         end
     end
 
-    return copied
+    return root
 end
 
 -- Which parameters are read in a prefix position: the object of `x.f`, `x[k]`, `x:m()`
