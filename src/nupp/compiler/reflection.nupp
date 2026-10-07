@@ -133,14 +133,16 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
                 out.nestedTypes[#out.nestedTypes + 1] = {name = name, type = intern(t.nestedTypes[name])}
             end
             out.associatedTypes = {}
-            for _, name in ipairs(t.associatedOrder or {}) do
+            for _, requirement in ipairs(t.associatedRequirements or {}) do
+                local name = requirement.name
+                local answer = t.associatedAnswers and t.associatedAnswers[name] or nil
                 out.associatedTypes[
                     #out.associatedTypes + 1
                 ] = {
                     name = name,
-                    bound = intern(t.associatedBounds and t.associatedBounds[name]),
-                    answer = intern(t.nestedTypes and t.nestedTypes[name]),
-                    default = t.associatedDefaults and t.associatedDefaults[name] or false,
+                    bound = intern(requirement.bound),
+                    answer = intern(answer and answer.type),
+                    default = answer ~= nil and answer.kind == "default" or false,
                 }
             end
             out.supertypes = {}

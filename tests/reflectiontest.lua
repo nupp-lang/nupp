@@ -39,6 +39,19 @@ function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
     assert(reachesRoot, "the recursive edge refers back to the root index")
 end
 
+function M.reflectsAssociatedRequirementsAndTheirAnswers()
+    local lines = T.nominal("Lines", "interface")
+    lines.associatedRequirements = {{name = "Item", bound = T.string}}
+    lines.associatedAnswers = {Item = {type = T.string, kind = "default"}}
+    local descriptor = reflection.describe(lines, "Lines")
+    local associated = descriptor.types[descriptor.root].associatedTypes
+    assertEq(#associated, 1, "the associated requirement is reflected")
+    assertEq(associated[1].name, "Item", "associated name")
+    assertEq(descriptor.types[associated[1].bound].kind, "string", "associated bound")
+    assertEq(descriptor.types[associated[1].answer].kind, "string", "associated answer")
+    assertEq(associated[1].default, true, "a default answer is marked as one")
+end
+
 function M.reflectsExplicitTransferOnlyAffinity()
     local descriptor = reflection.describe(T.affine(T.string, nil, true), "OpaqueString")
     local root = descriptor.types[descriptor.root]
