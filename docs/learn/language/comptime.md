@@ -9,7 +9,8 @@ compiled and written into the generated Lua as a literal. The block is ordinary
 Nupp, and none of the work survives into the program.
 
 ```nupp:playground
-@comptime local function step(acc: integer): integer
+@comptime
+local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -166,7 +167,8 @@ called with ordinary parentheses in type position, where it builds a structural
 type while the program is checked:
 
 ```nupp
-@comptime local function Optional(T: type): type
+@comptime
+local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 

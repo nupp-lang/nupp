@@ -100,8 +100,7 @@ single-value member:
 ```nupp
 @annotation(targets = {"record", "field"})
 record documentation
-    @annotationValue
-    text: string
+    @annotationValue text: string
 end
 ```
 
@@ -133,9 +132,7 @@ rather than an ordinary compile-time constant:
 ```nupp
 @annotation(targets = {"record"})
 record relatesTo
-    @annotationValue
-    @ref
-    target: any
+    @annotationValue @ref target: any
 end
 ```
 

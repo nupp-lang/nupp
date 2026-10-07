@@ -368,7 +368,8 @@ A package may export a derive provider as a `@comptime function`. Its exact
 signature names the one existing interface it implements:
 
 ```nupp:fragment
-@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+@comptime
+function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     -- inspect info and return a closed recipe
 end
 ```
@@ -461,7 +462,8 @@ A provider that generates a recipe from a schema or other immutable project file
 reads it with `nupp.derive.file`:
 
 ```nupp:fragment
-@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+@comptime
+function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     local schema = nupp.derive.file("schemas/inspect.txt")
     return nupp.derive.implement {
         methods = {

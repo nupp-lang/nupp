@@ -10,7 +10,8 @@ type position runs it while the program is checked and emits no runtime
 function or data.
 
 ```nupp:playground
-@comptime local function Optional(T: type): type
+@comptime
+local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
@@ -59,12 +60,14 @@ A reusable type that contains those compiler-only handles is declared with
 and every use are restricted to comptime code:
 
 ```nupp
-@comptime local type ReadField = {
+@comptime
+local type ReadField = {
     name: string,
     read: type?
 }
 
-@comptime local function ReadView(T: type): type
+@comptime
+local function ReadView(T: type): type
     local selected: {ReadField} = {}
     for _, field in ipairs(nupp.types.fields(T)) do
         if field.read then
@@ -86,7 +89,8 @@ anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what
 it does to a switch over that union.
 
 ```nupp
-@comptime local function DeepElement(T: type): type
+@comptime
+local function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -117,7 +121,8 @@ local record Other<T>
     value: T
 end
 
-@comptime local function SameFamily(A: type, B: type): type
+@comptime
+local function SameFamily(A: type, B: type): type
     return nupp.types.literal(nupp.types.sameNominal(A, B))
 end
 
@@ -133,7 +138,8 @@ an open type term, and [generic](generics.md) substitution executes it as soon
 as inference makes every argument concrete.
 
 ```nupp
-@comptime local function Arguments(Kind: type): typepack
+@comptime
+local function Arguments(Kind: type): typepack
     local info = nupp.types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
         return nupp.types.pack({nupp.types.string, nupp.types.number})

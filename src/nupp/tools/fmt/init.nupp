@@ -20,6 +20,9 @@ Fixed, with two knobs:
   fitting -- except that a call's trailing function or table hugs the line
   that opens the call while what precedes its body still fits there;
 - an `if` is broken across lines, however short its arms;
+- an annotation without arguments shares the line of a field, indexer, array
+  part or non-declaring statement it modifies (`@readonly value: T`, `@unsafe
+  do`); one with arguments, or on a declaration, keeps a line of its own;
 - docblocks wrap only when a safe prose paragraph has a line exceeding their
   width, and then the whole paragraph is refilled so no word is left stranded
   on a line of its own; a paragraph that fits keeps the breaks it was written
@@ -382,6 +385,79 @@ local function firstParenthesis(node): any
     return nil
 end
 
+---------------------------------------------------------------------------
+-- Annotations
+---------------------------------------------------------------------------
+
+-- What an annotation that takes no arguments may share a line with: a member that
+-- states one value -- a field, an indexer, an array part, a metamethod -- and any
+-- statement that is not a declaration. `@readonly value: T`, `@unsafe do` and
+-- `@nosuspend local x = f()` read as one modified thing. A declaration keeps its
+-- annotations above it, as does anything an annotation configures, since those read
+-- as a header of their own: `@derive(...)` over a record, `@comptime` over a
+-- function.
+local INLINE_MEMBER = {fieldDecl = true, indexerDecl = true, arrayPart = true, metamethodDecl = true,}
+local DECLARATION_STATEMENT = {
+    funcStmt = true,
+    localFuncStmt = true,
+    recordDecl = true,
+    typeAlias = true,
+    cdefStruct = true,
+    moduleStmt = true,
+}
+
+-- Whether a comment sits before this token, which keeps it on a line of its own.
+local function commentBefore(tok): boolean
+    for index = 1, tok and tok.triviaCount or 0 do
+        if lexer.triviaKind(tok, index) == "comment" then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Whether an annotation statement's target joins its line: the annotation takes no
+-- arguments, and what it modifies is an ordinary statement or another annotation that
+-- joins in turn.
+local function joinsAnnotatedStatement(n): boolean
+    local target = n.stat
+    if n.open or not target or commentBefore(firstToken(target)) then
+        return false
+    end
+    if target.kind == "pragmaStmt" then
+        return joinsAnnotatedStatement(target)
+    end
+    while target and target.kind == "exportStmt" do
+        target = target.stat
+    end
+
+    return target ~= nil and not DECLARATION_STATEMENT[target.kind]
+end
+
+-- The annotations and members of a declaration body that continue the line before
+-- them: a member that states a value, with the run of argument-free annotations
+-- directly above it. The first of that run still starts the line.
+local function joinedMembers(n): {[any]: boolean}
+    local joined: {[any]: boolean} = {}
+    for _, entry in ipairs(n.entries or {}) do
+        local annotations = entry.annotations or {}
+        if INLINE_MEMBER[entry.kind] and #annotations > 0 then
+            local following = entry
+            for index = #annotations, 1, -1 do
+                local application = annotations[index]
+                if application.open or commentBefore(firstToken(following)) then
+                    break
+                end
+                joined[following] = true
+                following = application
+            end
+        end
+    end
+
+    return joined
+end
+
 -- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
 -- statement spans.
 local function annotate(root)
@@ -581,6 +657,7 @@ local function annotate(root)
                 documented[application] = entry
             end
         end
+        local joined: {[any]: boolean} = declish and joinedMembers(n) or {}
         for idx, child in ipairs(n) do
             local childGroup = group
             if openIdx and idx > openIdx and idx < closeIdx then
@@ -623,7 +700,12 @@ local function annotate(root)
                     first.stmtLastTok = last
                 end
             elseif declish and child ~= n.generics and not headerPart[child] then
-                markStart = true
+                markStart = not joined[child]
+                if joined[child] then
+                    -- `@annotationValue [string]: integer`: a member is not the
+                    -- annotation's argument list, whatever bracket opens it.
+                    firstToken(child).spaceBeforeTok = true
+                end
                 walk(child, block + 1, childGroup)
                 markStart = false
                 local first, last = firstToken(child), lastToken(documented[child] or child)
@@ -633,7 +715,10 @@ local function annotate(root)
             elseif kind == "pragmaStmt" and child == n.stat then
                 -- The decorated statement is a statement: on its own line it sits at
                 -- the annotation's depth, not a continuation of it.
-                markStart = true
+                markStart = not joinsAnnotatedStatement(n)
+                if not markStart then
+                    firstToken(child).spaceBeforeTok = true
+                end
                 walk(child, block, childGroup)
                 markStart = false
             else

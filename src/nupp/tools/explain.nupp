@@ -960,7 +960,7 @@ local ENTRIES: {any} = {
         .. "comptime function that returns type or typepack when the computation "
         .. "needs control flow.",
         wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n",
-        right = "@comptime local function DeepElement(T: type): type\n"
+        right = "@comptime\nlocal function DeepElement(T: type): type\n"
         .. "    while nupp.types.kind(T) == 'array' do\n"
         .. "        T = nupp.types.elements(T)[1]\n"
         .. "    end\n"
@@ -2232,8 +2232,8 @@ ENTRIES[
     code = "NUPP2415",
     summary = "A comptime-only value failed validation where it landed",
     rule = "A comptime function's own identity, a type or const-function argument crossing into the isolated comptime worker, and an opaque provider result reaching a materialization boundary are all checked against exactly where they land. A comptime function read as an ordinary runtime value has nowhere to run there, an argument that cannot import into the worker cannot be evaluated, and a declared type with no registered materialization relation for what a provider produced cannot receive it.",
-    wrong = "@comptime local function answer(): integer return 42 end\nlocal escaped = answer\nreturn escaped()\n",
-    right = "@comptime local function answer(): integer return 42 end\nreturn comptime do return answer() end\n",
+    wrong = "@comptime\nlocal function answer(): integer return 42 end\nlocal escaped = answer\nreturn escaped()\n",
+    right = "@comptime\nlocal function answer(): integer return 42 end\nreturn comptime do return answer() end\n",
     related = {"NUPP2414", "NUPP2416"},
     docs = "docs/reference/diagnostics.md#nupp2415",
 }
@@ -2304,8 +2304,8 @@ ENTRIES[
     code = "NUPP2420",
     summary = "A comptime type function rejected its own application",
     rule = "nupp.types.error(message) lets a comptime type function refuse a specific application deliberately, distinct from an evaluator crash or a result of the wrong kind. The authored message is reported at the application together with the bounded comptime call trace, so a computed type contract can say why an argument it inspected does not qualify.",
-    wrong = "@comptime local function Positive(): type\n    return nupp.types.error(\"always fails\")\nend\nlocal value: Positive() = 1\nreturn value\n",
-    right = "@comptime local function Positive(): type\n    return nupp.types.number\nend\nlocal value: Positive() = 1\nreturn value\n",
+    wrong = "@comptime\nlocal function Positive(): type\n    return nupp.types.error(\"always fails\")\nend\nlocal value: Positive() = 1\nreturn value\n",
+    right = "@comptime\nlocal function Positive(): type\n    return nupp.types.number\nend\nlocal value: Positive() = 1\nreturn value\n",
     related = {"NUPP2415", "NUPP2421"},
     docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction",
 }
@@ -2317,7 +2317,7 @@ ENTRIES[
     summary = "A compiler-only member or type-position call was used where it cannot run",
     rule = "Type handles, comptime type aliases, and members typed comptime type or @comptime function(...) are opaque and exist only for the comptime evaluator. Reading one into an ordinary runtime binding, naming a comptime alias in a runtime annotation, or writing a type-position call whose callee, argument, or result does not resolve to a checked comptime function signature is refused because none has anything to erase to at runtime.",
     wrong = "local leaked = nupp.types.string\nreturn leaked\n",
-    right = "@comptime local function Self(): type\n    return nupp.types.string\nend\nlocal value: Self() = \"ok\"\nreturn value\n",
+    right = "@comptime\nlocal function Self(): type\n    return nupp.types.string\nend\nlocal value: Self() = \"ok\"\nreturn value\n",
     related = {"NUPP2133", "NUPP2420"},
     docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction",
 }

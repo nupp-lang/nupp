@@ -108,6 +108,57 @@ if ready(incoming) then
 end
 ```
 
+### Annotations
+
+An annotation that takes no arguments shares the line of what it modifies when
+that states a single thing: a field, an indexer or array part, or a statement
+that declares nothing. An annotation with arguments, and any annotation on a
+declaration -- a function, a record, a type -- keeps a line of its own above
+what it annotates, where it reads as a header:
+
+::: code-group
+```nupp:fragment [Written]
+@derive(nupp.Inspect)
+record Cell
+    @readonly
+    value: string
+    @private
+    cache: {string}
+end
+
+@comptime local function Optional(T: type): type
+    return nupp.types.optional(T)
+end
+
+@unsafe
+do
+    nupp.release(owner)
+end
+```
+
+```nupp:fragment [Formatted]
+@derive(nupp.Inspect)
+record Cell
+    @readonly value: string
+    @private cache: {string}
+end
+
+@comptime
+local function Optional(T: type): type
+    return nupp.types.optional(T)
+end
+
+@unsafe do
+    nupp.release(owner)
+end
+```
+:::
+
+A comment between an annotation and its target keeps the two on separate lines.
+Several argument-free annotations join the line together, so `@readonly
+@private count: integer` is one line; under one that takes arguments, only the
+argument-free run nearest the target joins it.
+
 ### Method chains
 
 A chain of method calls is a sequence of steps, so an over-long chain breaks

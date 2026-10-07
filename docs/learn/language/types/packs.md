@@ -211,7 +211,8 @@ local record Cell<T>
     value: T
 end
 
-@comptime local function Values(Cells: typepack): typepack
+@comptime
+local function Values(Cells: typepack): typepack
     const cells = nupp.types.elements(Cells)
     const values = {}
     for index = 1, #cells do

@@ -10,13 +10,11 @@ read-write slot.
 
 ```nupp:playground
 local interface Snapshot
-    @readonly
-    value: string
+    @readonly value: string
 end
 
 local interface Output
-    @writeonly
-    value: string
+    @writeonly value: string
 end
 ```
 
@@ -31,10 +29,8 @@ A [record](records-and-structs.md#records) marks member capabilities with
 
 ```nupp
 local record Cell
-    @readonly
-    value: string
-    @writeonly
-    value: string | integer
+    @readonly value: string
+    @writeonly value: string | integer
 end
 ```
 
@@ -118,13 +114,11 @@ Indexers take the same capabilities, in shapes, interfaces, and records:
 
 ```nupp
 local interface ByteView
-    @readonly
-    [integer]: uint8
+    @readonly [integer]: uint8
 end
 
 local interface ByteSink
-    @writeonly
-    [integer]: uint8
+    @writeonly [integer]: uint8
 end
 ```
 

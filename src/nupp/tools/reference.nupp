@@ -418,7 +418,8 @@ local m = {}
 
 local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-@comptime local function DeepElement(T: type): type
+@comptime
+local function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -482,7 +483,8 @@ record m.Cell<T>
 end
 
 --- The cells a caller names, mapped to what each one holds.
-@comptime local function Held(C: typepack): typepack
+@comptime
+local function Held(C: typepack): typepack
     const cells = nupp.types.elements(C)
     const out = {}
     for index = 1, #cells do
@@ -1825,7 +1827,8 @@ local type Percent = nupp.types.range(integer, 0, 100)
 local type Digit = nupp.types.range(Percent, 0, 9)
 local type Short = nupp.types.length(string, 1, 4)
 
-@comptime local function Between(T: type, low: integer, high: integer): type
+@comptime
+local function Between(T: type, low: integer, high: integer): type
     return nupp.types.range(T, low, high)
 end
 
@@ -2621,7 +2624,8 @@ references to source bindings.
         example = [=[
 local m = {}
 
-@comptime local function step(acc: integer): integer
+@comptime
+local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 

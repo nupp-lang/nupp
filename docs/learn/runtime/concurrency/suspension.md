@@ -158,8 +158,7 @@ iterator calls, body, and cleanup inside the loop:
 
 ```nupp
 local total = 0
-@nosuspend
-for index = 1, 3 do
+@nosuspend for index = 1, 3 do
     total = total + index
 end
 print(total)

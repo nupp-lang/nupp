@@ -193,7 +193,8 @@ An exported derive provider may read an immutable project file with a literal
 path:
 
 ```nupp:fragment
-@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
+@comptime
+function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
     local schema = nupp.derive.file("schemas/widget.txt")
     -- Build a closed recipe from schema.
 end

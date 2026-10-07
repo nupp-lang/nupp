@@ -117,8 +117,84 @@ function M.propertyCapabilities()
     )
     assertEq(
         fmt1("local interface Cell\n@readonly value:string\n@writeonly value:integer\nend"),
-        "local interface Cell\n    @readonly\n    value: string\n    @writeonly\n    value: integer\nend\n"
+        "local interface Cell\n    @readonly value: string\n    @writeonly value: integer\nend\n"
     )
+end
+
+-- An annotation that takes no arguments shares the line of what it modifies when
+-- that is a member stating one value or a statement that declares nothing. One with
+-- arguments, one on a declaration, and one a comment separates from its target each
+-- keep a line of their own.
+function M.argumentFreeAnnotationsStayInline()
+    local source = table.concat({
+        "local m = {}",
+        "@derive(nupp.Inspect)",
+        "record m.Cell",
+        "@readonly",
+        "value: string",
+        "@json(name = \"x\")",
+        "@private",
+        "hidden: string",
+        "@readonly @private both: integer",
+        "@readonly",
+        "-- why",
+        "other: string",
+        "@private",
+        "function helper(self): nil end",
+        "end",
+        "@comptime",
+        "local function F(T: type): type return T end",
+        "function m.f(owner: any): nil",
+        "@unsafe",
+        "do print(1) end",
+        "@allow(NUPP2001)",
+        "@nosuspend",
+        "do print(2) end",
+        "@unsafe",
+        "local x = 1",
+        "@unsafe",
+        "nupp.release(owner)",
+        "end",
+        "return m",
+    }, "\n")
+    local expected = table.concat({
+        "local m = {}",
+        "@derive(nupp.Inspect)",
+        "record m.Cell",
+        "    @readonly value: string",
+        "    @json(name = \"x\")",
+        "    @private hidden: string",
+        "    @readonly @private both: integer",
+        "    @readonly",
+        "    -- why",
+        "    other: string",
+        "    @private",
+        "    function helper(self): nil",
+        "    end",
+        "end",
+        "",
+        "@comptime",
+        "local function F(T: type): type",
+        "    return T",
+        "end",
+        "",
+        "function m.f(owner: any): nil",
+        "    @unsafe do",
+        "        print(1)",
+        "    end",
+        "    @allow(NUPP2001)",
+        "    @nosuspend do",
+        "        print(2)",
+        "    end",
+        "    @unsafe local x = 1",
+        "    @unsafe nupp.release(owner)",
+        "end",
+        "",
+        "return m",
+        "",
+    }, "\n")
+    assertEq(fmt1(source), expected)
+    assertEq(fmt1(expected), expected)
 end
 
 function M.rejectedLexicalOwnershipFormsRemainUnchanged()
@@ -136,7 +212,7 @@ end
 
 function M.stageZeroSourcesUseCanonicalForms()
     local source = "local sealed interface Token\n@readonly value:integer\nend"
-    local expected = "local sealed interface Token\n    @readonly\n    value: integer\nend\n"
+    local expected = "local sealed interface Token\n    @readonly value: integer\nend\n"
     assertEq(formatter:format(source, "src/nupp/compiler/example.nupp"), expected)
     assertEq(formatter:format(source, "src/nupp/runtime/example.nupp"), expected)
     assertEq(formatter:format(source, "src/nupp/example.nupp"), expected)
@@ -146,7 +222,7 @@ end
 function M.sealedInterfaceModifier()
     assertEq(
         fmt1("local sealed interface Token\n@readonly value:integer\nend"),
-        "local sealed interface Token\n    @readonly\n    value: integer\nend\n"
+        "local sealed interface Token\n    @readonly value: integer\nend\n"
     )
 end
 
@@ -415,10 +491,8 @@ function M.annotationValueOnANamelessEntryFormats()
         {
             "@annotation",
             "record Marker",
-            "    @annotationValue",
-            "    [string]: integer",
-            "    @annotationValue",
-            "    {integer}",
+            "    @annotationValue [string]: integer",
+            "    @annotationValue {integer}",
             "end",
             "",
         },

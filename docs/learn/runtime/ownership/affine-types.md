@@ -157,7 +157,8 @@ A user-defined comptime type function can call the programmable counterpart of
 the direct form:
 
 ```nupp:fragment
-@comptime local function MakeOwner(
+@comptime
+local function MakeOwner(
     T: type,
     const cleanup: function
 ): type

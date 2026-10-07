@@ -60,8 +60,7 @@ what each capability admits.
 
 ```nupp
 sealed interface span.Span<T>
-    @readonly
-    count: integer
+    @readonly count: integer
     get: function(self: Span<T>, index: integer): T
 end
 ```

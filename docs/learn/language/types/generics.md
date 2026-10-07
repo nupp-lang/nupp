@@ -83,7 +83,8 @@ a [comptime](../comptime.md) function decides what arguments a call
 accepts:
 
 ```nupp
-@comptime local function Arguments(Kind: type): typepack
+@comptime
+local function Arguments(Kind: type): typepack
     local info = nupp.types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
         return nupp.types.pack({nupp.types.string, nupp.types.number})
@@ -125,7 +126,8 @@ A comptime type function can construct and inspect complete packs, and
 `nupp.types.error(message)` rejects one with an authored diagnostic:
 
 ```nupp
-@comptime local function Checked(T: type): typepack
+@comptime
+local function Checked(T: type): typepack
     if T == nupp.types.string then
         return nupp.types.pack({T})
     end

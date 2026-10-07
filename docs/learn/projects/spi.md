@@ -16,10 +16,8 @@ its consumer:
 module example.codec.spi
 
 export interface Codec
-    @readonly
-    priority: integer?
-    @readonly
-    encode: function(value: string): string
+    @readonly priority: integer?
+    @readonly encode: function(value: string): string
 end
 ```
 
