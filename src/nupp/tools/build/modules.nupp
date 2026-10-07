@@ -1537,10 +1537,24 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local specializationPlans: {any} = {}
     local acceptedSpecializations: {any} = {}
     local declinedSpecializations: {any} = {}
+    -- Only a local function with a `const` type parameter can be specialized, and a
+    -- source that spells none has nothing to plan. Read off the text, so a build of
+    -- a project without one -- warm ones included -- does not check every module
+    -- just to find that out. Over-approximated: any `const` parameter counts.
+    local mayPlan = false
+    if constEnabled and next(parallelChecked) == nil then
+        for _, item in ipairs(queue) do
+            local text = inc.fileText(item.path)
+            if text == nil or (text as string):find("[<,]%s*const%s+[%a_]") ~= nil then
+                mayPlan = true
+                break
+            end
+        end
+    end
     -- Workers built only a project with nothing to specialize, so there is nothing
     -- to plan, and checking every module here to find that out again is the work
     -- they were there to do.
-    if constEnabled and next(parallelChecked) == nil then
+    if mayPlan then
         -- Check the deliverable once before emission so incoming calls can request a
         -- body from the module that declares it.  This is emission dependency
         -- discovery, not a reverse type dependency: the incremental checker memoizes

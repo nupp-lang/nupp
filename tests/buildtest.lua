@@ -824,6 +824,31 @@ function M.targetSourcesRejectEmptyAndEscapingSelections()
     os.execute("rm -rf '" .. escaping .. "'")
 end
 
+-- An optimized build plans const specialization by checking the modules it emits.
+-- A project with no const-generic function has nothing to plan, so a warm optimized
+-- build of one checks no module at all.
+function M.warmOptimizedBuildWithNothingToSpecializeChecksNothing()
+    -- Enough checking that a module which was checked shows among the slowest.
+    local lines = {"local lib = {}"}
+    for index = 1, 300 do
+        lines[#lines + 1] = ("function lib.f%d(value: number): number return value * %d end"):format(index, index)
+    end
+    lines[#lines + 1] = "return lib"
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        ["lib.nupp"] = table.concat(lines, "\n") .. "\n",
+        ["main.nupp"] = 'local lib = require("lib")\nprint(lib.f2(21))\n',
+    })
+    local build = ("cd '%s' && NUPP_CHECK_JOBS=1 '%s' build -O2 --json"):format(dir, NUPP)
+    local first = require("testjson").decode(captureJson(build))
+    assert(first.ok, "the cold optimized build succeeds")
+    local warm = require("testjson").decode(captureJson(build))
+    assert(warm.ok, "the warm optimized build succeeds")
+    assert(warm.timing.compiledModules == 0, "the warm build compiles nothing")
+    assert(#warm.timing.slowest == 0, "the warm build checked " .. require("testjson").encode(warm.timing.slowest))
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.jsonBuildReportsColdAndWarmDeriveObservations()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
