@@ -218,7 +218,7 @@ function M.aMalformedModuleGraphIsRecomputed()
     local dir = tempProject({["nupp/compiler/project/fingerprint.lua"] = cacheCode})
     local cacheDir = dir .. "/cache"
     local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-    local stamp = "modules/2\0" .. isolated.toolFingerprint()
+    local stamp = isolated.moduleGraphStamp(fingerprint.contentDigest(true))
     local store = require("nupp.compiler.project.store")
     local damaged = store.openValue(cacheDir .. "/modulegraph.buf", stamp)
     damaged.set({files = {}})
@@ -229,6 +229,39 @@ function M.aMalformedModuleGraphIsRecomputed()
     assert(ok and type(answer) == "string", tostring(answer))
     local repaired = store.openValue(cacheDir .. "/modulegraph.buf", stamp).value
     assert(repaired.files["nupp.compiler.project.fingerprint"], "the malformed graph was not replaced")
+    assert(require("nupp.io.files").remove(dir, true))
+end
+
+-- An unchanged module can keep its lexed requires, but those requires still resolve
+-- against the current tree. Adding the module named by an old literal must make that
+-- module part of the caller's stamp without lexing the caller again.
+function M.aStoredModuleGraphResolvesOldRequiresAgainstNewFiles()
+    local source = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
+    local cacheCode = source:read("*a")
+    source:close()
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = cacheCode,
+        ["nupp/compiler/one.lua"] = 'return require("nupp.compiler.optional")\n',
+    })
+    local cacheDir = dir .. "/cache"
+
+    local function stamp()
+        return dofile(dir .. "/nupp/compiler/project/fingerprint.lua").subsystemFingerprint(
+            {"nupp.compiler.one"},
+            cacheDir
+        )
+    end
+
+    local before = stamp()
+    local optional = assert(io.open(dir .. "/nupp/compiler/optional.lua", "wb"))
+    optional:write("return 1\n")
+    optional:close()
+    local added = stamp()
+    assert(added ~= before, "a new file did not resolve an old literal require")
+    optional = assert(io.open(dir .. "/nupp/compiler/optional.lua", "wb"))
+    optional:write("return 2\n")
+    optional:close()
+    assert(stamp() ~= added, "the reused edge did not cover the new dependency")
     assert(require("nupp.io.files").remove(dir, true))
 end
 

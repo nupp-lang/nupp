@@ -1235,7 +1235,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         local system = require("nupp.system")
         local requested = tonumber(os.getenv("NUPP_CHECK_JOBS") or "")
-        local automatic = math.min(system.availableParallelism(), 4)
+        local automatic = math.min(system.availableParallelism(), 6)
         local jobCount = math.max(1, math.min(math.floor(requested or automatic), 8, #queue))
         local moduleobject = require("nupp.tools.build.moduleobject")
         local declaredModules: {[string]: boolean} = {}
@@ -1246,83 +1246,29 @@ local function buildModules(root: string, outDir: string, config: Config, target
             declaredModules[item.name] = true
             supportedModules[item.name] = moduleTargets.supports(item.name, target.host)
             projectPaths[#projectPaths + 1] = item.path
-        end
-        local objects: {any} = {}
-        for _, item in ipairs(queue) do
             local text = inc.fileText(item.path)
-            local header = inc.projectHeader(item.path)
-            if text == nil or header == nil then
+            if text == nil then
                 return
             end
             sourceBytes[item.path] = #(text as string)
-            objects[#objects + 1] = moduleobject.emit(item.path, inc.parseResult(item.path), header, {
-                declaredModules = declaredModules,
-                supportedModules = supportedModules,
-            })
         end
-        local linked = moduleobject.link(objects)
-        local components = linked.components as {{string}}
+        local objects: {any} = {}
+        local components: {{string}} = {}
         local byPath: {[string]: any} = {}
         local componentOf: {[string]: integer} = {}
         local componentByName: {[string]: integer} = {}
-        for _, object in ipairs(objects) do
-            byPath[object.path] = object
-        end
-        for index, component in ipairs(components) do
-            for _, path in ipairs(component) do
-                componentOf[path] = index
-                local object = byPath[path]
-                if object and object.moduleName then
-                    componentByName[object.moduleName] = index
-                end
-            end
-        end
         local dependencies: {[integer]: {[integer]: boolean}} = {}
         local allDependencies: {[integer]: {[integer]: boolean}} = {}
         local dependents: {[integer]: {[integer]: boolean}} = {}
-        for index = 1, #components do
-            dependencies[index], allDependencies[index], dependents[index] = {}, {}, {}
-        end
-        for path, targets in pairs(linked.edges) do
-            local owner = componentOf[path] as integer
-            local ownerDependencies = dependencies[owner] as {[integer]: boolean}
-            local ownerAllDependencies = allDependencies[owner] as {[integer]: boolean}
-            for _, target in ipairs(targets) do
-                local dependency = componentOf[target] as integer
-                if owner ~= dependency then
-                    ownerDependencies[dependency] = true
-                    ownerAllDependencies[dependency] = true
-                    local dependencyDependents = dependents[dependency] as {[integer]: boolean}
-                    dependencyDependents[owner] = true
-                end
-            end
-        end
         local componentWeights: {[integer]: integer} = {}
-        for index, component in ipairs(components) do
-            local componentIndex = math.floor(index) as integer
-            local weight: integer = 0
-            for _, path in ipairs(component) do
-                weight = weight + ((sourceBytes[path] or 1) as integer)
-            end
-            componentWeights[componentIndex] = weight
-        end
-        local partition = moduleobject.partition(linked, jobCount, sourceBytes)
-        local plannedWorkers = partition.assignments as {[integer]: integer}
+        local plannedWorkers: {[integer]: integer} = {}
         local crossExport: {[string]: boolean} = {}
-        -- A lane follows its static partition while work is available there, but may
-        -- steal from another lane rather than sit behind a cross-partition critical
-        -- path. Retain every completed interface so a steal always has its inputs.
-        if jobCount > 1 then
-            for _, item in ipairs(queue) do
-                crossExport[item.path] = true
-            end
-        end
         local interfaces: {[string]: any} = {}
         local interfaceOrder: {any} = {}
         local bundleByFingerprint: {[string]: any} = {}
         local checked: {[string]: any} = {}
         local complete: {[integer]: boolean} = {}
-        local remaining = #components
+        local remaining: integer = 0
         local sessionKey = table.concat(
             {root, tostring(newState.moduleCompilerHash), tostring(newState.configHash)},
             "\0"
@@ -1529,12 +1475,151 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
         end
 
+        -- Parsing the project just to discover its dependency graph is real work on a
+        -- cold build. Give that independent work to the persistent semantic workers
+        -- before their checker sessions acquire process-local identities, then link
+        -- the plain-data module objects in the coordinator.
+        local scanStarted = clock.now()
+        local scanSources: {{any}} = {}
+        local scanWeights: {integer} = {}
+        for worker = 1, jobCount do
+            scanSources[worker] = {}
+            scanWeights[worker] = 0
+        end
+        local scanOrder: {any} = {}
+        for _, item in ipairs(queue) do
+            scanOrder[#scanOrder + 1] = item
+        end
+        table.sort(scanOrder, function(left, right)
+            local leftBytes = sourceBytes[left.path] or 0
+            local rightBytes = sourceBytes[right.path] or 0
+            if leftBytes ~= rightBytes then
+                return leftBytes > rightBytes
+            end
+
+            return left.path < right.path
+        end)
+        for _, item in ipairs(scanOrder) do
+            local selected: integer = 1
+            for worker = 2, jobCount do
+                if scanWeights[worker] < scanWeights[selected] then
+                    selected = worker
+                end
+            end
+            local text = inc.fileText(item.path)
+            if text == nil then
+                abandon("parallel graph source disappeared: " .. item.path)
+                return
+            end
+            scanSources[
+                selected
+            ][
+                #scanSources[selected] + 1
+            ] = {
+                path = item.path,
+                hash = contentDigest(text as string),
+                name = item.name,
+                supported = supportedModules[item.name],
+            }
+            scanWeights[selected] = scanWeights[selected] + (sourceBytes[item.path] or 1)
+        end
+
+        local function scanWorker(index: integer): nil
+            nextRequestIds[index] = (nextRequestIds[index] or 0) + 1
+            local request = {
+                schema = 1,
+                kind = "scan",
+                requestId = nextRequestIds[index],
+                sessionKey = sessionKey,
+                sources = scanSources[index],
+                declaredModules = declaredModules,
+                supportedModules = supportedModules,
+                initializer = index,
+            }
+            request.fingerprint = protocol.requestFingerprint(request)
+            local answer = requestWorker(index, request)
+            if not answer.ok then
+                error(answer.problem or "parallel graph scan failed", 0)
+            end
+            for _, object in ipairs(answer.objects or {}) do
+                objects[#objects + 1] = object
+            end
+        end
+
+        local scanned, scanProblem = pcall(function(): nil
+            with scope = tasks.open(jobCount) do
+                for worker = 1, jobCount do
+                    scope:spawn(worker, scanWorker)
+                end
+            end
+        end)
+        if not scanned then
+            abandon(scanProblem)
+            return
+        end
+        if #objects ~= #queue then
+            abandon("parallel graph scan did not return every module")
+            return
+        end
+
+        local linked = moduleobject.link(objects)
+        components = linked.components as {{string}}
+        remaining = #components
+        for _, object in ipairs(objects) do
+            byPath[object.path] = object
+        end
+        for index, component in ipairs(components) do
+            for _, path in ipairs(component) do
+                componentOf[path] = index
+                local object = byPath[path]
+                if object and object.moduleName then
+                    componentByName[object.moduleName] = index
+                end
+            end
+        end
+        for index = 1, #components do
+            dependencies[index], allDependencies[index], dependents[index] = {}, {}, {}
+        end
+        for path, targets in pairs(linked.edges) do
+            local owner = componentOf[path] as integer
+            local ownerDependencies = dependencies[owner] as {[integer]: boolean}
+            local ownerAllDependencies = allDependencies[owner] as {[integer]: boolean}
+            for _, target in ipairs(targets) do
+                local dependency = componentOf[target] as integer
+                if owner ~= dependency then
+                    ownerDependencies[dependency] = true
+                    ownerAllDependencies[dependency] = true
+                    local dependencyDependents = dependents[dependency] as {[integer]: boolean}
+                    dependencyDependents[owner] = true
+                end
+            end
+        end
+        for index, component in ipairs(components) do
+            local componentIndex = math.floor(index) as integer
+            local weight: integer = 0
+            for _, path in ipairs(component) do
+                weight = weight + ((sourceBytes[path] or 1) as integer)
+            end
+            componentWeights[componentIndex] = weight
+        end
+        local partition = moduleobject.partition(linked, jobCount, sourceBytes)
+        plannedWorkers = partition.assignments as {[integer]: integer}
+        -- A lane follows its static partition while work is available there, but may
+        -- steal from another lane rather than sit behind a cross-partition critical
+        -- path. Retain every completed interface so a steal always has its inputs.
+        if jobCount > 1 then
+            for _, item in ipairs(queue) do
+                crossExport[item.path] = true
+            end
+        end
+        local scanMs = clock.now() - scanStarted
+
         local ready: {integer} = {}
         local queued: {[integer]: boolean} = {}
         local assigned: {[integer]: integer} = {}
         local queueWaiters: {function(boolean)} = {}
         local randomState = tonumber(os.getenv("NUPP_PARALLEL_CHECK_RANDOM_SEED") or "")
-        local affinityScheduling = os.getenv("NUPP_PARALLEL_CHECK_AFFINITY") ~= "0"
+        local affinityScheduling = os.getenv("NUPP_PARALLEL_CHECK_AFFINITY") == "1"
 
         local function randomReadyPosition(count: integer): integer
             randomState = ((randomState as number) * 48271) % 2147483647
@@ -1691,7 +1776,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     end
                 end
                 if image.path ~= nil then
-                    imports[#imports + 1] = {path = image.path, fingerprint = image.fingerprint,}
+                    imports[
+                        #imports + 1
+                    ] = {
+                        path = image.path,
+                        fingerprint = image.fingerprint,
+                        transportFingerprint = image.transportFingerprint,
+                    }
                 else
                     imports[#imports + 1] = image
                 end
@@ -1927,13 +2018,14 @@ local function buildModules(root: string, outDir: string, config: Config, target
             io.stderr:write(
                 (
                     "parallel cold check: batches=%d interfaces=%d imports=%d "
-                    .. "setup=%.0fms decode=%.0fms semantic=%.0fms record=%.0fms "
+                    .. "scan=%.0fms setup=%.0fms decode=%.0fms semantic=%.0fms record=%.0fms "
                     .. "interface=%.0fms encode=%.0fms worker=%.0fms "
                     .. "sent=%d received=%d retries=%d lanes=%s\n"
                 ):format(
                     workerStats.batches,
                     workerStats.interfaceNodes,
                     workerStats.importedModules,
+                    scanMs,
                     workerStats.setupMs,
                     workerStats.decodeMs,
                     workerStats.semanticMs,
@@ -3101,6 +3193,32 @@ modules.typeFingerprint = typeFingerprint
 modules.resourceOutput = resourceOutput
 modules.build = buildModules
 
+--- Parses independent sources into the plain-data objects the coordinator links.
+function modules.parallelScanBatch(request: any): any
+    local parser = require("nupp.compiler.syntax.parser")
+    local header = require("nupp.compiler.project.header")
+    local moduleobject = require("nupp.tools.build.moduleobject")
+    local contentDigest = fingerprint.contentDigest(true)
+    local objects: {any} = {}
+    for _, source in ipairs(request.sources or {}) do
+        local path = normalize(source.path)
+        local text, readProblem = readFile(path)
+        if text == nil then
+            return {ok = false, problem = "parallel graph source disappeared: " .. tostring(readProblem or path),}
+        end
+        if contentDigest(text as string) ~= source.hash then
+            return {ok = false, problem = "parallel graph source fingerprint mismatch for " .. path}
+        end
+        local parsed = parser.parse(text as string, path)
+        objects[#objects + 1] = moduleobject.emit(path, parsed, header.of(path, source.name, parsed), {
+            declaredModules = request.declaredModules,
+            supportedModules = request.supportedModules,
+        })
+    end
+
+    return {ok = true, objects = objects,}
+end
+
 --- Checks one dependency-ready component in an isolated worker session.
 ---
 --- Imported interfaces are installed before any assigned source is checked. The
@@ -3169,10 +3287,16 @@ function modules.parallelCheckBatch(request: any, context: any?): (any, any)
     local decodeStarted = workerClock.now()
     for _, import in ipairs(request.imports or {}) do
         local image = import
+        local trusted = false
         if import.path ~= nil then
             local encoded, readProblem = readFile(import.path)
             if encoded == nil then
                 return {ok = false, problem = "interface store: " .. tostring(readProblem)}, context
+            end
+            if import.transportFingerprint == nil
+                or contentDigest(encoded as string) ~= import.transportFingerprint
+            then
+                return {ok = false, problem = "interface store: transport fingerprint mismatch"}, context
             end
             local decoded, decodeProblem = interfaceProtocol.decode(encoded as string)
             if decoded == nil or decoded.fingerprint ~= import.fingerprint then
@@ -3182,12 +3306,14 @@ function modules.parallelCheckBatch(request: any, context: any?): (any, any)
                 }, context
             end
             image = decoded
+            trusted = true
         end
         local semantics, _, problem = interfaceimage.decode(
             image,
             context.nominals,
             context.interfaceArenas,
-            context.interfaceOrigins
+            context.interfaceOrigins,
+            trusted
         )
         if semantics == nil then
             return {ok = false, problem = "import bundle: " .. tostring(problem)}, context
@@ -3330,13 +3456,15 @@ function modules.parallelCheckBatch(request: any, context: any?): (any, any)
             end
             table.sort(prerequisites)
             local interfacePath = join(request.interfaceStore, interfaceBundle.fingerprint .. ".buf")
-            local written, writeProblem = writeFile(interfacePath, interfaceProtocol.encode(interfaceBundle))
+            local interfaceBytes = interfaceProtocol.encode(interfaceBundle)
+            local written, writeProblem = writeFile(interfacePath, interfaceBytes)
             if not written then
                 return {ok = false, problem = "interface store: " .. tostring(writeProblem)}, context
             end
             interfaceRef = {
                 path = interfacePath,
                 fingerprint = interfaceBundle.fingerprint,
+                transportFingerprint = contentDigest(interfaceBytes),
                 prerequisites = prerequisites,
                 nodes = #(interfaceBundle.descriptor.types or {}),
             }
@@ -3377,6 +3505,9 @@ end
 
 --- Checks one dependency-ready batch and keeps its lane's query session.
 function modules.parallelCheckWorker(request: any): any
+    if request.kind == "scan" then
+        return modules.parallelScanBatch(request)
+    end
     if not parallelWorkerInitialized then
         local types = require("nupp.compiler.types")
         types.setIdentityNamespace("cold", request.initializer)

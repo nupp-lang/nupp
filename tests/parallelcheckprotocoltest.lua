@@ -9,12 +9,21 @@ end
 local function request()
     return {
         schema = 1,
+        kind = "check",
         requestId = 7,
         sessionKey = "compiler\0config",
         paths = {"src/a.nupp"},
         exportPaths = {"src/a.nupp"},
-        sources = {{path = "src/a.nupp", hash = "source-a"}},
-        imports = {{path = "/tmp/interface.buf", fingerprint = "interface-b"}},
+        sources = {{path = "src/a.nupp", hash = "source-a", name = "a", supported = true}},
+        imports = {
+            {
+                path = "/tmp/interface.buf",
+                fingerprint = "interface-b",
+                transportFingerprint = "transport-b",
+            },
+        },
+        declaredModules = {a = true},
+        supportedModules = {a = true},
     }
 end
 
@@ -41,6 +50,9 @@ function M.fingerprintsEveryImmutableRequestInput()
             value.requestId = 8
         end,
         function(value)
+            value.kind = "scan"
+        end,
+        function(value)
             value.sessionKey = "other"
         end,
         function(value)
@@ -53,7 +65,25 @@ function M.fingerprintsEveryImmutableRequestInput()
             value.sources[1].hash = "changed"
         end,
         function(value)
+            value.sources[1].name = "b"
+        end,
+        function(value)
+            value.sources[1].supported = false
+        end,
+        function(value)
             value.imports[1].fingerprint = "changed"
+        end,
+        function(value)
+            value.imports[1].path = "/tmp/other.buf"
+        end,
+        function(value)
+            value.imports[1].transportFingerprint = "changed"
+        end,
+        function(value)
+            value.declaredModules.b = true
+        end,
+        function(value)
+            value.supportedModules.a = false
         end,
     }
     for position, mutate in ipairs(mutations) do

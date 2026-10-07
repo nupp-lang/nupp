@@ -154,6 +154,12 @@ type fingerprint.ModuleGraph = {
     --- Module name -> the modules it requires.
     edges: {[string]: {string}},
 
+    --- The literal requires and dynamic declarations before they are resolved against
+    --- the current file set. These let an unchanged module keep its lexed answer when
+    --- another compiler module is added or removed.
+    required: {[string]: {string}},
+    declared: {[string]: {string}},
+
     --- Module name -> the digest of its file.
     digests: {[string]: string},
 
@@ -162,7 +168,7 @@ type fingerprint.ModuleGraph = {
 }
 
 --- Bumped when an entry stops decoding into what the reader expects.
-local GRAPH_STAMP = "modules/2"
+local GRAPH_STAMP = "modules/3"
 
 local graphMemo: fingerprint.ModuleGraph? = nil
 
@@ -174,6 +180,18 @@ local graphAttempted = false
 
 local graphStoredIn: {[string]: boolean} = {}
 
+local function graphStoreStamp(digest: function(string): string): string
+    local lexer = require("nupp.compiler.syntax.lexer")
+    local ownSource = debug.getinfo(graphStoreStamp, "S").source:gsub("^@", "")
+    local lexerSource = debug.getinfo(lexer.lex, "S").source:gsub("^@", "")
+
+    return GRAPH_STAMP .. "\0" .. digest(
+        "fingerprint\0" .. (
+            hashFile(ownSource, digest) or "missing"
+        ) .. "\0lexer\0" .. (hashFile(lexerSource, digest) or "missing")
+    )
+end
+
 --- Whether a decoded graph has the complete shape traversal relies on.
 ---
 --- The value store verifies its envelope, but its payload is still cache data.
@@ -183,6 +201,8 @@ local function validGraph(value: any): boolean
     if type(value) ~= "table"
         or type(value.files) ~= "table"
         or type(value.edges) ~= "table"
+        or type(value.required) ~= "table"
+        or type(value.declared) ~= "table"
         or type(value.digests) ~= "table"
         or type(value.unknown) ~= "table"
     then
@@ -193,6 +213,8 @@ local function validGraph(value: any): boolean
             or type(path) ~= "string"
             or type(value.digests[name]) ~= "string"
             or type(value.edges[name]) ~= "table"
+            or type(value.required[name]) ~= "table"
+            or type(value.declared[name]) ~= "table"
             or type(value.unknown[name]) ~= "boolean"
         then
             return false
@@ -214,6 +236,13 @@ local function validGraph(value: any): boolean
                 return false
             end
         end
+        for _, values in ipairs({value.required[name], value.declared[name]}) do
+            for index, entry in pairs(values) do
+                if type(index) ~= "number" or index < 1 or index ~= math.floor(index) or type(entry) ~= "string" then
+                    return false
+                end
+            end
+        end
     end
     for name in pairs(value.digests) do
         if type(name) ~= "string" or type(value.files[name]) ~= "string" then
@@ -228,6 +257,13 @@ local function validGraph(value: any): boolean
     for name in pairs(value.unknown) do
         if type(name) ~= "string" or type(value.files[name]) ~= "string" then
             return false
+        end
+    end
+    for _, field in ipairs({value.required, value.declared}) do
+        for name in pairs(field) do
+            if type(name) ~= "string" or type(value.files[name]) ~= "string" then
+                return false
+            end
         end
     end
 
@@ -353,16 +389,15 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
     -- relative to is two directories above it.
     local root = dirname(dirname(dir))
     local store = nil
+    local previous: fingerprint.ModuleGraph? = nil
     if cacheDir then
         graphStoredIn[cacheDir] = true
         store = require(
             "nupp.compiler.project.store"
-        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
+        ).openValue(join(cacheDir, "modulegraph.buf"), graphStoreStamp(digest))
         local stored = store.value
         if validGraph(stored) then
-            graphMemo = stored as fingerprint.ModuleGraph
-
-            return graphMemo
+            previous = stored as fingerprint.ModuleGraph
         end
         -- Computed already by a caller with nowhere to keep it.
         if graphMemo ~= nil then
@@ -372,8 +407,17 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
             return graphMemo
         end
     end
-    local graph: fingerprint.ModuleGraph = {files = {}, edges = {}, digests = {}, unknown = {}}
+    local graph: fingerprint.ModuleGraph = {
+        files = {},
+        edges = {},
+        required = {},
+        declared = {},
+        digests = {},
+        unknown = {},
+    }
     local sources: {[string]: string} = {}
+    local unchanged = previous ~= nil
+    local fileCount: integer = 0
     -- Under `nupp/` rather than the whole tree the compiler was found in. Every module
     -- here is a `nupp.*` one, and listing the root meant whatever else happened to sit
     -- beside the compiler -- a project's own build output, in a development checkout --
@@ -383,15 +427,40 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
             local name = moduleNameOf(root, path)
             local text = name and readFile(path) or nil
             if name and text then
+                fileCount = fileCount + 1
+                local fileDigest = digest(text)
                 graph.files[name] = path
-                graph.digests[name] = digest(text)
-                sources[name] = text
+                graph.digests[name] = fileDigest
+                if previous ~= nil and previous.files[name] == path and previous.digests[name] == fileDigest then
+                    graph.required[name] = previous.required[name] as {string}
+                    graph.declared[name] = previous.declared[name] as {string}
+                    graph.unknown[name] = previous.unknown[name] as boolean
+                else
+                    unchanged = false
+                    sources[name] = text
+                end
             end
+        end
+    end
+    if previous ~= nil then
+        local previousCount: integer = 0
+        for _ in pairs(previous.files) do
+            previousCount = previousCount + 1
+        end
+        unchanged = unchanged and previousCount == fileCount
+        if unchanged then
+            graphMemo = previous
+
+            return graphMemo
         end
     end
     for name, text in pairs(sources) do
         local required, unknown, declared = requiredBy(text, graph.files[name] or name)
+        graph.required[name] = required
+        graph.declared[name] = declared
         graph.unknown[name] = unknown
+    end
+    for name, required in pairs(graph.required) do
         local edges: {string} = {}
         local added: {[string]: boolean} = {}
         for _, required_name in ipairs(required) do
@@ -402,7 +471,7 @@ local function moduleGraph(cacheDir: string?, digest: function(string): string):
         end
         -- What a module said it may load, resolved against the tree the same way a
         -- literal is. A pattern naming nothing that exists has no local dependencies.
-        for _, pattern in ipairs(declared) do
+        for _, pattern in ipairs(graph.declared[name] or {}) do
             local prefix = pattern:match("^(.+)%.%*$")
             if prefix then
                 for candidate in pairs(graph.files) do
@@ -565,6 +634,7 @@ end
 
 fingerprint.hashFile = hashFile
 fingerprint.hashFiles = hashFiles
+fingerprint.moduleGraphStamp = graphStoreStamp
 fingerprint.toolFingerprint = toolFingerprint
 
 export = fingerprint

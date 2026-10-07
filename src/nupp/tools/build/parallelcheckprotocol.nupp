@@ -11,7 +11,7 @@ provides it and byte-safe JSON otherwise.
 ]]
 
 local json = require("nupp.codec.json")
-local hash = require("nupp.compiler.hash")
+local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
 local stable = require("nupp.compiler.stable")
 local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
 
@@ -21,22 +21,29 @@ local protocol = {}
 function protocol.requestFingerprint(request: any): string
     local sources: {any} = {}
     for _, source in ipairs(request.sources or {}) do
-        sources[#sources + 1] = {path = source.path, hash = source.hash,}
+        sources[
+            #sources + 1
+        ] = {path = source.path, hash = source.hash, name = source.name, supported = source.supported,}
     end
     local imports: {string} = {}
     for _, import in ipairs(request.imports or {}) do
-        imports[#imports + 1] = import.fingerprint
+        imports[
+            #imports + 1
+        ] = table.concat({import.fingerprint or "", import.path or "", import.transportFingerprint or ""}, "\0")
     end
 
-    return hash.sha256(
+    return digest(
         "nupp.parallel-check-request\0v1\0" .. stable({
             schema = request.schema,
+            kind = request.kind,
             requestId = request.requestId,
             sessionKey = request.sessionKey,
             paths = request.paths,
             exportPaths = request.exportPaths,
             sources = sources,
             imports = imports,
+            declaredModules = request.declaredModules,
+            supportedModules = request.supportedModules,
         })
     )
 end

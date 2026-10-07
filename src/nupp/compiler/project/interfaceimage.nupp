@@ -12,7 +12,7 @@ then patches declaration surfaces. The receiving checker therefore interns an
 imported structural type exactly as it would have built that type itself.
 ]]
 
-local hash = require("nupp.compiler.hash")
+local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
 local reflection = require("nupp.compiler.reflection")
 local stable = require("nupp.compiler.stable")
 local T = require("nupp.compiler.types")
@@ -312,7 +312,7 @@ function interfaceimage.encode(
         end
     end
     local image = {schema = interfaceimage.SCHEMA, descriptor = descriptor, modules = entries,}
-    image.fingerprint = hash.sha256("nupp.module-interface\0v2\0" .. stable(image))
+    image.fingerprint = digest("nupp.module-interface\0v2\0" .. stable(image))
     if origins ~= nil and arenas ~= nil then
         local arena: {any} = {}
         arenas[image.fingerprint] = arena
@@ -336,7 +336,8 @@ function interfaceimage.decode(
     image: any,
     nominals: {[string]: any}?,
     arenas: {[string]: {any}}?,
-    origins: {[any]: any}?
+    origins: {[any]: any}?,
+    trusted: boolean?
 ): (any?, {[string]: any}?, string?)
     if type(image) ~= "table"
         or image.schema ~= interfaceimage.SCHEMA
@@ -348,18 +349,21 @@ function interfaceimage.decode(
         return nil, nil, "the module interface image is malformed"
     end
     local fingerprint = image.fingerprint
-    image.fingerprint = nil
-    local expected = hash.sha256("nupp.module-interface\0v2\0" .. stable(image))
-    image.fingerprint = fingerprint
-    if fingerprint ~= expected then
-        local names: {string} = {}
-        for _, entry in ipairs(image.modules) do
-            names[#names + 1] = tostring(entry.name)
+    if not trusted then
+        image.fingerprint = nil
+        local expected = digest("nupp.module-interface\0v2\0" .. stable(image))
+        image.fingerprint = fingerprint
+        if fingerprint ~= expected then
+            local names: {string} = {}
+            for _, entry in ipairs(image.modules) do
+                names[#names + 1] = tostring(entry.name)
+            end
+
+            return nil, nil, "the module interface fingerprint does not match for " .. table.concat(
+                names,
+                ", "
+            ) .. " (expected " .. expected .. ", got " .. fingerprint .. ")"
         end
-        return nil, nil, "the module interface fingerprint does not match for " .. table.concat(
-            names,
-            ", "
-        ) .. " (expected " .. expected .. ", got " .. fingerprint .. ")"
     end
 
     local descriptor = image.descriptor
