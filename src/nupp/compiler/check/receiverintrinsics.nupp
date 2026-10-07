@@ -1,0 +1,18 @@
+module nupp.compiler.check.receiverintrinsics
+
+--[[
+Calls the checker recognizes by the module their receiver holds.
+
+`zone.push(name)` and `bench.keep(value)` are compiled specially when the receiver
+is statically known to be the module named here. Answering that resolves the
+module, so whatever plans checks ahead of the checker -- the cold parallel checker
+scheduling modules before any is checked -- must treat a call with one of these
+member names as a dependency on the module. Both read this one table.
+]]
+
+--- Member name -> the module its receiver must hold.
+local receiverintrinsics: {
+    [string]: string
+} = {push = "nupp.profile.zone", pop = "nupp.profile.zone", keep = "nupp.bench",}
+
+export = receiverintrinsics

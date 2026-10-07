@@ -78,6 +78,7 @@ local specializeReceiver = generics.specializeReceiver
 local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 
 local COMPILER_SURFACES = require("nupp.compiler.check.surfaces").COMPILER_SURFACES
+local RECEIVER_INTRINSICS = require("nupp.compiler.check.receiverintrinsics")
 
 --- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
 --- a local bound to the required module.
@@ -205,7 +206,7 @@ local function zoneIntrinsic(c, callee): string?
         return nil
     end
     local name = callee.name.text
-    if name ~= "push" and name ~= "pop" then
+    if RECEIVER_INTRINSICS[name] ~= "nupp.profile.zone" then
         return nil
     end
     local base = callee.obj
@@ -216,7 +217,7 @@ local function zoneIntrinsic(c, callee): string?
     if not baseType then
         return nil
     end
-    local zoneType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.profile.zone")
+    local zoneType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, RECEIVER_INTRINSICS[name])
     if not zoneType then
         return nil
     end
@@ -236,7 +237,8 @@ local function keepIntrinsic(c, callee): boolean
     if not callee or callee.kind ~= "dotIndex" or not callee.name then
         return false
     end
-    if callee.name.text ~= "keep" then
+    local benchModule = RECEIVER_INTRINSICS[callee.name.text]
+    if benchModule ~= "nupp.bench" then
         return false
     end
     local base = callee.obj
@@ -247,7 +249,7 @@ local function keepIntrinsic(c, callee): boolean
     if not baseType then
         return false
     end
-    local benchType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.bench")
+    local benchType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, benchModule)
     if not benchType then
         return false
     end
