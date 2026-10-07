@@ -184,6 +184,7 @@ record types.ConstVar
     tag: 'constVar'
     name: string
     domain: string
+    identity: string?
 end
 
 --- One operation in the deliberately closed const expression grammar.
@@ -356,6 +357,7 @@ record types.PackVar
     id: string = ""
     tag: 'packvar'
     name: string
+    identity: string?
 end
 
 --- How the rest of a value sequence is described. `kind` says which field beside it
@@ -578,6 +580,7 @@ record types.TypeVar
     id: string = ""
     tag: 'typevar'
     name: string
+    identity: string?
 
     --- Upper bound declared with `T is Bound`, when one exists.
     bound: types.Type?
@@ -776,6 +779,15 @@ record types.Nominal
     tag: 'nominal'
     name: string
     declKind: string
+
+    --- Where the declaration sits, spelled the same in every process that reads the
+    --- same sources. It is not an identity -- `id` is, and is unique per process --
+    --- but the key a worker finds its own copy of a transported declaration by.
+    declarationKey: string?
+
+    --- The source file whose header declared this nominal, set only on the ones the
+    --- project index allocates, which every process indexing the project shares.
+    indexedPath: string?
 
     --- Resolved typed metadata attached to this declaration. The values remain
     --- semantic annotation applications rather than source text so reflection and
@@ -1063,6 +1075,7 @@ local packVarArena: {[string]: types.PackVar} = {}
 local capabilityArena: {[string]: types.Capability} = {}
 local capabilityIdentity = setmetatable({}, {__mode = "k"})
 local nextCapabilityIdentity: integer = 0
+local identityNamespace = ""
 local constArena: {[string]: types.ConstTerm} = {}
 
 local function flowIdentity(value: any): integer
@@ -1097,7 +1110,7 @@ local nextSerial: integer = 0
 local function serial(prefix: string): string
     nextSerial = nextSerial + 1
 
-    return prefix .. nextSerial
+    return prefix .. identityNamespace .. nextSerial
 end
 
 --- Marks a serial carries, so the questions that used to be asked of a structural id
@@ -2532,7 +2545,7 @@ function types.packvar(name: string, identity: string?): types.PackVar
     if found then
         return found
     end
-    local made = new types.PackVar(tag = "packvar", name = name)
+    local made = new types.PackVar(tag = "packvar", name = name, identity = identity)
     made.id = "!p" .. serial("pv")
     packVarArena[key] = made
 
@@ -2570,7 +2583,7 @@ function types.constvar(name: string, domain: string, identity: string?): types.
     if found then
         return found as types.ConstVar
     end
-    local made = new types.ConstVar(tag = "constVar", name = name, domain = domain)
+    local made = new types.ConstVar(tag = "constVar", name = name, domain = domain, identity = identity)
     made.id = "!c" .. serial("c")
     constArena[key] = made
 
@@ -3352,7 +3365,7 @@ function types.typevar(name: string, identity: string?): types.Type
         return existing
     end
 
-    return intern(internKey, new types.TypeVar(tag = "typevar", name = name))
+    return intern(internKey, new types.TypeVar(tag = "typevar", name = name, identity = identity))
 end
 
 function types.typeHandle(bound: types.Type): types.Type
@@ -3463,6 +3476,10 @@ function types.comptimeCall(
 
     local existing = interned(id)
     if existing then
+        local neutral = existing as types.Neutral
+        if helper ~= nil and neutral.comptimeHelper == nil then
+            neutral.comptimeHelper = helper
+        end
         return existing
     end
 
@@ -3684,12 +3701,30 @@ end
 
 local nominalCounter: integer = 0
 
+-- Keyed declarations by key, kept only once `setIdentityNamespace` has made this
+-- process a worker.
+local declaredNominals: {[string]: types.Nominal} = {}
+
 --- A nominal type: one identity per declaration, never shared with another declaration
 --- of the same shape. That is what makes it nominal.
 ---
+--- In a worker, that is one per declaration key as well. A worker both reads
+--- declarations other workers checked and checks files every worker checks for itself,
+--- such as dependency declaration files, and meeting one declaration both ways must
+--- give the one nominal, whichever way came first. So a key already allocated answers
+--- with the nominal it was allocated for.
+---
 --- @param name what the declaration called it
 --- @param declKind "record", "interface" or "struct"
-function types.nominal(name: string, declKind: string): types.Nominal
+--- @param declarationKey where the declaration sits; see `Nominal.declarationKey`
+function types.nominal(name: string, declKind: string, declarationKey: string?): types.Nominal
+    local shared = declarationKey ~= nil and identityNamespace ~= ""
+    if shared then
+        local known = declaredNominals[declarationKey as string]
+        if known ~= nil then
+            return known
+        end
+    end
     nominalCounter = nominalCounter + 1
     local t = new types.Nominal(
         tag = "nominal",
@@ -3700,11 +3735,26 @@ function types.nominal(name: string, declKind: string): types.Nominal
         staticByname = {},
         staticWriteByname = {},
         metamethods = {},
-        nestedTypes = {}
+        nestedTypes = {},
+        declarationKey = declarationKey
     )
-    t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
+    t.id = "nominal#" .. identityNamespace .. nominalCounter .. "(" .. name .. ")"
+    if shared then
+        declaredNominals[declarationKey as string] = t
+    end
 
     return t
+end
+
+--- The declaration key of a record declared inside `owner`'s body, at `offset` in
+--- the owner's source, or nil when the owner has no key to extend.
+function types.nestedDeclarationKey(owner: types.Nominal, offset: integer?): string?
+    local key = owner.declarationKey
+    if key == nil then
+        return nil
+    end
+
+    return key .. "\0nested\0" .. tostring(offset or 0)
 end
 
 ---------------------------------------------------------------------------
@@ -4134,6 +4184,24 @@ function types.identity(): types.Identity
         capability = nextCapabilityIdentity,
         nominal = nominalCounter,
     }
+end
+
+--- Gives newly allocated checker identities a worker-specific namespace.
+---
+--- Compiler-owned types allocated before this call keep their shared identities.
+--- A worker calls this once before it opens a project environment, so a serial or a
+--- nominal id it issues can never be mistaken for one another worker issued.
+---
+--- @raises string when the namespace is invalid or changes after being set
+function types.setIdentityNamespace(namespace: string, lane: integer): nil
+    if namespace == "" or lane < 1 or lane > 1000 then
+        error("invalid type identity namespace", 2)
+    end
+    local wanted = "@" .. namespace .. ":" .. tostring(lane) .. ":"
+    if identityNamespace ~= "" and identityNamespace ~= wanted then
+        error("type identity namespace already set", 2)
+    end
+    identityNamespace = wanted
 end
 
 --- Puts a type into the arena named `bucket` under `key`, unless one is already

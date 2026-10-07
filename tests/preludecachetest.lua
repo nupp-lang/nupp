@@ -562,7 +562,7 @@ local function emptyNativeImage()
     local origin = cache.origin()
     assert(cache.seal(origin), "the arena has not moved since its origin was taken")
     return {
-        format = 2,
+        format = 3,
         origin = origin,
         counts = {},
         cells = {},

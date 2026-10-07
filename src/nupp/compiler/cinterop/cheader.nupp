@@ -81,6 +81,14 @@ local INT_BY_BITS = {
 local modelFunction -- defined below; a pointer may be to a function
 local adoptStruct -- defined below; aggregate references may be recursive
 
+--- The declaration key of a C aggregate. LuaJIT keeps one C declaration namespace per
+--- process, so a tag or a typedef name means one aggregate wherever a header spelled
+--- it, and every header that includes the same declaration must share its key. Tags
+--- and typedef names are separate namespaces in C, so the key says which it is in.
+local function cDeclarationKey(aggregateKind: string, namespace: string, name: string): string
+    return "c\0" .. namespace .. "\0" .. aggregateKind .. "\0" .. name
+end
+
 -- Every struct type this process has built from LuaJIT's registry, by ctype id. A
 -- tag names one registry entry, so it names one type too, whether the struct was met
 -- through `cheader` or through a type string: two identities for one tag made the
@@ -619,7 +627,7 @@ adoptStruct = function(tag, aggregateKind)
     if not declaration then
         return nil
     end
-    local nominal = T.nominal(tag, "struct")
+    local nominal = T.nominal(tag, "struct", cDeclarationKey(aggregateKind, "tag", tag))
     nominal.cdefName = tag
     nominal.cdefKind = aggregateKind
     nominal.fieldOrder = {}
@@ -714,7 +722,11 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
     for _, declaration in ipairs(parsed.structs) do
         local nominal = adoptedById[declaration.id]
         if not nominal then
-            nominal = T.nominal(declaration.name, "struct")
+            nominal = T.nominal(
+                declaration.name,
+                "struct",
+                cDeclarationKey(declaration.kind, declaration.typedefName and "typedef" or "tag", declaration.name)
+            )
             nominal.cdefName = declaration.name
             nominal.cdefKind = declaration.kind
             nominal.fieldOrder = {}

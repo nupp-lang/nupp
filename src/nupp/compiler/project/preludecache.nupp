@@ -125,7 +125,7 @@ local ROOT_NAMES = {
 
 --- Bumped when the shape below changes. An image that does not say this number is
 --- discarded, the same way a store entry stamped differently is.
-local FORMAT = 2
+local FORMAT = 3
 
 --- Where type identity stood when a prelude was about to be checked or read.
 ---

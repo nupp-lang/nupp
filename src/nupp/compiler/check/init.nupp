@@ -2856,7 +2856,8 @@ function checkMod.check(
         within[#within + 1] = owner
         for _, entry in ipairs(entries or {}) do
             if entry.kind == "recordDecl" then
-                local nested = entry.hoistedType or T.nominal(entry.name.text, entry.declKind)
+                local nested = entry.hoistedType
+                    or T.nominal(entry.name.text, entry.declKind, T.nestedDeclarationKey(owner, entry.name.offset))
                 entry.hoistedType = nested
                 nested.byname = nested.byname or {}
                 nested.writeByname = nested.writeByname or {}

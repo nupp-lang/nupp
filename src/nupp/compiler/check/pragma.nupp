@@ -78,9 +78,10 @@ function pragma.install(c: state.Checker): state.StatHandlers
         end
 
         local suffix = nameToken.text .. "@" .. tostring(nameToken.offset or 0)
-        local spec = T.nominal("GpuSpec<" .. suffix .. ">", "record")
-        local kernel = T.nominal("GpuKernel<" .. suffix .. ">", "record")
-        local binding = T.nominal("GpuBinding<" .. suffix .. ">", "record")
+        local identity = (c.filename or "?") .. "\0gpu\0" .. suffix
+        local spec = T.nominal("GpuSpec<" .. suffix .. ">", "record", identity .. "\0spec")
+        local kernel = T.nominal("GpuKernel<" .. suffix .. ">", "record", identity .. "\0kernel")
+        local binding = T.nominal("GpuBinding<" .. suffix .. ">", "record", identity .. "\0binding")
         -- The generated kernel and binding are closeable children, as the
         -- context's own are: a kernel borrows the context and a binding borrows
         -- the kernel, and each is released by its close.

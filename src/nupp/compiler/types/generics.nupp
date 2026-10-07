@@ -1632,6 +1632,9 @@ local instantiations: {[string]: T.Nominal} = {}
 -- One refresh walks a graph, not every path through it. Keep completed visits until
 -- the outer application returns, then forget them so later declarations are visible.
 local refreshingInstantiations: {[string]: boolean}?
+-- Instantiations reserved before their declaration could be read, which the next
+-- `generics.instantiate` of the same application completes in place.
+local pendingInstantiations: {[T.Nominal]: boolean} = {}
 
 --- Substitution can intern new types and packs, so visit member names in a stable
 --- order. Recollect them on every refresh: declarations can still gain members.
@@ -1670,11 +1673,7 @@ local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal,
     end
 end
 
---- The nominal `n` stands for once its parameters hold `map`.
----
---- @param n the generic declaration
---- @param map what each binder stands for
-function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
+local function instantiationKey(n: T.Nominal, map: Bindings): string
     local parts = {n.id}
     for _, tv in ipairs(n.typeParams or {}) do
         parts[#parts + 1] = "type:" .. (map[tv] or T.any).id
@@ -1687,26 +1686,13 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         local value = map[cv] as T.ConstTerm?
         parts[#parts + 1] = "const:" .. (value and value.id or "unbound")
     end
-    local key = table.concat(parts, "|")
-    local outermost = refreshingInstantiations == nil
-    local refreshed = refreshingInstantiations or {}
-    refreshingInstantiations = refreshed
-    local cached = instantiations[key]
-    if cached then
-        if not refreshed[key] then
-            refreshed[key] = true
-            fillInstantiationMembers(cached, n, map)
-        end
-        if outermost then
-            refreshingInstantiations = nil
-        end
-        return cached
-    end
+
+    return table.concat(parts, "|")
+end
+
+local function allocateInstantiation(n: T.Nominal, map: Bindings): T.Nominal
     local inst = T.nominal(n.name, n.declKind)
     inst.origin = n
-    inst.lpegPattern = n.lpegPattern
-    inst.lpegLibrary = n.lpegLibrary
-    inst.lpegPatternOrigin = n.lpegPatternOrigin
     inst.typeArgs = {}
     for j, tv in ipairs(n.typeParams or {}) do
         inst.typeArgs[j] = map[tv] or T.any
@@ -1719,6 +1705,59 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for j, cv in ipairs(n.constParams or {}) do
         inst.constArgs[j] = map[cv] or cv
     end
+
+    return inst
+end
+
+--- The identity `generics.instantiate(n, map)` will return, without reading anything
+--- of `n` beyond its parameters.
+---
+--- A loader rebuilding declarations reaches an application of one while that
+--- declaration's members are still being filled. The reserved nominal carries its
+--- origin and arguments, and is completed by the next `generics.instantiate` of the
+--- same application, which the loader makes once every declaration is whole.
+---
+--- @param n the generic declaration, whose parameters are already set
+--- @param map what each binder stands for
+function generics.reserveInstantiation(n: T.Nominal, map: Bindings): T.Nominal
+    local key = instantiationKey(n, map)
+    local cached = instantiations[key]
+    if cached then
+        return cached
+    end
+    local inst = allocateInstantiation(n, map)
+    instantiations[key] = inst
+    pendingInstantiations[inst] = true
+
+    return inst
+end
+
+--- The nominal `n` stands for once its parameters hold `map`.
+---
+--- @param n the generic declaration
+--- @param map what each binder stands for
+function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
+    local key = instantiationKey(n, map)
+    local outermost = refreshingInstantiations == nil
+    local refreshed = refreshingInstantiations or {}
+    refreshingInstantiations = refreshed
+    local cached = instantiations[key]
+    if cached and pendingInstantiations[cached] then
+        pendingInstantiations[cached] = nil
+    elseif cached then
+        if not refreshed[key] then
+            refreshed[key] = true
+            fillInstantiationMembers(cached, n, map)
+        end
+        if outermost then
+            refreshingInstantiations = nil
+        end
+        return cached
+    end
+    local inst = cached or allocateInstantiation(n, map)
+    inst.lpegPattern = n.lpegPattern
+    inst.lpegLibrary = n.lpegLibrary
+    inst.lpegPatternOrigin = n.lpegPatternOrigin
     inst.paramKinds = n.paramKinds
     inst.fieldOrder = n.fieldOrder
     inst.fieldDefaults = n.fieldDefaults
@@ -1732,8 +1771,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.intrinsicAffineClaim = n.intrinsicAffineClaim
     inst.terminalMethod = n.terminalMethod
     inst.inherentCleanup = n.inherentCleanup and substCleanup(n.inherentCleanup, map, PRESERVE) or nil
-    if inst.intrinsicAffine and inst.constArgs[1] then
-        local term = inst.constArgs[1]
+    local constArgs: {any} = inst.constArgs or {}
+    if inst.intrinsicAffine and constArgs[1] then
+        local term = constArgs[1]
         local named = term.tag == "constLiteral" and term.value or nil
         local method = type(named) == "string" and named:match("^self%.([%a_][%w_]*)$") or nil
         inst.inherentCleanup = method and T.methodCleanup(method) or T.constFunctionCleanup(term)

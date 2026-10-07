@@ -103,7 +103,11 @@ function cdef.install(
         if not structName then
             return
         end
-        local n = T.nominal(structName.text, "struct")
+        local n = T.nominal(
+            structName.text,
+            "struct",
+            (c.filename or "?") .. "\0cdef\0" .. tostring(structName.offset or 0)
+        )
         n.cdefName = structName.text
         n.cdefKind = stat.aggregateKind or "struct"
         stat.cdefIdentity = table.concat({"aggregate", n.cdefKind, structName.text}, "\0")
