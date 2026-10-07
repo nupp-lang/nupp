@@ -730,6 +730,34 @@ project that reported an error and for a run that never got as far as checking:
 a manifest the command could not use ends the run before any file is read, and
 an empty `diagnostics` cannot tell that apart from a clean project on its own.
 
+#### Parallel checking
+
+A cold whole-project check uses semantic workers when the project has at least
+64 modules and 256 KiB of source. The checker uses the smaller of six workers and
+the available parallelism. Warm checks, checks of named files, smaller projects,
+and targets with an ahead-of-time policy stay in one process.
+
+`NUPP_CHECK_JOBS` sets the worker count and bypasses the workload floor. A count
+is capped at eight and at the number of modules. Set it to `1` to select the
+serial checker:
+
+```bash
+NUPP_CHECK_JOBS=1 nupp check
+NUPP_CHECK_JOBS=4 nupp check
+```
+
+A worker that stops is restarted once. A second failure returns the whole check
+to the serial checker, discarding every partial parallel record first. The
+`timing.parallel` object in `--json` reports `parallel`, `serial`, or
+`serial-fallback`, with worker, retry, and batch counts and a reason when the
+serial checker was selected.
+
+`NUPP_PARALLEL_CHECK_TRACE=1` is a diagnostic aid. It writes one line of
+scheduler counters to standard error when a parallel check finishes -- where the
+workers spent their time, how many bytes crossed the pipes, and each worker's
+batch count -- and the reason when a check falls back to the serial checker. Its
+format is not stable.
+
 #### Check progress
 
 Checking a project from a terminal names the module it is working on and how

@@ -127,6 +127,7 @@ function M.theTimelineChargesEveryMillisecondToOneActivity()
     report:at("check")
     report:at("scan")
     report:counted(2, 3)
+    report:parallelCounted({mode = "parallel", workers = 6, retries = 1, batches = 20})
     local timing = report:timing()
     local total = 0
     for _, phase in ipairs(timing.phases) do
@@ -136,6 +137,10 @@ function M.theTimelineChargesEveryMillisecondToOneActivity()
     assertEq(timing.compiledModules, 2)
     assertEq(timing.reusedModules, 3)
     assertEq(timing.specializedBodies, 0)
+    assertEq(timing.parallel.mode, "parallel")
+    assertEq(timing.parallel.workers, 6)
+    assertEq(timing.parallel.retries, 1)
+    assertEq(timing.parallel.batches, 20)
     for _, phase in ipairs(timing.phases) do
         assert(phase.durationMs >= 0, "no activity took negative time")
     end

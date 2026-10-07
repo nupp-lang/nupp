@@ -1,0 +1,40 @@
+@!internal
+
+module nupp.tools.build.parallelcheckprotocol
+
+--[[
+The versioned payload shared by the cold-check coordinator and its workers.
+
+Both ends are the same compiler on the same LuaJIT, so a payload is LuaJIT's own
+plain-data encoding. A host without it has no parallel checker: the coordinator
+plans a serial check rather than carrying a second encoding nothing would run.
+Framing belongs to the worker channel.
+]]
+
+local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
+
+local protocol = {}
+
+--- Whether this host can encode a payload at all.
+protocol.available = hasBuffer
+
+--- The longest frame either end accepts.
+protocol.MAX_FRAME = 268435456
+
+function protocol.encode(value: any): string
+    return nativeBuffer.encode({schema = 1, value = value})
+end
+
+function protocol.decode(text: string): (any?, string?)
+    if not hasBuffer then
+        return nil, "parallel-check payloads are unavailable on this host"
+    end
+    local decoded, envelope = pcall(nativeBuffer.decode, text)
+    if not decoded or type(envelope) ~= "table" or envelope.schema ~= 1 or type(envelope.value) ~= "table" then
+        return nil, "the parallel-check payload is malformed"
+    end
+
+    return envelope.value, nil
+end
+
+export = protocol

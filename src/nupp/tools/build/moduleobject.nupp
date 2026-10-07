@@ -1,0 +1,242 @@
+module nupp.tools.build.moduleobject
+
+-- A relocatable, plain-data view of one parsed module: its path, its name, and the
+-- project modules it depends on. Workers emit these without checker identities, and
+-- the coordinator links them into the components it schedules.
+
+local cst = require("nupp.compiler.syntax.cst")
+local receiverIntrinsics = require("nupp.compiler.check.receiverintrinsics")
+
+local moduleobject = {}
+
+local function dottedPath(node): {string}?
+    local parts = {}
+    local current = node
+    while current and current.kind == "dotIndex" do
+        if not current.name then
+            return nil
+        end
+        table.insert(parts, 1, current.name.text)
+        current = current.obj
+    end
+    if not current or current.kind ~= "name" or not current.token then
+        return nil
+    end
+    table.insert(parts, 1, current.token.text)
+
+    return parts
+end
+
+-- The declared module a qualified name like `a.b.member` reaches, longest first.
+local function qualifiedModule(node, declaredModules: {[string]: boolean}?): string?
+    local parts = dottedPath(node)
+    if not parts or not declaredModules then
+        return nil
+    end
+    for length = #parts, 1, -1 do
+        local candidate = table.concat(parts, ".", 1, length)
+        if declaredModules[candidate] then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+-- The module `_G.require("name")` names, when the argument is a string literal.
+-- Project headers leave this spelling out, because the serial build discovers what
+-- to stage from them; the checker still checks the module it names, so the
+-- scheduler must order it first.
+local function globalRequire(node): string?
+    local callee = node.obj
+    if not callee
+        or callee.kind ~= "dotIndex"
+        or not callee.name
+        or callee.name.text ~= "require"
+        or not callee.obj
+        or callee.obj.kind ~= "name"
+        or not callee.obj.token
+        or callee.obj.token.text ~= "_G"
+    then
+        return nil
+    end
+    local argument = node.args and node.args.exprs and node.args.exprs[1]
+    if not argument or argument.kind ~= "string" or not argument.token then
+        return nil
+    end
+    local chunk = loadstring("return " .. argument.token.text)
+    if not chunk then
+        return nil
+    end
+    local ok, value = pcall(chunk)
+
+    return ok and type(value) == "string" and value as string or nil
+end
+
+--- The object for one parsed module. `index.declaredModules` names the modules a
+--- qualified reference can reach; `index.supportedModules` marks the ones this
+--- target cannot load, which are never dependencies.
+function moduleobject.emit(path: string, parsed: any, header: any, index: any): any
+    local supported = index.supportedModules
+    local dependencySet: {[string]: boolean} = {}
+    for _, name in ipairs(header.dependencies or {}) do
+        if not supported or supported[name] ~= false then
+            dependencySet[name] = true
+        end
+    end
+
+    local function walk(node, insideDot)
+        if node == nil or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" and node.obj and node.obj.kind == "dotIndex" and node.obj.name then
+            local intrinsicModule = receiverIntrinsics[node.obj.name.text]
+            if intrinsicModule ~= nil then
+                dependencySet[intrinsicModule] = true
+            end
+            local required = globalRequire(node)
+            if required and index.declaredModules and index.declaredModules[required] then
+                dependencySet[required as string] = true
+            end
+        end
+        if node.kind == "dotIndex" and not insideDot then
+            local reached = qualifiedModule(node, index.declaredModules)
+            if reached and (not supported or supported[reached] ~= false) then
+                dependencySet[reached as string] = true
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child, node.kind == "dotIndex")
+        end
+    end
+
+    walk(parsed.root, false)
+    local dependencies: {string} = {}
+    for name in pairs(dependencySet) do
+        dependencies[#dependencies + 1] = name
+    end
+    table.sort(dependencies)
+
+    return {path = path, moduleName = header.moduleName, dependencies = dependencies,}
+end
+
+--- Links objects into strongly connected components, dependencies first, and the
+--- edges between those components.
+---
+--- `dependencies[i]` and `dependents[i]` list component indexes, sorted. The walk is
+--- iterative: a require chain is as deep as a project makes it, and a recursive walk
+--- overflows the Lua stack at about a thousand modules.
+function moduleobject.link(objects: {any}): any
+    local byName: {[string]: any} = {}
+    local paths: {string} = {}
+    for _, object in ipairs(objects) do
+        if object.moduleName then
+            byName[object.moduleName] = object
+        end
+        paths[#paths + 1] = object.path
+    end
+    table.sort(paths)
+
+    local edges: {[string]: {string}} = {}
+    for _, object in ipairs(objects) do
+        local targets: {string} = {}
+        local seen: {[string]: boolean} = {}
+        for _, dependency in ipairs(object.dependencies or {}) do
+            local target = byName[dependency]
+            if target and not seen[target.path] then
+                seen[target.path] = true
+                targets[#targets + 1] = target.path
+            end
+        end
+        table.sort(targets)
+        edges[object.path] = targets
+    end
+
+    -- Tarjan's components, with an explicit stack of frames in place of recursion.
+    local counter: integer = 0
+    local indices: {[string]: integer} = {}
+    local low: {[string]: integer} = {}
+    local open: {string} = {}
+    local onOpen: {[string]: boolean} = {}
+    local components: {{string}} = {}
+    local componentOf: {[string]: integer} = {}
+
+    for _, start in ipairs(paths) do
+        if indices[start] == nil then
+            local frames: {any} = {}
+            counter = counter + 1
+            indices[start], low[start] = counter, counter
+            open[#open + 1] = start
+            onOpen[start] = true
+            frames[1] = {node = start, at = 0}
+            while #frames > 0 do
+                local frame = frames[#frames]
+                local node = frame.node as string
+                frame.at = frame.at + 1
+                local target = (edges[node] as {string})[frame.at as integer]
+                if target ~= nil then
+                    if indices[target] == nil then
+                        counter = counter + 1
+                        indices[target], low[target] = counter, counter
+                        open[#open + 1] = target
+                        onOpen[target] = true
+                        frames[#frames + 1] = {node = target, at = 0}
+                    elseif onOpen[target] then
+                        low[node] = math.min(low[node] as integer, indices[target] as integer)
+                    end
+                else
+                    frames[#frames] = nil
+                    local parent = frames[#frames]
+                    if parent ~= nil then
+                        local parentNode = parent.node as string
+                        low[parentNode] = math.min(low[parentNode] as integer, low[node] as integer)
+                    end
+                    if low[node] == indices[node] then
+                        local component: {string} = {}
+                        repeat
+                            local member = open[#open]
+                            open[#open] = nil
+                            onOpen[member] = nil
+                            component[#component + 1] = member
+                        until member == node
+                        table.sort(component)
+                        components[#components + 1] = component
+                        for _, member in ipairs(component) do
+                            componentOf[member] = #components
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local dependencies: {[integer]: {integer}} = {}
+    local dependents: {[integer]: {integer}} = {}
+    local linked: {[integer]: {[integer]: boolean}} = {}
+    for index = 1, #components do
+        dependencies[index], dependents[index], linked[index] = {}, {}, {}
+    end
+    for index, component in ipairs(components) do
+        local seen = linked[index] as {[integer]: boolean}
+        for _, path in ipairs(component) do
+            for _, target in ipairs(edges[path] as {string}) do
+                local dependency = componentOf[target] as integer
+                if dependency ~= index and not seen[dependency] then
+                    seen[dependency] = true
+                    local into = dependencies[index] as {integer}
+                    into[#into + 1] = dependency
+                    local back = dependents[dependency] as {integer}
+                    back[#back + 1] = index
+                end
+            end
+        end
+        table.sort(dependencies[index] as {integer})
+    end
+    for index = 1, #components do
+        table.sort(dependents[index] as {integer})
+    end
+
+    return {components = components, dependencies = dependencies, dependents = dependents,}
+end
+
+export = moduleobject

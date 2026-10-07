@@ -1,0 +1,643 @@
+@!internal
+
+module nupp.tools.build.parallelcheck
+
+--[[
+Cold whole-project checking across worker processes.
+
+The coordinator hashes every source once, has the workers parse them into module
+objects, links those into strongly connected components, and hands each worker a
+component whose dependencies are already checked. A worker answers with check
+records and the component's interface image, encoded once and carried back as
+opaque bytes; the coordinator forwards those bytes to whichever worker next needs
+them and never decodes one itself.
+
+The records are only a cache candidate. The ordinary build driver validates and
+reuses them as it would records from an earlier run, so anything this checker gets
+wrong is caught there or rechecked serially, and any failure here returns the whole
+check to the serial checker before a partial record is published.
+]]
+
+local aotcheck = require("nupp.tools.build.aotcheck")
+local envMod = require("nupp.compiler.project.env")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local fs = require("nupp.compiler.fs")
+local moduleTargets = require("nupp.compiler.standardsurface")
+local protocol = require("nupp.tools.build.parallelcheckprotocol")
+local workerchannel = require("nupp.compiler.workerchannel")
+local clock = require("nupp.time")
+
+local join = fs.join
+
+local parallelcheck = {}
+
+const MIN_MODULES = 64
+const MIN_BYTES = 262144
+const MAX_AUTOMATIC_WORKERS = 6
+const MAX_REQUESTED_WORKERS = 8
+const WORKER_TIMEOUT_MS = 120000
+
+--- Selects the semantic worker count for a cold project check.
+---
+--- An explicit count bypasses the workload floor. One worker selects the ordinary
+--- serial checker, which keeps `NUPP_CHECK_JOBS=1` as the recovery control.
+function parallelcheck.plan(moduleCount: integer, sourceBytes: integer, available: integer, requested: number?): any
+    if requested ~= nil then
+        local workers = math.max(1, math.min(math.floor(requested), MAX_REQUESTED_WORKERS, moduleCount))
+
+        return {workers = workers, reason = workers == 1 and "requested serial checking" or nil, requested = true,}
+    end
+    if moduleCount < MIN_MODULES or sourceBytes < MIN_BYTES then
+        return {workers = 1, reason = "the project is below the parallel workload floor", requested = false,}
+    end
+    local workers = math.max(1, math.min(available, MAX_AUTOMATIC_WORKERS, moduleCount))
+
+    return {workers = workers, reason = workers == 1 and "the host has one available worker" or nil, requested = false,}
+end
+
+local function tracing(): boolean
+    return os.getenv("NUPP_PARALLEL_CHECK_TRACE") ~= nil
+end
+
+local function serialFacts(reason: string?): any
+    return {mode = "serial", workers = 1, retries = 0, batches = 0, reason = reason}
+end
+
+--- Checks a cold project in dependency-ready components.
+---
+--- `input` carries `queue` (the build's `{name, path}` work list), `inc` (the
+--- coordinator's session), `root`, `outDir`, `config`, `target`, `strict`, `state`
+--- (the new build state) and `reporter`. Answers the check records by module name,
+--- or nil and why the serial checker should run instead. Either way the reporter is
+--- told how the check used its workers.
+function parallelcheck.run(input: any): (any?, string?)
+    local report = input.reporter
+    local inc = input.inc
+    local target = input.target
+    local root, outDir = input.root as string, input.outDir as string
+
+    local function declined(reason: string): (any?, string?)
+        report:parallelCounted(serialFacts(reason))
+
+        return nil, reason
+    end
+
+    if aotcheck.applies(target.aot) then
+        return declined("the target applies an ahead-of-time policy")
+    end
+    if not protocol.available then
+        return declined("this host has no plain-data encoding for worker payloads")
+    end
+
+    -- Every source is hashed here, once. A worker reuses the hash for its record:
+    -- a file edited after this read is recorded at content this build did not check
+    -- against, which the next run's validator sees as a changed source.
+    local contentDigest = fingerprint.contentDigest(true)
+    local sources: {[string]: any} = {}
+    local declaredModules: {[string]: boolean} = {}
+    local supportedModules: {[string]: boolean} = {}
+    local ordered: {any} = {}
+    local totalBytes: integer = 0
+    for _, item in ipairs(input.queue) do
+        -- Two paths can name one module; the build checks the first, and so do we.
+        if sources[item.path] == nil and not declaredModules[item.name] then
+            local text = inc.fileText(item.path)
+            if text == nil then
+                return declined("a project source could not be read: " .. tostring(item.path))
+            end
+            local source = {
+                name = item.name,
+                path = item.path,
+                hash = contentDigest(text as string),
+                bytes = #(text as string),
+            }
+            sources[item.path] = source
+            declaredModules[item.name] = true
+            supportedModules[item.name] = moduleTargets.supports(item.name, target.host)
+            ordered[#ordered + 1] = source
+            totalBytes = totalBytes + #(text as string)
+        end
+    end
+    local system = require("nupp.system")
+    local plan = parallelcheck.plan(
+        #ordered,
+        totalBytes,
+        system.availableParallelism(),
+        tonumber(os.getenv("NUPP_CHECK_JOBS") or "")
+    )
+    local jobCount = plan.workers as integer
+    if jobCount == 1 then
+        return declined(plan.reason)
+    end
+
+    report:at("parallel check")
+    local tasks = require("nupp.tasks")
+    local suspension = require("nupp.suspension")
+    local process = require("nupp.compiler.process")
+    local moduleobject = require("nupp.tools.build.moduleobject")
+    local compilerRoot = envMod.compilerRoot()
+    local hosted: any = rawget(_G, "__NUPP_EXECUTABLE")
+    local executable = compilerRoot and join(compilerRoot, "bin/nupp")
+        or type(hosted) == "string" and hosted
+        or tostring(arg and arg[0] or "nupp")
+    local timeoutMs = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "hang" and 100 or WORKER_TIMEOUT_MS
+
+    -- What the run shares between its lanes.
+    local state = {
+        channels = {} as {any},
+        -- Interface bundles, by fingerprint, already decoded in each worker's session.
+        resident = {} as {{[string]: boolean}},
+        initialized = {} as {[integer]: boolean},
+        requestIds = {} as {[integer]: integer},
+        lanes = {} as {[integer]: any},
+        spawned = 0,
+        retries = 0,
+        batches = 0,
+        stats = {} as {[string]: number},
+    }
+
+    local function closeChildren(force: boolean?): nil
+        for _, channel in pairs(state.channels) do
+            workerchannel.close(channel, force)
+        end
+        state.channels = {}
+    end
+
+    local function abandon(reason: any): (any?, string?)
+        closeChildren(true)
+        -- LuaJIT delivers SIGINT as this error at the interrupted instruction.
+        -- Protected worker scopes must not turn Ctrl-C into a successful serial
+        -- retry after the user asked the whole command to stop.
+        if tasks.isCancelled(reason) or tostring(reason):match("interrupted!$") ~= nil then
+            error(reason, 0)
+        end
+        report:parallelCounted({
+            mode = "serial-fallback",
+            workers = jobCount,
+            retries = state.retries,
+            batches = state.batches,
+            reason = tostring(reason),
+        })
+        report:at("resolve")
+        if tracing() then
+            io.stderr:write("parallel cold check fell back: " .. tostring(reason) .. "\n")
+        end
+
+        return nil, tostring(reason)
+    end
+
+    local function startChild(index: integer): nil
+        local previous = state.channels[index]
+        if previous ~= nil then
+            workerchannel.close(previous, true)
+        end
+        local child, problem = process.startIsolated({executable, "__parallel-check-service"})
+        if child == nil or child.stdin == nil or child.stdout == nil then
+            if child ~= nil then
+                child:close()
+            end
+            error(problem or "parallel check worker has no protocol streams", 0)
+        end
+        state.channels[index] = workerchannel.open(@unsafe nupp.release(child), {maxFrame = protocol.MAX_FRAME})
+        state.resident[index] = {}
+        state.initialized[index] = nil
+        -- A restarted lane gets a namespace no earlier process used.
+        state.spawned = state.spawned + 1
+        state.lanes[index] = state.lanes[index] or {batches = 0, totalMs = 0, semanticMs = 0, decodeMs = 0}
+        state.lanes[index].initializer = state.spawned
+    end
+
+    local function requestWorker(index: integer, request: any): any
+        local channel = state.channels[index]
+        state.requestIds[index] = (state.requestIds[index] or 0) + 1
+        request.schema = 1
+        request.requestId = state.requestIds[index]
+        request.initializer = state.lanes[index].initializer
+        local text, stopped = workerchannel.request(channel, protocol.encode(request), clock.now() + timeoutMs)
+        if text == nil then
+            local kind = stopped and stopped.kind or "ended"
+            local said = stopped and stopped.said or ""
+            local reason = kind == "timeout" and "parallel check worker timed out"
+                or kind == "stopped" and "parallel check worker stopped accepting requests"
+                or kind == "ended" and "parallel check worker stopped before answering"
+                or "parallel check worker returned an invalid frame (" .. kind .. ")"
+            error(reason .. (said ~= "" and (": " .. said) or ""), 0)
+        end
+        local answer, problem = protocol.decode(text as string)
+        if answer == nil then
+            error(
+                "parallel check worker returned an invalid response: " .. tostring(
+                    problem
+                ) .. " (" .. tostring(#(text as string)) .. " bytes; worker said " .. channel.said .. ")",
+                0
+            )
+        end
+        if answer.schema ~= 1 or answer.requestId ~= request.requestId then
+            error("parallel check worker returned a mismatched response", 0)
+        end
+
+        return answer
+    end
+
+    local started, startProblem = pcall(function(): nil
+        for index = 1, jobCount do
+            startChild(index)
+        end
+    end)
+    if not started then
+        return abandon(startProblem)
+    end
+
+    -- Parsing the project to discover its graph is real work on a cold check, so the
+    -- workers do it. Largest first, each to the least loaded worker.
+    local scanStarted = clock.now()
+    local objects: {any} = {}
+    table.sort(ordered, function(left, right)
+        if left.bytes ~= right.bytes then
+            return left.bytes > right.bytes
+        end
+
+        return left.path < right.path
+    end)
+    local scanAssigned: {{any}} = {}
+    local scanWeights: {integer} = {}
+    for worker = 1, jobCount do
+        scanAssigned[worker], scanWeights[worker] = {}, 0
+    end
+    for _, source in ipairs(ordered) do
+        local selected: integer = 1
+        for worker = 2, jobCount do
+            if scanWeights[worker] < scanWeights[selected] then
+                selected = worker
+            end
+        end
+        local list = scanAssigned[selected]
+        list[#list + 1] = {path = source.path, name = source.name}
+        scanWeights[selected] = scanWeights[selected] + math.max(1, source.bytes as integer)
+    end
+
+    local function scanWorker(index: integer): nil
+        if #scanAssigned[index] == 0 then
+            return
+        end
+        local answer = requestWorker(index, {
+            kind = "scan",
+            sources = scanAssigned[index],
+            declaredModules = declaredModules,
+            supportedModules = supportedModules,
+        })
+        if not answer.ok then
+            error(answer.problem or "parallel graph scan failed", 0)
+        end
+        for _, object in ipairs(answer.objects or {}) do
+            objects[#objects + 1] = object
+        end
+    end
+
+    local scanned, scanProblem = pcall(function(): nil
+        with scope = tasks.open(jobCount) do
+            for worker = 1, jobCount do
+                scope:spawn(worker, scanWorker)
+            end
+        end
+    end)
+    if not scanned then
+        return abandon(scanProblem)
+    end
+    local sourceCount = #ordered
+    if #objects ~= sourceCount then
+        return abandon("parallel graph scan did not return every module")
+    end
+
+    -- Linking is plain data, but a malformed object must still end in the serial
+    -- checker rather than the end of the command.
+    local linkedOk, linked = pcall(moduleobject.link, objects)
+    if not linkedOk then
+        return abandon(linked)
+    end
+    local components = linked.components as {{string}}
+    local componentDependencies = linked.dependencies as {{integer}}
+    local componentDependents = linked.dependents as {{integer}}
+    -- The paths a worker may check only when assigned. Plain Lua is left out: it
+    -- is checked wherever a dependent needs it, as it is in a serial check.
+    local projectPaths: {string} = {}
+    for path in pairs(sources) do
+        if not path:match("%.lua$") then
+            projectPaths[#projectPaths + 1] = path
+        end
+    end
+    table.sort(projectPaths)
+    local weights: {[integer]: integer} = {}
+    for index, component in ipairs(components) do
+        local weight: integer = 0
+        for _, path in ipairs(component) do
+            weight = weight + math.max(1, sources[path].bytes as integer)
+        end
+        weights[index] = weight
+    end
+    local scanMs = clock.now() - scanStarted
+
+    local remaining: integer = #components
+    local waiting: {integer} = {}
+    local ready: {integer} = {}
+    local queueWaiters: {function(boolean)} = {}
+    local randomState = tonumber(os.getenv("NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED") or "")
+    for index = 1, #components do
+        waiting[index] = #componentDependencies[index]
+        if waiting[index] == 0 then
+            ready[#ready + 1] = index
+        end
+    end
+
+    local function wakeQueue(): nil
+        local waking = queueWaiters
+        queueWaiters = {}
+        for _, wake in ipairs(waking) do
+            wake(true)
+        end
+    end
+
+    local function waitForQueue(): nil
+        suspension.suspend("parallel check ready queue", function(resume: function(boolean)): function()
+            if #ready > 0 or remaining == 0 then
+                resume(true)
+
+                return function(): nil
+                end
+            end
+            queueWaiters[#queueWaiters + 1] = resume
+
+            return function(): nil
+                for index = #queueWaiters, 1, -1 do
+                    if queueWaiters[index] == resume then
+                        table.remove(queueWaiters, index)
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    --- The next ready component: the heaviest, so the long checks start first.
+    local function takeComponent(): integer?
+        while #ready == 0 and remaining > 0 do
+            waitForQueue()
+        end
+        if remaining == 0 then
+            return nil
+        end
+        local selected: integer = 1
+        if randomState ~= nil then
+            randomState = ((randomState as number) * 48271) % 2147483647
+            selected = math.floor((randomState as number) % #ready) + 1
+        else
+            for position = 2, #ready do
+                local candidate, best = ready[position], ready[selected]
+                if weights[candidate] > weights[best] or weights[candidate] == weights[best] and candidate < best then
+                    selected = position
+                end
+            end
+        end
+
+        return table.remove(ready, selected)
+    end
+
+    -- Completed interface bundles: by the component that produced them, and by
+    -- fingerprint for the prerequisites one image names in another.
+    local bundleOf: {[integer]: any} = {}
+    local bundleByFingerprint: {[string]: any} = {}
+
+    local function requestFor(worker: integer, component: integer): any
+        local resident = state.resident[worker]
+        local imports: {any} = {}
+        local included: {[string]: boolean} = {}
+
+        -- Delivers a bundle after every bundle its image refers to, depth first.
+        local function includeBundle(first: any): nil
+            local stack: {any} = {{bundle = first, expanded = false}}
+            while #stack > 0 do
+                local top = stack[#stack]
+                local bundle = top.bundle
+                local key = bundle.fingerprint as string
+                if resident[key] or included[key] then
+                    stack[#stack] = nil
+                elseif not top.expanded then
+                    top.expanded = true
+                    for _, arena in ipairs(bundle.prerequisites) do
+                        local prerequisite = bundleByFingerprint[arena]
+                        if prerequisite == nil then
+                            if not resident[arena] then
+                                error("parallel interface prerequisite is unavailable: " .. tostring(arena), 0)
+                            end
+                        elseif not resident[arena] and not included[arena] then
+                            stack[#stack + 1] = {bundle = prerequisite, expanded = false}
+                        end
+                    end
+                else
+                    stack[#stack] = nil
+                    included[key] = true
+                    imports[#imports + 1] = {fingerprint = key, bytes = bundle.bytes}
+                end
+            end
+        end
+
+        -- Every component this one reaches has completed; deliver what the worker
+        -- does not already hold, dependencies before dependents.
+        local reached: {[integer]: boolean} = {[component] = true}
+        local walk: {integer} = {component}
+        local needed: {integer} = {}
+        while #walk > 0 do
+            local current = table.remove(walk) as integer
+            for _, dependency in ipairs(componentDependencies[current]) do
+                if not reached[dependency] then
+                    reached[dependency] = true
+                    if bundleOf[dependency] ~= nil then
+                        needed[#needed + 1] = dependency
+                    end
+                    walk[#walk + 1] = dependency
+                end
+            end
+        end
+        table.sort(needed, function(left, right)
+            return bundleOf[left].order < bundleOf[right].order
+        end)
+        for _, dependency in ipairs(needed) do
+            includeBundle(bundleOf[dependency])
+        end
+
+        local paths = components[component]
+        local checkSources: {any} = {}
+        for _, path in ipairs(paths) do
+            checkSources[#checkSources + 1] = {path = path, name = sources[path].name, hash = sources[path].hash}
+        end
+        local request = {kind = "check", sources = checkSources, imports = imports,}
+        if not state.initialized[worker] then
+            request.init = {
+                root = root,
+                outDir = outDir,
+                config = input.config,
+                target = target,
+                state = {
+                    dependencies = input.state.dependencies,
+                    moduleCompilerHash = input.state.moduleCompilerHash,
+                    configHash = input.state.configHash,
+                    modules = {},
+                },
+                projectPaths = projectPaths,
+                staged = input.staged,
+                strict = input.strict,
+            }
+        end
+
+        return request
+    end
+
+    local checked: {[string]: any} = {}
+    local completedBundles: integer = 0
+
+    local function accept(worker: integer, component: integer, request: any, answer: any): nil
+        if not answer.ok or #(answer.unchecked or {}) > 0 then
+            local reason = tostring(answer.problem or "incomplete batch")
+            local diagnostic = answer.diagnostics and answer.diagnostics[1]
+            if diagnostic ~= nil then
+                reason = reason .. ": " .. tostring(
+                    diagnostic.filename or ""
+                ) .. ":" .. tostring(
+                    diagnostic.line or 0
+                ) .. " " .. tostring(diagnostic.code or "") .. " " .. tostring(diagnostic.msg or "")
+            end
+            error(
+                reason .. " [paths " .. table.concat(
+                    components[component],
+                    ", "
+                ) .. "; worker said " .. state.channels[worker].said .. "]",
+                0
+            )
+        end
+        state.initialized[worker] = true
+        local resident = state.resident[worker]
+        for _, import in ipairs(request.imports) do
+            resident[import.fingerprint] = true
+        end
+        local batchStats = answer.stats or {}
+        local lane = state.lanes[worker]
+        lane.batches = lane.batches + 1
+        for _, name in ipairs({"totalMs", "semanticMs", "decodeMs"}) do
+            lane[name] = lane[name] + (batchStats[name] or 0)
+        end
+        state.batches = state.batches + 1
+        for name, value in pairs(batchStats) do
+            if type(value) == "number" then
+                state.stats[name] = (state.stats[name] or 0) + value
+            end
+        end
+        for name, record in pairs(answer.modules or {}) do
+            checked[name] = record
+        end
+        local produced = answer.interface
+        if produced ~= nil then
+            completedBundles = completedBundles + 1
+            produced.order = completedBundles
+            bundleOf[component] = produced
+            bundleByFingerprint[produced.fingerprint] = produced
+            resident[produced.fingerprint] = true
+        end
+        remaining = remaining - 1
+        for _, dependent in ipairs(componentDependents[component]) do
+            waiting[dependent] = waiting[dependent] - 1
+            if waiting[dependent] == 0 then
+                ready[#ready + 1] = dependent
+            end
+        end
+        wakeQueue()
+    end
+
+    local function runWorker(worker: integer): nil
+        while true do
+            local component = takeComponent()
+            if component == nil then
+                return
+            end
+            local request = requestFor(worker, component)
+            local answered, answer = pcall(requestWorker, worker, request)
+            if not answered and (tasks.isCancelled(answer) or tostring(answer):match("interrupted!$") ~= nil) then
+                error(answer, 0)
+            end
+            if not answered then
+                -- A worker that stopped is restarted once. Its session is gone, so
+                -- the request is rebuilt for a worker holding nothing.
+                state.retries = state.retries + 1
+                startChild(worker)
+                request = requestFor(worker, component)
+                answered, answer = pcall(requestWorker, worker, request)
+            end
+            if not answered then
+                error(answer, 0)
+            end
+            accept(worker, component, request, answer)
+        end
+    end
+
+    local ran, problem = pcall(function(): nil
+        with scope = tasks.open(jobCount) do
+            for worker = 1, jobCount do
+                scope:spawn(worker, runWorker)
+            end
+        end
+    end)
+    if not ran then
+        return abandon(problem)
+    end
+    for path, source in pairs(sources) do
+        if checked[source.name] == nil then
+            return abandon("parallel check did not return " .. path)
+        end
+    end
+    if tracing() then
+        local stats = state.stats
+        local lanes: {string} = {}
+        for worker = 1, jobCount do
+            local lane = state.lanes[worker]
+            lanes[
+                #lanes + 1
+            ] = ("%d:%d/%.0f/%.0f/%.0f"):format(worker, lane.batches, lane.totalMs, lane.semanticMs, lane.decodeMs)
+        end
+        local sent, received = 0, 0
+        for _, channel in pairs(state.channels) do
+            sent = sent + channel.sent
+            received = received + channel.received
+        end
+        io.stderr:write(
+            (
+                "parallel cold check: batches=%d modules=%d interfaces=%d imports=%d "
+                .. "scan=%.0fms setup=%.0fms decode=%.0fms semantic=%.0fms record=%.0fms "
+                .. "interface=%.0fms encode=%.0fms worker=%.0fms "
+                .. "sent=%d received=%d retries=%d lanes=%s\n"
+            ):format(
+                state.batches,
+                sourceCount,
+                stats.interfaceNodes or 0,
+                stats.importedModules or 0,
+                scanMs,
+                stats.setupMs or 0,
+                stats.decodeMs or 0,
+                stats.semanticMs or 0,
+                stats.recordMs or 0,
+                stats.interfaceMs or 0,
+                stats.encodeMs or 0,
+                stats.totalMs or 0,
+                sent,
+                received,
+                state.retries,
+                table.concat(lanes, ",")
+            )
+        )
+    end
+    closeChildren()
+    report:parallelCounted({mode = "parallel", workers = jobCount, retries = state.retries, batches = state.batches,})
+    report:at("resolve")
+
+    return checked, nil
+end
+
+export = parallelcheck

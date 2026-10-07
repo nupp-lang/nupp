@@ -267,6 +267,14 @@ function cli.main(argv: {string}): integer
         local worker = require("nupp.compiler.comptime.generatorworker") as {main: function({string}): integer}
 
         return worker.main(rest)
+    elseif name == "__parallel-check-service" then
+        -- This is a one-shot compiler lane even though its internal command name is
+        -- not `check`. Keep the same trace thresholds as the coordinator; the default
+        -- side-trace policy spends more CPU compiling branches than checking source.
+        tuneJitFor({"check"})
+        local service = require("nupp.tools.build.parallelcheckservice") as {main: function(): integer}
+
+        return service.main()
     elseif name == "__lsp-reader" then
         local server = require("nupp.tools.lsp") as {readerMain: function(): integer}
 

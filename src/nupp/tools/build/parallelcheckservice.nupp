@@ -1,0 +1,409 @@
+@!internal
+
+module nupp.tools.build.parallelcheckservice
+
+--[[
+The persistent child process for cold semantic checking.
+
+One frame in is one request and one frame out is its answer, carrying the request's
+id back so the coordinator can tell an answer from a stale one.
+]]
+
+local cache = require("nupp.tools.build.cache")
+local clock = require("nupp.time")
+local envMod = require("nupp.compiler.project.env")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local fs = require("nupp.compiler.fs")
+local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
+local modules = require("nupp.tools.build.modules")
+local native = require("nupp.compiler.native")
+local protocol = require("nupp.tools.build.parallelcheckprotocol")
+local workerchannel = require("nupp.compiler.workerchannel")
+
+local normalize, join = fs.normalize, fs.join
+local readFile = fs.readFile
+local jsonArray = cache.jsonArray
+
+local service = {}
+
+-- One session per worker process, opened by its first check request.
+local workerContext: any? = nil
+local identityLane: integer? = nil
+
+--- Parses independent sources into the plain-data objects the coordinator links.
+local function scanBatch(request: any): any
+    local parser = require("nupp.compiler.syntax.parser")
+    local header = require("nupp.compiler.project.header")
+    local moduleobject = require("nupp.tools.build.moduleobject")
+    local objects: {any} = {}
+    local index = {declaredModules = request.declaredModules, supportedModules = request.supportedModules,}
+    for _, source in ipairs(request.sources or {}) do
+        local path = normalize(source.path)
+        local text, readProblem = readFile(path)
+        if text == nil then
+            return {ok = false, problem = "parallel graph source disappeared: " .. tostring(readProblem or path),}
+        end
+        local parsed = parser.parse(text as string, path)
+        objects[#objects + 1] = moduleobject.emit(path, parsed, header.of(path, source.name, parsed), index)
+    end
+
+    return {ok = true, objects = objects,}
+end
+
+local function openContext(init: any): any
+    local declared: {[string]: boolean} = {}
+    for _, path in ipairs(init.projectPaths or {}) do
+        declared[normalize(path)] = true
+    end
+    local context = {
+        declared = declared,
+        assigned = {} as {[string]: boolean},
+        nominals = {},
+        interfaceArenas = {},
+        interfaceOrigins = {},
+        imports = {} as {[string]: boolean},
+        root = init.root,
+        outDir = init.outDir,
+        projectPaths = init.projectPaths,
+    } as any
+    context.session = modules.session(
+        init.root,
+        init.outDir,
+        init.config,
+        init.target,
+        init.state.dependencies,
+        init.strict,
+        nil,
+        context.nominals,
+        true,
+        function(path): nil
+            local normalized = normalize(path)
+            if context.declared[normalized] and not context.assigned[normalized] then
+                context.checkedOutside = normalized
+                error("parallel worker recursively checked " .. normalized, 0)
+            end
+        end
+    )
+    for _, entry in ipairs(init.staged or {}) do
+        context.session.stageBundled(entry.name, entry.replaceTypeOnly)
+    end
+
+    return context
+end
+
+--- Checks one dependency-ready component in this worker's session.
+---
+--- Imported interfaces are installed before any assigned source is checked. The
+--- records stay plain data; the component's interface goes back as encoded bytes
+--- another worker decodes into its own checker identity.
+local function checkBatch(request: any): any
+    local batchStarted = clock.now()
+    if request.init ~= nil then
+        workerContext = openContext(request.init)
+    end
+    local context = workerContext
+    if context == nil then
+        return {ok = false, problem = "parallel check worker has no session"}
+    end
+    -- Each source arrives with the name and hash the coordinator gave it, so the
+    -- records agree with the build that validates them whatever this session
+    -- would call the path.
+    local assigned: {[string]: boolean} = {}
+    for _, source in ipairs(request.sources or {}) do
+        assigned[normalize(source.path)] = true
+    end
+    context.assigned = assigned
+    context.checkedOutside = nil
+    local session = context.session
+    local interfaceimage = require("nupp.compiler.project.interfaceimage")
+    local contentDigest = fingerprint.contentDigest(true)
+
+    local newlyImported: {[string]: any} = {}
+    local decodeStarted = clock.now()
+    for _, import in ipairs(request.imports or {}) do
+        local image, problem = protocol.decode(import.bytes or "")
+        if image == nil or image.fingerprint ~= import.fingerprint then
+            return {ok = false, problem = "interface bundle: " .. tostring(problem or "fingerprint mismatch")}
+        end
+        local semantics, decodeProblem = interfaceimage.decode(image, {
+            nominals = context.nominals,
+            arenas = context.interfaceArenas,
+            origins = context.interfaceOrigins,
+        })
+        if semantics == nil then
+            return {ok = false, problem = "import bundle: " .. tostring(decodeProblem)}
+        end
+        for name, semantic in pairs(semantics) do
+            if not context.imports[name] then
+                newlyImported[name] = semantic
+                context.imports[name] = true
+            end
+        end
+    end
+    session.inc.importModules(newlyImported)
+    local decodedAt = clock.now()
+
+    -- A cold worker receives an exact dependency-ready source set, so it produces the
+    -- check-only cache records directly rather than re-entering the build driver.
+    local emptySpecializationHash = contentDigest("")
+    local records: {[string]: any} = {}
+    local diagnostics: {any} = {}
+    local unchecked: {string} = {}
+    local checkStarted = clock.now()
+    local semanticMs = 0
+    local recordMs = 0
+    for _, source in ipairs(request.sources or {}) do
+        local path = normalize(source.path)
+        local name = source.name as string?
+        local sourceHash = source.hash as string?
+        if name == nil or sourceHash == nil then
+            unchecked[#unchecked + 1] = path
+        else
+            local semanticStarted = clock.now()
+            local result = session.inc.checkReadyFile(path)
+            semanticMs = semanticMs + clock.now() - semanticStarted
+            local recordStarted = clock.now()
+            local checkedDiags = jsonArray({} as {any})
+            for _, diagnostic in ipairs(result.diags or {}) do
+                checkedDiags[#checkedDiags + 1] = diagnostic
+                diagnostics[#diagnostics + 1] = diagnostic
+            end
+            local effectNames: {string} = {}
+            for effect in pairs(result.result and result.result.effects or {}) do
+                effectNames[#effectNames + 1] = effect
+            end
+            local moduleEffect = native.forModule(name)
+            if moduleEffect ~= nil then
+                local found = false
+                for _, effect in ipairs(effectNames) do
+                    found = found or effect == moduleEffect
+                end
+                if not found then
+                    effectNames[#effectNames + 1] = moduleEffect
+                end
+            end
+            table.sort(effectNames)
+            local external = path:match("%.d%.nupp$") ~= nil or envMod.isDependencyTypePath(session.inc.env, path)
+            records[
+                name
+            ] = {
+                sourcePath = path,
+                sourceHash = sourceHash,
+                interfaceHash = modules.interfaceHash(
+                    result.moduleType,
+                    result.exports or {},
+                    external and sourceHash or nil,
+                    contentDigest
+                ),
+                dependencies = jsonArray(session.inc.moduleDependencies(path)),
+                runtimeModules = jsonArray({} as {string}),
+                projectDependencies = jsonArray(session.inc.projectDependencies(path)),
+                externalInputs = jsonArray(session.inc.externalInputs(path)),
+                effects = jsonArray(effectNames),
+                output = not external and join(context.root, join(context.outDir, name:gsub("%.", "/") .. ".lua"))
+                or nil,
+                external = external or nil,
+                diags = checkedDiags,
+                aotRefusals = jsonArray({} as {any}),
+                materializations = jsonArray(materializeObserve.collect(result.result and result.result.root, path)),
+                derives = jsonArray(result.result and result.result.deriveObservations or {}),
+                optimizationRemarks = jsonArray({} as {any}),
+                allocationSites = jsonArray({} as {any}),
+                optimizationAccounted = false,
+                specializationHash = emptySpecializationHash,
+            }
+            recordMs = recordMs + clock.now() - recordStarted
+        end
+    end
+    if context.checkedOutside ~= nil then
+        return {
+            ok = false,
+            problem = "recursive check of " .. tostring(context.checkedOutside),
+            diagnostics = diagnostics,
+        }
+    end
+    local checkedAt = clock.now()
+
+    local interfaces: {[string]: any} = {}
+    local interfaceNames: {string} = {}
+    for _, source in ipairs(request.sources or {}) do
+        local path = normalize(source.path)
+        local name = source.name as string?
+        -- Plain Lua is checked wherever a dependent needs it rather than imported:
+        -- its answers reach a dependent through more than its interface.
+        if name and not path:match("%.lua$") then
+            local semantic = session.inc.moduleSemantic(name, path)
+            semantic.path = path
+            interfaces[name] = semantic
+            interfaceNames[#interfaceNames + 1] = name
+        end
+    end
+    table.sort(interfaceNames)
+    local interfaceAt = clock.now()
+    local produced: any? = nil
+    local nodes: integer = 0
+    if #interfaceNames > 0 then
+        local bundle, imageProblem = interfaceimage.encode(interfaces, {
+            origins = context.interfaceOrigins,
+            arenas = context.interfaceArenas,
+            projectPaths = context.projectPaths,
+        })
+        if bundle == nil then
+            return {ok = false, problem = "interface bundle: " .. tostring(imageProblem)}
+        end
+        local prerequisites: {string} = {}
+        local seenPrerequisite: {[string]: boolean} = {}
+        for _, node in ipairs(bundle.descriptor and bundle.descriptor.types or {}) do
+            if node.kind == "external" and not seenPrerequisite[node.arena] then
+                seenPrerequisite[node.arena] = true
+                prerequisites[#prerequisites + 1] = node.arena
+            end
+        end
+        table.sort(prerequisites)
+        local bytes = protocol.encode(bundle)
+        if os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "interface" then
+            bytes = bytes .. "\0injected damage"
+            -- Whether another worker ever imports this bundle is up to the schedule,
+            -- so the damage is also put through the decode an import would use.
+            local image, problem = protocol.decode(bytes)
+            if image == nil then
+                return {ok = false, problem = "interface bundle: " .. tostring(problem)}
+            end
+        end
+        nodes = #(bundle.descriptor.types or {})
+        produced = {
+            fingerprint = bundle.fingerprint,
+            bytes = bytes,
+            prerequisites = prerequisites,
+            names = interfaceNames,
+        }
+    end
+    local encodedAt = clock.now()
+
+    local importedCount: integer = 0
+    for _ in pairs(newlyImported) do
+        importedCount = importedCount + 1
+    end
+
+    return {
+        ok = true,
+        modules = records,
+        interface = produced,
+        diagnostics = diagnostics,
+        stats = {
+            checkedModules = #(request.sources or {}),
+            importedModules = importedCount,
+            interfaceNodes = nodes,
+            setupMs = decodeStarted - batchStarted,
+            decodeMs = decodedAt - decodeStarted,
+            checkMs = checkedAt - checkStarted,
+            semanticMs = semanticMs,
+            recordMs = recordMs,
+            interfaceMs = interfaceAt - checkedAt,
+            encodeMs = encodedAt - interfaceAt,
+            totalMs = encodedAt - batchStarted,
+        },
+        unchecked = unchecked,
+    }
+end
+
+--- Answers one request in a worker process. The first request names the lane's
+--- type-identity namespace, before any session that would mint an identity opens.
+local function serve(request: any): any
+    local lane = request.initializer
+    if identityLane == nil and type(lane) == "number" then
+        require("nupp.compiler.types").setIdentityNamespace("cold", lane as integer)
+        identityLane = lane as integer
+    end
+    if request.kind == "scan" then
+        return scanBatch(request)
+    end
+
+    return checkBatch(request)
+end
+
+local function encoded(value: any): string
+    local ok, answer = pcall(protocol.encode, value)
+    if ok then
+        return answer
+    end
+
+    return protocol.encode({
+        schema = 1,
+        requestId = value.requestId,
+        ok = false,
+        problem = "parallel check worker could not encode its response: " .. tostring(answer)
+    })
+end
+
+local function note(path: string?): nil
+    if path == nil then
+        return
+    end
+    local file = io.open(path as string, "ab")
+    if file ~= nil then
+        file:write(tostring(require("nupp.compiler.fs").processId() or 0), "\n")
+        file:close()
+    end
+end
+
+-- Test hooks. `exit` stops before answering anything; `crash` stops on every check
+-- request; `crash-once` stops only in the first worker the coordinator started,
+-- so the lane restarted in its place succeeds.
+local function injectedCrash(request: any): boolean
+    if request.kind ~= "check" then
+        return false
+    end
+    local failure = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE")
+
+    return failure == "crash" or failure == "crash-once" and request.initializer == 1
+end
+
+function service.main(): integer
+    local failure = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE")
+    note(os.getenv("NUPP_TEST_PARALLEL_CHECK_PID_FILE"))
+    if failure == "exit" then
+        return 86
+    elseif failure == "hang" then
+        require("nupp.time").sleep(1000)
+    end
+
+    local function handle(text: string): string
+        local request, problem = protocol.decode(text)
+        if request == nil
+            or request.schema ~= 1
+            or type(request.requestId) ~= "number"
+            or request.requestId < 1
+            or request.requestId ~= math.floor(request.requestId)
+        then
+            return encoded({
+                schema = 1,
+                requestId = 0,
+                ok = false,
+                problem = "invalid parallel check request: " .. tostring(problem)
+            })
+        end
+        if injectedCrash(request) then
+            os.exit(87)
+        end
+        local pause = tonumber(os.getenv("NUPP_TEST_PARALLEL_CHECK_PAUSE_MS") or "")
+        if pause ~= nil and pause > 0 then
+            note(os.getenv("NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE"))
+            require("nupp.time").sleep(pause)
+        end
+        local ok, result = pcall(serve, request)
+        local answer = ok and result or {ok = false, problem = tostring(result)}
+        answer.schema = 1
+        answer.requestId = request.requestId
+
+        return encoded(answer)
+    end
+
+    workerchannel.serve(handle, protocol.MAX_FRAME, function(): string
+        return encoded({schema = 1, requestId = 0, ok = false, problem = "parallel check request is too large"})
+    end)
+
+    return 0
+end
+
+export = service

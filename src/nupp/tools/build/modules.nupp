@@ -208,6 +208,11 @@ record modules.Session
     --- binding, its provider and the `nupp.gpu` facade -- for a source that
     --- declares a GPU target under `aot = "require"`.
     stageGpuRuntime: function(): nil
+
+    --- Every module staged so far, in order, with the flag it was staged with. A
+    --- worker checking for this session replays them, so the project index its
+    --- checks read is the one this session's records are validated against.
+    staged: {any}
 end
 
 --- Canonical binder numbering for one fingerprint: the number each binder was given,
@@ -660,7 +665,10 @@ local function openSession(
     target: Target,
     dependencies: {[string]: DependencyRecord},
     strict: boolean?,
-    reporter: Reporter?
+    reporter: Reporter?,
+    projectNominals: {[string]: any}?,
+    isolated: boolean?,
+    checkGuard: (function(string): nil)?
 ): modules.Session
     local report = reporter or progress.new("never")
     local envConfig = {}
@@ -694,6 +702,9 @@ local function openSession(
     local resumeActivity = "scan"
     local observer: Observer = {
         checking = function(path: string): nil
+            if checkGuard then
+                checkGuard(path)
+            end
             -- Checking is charged wherever it happens rather than only where this file
             -- calls for it. Deciding a module can be reused reaches the checker too, so
             -- a build that compiles nothing at all would otherwise report its whole
@@ -731,8 +742,13 @@ local function openSession(
         ambientTypeRoots = ambientTypeRoots,
         runtimeSourceRoots = {stagedRoot},
         observe = observer,
+        projectNominals = projectNominals,
+        -- Workers may load compiler products prepared by the coordinator, but never
+        -- publish to those stores. Their project semantics arrive in requests.
+        cacheReadOnly = isolated or nil,
     })
 
+    local staged: {any} = {}
     local stageBundled: function(string, boolean?): string?
     stageBundled = function(name: string, replaceTypeOnly: boolean?): string?
         local existing = inc.modulePath(name)
@@ -757,8 +773,10 @@ local function openSession(
             return nil
         end
         if not stagedReady then
-            files.remove(stagedRoot, true)
-            assert(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
+            if not isolated then
+                files.remove(stagedRoot, true)
+                assert(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
+            end
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
         end
@@ -769,9 +787,12 @@ local function openSession(
             or resource:match("%.lua$") and ".lua"
             or ".nupp"
         local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
-        local wrote, problem = writeFile(path, source)
-        assert(wrote, problem)
+        if not isolated then
+            local wrote, problem = writeFile(path, source)
+            assert(wrote, problem)
+        end
         inc.openDocument(path, source)
+        staged[#staged + 1] = {name = name, replaceTypeOnly = replaceTypeOnly}
         local header = inc.projectHeader(path)
         for _, dependency in ipairs(header and header.dependencies or {}) do
             stageBundled(dependency, replaceTypeOnly)
@@ -793,7 +814,8 @@ local function openSession(
         inc = inc,
         checkMs = checkMs,
         stageBundled = stageBundled,
-        stageGpuRuntime = stageGpuRuntime
+        stageGpuRuntime = stageGpuRuntime,
+        staged = staged
     )
 end
 
@@ -1194,6 +1216,37 @@ local function buildModules(root: string, outDir: string, config: Config, target
             if path ~= nil then
                 seed(name, path)
             end
+        end
+    end
+
+    local parallelChecked: {[string]: boolean} = {}
+
+    -- A cold whole-project check may be done by workers. Their records become the
+    -- cache candidate the validator below consumes, as an earlier run's would. It
+    -- runs before runtime linking, which then reads the dependencies those records
+    -- carry instead of checking each runtime module here to discover them.
+    if checkOnly and narrow == nil and next(oldState.modules or {}) == nil and next(overlays or {}) == nil then
+        local parallelcheck = require("nupp.tools.build.parallelcheck")
+        local checked = parallelcheck.run({
+            queue = queue,
+            inc = inc,
+            root = root,
+            outDir = outDir,
+            config = config,
+            target = target,
+            strict = strict,
+            state = newState,
+            staged = opened.staged,
+            reporter = report,
+        })
+        if checked ~= nil then
+            for name in pairs(checked) do
+                parallelChecked[name] = true
+            end
+            oldState.modules = checked
+            oldState.moduleCompilerHash = newState.moduleCompilerHash
+            oldState.configHash = newState.configHash
+            cacheCompatible = true
         end
     end
 
@@ -1894,7 +1947,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 local dependencyChanged = false
                 for _, depName in ipairs(record.dependencies or {}) do
                     local depPath = inc.modulePath(depName)
-                    if depPath then
+                    -- A worker checked a dependency it was not handed -- a carried
+                    -- runtime module, a bundled declaration -- from the same source
+                    -- this run reads, so it cannot have moved under the record.
+                    if depPath and not (parallelChecked[name] and not parallelChecked[depName]) then
                         local current = records[depName]
                         local previous = oldState.modules[depName]
                         if not current or not previous or current.interfaceHash ~= previous.interfaceHash then
@@ -2036,7 +2092,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local compiledModules = 0
     for _, name in ipairs(order) do
         if not carriedRuntime[name] then
-            if reused[name] then
+            if reused[name] and not parallelChecked[name] then
                 stats.reusedModules = stats.reusedModules + 1
             else
                 compiledModules = compiledModules + 1
@@ -2328,6 +2384,7 @@ modules.targetScope = targetScope
 modules.typeFingerprint = typeFingerprint
 modules.resourceOutput = resourceOutput
 modules.build = buildModules
+
 modules.session = openSession
 
 export = modules

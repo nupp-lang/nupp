@@ -64,6 +64,19 @@ type progress.AotFacts = {
     externalCommands: number
 }
 
+--- How a cold project check used semantic workers, when it considered them.
+type progress.ParallelFacts = {
+    --- `parallel`, `serial`, or `serial-fallback`.
+    mode: string,
+
+    workers: integer,
+    retries: integer,
+    batches: integer,
+
+    --- Why a serial check was selected after the parallel path was considered.
+    reason: string?
+}
+
 --- Where a build's time went, for a caller reporting it rather than printing it.
 type progress.Timing = {
     --- Wall-clock milliseconds for the whole run.
@@ -80,7 +93,11 @@ type progress.Timing = {
     slowest: {progress.ModuleSpan},
 
     --- What the ahead-of-time policy did, absent when the build ran none.
-    aot: progress.AotFacts?
+    aot: progress.AotFacts?,
+
+    --- How a cold project check used semantic workers, absent for warm and narrow
+    --- checks and for builds.
+    parallel: progress.ParallelFacts?
 }
 
 --- How many modules the summary names. Enough to point at a cause, few enough that the
@@ -228,6 +245,8 @@ record progress.Reporter
     --- What the ahead-of-time policy did, when a build ran one.
     aotFacts: progress.AotFacts?
 
+    parallelFacts: progress.ParallelFacts?
+
     --- Which bucket checking is charged to at the moment. Checking is charged
     --- wherever it happens rather than where it was asked for, so a build that
     --- compiles nothing does not report its whole runtime as bookkeeping -- but
@@ -338,6 +357,11 @@ record progress.Reporter
         self.aotFacts = facts
     end
 
+    --- Records how a cold check used or declined semantic workers.
+    function parallelCounted(self, facts: progress.ParallelFacts): nil
+        self.parallelFacts = facts
+    end
+
     --- Charges checking to `name` until told otherwise, and answers what it was
     --- charged to before, for the caller to put back.
     function charging(self, name: string): string
@@ -383,6 +407,7 @@ record progress.Reporter
             phases = phases,
             slowest = slowest,
             aot = self.aotFacts,
+            parallel = self.parallelFacts,
         }
     end
 
@@ -406,6 +431,13 @@ record progress.Reporter
         end
         if measured.specializedBodies > 0 then
             counts = counts .. (", %d specialized"):format(measured.specializedBodies)
+        end
+        if measured.parallel ~= nil then
+            if measured.parallel.mode == "parallel" then
+                counts = counts .. (", %d workers"):format(measured.parallel.workers)
+            elseif measured.parallel.mode == "serial-fallback" then
+                counts = counts .. ", serial fallback"
+            end
         end
         local success = ansi.severity(style, "help")
         local detail = ansi.severity(style, "note")
@@ -482,6 +514,7 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         reused = 0,
         specialized = 0,
         aotFacts = nil,
+        parallelFacts = nil,
         checking = "check",
         paintedAt = 0,
         onScreen = false,
