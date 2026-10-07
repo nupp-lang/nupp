@@ -3588,7 +3588,7 @@ function checkMod.check(
         end
     end
     require("nupp.compiler.compat").checkSyntax(c)
-    require("nupp.compiler.compat").dependencies(c)
+    require("nupp.compiler.compat").dependencies(c, checkMod.check)
     local comptimeNames: {string} = {}
     local comptimeIdentities = {}
     for name in pairs(c.moduleExports.comptimeFunctions or {}) do

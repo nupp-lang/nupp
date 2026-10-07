@@ -12,6 +12,8 @@ const {type Target} = require("nupp.tools.build.manifest")
 
 local envMod = require("nupp.compiler.project.env")
 local native = require("nupp.compiler.native")
+local check = require("nupp.compiler.check")
+local parser = require("nupp.compiler.syntax.parser")
 local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.process")
 local deps = require("nupp.tools.build.deps")
@@ -20,6 +22,19 @@ local stage = {}
 
 local join = fs.join
 local windows = package.config:sub(1, 1) == "\\"
+
+--- Finds native effects in an external Lua module by checking it under Nupp's ordinary
+--- prelude. Bundled rock modules are not project source files and do not pass through
+--- the project's incremental checker.
+function stage.sourceEffects(source: string, filename: string, env: {[string]: any}?): {[string]: any}
+    local parsed: any = parser.parse(source, filename)
+    if #parsed.errors > 0 then
+        return {}
+    end
+    check.check(parsed, filename, env, {strict = false})
+
+    return parsed.effects or {}
+end
 
 --- Runs the toolchain driver and answers the path it printed.
 ---
@@ -66,7 +81,7 @@ function stage.dependencyEffects(
     for _, module in ipairs(deps.rockModules(root, config, target)) do
         local source = fs.readFile(module.path)
         if source then
-            for effect in pairs(native.sourceEffects(source, module.path, env as {[string]: any})) do
+            for effect in pairs(stage.sourceEffects(source, module.path, env as {[string]: any})) do
                 resolved[effect] = true
             end
         end

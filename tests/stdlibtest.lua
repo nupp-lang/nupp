@@ -2,6 +2,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local native = require("nupp.compiler.native")
+local buildNative = require("nupp.tools.build.native")
 local stdlib = require("nupp.compiler.stdlib")
 local standardsurface = require("nupp.compiler.standardsurface")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -2790,7 +2791,7 @@ function M.nativeFeatureOverridesAreTriState()
     assert(resolved["native.json"], "an absent override remains automatic")
     assert(resolved["runtime.path"], "true adds an undetected feature")
 
-    local external = native.sourceEffects("local lpeg = require('lpeg')", "rock.lua", sharedEnv)
+    local external = buildNative.sourceEffects("local lpeg = require('lpeg')", "rock.lua", sharedEnv)
     assert(external["native.lpeg"], "bundled Lua contributes native LPeg")
 end
 
