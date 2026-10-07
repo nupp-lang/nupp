@@ -1022,6 +1022,58 @@ function M.stagingAGeneratedModuleRechecksNothingElse()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+--- A file in a require cycle checked first, the way a build walks its files, is the
+--- one whose interface the cycle reads on its re-entrant edge. That read must not be
+--- what a later dependent in the same revision sees: it was nil, and the dependent
+--- reported `no field "base" in unknown` instead of the real mismatch.
+function M.aRequireCycleEnteredByFileLeavesItsInterfaceForLaterDependents()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "'")
+
+    local function write(path, text)
+        local file = assert(io.open(dir .. "/" .. path, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    write(
+        "cycle_a.g.nupp",
+        table.concat(
+            {
+                "local cycleB = require('cycle_b')",
+                "local cycleA = {}",
+                "function cycleA.base(): number return 1 end",
+                "function cycleA.value(): number return cycleB.value() + 1 end",
+                "return cycleA",
+            },
+            "\n"
+        )
+    )
+    write(
+        "cycle_b.g.nupp",
+        table.concat(
+            {
+                "local cycleA = require('cycle_a')",
+                "local cycleB = {}",
+                "function cycleB.value(): number return cycleA.base() + 1 end",
+                "return cycleB",
+            },
+            "\n"
+        )
+    )
+    write("user.nupp", "local cycleA = require('cycle_a')\nlocal wrong: string = cycleA.base()\nreturn wrong\n")
+
+    local inc = incremental.new(dir, {cache = false})
+    assertEq(#inc.checkFile(dir .. "/cycle_a.g.nupp").diags, 0, "the cycle's first member checks clean")
+    assertEq(#inc.checkFile(dir .. "/cycle_b.g.nupp").diags, 0, "and so does its second")
+    local user = inc.checkFile(dir .. "/user.nupp").diags
+    assertEq(user[1] and user[1].code, "NUPP2001", "the dependent sees the member's real result type")
+    assertEq(#user, 1, "and nothing else")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 --- Validating a memo brings each of its dependencies up to date, and a `require`
 --- cycle makes one of those lead back to the entry being validated. The re-entrant
 --- edge has to report what that entry last changed at rather than validating it

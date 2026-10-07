@@ -1085,6 +1085,24 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end
     end
 
+    -- Checks a file the way a `require` of it would: through its module's interface.
+    --
+    -- Entered through `checkModule` directly, a file in a require cycle is the one
+    -- whose interface the cycle reads on its re-entrant edge, and that read finds the
+    -- check active and memoizes a nil interface, verified at this revision. Every
+    -- later dependent checked in the same revision was then handed that nil and saw
+    -- the module as `unknown`. Asked for its interface first, the re-entrant edge
+    -- finds the interface query itself active instead, which memoizes nothing, and
+    -- the outer query records the finished answer.
+    local function checkEntered(path: string): incremental.CheckResult
+        local name = checkedModuleName(path)
+        if name ~= nil and modulePath(q, name as string) == path then
+            q:get("moduleInterface", name as string)
+        end
+
+        return q:get("checkModule", path)
+    end
+
     -- Full result for a file: parse + check diagnostics, parse result.
     local function apiCheckFile(path: string): incremental.CheckResult
         -- A walk abandoned partway, by a cancelled request, would leave modules marked
@@ -1095,7 +1113,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             error(problem, 0)
         end
 
-        return q:get("checkModule", path)
+        return checkEntered(path)
     end
 
     local function apiProjectIndex(): any
