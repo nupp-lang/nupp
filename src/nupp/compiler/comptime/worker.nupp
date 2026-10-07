@@ -12,6 +12,7 @@ the boundary materialization will later use.
 local json = require("nupp.codec.json")
 local process = require("nupp.compiler.process")
 local clock = require("nupp.time")
+local workerchannel = require("nupp.compiler.workerchannel")
 
 type worker.Failure = {
     @readonly code: string,
@@ -389,18 +390,10 @@ function worker.main(argv: {string}): integer
     return 0
 end
 
---- Persistent child entry point. One line is one bounded JSON request and response;
+--- Persistent child entry point. One frame is one bounded JSON request and response;
 --- evaluator state is still fresh because only parsed immutable programs are cached.
 function worker.serviceMain(): integer
-    for requestText in io.lines() do
-        local response
-        if #requestText > MAX_PROTOCOL_BYTES then
-            response = {ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
-        else
-            local decoded, request = decodeProtocol(requestText)
-            response = decoded and handleRequest(request)
-                or {ok = false, code = "NUPP2412", message = "invalid worker request"}
-        end
+    local function respond(response: any): string
         local encoded = encodeResponse(response)
         if #encoded > MAX_PROTOCOL_BYTES then
             encoded = encodeResponse({
@@ -409,9 +402,39 @@ function worker.serviceMain(): integer
                 message = "comptime worker response exceeds 2097152 bytes"
             })
         end
-        io.write(encoded, "\n")
-        io.stdout:flush()
+
+        return encoded
     end
+
+    local function answer(requestText: string): string
+        local decoded, request = decodeProtocol(requestText)
+
+        return respond(
+            decoded and handleRequest(request) or {ok = false, code = "NUPP2412", message = "invalid worker request"}
+        )
+    end
+
+    workerchannel.serve(
+        answer,
+        MAX_PROTOCOL_BYTES,
+        function(): string
+            return respond({ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"})
+        end,
+        -- A compiler rebuilding itself starts this service from the tree it is
+        -- rewriting, so the parent can be the compiler from before frames, which
+        -- sent each request as one line and read one line back.
+        function(line: string): string
+            if #line > MAX_PROTOCOL_BYTES then
+                return respond({
+                    ok = false,
+                    code = "NUPP2416",
+                    message = "comptime worker request exceeds 2097152 bytes"
+                })
+            end
+
+            return answer(line)
+        end
+    )
 
     return 0
 end
@@ -493,28 +516,22 @@ function worker.evaluate(
     return response.quoted, nil, nil
 end
 
+-- The persistent service's channel, and which executable it was started from. What
+-- the service said outside the protocol is kept on the channel, so a frame that
+-- will not decode can be reported beside whatever the worker was complaining about.
 local service: any = nil
 local serviceExecutable: string? = nil
-local serviceBuffer = ""
--- What the service said outside the protocol. Kept so a frame that will not
--- decode can be reported beside whatever the worker was complaining about, and
--- drained on every wait so the pipe holding it cannot fill and stop the worker.
-local serviceSaid = ""
 
 local function stopService(force: boolean?): nil
     local current = service
-    service, serviceExecutable, serviceBuffer, serviceSaid = nil, nil, "", ""
-    if not current then
-        return
-    end
-    if force and current:isRunning() then
-        current:kill(true)
-    end
-    current:close()
+    service, serviceExecutable = nil, nil
+    workerchannel.close(current, force)
 end
 
-local function startService(executable: string): any, worker.Failure?
-    if service and serviceExecutable == executable and service:isRunning() then
+local function startService(executable: string, host: any?): any, worker.Failure?
+    if service and serviceExecutable == executable and service.child:isRunning() then
+        service.pump = host and host.pump or nil
+        service.cancelled = host and host.cancelled or nil
         return service, nil
     end
     stopService(true)
@@ -528,30 +545,16 @@ local function startService(executable: string): any, worker.Failure?
         end
         return nil, {code = "NUPP2412", message = "cannot start comptime worker service: " .. tostring(problem)}
     end
-    service = @unsafe nupp.release(child)
+    service = workerchannel.open(@unsafe nupp.release(child), {
+        maxFrame = MAX_PROTOCOL_BYTES,
+        maxSaid = MAX_SAID_BYTES,
+        waitMs = 5,
+        pump = host and host.pump or nil,
+        cancelled = host and host.cancelled or nil,
+    })
     serviceExecutable = executable
 
     return service, nil
-end
-
---- Takes whatever the service wrote outside the protocol, so the pipe carrying it
---- cannot fill and stop the worker mid-answer, and so a frame that will not decode
---- can be reported beside the complaint that explains it.
-local function drainSaid(child: any): nil
-    local reader = child.stderr
-    if reader == nil then
-        return
-    end
-    while #serviceSaid < MAX_SAID_BYTES do
-        local chunk = reader:poll()
-        if chunk == nil then
-            break
-        end
-        serviceSaid = serviceSaid .. chunk
-    end
-    if #serviceSaid > MAX_SAID_BYTES then
-        serviceSaid = serviceSaid:sub(1, MAX_SAID_BYTES)
-    end
 end
 
 --- The evidence for a frame that would not decode: the frame itself, bounded, and
@@ -570,71 +573,52 @@ local function requestService(request: any, executable: string, host: any?): any
     if #encoded > MAX_PROTOCOL_BYTES then
         return nil, {code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
     end
-    local child, startFailure = startService(executable)
-    if not child then
+    local channel, startFailure = startService(executable, host)
+    if not channel then
         return nil, startFailure
     end
-    local frame = encoded .. "\n"
-    local deadline = clock.now() + WORKER_TIMEOUT_MS
-    if child.stdin:send(frame, deadline) ~= #frame then
+    local text, stopped = workerchannel.request(channel, encoded, clock.now() + WORKER_TIMEOUT_MS)
+    if text == nil then
         stopService(true)
-        return nil, {code = "NUPP2412", message = "comptime worker service stopped accepting requests"}
-    end
-    while true do
-        local newline = serviceBuffer:find("\n", 1, true)
-        if newline then
-            local line = serviceBuffer:sub(1, newline - 1)
-            serviceBuffer = serviceBuffer:sub(newline + 1)
-            if #line > MAX_PROTOCOL_BYTES then
-                stopService(true)
-                return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
-            end
-            local decoded, response = decodeProtocol(line)
-            if not decoded then
-                local said = serviceSaid
-                stopService(true)
-                return nil, {
-                    code = "NUPP2412",
-                    message = "comptime worker service returned an invalid response: " .. describe(line, said),
-                }
-            end
-            return response, nil
-        end
-        drainSaid(child)
-        if host and host.pump then
-            host.pump()
-        end
-        if host and host.cancelled and host.cancelled() then
-            stopService(true)
+        local kind = stopped and stopped.kind or "ended"
+        local said = stopped and stopped.said or ""
+        if kind == "stopped" then
+            return nil, {code = "NUPP2412", message = "comptime worker service stopped accepting requests"}
+        elseif kind == "cancelled" then
             return nil, {code = "NUPP2412", message = "comptime evaluation was canceled"}
-        end
-        if clock.now() >= deadline then
-            stopService(true)
+        elseif kind == "timeout" then
             return nil, {
                 code = "NUPP2412",
                 message = timeoutMessage(),
                 help = "make the computation smaller or move the unbounded work to run time",
             }
-        end
-        local chunk = child.stdout:poll(65536, 5)
-        if chunk ~= nil then
-            serviceBuffer = serviceBuffer .. chunk
-            if #serviceBuffer > MAX_PROTOCOL_BYTES then
-                stopService(true)
-                return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
-            end
-        elseif not child:isRunning() or child.stdout:isEnded() then
-            drainSaid(child)
-            local said = serviceSaid
-            stopService(true)
+        elseif kind == "oversize" then
+            return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
+        elseif kind == "invalid" then
             return nil, {
                 code = "NUPP2412",
-                message = "the persistent comptime worker crashed: unexpected EOF" .. (
-                    said ~= "" and (" (it also said: " .. said .. ")") or ""
-                ),
+                message = "comptime worker service returned an invalid response: " .. describe(channel.head, said),
             }
         end
+
+        return nil, {
+            code = "NUPP2412",
+            message = "the persistent comptime worker crashed: unexpected EOF" .. (
+                said ~= "" and (" (it also said: " .. said .. ")") or ""
+            ),
+        }
     end
+    local decoded, response = decodeProtocol(text as string)
+    if not decoded then
+        local said = channel.said
+        stopService(true)
+        return nil, {
+            code = "NUPP2412",
+            message = "comptime worker service returned an invalid response: " .. describe(text as string, said),
+        }
+    end
+
+    return response, nil
 end
 
 --- Evaluates one sealed type program through the persistent isolated service.

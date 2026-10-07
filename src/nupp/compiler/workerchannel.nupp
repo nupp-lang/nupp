@@ -1,0 +1,274 @@
+module nupp.compiler.workerchannel
+
+--[[
+The pipe between the compiler and one of its persistent worker processes.
+
+A frame is an ASCII byte count, a newline, then exactly that many bytes. What the
+bytes mean belongs to the caller: the comptime service sends JSON and the cold
+checker sends native plain-data encoding, and neither has to escape anything to
+make a frame of it. One request is answered by one response, so a channel never
+holds more than the frame it is waiting for.
+
+The client side also drains the worker's standard error. Nothing else empties
+that pipe, and a worker that fills it stops mid-answer; what it says is kept,
+bounded, so a failure can be reported beside whatever the worker complained about.
+]]
+
+local clock = require("nupp.time")
+
+local workerchannel = {}
+
+-- The longest header a frame may have: the digits of any length a caller accepts.
+local MAX_HEADER_BYTES = 20
+
+--- Why a channel did not produce a frame.
+---
+--- `stopped`: the worker stopped accepting the request. `ended`: it exited, or
+--- closed its output, before answering. `timeout`: the deadline passed.
+--- `cancelled`: the caller's `cancelled` hook said so. `oversize`: the response
+--- announced more than the channel accepts. `invalid`: the header was not a length.
+type workerchannel.Failure = {
+    kind: string,
+    said: string
+}
+
+--- Bounds and hooks for one client channel.
+type workerchannel.Options = {
+    --- The longest response body accepted.
+    maxFrame: integer,
+
+    --- How much of the worker's standard error to keep.
+    maxSaid: integer?,
+
+    --- The longest single wait for output, so the hooks below run between waits.
+    waitMs: integer?,
+
+    --- Serves the caller's host between waits.
+    pump: (function(): nil)?,
+
+    --- Abandons the wait when it answers true.
+    cancelled: (function(): boolean)?
+}
+
+--- Frames one payload.
+function workerchannel.frame(payload: string): string
+    return tostring(#payload) .. "\n" .. payload
+end
+
+--- Wraps a started child whose stdin and stdout carry frames.
+function workerchannel.open(child: any, options: workerchannel.Options): any
+    return {
+        child = child,
+        maxFrame = options.maxFrame,
+        maxSaid = options.maxSaid or 8192,
+        waitMs = options.waitMs or 50,
+        pump = options.pump,
+        cancelled = options.cancelled,
+        -- Bytes read before a header was complete: at most a header and whatever
+        -- arrived after it in the same chunk.
+        head = "",
+        -- The body read so far, as the chunks it arrived in, and their total.
+        chunks = {},
+        have = 0,
+        expected = nil,
+        said = "",
+        sent = 0,
+        received = 0,
+    }
+end
+
+--- Takes whatever the worker wrote to standard error, keeping the first bytes up
+--- to the channel's bound and discarding the rest so the pipe never fills.
+function workerchannel.drain(channel: any): nil
+    local reader = channel.child.stderr
+    if reader == nil then
+        return
+    end
+    while true do
+        local chunk = reader:poll()
+        if chunk == nil then
+            return
+        end
+        local room = channel.maxSaid - #channel.said
+        if room > 0 then
+            channel.said = channel.said .. (chunk as string):sub(1, room)
+        end
+    end
+end
+
+--- Sends one payload. Answers false when the worker stopped taking it before the
+--- deadline.
+function workerchannel.send(channel: any, payload: string, deadline: number): boolean
+    local frame = workerchannel.frame(payload)
+    channel.sent = channel.sent + #frame
+    local stdin = channel.child.stdin
+
+    return stdin ~= nil and stdin:send(frame, deadline) == #frame
+end
+
+local function failure(channel: any, kind: string): (string?, workerchannel.Failure?)
+    workerchannel.drain(channel)
+
+    return nil, {kind = kind, said = channel.said}
+end
+
+--- Moves a complete header out of `head`, answering a failure kind for a header
+--- that cannot be one.
+local function takeHeader(channel: any): string?
+    local newline = (channel.head as string):find("\n", 1, true)
+    if newline == nil then
+        return #channel.head > MAX_HEADER_BYTES and "invalid" or nil
+    end
+    local digits = (channel.head as string):sub(1, newline - 1)
+    local length = digits:match("^%d+$") and tonumber(digits) or nil
+    if length == nil then
+        return "invalid"
+    end
+    if length > channel.maxFrame then
+        return "oversize"
+    end
+    local rest = (channel.head as string):sub(newline + 1)
+    channel.head = ""
+    channel.expected = length
+    channel.chunks = rest ~= "" and {rest} or {}
+    channel.have = #rest
+
+    return nil
+end
+
+--- Waits for the next response body until `deadline`, in the monotonic clock's
+--- milliseconds. A failure leaves the channel unusable; the caller stops the worker.
+function workerchannel.receive(channel: any, deadline: number): (string?, workerchannel.Failure?)
+    local child = channel.child
+    while true do
+        if channel.expected == nil then
+            local problem = takeHeader(channel)
+            if problem ~= nil then
+                return failure(channel, problem as string)
+            end
+        end
+        local expected = channel.expected
+        if expected ~= nil and channel.have >= expected then
+            local body = table.concat(channel.chunks)
+            local payload = body
+            if #body > expected then
+                payload = body:sub(1, expected)
+                channel.head = body:sub(expected + 1)
+            end
+            channel.expected = nil
+            channel.chunks = {}
+            channel.have = 0
+            channel.received = channel.received + expected
+            workerchannel.drain(channel)
+
+            return payload, nil
+        end
+        workerchannel.drain(channel)
+        if channel.pump ~= nil then
+            channel.pump()
+        end
+        if channel.cancelled ~= nil and channel.cancelled() then
+            return failure(channel, "cancelled")
+        end
+        local now = clock.now()
+        if now >= deadline then
+            return failure(channel, "timeout")
+        end
+        local wait = math.max(1, math.min(channel.waitMs, math.floor(deadline - now))) as integer
+        local chunk, ended = child.stdout:poll(65536, wait)
+        if chunk ~= nil then
+            if channel.expected ~= nil then
+                channel.chunks[#channel.chunks + 1] = chunk
+                channel.have = channel.have + #(chunk as string)
+            else
+                channel.head = channel.head .. chunk
+            end
+        elseif ended or not child:isRunning() then
+            -- A worker can exit right after writing its last bytes; take them first.
+            local last = child.stdout:poll()
+            if last == nil then
+                return failure(channel, "ended")
+            end
+            if channel.expected ~= nil then
+                channel.chunks[#channel.chunks + 1] = last
+                channel.have = channel.have + #(last as string)
+            else
+                channel.head = channel.head .. last
+            end
+        end
+    end
+end
+
+--- Sends one payload and waits for its response.
+function workerchannel.request(channel: any, payload: string, deadline: number): (string?, workerchannel.Failure?)
+    if not workerchannel.send(channel, payload, deadline) then
+        return failure(channel, "stopped")
+    end
+
+    return workerchannel.receive(channel, deadline)
+end
+
+--- Stops the worker behind a channel, killing it when asked or still running.
+function workerchannel.close(channel: any?, force: boolean?): nil
+    if channel == nil then
+        return
+    end
+    local child = channel.child
+    pcall(function(): nil
+        if force and child:isRunning() then
+            child:kill(true)
+        end
+        child:close()
+    end)
+end
+
+--- Answers frames read from standard input until it ends.
+---
+--- `handle` receives a request body and returns the response body. A body longer
+--- than `maxFrame` is read and discarded, and answered by `oversize()`. A header
+--- line that is not a length goes to `unframed`, when given, whose answer is
+--- written back as one line; without it the stream cannot be followed further and
+--- serving stops.
+function workerchannel.serve(
+    handle: function(string): string,
+    maxFrame: integer,
+    oversize: function(): string,
+    unframed: (function(string): string)?
+): nil
+    while true do
+        local header = io.read("*l")
+        if header == nil then
+            return
+        end
+        local length = header:match("^%d+$") and tonumber(header) or nil
+        local response: string? = nil
+        if length == nil then
+            if unframed == nil then
+                return
+            end
+            io.write(unframed(header), "\n")
+        elseif length > maxFrame then
+            local remaining = length as integer
+            while remaining > 0 do
+                local skipped = io.read(math.min(remaining, 65536))
+                if skipped == nil then
+                    return
+                end
+                remaining = remaining - #(skipped as string)
+            end
+            response = oversize()
+        else
+            local body = length > 0 and io.read(length) or ""
+            if body == nil or #(body as string) ~= length then
+                return
+            end
+            response = handle(body as string)
+        end
+        if response ~= nil then
+            io.write(workerchannel.frame(response as string))
+        end
+        io.stdout:flush()
+    end
+end
+
+export = workerchannel
