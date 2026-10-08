@@ -125,6 +125,10 @@ local record TaskImpl
     _answer: any
     _resume: any
     _observer: any
+    _scope: any
+    _listed: boolean
+    _before: any
+    _after: any
 
     --- Waits for the child and returns exactly the values its function returned.
     await: function(TaskImpl): ...any
@@ -193,6 +197,75 @@ local function notifySettled(task: any): nil
     end
 end
 
+-- A scope lists the tasks it may still have to do something about, in the order they
+-- were started: every task not yet settled, and a settled one whose failure nothing
+-- observed and no observer took, which closing the scope raises. Everything else
+-- leaves the list as it settles and keeps its outcome for whoever holds it. The
+-- native provider keeps the same list; this lane carries no moved allocations.
+
+local function enlist(scope: any, task: any): nil
+    local last = scope._last
+    task._scope = scope
+    task._listed = true
+    task._before = last
+    task._after = nil
+    if last ~= nil then
+        last._after = task
+    else
+        scope._first = task
+    end
+    scope._last = task
+    scope._registered = scope._registered + 1
+end
+
+local function delist(task: any): nil
+    if not task._listed then
+        return
+    end
+    local scope = task._scope
+    local before = task._before
+    local after = task._after
+    if before ~= nil then
+        before._after = after
+    else
+        scope._first = after
+    end
+    if after ~= nil then
+        after._before = before
+    else
+        scope._last = before
+    end
+    task._listed = false
+    task._before = nil
+    task._after = nil
+    scope._registered = scope._registered - 1
+end
+
+-- Takes a settled task off its scope's list unless closing would still owe it.
+local function leave(task: any): nil
+    local state = task._state
+    if state ~= "done" and state ~= "failed" and state ~= "cancelled" then
+        return
+    end
+    local observer = task._observer
+    if state == "failed" and not task._observed and (observer == nil or observer.settled == nil) then
+        return
+    end
+    delist(task)
+end
+
+-- The listed tasks, copied so settling them cannot move the walk.
+local function listed(borrows scope: workers.Scope): {any}
+    local tasks: {any} = {}
+    local task = scope._first
+    while task ~= nil do
+        tasks[#tasks + 1] = task
+        task = task._after
+    end
+
+    return tasks
+end
+
 local function release(task: any): nil
     if unsettled[task._id] == nil then
         return
@@ -225,7 +298,9 @@ local function settle(task: any, value: any): nil
         task._state = "failed"
     end
     release(task)
+    -- The observer hears of the settlement before the task can leave its scope.
     notifySettled(task)
+    leave(task)
 end
 
 --- Queues one pool request. The browser effect layer sends it with whatever else is
@@ -378,6 +453,7 @@ end
 local function settleForScope(task: any): (string, {any}?, integer, any)
     task._observed = true
     awaitSettlement(task)
+    leave(task)
     if task._state == "failed" then
         return "failed", nil, 0, "nupp: worker task failed: " .. (task._error or "unknown failure")
     end
@@ -393,6 +469,7 @@ workers.settle = settleForScope
 function TaskImpl:await(): ...any
     self._observed = true
     awaitSettlement(self)
+    leave(self)
     if self._state == "failed" then
         error("nupp: worker task failed: " .. (self._error or "unknown failure"), 2)
     end
@@ -448,6 +525,10 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
             _answer = nil,
             _resume = nil,
             _observer = self._observer,
+            _scope = nil,
+            _listed = false,
+            _before = nil,
+            _after = nil,
         },
         TaskMT
     )
@@ -455,7 +536,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     unsettledCount = unsettledCount + 1
     unsettledBytes = unsettledBytes + #payload
     submit({task = id, module = moduleName, member = member, payload = payload, deadline = self._deadline,})
-    self._tasks[#self._tasks + 1] = task
+    enlist(self, task)
     if self._observer ~= nil and self._observer.created ~= nil then
         self._observer.created(self._observer, task)
     end
@@ -511,16 +592,33 @@ local function closeScope(borrows self: workers.Scope): nil
         return
     end
     self._closed = true
-    local firstFailure = settleAll(self._tasks, awaitSettlement)
+    local firstFailure = settleAll(listed(self), awaitSettlement)
     if firstFailure ~= nil then
         error(firstFailure, 2)
     end
 end
 
 local function cancelAllScope(self: workers.Scope, reason: string?): nil
-    for _, task in ipairs(self._tasks) do
+    for _, task in ipairs(listed(self)) do
         task:cancel(reason)
     end
+end
+
+-- Waits for the oldest task still unsettled, for a task scope that needs a slot when
+-- only worker tasks hold them, without observing it. Answers false where nothing is
+-- unsettled.
+local function settleOldestScope(self: workers.Scope): boolean
+    local task = self._first
+    while task ~= nil and task:isDone() do
+        task = task._after
+    end
+    if task == nil then
+        return false
+    end
+    awaitSettlement(task)
+    leave(task)
+
+    return true
 end
 
 local function openScope(deadline: number?, observer: any): workers.Scope
@@ -533,7 +631,10 @@ local function openScope(deadline: number?, observer: any): workers.Scope
             spawn = spawnSurface,
             close = closeScope,
             _cancelAll = cancelAllScope,
-            _tasks = {},
+            _settleOldest = settleOldestScope,
+            _first = nil,
+            _last = nil,
+            _registered = 0,
             _closed = false,
             _deadline = deadline,
             _observer = observer,
@@ -543,6 +644,11 @@ local function openScope(deadline: number?, observer: any): workers.Scope
 end
 
 workers.openScope = openScope
+
+-- How many tasks a scope still lists, for the task scope's lifecycle hook.
+rawset(workers, "__registered", function(scope: any): integer
+    return scope._registered as integer
+end)
 
 ----------------------------------------------------------------------------
 -- The lane

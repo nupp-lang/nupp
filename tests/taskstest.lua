@@ -1022,4 +1022,185 @@ function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
    assertEq(unwound, 150, "every grandchild unwound before the task let go of them")
 end
 
+-- What a scope holds follows its live children, not the ones it has run. The counts
+-- come from the scope's own lifecycle hook rather than its tables' layout.
+local function held(scope)
+   return tasks.__lifecycle(scope)
+end
+
+function M.aLongLivedScopeHoldsOnlyItsLiveChildren()
+   -- Many more children than the limit, eight at a time, none of them awaited. A
+   -- scope that kept every settled child would end listing all of them. The long run
+   -- and its heap figures are bench/task-scope-retention.lua.
+   local total = 200
+   local ran = 0
+   local mostListed, mostQueued = 0, 0
+   scoped({limit = 8}, function(scope)
+      for _ = 1, total do
+         scope:spawn(function() ran = ran + 1 end)
+         local counts = held(scope)
+         if counts.listed > mostListed then mostListed = counts.listed end
+         if counts.queued > mostQueued then mostQueued = counts.queued end
+      end
+   end)
+   assertEq(ran, total, "every child ran")
+   assertTrue(mostListed <= 8, "the scope listed more than its live children: " .. mostListed)
+   assertTrue(mostQueued <= 8, "the queue outgrew the live children: " .. mostQueued)
+end
+
+function M.aSettledChildsHandleAnswersAfterItLeavesTheScope()
+   scoped({limit = 2}, function(scope)
+      local kept = scope:spawn(function() return 1, nil, 3 end)
+      local a, b, c = kept:await()
+      assertEq(a, 1, "first")
+      for _ = 1, 20 do
+         scope:spawn(function() end)
+      end
+      assertTrue(held(scope).listed <= 2, "settled children are still listed")
+      -- Long gone from the scope, and the handle answers exactly as it did.
+      local x, y, z = kept:await()
+      assertEq(x, a, "first again")
+      assertEq(y, b, "the nil position again")
+      assertEq(z, c, "third again")
+      assertEq(select("#", kept:await()), 3, "the pack kept its length")
+      assertEq(kept:status(), "done", "status")
+   end)
+end
+
+function M.childrenCancelledBeforeTheyRunLeaveNothingQueued()
+   -- Cancelled before the driver ever runs: each settles where it stands, and the
+   -- entries they leave in the queue are dropped rather than kept for the driver.
+   scoped(nil, function(scope)
+      for _ = 1, 100 do
+         local child = scope:spawn(function() error("never runs") end)
+         child:cancel()
+      end
+      local counts = held(scope)
+      assertEq(counts.live, 0, "a cancelled child is still live")
+      assertEq(counts.ready, 0, "a settled child still counts as runnable")
+      assertTrue(counts.queued <= 64, "stale queue entries piled up: " .. counts.queued)
+   end)
+end
+
+function M.aFailedChildIsTheScopesBeforeItLeavesIt()
+   local problem = raises(function()
+      scoped({limit = 4}, function(scope)
+         for index = 1, 20 do
+            scope:spawn(function()
+               if index == 10 then error("the tenth failed") end
+            end)
+         end
+      end)
+   end)
+   assertTrue(tostring(problem):find("the tenth failed", 1, true) ~= nil,
+      "the scope lost the failure of a child it no longer lists: " .. tostring(problem))
+end
+
+-- `run`: the callback form, which knows how its body ended.
+
+function M.runAnswersTheBodysWholeResultPack()
+   local a, b, c = tasks.run(function(scope)
+      return scope:spawn(function() return 1 end):await(), nil, 3
+   end)
+   assertEq(a, 1, "first")
+   assertEq(b, nil, "the nil position")
+   assertEq(c, 3, "third")
+   assertEq(select("#", tasks.run(function() return nil, nil end)), 2, "a pack of nils kept its length")
+end
+
+function M.runJoinsChildrenWhenTheBodyReturns()
+   local finished = false
+   tasks.run(function(scope)
+      scope:spawn(function()
+         time.sleep(10)
+         finished = true
+      end)
+   end)
+   assertTrue(finished, "run returned before its child finished")
+end
+
+function M.runCancelsChildrenWhenTheBodyFails()
+   local started = time.now()
+   local unwound = false
+   local problem = raises(function()
+      tasks.run(function(scope)
+         scope:spawn(function()
+            local ok, caught = pcall(time.sleep, 5000)
+            unwound = not ok and tasks.isCancelled(caught)
+            if not ok then error(caught, 0) end
+         end)
+         time.sleep(1)
+         error("the body failed", 0)
+      end)
+   end)
+   assertEq(problem, "the body failed", "the body's own failure is what run raises")
+   assertTrue(unwound, "the child was not cancelled through its cleanup")
+   assertTrue(time.now() - started < 1000, "the body's failure waited for its child")
+end
+
+function M.runRaisesAChildsFailureAsItself()
+   -- The failure reaches the body where it waits. It is the scope's, not the body's,
+   -- so it is raised once and as itself rather than wrapped beside a copy.
+   local failure = setmetatable({}, {__tostring = function() return "the child failed" end})
+   local problem = raises(function()
+      tasks.run(function(scope)
+         scope:spawn(function() error(failure) end)
+         time.sleep(1000)
+      end)
+   end)
+   assertTrue(problem == failure, "the child's failure lost its identity: " .. tostring(problem))
+end
+
+function M.runKeepsTheBodysFailurePrimaryOverACleanupFailure()
+   local problem = raises(function()
+      tasks.run(function(scope)
+         scope:spawn(function()
+            local ok = pcall(time.sleep, 5000)
+            if not ok then error("cleanup failed", 0) end
+         end)
+         time.sleep(1)
+         error("the body failed", 0)
+      end)
+   end)
+   assertEq(type(problem), "table", "the cleanup failure was dropped or replaced the body's")
+   assertEq(problem.primary, "the body failed", "primary")
+   assertEq(problem.suppressed[1], "cleanup failed", "suppressed")
+   local text = tostring(problem)
+   assertTrue(text:find("the body failed", 1, true) ~= nil and text:find("cleanup failed", 1, true) ~= nil,
+      "the rendering names both: " .. text)
+end
+
+function M.runRaisesItsDeadline()
+   local started = time.now()
+   local problem = raises(function()
+      tasks.run(nil, 20, function(scope)
+         scope:spawn(function() time.sleep(5000) end)
+         time.sleep(5000)
+      end)
+   end)
+   assertTrue(tasks.isCancelled(problem), "the deadline did not cancel: " .. tostring(problem))
+   assertTrue(time.now() - started < 1000, "the deadline was not kept")
+end
+
+function M.runInsideAChildFailsThatChild()
+   local problem = raises(function()
+      scoped(nil, function(outer)
+         outer:spawn(function()
+            tasks.run(2, nil, function(inner)
+               inner:spawn(function() time.sleep(5000) end)
+               error("the inner body failed", 0)
+            end)
+         end)
+      end)
+   end)
+   assertEq(problem, "the inner body failed", "the outer scope did not answer with the inner failure")
+end
+
+function M.runRefusesABadLimit()
+   local problem = raises(function()
+      tasks.run(0, nil, function() end)
+   end)
+   assertTrue(tostring(problem):find("limit must be a positive integer", 1, true) ~= nil, tostring(problem))
+end
+
 return M

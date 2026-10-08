@@ -1288,6 +1288,79 @@ print(total == expected, total)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A worker scope lists only what it may still owe something to. Settled tasks leave
+-- it however long the scope lives, a handle still answers after its task has left,
+-- and a result holding a moved allocation nothing consumed stays listed so close can
+-- free it.
+function M.aLongLivedScopeListsOnlyTheWorkerTasksItStillOwes()
+    local dir = tempProject({
+        ["nupp.lua"] = [[
+return {include = {"src"}, build = {default = "app", targets = {app = {
+   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   payloadOutput = "build/app.payload.lua",
+}}}}
+]],
+        ["src/jobs.nupp"] = [[
+module jobs
+
+const heap = require("nupp.mem.heap")
+
+export function square(value: integer): integer
+    return value * value
+end
+
+export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyArray)
+    local writable = frame:write()
+    writable[1] = value % 256
+    nupp.drop(writable)
+
+    return frame
+end
+]],
+        ["src/main.nupp"] = [[
+const ffi = require("ffi")
+const heap = require("nupp.mem.heap")
+const jobs = require("jobs")
+const tasks = require("nupp.tasks")
+
+const lifecycle = rawget(tasks, "__lifecycle") as function(borrows scope: tasks.Scope): {workers: integer}
+
+local most: integer = 0
+local repeated = false
+with scope = tasks.open(4) do
+    const first = scope:fork(3, jobs.square)
+    for index = 1, 40 do
+        scope:fork(index, jobs.square)
+        const counts = lifecycle(scope)
+        if counts.workers > most then
+            most = counts.workers
+        end
+    end
+    repeated = first:await() == 9 and first:await() == 9
+end
+print(most <= 4, repeated)
+
+local frame = heap.allocate(ffi.typeof<uint8>(), 64)
+local owing: integer = -1
+with scope = tasks.open(1) do
+    scope:fork(frame, 7, jobs.stamp)
+    for index = 1, 10 do
+        scope:fork(index, jobs.square)
+    end
+    scope:fork(11, jobs.square):await()
+    owing = lifecycle(scope).workers
+end
+print(owing)
+]],
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the worker binary builds: " .. built)
+    local output, ranOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
+    assert(ranOk and output == "true\ttrue\n1\n",
+        "settled worker tasks left the scope and the unconsumed moved result stayed: " .. output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.nativeWorkersRequireACompatibleBinaryHost()
     local function rejected(kind, stub)
         local manifest = (

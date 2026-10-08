@@ -163,7 +163,8 @@ local type Frame = {
     value: any,
     error: string?,
     cancelled: boolean?,
-    deadline: boolean?
+    deadline: boolean?,
+    attached: boolean?
 }
 
 local record Channel
@@ -181,7 +182,6 @@ local record Lane
     nextId: integer
     inflight: integer
     pending: {[integer]: boolean}
-    replies: {[integer]: Frame}
     waiters: {[integer]: {function(boolean)}}
     tasks: {[integer]: any}
 end
@@ -204,6 +204,11 @@ local record TaskImpl
     _cancelled: any
     _observed: boolean
     _observer: any
+    _moved: boolean
+    _scope: any
+    _listed: boolean
+    _before: any
+    _after: any
 
     --- Waits for the child and returns exactly the values its function returned.
     await: function(TaskImpl): ...any
@@ -996,6 +1001,7 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
             records = noRecords,
             encoding = "packed",
             value = value,
+            attached = nativeAttachments ~= nil,
         }
     end
     if nativeKind == 1 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and nativeValue ~= nil then
@@ -1133,7 +1139,6 @@ local function startLane(): Lane
         nextId = 1,
         inflight = 0,
         pending = {},
-        replies = {},
         waiters = {},
         tasks = {}
     )
@@ -1189,7 +1194,6 @@ local function route(lane: Lane, timeoutMs: integer): boolean
         error("nupp: a worker returned a task with no parent handle", 3)
     end
     if task._state ~= "cancelled" then
-        lane.replies[id] = frame
         settleReply(task, frame)
     end
     local waiting = lane.waiters[id]
@@ -1207,8 +1211,10 @@ local function ended(lane: Lane): boolean
     return native.channelClosed(lane.outbox.handle) and native.channelCount(lane.outbox.handle) == 0
 end
 
+-- A reply has been routed once its id is no longer pending. Routing settles the task
+-- it answers, so the reply itself is not kept for whoever waits on it.
 local function ready(lane: Lane, id: integer): boolean
-    return lane.replies[id] ~= nil
+    return lane.pending[id] == nil
 end
 
 local function wakeEndedLane(lane: Lane): integer
@@ -1351,6 +1357,88 @@ end
 local scannedAddresses: {[any]: {string}} = setmetatable({}, {__mode = "k"}) as {[any]: {string}}
 
 ----------------------------------------------------------------------------
+-- Scope membership
+----------------------------------------------------------------------------
+
+-- A scope lists the tasks it may still have to do something about, in the order they
+-- were started: every task not yet settled, and a settled one only while closing the
+-- scope would still owe it something. That is a failure nothing observed and no
+-- observer took, which close raises, or a result carrying moved allocations nothing
+-- consumed, which close frees. Everything else leaves the list when it settles, and
+-- its outcome stays on the task for whoever holds it.
+
+local function enlist(scope: any, task: any): nil
+    local last = scope._last
+    task._scope = scope
+    task._listed = true
+    task._before = last
+    task._after = nil
+    if last ~= nil then
+        last._after = task
+    else
+        scope._first = task
+    end
+    scope._last = task
+    scope._registered = scope._registered + 1
+end
+
+local function delist(task: any): nil
+    if not task._listed then
+        return
+    end
+    local scope = task._scope
+    local before = task._before
+    local after = task._after
+    if before ~= nil then
+        before._after = after
+    else
+        scope._first = after
+    end
+    if after ~= nil then
+        after._before = before
+    else
+        scope._last = before
+    end
+    task._listed = false
+    task._before = nil
+    task._after = nil
+    scope._registered = scope._registered - 1
+end
+
+-- Whether closing the scope would still have to answer for a settled task.
+local function owed(task: any): boolean
+    if task._observed then
+        return false
+    end
+    if task._moved then
+        return true
+    end
+    local observer = task._observer
+
+    return task._state == "failed" and (observer == nil or observer.settled == nil)
+end
+
+-- Takes a task off its scope's list once it has settled and nothing is owed on it.
+local function release(task: any): nil
+    if task._state ~= "queued" and not owed(task) then
+        delist(task)
+    end
+end
+
+-- The listed tasks, copied: settling one can settle others on its lane, and a walk
+-- of the list itself would lose its place when they leave it.
+local function listed(borrows scope: workers.Scope): {any}
+    local tasks: {any} = {}
+    local task = scope._first
+    while task ~= nil do
+        tasks[#tasks + 1] = task
+        task = task._after
+    end
+
+    return tasks
+end
+
+----------------------------------------------------------------------------
 -- Spawning
 ----------------------------------------------------------------------------
 
@@ -1454,6 +1542,11 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
             _cancelled = nil,
             _observed = false,
             _observer = self._observer,
+            _moved = false,
+            _scope = nil,
+            _listed = false,
+            _before = nil,
+            _after = nil,
         },
         TaskMT
     )
@@ -1512,7 +1605,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
         native.workerTaskRelease(lane.handle, id)
         error(problem, 2)
     end
-    self._tasks[#self._tasks + 1] = task
+    enlist(self, task)
     if self._observer ~= nil and self._observer.created ~= nil then
         self._observer.created(self._observer, task)
     end
@@ -1579,12 +1672,16 @@ settleReply = function(task: any, reply: Frame): nil
         local packed = packedValue(reply.encoding, reply.bytes, reply.value)
         task._values = packed.values
         task._count = packed.count
+        task._moved = reply.attached == true
         task._state = "done"
     else
         task._error = reply.error or "worker task failed without an error"
         task._state = "failed"
     end
+    -- The observer hears of the settlement before the task can leave its scope, so a
+    -- failure is the task scope's before the worker scope stops listing it.
     notifySettled(task)
+    release(task)
 end
 
 function TaskImpl:cancel(reason: string?): boolean
@@ -1599,6 +1696,7 @@ function TaskImpl:cancel(reason: string?): boolean
     if requested == 1 then
         self._state = "cancelled"
         notifySettled(self)
+        release(self)
     end
 
     return true
@@ -1609,7 +1707,7 @@ function TaskImpl:await(): ...any
     if not self:isDone() then
         waitFor(self._scheduler, self._lane, self._id)
     end
-    self._lane.replies[self._id] = nil
+    release(self)
     if self._state == "failed" then
         error("nupp: worker task failed: " .. (self._error or "unknown failure"), 2)
     end
@@ -1627,7 +1725,7 @@ local function settleParking(task: any): string?
     if not TaskImpl.isDone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
-    task._lane.replies[task._id] = nil
+    release(task)
 
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
@@ -1645,7 +1743,7 @@ local function settleForScope(task: any): (string, {any}?, integer, any)
     if not TaskImpl.isDone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
-    task._lane.replies[task._id] = nil
+    release(task)
     if task._state == "failed" then
         return "failed", nil, 0, "nupp: worker task failed: " .. (task._error or "unknown failure")
     end
@@ -1668,7 +1766,7 @@ local function closeScope(borrows self: workers.Scope): nil
     end
     self._closed = true
     local firstFailure: any = nil
-    for _, task in ipairs(self._tasks) do
+    for _, task in ipairs(listed(self)) do
         local observed = task._observed == true
         local problem = settleParking(task)
         if not observed then
@@ -1684,9 +1782,29 @@ local function closeScope(borrows self: workers.Scope): nil
 end
 
 local function cancelAllScope(self: workers.Scope, reason: string?): nil
-    for _, task in ipairs(self._tasks) do
+    for _, task in ipairs(listed(self)) do
         task:cancel(reason)
     end
+end
+
+-- Waits for the oldest task still unsettled, for a task scope that needs a slot when
+-- only worker tasks hold them. Waiting is not observing: a failure is still the
+-- observer's to report and an unconsumed moved result is still close's to free.
+-- Answers false where nothing is unsettled.
+local function settleOldestScope(self: workers.Scope): boolean
+    local task = self._first
+    while task ~= nil and task._state ~= "queued" do
+        task = task._after
+    end
+    if task == nil then
+        return false
+    end
+    if not TaskImpl.isDone(task) then
+        waitFor(task._scheduler, task._lane, task._id)
+    end
+    release(task)
+
+    return true
 end
 
 local function openScope(deadline: number?, observer: any): workers.Scope
@@ -1695,8 +1813,11 @@ local function openScope(deadline: number?, observer: any): workers.Scope
             spawn = spawnSurface,
             close = closeScope,
             _cancelAll = cancelAllScope,
+            _settleOldest = settleOldestScope,
             _scheduler = scheduler(),
-            _tasks = {},
+            _first = nil,
+            _last = nil,
+            _registered = 0,
             _closed = false,
             _deadline = deadline,
             _observer = observer,
@@ -1706,6 +1827,11 @@ local function openScope(deadline: number?, observer: any): workers.Scope
 end
 
 workers.openScope = openScope
+
+-- How many tasks a scope still lists, for the task scope's lifecycle hook.
+rawset(workers, "__registered", function(scope: any): integer
+    return scope._registered as integer
+end)
 
 ----------------------------------------------------------------------------
 -- The worker side

@@ -153,12 +153,31 @@ local type Child = {
     runnable: boolean,
     release: (function())?,
     lending: boolean,
-    waiters: {function(boolean)}
+    waiters: {function(boolean)},
+    before: any,
+    after: any
 }
 
+--- One scope's scheduling state.
+---
+--- What the scope holds is what is live: `first`..`last` links the children still
+--- queued or running in the order they started, and a child leaves that list when it
+--- settles. Its outcome stays on its record, which the task handle keeps, so a scope
+--- that runs a million children one after another holds as many records as it has
+--- live ones however many it has run.
+---
+--- `queue` holds the children that may be resumed, from `head` to `tail`. `ready`
+--- counts the entries a resume would take, and `stale` the ones a child settled out
+--- from under while it sat there: readiness is `ready`, never the queue's length.
 local type ScopeState = {
-    children: {Child},
+    first: any,
+    last: any,
     queue: {Child},
+    head: integer,
+    tail: integer,
+    ready: integer,
+    stale: integer,
+    onSettle: (function(Child))?,
     live: integer,
     failure: any,
     failed: boolean,
@@ -364,8 +383,64 @@ local function markRunnable(owner: ScopeState, child: Child): nil
         return
     end
     child.runnable = true
-    owner.queue[#owner.queue + 1] = child
+    const tail = owner.tail + 1
+    owner.tail = tail
+    owner.queue[tail] = child
+    owner.ready = owner.ready + 1
     fireWakers(owner)
+end
+
+--- Rebuilds the queue without the entries settled children left behind.
+---
+--- A child settles out of the queue without being taken when it is cancelled before
+--- it starts. Taking skips such an entry, but a scope that starts and cancels without
+--- ever running anything would otherwise keep every one of them, so once they
+--- outnumber the live entries they are dropped here.
+local function compactQueue(owner: ScopeState): nil
+    if owner.stale <= 32 or owner.stale <= owner.ready then
+        return
+    end
+    const queue = owner.queue
+    const kept: {Child} = {}
+    for index = owner.head, owner.tail do
+        const child = queue[index]
+        if child ~= nil and child.runnable then
+            kept[#kept + 1] = child
+        end
+    end
+    owner.queue = kept
+    owner.head = 1
+    owner.tail = #kept
+    owner.stale = 0
+end
+
+local function link(owner: ScopeState, child: Child): nil
+    const last = owner.last as Child?
+    child.before = last
+    child.after = nil
+    if last ~= nil then
+        last.after = child
+    else
+        owner.first = child
+    end
+    owner.last = child
+end
+
+local function unlink(owner: ScopeState, child: Child): nil
+    const before = child.before as Child?
+    const after = child.after as Child?
+    if before ~= nil then
+        before.after = after
+    else
+        owner.first = after
+    end
+    if after ~= nil then
+        after.before = before
+    else
+        owner.last = before
+    end
+    child.before = nil
+    child.after = nil
 end
 
 --- Resumes whoever parked in `spawn` or `fork` waiting for the scope to have room.
@@ -380,16 +455,34 @@ local function wakeSlots(owner: ScopeState): nil
     end
 end
 
+--- Settles a child and takes it out of the scope's live membership.
+---
+--- The one path every child settles through. Whatever the scope owns because of the
+--- child -- a failure it promoted -- is recorded by the caller before this runs, so
+--- nothing about the child is still the scope's to learn once it has left the list.
+--- Its record carries the outcome from here, for whoever still holds its handle.
 local function settleChild(owner: ScopeState, child: Child, status: string): nil
     child.status = status
     child.thread = nil
-    child.runnable = false
+    if child.runnable then
+        -- Settled while it sat in the queue: its entry stays until taking or compaction
+        -- passes it, and no longer counts as something to run.
+        child.runnable = false
+        owner.ready = owner.ready - 1
+        owner.stale = owner.stale + 1
+        compactQueue(owner)
+    end
     owner.live = owner.live - 1
+    unlink(owner, child)
     -- A child that unwound while it had lent its slot has nothing left to take it
     -- back into.
     if child.lending then
         child.lending = false
         owner.lent = owner.lent - 1
+    end
+    const onSettle = owner.onSettle
+    if onSettle ~= nil then
+        onSettle(child)
     end
     local waiting = child.waiters
     child.waiters = {}
@@ -443,14 +536,19 @@ requestCancellation = function(owner: ScopeState, operation: string, reason: str
     if owner.cancellation == nil then
         owner.cancellation = cancellation(operation, reason)
     end
-    for index = 1, #owner.children do
-        local child = owner.children[index]
+    -- Only live children are listed. None of them settles under this walk -- a
+    -- cancelled child unwinds when it is next resumed -- but the next one is read
+    -- first all the same, so the walk never depends on that.
+    local child = owner.first as Child?
+    while child ~= nil do
+        const after = child.after as Child?
         if child.status == "queued" or child.status == "running" then
             child.requested = true
             child.cancelled = child.cancelled or owner.cancellation
             markRunnable(owner, child)
             cancelOpened(child)
         end
+        child = after
     end
     local workerScope = owner.workerScope
     if workerScope ~= nil then
@@ -510,22 +608,34 @@ local function resumeChild(owner: ScopeState, child: Child): nil
         settleChild(owner, child, "failed")
     else
         child.problem = answer
-        settleChild(owner, child, "failed")
         -- The first failure is the scope's however many children fail while unwinding
         -- under it. Cleanup is attempted and reported, and does not replace the
-        -- problem the caller actually has.
+        -- problem the caller actually has. The scope owns it before the child leaves
+        -- the list, so no settled child is the only place a failure is kept.
         ownFailure(owner, answer)
+        settleChild(owner, child, "failed")
         requestCancellation(owner, child.name, "a sibling failed")
     end
 end
 
 local function takeRunnable(owner: ScopeState): Child?
-    while #owner.queue > 0 do
-        const child = table.remove(owner.queue, 1) as Child
-        if child.runnable and child.thread ~= nil then
+    const queue = owner.queue
+    while owner.head <= owner.tail do
+        const head = owner.head
+        const child = queue[head]
+        queue[head] = nil
+        owner.head = head + 1
+        if child ~= nil and child.runnable then
+            child.runnable = false
+            owner.ready = owner.ready - 1
+
             return child
         end
+        owner.stale = owner.stale - 1
     end
+    owner.head = 1
+    owner.tail = 0
+    owner.stale = 0
 
     return nil
 end
@@ -566,14 +676,12 @@ end
 --- suspensions above it -- which is what lets a scope nest inside a frame instead of
 --- answering its own waits.
 local function parkedOperation(owner: ScopeState, fallback: string): string
-    for _, child in ipairs(owner.children) do
-        if child.status ~= "done"
-            and child.status ~= "failed"
-            and child.status ~= "cancelled"
-            and not child.runnable
-        then
+    local child = owner.first as Child?
+    while child ~= nil do
+        if not child.runnable then
             return child.name
         end
+        child = child.after as Child?
     end
 
     return fallback
@@ -591,7 +699,7 @@ local function pump(owner: ScopeState, operation: string, settled: function(): b
             else
                 suspension.suspend(parkedOperation(owner, operation), parkScope(owner))
             end
-        elseif #owner.queue > 0 then
+        elseif owner.ready > 0 then
             suspensionRuntime.__deferTurn()
         elseif owner.live == 0 then
             return
@@ -634,13 +742,13 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                     if owner.settling then
                         -- Draining: what the scope owns is raised once every child
                         -- has settled, not here.
-                        return waiting:ready() or (#owner.queue > 0 and suspensionRuntime.__turnAvailable())
+                        return waiting:ready() or (owner.ready > 0 and suspensionRuntime.__turnAvailable())
                     end
                     const deadline = owner.deadline
                     const expired = deadline ~= nil and timeModule.now() >= deadline
 
                     return waiting:ready()
-                    or (#owner.queue > 0 and suspensionRuntime.__turnAvailable())
+                    or (owner.ready > 0 and suspensionRuntime.__turnAvailable())
                     or owner.failed
                     or expired
                     or (owner.cancellation ~= nil and not owner.deliberate)
@@ -894,18 +1002,9 @@ local function awaitSlot(owner: ScopeState, operation: string): boolean
             if workerScope == nil then
                 return false
             end
-            local pending: any = nil
-            for _, task in ipairs(workerScope._tasks as {any}) do
-                if not task:isDone() then
-                    pending = task
-
-                    break
-                end
-            end
-            if pending == nil then
+            if not workerScope:_settleOldest() then
                 return false
             end
-            (owner.settleHook as function(any): (string, {any}?, integer, any))(pending)
         end
     end
     settleAgainstScope(owner)
@@ -1024,7 +1123,7 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
         return produced
     end)
     child.thread = co
-    owner.children[#owner.children + 1] = child
+    link(owner, child)
     owner.live = owner.live + 1
     -- Spawned into a scope that has already asked its children to stop, by its own
     -- decision: this one settles as cancelled without running, as the request would
@@ -1337,8 +1436,14 @@ end
 
 local function newState(deadline: number?, limit: integer?): ScopeState
     const owner: ScopeState = {
-        children = {},
+        first = nil,
+        last = nil,
         queue = {},
+        head = 1,
+        tail = 0,
+        ready = 0,
+        stale = 0,
+        onSettle = nil,
         live = 0,
         failure = nil,
         failed = false,
@@ -1510,7 +1615,8 @@ end
 --- closed early by `nupp.drop(scope)`, and closes once.
 ---
 --- A failure the block itself raises does not cancel the children: they run to
---- completion before it propagates. Call `cancel` first where that is not wanted.
+--- completion before it propagates. Call `cancel` first where that is not wanted, or
+--- run the body with [](nupp.tasks.run), which cancels them when it fails.
 ---
 --- ```nupp:fragment
 --- with scope = nupp.tasks.open() do
@@ -1566,14 +1672,16 @@ end
 --- @return the scope, settled when its `with` ends
 --- @raises string where the limit is not a positive integer or the timeout is not a
 ---     finite non-negative number
-function tasks.open(limit: integer?, timeoutMs: number?): affine(tasks.Scope)
+--- Opens a scope's state on the running frame, for `open` and `run`. Errors name the
+--- caller of whichever of the two was called.
+local function openState(limit: integer?, timeoutMs: number?): ScopeState
     if limit ~= nil and (limit < 1 or limit ~= math.floor(limit)) then
-        error("nupp: a task scope limit must be a positive integer", 2)
+        error("nupp: a task scope limit must be a positive integer", 3)
     end
     local absolute: number? = nil
     if timeoutMs ~= nil then
         if timeoutMs ~= timeoutMs or timeoutMs < 0 or timeoutMs == math.huge then
-            error("nupp: a task scope timeout must be a finite non-negative number", 2)
+            error("nupp: a task scope timeout must be a finite non-negative number", 3)
         end
         absolute = timeModule.now() + timeoutMs
     end
@@ -1589,8 +1697,116 @@ function tasks.open(limit: integer?, timeoutMs: number?): affine(tasks.Scope)
     local handling = suspension.install(frameHandler(owner), true)
     owner.frame = @unsafe nupp.release(handling)
 
-    return setmetatable({_state = owner,}, ScopeMT) as tasks.Scope
+    return owner
 end
+
+function tasks.open(limit: integer?, timeoutMs: number?): affine(tasks.Scope)
+    return setmetatable({_state = openState(limit, timeoutMs),}, ScopeMT) as tasks.Scope
+end
+
+----------------------------------------------------------------------------
+-- Running a body in a scope
+----------------------------------------------------------------------------
+
+--- A failure that ended a body, with what settling its family raised after it.
+---
+--- The same shape a block's cleanup gives a cleanup failure: the primary first,
+--- the rest beside it, and text that names both.
+local function withSuppressed(primary: any, suppressed: any): any
+    return setmetatable({primary = primary, suppressed = {suppressed},}, {
+        __tostring = function(value: any): string
+            local text = tostring(value.primary)
+            for _, reason in ipairs(value.suppressed as {any}) do
+                text = text .. "\ncleanup: " .. tostring(reason)
+            end
+
+            return text
+        end,
+    })
+end
+
+local function runImpl(...: any): ...any
+    local limit: integer? = nil
+    local timeoutMs: number? = nil
+    local body: any
+    if select("#", ...) == 1 then
+        body = ...
+    else
+        limit, timeoutMs, body = ...
+    end
+    const owner = openState(limit, timeoutMs)
+    const scope = setmetatable({_state = owner,}, ScopeMT)
+    const answer = pack(pcall(body, scope))
+    if answer.values[1] == true then
+        -- The body returned: its children run to completion, and a failure one of them
+        -- has is raised here exactly as leaving an `open` block raises it.
+        closeScope(owner)
+
+        return unpack(answer.values, 2, answer.count)
+    end
+    const problem = answer.values[2]
+    -- What the scope owns reaches the body where it waits, so a body may end by
+    -- raising the scope's own failure or deadline. That is not the body failing on
+    -- its own account: settling raises it, as it would have anyway.
+    const scopeOwned = (owner.failed and problem == owner.failure)
+        or (owner.cancellation ~= nil and not owner.deliberate and problem == owner.cancellation)
+    if not scopeOwned and not owner.closed then
+        -- The body failed on its own account, so nothing its children are still doing
+        -- is wanted: they are asked to stop before the scope drains them.
+        cancelImpl(owner, "the body failed")
+    end
+    const settled, settleProblem = pcall(closeScope, owner)
+    if scopeOwned or settled or settleProblem == problem then
+        error(problem, 0)
+    end
+    -- Draining found a problem of its own -- a child failing while it unwound. It does
+    -- not replace what ended the body, and is kept beside it.
+    error(withSuppressed(problem, settleProblem), 0)
+end
+
+--- Runs `body` in a new scope and settles the scope however the body ends.
+---
+--- The callback form of [](nupp.tasks.open). The body is handed the scope and may
+--- start children in it with `spawn` and `fork`. Where it returns, the children run
+--- to completion and its results are this call's, every position kept, `nil`s
+--- included; a child's failure is raised instead, as leaving an `open` block raises
+--- it. Where the body fails, its children are cancelled before the scope drains
+--- them, and the body's failure is raised once they have unwound. A child that fails
+--- while it unwinds does not replace that failure: it is attached beside it.
+---
+--- That last case is the difference from `with scope = open()`. A block cannot tell
+--- its own failure from a normal exit, so it waits for every child either way; this
+--- knows how its body ended, so a failure is not held up behind children that only
+--- mattered while the body was going to use them.
+---
+--- Takes the same named `limit` and `timeoutMs` as `open`. The body may come alone,
+--- `run(body)`, or named after them, `run(limit = 8, body = body)`.
+---
+--- ```nupp:fragment
+--- const total = nupp.tasks.run(limit = 8, body = function(borrows scope: nupp.tasks.Scope): integer
+---     const left = scope:spawn(function(): integer return countLeft() end)
+---     const right = scope:spawn(function(): integer return countRight() end)
+---
+---     return left:await() + right:await()
+--- end)
+--- ```
+---
+--- @param limit how many children may be live at once, or nil for no bound
+--- @param timeoutMs how long the whole scope may take, in milliseconds, or nil
+--- @param body what runs with the scope
+--- @return what `body` returned
+--- @raises any the body's failure, or the first failure a child had
+--- @raises tasks.Cancellation the cancellation a deadline caused
+local run: function<R...>(scoped body: function(borrows scope: tasks.Scope): R...): R...
+    & function<R...>(takes body: function(borrows scope: tasks.Scope): R...): R...
+    & function<R...>(limit: integer?, timeoutMs: number?, scoped body: function(borrows scope: tasks.Scope): R...): R...
+    & function<R...>(limit: integer?, timeoutMs: number?, takes body: function(borrows scope: tasks.Scope): R...): R...
+@unsafe do
+    -- Every arm calls the body once, synchronously, before this returns; the owning
+    -- arms additionally let `runImpl` consume a single-shot body by calling it.
+    run = runImpl as any
+end
+tasks.run = run
 
 ----------------------------------------------------------------------------
 -- Whole-family calls
@@ -1615,9 +1831,13 @@ local function familyScope(): ScopeState
 end
 
 --- Enters every body as a branch of `scope`, indexed as `bodies` was.
-local function enterBranches(owner: ScopeState, bodies: {any}, count: integer): nil
+---
+--- The call keeps its branches in `branches` itself: a settled branch leaves the
+--- scope's live list, and the call still has to answer for it by position. Filled
+--- in place, so a call whose entering fails part way still settles what it entered.
+local function enterBranches(owner: ScopeState, bodies: {any}, count: integer, branches: {Child}): nil
     for index = 1, count do
-        spawnRaw(owner, "branch " .. tostring(index), bodies[index], nil)
+        branches[index] = spawnRaw(owner, "branch " .. tostring(index), bodies[index], nil)
     end
 end
 
@@ -1628,15 +1848,16 @@ end
 --- from a family that was cut short.
 ---
 --- @param owner the family scope, settled by this call
+--- @param branches the branches it entered, in order
 --- @return each branch's value, where it returned
 --- @return each branch's error, where it raised
 --- @raises any a failure the scope itself owns
 --- @raises tasks.Cancellation the cancellation its deadline caused
-local function settleFamily(owner: ScopeState): {any}, {any}
+local function settleFamily(owner: ScopeState, branches: {Child}): {any}, {any}
     closeScope(owner)
     const values: {any} = {}
     const errors: {any} = {}
-    for index, child in ipairs(owner.children) do
+    for index, child in ipairs(branches) do
         if child.status == "failed" then
             errors[index] = child.problem
         elseif child.status == "done" then
@@ -1695,8 +1916,9 @@ local function gatherImpl<T>(takes bodies: {function(): T}): ({T?}, {any})
     const owner = familyScope()
     -- Protected so that a scope opened here is settled however entering goes: an
     -- unsettled one holds an installation and every branch it did enter.
-    const entered, problem = pcall(enterBranches, owner, rawBodies as {any}, count)
-    const values, errors = settleFamily(owner)
+    const branches: {Child} = {}
+    const entered, problem = pcall(enterBranches, owner, rawBodies as {any}, count, branches)
+    const values, errors = settleFamily(owner, branches)
     if not entered then
         error(problem, 0)
     end
@@ -1739,27 +1961,25 @@ local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
         return nil, nil
     end
     const owner = familyScope()
+    const branches: {Child} = {}
+    const positions: {[Child]: integer} = {}
     local first: integer? = nil
-
-    const function settledOne(): boolean
-        if first ~= nil then
-            return true
+    -- The winner is whichever branch settles first, learned as it settles rather
+    -- than by looking over every branch after each one runs. A cancelled branch has
+    -- not answered anything, so it does not win.
+    owner.onSettle = function(child: Child): nil
+        if first == nil and (child.status == "done" or child.status == "failed") then
+            first = positions[child]
         end
-        for index, child in ipairs(owner.children) do
-            if child.status == "done" or child.status == "failed" then
-                first = index
-
-                return true
-            end
-        end
-
-        return false
     end
 
     const raced, problem = pcall(function(): nil
-        enterBranches(owner, rawBodies as {any}, count)
+        enterBranches(owner, rawBodies as {any}, count, branches)
+        for index, child in ipairs(branches) do
+            positions[child] = index
+        end
         pump(owner, "a racing family", function(): boolean
-            return settledOne() or owner.live == 0
+            return first ~= nil or owner.live == 0
         end)
     end)
     if raced and first ~= nil then
@@ -1767,7 +1987,7 @@ local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
         -- this call made on its own behalf.
         cancelImpl(owner, "another branch settled first")
     end
-    const values, errors = settleFamily(owner)
+    const values, errors = settleFamily(owner, branches)
     if not raced then
         error(problem, 0)
     end
@@ -1789,5 +2009,37 @@ local race: function<T>(scoped bodies: {function(): T}): (T?, integer?)
     race = raceImpl as any
 end
 tasks.race = race
+
+--- What a scope holds, as counts: the test hook behind the claim that a scope's state
+--- follows its live children rather than the ones it has run.
+---
+--- `live` is the children still queued or running, `queued` the queue's entries,
+--- stale ones included, `ready` the entries a resume would take, and `forks` the
+--- worker tasks holding a slot. `workers` is what the worker scope still keeps,
+--- where one was opened. Not part of the checked surface.
+local function lifecycle(scope: any): {[string]: integer}
+    const owner = state(scope)
+    local listed: integer = 0
+    local child = owner.first as Child?
+    while child ~= nil do
+        listed = listed + 1
+        child = child.after as Child?
+    end
+    const workerScope = owner.workerScope
+    const registered = workerModule ~= nil and rawget(workerModule as any, "__registered") or nil
+    const pending = workerScope ~= nil and registered ~= nil and (registered as function(any): integer)(workerScope)
+        or 0
+
+    return {
+        live = owner.live,
+        listed = listed,
+        queued = owner.tail - owner.head + 1,
+        ready = owner.ready,
+        forks = owner.forks,
+        workers = pending as integer,
+    }
+end
+
+rawset(tasks, "__lifecycle", lifecycle)
 
 export = tasks

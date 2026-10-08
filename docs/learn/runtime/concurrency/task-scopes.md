@@ -178,7 +178,36 @@ beside individual results.
 
 The block is not a child of the scope, so a failure the block itself raises does
 not cancel the children: they run to completion before the failure propagates.
-Call `scope:cancel()` first where that is not wanted.
+Call `scope:cancel()` first where that is not wanted, or run the body with
+[`run`](#callback-scopes), which cancels them for you.
+
+## Callback scopes
+
+`nupp.tasks.run` opens a scope, hands it to a body, and settles it however the
+body ends. Because it calls the body itself, it knows whether the body returned
+or failed, which a `with` block cannot tell its scope:
+
+```nupp:fragment
+const total = nupp.tasks.run(limit = 8, body = function(borrows scope: nupp.tasks.Scope): integer
+    const left = scope:spawn(function(): integer return countLeft() end)
+    const right = scope:spawn(function(): integer return countRight() end)
+
+    return left:await() + right:await()
+end)
+```
+
+When the body returns, its children run to completion and `run` answers the
+body's results, `nil` positions included. A child's failure is raised instead,
+as leaving a block raises it. When the body fails, its unfinished children are
+cancelled, the scope drains them through their cleanup, and the body's failure
+is raised. A child that fails while it unwinds does not replace that failure:
+it is attached beside it, the way a cleanup failure is.
+
+Use `run` where the scope is the whole operation, so a failure is not held up
+behind children it has made pointless. Keep `open` where the block should wait
+for its children whatever happens, or where children are added across several
+calls that each borrow the scope. `run` takes the same `limit` and `timeoutMs`,
+and the body may also come alone, as `run(body)`.
 
 ## Whole-family calls
 
@@ -259,6 +288,14 @@ refused inside a `@nosuspend` region. A scope held in an ordinary local rather
 than a `with` is closed early by `nupp.drop(scope)`, and settles once. Operations on a settled scope raise. A close that raises before its
 children have settled, because nothing could complete a wait one of them is
 parked on, still gives the frame back and forgets the scope.
+
+A scope holds its live children, not the ones it has run. A settled child leaves
+the scope's bookkeeping as it settles, and its outcome stays with its handle, so
+awaiting the handle again answers the same way however long ago the child
+finished. A server that keeps one bounded scope open for its whole life uses
+memory for the requests in flight, not for every request it has served. A worker
+scope does the same, keeping a settled task only while closing would still owe
+it something: a failure nothing observed, or a moved result nothing consumed.
 
 ## Host scheduling
 

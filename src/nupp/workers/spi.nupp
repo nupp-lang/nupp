@@ -19,7 +19,11 @@ terminal settlement, `status` reports scheduler state, and `cancel` reports
 whether it made the first cancellation request.
 
 Scope cleanup settles all children, including those never awaited, before
-propagating unobserved failure. Cancellation uses
+propagating unobserved failure. A scope lists only what cleanup could still owe
+something to: every unsettled child, and a settled one whose failure nothing
+observed and no observer took, or whose result holds moved allocations nothing
+consumed. Any other child leaves the list as it settles, after its observer has
+heard of it, and keeps its outcome for whoever holds it. Cancellation uses
 [](nupp.runtime.cancellation). Blocking waits cooperate with the selected
 suspension implementation and must not discover implementations during settlement.
 
@@ -259,7 +263,9 @@ export type Task<F> = TaskType(F)
 --- A family of parallel child tasks, owned by the task scope whose `fork` opened it.
 export record Scope
     _scheduler: any
-    _tasks: {any}
+    _first: any
+    _last: any
+    _registered: integer
     _closed: boolean
     _deadline: number?
     _observer: any
@@ -273,6 +279,10 @@ export record Scope
     close: function(borrows self: Scope): nil
 
     _cancelAll: function(Scope, string?): nil
+
+    --- Waits for the oldest child not yet settled, without observing it, and answers
+    --- whether there was one.
+    _settleOldest: function(Scope): boolean
 end
 
 --- Complete worker implementation protocol, including structured-task integration.
