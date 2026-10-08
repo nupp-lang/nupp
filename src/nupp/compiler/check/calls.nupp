@@ -1560,9 +1560,12 @@ function calls.install(c: state.Checker): calls.Ops
                     for _, binder in ipairs(calleeT.packParams or {}) do
                         settled = settled and not mentioned[binder]
                     end
-                    if settled and value.expectedResult == nil then
-                        value.expectedResult = genericMap and generics.rebind(ft, genericMap) or ft
-                    end
+                    -- Every check of this parse stores its own: a destination left from
+                    -- an earlier one names that check's copy of a dependency's types,
+                    -- which a check made after the dependency was checked again cannot
+                    -- unify with, so a serial build -- which checks a module again when
+                    -- one it requires moves -- refused what a parallel one did not.
+                    value.expectedResult = settled and (genericMap and generics.rebind(ft, genericMap) or ft) or nil
                 end
                 local vt = c.infer(value)
                 constructionFields[fname] = {node = value, type = vt}

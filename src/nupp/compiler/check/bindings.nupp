@@ -982,10 +982,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     -- target already is does not move this statement's order or report
                     -- the target twice. The hint only helps a binder resolve; the
                     -- assignment itself is still checked below.
-                    local declared = c.refType(target)
-                    if declared and value.expectedResult == nil then
-                        value.expectedResult = declared
-                    end
+                    -- Written every time rather than only when absent: one parse is
+                    -- checked again whenever a dependency moves, and the destination a
+                    -- previous check stored names that check's copies of the types.
+                    value.expectedResult = c.refType(target)
                 elseif value
                     and (value.kind == "funcExpr" or value.kind == "shortfn")
                     and target.kind == "dotIndex"

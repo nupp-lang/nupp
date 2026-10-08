@@ -376,6 +376,69 @@ return {value = value, described = described}
     assert(require("nupp.io.files").remove(directory, true))
 end
 
+-- Staging a runtime's carried source checks the modules that name it again, from
+-- the same parse. A call's destination stored on the tree by the first check named
+-- that check's copy of a standard type, and the second check's copy of the callee
+-- could not unify with it: serially, `newObservers()` into an `Observers<integer>`
+-- field lost its binder, while a worker, which stages nothing, inferred it.
+function M.aStandardGenericFillsAFieldInEitherSchedule()
+    local directory = os.tmpname()
+    os.remove(directory)
+    write(directory .. "/nupp.lua", 'return {include = {"src"}}\n')
+    write(
+        directory .. "/src/world.nupp",
+        [[
+const {type Observers} = require("nupp.events")
+local events = require("nupp.events")
+local files = require("nupp.io.files")
+
+local record World
+    observers: Observers<integer>
+end
+
+local function newWorld(): World
+    local world = new World(observers = events.newObservers())
+    world.observers = events.newObservers()
+    return world
+end
+
+local function fresh(): Observers<integer>
+    return events.newObservers()
+end
+
+local function count(path: string): integer
+    return files.exists(path) and newWorld().observers.count or fresh().count
+end
+
+return {count = count}
+]]
+    )
+    for index = 1, 4 do
+        write(
+            directory .. ("/src/user%d.nupp"):format(index),
+            ([[
+local world = require("world")
+local files = require("nupp.io.files")
+
+local function value(path: string): integer
+    return world.count(path) + (files.exists(path) and %d or 0)
+end
+
+return {value = value}
+]]):format(index)
+        )
+    end
+
+    local serialCode, serialReport = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
+    assertEq(stable(serialReport.diagnostics), stable({}), "serial diagnostics")
+    assertEq(serialCode, 0, "serial fixture")
+    local code, report = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
+    assertEq(code, 0, "parallel exit status")
+    assertEq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
+
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
 -- Checking an `@annotation` declaration registers it with the environment rather
 -- than exporting it. A worker that imports the declaring module instead of checking
 -- it must still know the annotation, or every application it checks is unknown and
