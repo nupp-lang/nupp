@@ -2127,12 +2127,20 @@ function checkMod.check(
         return discarded
     end
 
-    local function inferListPack(exprs, paramModes)
+    local function inferListPack(exprs, paramModes, destinationFor)
         local head: {Type} = {}
         local modes, tail = {}, nil
         exprs = exprs or {}
         for j, e in ipairs(exprs) do
             c.lastCallRets = nil
+            -- A call standing where a parameter is settled resolves its result binder
+            -- from it, as one assigned to a declared target does. Asked here, in the
+            -- order the arguments run, so what the earlier ones were is known; and
+            -- stored afresh every time, since this parse is checked again whenever a
+            -- dependency moves and an old destination names old copies of its types.
+            if destinationFor and (e.kind == "call" or e.kind == "safeCall") then
+                e.expectedResult = destinationFor(j, head)
+            end
             local priorScoped = c.scopedCaptureDepth
             if paramModes and paramModes[j] == "takes" and e.kind == "tableExpr" then
                 e.affineAggregateContext = true

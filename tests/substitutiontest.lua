@@ -424,8 +424,76 @@ function M.aConstructedFieldIsADestination()
     clean(body .. "local holder = new Holder(items = make())\nholder.items = make()\nreturn holder\n")
     clean(body .. "local box = new Box(default = 1, items = make())\nlocal n: integer = box.items[1] or 0\nreturn n\n")
     clean(body .. "local box = new Box<string>(default = 'x', items = make())\nreturn box\n")
-    -- a field whose type waits on a later one has nothing settled to offer
-    reports(body .. "local box = new Box(items = make(), default = 1)\nreturn box\n", "NUPP2148")
+    -- a later field read without evaluating it -- a literal, a name -- settles it
+    clean(body .. "local box = new Box(items = make(), default = 1)\nlocal n: integer = box.items[1] or 0\nreturn n\n")
+    clean(body .. "local s = 'x'\nlocal box = new Box(items = make(), default = s)\nreturn box\n")
+    -- one that has to run first does not: it is inferred where it is written
+    reports(
+        body .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
+        "NUPP2148"
+    )
+end
+
+-- An argument is a destination too: the parameter it fills says what the call
+-- standing there returns, once that parameter is settled. A generic callee settles
+-- it from the type arguments written, the arguments before it as inferred, and the
+-- literals, names and paths after it -- never by evaluating anything out of order.
+function M.anArgumentIsADestination()
+    local body = table.concat(
+        {
+            "local function make<V>(): {V}",
+            "   return {}",
+            "end",
+            "local function take(xs: {integer}): integer",
+            "   return #xs",
+            "end",
+            "local function pair<T>(a: T, b: {T}): T",
+            "   return a",
+            "end",
+            "local function flipped<T>(b: {T}, a: T): T",
+            "   return a",
+            "end",
+            "local function only<T>(b: {T}): T?",
+            "   return b[1]",
+            "end",
+            "local function count(...: {integer}): integer",
+            "   return select('#', ...)",
+            "end",
+            "local function sized(xs: {integer}, n: integer): integer",
+            "   return #xs + n",
+            "end",
+            "local function three(): integer",
+            "   return 3",
+            "end",
+            "local record Holder",
+            "   n: integer",
+            "   function put(self, xs: {integer}): integer",
+            "      return #xs + self.n",
+            "   end",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
+    clean(body .. "return take(make())\n")
+    clean(body .. "return take(xs = make())\n")
+    clean(body .. "return sized(make(), n = 1)\n")
+    clean(body .. "return count(make(), make())\n")
+    clean(body .. "local holder = new Holder(n = 1)\nreturn holder:put(make())\n")
+    clean(body .. "local n: integer = pair(1, make())\nreturn n\n")
+    clean(body .. "local n: integer = pair(three(), make())\nreturn n\n")
+    clean(body .. "local n: integer = flipped(make(), 1)\nreturn n\n")
+    clean(body .. "local n: string? = only<string>(make())\nreturn n\n")
+    -- a binder only this argument could answer leaves it as it was
+    reports(body .. "return only(make())\n", "NUPP2148")
+    -- and a destination never overrides what the call was told
+    reports(body .. "return take(make<string>())\n", "NUPP2006")
+    -- overloads agree on the slot, or say nothing
+    local overloaded = "local type Pick = function(xs: {integer}): integer & function(xs: {integer}, n: integer): integer\n"
+        .. "local pick: Pick = nil as any\n"
+    clean(body .. overloaded .. "return pick(make())\n")
+    local differing = "local type Pick = function(xs: {integer}): integer & function(xs: {string}, n: integer): integer\n"
+        .. "local pick: Pick = nil as any\n"
+    reports(body .. differing .. "return pick(make())\n", "NUPP2148")
 end
 
 function M.explicitTypeArgumentsStayFixedAgainstArguments()

@@ -346,8 +346,10 @@ its values, and inside its own body a declaration means itself applied to its ow
 parameters, so a generic record's recursive field reads `Node?`.
 
 A call infers type parameters from arguments and, for a single result, its
-destination. A result parameter left without explicit, inferred, gradual,
-defaulted, or destination evidence is an error instead of becoming `any`.
+destination: an annotated binding, an assigned target, a declared result, a
+constructed field, or a settled parameter. A result parameter left without
+explicit, inferred, gradual, defaulted, or destination evidence is an error
+instead of becoming `any`.
 Write `make<string>()` or `value: string = make()` when no argument can supply it.
 ]=],
         example = [=[

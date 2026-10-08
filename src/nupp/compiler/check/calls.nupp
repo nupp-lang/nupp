@@ -979,6 +979,144 @@ function calls.install(c: state.Checker): calls.Ops
         end
     end
 
+    --- What an argument already is, read without evaluating it: a literal, or a name
+    --- or dotted path the reference already has a type for. Anything else is inferred
+    --- where it stands, in the order the program evaluates it, and is not looked at
+    --- before then -- reading it early could move an owner or report it twice.
+    local function settledArgumentType(node: any): Type?
+        if node == nil or cst.isToken(node) then
+            return nil
+        end
+        local kind = node.kind
+        if kind == "number" or kind == "string" or kind == "trueExpr" or kind == "falseExpr" then
+            return c.infer(node)
+        end
+        if isPluckPath(node) then
+            return c.refType(node)
+        end
+
+        return nil
+    end
+
+    --- The type arguments a call wrote, resolved without reporting anything: the
+    --- inference that follows resolves them again and says what is wrong with them.
+    local function quietTypeArguments(node: any, params: {T.TypeVar}?, map: {[any]: any})
+        local written: {any} = node.typeArgs or {}
+        if #written == 0 or #written > #(params or {}) then
+            return
+        end
+        local before = #c.diags
+        for j, binder in ipairs(params or {}) do
+            if written[j] then
+                map[binder] = c.resolveType(written[j])
+            end
+        end
+        for j = #c.diags, before + 1, -1 do
+            c.diags[j] = nil
+        end
+    end
+
+    --- The parameter type one argument position settles, or nil while it does not.
+    ---
+    --- A generic signature's binders are answered first from what can be known
+    --- without evaluating anything out of order: the type arguments written, the
+    --- arguments before this one as they were inferred, and the literals, names and
+    --- paths after it. A binder of this slot none of those answers leaves the slot
+    --- unsettled, and the call standing in it infers as it would with no destination.
+    local function slotDestination(
+        node: any,
+        signature: T.Func,
+        index: integer,
+        argumentAt: function(integer): Type?,
+        count: integer
+    ): Type?
+        local function slot(j: integer): Type?
+            local param = signature.params[j]
+            if param ~= nil then
+                return param
+            end
+            local tail = signature.paramPack and signature.paramPack.tail or nil
+            if tail and tail.kind == "homogeneous" and signature.varargType then
+                return signature.varargType
+            end
+
+            return nil
+        end
+
+        local wanted = slot(index)
+        if wanted == nil then
+            return nil
+        end
+        local binders: {any} = {}
+        for _, binder in ipairs(signature.typeParams or {}) do
+            binders[#binders + 1] = binder
+        end
+        for _, binder in ipairs(signature.packParams or {}) do
+            binders[#binders + 1] = binder
+        end
+        for _, binder in ipairs(signature.constParams or {}) do
+            binders[#binders + 1] = binder
+        end
+        if #binders == 0 then
+            return wanted
+        end
+        local mentioned = generics.bindersInPack(T.pack({wanted}))
+        local open = false
+        for _, binder in ipairs(binders) do
+            open = open or mentioned[binder] == true
+        end
+        if not open then
+            return wanted
+        end
+        local map: {[any]: any} = {}
+        quietTypeArguments(node, signature.typeParams, map)
+        local slots = slotBinders(signature)
+        for j = 1, count do
+            local param = j ~= index and slot(j) or nil
+            local actual = param and argumentAt(j) or nil
+            if param and actual then
+                unify(param, widenedArgument(param, actual, slots), map)
+            end
+        end
+        for _, binder in ipairs(binders) do
+            if mentioned[binder] and map[binder] == nil then
+                return nil
+            end
+        end
+
+        return generics.rebind(wanted, map)
+    end
+
+    --- The destination each positional argument of a call has, asked as the arguments
+    --- are inferred. An overloaded callee answers only where every candidate agrees on
+    --- the slot, so what a destination tells the argument can never be what picks the
+    --- overload.
+    local function argumentDestinations(node: any, candidates: {T.Func}, args: {any}): function(integer, {Type}): Type?
+        return function(index: integer, head: {Type}): Type?
+            local function argumentAt(j: integer): Type?
+                if j < index then
+                    return head[j]
+                end
+
+                return settledArgumentType(args[j])
+            end
+
+            local agreed: Type? = nil
+            for k, candidate in ipairs(candidates) do
+                local destination = slotDestination(node, candidate, index, argumentAt, #args)
+                if destination == nil then
+                    return nil
+                end
+                if k > 1 and agreed ~= nil and destination ~= agreed and destination.id ~= agreed.id then
+                    return nil
+                end
+                agreed = destination
+            end
+
+            return agreed
+        end
+    end
+
     local function callName(node: any, fallback: string?): string
         if node.kind == "methodCall" and node.name then
             return node.name.text
@@ -1520,6 +1658,40 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
 
+            -- What the fields that can be read without evaluating them -- literals,
+            -- names, dotted paths -- say about the record's binders, wherever they are
+            -- written. Only ever a destination for a call filling another field; the
+            -- fields are still bound, and the binders inferred, in written order.
+            local ahead: {[any]: any}? = nil
+
+            local function fieldsAhead(): {[any]: any}
+                if ahead ~= nil then
+                    return ahead
+                end
+                local found: {[any]: any} = {}
+                ahead = found
+                if not genericMap then
+                    return found
+                end
+                local position = 0
+                for _, arg in ipairs(args) do
+                    local fname, value = nil, nil
+                    if not cst.isToken(arg) and arg.kind == "namedArg" then
+                        fname, value = arg.name and arg.name.text or nil, arg.value
+                    elseif not cst.isToken(arg) and arg.kind ~= "pluckArg" then
+                        position = position + 1
+                        fname, value = order[position], arg
+                    end
+                    local declaredField = fname and (calleeT.writeByname[fname] or calleeT.byname[fname]) or nil
+                    local actual = declaredField and settledArgumentType(value) or nil
+                    if declaredField and actual then
+                        unify(specializeSelf(calleeT, declaredField, generics.ownInstance(calleeT)), actual, found)
+                    end
+                end
+
+                return found
+            end
+
             local function bindField(fname: string?, value: any, site: any, label: string)
                 if not fname then
                     c.infer(value)
@@ -1549,12 +1721,27 @@ function calls.install(c: state.Checker): calls.Ops
                 -- resolves make's result binder from the field, so `new R(f = make())`
                 -- does too. Only once the field's type is settled -- a binder of the
                 -- record nothing has answered yet would hand the call a guess.
+                -- A binder the fields before this one have not answered may still be
+                -- answered by a later one that can be read without evaluating it: in
+                -- `new Box(items = make(), default = 1)` the literal says what T is.
                 if value.kind == "call" or value.kind == "safeCall" then
                     local settled = true
                     local mentioned = generics.bindersInPack(T.pack({ft}))
+                    local known: {[any]: any}? = nil
+                    if genericMap then
+                        known = {}
+                        for binder, bound in pairs(genericMap) do
+                            known[binder] = bound
+                        end
+                    end
                     for _, binder in ipairs(calleeT.typeParams or {}) do
-                        if mentioned[binder] and (genericMap == nil or genericMap[binder] == nil) then
-                            settled = false
+                        if mentioned[binder] and (known == nil or known[binder] == nil) then
+                            local later = fieldsAhead()[binder]
+                            if later == nil or known == nil then
+                                settled = false
+                            else
+                                known[binder] = later
+                            end
                         end
                     end
                     for _, binder in ipairs(calleeT.packParams or {}) do
@@ -1565,7 +1752,7 @@ function calls.install(c: state.Checker): calls.Ops
                     -- which a check made after the dependency was checked again cannot
                     -- unify with, so a serial build -- which checks a module again when
                     -- one it requires moves -- refused what a parallel one did not.
-                    value.expectedResult = settled and (genericMap and generics.rebind(ft, genericMap) or ft) or nil
+                    value.expectedResult = settled and (known and generics.rebind(ft, known) or ft) or nil
                 end
                 local vt = c.infer(value)
                 constructionFields[fname] = {node = value, type = vt}
@@ -1911,7 +2098,10 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
         if unionMembers and #unionMembers > 1 and plainArguments then
-            local unionPack = c.inferListPack(args)
+            -- Several functions, none selected: no parameter is settled.
+            local unionPack = c.inferListPack(args, nil, function(): Type?
+                return nil
+            end)
             for _, arg in ipairs(args) do
                 local argumentType = arg.inferredType
                 if argumentType and c.ownershipKind(argumentType) then
@@ -1965,6 +2155,9 @@ function calls.install(c: state.Checker): calls.Ops
                     if (arg.kind == "namedArg" or arg.kind == "pluckArg") and (c.provisionalDepth or 0) == 0 then
                         c.diag("NUPP2006", arg, "named and plucked arguments require a statically known callable")
                     end
+                    if value.kind == "call" or value.kind == "safeCall" then
+                        value.expectedResult = nil
+                    end
                     local argumentType = c.infer(value)
                     if c.ownershipKind(argumentType) then
                         c.diag(
@@ -2007,10 +2200,57 @@ function calls.install(c: state.Checker): calls.Ops
             }
             local rawArguments: {RawArgument} = {}
             local namedStarted = false
+
+            -- A named argument's slot is the parameter of that name, read off the one
+            -- signature a single callee has; several candidates may name it at
+            -- different positions, so an overloaded one gives it no destination.
+            local function positionalDestination(index: integer): Type?
+                if overloads or calleeT.tag ~= "func" then
+                    return nil
+                end
+                local signature = calleeT as T.Func
+
+                return slotDestination(
+                    node,
+                    signature,
+                    index,
+                    function(j: integer): Type?
+                        local earlier = rawArguments[j]
+                        return earlier and earlier.kind == "plain" and earlier.type or nil
+                    end,
+                    #signature.params
+                )
+            end
+
+            local function namedDestination(name: string): Type?
+                if overloads or calleeT.tag ~= "func" then
+                    return nil
+                end
+                local signature = calleeT as T.Func
+                for j, paramName in ipairs(signature.paramNames or {}) do
+                    if paramName == name then
+                        return slotDestination(
+                            node,
+                            signature,
+                            j,
+                            function(_: integer): Type?
+                                return nil
+                            end,
+                            #signature.params
+                        )
+                    end
+                end
+
+                return nil
+            end
+
             for sourceIndex, argument in ipairs(args) do
                 if not cst.isToken(argument) and argument.kind == "namedArg" then
                     namedStarted = true
                     local value = argument.value or argument
+                    if value.kind == "call" or value.kind == "safeCall" then
+                        value.expectedResult = namedDestination(argument.name and argument.name.text or "")
+                    end
                     rawArguments[
                         #rawArguments + 1
                     ] = {
@@ -2084,6 +2324,9 @@ function calls.install(c: state.Checker): calls.Ops
                         valueType = c.infer(argument)
                         c.provisionalDepth = c.provisionalDepth - 1
                     else
+                        if argument.kind == "call" or argument.kind == "safeCall" then
+                            argument.expectedResult = positionalDestination(#rawArguments + 1)
+                        end
                         valueType = c.infer(argument)
                     end
                     rawArguments[
@@ -2272,7 +2515,8 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
             end
-            argPack = c.inferListPack(args, inferenceModes)
+            local candidates: {T.Func} = overloads or {calleeT as T.Func}
+            argPack = c.inferListPack(args, inferenceModes, argumentDestinations(node, candidates, args))
             -- A copy: the pack is interned and shared with every call whose
             -- arguments read alike, and the callback pass below replaces entries
             -- with the signature this call specialized them to.

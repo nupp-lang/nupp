@@ -187,8 +187,14 @@ Unification makes four decisions a partly inferred call depends on:
   result using that parameter is `any` deliberately.
 - **A destination can answer an otherwise open result parameter.** In
   `local value: string = make()`, the destination supplies `string`. An
-  annotated binding, an assigned variable or field, a declared result, and a
-  field `new R(field = make())` fills are destinations; an argument is not.
+  annotated binding, an assigned variable or field, a declared result, a field
+  `new R(field = make())` fills, and an argument `take(make())` passes are
+  destinations. A field or parameter whose type mentions a binder of the record
+  or callee is one only once that binder is answered: by type arguments written,
+  by the fields or arguments before it, or by a literal, name or dotted path
+  after it, so `new Box(items = make(), default = 1)` infers `items` from `1`.
+  Nothing is evaluated out of order to find out, and an overloaded callee gives
+  a destination only where every candidate agrees on the parameter.
 - **A parameter with no evidence takes its declared default.** An open result
   parameter without a default is an error instead of silently becoming `any`.
 

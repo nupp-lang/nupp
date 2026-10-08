@@ -689,7 +689,11 @@ record state.Checker
     --- The types of an expression list, expanding a trailing call's extra results.
     inferList: function(exprs: any, count: integer): {Type}
 
-    inferListPack: function(exprs: any, paramModes: {string}?): any
+    inferListPack: function(
+        exprs: any,
+        paramModes: {string}?,
+        destinationFor: (function(index: integer, head: {Type}): Type?)?
+    ): any
     checkPackDiscard: function(pack: any, first: integer, at: any): boolean
 
     --- Records a `function m.f` or `m.x = v` as a member of the returned module.
