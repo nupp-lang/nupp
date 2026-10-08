@@ -563,7 +563,8 @@ function M.fixtureWaitsFollowTheProducerNotTheClock()
     local dead = tonumber(read(dir .. "/dead.pid"):match("%d+"))
     write(
         dir .. "/tests/holderfixtest.lua",
-        ([[
+        (
+            [[
 local test = require("nupp.test")
 local function produce(key)
     local started = os.time()
@@ -589,16 +590,16 @@ return {
         test.assert(waited <= 5, "an exited producer's lock held its consumer for " .. waited .. "s")
     end,
 }
-]]):format(dir .. "/release", fixtureSlot("exited-holder") .. ".lock", dead)
+]]
+        ):format(dir .. "/release", fixtureSlot("exited-holder") .. ".lock", dead)
     )
     -- Sixteen minutes old, which alone made a lock stale, and held by a process
     -- that runs until the case releases it.
     assert(
         os.execute(
-            ("sh -c 'while [ ! -f %q ]; do sleep 0.2; done' </dev/null >/dev/null 2>&1 & echo $! > %q"):format(
-                dir .. "/release",
-                dir .. "/live.pid"
-            )
+            (
+                "sh -c 'while [ ! -f %q ]; do sleep 0.2; done' </dev/null >/dev/null 2>&1 & echo $! > %q"
+            ):format(dir .. "/release", dir .. "/live.pid")
         ) == 0
     )
     local live = tonumber(read(dir .. "/live.pid"):match("%d+"))
@@ -646,12 +647,9 @@ end}
 ]]
     )
     local _, invocation = capturedRun(
-        ("cd %q && %sNUPP_TEST_BUILD=%q %q tempdirtest --jobs=1 --json 2>/dev/null"):format(
-            dir,
-            MODULES,
-            dir .. "/build",
-            ROOT .. "/build/nupp-test"
-        )
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q tempdirtest --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
     )
     test.equal(invocation.status, 0, "the case failed" .. evidence(invocation))
     local made = read(dir .. "/made")
@@ -1174,6 +1172,9 @@ function M.writesBeforeFailing()
    io.stderr:write("failing stderr\n")
    error("the intended failure")
 end
+function M.failsWithoutAPosition()
+   error("positionless failure", 0)
+end
 return M
 ]]
     )
@@ -1187,6 +1188,10 @@ return M
     test.matches(plain, "Output from failuretest / writesBeforeFailing")
     test.matches(plain, "failing stdout")
     test.matches(plain, "failing stderr")
+    test.matches(plain, "failuretest%.lua:%d+: the intended failure")
+    test.matches(plain, "failuretest%.lua:%d+ %(case definition%): positionless failure")
+    test.matches(plain, "stdout:\n      failing stdout")
+    test.matches(plain, "stderr:\n      failing stderr")
 
     local verbose = run(dir .. "/run.lua", "--jobs=1 --verbose")
     test.matches(verbose, "ordinary output")
@@ -1596,12 +1601,15 @@ function M.workersEndWhenTheirRunnerIsKilled()
     if package.config:sub(1, 1) == "\\" then
         return test.skip("process groups are POSIX")
     end
-    local dir = runnerProject("stucktest", LINGERING .. [[
+    local dir = runnerProject(
+        "stucktest",
+        LINGERING .. [[
 return {staysBusy = function()
     linger()
     os.execute("sleep 300")
 end}
-]])
+]]
+    )
     -- Started from a shell that stays to wait on it, as a command would: a runner
     -- whose parent has gone ends by itself, which is the next case.
     assert(
@@ -1657,27 +1665,26 @@ function M.aRunnerEndsWhatItStartedWhenItsCommandIsKilled()
         return test.skip("process groups are POSIX")
     end
     for _, shape in ipairs({"parent", "named"}) do
-        local dir = runnerProject("lonetest", LINGERING .. [[
+        local dir = runnerProject(
+            "lonetest",
+            LINGERING .. [[
 return {staysBusy = function()
     linger()
     os.execute("sleep 300")
 end}
-]])
-        local runner = ("%sNUPP_TEST_BUILD=%q %q lonetest --jobs=1 --json; :"):format(
-            MODULES,
-            dir .. "/build",
-            ROOT .. "/build/nupp-test"
+]]
         )
+        local runner = (
+            "%sNUPP_TEST_BUILD=%q %q lonetest --jobs=1 --json; :"
+        ):format(MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
         -- The command: a shell that waits on the runner, or one that names itself
         -- and waits on another shell that waits on the runner.
-        local command = shape == "parent" and runner
-            or ("NUPP_TEST_WATCH_PID=$$ sh -c %s; :"):format(shellWord(runner))
+        local command = shape == "parent" and runner or ("NUPP_TEST_WATCH_PID=$$ sh -c %s; :"):format(shellWord(runner))
         assert(
             os.execute(
-                ("cd %q && { sh -c %s </dev/null >/dev/null 2>&1 & echo $! > command.pid; }"):format(
-                    dir,
-                    shellWord(command)
-                )
+                (
+                    "cd %q && { sh -c %s </dev/null >/dev/null 2>&1 & echo $! > command.pid; }"
+                ):format(dir, shellWord(command))
             ) == 0
         )
         local started = tonumber(read(dir .. "/command.pid"):match("%d+"))

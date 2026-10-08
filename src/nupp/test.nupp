@@ -7,6 +7,7 @@ Assertions, for Nupp's own test runner and for project suites.
 const test = nupp.test
 
 test.equal(2 + 2, 4)
+test.deepEqual({"ready", 200}, {"ready", 200})
 test.matches(greeting, "^hello")
 test.raises(function(): nil error("nope") end, "nope")
 ```
@@ -20,32 +21,106 @@ const name = test.assert(lookup(id), "no row for " .. id)
 ```
 ]]
 
-local function show(value: any, seen: table?, depth: integer?): string
-    depth = depth or 0
+local DISPLAY_BUDGET = 512
+local MISSING = {}
+
+local function clipped(text: string, budget: any): string
+    if budget.left == 0 then
+        if not budget.truncated then
+            budget.truncated = true
+            return "..."
+        end
+        return ""
+    end
+    if #text <= budget.left then
+        budget.left = budget.left - #text
+        return text
+    end
+    local out = text:sub(1, math.max(0, budget.left - 3)) .. "..."
+    budget.left = 0
+    budget.truncated = true
+
+    return out
+end
+
+local function showWithin(value: any, seen: table, budget: any): string
+    if value == MISSING then
+        return clipped("<missing>", budget)
+    end
     local kind = type(value)
     if kind ~= "table" then
         if kind == "string" then
-            return string.format("%q", value)
+            return clipped(string.format("%q", value), budget)
         else
-            return tostring(value)
+            return clipped(tostring(value), budget)
         end
     end
-    if depth >= 2 then
-        return "{...}"
-    end
-    seen = seen or {}
     if seen[value] then
-        return "<cycle>"
+        return clipped("<cycle>", budget)
     end
     seen[value] = true
-    local parts: {string} = {}
-    for key, item in pairs(value) do
-        parts[#parts + 1] = "[" .. show(key, seen, depth + 1) .. "]=" .. show(item, seen, depth + 1)
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
     end
-    table.sort(parts)
+    table.sort(keys, function(left: any, right: any): boolean
+        local leftKind, rightKind = type(left), type(right)
+        if leftKind ~= rightKind then
+            return leftKind < rightKind
+        end
+
+        return tostring(left) < tostring(right)
+    end)
+    local parts: {string} = {clipped("{", budget)}
+    for index, key in ipairs(keys) do
+        if budget.left == 0 then
+            break
+        end
+        if index > 1 then
+            parts[#parts + 1] = clipped(", ", budget)
+        end
+        parts[#parts + 1] = clipped("[", budget)
+        parts[#parts + 1] = showWithin(key, seen, budget)
+        parts[#parts + 1] = clipped("]=", budget)
+        parts[#parts + 1] = showWithin(value[key], seen, budget)
+    end
+    parts[#parts + 1] = clipped("}", budget)
     seen[value] = nil
 
-    return "{" .. table.concat(parts, ", ") .. "}"
+    return table.concat(parts)
+end
+
+local function show(value: any): string
+    return showWithin(value, {}, {left = DISPLAY_BUDGET})
+end
+
+local function indented(text: string, prefix: string): string
+    local out = text:gsub("\n", "\n" .. prefix)
+
+    return out
+end
+
+local function difference(expected: any, actual: any, message: string?, where: string?): string
+    local wanted, got = show(expected), show(actual)
+    local location = where and ("at " .. where .. ": ") or ""
+    if not wanted:find("\n", 1, true) and not got:find("\n", 1, true) and #location + #wanted + #got <= 80 then
+        local detail = location .. "want " .. wanted .. ", got " .. got
+        if where == nil then
+            detail = "expected " .. wanted .. ", got " .. got
+        end
+        if message ~= nil then
+            detail = detail .. ": " .. message
+        end
+
+        return detail
+    end
+    local title = message or "values differ"
+    local path = where and ("\n  at " .. where) or ""
+
+    return title .. ":" .. path .. "\n  want: " .. indented(
+        wanted,
+        "        "
+    ) .. "\n  got:  " .. indented(got, "        ")
 end
 
 local function fail(message: string, level: integer?): never
@@ -115,11 +190,128 @@ export function equal(actual: any, expected: any, message: string?): any
     if actual == expected then
         return actual
     end
-    local detail = "expected " .. show(expected) .. ", got " .. show(actual)
-    if message ~= nil then
-        detail = detail .. ": " .. message
+    fail(difference(expected, actual, message), 2)
+end
+
+local function keyRank(key: any): integer?
+    local kind = type(key)
+    if kind == "boolean" then
+        return 1
+    elseif kind == "number" then
+        return 2
+    elseif kind == "string" then
+        return 3
+    else
+        return nil
     end
-    fail(detail, 2)
+end
+
+local function structuralKeys(value: {[any]: any}): ({any}?, string?)
+    local keys: {any} = {}
+    for key in pairs(value) do
+        if keyRank(key) == nil then
+            return nil, type(key)
+        end
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(left: any, right: any): boolean
+        local leftRank, rightRank = keyRank(left) as integer, keyRank(right) as integer
+        if leftRank ~= rightRank then
+            return leftRank < rightRank
+        elseif leftRank == 1 then
+            return left == false and right == true
+        end
+
+        return left < right
+    end)
+
+    return keys, nil
+end
+
+local function childPath(path: string, key: any): string
+    if type(key) == "string" and key:find("^[%a_][%w_]*$") then
+        return path .. "." .. key
+    end
+
+    return path .. "[" .. show(key) .. "]"
+end
+
+local function structuralDifference(actual: any, expected: any, path: string, seen: any): any, any, any
+    if rawequal(actual, expected) then
+        return nil, nil, nil
+    end
+    local actualKind, expectedKind = type(actual), type(expected)
+    if actualKind ~= "table" or expectedKind ~= "table" then
+        if actual == expected then
+            return nil, nil, nil
+        end
+
+        return path, expected, actual
+    end
+    local actualMeta, expectedMeta = getmetatable(actual), getmetatable(expected)
+    if actualMeta ~= expectedMeta then
+        return path .. ".<metatable>", expectedMeta, actualMeta
+    elseif type(actualMeta) == "table" and rawget(actualMeta as table, "__eq") ~= nil then
+        if actual == expected then
+            return nil, nil, nil
+        end
+
+        return path, expected, actual
+    end
+    local paired = seen[actual]
+    if paired ~= nil and paired[expected] then
+        return nil, nil, nil
+    end
+    if paired == nil then
+        paired = {}
+        seen[actual] = paired
+    end
+    paired[expected] = true
+
+    local expectedKeys, expectedKeyProblem = structuralKeys(expected as {[any]: any})
+    if expectedKeys == nil then
+        return path .. ".<key>", "boolean, number, or string key", (expectedKeyProblem as string) .. " key"
+    end
+    local actualKeys, actualKeyProblem = structuralKeys(actual as {[any]: any})
+    if actualKeys == nil then
+        return path .. ".<key>", "boolean, number, or string key", (actualKeyProblem as string) .. " key"
+    end
+    for _, key in ipairs(expectedKeys) do
+        local nestedPath = childPath(path, key)
+        local actualValue = rawget(actual, key)
+        if actualValue == nil then
+            return nestedPath, expected[key], MISSING
+        end
+        local differingPath, wanted, got = structuralDifference(actualValue, expected[key], nestedPath, seen)
+        if differingPath ~= nil then
+            return differingPath, wanted, got
+        end
+    end
+    for _, key in ipairs(actualKeys) do
+        if rawget(expected, key) == nil then
+            return childPath(path, key), MISSING, actual[key]
+        end
+    end
+
+    return nil, nil, nil
+end
+
+--- Requires two values to be structurally equal and returns the actual value.
+---
+--- Tables compare their own fields recursively. Keys must be booleans, numbers,
+--- or strings. Shared references do not have to use the same aliasing, and cycles
+--- compare by bisimulation. A shared `__eq` metamethod decides equality for its
+--- instances. Other leaves use native equality, so NaN differs from NaN and
+--- reference cdata compares by identity.
+---
+--- @raises string at the first differing path
+export function deepEqual(actual: any, expected: any, message: string?): any
+    local path, wanted, got = structuralDifference(actual, expected, "value", {})
+    if path ~= nil then
+        fail(difference(wanted, got, message, path), 2)
+    end
+
+    return actual
 end
 
 --- Requires two values to differ and returns the actual value.

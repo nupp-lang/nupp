@@ -58,6 +58,7 @@ package.preload.testjson = package.preload.testjson or function()
         if reason ~= nil then
             error(reason, 2)
         end
+
         return value
     end
 
@@ -66,6 +67,7 @@ package.preload.testjson = package.preload.testjson or function()
         if reason ~= nil then
             error(reason, 2)
         end
+
         return value
     end
 
@@ -89,8 +91,11 @@ local function utf8Text(text)
     local i, n = 1, #text
     while i <= n do
         local c = text:byte(i)
-        local length = c < 0x80 and 1 or c >= 0xC2 and c <= 0xDF and 2 or c >= 0xE0 and c <= 0xEF and 3
-            or c >= 0xF0 and c <= 0xF4 and 4 or 0
+        local length = c < 0x80 and 1
+            or c >= 0xC2 and c <= 0xDF and 2
+            or c >= 0xE0 and c <= 0xEF and 3
+            or c >= 0xF0 and c <= 0xF4 and 4
+            or 0
         local valid = length > 0 and i + length - 1 <= n
         for k = i + 1, valid and i + length - 1 or i do
             local b = text:byte(k)
@@ -100,7 +105,9 @@ local function utf8Text(text)
         end
         if valid and length >= 3 then
             local b = text:byte(i + 1)
-            valid = not (c == 0xE0 and b < 0xA0) and not (c == 0xED and b > 0x9F) and not (c == 0xF0 and b < 0x90)
+            valid = not (c == 0xE0 and b < 0xA0)
+                and not (c == 0xED and b > 0x9F)
+                and not (c == 0xF0 and b < 0x90)
                 and not (c == 0xF4 and b > 0x8F)
         end
         if valid then
@@ -111,6 +118,7 @@ local function utf8Text(text)
             i = i + 1
         end
     end
+
     return table.concat(out)
 end
 
@@ -130,8 +138,10 @@ local function utf8Strings(value, seen)
             value[key] = utf8Strings(item, seen)
         end
     end
+
     return value
 end
+
 local embedded = rawget(_G, "__NUPP_TEST_EMBEDDED") == true
 local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 
@@ -213,6 +223,7 @@ do
                     return true
                 end
                 -- EPERM: alive, and somebody else's. Everything else is ESRCH.
+
                 return ffi.errno() == 1
             end
         end
@@ -839,19 +850,21 @@ do
                     alive[#alive + 1] = ("{ kill -0 %s 2>/dev/null || ps -p %s >/dev/null 2>&1; }"):format(pid, pid)
                 end
                 local group = tostring(processId)
-                local watcher = table.concat({
-                    "( trap '' HUP INT TERM",
-                    "exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-",
-                    "while " .. table.concat(alive, " && ") .. "; do sleep 1; done",
-                    ("kill -0 -%s 2>/dev/null || exit 0"):format(group),
-                    ("kill -TERM -%s 2>/dev/null"):format(group),
-                    "waited=0",
-                    ("while kill -0 -%s 2>/dev/null && [ $waited -lt %d ]; do sleep 1; waited=$((waited + 1)); done"):format(
-                        group,
-                        grace
-                    ),
-                    ("kill -KILL -%s 2>/dev/null ) </dev/null >/dev/null 2>&1 &"):format(group),
-                }, "; ")
+                local watcher = table.concat(
+                    {
+                        "( trap '' HUP INT TERM",
+                        "exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-",
+                        "while " .. table.concat(alive, " && ") .. "; do sleep 1; done",
+                        ("kill -0 -%s 2>/dev/null || exit 0"):format(group),
+                        ("kill -TERM -%s 2>/dev/null"):format(group),
+                        "waited=0",
+                        (
+                            "while kill -0 -%s 2>/dev/null && [ $waited -lt %d ]; do sleep 1; waited=$((waited + 1)); done"
+                        ):format(group, grace),
+                        ("kill -KILL -%s 2>/dev/null ) </dev/null >/dev/null 2>&1 &"):format(group),
+                    },
+                    "; "
+                )
                 os.execute(watcher)
             end)
         end
@@ -1288,6 +1301,23 @@ local function errorPosition(message)
     return rest, file, tonumber(line)
 end
 
+local function failureText(record)
+    local failure = record.failure
+    local file, line = failure.file, failure.line
+    local suffix = ""
+    if file == nil then
+        file, line = record.file, record.line
+        suffix = file and " (case definition)" or ""
+    end
+    local where = file and line and ("%s:%d%s: "):format(file, line, suffix) or ""
+
+    return where .. failure.message
+end
+
+local function indentContinuation(text, prefix)
+    return text:gsub("\n", "\n" .. prefix)
+end
+
 local results = {}
 -- One record per suite this process ran, so the report can say where the time
 -- went at the granularity the shards are packed at. A suite is more than the sum
@@ -1333,10 +1363,10 @@ local function captured(record)
     end
     local lines = {"\n  Output from " .. record.suite .. " / " .. record.name .. ":\n"}
     if output.stdout ~= "" then
-        lines[#lines + 1] = "    stdout:\n" .. output.stdout
+        lines[#lines + 1] = "    stdout:\n      " .. output.stdout:gsub("\n", "\n      "):gsub("      $", "")
     end
     if output.stderr ~= "" then
-        lines[#lines + 1] = "    stderr:\n" .. output.stderr
+        lines[#lines + 1] = "    stderr:\n      " .. output.stderr:gsub("\n", "\n      "):gsub("      $", "")
     end
     if lines[#lines]:sub(-1) ~= "\n" then
         lines[#lines + 1] = "\n"
@@ -1422,19 +1452,24 @@ local function groupedWorker(worker)
     end
     local grace = math.max(1, 6 - groupDepth)
 
-    return table.concat({
-        "nupp_reap() { kill -0 -$1 2>/dev/null || return 0; kill -TERM -$1 2>/dev/null; nupp_waited=0;"
-            .. " while kill -0 -$1 2>/dev/null && [ $nupp_waited -lt " .. grace .. " ]; do sleep 1;"
+    return table.concat(
+        {
+            "nupp_reap() { kill -0 -$1 2>/dev/null || return 0; kill -TERM -$1 2>/dev/null; nupp_waited=0;"
+            .. " while kill -0 -$1 2>/dev/null && [ $nupp_waited -lt "
+            .. grace
+            .. " ]; do sleep 1;"
             .. " nupp_waited=$((nupp_waited + 1)); done; kill -KILL -$1 2>/dev/null; }",
-        ("NUPP_TEST_PROCESS_GROUP=1 NUPP_TEST_GROUP_DEPTH=%d %s & nupp_worker=$!"):format(groupDepth + 1, worker),
-        "trap 'nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; exit 143' HUP INT TERM",
-        "( while kill -0 $PPID 2>/dev/null && kill -0 $nupp_worker 2>/dev/null; do sleep 2; done;"
+            ("NUPP_TEST_PROCESS_GROUP=1 NUPP_TEST_GROUP_DEPTH=%d %s & nupp_worker=$!"):format(groupDepth + 1, worker),
+            "trap 'nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; exit 143' HUP INT TERM",
+            "( while kill -0 $PPID 2>/dev/null && kill -0 $nupp_worker 2>/dev/null; do sleep 2; done;"
             .. " kill -0 $PPID 2>/dev/null || { nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; } )"
             .. " </dev/null >/dev/null 2>&1 & nupp_watch=$!",
-        "wait $nupp_worker; nupp_status=$?",
-        "kill $nupp_watch 2>/dev/null",
-        "nupp_reap $nupp_worker",
-    }, "; ")
+            "wait $nupp_worker; nupp_status=$?",
+            "kill $nupp_watch 2>/dev/null",
+            "nupp_reap $nupp_worker",
+        },
+        "; "
+    )
 end
 
 local fixtureRoot = buildRoot .. "/test-fixtures"
@@ -1737,12 +1772,9 @@ local function resolveFixture(key, produce)
     local waited = os.time() - began
     if holder ~= nil then
         error(
-            ("timed out after %ds waiting for fixture %s; pid %d still holds %s and is still running"):format(
-                waited,
-                key,
-                holder,
-                lock
-            ),
+            (
+                "timed out after %ds waiting for fixture %s; pid %d still holds %s and is still running"
+            ):format(waited, key, holder, lock),
             2
         )
     end
@@ -1871,7 +1903,7 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         record.failure = {message = message, file = errFile, line = errLine}
         record.output = {stdout = stdout, stderr = stderr}
         if traceCases then
-            io.stderr:write("__failure__:", tostring(message), "\n")
+            io.stderr:write("__failure__:", indentContinuation(failureText(record), "    "), "\n")
         end
         if not queueDir then
             mark("E")
@@ -1950,6 +1982,7 @@ local function recorded()
     local ok, decoded = pcall(function()
         return testJson.decode(text)
     end)
+
     -- Only durations are kept. The planner adds these up, and one entry that
     -- decoded as something else stopped every run with an arithmetic error --
     -- and, since that run never rewrote the file, every run after it too.
@@ -1960,8 +1993,10 @@ local function recorded()
                 kept[name] = ms
             end
         end
+
         return kept
     end
+
     if ok and type(decoded) == "table" then
         recordedOnce.suites = durations(decoded.suites)
         for suite, cases in pairs(type(decoded.cases) == "table" and decoded.cases or {}) do
@@ -3246,12 +3281,9 @@ end
 local function runFreshPiece(spec)
     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
     local errors = os.tmpname()
-    local worker = ("NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s"):format(
-        invocation,
-        shellQuote(spec),
-        colorMode,
-        verbose and " --verbose" or ""
-    )
+    local worker = (
+        "NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s"
+    ):format(invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "")
     local command = (
         "{ %s; printf '\n__piece_status__:%%d\n' $nupp_status; } 2>%s"
     ):format(groupedWorker(worker), shellQuote(errors))
@@ -3721,7 +3753,11 @@ else
         for _, record in ipairs(results) do
             if record.status == "failed" then
                 local label = ("%s / %s"):format(record.suite, record.name)
-                io.write(("\n  %s\n      %s\n"):format(paint("1;31", label), record.failure.message))
+                io.write(
+                    (
+                        "\n  %s\n      %s\n"
+                    ):format(paint("1;31", label), indentContinuation(failureText(record), "      "))
+                )
                 io.write(captured(record))
             end
         end

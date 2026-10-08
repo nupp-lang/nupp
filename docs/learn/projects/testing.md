@@ -146,8 +146,11 @@ return M
 
 `nupp.test` is a shipped module, not a file copied from Nupp's own tests.
 `test.assert`, `test.equal`, `test.notEqual`, `test.matches`, and `test.raises`
-include the relevant values in failures; table values are rendered to make
-structural differences visible. `test.skip("reason")` records a skipped test.
+include the relevant values in failures. Long and multiline values use a block
+layout, and large values are truncated to keep the failure readable.
+`test.deepEqual(actual, expected)` compares table fields recursively and names
+the first differing path. Its table keys are booleans, numbers, or strings;
+other leaves use native equality. `test.skip("reason")` records a skipped test.
 The runner also upgrades the ordinary global `assert` to report the falsy value
 it received, so existing suites get better failures without being rewritten.
 
