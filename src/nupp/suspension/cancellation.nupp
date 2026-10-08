@@ -1,4 +1,4 @@
-module nupp.runtime.cancellation
+module nupp.suspension.cancellation
 
 --[[
 Canonical task-cancellation identity within one Lua state.
@@ -8,10 +8,13 @@ and worker adapters. `is` recognizes its metatable identity without relying on
 message text. The operation and optional reason remain available as fields, and
 string conversion produces a contextual cancellation message.
 
-This is an ordinary declaration/helper module, not a selectable service. Provider
-implementations import it to preserve cancellation recognition across subsystem
-boundaries. Worker states reconstruct cancellation values locally; no metatable
-or Lua object identity is transferred between states.
+This is an ordinary declaration/helper module, not a selectable service. It sits
+beside [](nupp.suspension) rather than inside it because the providers that
+mint these values are what the facade selects: a provider loads this module
+without loading the facade, exactly as it loads [](nupp.suspension.spi).
+
+Worker states reconstruct cancellation values locally; no metatable or Lua
+object identity is transferred between states.
 ]]
 
 local TaskCancellationMT: any = {}

@@ -18,13 +18,13 @@ handler installations restore the captured outer handler.
 
 All public Source, Context, Waiting, Handler, and Installed values use the shared
 contract declarations. Cancellation values come from
-[](nupp.runtime.cancellation), so tasks and worker lanes recognize the
+[](nupp.suspension.cancellation), so tasks and worker lanes recognize the
 same cancellation identity within a state. [](nupp.suspension) resolves this
 implementation at require-time; scheduling operations retain it directly.
 ]]
 
 local contract = require("nupp.suspension.spi")
-local cancellation = require("nupp.runtime.cancellation")
+local cancellation = require("nupp.suspension.cancellation")
 local suspension = {}
 
 -- Coroutine and worker tasks share one nominal runtime cancellation identity.

@@ -24,7 +24,7 @@ something to: every unsettled child, and a settled one whose failure nothing
 observed and no observer took, or whose result holds moved allocations nothing
 consumed. Any other child leaves the list as it settles, after its observer has
 heard of it, and keeps its outcome for whoever holds it. Cancellation uses
-[](nupp.runtime.cancellation). Blocking waits cooperate with the selected
+[](nupp.suspension.cancellation). Blocking waits cooperate with the selected
 suspension implementation and must not discover implementations during settlement.
 
 Each lane uses the artifact's immutable SPI index and loads independent module

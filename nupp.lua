@@ -170,7 +170,7 @@ local RESOURCES = {
     {source = "src/nupp/io/files/messages.nupp", output = "nupp/compiler/nupp/io/files/messages.nupp"},
     {source = "src/nupp/io/files/path.nupp", output = "nupp/compiler/nupp/io/files/path.nupp"},
     {source = "src/nupp/gpu/spi.nupp", output = "nupp/compiler/nupp/gpu/spi.nupp"},
-    {source = "src/nupp/runtime/cancellation.nupp", output = "nupp/compiler/nupp/runtime/cancellation.nupp"},
+    {source = "src/nupp/suspension/cancellation.nupp", output = "nupp/compiler/nupp/suspension/cancellation.nupp"},
     {
         source = "src/nupp/runtime/representation/init.nupp",
         output = "nupp/compiler/nupp/runtime/representation/init.nupp"

@@ -38,7 +38,7 @@ local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 
 local contract = require("nupp.suspension.spi")
-local cancellation = require("nupp.runtime.cancellation")
+local cancellation = require("nupp.suspension.cancellation")
 local provider: contract.Provider = do
     const chosen = spi.select(spi.load(contract.Provider))
     if chosen ~= nil then

@@ -14,7 +14,7 @@ records declared by [](nupp.suspension.spi).
 A bounded activation budget returns control to the browser event loop so queued
 callbacks and cancellation can make progress. Resume settles a wait once;
 release removes registrations without suspending. Tasks and worker lanes use
-[](nupp.runtime.cancellation) for cancellation identity.
+[](nupp.suspension.cancellation) for cancellation identity.
 
 The browser host must install its effect transport before consumers load
 [](nupp.suspension). Handler, source, and waiting state stays local to each Lua
@@ -23,7 +23,7 @@ state, and scheduling operations never resolve the service again.
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.suspension.spi")
-local cancellation = require("nupp.runtime.cancellation")
+local cancellation = require("nupp.suspension.cancellation")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}

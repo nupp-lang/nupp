@@ -22,7 +22,7 @@ retained context state without service lookups.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local cancellation = require("nupp.runtime.cancellation")
+local cancellation = require("nupp.suspension.cancellation")
 local effects = require("nupp.runtime.browser.effects")
 local requestNosuspend = effects.request as @nosuspend function(string, any, function(any): nil): function()
 local memory = require("nupp.runtime.browser.memory") as any

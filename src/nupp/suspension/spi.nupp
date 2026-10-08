@@ -23,7 +23,7 @@ them. The facade refuses an implementation without both.
 Sources report readiness in `order`, lowest first. Context.uses identifies sources
 needed by a wait, while canPark distinguishes schedulers that can yield from
 ones that must drive readiness themselves. Cancellation values must come from
-[](nupp.runtime.cancellation), which preserves recognition by tasks and
+[](nupp.suspension.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
 ]]
