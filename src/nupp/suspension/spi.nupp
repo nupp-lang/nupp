@@ -8,22 +8,22 @@ The facade retains the selected functions. Source, Context, Waiting, Handler,
 and Installed are the shared types; providers initialize these declarations or
 satisfy their exact signatures without replacing their nominal identities.
 
+Each record declares what its holder may read and nothing else. Whatever state an
+implementation needs beside that is its own, kept where callers cannot reach it,
+so two implementations may represent a source or an installation differently and
+neither has to reproduce the other's layout.
+
 A subscription may resume synchronously or later. It must settle a Waiting only
 once and run returned cleanup when the wait ends, including cancellation.
 `Waiting.onResume` is settle-safe: registering a waker on a wait that has already
-settled runs it immediately. Source release and Installed close must not suspend. Nested installation restores the
-captured handler, and transparent handlers preserve delegation to the outer
-scheduler. `create` propagates the suspension context into a new coroutine.
-
-Beside the interface, an implementation publishes two hooks with `rawset`:
-`__delegatedCanPark` and `__delegatedPark` each capture, where they are called,
-the handler an installation is about to displace, and answer that handler's
-`canPark` and `park` later. A task scope's driver defers to its host through
-them. The facade refuses an implementation without both.
+settled runs it immediately. Source release and Installed close must not suspend.
+Nested installation restores the captured handler, and a driver installation
+preserves delegation to the outer scheduler. `create` propagates the suspension
+context into a new coroutine.
 
 Sources report readiness in `order`, lowest first. Context.uses identifies sources
 needed by a wait. Whether a park is permitted here is `canSuspend`, which answers
-for the handler in force rather than for one subscription. Cancellation values must come from
+for the handler in force. Cancellation values must come from
 [](nupp.suspension.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
@@ -47,18 +47,6 @@ export record Source
 
     --- Optional predicate deciding whether the source has outstanding work.
     active: (function(source: Source): boolean)?
-
-    --- Stable registration-order tie breaker used by the provider.
-    _sequence: integer = 0
-
-    --- Provider-owned nonblocking readiness callback.
-    _poller: (function(): integer)?
-
-    --- Provider-owned blocking readiness callback.
-    _waiter: (function(integer): integer)?
-
-    --- Whether the registration has already been released.
-    _released: boolean = false
 end
 
 --- Subscription context used to register or associate readiness sources.
@@ -77,12 +65,6 @@ export record Context
 
     --- Associates an existing source with this wait without changing its identity.
     uses: function(self: Context, source: Source): nil
-
-    --- Provider-owned active handler state.
-    _handler: any
-
-    --- Sources associated with this subscription, when explicitly tracked.
-    _associated: {Source}?
 end
 
 --- A single pending operation observed by a suspension handler.
@@ -100,9 +82,6 @@ export record Waiting
 
     --- Diagnostic operation name supplied to suspend.
     operation: string
-
-    --- Provider-owned settlement and subscription state.
-    _state: any
 end
 
 --- Scheduler integration operations with explicit Handler receivers.
@@ -126,26 +105,8 @@ export record Installed is nupp.Closeable
     --- that fails leaves the installation to be closed again.
     close: @nosuspend function(takes self: Installed): nil
 
-    --- Coroutine whose handler is installed, or the provider's main-state key.
-    _co: any
-
-    --- Captured outer handler state restored by close.
-    _previous: any
-
     --- Handler supplied by the caller.
     handler: Handler
-
-    --- Whether operations may delegate through to the outer context.
-    transparent: boolean
-
-    --- Whether the outer handler has been restored.
-    _restored: boolean = false
-
-    --- Whether installation cleanup has completed.
-    _released: boolean = false
-
-    --- Provider bookkeeping for waits owned by this installation.
-    _parks: any
 end
 
 --- Typed subscription operation preserving the result type T.
@@ -174,8 +135,14 @@ export interface Provider
     --- Subscribes once, then waits for a typed result through the active handler.
     @readonly suspend: Suspend
 
-    --- Installs a handler and returns affine restoration state.
-    @readonly install: function(handler: Handler, transparent: boolean?): affine(Installed)
+    --- Installs a host's handler and returns affine restoration state.
+    @readonly install: function(handler: Handler): affine(Installed)
+
+    --- Installs a driver's handler, which stands in front of a host rather than being
+    --- one: a task scope opened in a frame installs one so the frame's own waits keep
+    --- its children running, and it does not bound a host turn where no host is
+    --- beneath it.
+    @readonly installDriver: function(handler: Handler): affine(Installed)
 
     --- Creates a coroutine preserving the active suspension context and result pack.
     @readonly create: Create
@@ -185,4 +152,47 @@ export interface Provider
 
     --- Reports whether this execution context can perform a suspension.
     @readonly canSuspend: function(): boolean
+
+    --- Captures the barrier in force here, for a driver about to displace it.
+    ---
+    --- A driver's handler changes where a branch yields and must not quietly grant
+    --- permission the handler it displaced refused, so a driver takes this before it
+    --- installs and answers `canPark` with it. Resolved when called rather than where
+    --- captured, because a host enters and leaves barriers while a driver is live.
+    @readonly delegatedCanPark: function(): function(): boolean
+
+    --- Captures how a wait is parked here, for a driver about to displace it.
+    ---
+    --- A driver runs its own work while a frame waits and hands what it cannot
+    --- satisfy to the handler it displaced, or to the blocking park where there is
+    --- none. Captured like `delegatedCanPark`, and resolved when called.
+    @readonly delegatedPark: function(): function(Waiting, function(): nil): nil
+
+    --- Builds a Waiting that settles when `base` does or when `ready` answers true.
+    ---
+    --- A driver parks outward on the result, so the park it hands to its host is
+    --- woken both by the wait it was given and by its own work becoming runnable.
+    --- `arm` registers the driver's own wakers and receives the same callback `base`
+    --- is armed with, which runs at most once per registration. Whatever routing
+    --- state `base` carries travels with the derived wait, so a blocking park on it
+    --- reaches the readiness sources the original named.
+    @readonly derive: function(
+        base: Waiting,
+        ready: function(): boolean,
+        arm: function(wake: function(): nil): nil
+    ): Waiting
+
+    --- Whether the aggregate running here may spend another coroutine activation
+    --- before it owes its host a turn.
+    ---
+    --- Turn budgeting is an implementation's to offer: absent, the three leave the
+    --- aggregate turn unbounded, and the facade supplies that reading. An
+    --- implementation publishes all three or none.
+    @readonly turnAvailable: (function(): boolean)?
+
+    --- Records one coroutine activation against the current turn.
+    @readonly consumeTurn: (function(): nil)?
+
+    --- Parks until the host has had its turn.
+    @readonly deferTurn: (function(): nil)?
 end

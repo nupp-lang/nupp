@@ -26,7 +26,7 @@ local base64 = require("nupp.codec.base64")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("nupp.suspension")
-local suspensionRuntime = suspension as any
+local cancellation = require("nupp.suspension.cancellation")
 local workers = {}
 
 local contracts = require("nupp.workers.spi")
@@ -288,10 +288,7 @@ local function settle(task: any, value: any): nil
         task._state = "done"
     elseif status == "cancelled" then
         task._cancelled = task._cancelled
-            or suspensionRuntime.__taskCancellation(
-                "worker task",
-                value.deadline == true and "its deadline passed" or nil
-            )
+            or cancellation.create("worker task", value.deadline == true and "its deadline passed" or nil)
         task._state = "cancelled"
     else
         task._error = value ~= nil and value.error or "worker task failed without an error"
@@ -373,7 +370,7 @@ function TaskImpl:cancel(reason: string?): boolean
         return false
     end
     self._requested = true
-    self._cancelled = suspensionRuntime.__taskCancellation("worker task", reason)
+    self._cancelled = cancellation.create("worker task", reason)
     poolRequest({operation = "cancel", task = self._id, reason = reason,}, function(item: any): nil
         deliverStarts(item ~= nil and item.ok == true and item.value or nil)
     end)
@@ -695,7 +692,7 @@ local function runFrame(frame: any): any
         return pack(callable(unpack(arguments.values, 1, arguments.count)))
     end)
     if not ok then
-        if suspensionRuntime.__isTaskCancellation(answer) then
+        if cancellation.is(answer) then
             local cancelled = answer as any
             return {
                 operation = "reply",

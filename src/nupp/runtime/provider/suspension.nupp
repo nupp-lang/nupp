@@ -24,17 +24,7 @@ implementation at require-time; scheduling operations retain it directly.
 ]]
 
 local contract = require("nupp.suspension.spi")
-local cancellation = require("nupp.suspension.cancellation")
 local suspension = {}
-
--- Coroutine and worker tasks share one nominal runtime cancellation identity.
--- Kept private here because both task modules already depend on suspension, while
--- making either high-level module require the other creates a module-graph cycle.
-local taskCancellation = cancellation.create
-local isTaskCancellation = cancellation.is
-
-rawset(suspension, "__taskCancellation", taskCancellation)
-rawset(suspension, "__isTaskCancellation", isTaskCancellation)
 
 --- How many times a release drives the readiness pumps waiting for an abandoned park to
 --- finish unwinding. A handler that has not finished by then is not going to: the point
@@ -695,6 +685,43 @@ local function closeInstallation(self: any): nil
     self._released = true
 end
 
+-- What `install` and `installDriver` share. A driver differs only in not bounding a
+-- host turn, which is one flag in the extent's own state rather than a parameter
+-- either entry point asks its caller about.
+local function installHandler(handler: suspension.Handler, transparent: boolean): affine(contract.Installed)
+    local co = running()
+    local previous
+    if co == nil then
+        previous = mainInstalled
+    else
+        previous = installed[co]
+    end
+    -- The close runs the handler's shutdown and the pumps, which the checker cannot
+    -- prove non-suspending; the contract promises it, as it does for any provider.
+    local owned = new contract.Installed(close = closeInstallation as any, handler = handler)
+    -- The coroutine's slot keeps the record as well as the caller, who holds the one
+    -- obligation to close it.
+    --
+    -- What is stored is the installation, not the handler: a park belongs to the extent
+    -- that accepted it, and one handler may be installed by two of them. The rest of
+    -- the extent's state is written here rather than declared on the record, because
+    -- nobody outside this file has any business reading it.
+    local installation: any = @unsafe nupp.release(owned)
+    installation._co = co
+    installation._previous = previous
+    installation.transparent = transparent
+    installation._restored = false
+    installation._released = false
+    installation._parks = {}
+    if co == nil then
+        mainInstalled = installation
+    else
+        installed[co] = installation
+    end
+
+    return installation as contract.Installed
+end
+
 --- Installs `handler` for suspensions performed on this coroutine.
 ---
 --- A scope rather than a callback, deliberately. Wrapping a body would make the
@@ -713,46 +740,22 @@ end
 --- The extent is dynamic and per-coroutine: a suspension at any depth, through any
 --- library, reaches the innermost handler installed on the coroutine performing it.
 ---
---- A `transparent` installation is a driver rather than a host: a task scope opened
---- in a frame installs one so the frame's own waits keep its children running, and
---- it does not bound a host turn where no host is beneath it.
+--- @param handler what answers suspensions inside the scope
+--- @return the installation, owned by the caller
+function suspension.install(handler: suspension.Handler): affine(contract.Installed)
+    return installHandler(handler, false)
+end
+
+--- Installs a driver's handler, which stands in front of a host rather than being one.
+---
+--- A task scope opened in a frame installs one so the frame's own waits keep its
+--- children running. It does not bound a host turn where no host is beneath it,
+--- because there is nothing to return a turn to.
 ---
 --- @param handler what answers suspensions inside the scope
---- @param transparent whether this extent is a driver in front of the host, not a host
 --- @return the installation, owned by the caller
-function suspension.install(handler: suspension.Handler, transparent: boolean?): affine(contract.Installed)
-    local co = running()
-    local previous
-    if co == nil then
-        previous = mainInstalled
-    else
-        previous = installed[co]
-    end
-    -- What is stored is the installation, not the handler: a park belongs to the extent
-    -- that accepted it, and one handler may be installed by two of them.
-    --
-    -- The close runs the handler's shutdown and the pumps, which the checker cannot
-    -- prove non-suspending; the contract promises it, as it does for any provider.
-    local owned = new contract.Installed(
-        close = closeInstallation as any,
-        _co = co,
-        _previous = previous,
-        handler = handler,
-        transparent = transparent == true,
-        _restored = false,
-        _released = false,
-        _parks = {}
-    )
-    -- The coroutine's slot keeps the record as well as the caller, who holds the one
-    -- obligation to close it.
-    local installation: any = @unsafe nupp.release(owned)
-    if co == nil then
-        mainInstalled = installation
-    else
-        installed[co] = installation
-    end
-
-    return installation as contract.Installed
+function suspension.installDriver(handler: suspension.Handler): affine(contract.Installed)
+    return installHandler(handler, true)
 end
 
 --- Creates a coroutine that inherits the handler installed where it was created.
@@ -803,15 +806,14 @@ function suspension.handled(): boolean
     return effective() ~= nil
 end
 
--- Captures the barrier in force here, for a driver about to displace it.
---
--- A private handler changes where a branch yields; it must not quietly grant
--- permission the handler it displaced refused. So a driver takes this before it
--- installs, and its own `canPark` answers with it -- dynamically, because a host
--- such as an ECS scheduler enters and leaves barriers while a family is still
--- live, and one boolean sampled at install time would answer for the wrong moment.
--- Published as the `__delegatedCanPark` hook: `nupp.tasks` is its one caller.
-local function delegatedCanPark(): function(): boolean
+--- Captures the barrier in force here, for a driver about to displace it.
+---
+--- A private handler changes where a branch yields; it must not quietly grant
+--- permission the handler it displaced refused. So a driver takes this before it
+--- installs, and its own `canPark` answers with it -- dynamically, because a host
+--- such as an ECS scheduler enters and leaves barriers while a family is still
+--- live, and one boolean sampled at install time would answer for the wrong moment.
+function suspension.delegatedCanPark(): function(): boolean
     const captured = effectiveInstallation()
 
     return function(): boolean
@@ -828,14 +830,14 @@ local function delegatedCanPark(): function(): boolean
     end
 end
 
--- Captures how a wait is parked here, for a driver about to displace the handler.
---
--- A driver runs its own family while the frame waits, and what it cannot satisfy --
--- a wait on the host's clock or sockets with no child left to run -- it hands to the
--- handler it displaced, or to the blocking park where there is none. Captured before
--- the driver installs, like `delegatedCanPark`, and resolved when called, stepping
--- over extents that have since ended. Published as the `__delegatedPark` hook.
-local function delegatedPark(): function(suspension.Waiting, function(): nil): nil
+--- Captures how a wait is parked here, for a driver about to displace the handler.
+---
+--- A driver runs its own family while the frame waits, and what it cannot satisfy --
+--- a wait on the host's clock or sockets with no child left to run -- it hands to the
+--- handler it displaced, or to the blocking park where there is none. Captured before
+--- the driver installs, like `delegatedCanPark`, and resolved when called, stepping
+--- over extents that have since ended.
+function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
     const captured = effectiveInstallation()
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -908,7 +910,8 @@ local function turnDeferralSource(): suspension.Source
     return created
 end
 
-local function turnAvailable(): boolean
+--- Whether the aggregate here may spend another activation before it owes a turn.
+function suspension.turnAvailable(): boolean
     local current = effectiveInstallation()
     if current == nil then
         return true
@@ -932,14 +935,16 @@ local function turnAvailable(): boolean
     return token.remaining > 0
 end
 
-local function consumeTurn(): nil
+--- Records one coroutine activation against the current turn.
+function suspension.consumeTurn(): nil
     local token = turnTokens[currentTurnOwner()]
     if token ~= nil and token.generation == turnGeneration then
         token.remaining = token.remaining - 1
     end
 end
 
-local function deferTurn(): nil
+--- Parks until the host has had its turn.
+function suspension.deferTurn(): nil
     suspension.suspend("nupp coroutine turn budget", function(
         resume: function(boolean),
         context: suspension.Context
@@ -959,13 +964,58 @@ local function deferTurn(): nil
     end)
 end
 
--- Task scopes use the same token, and drive a family through the two delegation
--- captures, without turning these scheduling details into authored suspension API.
-rawset(suspension, "__turnAvailable", turnAvailable)
-rawset(suspension, "__consumeTurn", consumeTurn)
-rawset(suspension, "__deferTurn", deferTurn)
-rawset(suspension, "__delegatedCanPark", delegatedCanPark)
-rawset(suspension, "__delegatedPark", delegatedPark)
+--- Builds a Waiting that settles when `base` does or when `ready` answers true.
+---
+--- A driver parks outward on the result, so the park it hands to its host is woken
+--- both by the wait it was given and by its own work becoming runnable. `arm` gets
+--- the same callback `base` is armed with, so a driver registers its wakers there and
+--- drops them when the park returns.
+---
+--- The derived wait carries the original's context, which is what the blocking driver
+--- reads to decide which registered source to sleep on. Its wait cursor starts afresh:
+--- a derived park is a new wait over the same sources, and inheriting a position in a
+--- rotation it never took part in would skip one of them.
+---
+--- @param base the wait a driver was handed
+--- @param ready whether the driver has something of its own to do
+--- @param arm registers the driver's wakers against the supplied callback
+--- @return the wait to park outward on
+function suspension.derive(
+    base: suspension.Waiting,
+    ready: function(): boolean,
+    arm: function(function(): nil): nil
+): suspension.Waiting
+    const source = base as any
+
+    return setmetatable(
+        {
+            operation = base.operation,
+            context = source.context,
+            waitCursor = 1,
+            isReady = function(): boolean
+                return base:ready() or ready()
+            end,
+            setWaker = function(wake: function(): nil): nil
+                -- Once per registration, because both halves can settle in the same
+                -- poll and a scheduler that is queued twice for one park would run
+                -- the second activation against a wait that is already over.
+                local woke = false
+
+                const function wakeOnce(): nil
+                    if woke then
+                        return
+                    end
+                    woke = true
+                    wake()
+                end
+
+                base:onResume(wakeOnce)
+                arm(wakeOnce)
+            end,
+        },
+        WaitingMT
+    ) as suspension.Waiting
+end
 
 local _checked: contract.Provider = suspension
 export = suspension

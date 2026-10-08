@@ -23,6 +23,12 @@ is one; without one, a park blocks after all. `source` builds something that
 will be ready later, `suspend` parks on one, `create` makes a coroutine that
 inherits the handler, and `poll` is what a handler calls to make progress.
 
+A driver -- a scheduler that stands in front of a host rather than being one --
+installs through `installDriver`, and reaches the handler it displaced through
+`delegatedPark` and `delegatedCanPark`, waiting on what `derive` builds. The
+three turn-budget operations bound how long such an aggregate may run before it
+owes its host a turn.
+
 This is the layer underneath. Somewhere to put children discovered over time,
 with one answer for failure and cancellation, is [](nupp.tasks); real
 parallelism is [](nupp.workers). Come here directly to write a host
@@ -38,7 +44,6 @@ local spi = require("nupp.spi")
 local target = require("nupp.runtime.target")
 
 local contract = require("nupp.suspension.spi")
-local cancellation = require("nupp.suspension.cancellation")
 local provider: contract.Provider = do
     const chosen = spi.select(spi.load(contract.Provider))
     if chosen ~= nil then
@@ -67,13 +72,31 @@ suspension.install = provider.install
 suspension.create = provider.create
 suspension.handled = provider.handled
 suspension.canSuspend = provider.canSuspend
-local providerRuntime = provider as any
-local turnAvailable = providerRuntime.__turnAvailable
-local consumeTurn = providerRuntime.__consumeTurn
-local deferTurn = providerRuntime.__deferTurn
+-- The driver seam. A driver cannot tell a host barrier from permission to park
+-- without these, and a task scope is a driver, so an implementation missing one is
+-- refused here rather than reached as a nil call inside somebody's frame. The
+-- interface declares them, which catches a typed implementation while compiling;
+-- this catches the rest.
+assert(
+    provider.installDriver ~= nil
+    and provider.delegatedCanPark ~= nil
+    and provider.delegatedPark ~= nil
+    and provider.derive ~= nil,
+    "nupp.suspension: an implementation must provide installDriver, delegatedCanPark, delegatedPark and derive"
+)
+suspension.installDriver = provider.installDriver
+suspension.delegatedCanPark = provider.delegatedCanPark
+suspension.delegatedPark = provider.delegatedPark
+suspension.derive = provider.derive
+
+-- Turn budgeting is an implementation's to offer. A replacement without it remains
+-- correct, with an unbounded aggregate turn, which is what these stand in for; all
+-- three or none, because an aggregate that spends a budget it cannot defer against
+-- would stall rather than return control.
+local turnAvailable = provider.turnAvailable
+local consumeTurn = provider.consumeTurn
+local deferTurn = provider.deferTurn
 if turnAvailable == nil and consumeTurn == nil and deferTurn == nil then
-    -- Turn budgeting is a provider optimization rather than part of the public SPI.
-    -- A replacement without it remains correct, with an unbounded aggregate turn.
     turnAvailable = function(): boolean
         return true
     end
@@ -83,25 +106,11 @@ if turnAvailable == nil and consumeTurn == nil and deferTurn == nil then
     end
 else
     assert(
-        type(turnAvailable) == "function" and type(consumeTurn) == "function" and type(deferTurn) == "function",
+        turnAvailable ~= nil and consumeTurn ~= nil and deferTurn ~= nil,
         "nupp.suspension: an implementation must provide every turn-budget operation or none of them"
     )
 end
-rawset(suspension, "__turnAvailable", turnAvailable)
-rawset(suspension, "__consumeTurn", consumeTurn)
-rawset(suspension, "__deferTurn", deferTurn)
--- A task scope's driver defers to the handler it displaces through these two. They
--- are scheduling plumbing rather than authored API, and every implementation
--- supplies them, because a driver without them cannot tell a host barrier from
--- permission to park.
-local delegatedCanPark = providerRuntime.__delegatedCanPark
-local delegatedPark = providerRuntime.__delegatedPark
-assert(
-    type(delegatedCanPark) == "function" and type(delegatedPark) == "function",
-    "nupp.suspension: an implementation must provide __delegatedCanPark and __delegatedPark"
-)
-rawset(suspension, "__delegatedCanPark", delegatedCanPark)
-rawset(suspension, "__delegatedPark", delegatedPark)
-rawset(suspension, "__taskCancellation", cancellation.create)
-rawset(suspension, "__isTaskCancellation", cancellation.is)
+suspension.turnAvailable = turnAvailable as function(): boolean
+suspension.consumeTurn = consumeTurn as function(): nil
+suspension.deferTurn = deferTurn as function(): nil
 export = suspension

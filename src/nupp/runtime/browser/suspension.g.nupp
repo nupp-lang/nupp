@@ -23,23 +23,12 @@ state, and scheduling operations never resolve the service again.
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.suspension.spi")
-local cancellation = require("nupp.suspension.cancellation")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}
 local sourceSequence: integer = 0
 local sourcesVersion: integer = 0
 local ownedSources: any = setmetatable({}, {__mode = "k"})
-
--- Coroutine and worker tasks share one nominal runtime cancellation identity, which
--- a complete replacement of `nupp.suspension` has to keep publishing: `nupp.tasks`
--- builds every cancellation through it, and a browser worker lane raises the same
--- value at `tasks.checkpoint()`.
-local taskCancellation = cancellation.create
-local isTaskCancellation = cancellation.is
-
-rawset(suspension, "__taskCancellation", taskCancellation)
-rawset(suspension, "__isTaskCancellation", isTaskCancellation)
 
 -- How many child activations an aggregate may run before it owes the host a turn.
 -- The same budget the native provider spends and for the same reason: a scope that
@@ -57,11 +46,14 @@ local turnGeneration: integer = -1
 type suspension.Source = contract.Source
 suspension.Source = contract.Source
 
+-- The registration's own state lives on the table rather than on the record, which
+-- declares only what a holder may read. Nothing outside this file reads these.
 local sourcerelease: @nosuspend function(contract.Source): nil = function(self: contract.Source): nil
-    if self._released then
+    const registration = self as any
+    if registration._released then
         return
     end
-    self._released = true
+    registration._released = true
     for index = 1, #sources do
         if rawequal(sources[index], self) then
             table.remove(sources, index)
@@ -83,7 +75,7 @@ local function contextsource(
     active: (function(suspension.Source): boolean)?
 ): suspension.Source
     local source = suspension.source(name, order, poller, waiter, active)
-    local associated = assert(self._associated)
+    local associated = assert((self as any)._associated)
     associated[#associated + 1] = source
     local owned = ownedSources[self]
     if owned == nil then
@@ -96,10 +88,10 @@ local function contextsource(
 end
 
 local function contextuses(self: contract.Context, source: suspension.Source): nil
-    if source == nil or source._released then
+    if source == nil or (source as any)._released then
         error("nupp: cannot use a released readiness source", 2)
     end
-    local associated = assert(self._associated)
+    local associated = assert((self as any)._associated)
     associated[#associated + 1] = source
 end
 
@@ -117,25 +109,26 @@ end
 -- Not a context member: whether a park is permitted belongs to the handler in force,
 -- which `canSuspend` answers.
 local function contextcanPark(self: contract.Context): boolean
-    if self._handler == nil then
+    const handler = (self as any)._handler
+    if handler == nil then
         return effects.canPark()
     end
 
-    return self._handler.canPark == nil or self._handler:canPark() ~= false
+    return handler.canPark == nil or handler:canPark() ~= false
 end
 
 type suspension.Waiting = contract.Waiting
 suspension.Waiting = contract.Waiting
 
 local function waitingready(self: contract.Waiting): boolean
-    return self._state.ready
+    return (self as any)._state.ready
 end
 
 local function waitingonResume(self: contract.Waiting, wake: function(): nil): nil
     -- Settle-safe, as the native provider is: a wait that has already settled wakes
     -- its scheduler now rather than storing a waker nothing will fire, so a handler
     -- may arm once and then yield until ready.
-    const state = self._state
+    const state = (self as any)._state
     if state.ready then
         wake()
 
@@ -166,7 +159,7 @@ end
 suspension._installed = setmetatable({}, {__mode = "k"})
 suspension._main = nil
 
-local function sourceBefore(left: suspension.Source, right: suspension.Source): boolean
+local function sourceBefore(left: any, right: any): boolean
     if left.order ~= right.order then
         return left.order < right.order
     end
@@ -177,7 +170,7 @@ local function sourceBefore(left: suspension.Source, right: suspension.Source): 
     return left._sequence < right._sequence
 end
 
-local function firstSourceAfter(source: suspension.Source): integer
+local function firstSourceAfter(source: any): integer
     local first: integer = 1
     local last: integer = (#sources + 1) as integer
     while first < last do
@@ -246,7 +239,8 @@ local function currentTurnHost(): any
     return host
 end
 
-local function turnAvailable(): boolean
+--- Whether the aggregate here may spend another activation before it owes a turn.
+function suspension.turnAvailable(): boolean
     if currentTurnHost() == nil then
         return true
     end
@@ -254,7 +248,8 @@ local function turnAvailable(): boolean
     return turnRemaining > 0
 end
 
-local function consumeTurn(): nil
+--- Records one coroutine activation against the current turn.
+function suspension.consumeTurn(): nil
     if currentTurnHost() == nil then
         return
     end
@@ -267,7 +262,7 @@ end
 --- poll after a host turn can observe. A source that cannot say is assumed to.
 local function sourcesActive(): boolean
     for index = 1, #sources do
-        local source = sources[index] as suspension.Source
+        local source = sources[index] as any
         local active = source.active
         if not source._released and (active == nil or (active as function(suspension.Source): boolean)(source)) then
             return true
@@ -332,7 +327,8 @@ local function turnDeferralSource(): suspension.Source
     return created
 end
 
-local function deferTurn(): nil
+--- Parks until the page has answered a park, which is what a turn is here.
+function suspension.deferTurn(): nil
     suspension.suspend("nupp coroutine turn budget", function(
         resume: function(boolean): nil,
         context: suspension.Context
@@ -353,10 +349,6 @@ local function deferTurn(): nil
     end)
 end
 
-rawset(suspension, "__turnAvailable", turnAvailable)
-rawset(suspension, "__consumeTurn", consumeTurn)
-rawset(suspension, "__deferTurn", deferTurn)
-
 function suspension.source(
     name: string,
     order: integer,
@@ -369,13 +361,13 @@ function suspension.source(
         release = sourcerelease,
         name = name,
         order = order,
-        _sequence = sourceSequence,
-        _poller = poller,
-        _waiter = waiter,
         wait = waiter,
-        active = active,
-        _released = false
+        active = active
     )
+    const registration = source as any
+    registration._sequence = sourceSequence
+    registration._poller = poller
+    registration._released = false
     table.insert(sources, firstSourceAfter(source), source)
     sourcesVersion = sourcesVersion + 1
 
@@ -388,7 +380,7 @@ function suspension.poll(): integer
     local version = sourcesVersion
     local index: integer = 1
     while index <= #sources do
-        local source = sources[index] as suspension.Source
+        local source = sources[index] as any
         if source._sequence > boundary then
             index = (index + 1) as integer
         else
@@ -409,13 +401,12 @@ function suspension.handled(): boolean
     return handler() ~= nil
 end
 
--- Whether the handler this one is about to displace would permit a park.
---
--- Captured where it is asked rather than where it is answered, so an installation
--- that wants to defer to the one it replaced keeps asking the outer handler after
--- it has taken the slot. `nupp.tasks` builds every scope handler through this, as
--- the `__delegatedCanPark` hook.
-local function delegatedCanPark(): function(): boolean
+--- Whether the handler this one is about to displace would permit a park.
+---
+--- Captured where it is asked rather than where it is answered, so an installation
+--- that wants to defer to the one it replaced keeps asking the outer handler after
+--- it has taken the slot.
+function suspension.delegatedCanPark(): function(): boolean
     local captured = installation()
     -- Where there is no outer handler, the question is whether the frame asking to
     -- displace it could reach the page, not whichever child asks later.
@@ -438,9 +429,8 @@ local function delegatedCanPark(): function(): boolean
     end
 end
 
--- Captures how a wait is parked here, for a driver about to displace the handler.
--- Published as the `__delegatedPark` hook.
-local function delegatedPark(): function(suspension.Waiting, function(): nil): nil
+--- Captures how a wait is parked here, for a driver about to displace the handler.
+function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
     local captured = installation()
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -460,8 +450,48 @@ local function delegatedPark(): function(suspension.Waiting, function(): nil): n
     end
 end
 
-rawset(suspension, "__delegatedCanPark", delegatedCanPark)
-rawset(suspension, "__delegatedPark", delegatedPark)
+--- Builds a Waiting that settles when `base` does or when `ready` answers true.
+---
+--- A driver parks outward on the result, so the park it hands to its host is woken
+--- both by the wait it was given and by its own work becoming runnable. There is no
+--- routing state to carry here: the only wait this host has is the page answering a
+--- park, which `hostWait` reaches through `ready` alone.
+---
+--- @param base the wait a driver was handed
+--- @param ready whether the driver has something of its own to do
+--- @param arm registers the driver's wakers against the supplied callback
+--- @return the wait to park outward on
+function suspension.derive(
+    base: suspension.Waiting,
+    ready: function(): boolean,
+    arm: function(function(): nil): nil
+): suspension.Waiting
+    local derived = new contract.Waiting(
+        ready = function(_: contract.Waiting): boolean
+            return base:ready() or ready()
+        end,
+        onResume = function(_: contract.Waiting, wake: function(): nil): nil
+            -- Once per registration: both halves can settle in the same turn, and a
+            -- scheduler queued twice for one park would run the second activation
+            -- against a wait that is already over.
+            local woke = false
+
+            const function wakeOnce(): nil
+                if woke then
+                    return
+                end
+                woke = true
+                wake()
+            end
+
+            base:onResume(wakeOnce)
+            arm(wakeOnce)
+        end,
+        operation = base.operation
+    )
+
+    return derived
+end
 
 function suspension.canSuspend(): boolean
     local current = handler()
@@ -492,12 +522,10 @@ function suspension.suspend<T>(
         end
     end
 
-    local context = new contract.Context(
-        source = contextsource,
-        uses = contextuses,
-        _handler = current,
-        _associated = {}
-    )
+    local context = new contract.Context(source = contextsource, uses = contextuses)
+    const scoped = context as any
+    scoped._handler = current
+    scoped._associated = {}
     local subscribed, cancel = pcall(subscribe, resume, context)
     if not subscribed then
         releaseOwned(context)
@@ -516,12 +544,9 @@ function suspension.suspend<T>(
         releaseOwned(context)
         error("nupp: " .. operation .. " cannot suspend here", 0)
     end
-    local waiting = new contract.Waiting(
-        ready = waitingready,
-        onResume = waitingonResume,
-        operation = operation,
-        _state = state
-    )
+    local waiting = new contract.Waiting(ready = waitingready, onResume = waitingonResume, operation = operation)
+    const settlement = waiting as any
+    settlement._state = state
     local parked: boolean, problem: any
     if current ~= nil then
         parked, problem = pcall(current.park, current, waiting, cancel)
@@ -547,23 +572,23 @@ function suspension.suspend<T>(
     return state.value as T
 end
 
---- Installs `value` for suspensions performed on this coroutine.
-function suspension.install(value: suspension.Handler, transparent: boolean?): affine(contract.Installed)
+-- What `install` and `installDriver` share. A driver differs only in not bounding a
+-- host turn, which is one flag in the extent's own state rather than a parameter
+-- either entry point asks its caller about.
+local function installHandler(value: suspension.Handler, transparent: boolean): affine(contract.Installed)
     local coroutine = running()
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
     -- The close runs the handler's shutdown and the pumps, which the checker cannot
     -- prove non-suspending; the contract promises it, as it does for any provider.
-    local owned = new contract.Installed(
-        close = closeInstallation as any,
-        _co = coroutine,
-        _previous = previous,
-        handler = value,
-        transparent = transparent == true,
-        _released = false
-    )
+    local owned = new contract.Installed(close = closeInstallation as any, handler = value)
     -- The coroutine's slot keeps the record as well as the caller, who holds the one
-    -- obligation to close it.
+    -- obligation to close it. The extent's own state is written here rather than
+    -- declared on the record, because nothing outside this file reads it.
     local installed: any = @unsafe nupp.release(owned)
+    installed._co = coroutine
+    installed._previous = previous
+    installed.transparent = transparent
+    installed._released = false
     if coroutine == nil then
         suspension._main = installed
     else
@@ -571,6 +596,16 @@ function suspension.install(value: suspension.Handler, transparent: boolean?): a
     end
 
     return installed as contract.Installed
+end
+
+--- Installs `value` for suspensions performed on this coroutine.
+function suspension.install(value: suspension.Handler): affine(contract.Installed)
+    return installHandler(value, false)
+end
+
+--- Installs a driver's handler, which stands in front of a host rather than being one.
+function suspension.installDriver(value: suspension.Handler): affine(contract.Installed)
+    return installHandler(value, true)
 end
 
 function suspension.create<A..., R...>(body: function(A...): R...): thread

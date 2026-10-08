@@ -133,18 +133,15 @@ function suite.test(provider: any): (boolean, string?)
             shutdown = function(): nil
             end,
         })
-        local parkOutward = provider.__delegatedPark()
-        local driver = provider.install(
-            {
-                park = function(_: any, waiting: any, cancel: any): nil
-                    parkOutward(waiting, cancel)
-                end,
-                canPark = provider.__delegatedCanPark(),
-                shutdown = function(): nil
-                end,
-            },
-            true
-        )
+        local parkOutward = provider.delegatedPark()
+        local driver = provider.installDriver({
+            park = function(_: any, waiting: any, cancel: any): nil
+                parkOutward(waiting, cancel)
+            end,
+            canPark = provider.delegatedCanPark(),
+            shutdown = function(): nil
+            end,
+        })
         local delegated = provider.suspend("contract.delegated", function(resume: function(string)): function()
             resumed = resume
 
@@ -156,25 +153,72 @@ function suite.test(provider: any): (boolean, string?)
         driver:close()
         outer:close()
 
-        local transparent = provider.install(
+        local standalone = provider.installDriver({
+            park = function(): nil
+            end,
+            canPark = function(): boolean
+                return true
+            end,
+            shutdown = function(): nil
+            end,
+        })
+        for _ = 1, 65 do
+            assert(provider.turnAvailable(), "a driver without a host must have an unbounded turn")
+            provider.consumeTurn()
+        end
+        standalone:close()
+
+        -- `derive` carries whatever routing state the original holds, and settles on
+        -- either half. A driver parks outward on it, so a wait that only its own work
+        -- can finish must still report itself ready.
+        local driving = false
+        local derived = provider.derive(
             {
-                park = function(): nil
+                operation = "contract.derived",
+                ready = function(): boolean
+                    return false
                 end,
-                canPark = function(): boolean
-                    return true
-                end,
-                shutdown = function(): nil
+                onResume = function(): nil
                 end,
             },
-            true
+            function(): boolean
+                return driving
+            end,
+            function(_: any): nil
+            end
         )
-        local turnAvailable = rawget(provider, "__turnAvailable")
-        local consumeTurn = rawget(provider, "__consumeTurn")
-        for _ = 1, 65 do
-            assert(turnAvailable(), "a driver without a host must have an unbounded turn")
-            consumeTurn()
-        end
-        transparent:close()
+        assert(derived.operation == "contract.derived", "a derived wait keeps the operation it describes")
+        assert(not derived:ready(), "a derived wait is pending while neither half is ready")
+        driving = true
+        assert(derived:ready(), "a derived wait settles on the driver's own readiness")
+
+        local armed, woke = 0, 0
+        local baseWake: any = nil
+        local pair = provider.derive(
+            {
+                operation = "contract.derived.wake",
+                ready = function(): boolean
+                    return false
+                end,
+                onResume = function(_: any, wake: function(): nil): nil
+                    baseWake = wake
+                end,
+            },
+            function(): boolean
+                return false
+            end,
+            function(wake: function(): nil): nil
+                armed = armed + 1
+                baseWake = wake
+            end
+        )
+        pair:onResume(function(): nil
+            woke = woke + 1
+        end)
+        assert(armed == 1, "deriving must arm the driver's own wakers")
+        baseWake()
+        baseWake()
+        assert(woke == 1, "a derived waker runs at most once per registration")
     end)
     if not ok then
         return false, tostring(problem)

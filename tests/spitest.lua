@@ -694,10 +694,16 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                             return name
                         end
                     elseif case.module == "nupp.suspension" then
-                        provider.__delegatedCanPark = function()
+                        provider.installDriver = function()
                             return name
                         end
-                        provider.__delegatedPark = function()
+                        provider.delegatedCanPark = function()
+                            return name
+                        end
+                        provider.delegatedPark = function()
+                            return name
+                        end
+                        provider.derive = function()
                             return name
                         end
                     elseif case.module == "nupp.system" then
@@ -756,19 +762,21 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     assert(call == expected[case.member], label)
                     assert(call() == selectedName and call() == selectedName, label)
                     if case.module == "nupp.suspension" then
-                        local turnAvailable = rawget(facade, "__turnAvailable")
-                        local consumeTurn = rawget(facade, "__consumeTurn")
-                        local deferTurn = rawget(facade, "__deferTurn")
+                        local turnAvailable = facade.turnAvailable
+                        local consumeTurn = facade.consumeTurn
+                        local deferTurn = facade.deferTurn
                         assert(type(turnAvailable) == "function", label .. ": missing turn availability")
                         assert(type(consumeTurn) == "function", label .. ": missing turn consumption")
                         assert(type(deferTurn) == "function", label .. ": missing turn deferral")
                         assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
                         consumeTurn()
                         assert(turnAvailable(), label .. ": an unbounded turn must stay available")
-                        for _, hook in ipairs({"__delegatedCanPark", "__delegatedPark"}) do
-                            assert(rawget(facade, hook) == expected[hook], label .. ": " .. hook .. " came from another provider")
+                        for _, member in ipairs({"installDriver", "delegatedCanPark", "delegatedPark", "derive"}) do
+                            assert(
+                                facade[member] == expected[member],
+                                label .. ": " .. member .. " came from another provider"
+                            )
                         end
-                        assert(facade.delegatedCanPark == nil and facade.delegatedPark == nil, label .. ": delegation is not public")
                     elseif case.module == "nupp.workers" then
                         local hooks = {
                             __scope = "openScope",
@@ -839,7 +847,15 @@ function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
             ['fixture.suspension'] = function()
                 return {
                     priority = 1,
-                    __turnAvailable = function()
+                    installDriver = function()
+                    end,
+                    delegatedCanPark = function()
+                    end,
+                    delegatedPark = function()
+                    end,
+                    derive = function()
+                    end,
+                    turnAvailable = function()
                         return true
                     end,
                 }
@@ -851,7 +867,7 @@ function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
     assert(tostring(problem):find("every turn-budget operation or none", 1, true), tostring(problem))
 end
 
-function M.suspensionProvidersPublishTheirDelegationHooks()
+function M.suspensionProvidersPublishTheirDriverSeam()
     local load = require("providerstate").instance(
         {['nupp.spi'] = true, ['nupp.suspension'] = true},
         {
@@ -862,7 +878,9 @@ function M.suspensionProvidersPublishTheirDelegationHooks()
             ['fixture.suspension'] = function()
                 return {
                     priority = 1,
-                    __delegatedCanPark = function()
+                    installDriver = function()
+                    end,
+                    delegatedCanPark = function()
                         return function()
                             return true
                         end
@@ -872,8 +890,11 @@ function M.suspensionProvidersPublishTheirDelegationHooks()
         }
     )
     local ok, problem = pcall(load, "nupp.suspension")
-    assert(not ok, "an implementation without __delegatedPark was accepted")
-    assert(tostring(problem):find("__delegatedCanPark and __delegatedPark", 1, true), tostring(problem))
+    assert(not ok, "an implementation without delegatedPark or derive was accepted")
+    assert(
+        tostring(problem):find("installDriver, delegatedCanPark, delegatedPark and derive", 1, true),
+        tostring(problem)
+    )
 end
 
 function M.moduleStagingDistinguishesTheHostFromTheVm()

@@ -39,7 +39,7 @@ local type Buffer = {
 }
 local buffer = require("string.buffer") as Buffer
 local suspension = require("nupp.suspension")
-local suspensionRuntime = suspension as any
+local cancellation = require("nupp.suspension.cancellation")
 
 local type Native = {
     channelCreate: @nosuspend function(): any,
@@ -1663,10 +1663,7 @@ settleReply = function(task: any, reply: Frame): nil
     end
     if reply.cancelled == true then
         task._cancelled = task._cancelled
-            or suspensionRuntime.__taskCancellation(
-                "worker task",
-                reply.deadline == true and "its deadline passed" or nil
-            )
+            or cancellation.create("worker task", reply.deadline == true and "its deadline passed" or nil)
         task._state = "cancelled"
     elseif reply.ok == true then
         local packed = packedValue(reply.encoding, reply.bytes, reply.value)
@@ -1692,7 +1689,7 @@ function TaskImpl:cancel(reason: string?): boolean
     if requested == 0 then
         return false
     end
-    self._cancelled = suspensionRuntime.__taskCancellation("worker task", reason)
+    self._cancelled = cancellation.create("worker task", reason)
     if requested == 1 then
         self._state = "cancelled"
         notifySettled(self)
@@ -1839,7 +1836,7 @@ end)
 
 local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any, preparedOutput: any): nil
     if not ok then
-        if suspensionRuntime.__isTaskCancellation(answer) then
+        if cancellation.is(answer) then
             local cancelled = answer as any
             push(outbox, {
                 kind = "reply",
