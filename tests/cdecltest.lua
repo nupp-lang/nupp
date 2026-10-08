@@ -1,11 +1,6 @@
+local testAssert = require("nupp.test")
 local cdecl = require("nupp.compiler.cinterop.cdecl")
 local ffi = require("ffi")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s: want %s, got %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local M = {}
 
@@ -20,35 +15,35 @@ function M.inspectionReturnsNeutralDeclarations()
         )
     )
     assert(parsed, err)
-    assertEq(#parsed.structs, 1)
-    assertEq(parsed.structs[1].name, "NuppCdeclPoint")
-    assertEq(parsed.structs[1].fields[1].type.kind, "float")
-    assertEq(#parsed.functions, 1)
+    testAssert.equal(#parsed.structs, 1)
+    testAssert.equal(parsed.structs[1].name, "NuppCdeclPoint")
+    testAssert.equal(parsed.structs[1].fields[1].type.kind, "float")
+    testAssert.equal(#parsed.functions, 1)
     local callback = parsed.functions[1].params[1].type
-    assertEq(callback.kind, "pointer")
-    assertEq(callback.to.kind, "function")
-    assertEq(callback.to.params[1].type.bits, 32)
+    testAssert.equal(callback.kind, "pointer")
+    testAssert.equal(callback.to.kind, "function")
+    testAssert.equal(callback.to.params[1].type.bits, 32)
 end
 
 function M.fixedArraysPreserveTheirRecursiveCounts()
     local parsed, err = cdecl.inspect("struct NuppCdeclArrays { int values[4]; float matrix[2][3]; };")
     assert(parsed, err)
     local fields = parsed.structs[1].fields
-    assertEq(fields[1].type.kind, "array")
-    assertEq(fields[1].type.count, 4)
-    assertEq(fields[1].type.of.bits, 32)
-    assertEq(fields[2].type.count, 2)
-    assertEq(fields[2].type.of.count, 3)
-    assertEq(fields[2].type.of.of.bits, 32)
+    testAssert.equal(fields[1].type.kind, "array")
+    testAssert.equal(fields[1].type.count, 4)
+    testAssert.equal(fields[1].type.of.bits, 32)
+    testAssert.equal(fields[2].type.count, 2)
+    testAssert.equal(fields[2].type.of.count, 3)
+    testAssert.equal(fields[2].type.of.of.bits, 32)
 end
 
 function M.typedefNamedAnonymousAggregatesUseTheTypedefIdentity()
     local parsed, err = cdecl.inspect("typedef struct { float x; float y; } NuppCdeclAnonPoint;")
     assert(parsed, err)
-    assertEq(#parsed.structs, 1)
-    assertEq(parsed.structs[1].name, "NuppCdeclAnonPoint")
-    assertEq(parsed.structs[1].kind, "struct")
-    assertEq(parsed.structs[1].fields[2].name, "y")
+    testAssert.equal(#parsed.structs, 1)
+    testAssert.equal(parsed.structs[1].name, "NuppCdeclAnonPoint")
+    testAssert.equal(parsed.structs[1].kind, "struct")
+    testAssert.equal(parsed.structs[1].fields[2].name, "y")
 end
 
 function M.preludeTypesAreNotExported()
@@ -57,16 +52,16 @@ function M.preludeTypesAreNotExported()
         "typedef struct NuppCdeclPrelude NuppCdeclPrelude;"
     )
     assert(parsed, err)
-    assertEq(#parsed.structs, 1)
-    assertEq(parsed.structs[1].name, "NuppCdeclOwned")
+    testAssert.equal(#parsed.structs, 1)
+    testAssert.equal(parsed.structs[1].name, "NuppCdeclOwned")
 end
 
 function M.targetDefinitionsCompletePreludeForwardDeclarations()
     local parsed, err = cdecl.inspect("struct NuppCdeclForwardTarget { int value; };", "struct NuppCdeclForwardTarget;")
     assert(parsed, err)
-    assertEq(#parsed.structs, 1)
-    assertEq(parsed.structs[1].name, "NuppCdeclForwardTarget")
-    assertEq(parsed.structs[1].fields[1].name, "value")
+    testAssert.equal(#parsed.structs, 1)
+    testAssert.equal(parsed.structs[1].name, "NuppCdeclForwardTarget")
+    testAssert.equal(parsed.structs[1].fields[1].name, "value")
 end
 
 function M.registryEntriesBeyondTheOldCeilingAreVisible()
@@ -82,8 +77,8 @@ function M.registryEntriesBeyondTheOldCeilingAreVisible()
 
     local parsed, err = cdecl.inspect("int nuppCdeclAfterPadding(int value);")
     assert(parsed, err)
-    assertEq(#parsed.functions, 1)
-    assertEq(parsed.functions[1].name, "nuppCdeclAfterPadding")
+    testAssert.equal(#parsed.functions, 1)
+    testAssert.equal(parsed.functions[1].name, "nuppCdeclAfterPadding")
 end
 
 function M.enumMembersComeBackInDeclarationOrder()
@@ -97,16 +92,16 @@ function M.enumMembersComeBackInDeclarationOrder()
         )
     )
     assert(parsed, err)
-    assertEq(#parsed.enums, 2)
-    assertEq(parsed.enums[1].name, "NuppCdeclStatus")
-    assertEq(parsed.enums[1].values[1].name, "NUPP_CDECL_OK")
-    assertEq(parsed.enums[1].values[1].value, 0)
-    assertEq(parsed.enums[1].values[2].name, "NUPP_CDECL_LAST")
-    assertEq(parsed.enums[1].values[2].value, 7)
+    testAssert.equal(#parsed.enums, 2)
+    testAssert.equal(parsed.enums[1].name, "NuppCdeclStatus")
+    testAssert.equal(parsed.enums[1].values[1].name, "NUPP_CDECL_OK")
+    testAssert.equal(parsed.enums[1].values[1].value, 0)
+    testAssert.equal(parsed.enums[1].values[2].name, "NUPP_CDECL_LAST")
+    testAssert.equal(parsed.enums[1].values[2].value, 7)
     -- an anonymous enum has no name of its own and its members still count
-    assertEq(parsed.enums[2].name, nil)
-    assertEq(parsed.enums[2].values[1].name, "NUPP_CDECL_ANON")
-    assertEq(parsed.enums[2].values[1].value, 3)
+    testAssert.equal(parsed.enums[2].name, nil)
+    testAssert.equal(parsed.enums[2].values[1].name, "NUPP_CDECL_ANON")
+    testAssert.equal(parsed.enums[2].values[1].value, 3)
 end
 
 function M.negativeEnumMembersAreReadBack()
@@ -114,8 +109,8 @@ function M.negativeEnumMembersAreReadBack()
     -- from the entry alone.
     local parsed, err = cdecl.inspect("enum NuppCdeclSigned { NUPP_CDECL_ERR = -1, NUPP_CDECL_NONE = 0 };")
     assert(parsed, err)
-    assertEq(parsed.enums[1].values[1].value, -1)
-    assertEq(parsed.enums[1].values[2].value, 0)
+    testAssert.equal(parsed.enums[1].values[1].value, -1)
+    testAssert.equal(parsed.enums[1].values[2].value, 0)
 end
 
 function M.anUnusablePreludeEntryCostsOnlyItself()
@@ -126,8 +121,8 @@ function M.anUnusablePreludeEntryCostsOnlyItself()
         "typedef __nupp_cdecl_never_declared_t NuppCdeclBroken;"
     })
     assert(parsed, err)
-    assertEq(#parsed.structs, 1)
-    assertEq(parsed.structs[1].name, "NuppCdeclKept")
+    testAssert.equal(#parsed.structs, 1)
+    testAssert.equal(parsed.structs[1].name, "NuppCdeclKept")
 end
 
 function M.aRejectedDeclarationIsSetAsideNotFatal()
@@ -137,10 +132,10 @@ function M.aRejectedDeclarationIsSetAsideNotFatal()
         "int nuppCdeclSurvives(int a);",
     })
     assert(parsed, err)
-    assertEq(#parsed.rejected, 1)
-    assertEq(parsed.declared, 3)
-    assertEq(#parsed.functions, 1)
-    assertEq(parsed.functions[1].name, "nuppCdeclSurvives")
+    testAssert.equal(#parsed.rejected, 1)
+    testAssert.equal(parsed.declared, 3)
+    testAssert.equal(#parsed.functions, 1)
+    testAssert.equal(parsed.functions[1].name, "nuppCdeclSurvives")
     assert(parsed.rejected[1].reason:find("size", 1, true), "the reason travels with it: " .. parsed.rejected[1].reason)
 end
 
@@ -148,56 +143,66 @@ function M.oneBlobIsStillTakenOrLeftWhole()
     -- What a `cheader` pins is not a subset: a header that will not parse is
     -- the answer, and quietly typing part of it would be the wrong one.
     local parsed = cdecl.inspect("struct NuppCdeclWhole { struct NuppCdeclNeverDefined inner; };")
-    assertEq(parsed, nil)
+    testAssert.equal(parsed, nil)
 end
 
 function M.membersWithoutANameAreCountedNotDropped()
-    local parsed, err = cdecl.inspect(table.concat({
-        "struct NuppCdeclAnonMember { int tag; union { int i; double d; }; int after; };",
-        "struct NuppCdeclPadding { unsigned a : 3; unsigned : 0; unsigned b : 3; unsigned : 5; };",
-    }, "\n"))
+    local parsed, err = cdecl.inspect(
+        table.concat(
+            {
+                "struct NuppCdeclAnonMember { int tag; union { int i; double d; }; int after; };",
+                "struct NuppCdeclPadding { unsigned a : 3; unsigned : 0; unsigned b : 3; unsigned : 5; };",
+            },
+            "\n"
+        )
+    )
     assert(parsed, err)
     local byName = {}
     for _, declaration in ipairs(parsed.structs) do
         byName[declaration.name] = declaration
     end
-    assertEq(byName.NuppCdeclAnonMember.anonymous, 1, "anonymous members")
-    assertEq(#byName.NuppCdeclAnonMember.fields, 2, "named fields")
-    assertEq(byName.NuppCdeclAnonMember.size, ffi.sizeof("struct NuppCdeclAnonMember"))
-    assertEq(byName.NuppCdeclPadding.unnamed, 2, "unnamed bitfields")
-    assertEq(byName.NuppCdeclPadding.fields[2].bitPos, 0, "b starts the unit the zero-width field opened")
-    assertEq(byName.NuppCdeclPadding.fields[2].offset, 4)
+    testAssert.equal(byName.NuppCdeclAnonMember.anonymous, 1, "anonymous members")
+    testAssert.equal(#byName.NuppCdeclAnonMember.fields, 2, "named fields")
+    testAssert.equal(byName.NuppCdeclAnonMember.size, ffi.sizeof("struct NuppCdeclAnonMember"))
+    testAssert.equal(byName.NuppCdeclPadding.unnamed, 2, "unnamed bitfields")
+    testAssert.equal(byName.NuppCdeclPadding.fields[2].bitPos, 0, "b starts the unit the zero-width field opened")
+    testAssert.equal(byName.NuppCdeclPadding.fields[2].offset, 4)
 end
 
 function M.vectorAndComplexTypesAreNotArrays()
-    local parsed, err = cdecl.inspect(table.concat({
-        "typedef float nupp_cdecl_v4 __attribute__((vector_size(16)));",
-        "nupp_cdecl_v4 nuppCdeclVector(double _Complex z);",
-    }, "\n"))
+    local parsed, err = cdecl.inspect(
+        table.concat(
+            {
+                "typedef float nupp_cdecl_v4 __attribute__((vector_size(16)));",
+                "nupp_cdecl_v4 nuppCdeclVector(double _Complex z);",
+            },
+            "\n"
+        )
+    )
     assert(parsed, err)
     local fn = parsed.functions[1]
-    assertEq(fn.returns.kind, "vector")
-    assertEq(fn.params[1].type.kind, "complex")
+    testAssert.equal(fn.returns.kind, "vector")
+    testAssert.equal(fn.params[1].type.kind, "complex")
 end
 
 function M.aBoolBitfieldIsABoolean()
     local parsed, err = cdecl.inspect("struct NuppCdeclFlags { bool on : 1; int level : 4; };")
     assert(parsed, err)
     local fields = parsed.structs[1].fields
-    assertEq(fields[1].type.kind, "boolean")
-    assertEq(fields[1].bitWidth, 1)
-    assertEq(fields[2].type.kind, "integer")
+    testAssert.equal(fields[1].type.kind, "boolean")
+    testAssert.equal(fields[1].bitWidth, 1)
+    testAssert.equal(fields[2].type.kind, "integer")
 end
 
 function M.layoutAnswersForAMemberList()
     local layout = assert(cdecl.layout("struct", "uint8_t kind; uint32_t len; uint16_t a : 3;"))
-    assertEq(layout.size, 12)
-    assertEq(layout.align, 4)
-    assertEq(layout.fields[2].offset, 4)
-    assertEq(layout.fields[3].bitWidth, 3)
+    testAssert.equal(layout.size, 12)
+    testAssert.equal(layout.align, 4)
+    testAssert.equal(layout.fields[2].offset, 4)
+    testAssert.equal(layout.fields[3].bitWidth, 3)
     local packed = cdecl.inspect("struct __attribute__((packed)) NuppCdeclPacked { uint8_t kind; uint32_t len; };")
-    assertEq(packed.structs[1].size, 5, "an attribute LuaJIT reads is laid out by")
-    assertEq(packed.structs[1].fields[2].offset, 1)
+    testAssert.equal(packed.structs[1].size, 5, "an attribute LuaJIT reads is laid out by")
+    testAssert.equal(packed.structs[1].fields[2].offset, 1)
 end
 
 function M.eachDeclarationKnowsWhichUnitIntroducedIt()
@@ -207,9 +212,9 @@ function M.eachDeclarationKnowsWhichUnitIntroducedIt()
         "struct NuppCdeclUnitBroken { struct NuppCdeclUnitNever inner; };",
     })
     assert(parsed, err)
-    assertEq(parsed.functions[1].unit, 1)
-    assertEq(parsed.structs[1].unit, 2)
-    assertEq(parsed.rejected[1].unit, 3)
+    testAssert.equal(parsed.functions[1].unit, 1)
+    testAssert.equal(parsed.structs[1].unit, 2)
+    testAssert.equal(parsed.rejected[1].unit, 3)
 end
 
 return M

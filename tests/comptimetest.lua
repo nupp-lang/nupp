@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- Comptime, C1: expression blocks.
 --
 -- The property that matters is not that a literal appears in the output but that the
@@ -19,24 +20,12 @@ local stable = require("nupp.compiler.stable")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
-local function assertTrue(cond, label)
-    if not cond then
-        error(label or "expected true", 2)
-    end
-end
-
 -- Checks, then generates. Comptime runs during checking, so a diagnostic it produced is
 -- in the list this returns; nothing here optimizes, because comptime is semantics and
 -- must not need a level.
 local function compile(src, selectedEnv)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.g.nupp", selectedEnv or env)
     local code, genDiags = gen.generate(result, "test")
     for _, one in ipairs(genDiags) do
@@ -98,7 +87,7 @@ end
 
 local function evaluateTypeBlueprint(body)
     local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-test.g.nupp")
-    assertEq(#result.errors, 0, "type blueprint source parses")
+    testAssert.equal(#result.errors, 0, "type blueprint source parses")
     local returned = result.root.blocks[1].stats[1]
     assert(returned.kind == "returnStmt")
     local node = returned.exprs[1]
@@ -107,7 +96,7 @@ local function evaluateTypeBlueprint(body)
     if failure then
         error(("unexpected %s: %s"):format(failure.code, failure.message), 2)
     end
-    assertTrue(envelope ~= nil, "a type handle finalizes as an envelope")
+    assert(envelope ~= nil, "a type handle finalizes as an envelope")
     local value, invalid = typeblueprint.validate(envelope)
     if invalid then
         error(("invalid %s: %s"):format(invalid.code, invalid.message), 2)
@@ -118,7 +107,7 @@ end
 
 local function typeBlueprintFailure(body)
     local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-failure-test.g.nupp")
-    assertEq(#result.errors, 0, "type blueprint source parses")
+    testAssert.equal(#result.errors, 0, "type blueprint source parses")
     local returned = result.root.blocks[1].stats[1]
     assert(returned.kind == "returnStmt")
     local node = returned.exprs[1]
@@ -149,7 +138,7 @@ function M.internsStructurallyDistinctTypesApart()
       return b
    ]]
     )
-    assertEq(value.tag, "union", "the union survives the indexer built before it")
+    testAssert.equal(value.tag, "union", "the union survives the indexer built before it")
 end
 
 function M.flattensOptionalIntoTheUnionItNames()
@@ -167,14 +156,14 @@ function M.flattensOptionalIntoTheUnionItNames()
       return viaOptional
    ]]
     )
-    assertEq(value, T.union({T.string, T.number, T.nil_}), "the flattened union reconstructs")
+    testAssert.equal(value, T.union({T.string, T.number, T.nil_}), "the flattened union reconstructs")
 end
 
 function M.rejectsANonHandleMapWriteSide()
     local failure = typeBlueprintFailure([[
       return nupp.types.map(nupp.types.string, nupp.types.number, 42)
    ]])
-    assertEq(failure.code, "NUPP2415", "a stray write key fails at the call")
+    testAssert.equal(failure.code, "NUPP2415", "a stray write key fails at the call")
     assert(failure.message:find("nupp.types.map", 1, true), failure.message)
 end
 
@@ -186,9 +175,9 @@ function M.finalizesAndValidatesStructuralTypeHandles()
       return nupp.types.tuple({name, maybeInteger})
    ]]
     )
-    assertEq(value.tag, "tuple", "the parent interns the structural result")
-    assertEq(value.elems[1].constant, "id", "literal payload survives validation")
-    assertEq(value.elems[2], T.optional(T.integer), "builder results use ordinary interning")
+    testAssert.equal(value.tag, "tuple", "the parent interns the structural result")
+    testAssert.equal(value.elems[1].constant, "id", "literal payload survives validation")
+    testAssert.equal(value.elems[2], T.optional(T.integer), "builder results use ordinary interning")
 end
 
 function M.finalizesAndValidatesTypePackHandles()
@@ -201,10 +190,10 @@ function M.finalizesAndValidatesTypePackHandles()
       )
    ]]
     )
-    assertEq(value.tag, "pack", "the parent interns a pack result")
-    assertEq(value.head[1], T.string, "pack head keeps its first type")
-    assertEq(value.modes[2], "borrowed", "pack modes survive validation")
-    assertEq(value.tail.type, T.any, "pack homogeneous tail survives validation")
+    testAssert.equal(value.tag, "pack", "the parent interns a pack result")
+    testAssert.equal(value.head[1], T.string, "pack head keeps its first type")
+    testAssert.equal(value.modes[2], "borrowed", "pack modes survive validation")
+    testAssert.equal(value.tail.type, T.any, "pack homogeneous tail survives validation")
 end
 
 function M.preservesStructuralFieldAndIndexerCapabilities()
@@ -223,13 +212,13 @@ function M.preservesStructuralFieldAndIndexerCapabilities()
       }, indexer)
    ]]
     )
-    assertEq(value.tag, "shape", "the shape is interned structurally")
-    assertEq(value.byname.read, T.string, "read-only capability survives")
-    assertEq(value.writeByname.read, nil, "read-only field grants no write")
-    assertEq(value.byname.write, nil, "write-only field grants no read")
-    assertEq(value.writeByname.write, T.integer, "write-only capability survives")
-    assertEq(value.indexReadValue, T.number, "read indexer survives")
-    assertEq(value.indexWriteValue, T.integer, "write indexer survives")
+    testAssert.equal(value.tag, "shape", "the shape is interned structurally")
+    testAssert.equal(value.byname.read, T.string, "read-only capability survives")
+    testAssert.equal(value.writeByname.read, nil, "read-only field grants no write")
+    testAssert.equal(value.byname.write, nil, "write-only field grants no read")
+    testAssert.equal(value.writeByname.write, T.integer, "write-only capability survives")
+    testAssert.equal(value.indexReadValue, T.number, "read indexer survives")
+    testAssert.equal(value.indexWriteValue, T.integer, "write indexer survives")
 end
 
 function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
@@ -241,7 +230,7 @@ function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
       })
    ]]
     )
-    assertEq(
+    testAssert.equal(
         wrapped,
         T.intersection({
             T.ptr(T.uint8),
@@ -257,10 +246,10 @@ function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
       return nupp.types.function_(parameters, results)
    ]]
     )
-    assertEq(callable.tag, "func", "function blueprint interns as an ordinary function")
-    assertEq(callable.paramPack.head[1], T.string, "function parameters survive")
-    assertEq(callable.paramPack.tail.type, T.any, "function vararg tail survives")
-    assertEq(callable.retPack.head[1], T.boolean, "function results survive")
+    testAssert.equal(callable.tag, "func", "function blueprint interns as an ordinary function")
+    testAssert.equal(callable.paramPack.head[1], T.string, "function parameters survive")
+    testAssert.equal(callable.paramPack.tail.type, T.any, "function vararg tail survives")
+    testAssert.equal(callable.retPack.head[1], T.boolean, "function results survive")
 end
 
 function M.scansFormatArgumentsWithOrdinaryComptimeControlFlow()
@@ -300,10 +289,10 @@ function M.scansFormatArgumentsWithOrdinaryComptimeControlFlow()
       return nupp.types.pack(arguments)
    ]]
     )
-    assertEq(#value.head, 3, "the ordinary scanner computes format arity")
-    assertEq(value.head[1], T.any, "%s accepts the gradual printable input")
-    assertEq(value.head[2], T.number, "%d accepts a numeric input")
-    assertEq(value.head[3], T.any, "%q accepts the gradual printable input")
+    testAssert.equal(#value.head, 3, "the ordinary scanner computes format arity")
+    testAssert.equal(value.head[1], T.any, "%s accepts the gradual printable input")
+    testAssert.equal(value.head[2], T.number, "%d accepts a numeric input")
+    testAssert.equal(value.head[3], T.any, "%q accepts the gradual printable input")
 end
 
 function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
@@ -315,7 +304,7 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
    ]],
         "type-error-test.g.nupp"
     )
-    assertEq(#result.errors, 0, "authored type error source parses")
+    testAssert.equal(#result.errors, 0, "authored type error source parses")
     local returned = result.root.blocks[1].stats[1]
     assert(returned.kind == "returnStmt")
     local node = returned.exprs[1]
@@ -324,8 +313,8 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
     if not failure then
         error("expected an authored type failure", 2)
     end
-    assertEq(failure.code, "NUPP2420", "authored type rejection has its own diagnostic")
-    assertEq(failure.message, "expected a literal format", "authored message is preserved")
+    testAssert.equal(failure.code, "NUPP2420", "authored type rejection has its own diagnostic")
+    testAssert.equal(failure.message, "expected a literal format", "authored message is preserved")
 end
 
 function M.rejectsTamperedTypeBlueprints()
@@ -336,14 +325,14 @@ function M.rejectsTamperedTypeBlueprints()
     if not invalid then
         error("expected a rejected blueprint", 2)
     end
-    assertEq(invalid.code, "NUPP2415", "the parent rejects a forged graph edge")
+    testAssert.equal(invalid.code, "NUPP2415", "the parent rejects a forged graph edge")
 end
 
 function M.rejectsMalformedTypeBlueprintPayloads()
     local function rejected(envelope, label)
         envelope.fingerprint = hash.sha256("nupp.types\0v1\0" .. stable(envelope.payload))
         local value, invalid = typeblueprint.validate(envelope)
-        assertEq(value, nil, label)
+        testAssert.equal(value, nil, label)
         assert(invalid and invalid.code == "NUPP2415", label)
     end
 
@@ -414,20 +403,20 @@ end
 
 function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
     local lp64 = runIn(LAYOUT_SOURCE, layoutEnv("aarch64-unknown-linux-gnu"))
-    assertEq(table.concat(lp64, ","), "48,8,8,24,4,8,48,4", "LP64 layout")
+    testAssert.equal(table.concat(lp64, ","), "48,8,8,24,4,8,48,4", "LP64 layout")
 
     local ilp32 = runIn(LAYOUT_SOURCE, layoutEnv("i686-unknown-linux-gnu"))
-    assertEq(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
+    testAssert.equal(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
 
     local wasm32 = runIn(LAYOUT_SOURCE, layoutEnv("wasm32-unknown-emscripten"))
-    assertEq(table.concat(wasm32, ","), "40,8,8,20,4,4,40,4", "wasm32 layout")
+    testAssert.equal(table.concat(wasm32, ","), "40,8,8,20,4,4,40,4", "wasm32 layout")
 end
 
 function M.compilerTypeIntrinsicsRequireTheNuppNamespace()
     for _, name in ipairs({"reflect", "sizeof", "alignof", "offsetof"}) do
         local argument = name == "offsetof" and 'int32, "value"' or "int32"
         local codes = errorsOf(("return comptime do return %s(%s) end"):format(name, argument))
-        assertEq(codes[1], "NUPP2410", name .. " is not a bare comptime global")
+        testAssert.equal(codes[1], "NUPP2410", name .. " is not a bare comptime global")
     end
 end
 
@@ -438,7 +427,7 @@ local struct Value
 end
 return comptime do return nupp.sizeof(Value) end
 ]])
-    assertEq(codes[1], "NUPP2419", "missing target")
+    testAssert.equal(codes[1], "NUPP2419", "missing target")
     assert(diags[1].help and diags[1].help:find("layoutTarget", 1, true), "the diagnostic names the manifest selection")
 
     local _, invalid = compile(
@@ -450,7 +439,7 @@ return comptime do return nupp.sizeof(Value) end
 ]],
         layoutEnv("x86_64-unknown-linux-gnu")
     )
-    assertEq(invalid[1].code, "NUPP2419", "records have no C layout")
+    testAssert.equal(invalid[1].code, "NUPP2419", "records have no C layout")
     assert(invalid[1].msg:find("no runtime layout", 1, true), invalid[1].msg)
 end
 
@@ -464,7 +453,7 @@ return comptime do return nupp.offsetof(Value, "missing") end
 ]],
         layoutEnv("x86_64-unknown-linux-gnu")
     )
-    assertEq(unknown[1].code, "NUPP2419", "unknown field")
+    testAssert.equal(unknown[1].code, "NUPP2419", "unknown field")
     assert(unknown[1].msg:find('no field "missing"', 1, true), unknown[1].msg)
 
     local _, dynamic = compile(
@@ -477,14 +466,14 @@ return comptime do return nupp.offsetof(Value, name) end
 ]],
         layoutEnv("x86_64-unknown-linux-gnu")
     )
-    assertEq(dynamic[1].code, "NUPP2410", "runtime locals remain unavailable")
+    testAssert.equal(dynamic[1].code, "NUPP2410", "runtime locals remain unavailable")
 end
 
 function M.evaluatesAnArithmeticBlock()
-    assertEq(run("return comptime do return (2 + 3) * 4 end"), 20, "block result")
+    testAssert.equal(run("return comptime do return (2 + 3) * 4 end"), 20, "block result")
     local code = compile("return comptime do return (2 + 3) * 4 end")
-    assertTrue(code:find("return 20", 1, true) ~= nil, "the block is replaced by its value: " .. code)
-    assertEq(code:find("2 + 3", 1, true), nil, "none of the body reaches the output: " .. code)
+    assert(code:find("return 20", 1, true) ~= nil, "the block is replaced by its value: " .. code)
+    testAssert.equal(code:find("2 + 3", 1, true), nil, "none of the body reaches the output: " .. code)
 end
 
 function M.keepsAScalarComptimeLiteralOnAConstBinding()
@@ -494,11 +483,11 @@ function M.keepsAScalarComptimeLiteralOnAConstBinding()
 end]],
         "test.g.nupp"
     )
-    assertEq(#result.errors, 0, "const comptime source parses")
-    assertEq(#check.check(result, "test.g.nupp", env), 0, "const comptime source checks")
+    testAssert.equal(#result.errors, 0, "const comptime source parses")
+    testAssert.equal(#check.check(result, "test.g.nupp", env), 0, "const comptime source checks")
     local binding = firstLocalBinding(result)
-    assertEq(binding.tag, "literal", "const comptime binding keeps its literal type")
-    assertEq(binding.constant, "NUPP COMPILES THIS ONCE ========", "const comptime literal value")
+    testAssert.equal(binding.tag, "literal", "const comptime binding keeps its literal type")
+    testAssert.equal(binding.constant, "NUPP COMPILES THIS ONCE ========", "const comptime literal value")
 end
 
 function M.buildsATableWithALoop()
@@ -515,20 +504,20 @@ end
 return SQUARES[4], #SQUARES
 ]]
     local value, count = run(src)
-    assertEq(value, 16, "the fourth square")
-    assertEq(count, 5, "the table's length")
+    testAssert.equal(value, 16, "the fourth square")
+    testAssert.equal(count, 5, "the table's length")
     local code = compile(src)
-    assertTrue(code:find("{1, 4, 9, 16, 25}", 1, true) ~= nil, "the table is emitted as one literal: " .. code)
+    assert(code:find("{1, 4, 9, 16, 25}", 1, true) ~= nil, "the table is emitted as one literal: " .. code)
 end
 
 function M.widensComptimeArrayElements()
     local result = parser.parse([[const values = comptime do
     return {1, 2, 3}
 end]], "test.g.nupp")
-    assertEq(#result.errors, 0, "comptime array source parses")
-    assertEq(#check.check(result, "test.g.nupp", env), 0, "comptime array source checks")
+    testAssert.equal(#result.errors, 0, "comptime array source parses")
+    testAssert.equal(#check.check(result, "test.g.nupp", env), 0, "comptime array source checks")
     local binding = firstLocalBinding(result)
-    assertEq(T.tostring(binding), "{integer}", "comptime array elements widen")
+    testAssert.equal(T.tostring(binding), "{integer}", "comptime array elements widen")
 end
 
 function M.matchesAnIndependentComputationOfTheSameTable()
@@ -561,16 +550,16 @@ return CRC
         end
         want[byte + 1] = acc
     end
-    assertEq(#got, 256, "entry count")
+    testAssert.equal(#got, 256, "entry count")
     for index = 1, 256 do
-        assertEq(got[index], want[index], "entry " .. index)
+        testAssert.equal(got[index], want[index], "entry " .. index)
     end
 end
 
 function M.worksAtEveryOptimizationLevel()
     -- Comptime is semantics, not an optimization: `-O0` must still produce the value.
     -- `compile` never optimizes, so reaching the value at all is the assertion.
-    assertEq(run("return comptime do return 7 end"), 7, "result at -O0")
+    testAssert.equal(run("return comptime do return 7 end"), 7, "result at -O0")
 end
 
 function M.preservesTheLineCount()
@@ -588,31 +577,31 @@ function M.preservesTheLineCount()
         return n
     end
 
-    assertEq(lines(code), lines(src), "attribution survives by the line count holding: " .. code)
+    testAssert.equal(lines(code), lines(src), "attribution survives by the line count holding: " .. code)
     local _, value = run(src)
-    assertEq(value, 6, "the block still produced its value")
+    testAssert.equal(value, 6, "the block still produced its value")
 end
 
 function M.staysAName()
     -- `comptime` opens a block only when `do` follows it on the same line. Everywhere
     -- else it is the identifier it always was.
-    assertEq(run("local comptime = 3\nreturn comptime"), 3, "a local of that name")
-    assertEq(run("local function f(comptime) return comptime end\nreturn f(9)"), 9, "a parameter of that name")
+    testAssert.equal(run("local comptime = 3\nreturn comptime"), 3, "a local of that name")
+    testAssert.equal(run("local function f(comptime) return comptime end\nreturn f(9)"), 9, "a parameter of that name")
 end
 
 function M.typesTheResultAgainstItsContext()
     local codes = errorsOf("const N: string = comptime do return 5 end\nreturn N")
-    assertEq(codes[1], "NUPP2001", "an integer result is refused where a string is declared")
+    testAssert.equal(codes[1], "NUPP2001", "an integer result is refused where a string is declared")
 end
 
 function M.readsNoRuntimeBinding()
     local codes = errorsOf("local n = 5\nreturn comptime do return n end")
-    assertEq(codes[1], "NUPP2410", "a runtime local is unavailable")
+    testAssert.equal(codes[1], "NUPP2410", "a runtime local is unavailable")
 end
 
 function M.writesNoRuntimeBinding()
     local codes = errorsOf("local n = 5\nreturn comptime do n = 6 return n end")
-    assertEq(codes[1], "NUPP2410", "a runtime local cannot be assigned")
+    testAssert.equal(codes[1], "NUPP2410", "a runtime local cannot be assigned")
 end
 
 function M.reachesNoAmbientLibrary()
@@ -629,24 +618,24 @@ function M.reachesNoAmbientLibrary()
         "collectgarbage"
     }) do
         local codes = errorsOf(("return comptime do return %s end"):format(name))
-        assertEq(codes[1], "NUPP2410", name .. " is not in the environment")
+        testAssert.equal(codes[1], "NUPP2410", name .. " is not in the environment")
     end
 end
 
 function M.reachesTheAllowlistedLibraries()
-    assertEq(run('return comptime do return string.rep("-", 3) end'), "---", "string.rep")
-    assertEq(run("return comptime do return math.floor(7 / 2) end"), 3, "math.floor")
-    assertEq(run('return comptime do return table.concat({"a", "b"}, ",") end'), "a,b", "table.concat")
+    testAssert.equal(run('return comptime do return string.rep("-", 3) end'), "---", "string.rep")
+    testAssert.equal(run("return comptime do return math.floor(7 / 2) end"), 3, "math.floor")
+    testAssert.equal(run('return comptime do return table.concat({"a", "b"}, ",") end'), "a,b", "table.concat")
     -- The compiler runs on a LuaJIT with no table.clone of its own, so this is the
     -- evaluator's own copy answering, not one borrowed from the host.
-    assertEq(run("return comptime do local t = table.clone({n = 4}) t.n = 5 return t.n end"), 5, "table.clone")
-    assertEq(run("return comptime do return bit.band(0xff, 0x0f) end"), 15, "bit.band")
-    assertEq(run('return comptime do return ("x"):upper() end'), "X", "a string method")
+    testAssert.equal(run("return comptime do local t = table.clone({n = 4}) t.n = 5 return t.n end"), 5, "table.clone")
+    testAssert.equal(run("return comptime do return bit.band(0xff, 0x0f) end"), 15, "bit.band")
+    testAssert.equal(run('return comptime do return ("x"):upper() end'), "X", "a string method")
 end
 
 function M.preservesFalseAndNilFromLogicalAnd()
-    assertEq(run("return comptime do return true and false end"), false, "a false right operand survives and")
-    assertEq(
+    testAssert.equal(run("return comptime do return true and false end"), false, "a false right operand survives and")
+    testAssert.equal(
         run("return comptime do local value = true and nil return value == nil end"),
         true,
         "a nil right operand survives and"
@@ -663,11 +652,11 @@ function M.refusesTheNondeterministicLibraries()
     -- not in the environment at all is NUPP2401, the same answer a runtime local gets.
     for _, expr in ipairs({"math.random()", "math.sin(1)"}) do
         local codes = errorsOf(("return comptime do return %s end"):format(expr))
-        assertEq(codes[1], "NUPP2411", expr .. " is left out of the allowlist")
+        testAssert.equal(codes[1], "NUPP2411", expr .. " is left out of the allowlist")
     end
     for _, expr in ipairs({"os.clock()", "os.time()"}) do
         local codes = errorsOf(("return comptime do return %s end"):format(expr))
-        assertEq(codes[1], "NUPP2410", expr .. " has no library to reach")
+        testAssert.equal(codes[1], "NUPP2410", expr .. " has no library to reach")
     end
 end
 
@@ -679,7 +668,7 @@ function M.namesTheAbsentMemberRatherThanItsSymptom()
             found = diag.msg
         end
     end
-    assertEq(
+    testAssert.equal(
         found,
         "math.random is unavailable at comptime",
         "the diagnostic says which member, not that a nil was called"
@@ -690,7 +679,7 @@ function M.refusesTostringOfATable()
     -- `tostring(t)` is a process address, so a block using it would produce a different
     -- constant on the next build of the same source.
     local codes = errorsOf("return comptime do return tostring({}) end")
-    assertEq(codes[1], "NUPP2412", "tostring of a table is refused")
+    testAssert.equal(codes[1], "NUPP2412", "tostring of a table is refused")
 end
 
 -- An operand the checker typed loosely reaches the evaluator as whatever it turned out
@@ -710,14 +699,14 @@ function M.refusesAnOperandTheOperatorHasNoMeaningFor()
         local label, expression, message = case[1], case[2], case[3]
         local src = ("return comptime do local t = {} return %s end"):format(expression)
         local codes, diags = errorsOf(src)
-        assertEq(codes[1], "NUPP2412", label .. " is refused")
+        testAssert.equal(codes[1], "NUPP2412", label .. " is refused")
         local found = nil
         for _, diag in ipairs(diags) do
             if diag.code == "NUPP2412" then
                 found = diag.msg
             end
         end
-        assertEq(found, message, label .. " names the operator and what it needs")
+        testAssert.equal(found, message, label .. " names the operator and what it needs")
     end
 end
 
@@ -725,9 +714,9 @@ end
 -- disagree about the same expression.
 function M.keepsLuaOperandCoercion()
     local code = compile("return comptime do return \"10\" + 1 end")
-    assertTrue(code:find("11", 1, true) ~= nil, "a numeric string still converts for arithmetic")
+    assert(code:find("11", 1, true) ~= nil, "a numeric string still converts for arithmetic")
     local concatenated = compile("return comptime do return 1 .. 2 end")
-    assertTrue(concatenated:find("\"12\"", 1, true) ~= nil, "a number still spells itself for concatenation")
+    assert(concatenated:find("\"12\"", 1, true) ~= nil, "a number still spells itself for concatenation")
 end
 
 function M.iteratesDeterministically()
@@ -743,24 +732,24 @@ const KEYS = comptime do
 end
 return KEYS
 ]]
-    assertEq(run(src), "apple,mango,zebra", "pairs answers in sorted order")
+    testAssert.equal(run(src), "apple,mango,zebra", "pairs answers in sorted order")
 end
 
 function M.stopsEndlessRecursionOfBlocks()
     local codes = errorsOf("return comptime do return comptime do return 1 end end")
-    assertEq(codes[1], "NUPP2411", "a nested block is refused")
+    testAssert.equal(codes[1], "NUPP2411", "a nested block is refused")
 end
 
 function M.boundsAnEndlessLoop()
     local codes, diags = errorsOf("return comptime do while true do end end")
-    assertEq(codes[1], "NUPP2412", "the evaluator budget stops an endless loop")
+    testAssert.equal(codes[1], "NUPP2412", "the evaluator budget stops an endless loop")
     local found
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2412" then
             found = diag.msg
         end
     end
-    assertTrue(
+    assert(
         found and (found:find("steps", 1, true) or found:find("timeout", 1, true)),
         "the diagnostic names the bound: " .. tostring(found)
     )
@@ -772,18 +761,15 @@ function M.recoversWhenTheWorkerCrashes()
     end
     local root = os.tmpname()
     os.remove(root)
-    assertEq(os.execute(("mkdir -p %q/bin"):format(root)), 0)
+    testAssert.equal(os.execute(("mkdir -p %q/bin"):format(root)), 0)
     local launcher = assert(io.open(root .. "/bin/nupp", "wb"))
     launcher:write("#!/bin/sh\nkill -9 $$\n")
     launcher:close()
-    assertEq(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
+    testAssert.equal(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
     local worker = require("nupp.compiler.comptime.worker")
     local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
     os.execute(("rm -rf %q"):format(root))
-    assertTrue(
-        failure and failure.message:find("crashed", 1, true),
-        "the parent converts a worker crash into one failure"
-    )
+    assert(failure and failure.message:find("crashed", 1, true), "the parent converts a worker crash into one failure")
 end
 
 --- The worker protocol carries bytes, because a string is bytes.
@@ -800,16 +786,16 @@ function M.theWorkerProtocolCarriesBytesNoEncodingWouldRead()
         ("comptime do return string.char(%d, %d, %d, %d) end"):format(bytes:byte(1, 4)),
         HERE .. "/../bin/nupp"
     )
-    assertEq(failure and failure.message or nil, nil, "the response decodes")
+    testAssert.equal(failure and failure.message or nil, nil, "the response decodes")
     local chunk = loadstring("return " .. tostring(quoted))
-    assertTrue(chunk ~= nil, "the quoted result is a value: " .. tostring(quoted))
-    assertEq(chunk(), bytes, "and it is the bytes the block returned")
+    assert(chunk ~= nil, "the quoted result is a value: " .. tostring(quoted))
+    testAssert.equal(chunk(), bytes, "and it is the bytes the block returned")
 end
 
 function M.aTypeFunctionArgumentCarriesBytesNoEncodingWouldRead()
     local dir = os.tmpname()
     os.remove(dir)
-    assertEq(os.execute(("mkdir -p %q"):format(dir)), 0)
+    testAssert.equal(os.execute(("mkdir -p %q"):format(dir)), 0)
     local source = assert(io.open(dir .. "/patterns.lua", "wb"))
     -- The shape lunajson has: one local bound to a control-byte pattern on one
     -- branch and a high-byte one on the other, then matched. Both literal types
@@ -825,7 +811,7 @@ function M.aTypeFunctionArgumentCarriesBytesNoEncodingWouldRead()
     local out = pipe:read("*a")
     pipe:close()
     os.execute(("rm -rf %q"):format(dir))
-    assertEq(out, "", "the pattern reaches the worker and back unchanged")
+    testAssert.equal(out, "", "the pattern reaches the worker and back unchanged")
 end
 
 function M.workerCancellationStopsIsolatedEvaluation()
@@ -839,15 +825,15 @@ function M.workerCancellationStopsIsolatedEvaluation()
             return true
         end,
     })
-    assertTrue(failure and failure.message:find("canceled", 1, true), "canceled worker reports a cancellation failure")
-    assertTrue(pumped > 0, "the host is serviced while the worker is in flight")
+    assert(failure and failure.message:find("canceled", 1, true), "canceled worker reports a cancellation failure")
+    assert(pumped > 0, "the host is serviced while the worker is in flight")
 end
 
 function M.boundsAComptimeStringSizeBomb()
     local codes, diags = errorsOf([[return comptime do return string.rep("x", 600000) end]])
     assert(codes[1] == "NUPP2412" or codes[1] == "NUPP2416", "the string allocation is bounded")
     local message = diags[1] and diags[1].msg or ""
-    assertTrue(message:find("limit", 1, true) ~= nil, "the diagnostic names the size limit: " .. message)
+    assert(message:find("limit", 1, true) ~= nil, "the diagnostic names the size limit: " .. message)
 end
 
 function M.boundsAComptimeResultGraph()
@@ -860,7 +846,7 @@ return comptime do
 end
 ]]
     )
-    assertEq(codes[1], "NUPP2416", "the final value graph has an item limit")
+    testAssert.equal(codes[1], "NUPP2416", "the final value graph has an item limit")
 end
 
 -- The parser fills `names` for `local {x, y} = t` as it does for a plain local, but
@@ -877,14 +863,14 @@ end
 return v.x, v.z
 ]]
     )
-    assertEq(x, 1, "the first pattern field")
-    assertEq(z, 2, "an aliased pattern field")
+    testAssert.equal(x, 1, "the first pattern field")
+    testAssert.equal(z, 2, "an aliased pattern field")
 end
 
 -- A helper's optional parameter may be left out, exactly as the checker admits it:
 -- the missing argument is nil, and only a required one omitted is a mistake.
 function M.callsAHelperWithoutItsOptionalArgument()
-    assertEq(
+    testAssert.equal(
         run(
             [[
 @comptime local function pick(a: integer, b: integer?): integer
@@ -907,7 +893,7 @@ end
 return comptime do return pick(5) end
 ]]
     )
-    assertTrue(codes[1] ~= nil, "omitting a required argument is still refused")
+    assert(codes[1] ~= nil, "omitting a required argument is still refused")
 end
 
 function M.boundsComptimeHelperRecursion()
@@ -920,9 +906,9 @@ end
 return comptime do return descend(200) end
 ]]
     )
-    assertEq(codes[1], "NUPP2412", "helper recursion has a frame limit")
+    testAssert.equal(codes[1], "NUPP2412", "helper recursion has a frame limit")
     local message = diags[1] and diags[1].msg or ""
-    assertTrue(message:find("128 frames", 1, true) ~= nil, "the diagnostic names the recursion bound: " .. message)
+    assert(message:find("128 frames", 1, true) ~= nil, "the diagnostic names the recursion bound: " .. message)
 end
 
 function M.materializesACyclicOpaqueGraphAtAnExplicitBoundary()
@@ -937,11 +923,11 @@ end
 return graph.value, graph.nodes
 ]]
     local value, nodes = run(src)
-    assertEq(value, 18, "the provider lowers its canonical payload")
-    assertEq(nodes, 2, "the cyclic graph crosses the worker as flat data")
+    testAssert.equal(value, 18, "the provider lowers its canonical payload")
+    testAssert.equal(nodes, 2, "the cyclic graph crosses the worker as flat data")
     local code = compile(src)
-    assertTrue(code:find("{value=18,nodes=2}", 1, true) ~= nil, "the generator renders validated IR: " .. code)
-    assertEq(code:find("__materializationTest", 1, true), nil, "no opaque construction reaches runtime")
+    assert(code:find("{value=18,nodes=2}", 1, true) ~= nil, "the generator renders validated IR: " .. code)
+    testAssert.equal(code:find("__materializationTest", 1, true), nil, "no opaque construction reaches runtime")
 end
 
 function M.materializesAFactoryWithOrdinaryRuntimeInputs()
@@ -953,10 +939,10 @@ const made = build({value = 37} as nupp.__MaterializationTestInput)
 return made.value, made.nodes
 ]]
     local value, nodes = run(src)
-    assertEq(value, 37, "the generated factory reads its declared runtime input")
-    assertEq(nodes, 1, "the generated result keeps its provider data")
+    testAssert.equal(value, 37, "the generated factory reads its declared runtime input")
+    testAssert.equal(nodes, 1, "the generated result keeps its provider data")
     local code = compile(src)
-    assertTrue(
+    assert(
         code:find("function(_nupp_m1)", 1, true) ~= nil,
         "the factory is emitted through hygienic expression IR: " .. code
     )
@@ -975,11 +961,11 @@ const ANSWER: integer = comptime do
 end
 return ANSWER
 ]]
-    assertEq(run(src), 42, "comptime helpers compose")
+    testAssert.equal(run(src), 42, "comptime helpers compose")
     local code, diags = compile(src)
-    assertEq(#diags, 0, "typed helpers check")
-    assertEq(code:find("function double", 1, true), nil, "a comptime helper has no runtime declaration")
-    assertTrue(code:find("42", 1, true) ~= nil, "the computed result remains")
+    testAssert.equal(#diags, 0, "typed helpers check")
+    testAssert.equal(code:find("function double", 1, true), nil, "a comptime helper has no runtime declaration")
+    assert(code:find("42", 1, true) ~= nil, "the computed result remains")
 end
 
 function M.recursesWithinTheSharedEvaluationBudget()
@@ -990,7 +976,7 @@ function M.recursesWithinTheSharedEvaluationBudget()
 end
 return comptime do return factorial(6) end
 ]]
-    assertEq(run(src), 720, "recursive comptime helper")
+    testAssert.equal(run(src), 720, "recursive comptime helper")
 end
 
 function M.keepsComptimeHelpersOutOfRuntimeValues()
@@ -1001,7 +987,7 @@ local escaped = answer
 return escaped()
 ]]
     )
-    assertEq(codes[1], "NUPP2415", "a comptime helper cannot escape to runtime")
+    testAssert.equal(codes[1], "NUPP2415", "a comptime helper cannot escape to runtime")
 end
 
 function M.reportsAComptimeCallStack()
@@ -1019,7 +1005,7 @@ return comptime do return explode(1) end
             message = diag.msg
         end
     end
-    assertTrue(
+    assert(
         message and message:find("called explode", 1, true),
         "the failure retains its comptime call frame: " .. tostring(message)
     )
@@ -1031,7 +1017,7 @@ const graph = comptime do
     return nupp.__materializationTest.node(1)
 end
 ]])
-    assertEq(codes[1], "NUPP2414", "an inferred binding is not a materialization boundary")
+    testAssert.equal(codes[1], "NUPP2414", "an inferred binding is not a materialization boundary")
 end
 
 function M.rejectsAnUnregisteredOpaqueTypePair()
@@ -1040,7 +1026,7 @@ const graph: table = comptime do
     return nupp.__materializationTest.node(1)
 end
 ]])
-    assertEq(codes[1], "NUPP2415", "the expected type selects a closed provider relation")
+    testAssert.equal(codes[1], "NUPP2415", "the expected type selects a closed provider relation")
 end
 
 function M.rejectsOpaqueValuesNestedInOrdinaryTables()
@@ -1049,7 +1035,7 @@ const graph = comptime do
     return {nupp.__materializationTest.node(1)}
 end
 ]])
-    assertEq(codes[1], "NUPP2414", "an opaque handle cannot escape through quoted data")
+    testAssert.equal(codes[1], "NUPP2414", "an opaque handle cannot escape through quoted data")
 end
 
 function M.fingerprintsEquivalentOpaqueGraphsIdentically()
@@ -1071,32 +1057,32 @@ function M.fingerprintsEquivalentOpaqueGraphsIdentically()
    end]]
     local _, failureA, envelopeA = worker.evaluate(first, executable)
     local _, failureB, envelopeB = worker.evaluate(second, executable)
-    assertEq(failureA, nil, "first graph finalizes")
-    assertEq(failureB, nil, "second graph finalizes")
-    assertEq(envelopeA.fingerprint, envelopeB.fingerprint, "construction order does not enter the fingerprint")
+    testAssert.equal(failureA, nil, "first graph finalizes")
+    testAssert.equal(failureB, nil, "second graph finalizes")
+    testAssert.equal(envelopeA.fingerprint, envelopeB.fingerprint, "construction order does not enter the fingerprint")
 end
 
 function M.requiresAResult()
     local codes = errorsOf("return comptime do local a = 1 end")
-    assertEq(codes[1], "NUPP2412", "a block with no return is refused")
+    testAssert.equal(codes[1], "NUPP2412", "a block with no return is refused")
 end
 
 function M.refusesMoreThanOneResult()
     local codes = errorsOf("return comptime do return 1, 2 end")
-    assertEq(codes[1], "NUPP2411", "multi-value results are deferred, not silent")
+    testAssert.equal(codes[1], "NUPP2411", "multi-value results are deferred, not silent")
 end
 
 function M.refusesAnUnquotableResult()
     local codes = errorsOf("return comptime do return ipairs end")
-    assertEq(codes[1], "NUPP2413", "a function is not a quotable result")
+    testAssert.equal(codes[1], "NUPP2413", "a function is not a quotable result")
 end
 
 function M.refusesATableValuedKey()
     -- Keys are written in sorted order, and two table keys have no order between
     -- them, so a result holding them was not written the same way twice.
     local codes, diags = errorsOf("return comptime do local a, b = {}, {} return {[a] = 1, [b] = 2} end")
-    assertEq(codes[1], "NUPP2413", "a table key is refused")
-    assertTrue(
+    testAssert.equal(codes[1], "NUPP2413", "a table key is refused")
+    assert(
         (diags[1] and diags[1].msg or ""):find("quotable key", 1, true) ~= nil,
         "and named as a key: " .. tostring(diags[1] and diags[1].msg)
     )
@@ -1115,21 +1101,21 @@ end
 return v.q, v.s
 ]]
     )
-    assertEq(floored, 3, "floor division through the compound form")
-    assertEq(joined, "ab", "concatenation through the compound form")
+    testAssert.equal(floored, 3, "floor division through the compound form")
+    testAssert.equal(joined, "ab", "concatenation through the compound form")
 end
 
 function M.refusesASharedTable()
     -- Quoting it twice would build two tables where the block had one. Refusing leaves
     -- the author a decision rather than a difference to discover at run time.
     local codes = errorsOf("return comptime do local s = {1} return {s, s} end")
-    assertEq(codes[1], "NUPP2413", "a table on two paths is refused")
+    testAssert.equal(codes[1], "NUPP2413", "a table on two paths is refused")
 end
 
 function M.refusesAFunctionDeclaration()
     -- C3, and named as such rather than mis-reported as something else.
     local codes = errorsOf("return comptime do local function f() return 1 end return f() end")
-    assertEq(codes[1], "NUPP2411", "declaring a function is not yet available")
+    testAssert.equal(codes[1], "NUPP2411", "declaring a function is not yet available")
 end
 
 function M.quotesNumbersThatReadBackUnchanged()
@@ -1137,19 +1123,19 @@ function M.quotesNumbersThatReadBackUnchanged()
     -- searched for rather than assumed.
     for _, value in ipairs({0.1, 1 / 3, 2 ^ 0.5, 1e300, 5e-324, 123456789.123456789}) do
         local src = ("return comptime do return %.17g end"):format(value)
-        assertEq(run(src), value, "round trip for " .. tostring(value))
+        testAssert.equal(run(src), value, "round trip for " .. tostring(value))
     end
 end
 
 function M.quotesNegativeZeroApart()
     local answer = run("return comptime do return -0.0 end")
-    assertEq(1 / answer, -math.huge, "negative zero keeps its sign")
+    testAssert.equal(1 / answer, -math.huge, "negative zero keeps its sign")
 end
 
 function M.refusesNaNAndInfinity()
     for _, src in ipairs({"return comptime do return 0 / 0 end", "return comptime do return 1 / 0 end"}) do
         local codes = errorsOf(src)
-        assertEq(codes[1], "NUPP2413", "no literal spelling for " .. src)
+        testAssert.equal(codes[1], "NUPP2413", "no literal spelling for " .. src)
     end
 end
 
@@ -1167,12 +1153,12 @@ end
 return T[1], T[2], T[4], T[3]
 ]]
     local one, two, four, three = run(src)
-    assertEq(one, "a", "first")
-    assertEq(two, "b", "second")
-    assertEq(four, "d", "fourth")
-    assertEq(three, nil, "the hole stays a hole")
+    testAssert.equal(one, "a", "first")
+    testAssert.equal(two, "b", "second")
+    testAssert.equal(four, "d", "fourth")
+    testAssert.equal(three, nil, "the hole stays a hole")
     local code = compile(src)
-    assertTrue(
+    assert(
         code:find('{"a", "b", [4] = "d"}', 1, true) ~= nil,
         "the hole splits the array part from the keyed entries: " .. code
     )
@@ -1191,14 +1177,14 @@ return T.a
 ]]
     local first = compile(src)
     local second = compile(src)
-    assertEq(first, second, "two builds of one source agree")
+    testAssert.equal(first, second, "two builds of one source agree")
 end
 
 function M.reportsInsideTheBlockWithOrdinaryChecking()
     -- The body is checked by the ordinary machinery, so a type error in it is the
     -- diagnostic it would be anywhere else rather than an evaluation failure.
     local codes = errorsOf('return comptime do local n: integer = "x" return n end')
-    assertEq(codes[1], "NUPP2001", "an ordinary type error inside the block")
+    testAssert.equal(codes[1], "NUPP2001", "an ordinary type error inside the block")
 end
 
 return M

@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- Allocation- and raising-free checked regions and their observed module sidecars.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -6,15 +7,9 @@ local incremental = require("nupp.compiler.project.incremental")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function refusals(src)
     local parsed = parser.parse(src, "effect-region.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax")
+    testAssert.equal(#parsed.errors, 0, "syntax")
     local diags = check.check(parsed, "effect-region.g.nupp", envMod.new(HERE))
     local found = {}
     for _, diag in ipairs(diags) do
@@ -41,14 +36,14 @@ function M.sameFileCallsUseTheExistingSummary()
             "\n"
         )
     )
-    assertEq(#found, 2, "one refusal per positive effect")
-    assertEq(found[1].code, "NUPP2710", "allocation diagnostic")
-    assertEq(found[2].code, "NUPP2711", "raising diagnostic")
+    testAssert.equal(#found, 2, "one refusal per positive effect")
+    testAssert.equal(found[1].code, "NUPP2710", "allocation diagnostic")
+    testAssert.equal(found[2].code, "NUPP2711", "raising diagnostic")
 end
 
 function M.directOperationsAreCheckedAndRegionsErase()
     local found, parsed = refusals("@noalloc do local t = {} end")
-    assertEq(#found, 1, "table construction is an allocation")
+    testAssert.equal(#found, 1, "table construction is an allocation")
     local generated = require("nupp.compiler.lua.gen").generate(parsed, "effect-region.g.nupp")
     assert(generated:find("do", 1, true), "region emits a block")
     assert(not generated:find("noalloc", 1, true), "no runtime guard remains")
@@ -64,7 +59,7 @@ function M.fixedWidthScalarOperationsSatisfyBothRegions()
             "\n"
         )
     )
-    assertEq(#found, 0, "fixed-width scalar calls have modeled negative effects")
+    testAssert.equal(#found, 0, "fixed-width scalar calls have modeled negative effects")
 end
 
 function M.boxedSixtyFourBitArithmeticAllocates()
@@ -89,9 +84,9 @@ function M.boxedSixtyFourBitArithmeticAllocates()
             "\n"
         )
     )
-    assertEq(#found, 4, "each boxed result is an allocation: " .. tostring(found[1] and found[1].msg))
+    testAssert.equal(#found, 4, "each boxed result is an allocation: " .. tostring(found[1] and found[1].msg))
     for _, diag in ipairs(found) do
-        assertEq(diag.code, "NUPP2710", "allocation diagnostic")
+        testAssert.equal(diag.code, "NUPP2710", "allocation diagnostic")
     end
 end
 
@@ -111,8 +106,8 @@ function M.aGradualIndexMayRaise()
             "\n"
         )
     )
-    assertEq(#found, 1, "indexing a gradual value may raise")
-    assertEq(found[1].code, "NUPP2711", "raising diagnostic")
+    testAssert.equal(#found, 1, "indexing a gradual value may raise")
+    testAssert.equal(found[1].code, "NUPP2711", "raising diagnostic")
 end
 
 -- `table` says no more about a metatable than `any` does, and a bracketed key
@@ -126,8 +121,8 @@ function M.everyGradualIndexMayRaise()
         "local function f(t: table, k: string): nil @noraise do t[k] = 1 end end",
     }) do
         local found = refusals(access)
-        assertEq(#found, 1, access)
-        assertEq(found[1].code, "NUPP2711", access)
+        testAssert.equal(#found, 1, access)
+        testAssert.equal(found[1].code, "NUPP2711", access)
     end
 end
 
@@ -150,8 +145,8 @@ function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
             "\n"
         )
     )
-    assertEq(#found, 1, "only the access outside the dominated loop can raise")
-    assertEq(found[1].code, "NUPP2711")
+    testAssert.equal(#found, 1, "only the access outside the dominated loop can raise")
+    testAssert.equal(found[1].code, "NUPP2711")
 end
 
 function M.rangeProofsRequireStableSpanIdentities()
@@ -171,7 +166,7 @@ function M.rangeProofsRequireStableSpanIdentities()
             "\n"
         )
     )
-    assertEq(#found, 1, "a rebindable span cannot carry a range proof")
+    testAssert.equal(#found, 1, "a rebindable span cannot carry a range proof")
 end
 
 function M.rangeProofsDoNotEnterNestedFunctions()
@@ -193,8 +188,8 @@ function M.rangeProofsDoNotEnterNestedFunctions()
             "\n"
         )
     )
-    assertEq(#found, 1, "a closure cannot inherit its enclosing loop's proof")
-    assertEq(found[1].code, "NUPP2711")
+    testAssert.equal(#found, 1, "a closure cannot inherit its enclosing loop's proof")
+    testAssert.equal(found[1].code, "NUPP2711")
 end
 
 function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
@@ -212,7 +207,7 @@ function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
             "\n"
         )
     )
-    assertEq(#found, 4, "unknown callbacks and uncontracted C fail both proofs")
+    testAssert.equal(#found, 4, "unknown callbacks and uncontracted C fail both proofs")
 end
 
 function M.shadowingAPureBuiltinDoesNotBorrowItsGuarantees()
@@ -234,7 +229,7 @@ function M.shadowingAPureBuiltinDoesNotBorrowItsGuarantees()
             "\n"
         )
     )
-    assertEq(#found, 3, "a callback named like a builtin remains effect-unknown")
+    testAssert.equal(#found, 3, "a callback named like a builtin remains effect-unknown")
 end
 
 function M.automaticCleanupParticipatesInTheRaisingSummary()
@@ -254,7 +249,7 @@ function M.automaticCleanupParticipatesInTheRaisingSummary()
             "\n"
         )
     )
-    assertEq(#found, 1, "the implicit close keeps use from being noRaise")
+    testAssert.equal(#found, 1, "the implicit close keeps use from being noRaise")
     assert(#(found[1].related or {}) > 0, "the diagnostic carries a call chain")
 end
 
@@ -309,7 +304,7 @@ function M.importsObserveOnlyTheExactFactsTheyUse()
                     found[#found + 1] = diag
                 end
             end
-            assertEq(#found, 2, "only unsafe imported calls fail")
+            testAssert.equal(#found, 2, "only unsafe imported calls fail")
         end
     )
 end
@@ -317,18 +312,18 @@ end
 function M.gainingAGuaranteeInvalidatesARejectedObservation()
     withProject("local D = require('dep')\n@noalloc do D.allocates() end", function(inc, depPath, mainPath)
         local before = inc.checkFile(mainPath)
-        assertEq(before.diags[1] and before.diags[1].code, "NUPP2710", "initial refusal")
+        testAssert.equal(before.diags[1] and before.diags[1].code, "NUPP2710", "initial refusal")
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, PROVIDER:gsub("local t = {}", "local n = 1"))
         local after = inc.checkFile(mainPath)
-        assertEq(
+        testAssert.equal(
             #after.diags,
             0,
             "the absent observation becomes present: " .. tostring(
                 after.diags[1] and after.diags[1].code
             ) .. " " .. tostring(after.diags[1] and after.diags[1].msg)
         )
-        assertEq(inc.q.stats.checkModule, cold + 2, "provider and observer recheck")
+        testAssert.equal(inc.q.stats.checkModule, cold + 2, "provider and observer recheck")
     end)
 end
 
@@ -338,7 +333,7 @@ function M.unobservingDependantsIgnoreBodyOnlyGuaranteeChanges()
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, PROVIDER:gsub("local t = {}", "local n = 1"))
         inc.checkFile(mainPath)
-        assertEq(inc.q.stats.checkModule, cold + 1, "only provider rechecks")
+        testAssert.equal(inc.q.stats.checkModule, cold + 1, "only provider rechecks")
     end)
 end
 

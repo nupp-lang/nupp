@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The `@aot` annotation's source contract.
 --
 -- `@aot` says a whole function compiles ahead of time rather than being left to
@@ -49,15 +50,9 @@ local function codesOf(source)
     return table.concat(out, " ")
 end
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label, want, got), 2)
-    end
-end
-
 --- Asserts that `source` reports `want` and nothing else.
 local function reports(source, want, label)
-    assertEq(codesOf(source), want, label)
+    testAssert.equal(codesOf(source), want, label)
 end
 
 local function diagnosticCodes(source)
@@ -68,6 +63,7 @@ local function diagnosticCodes(source)
             out[#out + 1] = diagnostic.code
         end
     end
+
     return table.concat(out, " ")
 end
 
@@ -81,7 +77,7 @@ local function reportsGpu(source, want, label)
         for _, diagnostic in ipairs(check.check(result, "test.nupp", environment)) do
             out[#out + 1] = diagnostic.code
         end
-        assertEq(table.concat(out, " "), want, label)
+        testAssert.equal(table.concat(out, " "), want, label)
     end
 end
 
@@ -415,7 +411,8 @@ local function double(exclusive output: span.WriteSpan<float>, borrows input: sp
 end
 ]]
     reportsGpu(
-        header .. [[
+        header
+        .. [[
 local function run(): integer
     if not gpu.available() then
         return 0
@@ -438,7 +435,8 @@ return run
         "a context, its buffers, its kernel and its binding each have one exact extent"
     )
     reportsGpu(
-        header .. [[
+        header
+        .. [[
 local context = gpu.open()
 local buffer = context:buffer(array.float, 16)
 nupp.drop(buffer)
@@ -449,7 +447,8 @@ return true
         "a buffer used after it was closed is refused"
     )
     reportsGpu(
-        header .. [[
+        header
+        .. [[
 local context = gpu.open()
 local input = context:buffer(array.float, 16)
 local output = context:buffer(array.float, 16)
@@ -462,7 +461,9 @@ return true
         "NUPP2601",
         "a kernel used after it was closed is refused"
     )
-    local closedContext = diagnosticCodes(header .. [[
+    local closedContext = diagnosticCodes(
+        header
+        .. [[
 local function run(): nil
     local context = gpu.open()
     local buffer = context:buffer(array.float, 16)
@@ -470,7 +471,8 @@ local function run(): nil
     print(buffer.count)
 end
 return run
-]])
+]]
+    )
     assert(closedContext ~= "", "closing a context while a buffer borrows it is refused")
 end
 

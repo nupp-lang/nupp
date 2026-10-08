@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
@@ -5,12 +6,6 @@ local envMod = require("nupp.compiler.project.env")
 local header = require("nupp.compiler.project.header")
 local incremental = require("nupp.compiler.project.incremental")
 local runtime = require("nupp.compiler.runtime")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s: want %s, got %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function diagnosticContaining(diags, text)
     for _, diag in ipairs(diags) do
@@ -101,9 +96,9 @@ end
             local path = dir .. "/src/mathbox.nupp"
             local env = projectEnv(dir)
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, "declared syntax")
+            testAssert.equal(#parsed.errors, 0, "declared syntax")
             local diags, moduleType, exports = check.check(parsed, path, env)
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             assert(exports.values.answer, "constant is in the value interface")
             assert(exports.values.twice, "function is in the value interface")
             assert(exports.types.Box, "record is in the type interface")
@@ -115,9 +110,9 @@ end
             local mathbox = require("mathbox")
             removeLoader()
             package.loaded.mathbox = nil
-            assertEq(mathbox.answer, 42)
-            assertEq(mathbox.twice(21), 42)
-            assertEq(mathbox.box(42).value, 42)
+            testAssert.equal(mathbox.answer, 42)
+            testAssert.equal(mathbox.twice(21), 42)
+            testAssert.equal(mathbox.box(42).value, 42)
         end
     )
 end
@@ -135,10 +130,10 @@ function M.aValueCarryingExportIsRefusedBesideAnExportAssignment()
         withProject({["src/m.nupp"] = "module m\n\nlocal api = {}\n\n" .. form .. "\n\nexport = api\n",}, function(dir)
             local path = dir .. "/src/m.nupp"
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local diags = check.check(parsed, path, projectEnv(dir))
-            assertEq(#diags, 1, "one diagnostic for " .. form)
-            assertEq(diags[1].code, "NUPP2143", form .. " is refused beside export =")
+            testAssert.equal(#diags, 1, "one diagnostic for " .. form)
+            testAssert.equal(diags[1].code, "NUPP2143", form .. " is refused beside export =")
             assert(
                 diags[1].help and diags[1].help:find("api.", 1, true),
                 "the help names the module value: " .. tostring(diags[1].help)
@@ -179,9 +174,9 @@ export = api
             local path = dir .. "/src/erased.nupp"
             local env = projectEnv(dir)
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local diags, _, exports = check.check(parsed, path, env)
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             assert(exports.types.Reader, "an exported interface enters the declared interface")
             assert(exports.types.Count, "an exported type alias enters the declared interface")
 
@@ -190,8 +185,8 @@ export = api
             local erased = require("erased")
             removeLoader()
             package.loaded.erased = nil
-            assertEq(erased.read(), 42, "the module loads and its value is the table it named")
-            assertEq(erased.Reader, nil, "an erased export puts nothing on the module value")
+            testAssert.equal(erased.read(), 42, "the module loads and its value is the table it named")
+            testAssert.equal(erased.Reader, nil, "an erased export puts nothing on the module value")
         end
     )
 end
@@ -219,9 +214,9 @@ export = setmetatable(legacy, {__call = function(self, value) return self.add(va
             local path = dir .. "/src/legacy.nupp"
             local env = projectEnv(dir)
             local parsed = parser.parse(readFile(path), path)
-            assertEq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local diags, moduleType, exports = check.check(parsed, path, env)
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             assert(moduleType, "export assignment has a module boundary")
             assert(exports.values.add, "table members enter the declared interface")
             assert(exports.types.Count, "qualified table types enter the declared interface")
@@ -231,10 +226,10 @@ export = setmetatable(legacy, {__call = function(self, value) return self.add(va
             local legacy = require("legacy")
             removeLoader()
             package.loaded.legacy = nil
-            assertEq(legacy.add(2), 42)
-            assertEq(legacy(2), 42, "the migration boundary preserves the table metatable")
+            testAssert.equal(legacy.add(2), 42)
+            testAssert.equal(legacy(2), 42, "the migration boundary preserves the table metatable")
             legacy.answer = 50
-            assertEq(legacy.add(2), 52, "the migration boundary preserves the module table's identity")
+            testAssert.equal(legacy.add(2), 52, "the migration boundary preserves the module table's identity")
         end
     )
 end
@@ -281,7 +276,7 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/a.nupp")
-            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             assert(checked.exports.values.fromA ~= nil, "the recursive interface keeps its function")
 
             package.loaded.a = nil
@@ -292,7 +287,7 @@ end
             removeLoader()
             package.loaded.a = nil
             package.loaded.b = nil
-            assertEq(a.fromA(41), 42, "benign function cycle")
+            testAssert.equal(a.fromA(41), 42, "benign function cycle")
         end
     )
 end
@@ -318,9 +313,9 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
-            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             assert(not code:find('require("model")', 1, true), "a type-only selection emits no require")
         end
     )
@@ -349,11 +344,11 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
-            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             local _, count = code:gsub('require%("tecs.world.query"%)', "")
-            assertEq(count, 1, "one hidden module binding")
+            testAssert.equal(count, 1, "one hidden module binding")
             assert(not code:find("tecs.world.query.each", 1, true), "qualified path is lowered away")
 
             package.loaded.use = nil
@@ -364,7 +359,7 @@ end
             removeLoader()
             package.loaded.use = nil
             package.loaded["tecs.world.query"] = nil
-            assertEq(use.answer(), 43, "qualified module call")
+            testAssert.equal(use.answer(), 43, "qualified module call")
         end
     )
 end
@@ -399,9 +394,9 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
-            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             assert(not code:find("tecs.world.shape.Box", 1, true), "qualified path is lowered away")
 
             package.loaded.use = nil
@@ -414,7 +409,7 @@ end
             package.loaded.use = nil
             package.loaded["tecs.world.shape"] = nil
             assert(ok, tostring(answer))
-            assertEq(answer, 42, "the constructed record carries the module's methods")
+            testAssert.equal(answer, 42, "the constructed record carries the module's methods")
         end
     )
 end
@@ -459,7 +454,7 @@ end
     )
     local left = header.of("sample.nupp", "sample", before)
     local right = header.of("sample.nupp", "sample", after)
-    assertEq(
+    testAssert.equal(
         left.declarations[1].signature,
         right.declarations[1].signature,
         "body-only edits preserve the exported interface header"
@@ -475,17 +470,17 @@ module sample
         "sample.nupp"
     )
     local found = header.of("sample.nupp", "sample", parsed).declarations[1]
-    assertEq(found.name, "Field")
-    assertEq(found.kind, "type")
-    assertEq(found.comptimeOnly, true)
+    testAssert.equal(found.name, "Field")
+    testAssert.equal(found.kind, "type")
+    testAssert.equal(found.comptimeOnly, true)
 end
 
 function M.moduleWordsRemainContextualNames()
     local parsed = parser.parse("export = function() end\nexport()\nmodule('legacy')\n", "names.lua")
-    assertEq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
-    assertEq(parsed.root.blocks[1].stats[1].kind, "assignStmt")
-    assertEq(parsed.root.blocks[1].stats[2].kind, "callStmt")
-    assertEq(parsed.root.blocks[1].stats[3].kind, "callStmt")
+    testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    testAssert.equal(parsed.root.blocks[1].stats[1].kind, "assignStmt")
+    testAssert.equal(parsed.root.blocks[1].stats[2].kind, "callStmt")
+    testAssert.equal(parsed.root.blocks[1].stats[3].kind, "callStmt")
 end
 
 function M.eagerCallsIntoAnInitializingModuleAreRejected()
@@ -542,7 +537,7 @@ function M.internalModulesEnforcePackageBoundaries()
 
             local function inspect(source, filename)
                 local parsed = parser.parse(source, filename)
-                assertEq(#parsed.errors, 0, "privacy fixture parses")
+                testAssert.equal(#parsed.errors, 0, "privacy fixture parses")
                 return check.check(parsed, filename, env)
             end
 
@@ -561,9 +556,9 @@ function M.internalModulesEnforcePackageBoundaries()
             local diags = inspect("module app.main\nlocal value: library.hidden.Token = nil as any\n", client)
             assert(diagnosticContaining(diags, "is internal to package namespace"), "qualified type must be private")
             diags = inspect(readFile(dir .. "/src/library/client.nupp"), dir .. "/src/library/client.nupp")
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
             diags = inspect("module app.main\nlocal value = library.answer\n", client)
-            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
         end
     )
 end
@@ -580,13 +575,13 @@ function M.targetOutputSourcesStayOutsideTheProjectIndex()
                 build = {default = "app", outDir = "common", targets = {app = {outDir = "out"}}},
             }
             local env = envMod.new(dir, {config = config})
-            assertEq(envMod.outDir(env), dir .. "/out", "the default target owns its output")
+            testAssert.equal(envMod.outDir(env), dir .. "/out", "the default target owns its output")
             local files = envMod.listProjectFiles(env)
-            assertEq(#files, 1, "staged runtime sources are not project source")
-            assertEq(files[1], dir .. "/main.nupp")
+            testAssert.equal(#files, 1, "staged runtime sources are not project source")
+            testAssert.equal(files[1], dir .. "/main.nupp")
             config._target = {outDir = "selected"}
             local selected = envMod.new(dir, {config = config})
-            assertEq(envMod.outDir(selected), dir .. "/selected", "an explicit target controls indexing")
+            testAssert.equal(envMod.outDir(selected), dir .. "/selected", "an explicit target controls indexing")
         end
     )
 end
@@ -622,7 +617,7 @@ function M.twoFilesProvidingOneModuleAreEachRefused()
                 local path = dir .. "/" .. root .. "/util.nupp"
                 local found = diagnosticContaining(inc.checkFile(path).diags, "more than one file")
                 assert(found, label .. ": " .. root .. "/util.nupp reports the other provider")
-                assertEq(found.code, "NUPP1002", label .. " code")
+                testAssert.equal(found.code, "NUPP1002", label .. " code")
                 assert(found.line >= 1 and found.col >= 1, label .. ": the report has a position")
                 assert(found.related and found.related[1], label .. ": and names the other file")
             end
@@ -639,14 +634,14 @@ function M.privacyChangesInvalidateImporters()
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local app, library = dir .. "/src/app.nupp", dir .. "/src/library/init.nupp"
-            assertEq(#inc.checkFile(app).diags, 0, "initial public import")
+            testAssert.equal(#inc.checkFile(app).diags, 0, "initial public import")
             inc.changeDocument(library, "@!internal\nmodule library\nexport const value: integer = 1\n")
             assert(
                 diagnosticContaining(inc.checkFile(app).diags, "is internal to package namespace"),
                 "changing only module privacy must invalidate the importer"
             )
             inc.changeDocument(library, "module library\nexport const value: integer = 1\n")
-            assertEq(#inc.checkFile(app).diags, 0, "making a module public restores access")
+            testAssert.equal(#inc.checkFile(app).diags, 0, "making a module public restores access")
         end
     )
 end
@@ -685,7 +680,7 @@ function M.generatedImportPermissionDoesNotSurviveAnOrdinaryOverlay()
             local app = dir .. "/src/app.nupp"
             local text = 'module app\nlocal implementation = require("library.internal")\nexport const value: integer = implementation.value\n'
             inc.openGeneratedDocument(app, text)
-            assertEq(#inc.checkFile(app).diags, 0, "compiler-owned replacement")
+            testAssert.equal(#inc.checkFile(app).diags, 0, "compiler-owned replacement")
             inc.openDocument(app, text)
             assert(
                 diagnosticContaining(inc.checkFile(app).diags, "is internal to package namespace"),
@@ -715,7 +710,7 @@ export record Message
 end
 ]])
             local result = inc.checkFile(dir .. "/src/app.nupp")
-            assertEq(#result.diags, 0, result.diags[1] and result.diags[1].msg)
+            testAssert.equal(#result.diags, 0, result.diags[1] and result.diags[1].msg)
         end
     )
 end
@@ -764,8 +759,8 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/draw.nupp")
-            assertEq(#checked.diags, 1, "only the field the nested record does not have")
-            assertEq(checked.diags[1].code, "NUPP2004", checked.diags[1].msg)
+            testAssert.equal(#checked.diags, 1, "only the field the nested record does not have")
+            testAssert.equal(checked.diags[1].code, "NUPP2004", checked.diags[1].msg)
             assert(
                 diagnosticContaining({checked.diags[1]}, "Layer"),
                 "the nested declaration answers rather than being erased"
@@ -815,7 +810,7 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/first.nupp")
-            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
         end
     )
 end

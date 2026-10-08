@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- `nupp build` and `nupp run` over multi-file projects, driven through the
 -- real binary so the CLI, the runtime loader, and the generator are all in
 -- the loop.
@@ -9,12 +10,6 @@ if not HERE:match("^/") then
 end
 local NUPP = HERE .. "/../bin/nupp"
 local json = require("testjson")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function tempProject(files)
     local dir = os.tmpname()
@@ -103,7 +98,7 @@ function M.bundleResourcesPreserveEveryByte()
         package.preload["nupp.embedded"] = original
         os.execute("rm -rf '" .. dir .. "'")
         assert(ok, restored)
-        assertEq(restored, payload, "bundled resources preserve binary bytes and line endings")
+        testAssert.equal(restored, payload, "bundled resources preserve binary bytes and line endings")
     end
 end
 
@@ -117,14 +112,14 @@ local APP = table.concat({"local lib = require('lib')", "print(lib.double(21))",
 function M.buildEmitsTheDependencyClosure()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
     local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
-    assertEq(out, "", "build is quiet on success: " .. out)
+    testAssert.equal(out, "", "build is quiet on success: " .. out)
     assert(exists(dir .. "/build/main.lua"), "entry compiled")
     assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
     assert(exists(dir .. "/build/lib.lua"), "required module compiled too")
     assert(exists(dir .. "/build/nupp/runtime/managed.lua"), "generated ownership runtime is carried")
     -- and the result runs on plain LuaJIT, with no toolchain present
     local ran = capture(("cd '%s' && LUA_PATH='./build/?.lua;;' luajit build/main.lua"):format(dir))
-    assertEq(ran, "42\n", "built output runs standalone")
+    testAssert.equal(ran, "42\n", "built output runs standalone")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -143,19 +138,19 @@ return true
 ]],
     })
     local out = capture(("cd %q && %q build"):format(dir, NUPP))
-    assertEq(out, "", "the public assertion module builds: " .. out)
+    testAssert.equal(out, "", "the public assertion module builds: " .. out)
     assert(exists(dir .. "/build/nupp/test.lua"), "the compiler-carried assertion module is linked into the project")
     local ran = capture(
         ("cd %q && LUA_PATH='./build/?.lua;;' luajit -e " .. "%q"):format(dir, "assert(require('main'))")
     )
-    assertEq(ran, "", "the linked assertion module runs under plain LuaJIT")
+    testAssert.equal(ran, "", "the linked assertion module runs under plain LuaJIT")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.explicitBuildCreatesItsOutputDirectory()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["main.nupp"] = "return 42\n",})
     local out = capture(("cd '%s' && '%s' build -o nested/out main.nupp"):format(dir, NUPP))
-    assertEq(out, "", "explicit build creates its output directory: " .. out)
+    testAssert.equal(out, "", "explicit build creates its output directory: " .. out)
     assert(exists(dir .. "/nested/out/main.lua"), "explicit build writes beneath the requested directory")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -190,9 +185,9 @@ print(embedded["/asset.txt"])
 ]],
     })
     local out = capture(("cd %q && %q build --output alternate"):format(dir, NUPP))
-    assertEq(out, "", "project output override builds a resource bundle")
+    testAssert.equal(out, "", "project output override builds a resource bundle")
     local ran = capture(("cd %q && luajit alternate/application.lua"):format(dir))
-    assertEq(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")
+    testAssert.equal(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -223,7 +218,7 @@ function M.explicitBuildPreservesModulePathsAndNormalizesDuplicates()
     local ran = capture(
         ("cd %q && LUA_PATH='./out/?.lua;;' luajit -e %q"):format(dir, "assert(require('main') == 'ab')")
     )
-    assertEq(ran, "", "the mirrored output tree is directly requireable")
+    testAssert.equal(ran, "", "the mirrored output tree is directly requireable")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -231,7 +226,7 @@ function M.runLoadsModulesFromSource()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
     -- no build step: the runtime loader compiles requires on demand
     local ran = capture(("cd '%s' && '%s' run main.nupp"):format(dir, NUPP))
-    assertEq(ran, "42\n", "multi-file program runs straight from source")
+    testAssert.equal(ran, "42\n", "multi-file program runs straight from source")
     assert(not exists(dir .. "/build/lib.lua"), "running leaves no artifacts")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -259,7 +254,7 @@ function M.declarationFilesEmitNoArtifact()
         ["main.nupp"] = "local shape = require('shape')\n" .. "local n: number = shape.area(2)\nreturn n\n",
     })
     local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
-    assertEq(out, "", "declaration-backed build succeeds: " .. out)
+    testAssert.equal(out, "", "declaration-backed build succeeds: " .. out)
     assert(exists(dir .. "/build/main.lua"), "entry compiled")
     assert(not exists(dir .. "/build/shape.lua"), "a declaration file describes an interface and emits nothing")
     os.execute("rm -rf '" .. dir .. "'")
@@ -299,7 +294,7 @@ function M.declarationFilesPreservePropertyCapabilities()
         ),
     })
     local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
-    assertEq(out, "", "property capabilities survive declaration files: " .. out)
+    testAssert.equal(out, "", "property capabilities survive declaration files: " .. out)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -378,11 +373,11 @@ function M.theLoweringDialectIsNotAnOptionAKeyOrAField()
         ["main.nupp"] = "return 42\n",
     })
     local built = require("testjson").decode(captureJson(("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)))
-    assertEq(built.ok, true)
-    assertEq(built.dialect, nil, "the build report has no dialect")
+    testAssert.equal(built.ok, true)
+    testAssert.equal(built.dialect, nil, "the build report has no dialect")
     local checked = require("testjson").decode(captureJson(("cd '%s' && '%s' check --json"):format(dir, NUPP)))
-    assertEq(checked.ok, true)
-    assertEq(checked.dialect, nil, "the check report has no dialect")
+    testAssert.equal(checked.ok, true)
+    testAssert.equal(checked.dialect, nil, "the check report has no dialect")
     for _, command in ipairs({"check", "build"}) do
         local refused = capture(("cd '%s' && '%s' %s --dialect luajit main.nupp"):format(dir, NUPP, command))
         assert(refused:find("unknown option --dialect", 1, true), command .. ": " .. refused)
@@ -434,13 +429,13 @@ function M.astCommandDumpsJsonSyntaxTrees()
         ["sample.nupp"] = "local answer: number = 20 + 22\nreturn answer\n",
     })
     local encoded = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
-    assertEq(select(2, encoded:gsub("\n", "")), 1, "the default report is one line")
+    testAssert.equal(select(2, encoded:gsub("\n", "")), 1, "the default report is one line")
     local decoded = require("testjson").decode(encoded)
-    assertEq(decoded.file, "sample.nupp", "JSON identifies the input")
-    assertEq(decoded.root.tag, "node", "JSON distinguishes nodes")
-    assertEq(decoded.root.kind, "chunk", "JSON includes the root production")
-    assertEq(#decoded.diagnostics, 0, "valid input has no parse errors")
-    assertEq(decoded.ok, true, "and says so")
+    testAssert.equal(decoded.file, "sample.nupp", "JSON identifies the input")
+    testAssert.equal(decoded.root.tag, "node", "JSON distinguishes nodes")
+    testAssert.equal(decoded.root.kind, "chunk", "JSON includes the root production")
+    testAssert.equal(#decoded.diagnostics, 0, "valid input has no parse errors")
+    testAssert.equal(decoded.ok, true, "and says so")
 
     local function containsKind(value, kind)
         if value.kind == kind then
@@ -503,7 +498,7 @@ end
 function M.astCommandDumpsRecoveredTreesOnParseErrors()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["broken.nupp"] = "local = 1\nreturn 2\n",})
     local decoded = require("testjson").decode(captureJson(("cd '%s' && '%s' ast broken.nupp"):format(dir, NUPP)))
-    assertEq(decoded.root.kind, "chunk", "recovered tree is printed")
+    testAssert.equal(decoded.root.kind, "chunk", "recovered tree is printed")
     assert(#decoded.diagnostics > 0, "parse diagnostics are reported")
     assert(decoded.diagnostics[1].message ~= nil, "a reported parse error carries its message")
     assert(decoded.diagnostics[1].code and decoded.diagnostics[1].range, "with its code and range")
@@ -533,11 +528,11 @@ return {
         ["site/index.html"] = "<h1>API</h1>\n",
     })
     local dry = capture(("cd '%s' && '%s' clean --target docs --dry-run"):format(dir, NUPP))
-    assertEq(dry, "would remove site\n", "dry run reports the selected output")
+    testAssert.equal(dry, "would remove site\n", "dry run reports the selected output")
     assert(exists(dir .. "/site/index.html"), "dry run preserves the output")
 
     local one = capture(("cd '%s' && '%s' clean --target docs"):format(dir, NUPP))
-    assertEq(one, "removed site\n", "target clean reports the removed output")
+    testAssert.equal(one, "removed site\n", "target clean reports the removed output")
     assert(not exists(dir .. "/site/index.html"), "target clean removes its output")
     assert(exists(dir .. "/out/app/main.lua"), "target clean preserves other outputs")
 
@@ -626,16 +621,16 @@ return {
 
     local encoded = capture(("cd '%s' && '%s' task --list --json app"):format(dir, NUPP))
     local decoded = require("testjson").decode(encoded)
-    assertEq(decoded.name, "app", "JSON detail identifies the task")
-    assertEq(decoded.outDir, "out", "JSON detail includes effective defaults")
-    assertEq(decoded.entries[1], "app.main", "JSON detail includes entries")
+    testAssert.equal(decoded.name, "app", "JSON detail identifies the task")
+    testAssert.equal(decoded.outDir, "out", "JSON detail includes effective defaults")
+    testAssert.equal(decoded.entries[1], "app.main", "JSON detail includes entries")
 
     encoded = capture(("cd '%s' && '%s' task --list --json test"):format(dir, NUPP))
     decoded = require("testjson").decode(encoded)
-    assertEq(decoded.kind, "test", "JSON identifies the configured action kind")
-    assertEq(decoded.buildTarget, "app", "JSON includes the prerequisite target")
-    assertEq(decoded.argv[2], "tests/run.lua", "JSON includes the configured argv")
-    assertEq(decoded.env.MODE, "test", "JSON includes the configured environment")
+    testAssert.equal(decoded.kind, "test", "JSON identifies the configured action kind")
+    testAssert.equal(decoded.buildTarget, "app", "JSON includes the prerequisite target")
+    testAssert.equal(decoded.argv[2], "tests/run.lua", "JSON includes the configured argv")
+    testAssert.equal(decoded.env.MODE, "test", "JSON includes the configured environment")
 
     local fixpoint = capture(("cd '%s' && '%s' task --list --text fixpoint"):format(dir, NUPP))
     assert(
@@ -649,7 +644,7 @@ return {
     )
     encoded = capture(("cd '%s' && '%s' task --list --json release"):format(dir, NUPP))
     decoded = require("testjson").decode(encoded)
-    assertEq(decoded.cwd, "tools", "JSON detail includes the configured working directory")
+    testAssert.equal(decoded.cwd, "tools", "JSON detail includes the configured working directory")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -665,10 +660,10 @@ return {
     })
     local encoded = capture(("cd '%s' && '%s' task --list --json test"):format(dir, NUPP))
     local decoded = require("testjson").decode(encoded)
-    assertEq(decoded.kind, "test", "JSON identifies the default test action")
-    assertEq(decoded.argv[1], "nupp", "the default test action uses Nupp")
-    assertEq(decoded.argv[2], "test", "the default test action stays under the test command")
-    assertEq(decoded.argv[3], "--internal-runner", "the default test action uses the bundled runner")
+    testAssert.equal(decoded.kind, "test", "JSON identifies the default test action")
+    testAssert.equal(decoded.argv[1], "nupp", "the default test action uses Nupp")
+    testAssert.equal(decoded.argv[2], "test", "the default test action stays under the test command")
+    testAssert.equal(decoded.argv[3], "--internal-runner", "the default test action uses the bundled runner")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -786,7 +781,7 @@ return {
         ["src/other/orphan.g.nupp"] = "local value: string = 42\nreturn value\n",
     })
     local out = capture(("cd '%s' && '%s' build --target app"):format(dir, NUPP))
-    assertEq(out, "", "a scoped target ignores source outside its set: " .. out)
+    testAssert.equal(out, "", "a scoped target ignores source outside its set: " .. out)
     assert(
         exists(dir .. "/build/app/plugin.lua"),
         "a recursively selected module is compiled even when nothing requires it"
@@ -883,14 +878,14 @@ return new Model()
     ).decode(captureJson(("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)))
     assert(second.ok and #second.derives == 2, "cached build preserves derive observations")
     for index, observation in ipairs(first.derives) do
-        assertEq(
+        testAssert.equal(
             second.derives[index].semanticFingerprint,
             observation.semanticFingerprint,
             "cached/cold derive fingerprint"
         )
-        assertEq(second.derives[index].canonicalBytes, observation.canonicalBytes, "cached/cold derive size")
+        testAssert.equal(second.derives[index].canonicalBytes, observation.canonicalBytes, "cached/cold derive size")
     end
-    assertEq(read(dir .. "/build/model.lua"), coldBytes, "cached and cold derived output bytes")
+    testAssert.equal(read(dir .. "/build/model.lua"), coldBytes, "cached and cold derived output bytes")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -908,16 +903,16 @@ return main()
     })
     local command = ("cd %q && %q build --remarks-out"):format(dir, NUPP)
     local firstOut = capture(command)
-    assertEq(firstOut, "", "cold manifest build writes its optimizer account: " .. firstOut)
+    testAssert.equal(firstOut, "", "cold manifest build writes its optimizer account: " .. firstOut)
     local first = json.decode(read(dir .. "/build/remarks.json"))
-    assertEq(first.executionProfile.optLevel, 1, "the target's resolved level is recorded")
+    testAssert.equal(first.executionProfile.optLevel, 1, "the target's resolved level is recorded")
     assert(#first.allocationSites >= 2, "the target's closure and table are accounted for")
 
     local secondOut = capture(command)
-    assertEq(secondOut, "", "warm manifest build writes its optimizer account: " .. secondOut)
+    testAssert.equal(secondOut, "", "warm manifest build writes its optimizer account: " .. secondOut)
     local second = json.decode(read(dir .. "/build/remarks.json"))
-    assertEq(#second.allocationSites, #first.allocationSites, "warm build preserves allocation account")
-    assertEq(#second.remarks, #first.remarks, "warm build preserves optimizer remarks")
+    testAssert.equal(#second.allocationSites, #first.allocationSites, "warm build preserves allocation account")
+    testAssert.equal(#second.remarks, #first.remarks, "warm build preserves optimizer remarks")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -940,9 +935,9 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     local record = json.decode(read(dir .. "/build/remarks.json"))
     assert(#record.remarks > 0, "selected workload has optimizer decisions")
     for _, remark in ipairs(record.remarks) do
-        assertEq(remark.file, "src/main.g.nupp", "machine remarks obey file filter")
+        testAssert.equal(remark.file, "src/main.g.nupp", "machine remarks obey file filter")
         assert(remark.status == "fired" or remark.status == "declined", "decision has status")
-        assertEq(remark.hotness, "unknown", "static remarks do not invent hotness")
+        testAssert.equal(remark.hotness, "unknown", "static remarks do not invent hotness")
     end
     local manifestCommand = (
         "cd %q && %q build --remarks --remarks-out --remarks-for src/main.g.nupp"
@@ -963,7 +958,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     )
     assert(output:find("optimizer unavailable at -O0", 1, true), "default tier is explained: " .. output)
     record = json.decode(read(dir .. "/build/remarks.json"))
-    assertEq(record.remarks[1].status, "unavailable", "disabled optimizer is machine-readable")
+    testAssert.equal(record.remarks[1].status, "unavailable", "disabled optimizer is machine-readable")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -973,11 +968,15 @@ function M.remarksOutTakesAnAttachedPath()
         ["src/main.g.nupp"] = 'local t = {}\nt.a = 1\nt.b = 2\nreturn t',
     })
     local output = capture(("cd %q && %q build -O1 --remarks-out=account.json src/main.g.nupp"):format(dir, NUPP))
-    assertEq(output, "", "a named remarks path builds quietly: " .. output)
+    testAssert.equal(output, "", "a named remarks path builds quietly: " .. output)
     local record = json.decode(read(dir .. "/account.json"))
-    assertEq(record.executionProfile.optLevel, 1, "the named file carries the account")
+    testAssert.equal(record.executionProfile.optLevel, 1, "the named file carries the account")
     assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
-    local refused = capture(("cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""):format(dir, NUPP))
+    local refused = capture(
+        (
+            "cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""
+        ):format(dir, NUPP)
+    )
     assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)
     os.execute("rm -rf " .. string.format("%q", dir))
 end
@@ -1010,14 +1009,14 @@ function M.optimizerHeatJoinsOnlyTheMatchingFileAndSourceRange()
         120,
         2
     )
-    assertEq(settings.collectedRemarks[1].hotnessSamples, 8, "only matching source range contributes")
-    assertEq(settings.collectedRemarks[2].hotnessSamples, 0, "a measured empty range differs from unknown")
-    assertEq(settings.collectedRemarks[3].hotness, "unknown", "Lua sampling does not invent native heat")
-    assertEq(settings.sampledHeat.attributedSamples, 116, "source samples remain accounted")
-    assertEq(settings.sampledHeat.unattributedSamples, 4, "native and unavailable locations remain explicit")
+    testAssert.equal(settings.collectedRemarks[1].hotnessSamples, 8, "only matching source range contributes")
+    testAssert.equal(settings.collectedRemarks[2].hotnessSamples, 0, "a measured empty range differs from unknown")
+    testAssert.equal(settings.collectedRemarks[3].hotness, "unknown", "Lua sampling does not invent native heat")
+    testAssert.equal(settings.sampledHeat.attributedSamples, 116, "source samples remain accounted")
+    testAssert.equal(settings.sampledHeat.unattributedSamples, 4, "native and unavailable locations remain explicit")
     local encoded = require("nupp.tools.cli.report").diagnosticValues(settings.collectedRemarks)
-    assertEq(encoded[1].hotnessSamples, 8, "serialization retains measured count")
-    assertEq(encoded[1].hotnessRange.endLine, 20, "serialization retains attribution range")
+    testAssert.equal(encoded[1].hotnessSamples, 8, "serialization retains measured count")
+    testAssert.equal(encoded[1].hotnessRange.endLine, 20, "serialization retains attribution range")
 end
 
 function M.optimizerHeatWithoutLuaLocationsStaysUnknown()
@@ -1027,10 +1026,10 @@ function M.optimizerHeatWithoutLuaLocationsStaysUnknown()
         {filename = "work.nupp", line = 10, code = "OPT-2", status = "declined", hotness = "unknown"},
     }
     compile.attachSamples(settings, {}, 125, 1)
-    assertEq(settings.collectedRemarks[1].hotness, "unknown", "C-only samples cannot measure Lua source heat")
-    assertEq(settings.collectedRemarks[1].hotnessSamples, nil, "unavailable heat must not become measured zero")
-    assertEq(settings.sampledHeat.attributedSamples, 0, "no source attribution was available")
-    assertEq(settings.sampledHeat.unattributedSamples, 125, "C-only samples remain visible")
+    testAssert.equal(settings.collectedRemarks[1].hotness, "unknown", "C-only samples cannot measure Lua source heat")
+    testAssert.equal(settings.collectedRemarks[1].hotnessSamples, nil, "unavailable heat must not become measured zero")
+    testAssert.equal(settings.sampledHeat.attributedSamples, 0, "no source attribution was available")
+    testAssert.equal(settings.sampledHeat.unattributedSamples, 125, "C-only samples remain visible")
 end
 
 return M

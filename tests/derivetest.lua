@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- Compiler-owned declaration derives: semantic members, factory projection, and
 -- the closed runtime recipes for Debug and JSON.
 local parser = require("nupp.compiler.syntax.parser")
@@ -10,16 +11,10 @@ local recipeCodec = require("nupp.compiler.comptime.materialize.codec")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function compileAt(source, filename, opts)
     filename = filename or "derive_test.g.nupp"
     local parsed = parser.parse(source, filename)
-    assertEq(#parsed.errors, 0, "syntax errors")
+    testAssert.equal(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, filename, env, opts)
     local code, generated = gen.generate(parsed, "derive_test")
     for _, diagnostic in ipairs(generated) do
@@ -65,7 +60,7 @@ local function run(source)
     assert(chunk, why and (why .. "\n---\n" .. code))
     local _, sourceLines = source:gsub("\n", "\n")
     local _, outputLines = code:gsub("\n", "\n")
-    assertEq(outputLines, sourceLines, "derive lowering changed the source/output line count")
+    testAssert.equal(outputLines, sourceLines, "derive lowering changed the source/output line count")
 
     return chunk(), code
 end
@@ -103,11 +98,11 @@ return {
 }
 ]]
     )
-    assertEq(result.debug, 'User { name = "anonymous", scores = {}, active = false }')
-    assertEq(result.text, '{"user_name":"anonymous","scores":[],"active":false}')
-    assertEq(result.name, "anonymous")
-    assertEq(result.scores, 0)
-    assertEq(result.active, false)
+    testAssert.equal(result.debug, 'User { name = "anonymous", scores = {}, active = false }')
+    testAssert.equal(result.text, '{"user_name":"anonymous","scores":[],"active":false}')
+    testAssert.equal(result.name, "anonymous")
+    testAssert.equal(result.scores, 0)
+    testAssert.equal(result.active, false)
     assert(code:find("__derive.register", 1, true), code)
 end
 
@@ -130,8 +125,8 @@ writer:close()
 return {encoded = buffer:tostring(), outer = out}
 ]]
     )
-    assertEq(result.encoded, '{"value":"forwarded"}')
-    assertEq(result.outer, "caller output")
+    testAssert.equal(result.encoded, '{"value":"forwarded"}')
+    testAssert.equal(result.outer, "caller output")
 end
 
 function M.composesDerivedAndPreencodedValuesInOneWriter()
@@ -154,7 +149,7 @@ writer:close()
 return out:tostring()
 ]]
     )
-    assertEq(result, '{"user":{"id":7},"cached":{"ok":true,"items":[1,2]}}')
+    testAssert.equal(result, '{"user":{"id":7},"cached":{"ok":true,"items":[1,2]}}')
 end
 
 function M.constructsFreshMutableDefaults()
@@ -179,10 +174,10 @@ return {
 }
 ]]
     )
-    assertEq(result.tags, 0)
-    assertEq(result.changed, nil)
-    assertEq(result.x, 0)
-    assertEq(result.distinct, true)
+    testAssert.equal(result.tags, 0)
+    testAssert.equal(result.changed, nil)
+    testAssert.equal(result.x, 0)
+    testAssert.equal(result.distinct, true)
 end
 
 function M.appliesJSONPolicies()
@@ -226,19 +221,19 @@ return {
 }
 ]]
     )
-    assertEq(result.name, "missing")
-    assertEq(result.secret, "hidden")
-    assertEq(result.labels, 0)
-    assertEq(result.active, false)
-    assertEq(result.arrayMt, nil)
-    assertEq(result.error, nil)
-    assertEq(result.checked, "ok")
-    assertEq(result.checkedError, nil)
+    testAssert.equal(result.name, "missing")
+    testAssert.equal(result.secret, "hidden")
+    testAssert.equal(result.labels, 0)
+    testAssert.equal(result.active, false)
+    testAssert.equal(result.arrayMt, nil)
+    testAssert.equal(result.error, nil)
+    testAssert.equal(result.checked, "ok")
+    testAssert.equal(result.checkedError, nil)
     assert(result.fingerprint:find("decode=nupp-simd", 1, true), result.fingerprint)
-    assertEq(result.keyedName, "x")
-    assertEq(result.keyedSecret, nil)
-    assertEq(result.keyedLabels, nil)
-    assertEq(result.text, '{"name":"x"}')
+    testAssert.equal(result.keyedName, "x")
+    testAssert.equal(result.keyedSecret, nil)
+    testAssert.equal(result.keyedLabels, nil)
+    testAssert.equal(result.text, '{"name":"x"}')
 end
 
 function M.enforcesDerivedJSONIntegerBounds()
@@ -284,16 +279,16 @@ return {
 }
 ]]
     )
-    assertEq(result.valid, true)
-    assertEq(result.signed, nil)
+    testAssert.equal(result.valid, true)
+    testAssert.equal(result.signed, nil)
     assert(result.signedError:find("integer", 1, true), result.signedError)
-    assertEq(result.count, nil)
+    testAssert.equal(result.count, nil)
     assert(result.countError:find("integer", 1, true), result.countError)
-    assertEq(result.exact, nil)
+    testAssert.equal(result.exact, nil)
     assert(result.exactError:find("integer", 1, true), result.exactError)
-    assertEq(result.projected, nil)
+    testAssert.equal(result.projected, nil)
     assert(result.projectedError:find("$.signed: expected integer in range", 1, true), result.projectedError)
-    assertEq(result.encoded, false)
+    testAssert.equal(result.encoded, false)
     assert(result.encodeError:find("$.signed: integer is out of range", 1, true), result.encodeError)
 end
 
@@ -325,10 +320,10 @@ return {
 ]]
     )
     assert(result.debugged:find("<cycle>", 1, true), result.debugged)
-    assertEq(result.encoded, false)
+    testAssert.equal(result.encoded, false)
     assert(result.cycle:find("cyclic JSON value", 1, true), result.cycle)
-    assertEq(result.nested, 2)
-    assertEq(result.error, nil)
+    testAssert.equal(result.nested, 2)
+    testAssert.equal(result.error, nil)
 end
 
 function M.supportsNestedAndBoundedGenericDebugRecords()
@@ -356,8 +351,8 @@ local inner: Namespace.Inner = new Namespace.Inner()
 return {box = boxed:debug(), inner = inner:debug()}
 ]]
     )
-    assertEq(result.box, 'Box { value = Item { label = "ok" } }')
-    assertEq(result.inner, "Inner { count = 0 }")
+    testAssert.equal(result.box, 'Box { value = Item { label = "ok" } }')
+    testAssert.equal(result.inner, "Inner { count = 0 }")
 end
 
 function M.roundTripsDiscriminatedJSONRecordUnions()
@@ -392,9 +387,9 @@ if pet.kind == "dog" then bark = pet.barks end
 return {text = text, bark = bark, dog = getmetatable(pet) == Dog}
 ]]
     )
-    assertEq(result.text, '{"pet":{"kind":"cat","lives":9}}')
-    assertEq(result.bark, true)
-    assertEq(result.dog, true)
+    testAssert.equal(result.text, '{"pet":{"kind":"cat","lives":9}}')
+    testAssert.equal(result.bark, true)
+    testAssert.equal(result.dog, true)
 end
 
 function M.reportsProviderAndSchemaFailuresAtTheDeclaration()
@@ -439,7 +434,7 @@ local record Legacy
     value: integer
 end
 ]])
-    assertEq(codes[1], "NUPP2809", "bare built-in derive names are removed")
+    testAssert.equal(codes[1], "NUPP2809", "bare built-in derive names are removed")
 end
 
 function M.offersWholeFixesForDuplicateAndConflictingProviders()
@@ -489,7 +484,7 @@ end
 return new Stable()
 ]]
     local parsed = parser.parse(source, "derive_recheck.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax errors")
+    testAssert.equal(#parsed.errors, 0, "syntax errors")
     for pass = 1, 2 do
         local diagnostics = check.check(parsed, "derive_recheck.g.nupp", env)
         for _, diagnostic in ipairs(diagnostics) do
@@ -533,7 +528,7 @@ local record Identified
 end
 ]]
     )
-    assertEq(#diagnostics, 0, "derive identity diagnostics")
+    testAssert.equal(#diagnostics, 0, "derive identity diagnostics")
     local nominal = assert(firstDeclaration(parsed).hoistedType)
     local defs = {
         nominal.derivedDefinitions.debug,
@@ -569,8 +564,8 @@ local record Mapped entries: {[integer]: string} end
 ]],
         "mapped.g.nupp"
     )
-    assertEq(#stringDiagnostics, 0, "string map diagnostics")
-    assertEq(#integerDiagnostics, 0, "integer map diagnostics")
+    testAssert.equal(#stringDiagnostics, 0, "string map diagnostics")
+    testAssert.equal(#integerDiagnostics, 0, "integer map diagnostics")
     local stringRecipe = assert(firstDeclaration(stringParsed).deriveRecipe)
     local integerRecipe = assert(firstDeclaration(integerParsed).deriveRecipe)
     assert(stringRecipe.fingerprint ~= integerRecipe.fingerprint, "a Debug map key edit kept the recipe fingerprint")
@@ -582,16 +577,16 @@ local record Mapped entries: {[string]: string} end
 ]],
         "/tmp/another-spelling/mapped.g.nupp"
     )
-    assertEq(#alternateDiagnostics, 0, "alternate path diagnostics")
-    assertEq(alternateCode, stringCode, "generated bytes depend on the invocation path spelling")
+    testAssert.equal(#alternateDiagnostics, 0, "alternate path diagnostics")
+    testAssert.equal(alternateCode, stringCode, "generated bytes depend on the invocation path spelling")
 end
 
 function M.boundsFieldsAndSemanticRecipeNodesAtTheirExactLimits()
-    assertEq(derive.MAX_FIELDS, 2048, "production field limit")
-    assertEq(derive.MAX_RECIPE_NODES, 16384, "production semantic-node limit")
-    assertEq(derive.MAX_GENERATED_MEMBERS, 6, "production generated-member limit")
-    assertEq(recipeCodec.MAX_CANONICAL_BYTES, 1048576, "production canonical-byte limit")
-    assertEq(recipeCodec.MAX_OUTPUT_BYTES, 2097152, "production rendered-byte limit")
+    testAssert.equal(derive.MAX_FIELDS, 2048, "production field limit")
+    testAssert.equal(derive.MAX_RECIPE_NODES, 16384, "production semantic-node limit")
+    testAssert.equal(derive.MAX_GENERATED_MEMBERS, 6, "production generated-member limit")
+    testAssert.equal(recipeCodec.MAX_CANONICAL_BYTES, 1048576, "production canonical-byte limit")
+    testAssert.equal(recipeCodec.MAX_OUTPUT_BYTES, 2097152, "production rendered-byte limit")
 
     local limits = {fields = 8, nodes = 64}
 
@@ -645,7 +640,7 @@ end
             return probes > 10
         end,
     })
-    assertEq(#cancelledDiagnostics, 0, "cancellation is not a diagnostic")
+    testAssert.equal(#cancelledDiagnostics, 0, "cancellation is not a diagnostic")
     assert(
         parsed.cancelled and parsed.deriveAborted == "cancelled",
         "the check does not expose its ordinary cancelled result"
@@ -658,7 +653,7 @@ end
     assert(not declaration.hoistedType.derivedDefinitions.debug, "a cancelled check left a generated member behind")
 
     local recovered = check.check(parsed, "cancelled.g.nupp", env)
-    assertEq(#recovered, 0, "the request after cancellation recovers")
+    testAssert.equal(#recovered, 0, "the request after cancellation recovers")
     assert(not parsed.cancelled and firstDeclaration(parsed).deriveRecipe, "cancellation poisoned the next check")
 
     local budgetParsed = parser.parse(source, "budget.g.nupp")
@@ -671,7 +666,7 @@ end
         exhausted and not firstDeclaration(budgetParsed).deriveRecipe,
         "budget exhaustion did not abort the partial recipe"
     )
-    assertEq(#check.check(budgetParsed, "budget.g.nupp", env), 0, "budget exhaustion poisoned the retry")
+    testAssert.equal(#check.check(budgetParsed, "budget.g.nupp", env), 0, "budget exhaustion poisoned the retry")
 end
 
 function M.boundsRenderedRecipesAndReportsColdAndWarmObservations()
@@ -682,24 +677,24 @@ local record ObservedClosure
 end
 ]]
     local _, coldDiagnostics, cold = compileAt(source, "observed.g.nupp")
-    assertEq(#coldDiagnostics, 0, "cold observation diagnostics")
+    testAssert.equal(#coldDiagnostics, 0, "cold observation diagnostics")
     local _, warmDiagnostics, warm = compileAt(source, "observed.g.nupp")
-    assertEq(#warmDiagnostics, 0, "warm observation diagnostics")
-    assertEq(#cold.deriveObservations, 2, "one observation per provider")
-    assertEq(#warm.deriveObservations, 2, "warm observation count")
+    testAssert.equal(#warmDiagnostics, 0, "warm observation diagnostics")
+    testAssert.equal(#cold.deriveObservations, 2, "one observation per provider")
+    testAssert.equal(#warm.deriveObservations, 2, "warm observation count")
     local expected = {["nupp.derive.Debug"] = 1, ["nupp.derive.JSON"] = 3,}
     for index, observation in ipairs(cold.deriveObservations) do
         local warmed = warm.deriveObservations[index]
-        assertEq(
+        testAssert.equal(
             observation.generatedMembers,
             expected[observation.provider],
             observation.provider .. " generated-member bound"
         )
         assert(observation.canonicalBytes > 0 and observation.renderedBytes > 0, "observation omits bounded sizes")
-        assertEq(observation.generatedLocals, 2, "closed recipe local bound")
-        assertEq(observation.maxGeneratedUpvalues, 1, "closed recipe upvalue bound")
-        assertEq(warmed.semanticFingerprint, observation.semanticFingerprint, "cold/warm semantic product")
-        assertEq(warmed.canonicalBytes, observation.canonicalBytes, "cold/warm canonical size")
+        testAssert.equal(observation.generatedLocals, 2, "closed recipe local bound")
+        testAssert.equal(observation.maxGeneratedUpvalues, 1, "closed recipe upvalue bound")
+        testAssert.equal(warmed.semanticFingerprint, observation.semanticFingerprint, "cold/warm semantic product")
+        testAssert.equal(warmed.canonicalBytes, observation.canonicalBytes, "cold/warm canonical size")
         assert(warmed.cached, "the warm observation is not marked cached")
     end
 
@@ -721,7 +716,7 @@ end
 
 function M.excludesTheRuntimeFromProgramsWithoutDerives()
     local code = compile("return 42")
-    assertEq(code:find("__nuppDerive", 1, true), nil, "unused derive runtime")
+    testAssert.equal(code:find("__nuppDerive", 1, true), nil, "unused derive runtime")
 end
 
 function M.recordsTheExactRuntimeFeatureManifest()
@@ -729,17 +724,17 @@ function M.recordsTheExactRuntimeFeatureManifest()
 @derive(nupp.derive.Debug)
 local record Pure value: integer end
 ]])
-    assertEq(#debugDiagnostics, 0, "pure derive feature diagnostics")
+    testAssert.equal(#debugDiagnostics, 0, "pure derive feature diagnostics")
     local pureEffects = firstDeclaration(debug).compilerFeatureEffects
-    assertEq(table.concat(pureEffects, ","), "stdlib.derives", "pure derive feature manifest")
+    testAssert.equal(table.concat(pureEffects, ","), "stdlib.derives", "pure derive feature manifest")
 
     local _, jsonDiagnostics, json = compile([[
 @derive(nupp.derive.JSON)
 local record Encoded value: integer end
 ]])
-    assertEq(#jsonDiagnostics, 0, "JSON derive feature diagnostics")
+    testAssert.equal(#jsonDiagnostics, 0, "JSON derive feature diagnostics")
     local jsonEffects = firstDeclaration(json).compilerFeatureEffects
-    assertEq(table.concat(jsonEffects, ","), "stdlib.derives,native.json", "JSON derive feature manifest")
+    testAssert.equal(table.concat(jsonEffects, ","), "stdlib.derives,native.json", "JSON derive feature manifest")
 end
 
 function M.delimitsTheRuntimeFromAnEmittedFirstLine()
@@ -750,7 +745,7 @@ local record First value: integer end
 return marker .. ":" .. (new First(value = 1)):debug()
 ]]
     )
-    assertEq(result, "first:First { value = 1 }")
+    testAssert.equal(result, "first:First { value = 1 }")
 end
 
 return M

@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- OPT-5, concat lowering. The property that matters is not that a buffer appears but
 -- that the program still builds the same string, so every rewrite here is run and
 -- compared against the same source compiled with the pass off.
@@ -10,23 +11,17 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function compile(src, level, compat)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local checkDiags = check.check(result, "test.g.nupp", env, compat and {compat = compat} or nil)
     if compat then
-        assertEq(#checkDiags, 0, "source compatibility diagnostics")
-        assertEq(result.compat, compat, "resolved source compatibility")
+        testAssert.equal(#checkDiags, 0, "source compatibility diagnostics")
+        testAssert.equal(result.compat, compat, "resolved source compatibility")
     end
     local remarks = optimize.run(result, {level = level, filename = "test.g.nupp"})
     local code, diags = gen.generate(result, "test")
-    assertEq(#diags, 0, "gen diagnostics for " .. src)
+    testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
 
     return code, remarks
 end
@@ -56,10 +51,10 @@ end
 -- and both have to produce the same string.
 local function assertLowered(src, ...)
     local fired, code = lowered(src)
-    assertEq(fired, true, "expected OPT-5 to fire\n" .. src)
+    testAssert.equal(fired, true, "expected OPT-5 to fire\n" .. src)
     assert(code:find("__nuppBuffer", 1, true), "the buffer is required\n" .. code)
     local plain = compile(src, 0)
-    assertEq(
+    testAssert.equal(
         runCode(code, "optimized", ...),
         runCode(plain, "plain", ...),
         "the rewrite changed the string it builds\n" .. code
@@ -70,8 +65,8 @@ end
 
 local function assertUntouched(src, why)
     local fired, code = lowered(src)
-    assertEq(fired, false, (why or "expected OPT-5 to decline") .. "\n" .. src)
-    assertEq(code:find("__nuppBuffer", 1, true), nil, "and no buffer is required")
+    testAssert.equal(fired, false, (why or "expected OPT-5 to decline") .. "\n" .. src)
+    testAssert.equal(code:find("__nuppBuffer", 1, true), nil, "and no buffer is required")
 end
 
 local M = {}
@@ -135,7 +130,7 @@ for i = 1, 0 do
 end
 return out
 ]])
-    assertEq(runCode(code, "empty"), "", "no iterations means no appends")
+    testAssert.equal(runCode(code, "empty"), "", "no iterations means no appends")
 end
 
 function M.keepsTheDeclarationSoLaterReadsSeeAString()
@@ -148,7 +143,7 @@ for i = 1, 3 do
 end
 return out .. "!" .. #out
 ]])
-    assertEq(runCode(code, "later reads"), "123!3", "reads after the loop are ordinary")
+    testAssert.equal(runCode(code, "later reads"), "123!3", "reads after the loop are ordinary")
 end
 
 function M.lineCountIsUnchanged()
@@ -170,7 +165,7 @@ return out
         return n
     end
 
-    assertEq(lines(code), lines(src), "attribution survives by the line count holding")
+    testAssert.equal(lines(code), lines(src), "attribution survives by the line count holding")
 end
 
 function M.readingTheAccumulatorInTheLoopDeclines()
@@ -273,7 +268,7 @@ end
 return out
 ]], 0)
     for _, entry in ipairs(remarks) do
-        assertEq(entry.code ~= "OPT-5", true, "-O0 performs no rewrites")
+        testAssert.equal(entry.code ~= "OPT-5", true, "-O0 performs no rewrites")
     end
 end
 
@@ -287,9 +282,9 @@ return out
 ]]
     local code, remarks = compile(source, 1, "lua51")
     for _, entry in ipairs(remarks) do
-        assertEq(entry.code ~= "OPT-5", true, "Lua 5.1 cannot use string.buffer")
+        testAssert.equal(entry.code ~= "OPT-5", true, "Lua 5.1 cannot use string.buffer")
     end
-    assertEq(code:find("__nuppBuffer", 1, true), nil, "Lua 5.1 output does not require LuaJIT's string.buffer")
+    testAssert.equal(code:find("__nuppBuffer", 1, true), nil, "Lua 5.1 output does not require LuaJIT's string.buffer")
 end
 
 function M.disablingThePassLeavesItAlone()
@@ -301,13 +296,9 @@ end
 return out
 ]], "test")
     check.check(result, "test.g.nupp", env)
-    local remarks = optimize.run(result, {
-        level = 1,
-        filename = "test.g.nupp",
-        disabled = {["OPT-5"] = true},
-    })
+    local remarks = optimize.run(result, {level = 1, filename = "test.g.nupp", disabled = {["OPT-5"] = true},})
     for _, entry in ipairs(remarks) do
-        assertEq(entry.code ~= "OPT-5", true, "-Zno-opt=OPT-5 turns it off")
+        testAssert.equal(entry.code ~= "OPT-5", true, "-Zno-opt=OPT-5 turns it off")
     end
 end
 
@@ -321,8 +312,8 @@ end
 return join({"a", "b"}) .. ":" .. join({})
 ]]
     local code = assertLowered(source)
-    assertEq(runCode(code, "direct return"), "a,b,:")
-    assertEq(code:find("local out", 1, true), nil, code)
+    testAssert.equal(runCode(code, "direct return"), "a,b,:")
+    testAssert.equal(code:find("local out", 1, true), nil, code)
     assert(code:match("return __nuppBuf_%d+:tostring%(%)"), code)
 end
 
@@ -335,7 +326,7 @@ return out .. read()
 ]]
     assertUntouched(source, "a capture before the loop observes the string binding")
     local code = compile(source, 1)
-    assertEq(runCode(code, "captured accumulator"), "123123")
+    testAssert.equal(runCode(code, "captured accumulator"), "123123")
     assert(code:find("local out", 1, true), code)
 end
 

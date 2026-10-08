@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The `nupp bench` runner, exercised by starting real processes.
 --
 -- Split out from `benchtest.lua` because of what it costs. Every case here spawns
@@ -52,24 +53,12 @@ local function jsonLines(path)
     return values
 end
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
-local function assertTrue(cond, label)
-    if not cond then
-        error(label or "expected true", 2)
-    end
-end
-
 local M = {}
 
 local function workspace()
     local directory = os.tmpname()
     os.remove(directory)
-    assertEq(os.execute(("mkdir -p %q"):format(directory)), 0, "create isolated benchmark workspace")
+    testAssert.equal(os.execute(("mkdir -p %q"):format(directory)), 0, "create isolated benchmark workspace")
     local manifest = assert(io.open(directory .. "/nupp.lua", "wb"))
     manifest:write(("return {include = {%q}}\n"):format(NUPP_SRC))
     manifest:close()
@@ -86,22 +75,28 @@ function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
     local directory, stdout = working .. "/gpu-costs", working .. "/stdout.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
     local command = (
-        "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
+        "%q bench --timeout-ms "
+        .. TIMEOUT_MS
+        .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
     ):format(NUPP, fixture, NUPP, directory, stdout)
-    assertEq(os.execute(inWorkspace(working, command)), 0, "cost routing works without requiring a GPU workload")
+    testAssert.equal(
+        os.execute(inWorkspace(working, command)),
+        0,
+        "cost routing works without requiring a GPU workload"
+    )
     local report = json.decode(read(stdout))
     local seen, count = {}, 0
     for _, side in ipairs({report.benchmarks, report.comparisons[1].baseline.benchmarks}) do
         for _, benchmark in ipairs(side) do
             for _, fork in ipairs(benchmark.forks) do
                 local path = assert(fork.gpuCosts, "the fork names its GPU cost record")
-                assertTrue(not seen[path], "forks and candidates must not share a cost file")
+                assert(not seen[path], "forks and candidates must not share a cost file")
                 seen[path], count = true, count + 1
-                assertEq(read(path), "", "CPU-only forks invent no GPU operations")
+                testAssert.equal(read(path), "", "CPU-only forks invent no GPU operations")
             end
         end
     end
-    assertEq(count, 4, "both forks of both candidates have separate outputs")
+    testAssert.equal(count, 4, "both forks of both candidates have separate outputs")
     os.execute(("rm -rf %q"):format(working))
 end
 
@@ -111,6 +106,7 @@ end
 local function evidence(text)
     local value = json.decode(text)
     value.ok, value.diagnostics = nil, nil
+
     local function canonical(item)
         if type(item) ~= "table" then
             return json.encode(item)
@@ -126,6 +122,7 @@ local function evidence(text)
         for _, key in ipairs(keys) do
             parts[#parts + 1] = tostring(key) .. "=" .. canonical(item[key])
         end
+
         return "{" .. table.concat(parts, ",") .. "}"
     end
 
@@ -141,59 +138,69 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
 
     local function run(extra)
-        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
-        assertEq(os.execute(inWorkspace(working, command)), 0, "fixed-record comparison succeeds")
+        local command = (
+            "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"
+        ):format(NUPP, fixture, extra, stdout)
+        testAssert.equal(os.execute(inWorkspace(working, command)), 0, "fixed-record comparison succeeds")
         local output = read(stdout)
-        assertEq(evidence(output), evidence(read(working .. "/build/bench-record.json")), "stdout and saved record agree")
+        testAssert.equal(
+            evidence(output),
+            evidence(read(working .. "/build/bench-record.json")),
+            "stdout and saved record agree"
+        )
         local decoded = json.decode(output)
-        assertEq(decoded.ok, true, "the printed document says the run succeeded")
+        testAssert.equal(decoded.ok, true, "the printed document says the run succeeded")
 
         return decoded
     end
 
     local paired = run(("--case '^fixed$' --forks 12 --against %q --margin 5 --history %q"):format(NUPP, history))
     local comparison = paired.comparisons[1]
-    assertEq(comparison.kind, "interleaved", "paired provenance survives serialization")
-    assertEq(comparison.source, NUPP, "the baseline executable is named")
+    testAssert.equal(comparison.kind, "interleaved", "paired provenance survives serialization")
+    testAssert.equal(comparison.source, NUPP, "the baseline executable is named")
     local before, after = comparison.baseline.benchmarks[1], paired.benchmarks[1]
-    assertEq(before.case, after.case, "baseline and candidate identify the same file")
-    assertEq(before.name, after.name, "baseline and candidate identify the same case")
+    testAssert.equal(before.case, after.case, "baseline and candidate identify the same file")
+    testAssert.equal(before.name, after.name, "baseline and candidate identify the same case")
     for _, entry in ipairs({before, after}) do
-        assertEq(#entry.forks, 12, "every process measurement is retained")
+        testAssert.equal(#entry.forks, 12, "every process measurement is retained")
         for index, fork in ipairs(entry.forks) do
-            assertEq(fork.index, index, "fork identity is retained")
-            assertEq(fork.measurement.samplesMs[2], 0.25, "raw ordered samples survive")
+            testAssert.equal(fork.index, index, "fork identity is retained")
+            testAssert.equal(fork.measurement.samplesMs[2], 0.25, "raw ordered samples survive")
         end
     end
     local verdict = comparison.verdicts[1]
-    assertEq(verdict.case, after.case, "verdict identifies its program")
-    assertEq(verdict.name, after.name, "verdict identifies its benchmark")
-    assertEq(verdict.change, 0, "equal authored scores have zero change")
-    assertEq(verdict.interval.low, 0, "interval lower endpoint is retained")
-    assertEq(verdict.interval.upper, 0, "interval upper endpoint is retained")
-    assertEq(verdict.pValue, 1, "raw significance is retained")
-    assertEq(verdict.adjusted, 1, "adjusted significance is retained")
-    assertEq(verdict.verdict, "unchanged", "the comparison verdict is retained")
-    assertEq(evidence(read(history)), evidence(read(stdout)), "history retains identical evidence")
+    testAssert.equal(verdict.case, after.case, "verdict identifies its program")
+    testAssert.equal(verdict.name, after.name, "verdict identifies its benchmark")
+    testAssert.equal(verdict.change, 0, "equal authored scores have zero change")
+    testAssert.equal(verdict.interval.low, 0, "interval lower endpoint is retained")
+    testAssert.equal(verdict.interval.upper, 0, "interval upper endpoint is retained")
+    testAssert.equal(verdict.pValue, 1, "raw significance is retained")
+    testAssert.equal(verdict.adjusted, 1, "adjusted significance is retained")
+    testAssert.equal(verdict.verdict, "unchanged", "the comparison verdict is retained")
+    testAssert.equal(evidence(read(history)), evidence(read(stdout)), "history retains identical evidence")
     local f = assert(io.open(baseline, "wb"));
     f:write(read(working .. "/build/bench-record.json"));
     f:close()
 
     local observed = run(("--case '^fixed$' --forks 1 --baseline %q --margin 5 --accept"):format(baseline))
     comparison = observed.comparisons[1]
-    assertEq(comparison.kind, "observational", "stored baselines are never labeled causal")
-    assertEq(comparison.source, baseline, "the baseline record is named")
-    assertEq(#comparison.baseline.benchmarks[1].forks, 12, "stored baseline measurements survive")
-    assertEq(comparison.baseline.comparisons, nil, "accepted baselines do not nest comparison history")
-    assertEq(comparison.verdicts[1].withheld, "below-minimum-forks", "too few forks explain the absent interval")
-    assertEq(comparison.verdicts[1].verdict, "inconclusive", "too few forks remain inconclusive")
-    assertEq(evidence(read(baseline)), evidence(read(stdout)), "accepted baseline retains the full report")
+    testAssert.equal(comparison.kind, "observational", "stored baselines are never labeled causal")
+    testAssert.equal(comparison.source, baseline, "the baseline record is named")
+    testAssert.equal(#comparison.baseline.benchmarks[1].forks, 12, "stored baseline measurements survive")
+    testAssert.equal(comparison.baseline.comparisons, nil, "accepted baselines do not nest comparison history")
+    testAssert.equal(
+        comparison.verdicts[1].withheld,
+        "below-minimum-forks",
+        "too few forks explain the absent interval"
+    )
+    testAssert.equal(comparison.verdicts[1].verdict, "inconclusive", "too few forks remain inconclusive")
+    testAssert.equal(evidence(read(baseline)), evidence(read(stdout)), "accepted baseline retains the full report")
 
     local trending = run(("--case '^trend$' --forks 2 --against %q --margin 5"):format(NUPP))
     verdict = trending.comparisons[1].verdicts[1]
-    assertEq(verdict.withheld, "trend-warning", "trend withholding survives serialization")
-    assertEq(verdict.interval, nil, "a withheld interval is absent")
-    assertEq(verdict.verdict, "inconclusive", "a trend cannot acquire a confident verdict")
+    testAssert.equal(verdict.withheld, "trend-warning", "trend withholding survives serialization")
+    testAssert.equal(verdict.interval, nil, "a withheld interval is absent")
+    testAssert.equal(verdict.verdict, "inconclusive", "a trend cannot acquire a confident verdict")
     os.execute(("rm -rf %q"):format(working))
 end
 
@@ -204,14 +211,13 @@ end
 -- as a baseline that matches nothing and passes.
 function M.aBaselineSchemaIsCheckedWhereItIsRead()
     local working = workspace()
-    local stdout, stderr, baseline = working
-        .. "/stdout.json", working
-        .. "/stderr.txt", working
-        .. "/baseline.json"
+    local stdout, stderr, baseline = working .. "/stdout.json", working .. "/stderr.txt", working .. "/baseline.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
 
     local function run(extra)
-        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"):format(NUPP, fixture, extra, stdout, stderr)
+        local command = (
+            "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"
+        ):format(NUPP, fixture, extra, stdout, stderr)
 
         return os.execute(inWorkspace(working, command))
     end
@@ -238,36 +244,36 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     end
 
     local compared = ("--case '^fixed$' --forks 12 --baseline %q --margin 5"):format(baseline)
-    assertEq(run("--case '^fixed$' --forks 12"), 0, "the baseline run succeeds")
+    testAssert.equal(run("--case '^fixed$' --forks 12"), 0, "the baseline run succeeds")
     local current = json.decode(read(stdout))
-    assertEq(current.schema, 4, "a record is written at schema 4")
+    testAssert.equal(current.schema, 4, "a record is written at schema 4")
 
     write(current)
-    assertEq(run(compared), 0, "a current baseline compares")
+    testAssert.equal(run(compared), 0, "a current baseline compares")
     local comparison = json.decode(read(stdout)).comparisons[1]
-    assertEq(comparison.kind, "observational", "a current baseline is compared")
-    assertEq(#comparison.verdicts, 1, "a current baseline's durations are compared")
+    testAssert.equal(comparison.kind, "observational", "a current baseline is compared")
+    testAssert.equal(#comparison.verdicts, 1, "a current baseline's durations are compared")
 
     local older = rename(current)
     older.schema = 3
     write(older)
-    assertEq(run(compared), 0, "a version three baseline still reads")
+    testAssert.equal(run(compared), 0, "a version three baseline still reads")
     comparison = json.decode(read(stdout)).comparisons[1]
-    assertEq(comparison.kind, "observational", "a version three baseline is compared")
+    testAssert.equal(comparison.kind, "observational", "a version three baseline is compared")
     local verdict = comparison.verdicts[1]
-    assertEq(verdict.interval, nil, "a version three baseline has no durations to compare")
-    assertEq(verdict.verdict, "inconclusive", "durations against a version three baseline are inconclusive")
+    testAssert.equal(verdict.interval, nil, "a version three baseline has no durations to compare")
+    testAssert.equal(verdict.verdict, "inconclusive", "durations against a version three baseline are inconclusive")
 
     current.schema = 5
     write(current)
-    assertTrue(run(compared) ~= 0, "a foreign schema is refused")
+    assert(run(compared) ~= 0, "a foreign schema is refused")
     local problem = read(stderr)
-    assertTrue(problem:find("has schema 5; this bench reads schema 4", 1, true) ~= nil, problem)
+    assert(problem:find("has schema 5; this bench reads schema 4", 1, true) ~= nil, problem)
 
     write({benchmarks = {}})
-    assertTrue(run(compared) ~= 0, "a document without a schema is refused")
+    assert(run(compared) ~= 0, "a document without a schema is refused")
     problem = read(stderr)
-    assertTrue(problem:find("has schema none", 1, true) ~= nil, problem)
+    assert(problem:find("has schema none", 1, true) ~= nil, problem)
     os.execute(("rm -rf %q"):format(working))
 end
 
@@ -281,11 +287,11 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local listed = os.execute(
         inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
     )
-    assertEq(listed, 0, "case listing exits successfully")
+    testAssert.equal(listed, 0, "case listing exits successfully")
     local listing = jsonLines(casesOut)
-    assertEq(#listing, 1, "the listing has one framed JSON declaration")
-    assertEq(listing[1].name, "protocol", "the listing identifies the case")
-    assertEq(read(stdout), "application started\n", "application output stays on stdout")
+    testAssert.equal(#listing, 1, "the listing has one framed JSON declaration")
+    testAssert.equal(listing[1].name, "protocol", "the listing identifies the case")
+    testAssert.equal(read(stdout), "application started\n", "application output stays on stdout")
 
     local ran = os.execute(
         inWorkspace(
@@ -293,15 +299,15 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
             ("%q run -O1 %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
         )
     )
-    assertEq(ran, 0, "the selected case exits successfully")
+    testAssert.equal(ran, 0, "the selected case exits successfully")
     local record = json.decode(read(recordOut))
-    assertEq(record.cases[1].n, 3, "the runner's iteration count bypasses calibration")
+    testAssert.equal(record.cases[1].n, 3, "the runner's iteration count bypasses calibration")
     local human = read(stdout)
     local progressAt = human:find("# Benchmark: protocol", 1, true)
     local resultsAt = human:find("Benchmark%s+Mode%s+Cnt%s+Score%s+Units")
-    assertTrue(progressAt ~= nil, "the case is announced before it runs")
-    assertTrue(resultsAt ~= nil and progressAt < resultsAt, "progress precedes the result table")
-    assertTrue(human:find("protocol%s+p50%s+7%s+[%d.]+%s+ns/op") ~= nil, "the result is per operation")
+    assert(progressAt ~= nil, "the case is announced before it runs")
+    assert(resultsAt ~= nil and progressAt < resultsAt, "progress precedes the result table")
+    assert(human:find("protocol%s+p50%s+7%s+[%d.]+%s+ns/op") ~= nil, "the result is per operation")
 
     os.execute(("rm -rf %q"):format(working))
 end
@@ -317,15 +323,15 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     local listed = os.execute(
         inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
     )
-    assertEq(listed, 0, "suite listing exits successfully")
+    testAssert.equal(listed, 0, "suite listing exits successfully")
     local listing = jsonLines(casesOut)
     local names = {}
     for index, declaration in ipairs(listing) do
         names[index] = declaration.name
-        assertEq(declaration.suite, "protocol", "the listing identifies its suite")
-        assertEq(declaration.caseName, "work", "the listing identifies its logical case")
+        testAssert.equal(declaration.suite, "protocol", "the listing identifies its suite")
+        testAssert.equal(declaration.caseName, "work", "the listing identifies its logical case")
     end
-    assertEq(
+    testAssert.equal(
         table.concat(names, "\n"),
         table.concat(
             {
@@ -338,12 +344,12 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
         ),
         "parameters and variants expand into stable names"
     )
-    assertEq(listing[2].variant, "other", "the listing identifies its variant")
-    assertEq(listing[4].parameters.size, 2, "the listing carries structured parameters")
+    testAssert.equal(listing[2].variant, "other", "the listing identifies its variant")
+    testAssert.equal(listing[4].parameters.size, 2, "the listing carries structured parameters")
 
     local unsafe = os.execute(inWorkspace(working, ("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr)))
-    assertTrue(unsafe ~= 0, "a direct multi-benchmark run fails")
-    assertTrue(
+    assert(unsafe ~= 0, "a direct multi-benchmark run fails")
+    assert(
         read(stderr):find("defines more than one benchmark", 1, true) ~= nil,
         "the failure explains how to select an isolated benchmark"
     )
@@ -352,17 +358,17 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     local ran = os.execute(
         inWorkspace(working, ("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
     )
-    assertEq(ran, 0, "the selected suite pair exits successfully")
+    testAssert.equal(ran, 0, "the selected suite pair exits successfully")
     local record = json.decode(read(recordOut))
     local measurement = record.cases[1]
-    assertEq(measurement.name, selected, "the selected pair is measured")
-    assertEq(measurement.kind, "suite", "the record distinguishes adaptive suites")
-    assertEq(measurement.variant, "other", "the variant identity is structured")
-    assertEq(measurement.parameters.size, 2, "the parameter identity is structured")
-    assertEq(measurement.sampleIterations, 2, "the declared sample batching is recorded")
-    assertEq(measurement.operationsPerInvocation, 2, "operation normalization is recorded")
-    assertTrue(#measurement.samplesMs >= 3, "raw normalized samples are retained")
-    assertTrue(measurement.meanMs ~= nil and measurement.stdevMs ~= nil, "summary statistics are retained")
+    testAssert.equal(measurement.name, selected, "the selected pair is measured")
+    testAssert.equal(measurement.kind, "suite", "the record distinguishes adaptive suites")
+    testAssert.equal(measurement.variant, "other", "the variant identity is structured")
+    testAssert.equal(measurement.parameters.size, 2, "the parameter identity is structured")
+    testAssert.equal(measurement.sampleIterations, 2, "the declared sample batching is recorded")
+    testAssert.equal(measurement.operationsPerInvocation, 2, "operation normalization is recorded")
+    assert(#measurement.samplesMs >= 3, "raw normalized samples are retained")
+    assert(measurement.meanMs ~= nil and measurement.stdevMs ~= nil, "summary statistics are retained")
 
     os.execute(("rm -rf %q"):format(working))
 end
@@ -379,34 +385,36 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
+                "%q bench --timeout-ms "
+                .. TIMEOUT_MS
+                .. " --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
             ):format(NUPP, fixture, "^work$", "^base$", "^size=1$", history, stdout)
         )
     )
-    assertEq(ran, 0, "the process-isolated runner exits successfully")
+    testAssert.equal(ran, 0, "the process-isolated runner exits successfully")
     local stdoutDocument = json.decode(read(stdout))
-    assertEq(stdoutDocument.label, "smoke", "--json writes the merged record to stdout")
-    assertEq(#stdoutDocument.benchmarks, 1, "--json contains only the selected benchmarks")
-    assertEq(
+    testAssert.equal(stdoutDocument.label, "smoke", "--json writes the merged record to stdout")
+    testAssert.equal(#stdoutDocument.benchmarks, 1, "--json contains only the selected benchmarks")
+    testAssert.equal(
         stdoutDocument.benchmarks[1].name,
         "protocol.work.base:size=1",
         "--json stdout contains the selected benchmark"
     )
     local line = read(history):match("[^\r\n]+")
     local document = json.decode(line)
-    assertEq(document.label, "smoke", "the history label is retained")
-    assertEq(#document.benchmarks, 1, "the runner filter selects one benchmark")
-    assertEq(document.benchmarks[1].name, "protocol.work.base:size=1", "the selected benchmark is named")
-    assertEq(document.forks, 1, "an unreplicated run records that it ran one fork")
-    assertTrue(document.seed ~= nil, "the permutation seed is recorded so an order can be reproduced")
+    testAssert.equal(document.label, "smoke", "the history label is retained")
+    testAssert.equal(#document.benchmarks, 1, "the runner filter selects one benchmark")
+    testAssert.equal(document.benchmarks[1].name, "protocol.work.base:size=1", "the selected benchmark is named")
+    testAssert.equal(document.forks, 1, "an unreplicated run records that it ran one fork")
+    assert(document.seed ~= nil, "the permutation seed is recorded so an order can be reproduced")
     -- Each fork is kept whole rather than reduced to its median. A warmup classifier
     -- needs every process's ordered samples, and a summary cannot give them back.
-    assertEq(#document.benchmarks[1].forks, 1, "one fork was run and one fork was kept")
-    assertTrue(
+    testAssert.equal(#document.benchmarks[1].forks, 1, "one fork was run and one fork was kept")
+    assert(
         #document.benchmarks[1].forks[1].measurement.samplesMs >= 3,
         "history includes each fork's raw samples rather than only a summary"
     )
-    assertTrue(
+    assert(
         document.benchmarks[1].summary.intervalWithheld == "below-minimum-forks",
         "one fork names why it carries no interval instead of leaving the field absent"
     )
@@ -418,45 +426,49 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
+                "%q bench --timeout-ms "
+                .. TIMEOUT_MS
+                .. " --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
             ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
         )
     )
-    assertEq(filtered, 0, "structured Lua-pattern filters select a benchmark")
+    testAssert.equal(filtered, 0, "structured Lua-pattern filters select a benchmark")
     local selection = json.decode(read(stdout))
-    assertEq(#selection.benchmarks, 1, "one benchmark survived every filter")
-    assertEq(
+    testAssert.equal(#selection.benchmarks, 1, "one benchmark survived every filter")
+    testAssert.equal(
         selection.benchmarks[1].name,
         "protocol.work.other:size=2",
         "case, variant and parameter filters combine while repeats are alternatives"
     )
-    assertEq(selection.benchmarks[1].file, fixture, "and the listing says which file declares it")
+    testAssert.equal(selection.benchmarks[1].file, fixture, "and the listing says which file declares it")
 
     local profiled = os.execute(
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
+                "%q bench --timeout-ms "
+                .. TIMEOUT_MS
+                .. " --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
             ):format(NUPP, simpleFixture, "^protocol$", profiles, stdout)
         )
     )
-    assertEq(profiled, 0, "the measured-window sampling pass exits successfully")
+    testAssert.equal(profiled, 0, "the measured-window sampling pass exits successfully")
     local human = read(stdout)
     local resultAt = human:find("# Result: protocol", 1, true)
     local tableAt = human:find("Benchmark%s+Mode%s+Cnt%s+Score%s+Units")
-    assertTrue(human:find("NOT a confidence") ~= nil, "an unreplicated run says its spread is not an interval")
-    assertTrue(
+    assert(human:find("NOT a confidence") ~= nil, "an unreplicated run says its spread is not an interval")
+    assert(
         resultAt ~= nil and tableAt ~= nil and resultAt < tableAt,
         "a completed score streams before the final table"
     )
     local profilePath = human:match("# Profile: ([^\r\n]+)")
-    assertTrue(profilePath ~= nil, "the sampling pass names its collapsed-stack file")
+    assert(profilePath ~= nil, "the sampling pass names its collapsed-stack file")
     local collapsed = read(profilePath)
-    assertTrue(
+    assert(
         collapsed == "" or collapsed:find("^bench_protocol%.g%.nupp:") ~= nil,
         "collected stacks are trimmed to the benchmark program"
     )
-    assertTrue(collapsed == "" or collapsed:find(" %d+$") ~= nil, "collected stacks carry sample counts")
+    assert(collapsed == "" or collapsed:find(" %d+$") ~= nil, "collected stacks carry sample counts")
 
     os.execute(("rm -rf %q"):format(working))
 end
@@ -471,35 +483,40 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
 
     local ran = os.execute(
-        inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
+        inWorkspace(
+            working,
+            (
+                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"
+            ):format(NUPP, fixture, stdout)
+        )
     )
-    assertEq(ran, 0, "a replicated run exits successfully")
+    testAssert.equal(ran, 0, "a replicated run exits successfully")
     local document = json.decode(read(stdout))
-    assertEq(document.forks, 12, "the record says how many processes ran")
-    assertEq(document.seed, 4242, "and the seed the permutation came from")
-    assertEq(#document.benchmarks, 1, "one benchmark was selected")
+    testAssert.equal(document.forks, 12, "the record says how many processes ran")
+    testAssert.equal(document.seed, 4242, "and the seed the permutation came from")
+    testAssert.equal(#document.benchmarks, 1, "one benchmark was selected")
 
     local benchmark = document.benchmarks[1]
     -- Kept whole, not reduced. A warmup classifier needs each process's own series and
     -- a median cannot give it back.
-    assertEq(#benchmark.forks, 12, "every fork is retained structurally")
+    testAssert.equal(#benchmark.forks, 12, "every fork is retained structurally")
     for index, fork in ipairs(benchmark.forks) do
-        assertEq(fork.index, index, "forks are recorded in execution order")
-        assertTrue(#fork.measurement.samplesMs > 0, "each fork keeps its own ordered samples")
+        testAssert.equal(fork.index, index, "forks are recorded in execution order")
+        assert(#fork.measurement.samplesMs > 0, "each fork keeps its own ordered samples")
     end
 
     -- Fork one calibrates and the rest are told what it chose. Without this their
     -- scores would each be a median over a different amount of work.
     local iterations = benchmark.forks[1].measurement.n
-    assertTrue(iterations ~= nil and iterations >= 1, "the first fork calibrated an iteration count")
+    assert(iterations ~= nil and iterations >= 1, "the first fork calibrated an iteration count")
     for _, fork in ipairs(benchmark.forks) do
-        assertEq(fork.measurement.n, iterations, "every fork counted the same work")
+        testAssert.equal(fork.measurement.n, iterations, "every fork counted the same work")
     end
 
-    assertEq(#benchmark.summary.forkSummariesMs, 12, "one summary per process feeds the interval")
-    assertTrue(benchmark.summary.intervalLowMs ~= nil, "twelve forks support an interval")
-    assertTrue(benchmark.summary.intervalCoverage >= 0.95, "and it reports a coverage that clears the target")
-    assertTrue(
+    testAssert.equal(#benchmark.summary.forkSummariesMs, 12, "one summary per process feeds the interval")
+    assert(benchmark.summary.intervalLowMs ~= nil, "twelve forks support an interval")
+    assert(benchmark.summary.intervalCoverage >= 0.95, "and it reports a coverage that clears the target")
+    assert(
         benchmark.summary.intervalLowMs <= benchmark.summary.medianMs
         and benchmark.summary.medianMs <= benchmark.summary.intervalHighMs,
         "the interval brackets the score"
@@ -516,13 +533,18 @@ function M.pilotSizesTheRunWithoutReportingAResult()
     local stdout = working .. "/stdout.txt"
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
 
-    local ran = os.execute(inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)))
-    assertEq(ran, 0, "a pilot exits successfully")
+    local ran = os.execute(
+        inWorkspace(
+            working,
+            ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)
+        )
+    )
+    testAssert.equal(ran, 0, "a pilot exits successfully")
     local report = read(stdout)
-    assertTrue(report:find("Between%-fork CV") ~= nil, "the pilot reports the variance it observed")
-    assertTrue(report:find("Forks for") ~= nil, "and the forks a precision would need")
-    assertTrue(report:find("Coverage") == nil, "a pilot claims no coverage")
-    assertTrue(report:find("Winners") == nil, "and declares no winner")
+    assert(report:find("Between%-fork CV") ~= nil, "the pilot reports the variance it observed")
+    assert(report:find("Forks for") ~= nil, "and the forks a precision would need")
+    assert(report:find("Coverage") == nil, "a pilot claims no coverage")
+    assert(report:find("Winners") == nil, "and declares no winner")
 
     os.execute(("rm -rf %q"):format(working))
 end
@@ -543,9 +565,14 @@ function M.eachSelectorNarrowsOnItsOwn()
 
     local function listed(...)
         local flags = table.concat({...}, " ")
-        assertEq(
+        testAssert.equal(
             os.execute(
-                inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q %s > %q"):format(NUPP, fixture, flags, stdout))
+                inWorkspace(
+                    working,
+                    (
+                        "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q %s > %q"
+                    ):format(NUPP, fixture, flags, stdout)
+                )
             ),
             0,
             "listing with " .. flags .. " exits successfully"
@@ -564,7 +591,7 @@ function M.eachSelectorNarrowsOnItsOwn()
     end
 
     local everything = listed()
-    assertTrue(#everything > 1, "the fixture defines more than one benchmark to narrow from")
+    assert(#everything > 1, "the fixture defines more than one benchmark to narrow from")
 
     -- Every benchmark in this fixture is the same case, so a matching pattern
     -- correctly selects all of them and cannot show that the filter ran. A pattern
@@ -572,32 +599,34 @@ function M.eachSelectorNarrowsOnItsOwn()
     -- the whole file and exit zero.
     -- Not compared against a number: `os.execute` hands back the raw wait status here,
     -- so a failing exit reads as 256 rather than 1 and the encoding is not portable.
-    assertTrue(
+    assert(
         os.execute(
             inWorkspace(
                 working,
-                ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q --case %q > %q 2>&1"):format(NUPP, fixture, "^nosuchcase$", stdout)
+                (
+                    "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q --case %q > %q 2>&1"
+                ):format(NUPP, fixture, "^nosuchcase$", stdout)
             )
         ) ~= 0,
         "a case pattern matching nothing selects nothing rather than everything"
     )
-    assertTrue(read(stdout):find("no benchmark matched") ~= nil, "and says so")
+    assert(read(stdout):find("no benchmark matched") ~= nil, "and says so")
 
     local byCase = listed("--case", "'^work$'")
-    assertEq(#byCase, #everything, "every benchmark here is that case, so all of them match")
+    testAssert.equal(#byCase, #everything, "every benchmark here is that case, so all of them match")
 
     local byVariant = listed("--variant", "'^base$'")
-    assertTrue(#byVariant > 0, "--variant selects something")
-    assertTrue(#byVariant < #everything, "--variant narrows")
+    assert(#byVariant > 0, "--variant selects something")
+    assert(#byVariant < #everything, "--variant narrows")
     for _, name in ipairs(byVariant) do
-        assertTrue(name:find("%.base") ~= nil, "--variant selected " .. name .. ", which is not that variant")
+        assert(name:find("%.base") ~= nil, "--variant selected " .. name .. ", which is not that variant")
     end
 
     local byParameter = listed("--parameter", "'^size=1$'")
-    assertTrue(#byParameter > 0, "--parameter selects something")
-    assertTrue(#byParameter < #everything, "--parameter narrows")
+    assert(#byParameter > 0, "--parameter selects something")
+    assert(#byParameter < #everything, "--parameter narrows")
     for _, name in ipairs(byParameter) do
-        assertTrue(name:find("size=1$") ~= nil, "--parameter selected " .. name .. ", which is not that parameter")
+        assert(name:find("size=1$") ~= nil, "--parameter selected " .. name .. ", which is not that parameter")
     end
 
     os.execute(("rm -rf %q"):format(working))

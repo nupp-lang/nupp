@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The nupp.bench surface, in three parts that fail independently.
 --
 -- The intrinsic: `keep` in statement position on a receiver statically known to be the
@@ -43,21 +44,9 @@ local function jsonLines(path)
     return values
 end
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
-local function assertTrue(cond, label)
-    if not cond then
-        error(label or "expected true", 2)
-    end
-end
-
 local function compile(source, level)
     local parsed = parser.parse(source, "bench_test.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax errors")
+    testAssert.equal(#parsed.errors, 0, "syntax errors")
     check.check(parsed, "bench_test.g.nupp", env)
     if level then
         optimize.run(parsed, {level = level, filename = "bench_test.g.nupp"})
@@ -90,10 +79,10 @@ function M.everyTopLevelNuppBenchmarkUsesTheHarness()
         paths[index] = path:toString()
     end
     table.sort(paths)
-    assertEq(#paths, 11, "all eleven top-level Nupp benchmarks are present")
+    testAssert.equal(#paths, 11, "all eleven top-level Nupp benchmarks are present")
     for _, path in ipairs(paths) do
-        assertTrue(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
-        assertTrue(read(path):find("nupp.bench", 1, true) ~= nil, path .. " does not use the shared harness")
+        assert(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
+        assert(read(path):find("nupp.bench", 1, true) ~= nil, path .. " does not use the shared harness")
     end
 end
 
@@ -104,10 +93,10 @@ local function body()
     bench.keep({1, 2})
 end
 ]])
-    assertTrue(code:find("__nuppSink", 1, true) ~= nil, "keep lowers against the module's sink field\n" .. code)
+    assert(code:find("__nuppSink", 1, true) ~= nil, "keep lowers against the module's sink field\n" .. code)
     -- The store is what makes the value escape its trace, so a surviving call would
     -- mean the sink is paying for a call as well as the store it needs.
-    assertTrue(code:gmatch("bench%s*%.%s*keep%s*%(")() == nil, "no keep call survives\n" .. code)
+    assert(code:gmatch("bench%s*%.%s*keep%s*%(")() == nil, "no keep call survives\n" .. code)
 end
 
 function M.leavesAnOrdinaryKeepCallAlone()
@@ -122,7 +111,7 @@ local function body()
 end
 ]]
     )
-    assertTrue(code:gmatch("keep%s*%(")() ~= nil, "a captured keep stays a call\n" .. code)
+    assert(code:gmatch("keep%s*%(")() ~= nil, "a captured keep stays a call\n" .. code)
 end
 
 function M.leavesKeepOnAnUnrelatedReceiverAlone()
@@ -134,10 +123,7 @@ local function body()
 end
 ]]
     )
-    assertTrue(
-        code:find("__nuppSink", 1, true) == nil,
-        "a receiver that is not the module is not the intrinsic\n" .. code
-    )
+    assert(code:find("__nuppSink", 1, true) == nil, "a receiver that is not the module is not the intrinsic\n" .. code)
 end
 
 function M.countsTheAllocationsTheTreeStillCarries()
@@ -152,10 +138,10 @@ end
         1
     )
     local tables, closures = countKinds(optimize.allocationSites(parsed))
-    assertEq(tables, 2, "two constructors stand in the emitted tree")
+    testAssert.equal(tables, 2, "two constructors stand in the emitted tree")
     -- The enclosing declaration is itself a closure the tree allocates. Counting only
     -- anonymous functions made the account depend on how the source spelled a function.
-    assertEq(closures, 1, "the enclosing declaration is an allocation too")
+    testAssert.equal(closures, 1, "the enclosing declaration is an allocation too")
 end
 
 function M.countsAClosureAsAnAllocation()
@@ -165,7 +151,7 @@ local function body()
 end
 ]], 1)
     local _, closures = countKinds(optimize.allocationSites(parsed))
-    assertEq(closures, 2, "the declaration and returned function each allocate once")
+    testAssert.equal(closures, 2, "the declaration and returned function each allocate once")
 end
 
 function M.omitsAnAllocationAConstantFoldRemoved()
@@ -185,7 +171,7 @@ end
         1
     )
     local tables = countKinds(optimize.allocationSites(parsed))
-    assertEq(tables, 0, "a folded-away constructor is not accounted for")
+    testAssert.equal(tables, 0, "a folded-away constructor is not accounted for")
 end
 
 -- The gate compares counts per file, not positions. Identifying a site by file, line
@@ -209,7 +195,7 @@ function M.movingCodeDoesNotLookLikeANewAllocation()
         }
     }
     local failures = bench.compare(moved, before)
-    assertEq(#failures, 0, "the same two allocations in new positions are not a regression")
+    testAssert.equal(#failures, 0, "the same two allocations in new positions are not a regression")
 
     local added = {
         executionProfile = profile,
@@ -220,7 +206,7 @@ function M.movingCodeDoesNotLookLikeANewAllocation()
         }
     }
     local grew = bench.compare(added, before)
-    assertEq(#grew, 1, "a third allocation in the same file is a regression")
+    testAssert.equal(#grew, 1, "a third allocation in the same file is a regression")
 end
 
 function M.uncollectedTraceAbortsNeverLookComparable()
@@ -230,9 +216,9 @@ function M.uncollectedTraceAbortsNeverLookComparable()
     local current = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = nil}},}
     local baseline = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = {}}},}
     local failures, uncompared = bench.compare(current, baseline)
-    assertEq(#failures, 0, "missing observations are not regressions")
-    assertEq(#uncompared, 1, "missing observations are reported as incomparable")
-    assertTrue(uncompared[1]:find("not collected", 1, true) ~= nil, "the missing observation is named")
+    testAssert.equal(#failures, 0, "missing observations are not regressions")
+    testAssert.equal(#uncompared, 1, "missing observations are reported as incomparable")
+    assert(uncompared[1]:find("not collected", 1, true) ~= nil, "the missing observation is named")
 end
 
 function M.duplicateBenchmarkNamesAreRejected()
@@ -243,8 +229,8 @@ function M.duplicateBenchmarkNamesAreRejected()
         bench.case("duplicate-name", function()
         end)
     end)
-    assertTrue(not ok, "a duplicate benchmark name is rejected")
-    assertTrue(tostring(err):find("duplicate benchmark", 1, true) ~= nil, "the duplicate is explained")
+    assert(not ok, "a duplicate benchmark name is rejected")
+    assert(tostring(err):find("duplicate benchmark", 1, true) ~= nil, "the duplicate is explained")
 end
 
 function M.formatsHumanResultsAsPerOperationScores()
@@ -255,7 +241,7 @@ function M.formatsHumanResultsAsPerOperationScores()
             {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
         },
     })
-    assertEq(
+    testAssert.equal(
         rendered,
         "\n"
         .. [[Benchmark           Mode    Cnt       Score  Units       Alloc B/op             p25-p99
@@ -292,8 +278,8 @@ function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
             },
         },
     })
-    assertTrue(rendered:find("Alloc B/op", 1, true) ~= nil, "the allocation unit is explicit")
-    assertTrue(rendered:find("1536.000", 1, true) ~= nil, "suite allocation is rendered in bytes per operation")
+    assert(rendered:find("Alloc B/op", 1, true) ~= nil, "the allocation unit is explicit")
+    assert(rendered:find("1536.000", 1, true) ~= nil, "suite allocation is rendered in bytes per operation")
 end
 
 -- A single-fork table must never present its spread as an interval. The column heading
@@ -315,14 +301,14 @@ function M.singleForkTableRefusesToCallItsSpreadAnInterval()
             },
         },
     })
-    assertTrue(rendered:find("p25%-p99") ~= nil, "the spread column is named for what it is")
-    assertTrue(rendered:find("Interval") == nil, "a one fork table names no interval")
-    assertTrue(rendered:find("Coverage") == nil, "a one fork table claims no coverage")
-    assertTrue(rendered:find("NOT a confidence") ~= nil, "the note says what the spread is not")
-    assertTrue(rendered:find("%[0%.875, 2%.025%]") ~= nil, "the range is shown in score units")
+    assert(rendered:find("p25%-p99") ~= nil, "the spread column is named for what it is")
+    assert(rendered:find("Interval") == nil, "a one fork table names no interval")
+    assert(rendered:find("Coverage") == nil, "a one fork table claims no coverage")
+    assert(rendered:find("NOT a confidence") ~= nil, "the note says what the spread is not")
+    assert(rendered:find("%[0%.875, 2%.025%]") ~= nil, "the range is shown in score units")
     -- The upper end is the tail, not the box: a slow mode that leaves p75 alone is
     -- exactly the case this column exists to expose.
-    assertTrue(rendered:find("1%.300") == nil, "the third quartile is recorded but not displayed")
+    assert(rendered:find("1%.300") == nil, "the third quartile is recorded but not displayed")
 end
 
 -- The replicated table carries the coverage it attained, and the attained value for ten
@@ -350,11 +336,11 @@ function M.replicatedTableReportsAttainedCoverage()
         },
         {forks = 10}
     )
-    assertTrue(rendered:find("Forks") ~= nil, "the count column counts forks")
-    assertTrue(rendered:find("Coverage") ~= nil, "the coverage column is present")
-    assertTrue(rendered:find("97%.85%%") ~= nil, "the attained coverage is reported")
-    assertTrue(rendered:find("%[3%.800, 4%.300%]") ~= nil, "the interval is shown in score units")
-    assertTrue(rendered:find("NOT a confidence") == nil, "the one fork warning is not repeated")
+    assert(rendered:find("Forks") ~= nil, "the count column counts forks")
+    assert(rendered:find("Coverage") ~= nil, "the coverage column is present")
+    assert(rendered:find("97%.85%%") ~= nil, "the attained coverage is reported")
+    assert(rendered:find("%[3%.800, 4%.300%]") ~= nil, "the interval is shown in score units")
+    assert(rendered:find("NOT a confidence") == nil, "the one fork warning is not repeated")
 end
 
 -- A benchmark whose interval was withheld says so in the column rather than leaving it
@@ -380,7 +366,7 @@ function M.withheldIntervalIsNamedInTheTable()
         },
         {forks = 12}
     )
-    assertTrue(rendered:find("unstable") ~= nil, "a withheld interval is labelled unstable")
+    assert(rendered:find("unstable") ~= nil, "a withheld interval is labelled unstable")
 end
 
 function M.formatsComparativeSuitesWithBaselineRatios()
@@ -456,18 +442,18 @@ function M.formatsComparativeSuitesWithBaselineRatios()
         },
     }
     local rendered = bench.format(record)
-    assertTrue(
+    assert(
         rendered:find("map%.lookup%.array:size=100%s+p50%s+20%s+10%.000%s+ns/op%s+%-%s+%-%s+2%.000x") ~= nil,
         "the result table retains each baseline ratio\n" .. rendered
     )
-    assertTrue(
+    assert(
         rendered:find("map%.lookup:size=100%s+array%s+2%.000x") ~= nil
         and rendered:find("map%.insert:size=100%s+table%s+2%.000x") ~= nil,
         "each workload names its winner against the runner-up\n" .. rendered
     )
-    assertTrue(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
+    assert(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
     local geometric = bench.format(record, {geometricMean = true})
-    assertTrue(
+    assert(
         geometric:find("Geometric mean: map %(vs table%)") ~= nil and geometric:find("array%s+1%.189x") ~= nil,
         "the summary weights parameter expansions within their logical case\n" .. geometric
     )
@@ -504,12 +490,12 @@ function M.selectedOrderStatisticIsTheNarrowestThatStillCovers()
     local statistics = require("nupp.bench.internal.statistics")
     -- Below six, no interval over the observations reaches 95% at all, so there is
     -- nothing to select and the harness must not invent one.
-    assertEq(statistics.selectK(3, 0.95), 0, "three observations support no 95% interval")
-    assertEq(statistics.selectK(5, 0.95), 0, "five observations support no 95% interval")
-    assertEq(statistics.selectK(6, 0.95), 1, "six reaches it only by spanning every observation")
-    assertEq(statistics.selectK(10, 0.95), 2, "ten excludes the extremes and still covers")
-    assertEq(statistics.selectK(15, 0.95), 4, "fifteen at k=4")
-    assertEq(statistics.selectK(20, 0.95), 6, "twenty at k=6")
+    testAssert.equal(statistics.selectK(3, 0.95), 0, "three observations support no 95% interval")
+    testAssert.equal(statistics.selectK(5, 0.95), 0, "five observations support no 95% interval")
+    testAssert.equal(statistics.selectK(6, 0.95), 1, "six reaches it only by spanning every observation")
+    testAssert.equal(statistics.selectK(10, 0.95), 2, "ten excludes the extremes and still covers")
+    testAssert.equal(statistics.selectK(15, 0.95), 4, "fifteen at k=4")
+    testAssert.equal(statistics.selectK(20, 0.95), 6, "twenty at k=6")
 end
 
 function M.noIntervalBelowTheMinimumForkCount()
@@ -518,16 +504,16 @@ function M.noIntervalBelowTheMinimumForkCount()
     for index = 1, 9 do
         nine[index] = index + 0.0
     end
-    assertEq(statistics.medianInterval(nine), nil, "nine forks yield no interval")
+    testAssert.equal(statistics.medianInterval(nine), nil, "nine forks yield no interval")
     local ten = {}
     for index = 1, 10 do
         ten[index] = index + 0.0
     end
     local interval = statistics.medianInterval(ten)
-    assertTrue(interval ~= nil, "ten forks yield an interval")
+    assert(interval ~= nil, "ten forks yield an interval")
     closeTo(interval.low, 2.0, 1e-12, "the lower endpoint is the second order statistic")
     closeTo(interval.upper, 9.0, 1e-12, "the upper endpoint is the ninth")
-    assertEq(interval.k, 2, "k is reported so the endpoints can be located")
+    testAssert.equal(interval.k, 2, "k is reported so the endpoints can be located")
     closeTo(interval.attainedCoverage, 0.978515625, 1e-12, "the coverage reported is the one attained")
 end
 
@@ -542,8 +528,8 @@ function M.outliersAreClassifiedWithoutMovingTheEstimate()
     planted[#planted + 1] = 95.0
 
     local found = statistics.outliers(planted)
-    assertEq(found.severe, 2, "both planted samples are classified severe")
-    assertTrue(found.maxRatio > 8.0, "the worst one is reported as a multiple of the median")
+    testAssert.equal(found.severe, 2, "both planted samples are classified severe")
+    assert(found.maxRatio > 8.0, "the worst one is reported as a multiple of the median")
     -- The whole point of classifying rather than excluding: a robust estimator does not
     -- need the samples removed, and removing them would delete a real warmup phase.
     closeTo(statistics.median(planted), statistics.median(clean), 0.2, "the median is unmoved by the outliers")
@@ -567,9 +553,9 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
         negligible[index] = 100.0 - index * 0.0025
     end
     const slight = statistics.trend(negligible)
-    assertTrue(slight.pValue < statistics.ALPHA, "the trend is statistically unmistakable")
-    assertTrue(math.abs(slight.drift) < statistics.TREND_MIN_DRIFT, "and the level barely moved")
-    assertEq(slight.verdict, "no-trend-detected", "so it is not reported as trending")
+    assert(slight.pValue < statistics.ALPHA, "the trend is statistically unmistakable")
+    assert(math.abs(slight.drift) < statistics.TREND_MIN_DRIFT, "and the level barely moved")
+    testAssert.equal(slight.verdict, "no-trend-detected", "so it is not reported as trending")
 
     -- The same shape with a movement worth acting on.
     local material = {}
@@ -577,10 +563,10 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
         material[index] = 100.0 - index * 0.05
     end
     const real = statistics.trend(material)
-    assertTrue(real.pValue < statistics.ALPHA, "the trend is significant")
-    assertTrue(math.abs(real.drift) >= statistics.TREND_MIN_DRIFT, "and the level moved materially")
-    assertEq(real.verdict, "trend", "so it is reported")
-    assertTrue(real.drift < 0.0, "and the direction is carried, so a report can say which way")
+    assert(real.pValue < statistics.ALPHA, "the trend is significant")
+    assert(math.abs(real.drift) >= statistics.TREND_MIN_DRIFT, "and the level moved materially")
+    testAssert.equal(real.verdict, "trend", "so it is reported")
+    assert(real.drift < 0.0, "and the direction is carried, so a report can say which way")
 
     -- Magnitude without significance is noise that happened to end where it started
     -- from, and must not be reported either.
@@ -589,7 +575,7 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
         noisy[index] = 100.0 + ((index * 37) % 41) * 1.0
     end
     const jitter = statistics.trend(noisy)
-    assertEq(jitter.verdict, "no-trend-detected", "an unstructured series is not a trend")
+    testAssert.equal(jitter.verdict, "no-trend-detected", "an unstructured series is not a trend")
 end
 
 function M.trendIsDetectedAndSteadyIsNeverClaimed()
@@ -602,13 +588,13 @@ function M.trendIsDetectedAndSteadyIsNeverClaimed()
         drifting[index] = 50.0 + index * 0.1
         flat[index] = 100.0 + (index % 5) * 0.1
     end
-    assertEq(statistics.trend(warming).verdict, "trend", "a falling series is a trend")
-    assertEq(statistics.trend(drifting).verdict, "trend", "a rising series is a trend")
+    testAssert.equal(statistics.trend(warming).verdict, "trend", "a falling series is a trend")
+    testAssert.equal(statistics.trend(drifting).verdict, "trend", "a rising series is a trend")
     -- The negative result is deliberately weak. There is no verdict asserting a steady
     -- state, because failing to detect a monotone trend does not establish one.
-    assertEq(statistics.trend(flat).verdict, "no-trend-detected", "a flat series is not declared steady")
-    assertTrue(statistics.trend(warming).tau < -0.5, "tau carries the direction")
-    assertEq(statistics.trend({1.0, 2.0, 3.0}).verdict, "unknown", "too few samples to test is its own answer")
+    testAssert.equal(statistics.trend(flat).verdict, "no-trend-detected", "a flat series is not declared steady")
+    assert(statistics.trend(warming).tau < -0.5, "tau carries the direction")
+    testAssert.equal(statistics.trend({1.0, 2.0, 3.0}).verdict, "unknown", "too few samples to test is its own answer")
 end
 
 function M.benjaminiHochbergAdjustsAcrossTheFamily()
@@ -634,29 +620,33 @@ function M.verdictsSeparateEquivalenceFromIgnorance()
 
     -- Equivalence is demonstrated by a narrow interval inside the margin, not inferred
     -- from a test that failed to reach significance.
-    assertEq(statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4), "unchanged", "inside the margin is unchanged")
+    testAssert.equal(
+        statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4),
+        "unchanged",
+        "inside the margin is unchanged"
+    )
     -- The case the whole rule exists for. A point estimate of zero with an interval
     -- twenty points wide says the run could not tell, and calling that "unchanged"
     -- would be asserting equivalence from an absence of evidence.
-    assertEq(
+    testAssert.equal(
         statistics.verdict(interval(-0.20, 0.20), 0.02, 0.4),
         "inconclusive",
         "a wide interval around zero is inconclusive, not unchanged"
     )
-    assertEq(statistics.verdict(interval(0.162, 0.207), 0.02, 0.001), "regressed", "wholly above the margin")
-    assertEq(statistics.verdict(interval(-0.111, -0.082), 0.02, 0.001), "improved", "wholly below the margin")
-    assertEq(
+    testAssert.equal(statistics.verdict(interval(0.162, 0.207), 0.02, 0.001), "regressed", "wholly above the margin")
+    testAssert.equal(statistics.verdict(interval(-0.111, -0.082), 0.02, 0.001), "improved", "wholly below the margin")
+    testAssert.equal(
         statistics.verdict(interval(-0.013, 0.140), 0.02, 0.02),
         "inconclusive",
         "straddling a margin boundary is inconclusive"
     )
     -- Surviving the family matters even when the interval looks decisive.
-    assertEq(
+    testAssert.equal(
         statistics.verdict(interval(0.162, 0.207), 0.02, 0.30),
         "inconclusive",
         "an adjusted p-value that did not survive the family withholds the claim"
     )
-    assertEq(statistics.verdict(nil, 0.02, 0.001), "inconclusive", "no interval is always inconclusive")
+    testAssert.equal(statistics.verdict(nil, 0.02, 0.001), "inconclusive", "no interval is always inconclusive")
 end
 
 function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
@@ -665,8 +655,8 @@ function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
     for index = 1, 12 do
         zeros[index] = 0
     end
-    assertEq(statistics.pairedPValue(zeros), 1, "identical pairs provide no evidence of a change")
-    assertEq(statistics.pairedPValue({0, 0, 1, 2, 3, 4}), 0.125, "zero pairs do not increase the evidence")
+    testAssert.equal(statistics.pairedPValue(zeros), 1, "identical pairs provide no evidence of a change")
+    testAssert.equal(statistics.pairedPValue({0, 0, 1, 2, 3, 4}), 0.125, "zero pairs do not increase the evidence")
 
     -- Independently enumerate every sign assignment. Rank by counting smaller
     -- and equal magnitudes, rather than sorting or using the implementation's DP.
@@ -707,12 +697,16 @@ function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
 
     for _, values in ipairs({{1, -1, 2, 2, -2, 3}, {1, 1, 1, -1, 2, 2}, {-1, 1, -1, 1}}) do
         local expected = exact(values)
-        assertEq(statistics.pairedPValue(values), expected, "ties use their sign-permutation distribution")
+        testAssert.equal(statistics.pairedPValue(values), expected, "ties use their sign-permutation distribution")
         local reversed = {}
         for index = #values, 1, -1 do
             reversed[#reversed + 1] = -values[index]
         end
-        assertEq(statistics.pairedPValue(reversed), expected, "sign reversal and tie order do not change significance")
+        testAssert.equal(
+            statistics.pairedPValue(reversed),
+            expected,
+            "sign reversal and tie order do not change significance"
+        )
     end
 end
 
@@ -729,26 +723,26 @@ function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()
         differences[index] = 0.10 + (index % 3) * 0.01
     end
     local shift = statistics.pairedShift(differences)
-    assertTrue(shift ~= nil, "twelve pairs support a shift interval")
+    assert(shift ~= nil, "twelve pairs support a shift interval")
     local estimate = statistics.median(differences)
-    assertTrue(shift.low <= estimate and estimate <= shift.upper, "the interval brackets the estimate")
-    assertTrue(shift.low > 0.0, "a consistently positive shift excludes zero")
-    assertTrue(shift.attainedCoverage >= 0.95, "the reported coverage clears the target")
+    assert(shift.low <= estimate and estimate <= shift.upper, "the interval brackets the estimate")
+    assert(shift.low > 0.0, "a consistently positive shift excludes zero")
+    assert(shift.attainedCoverage >= 0.95, "the reported coverage clears the target")
     local short = {0.1, 0.2, 0.3}
-    assertEq(statistics.pairedShift(short), nil, "three pairs support no interval")
+    testAssert.equal(statistics.pairedShift(short), nil, "three pairs support no interval")
 end
 
 function M.forkCountRecommendationFollowsObservedVariance()
     local statistics = require("nupp.bench.internal.statistics")
     -- A quiet benchmark needs the floor; a noisy one needs far more, which is the whole
     -- reason the count is derived rather than fixed.
-    assertEq(
+    testAssert.equal(
         statistics.forksForPrecision(0.001, 0.02),
         statistics.MIN_INTERVAL_SAMPLES,
         "a quiet benchmark still runs the minimum"
     )
-    assertTrue(statistics.forksForPrecision(0.15, 0.02) > 200, "a fifteen percent CV needs hundreds of forks at 2%")
-    assertTrue(
+    assert(statistics.forksForPrecision(0.15, 0.02) > 200, "a fifteen percent CV needs hundreds of forks at 2%")
+    assert(
         statistics.forksForPrecision(0.15, 0.05) < statistics.forksForPrecision(0.15, 0.02),
         "a looser precision needs fewer forks"
     )
@@ -790,9 +784,9 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
         fork(stable, {"warn|reason|a.nupp:1|"}, 3.0),
         fork(stable, {"warn|reason|a.nupp:1|"}, 2.0),
     })
-    assertEq(#merged.summary.abortSites, 1, "a site every fork saw survives to the gated set")
-    assertEq(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
-    assertEq(#notes, 0, "and needs no note")
+    testAssert.equal(#merged.summary.abortSites, 1, "a site every fork saw survives to the gated set")
+    testAssert.equal(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
+    testAssert.equal(#notes, 0, "and needs no note")
 
     -- A site only one fork saw is reported and kept out of the gated set, because trace
     -- formation is timing-dependent and one observation is not a regression.
@@ -800,11 +794,8 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
         fork(stable, {"warn|reason|a.nupp:1|"}, 2.0),
         fork(stable, {}, 1.0),
     })
-    assertEq(#partial.summary.abortSites, 0, "a site one fork missed does not gate")
-    assertTrue(
-        table.concat(partialNotes, "\n"):find("flaky abort site") ~= nil,
-        "but it is reported rather than dropped"
-    )
+    testAssert.equal(#partial.summary.abortSites, 0, "a site one fork missed does not gate")
+    assert(table.concat(partialNotes, "\n"):find("flaky abort site") ~= nil, "but it is reported rather than dropped")
 
     -- Allocation sites are the compiler's account of its own output. Forks of one
     -- binary disagreeing is a defect, not a measurement, and must not be averaged away.
@@ -812,11 +803,11 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
         fork(stable, {}, 1.0),
         fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, {}, 1.0),
     })
-    assertTrue(
+    assert(
         table.concat(driftNotes, "\n"):find("nondeterministic compiler output") ~= nil,
         "disagreeing allocation sites are reported as a defect"
     )
-    assertTrue(drifted ~= nil, "and the merge still produces a record to look at")
+    assert(drifted ~= nil, "and the merge still produces a record to look at")
 end
 
 -- Forks that disagree about nothing must not be reported as disagreeing. The counters
@@ -834,7 +825,7 @@ function M.identicalForksReportNoDisagreement()
     end
 
     local _, notes = runner.mergeForks("x", "a.nupp", {fork(), fork(), fork()})
-    assertEq(#notes, 0, "three identical forks disagree about nothing")
+    testAssert.equal(#notes, 0, "three identical forks disagree about nothing")
 end
 
 -- An interval needs enough processes to support it, and a process that never settled
@@ -847,14 +838,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
             allocationSites = {},
             remarks = {},
             cases = {
-                {
-                    name = "x",
-                    kind = "suite",
-                    medianMs = median,
-                    abortSites = {},
-                    samplesMs = {median},
-                    trend = trend,
-                },
+                {name = "x", kind = "suite", medianMs = median, abortSites = {}, samplesMs = {median}, trend = trend,},
             },
         }
     end
@@ -864,26 +848,26 @@ function M.mergeWithholdsIntervalsItCannotSupport()
         few[index] = fork(0.000001 * index, "no-trend-detected")
     end
     local scarce = runner.mergeForks("x", "a.nupp", few)
-    assertEq(scarce.summary.intervalWithheld, "below-minimum-forks", "five forks cannot support an interval")
-    assertEq(scarce.summary.intervalLowMs, nil, "and none is invented")
+    testAssert.equal(scarce.summary.intervalWithheld, "below-minimum-forks", "five forks cannot support an interval")
+    testAssert.equal(scarce.summary.intervalLowMs, nil, "and none is invented")
 
     local many = {}
     for index = 1, 12 do
         many[index] = fork(0.000001 * index, "no-trend-detected")
     end
     local settled = runner.mergeForks("x", "a.nupp", many)
-    assertEq(settled.summary.intervalWithheld, nil, "twelve settled forks support one")
-    assertTrue(settled.summary.intervalLowMs ~= nil, "and it is present")
-    assertTrue(settled.summary.intervalCoverage >= 0.95, "reporting the coverage it attained")
+    testAssert.equal(settled.summary.intervalWithheld, nil, "twelve settled forks support one")
+    assert(settled.summary.intervalLowMs ~= nil, "and it is present")
+    assert(settled.summary.intervalCoverage >= 0.95, "reporting the coverage it attained")
 
     local trending = {}
     for index = 1, 12 do
         trending[index] = fork(0.000001 * index, "trend")
     end
     local unsettled, trendNotes = runner.mergeForks("x", "a.nupp", trending)
-    assertEq(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
-    assertEq(unsettled.summary.intervalLowMs, nil, "however many forks it ran")
-    assertTrue(table.concat(trendNotes, "\n"):find("trend%-warning") ~= nil, "and the reason is reported")
+    testAssert.equal(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
+    testAssert.equal(unsettled.summary.intervalLowMs, nil, "however many forks it ran")
+    assert(table.concat(trendNotes, "\n"):find("trend%-warning") ~= nil, "and the reason is reported")
 end
 
 -- A withheld interval must reach the verdict as a withheld interval. This existed as a
@@ -898,8 +882,12 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
 
     -- The interval on its own would be equivalence, and that is the point: the guard
     -- has to be what stops it, not the width.
-    assertEq(statistics.verdict(narrow, 0.02, 0.9), "unchanged", "a narrow interval inside the margin is equivalence")
-    assertEq(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
+    testAssert.equal(
+        statistics.verdict(narrow, 0.02, 0.9),
+        "unchanged",
+        "a narrow interval inside the margin is equivalence"
+    )
+    testAssert.equal(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
 
     -- The shape of the guard itself, so a rewrite that reintroduces the idiom fails
     -- here rather than in a report somebody believes.
@@ -911,9 +899,9 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
         return interval
     end
 
-    assertEq(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
-    assertEq(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
-    assertEq(
+    testAssert.equal(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
+    testAssert.equal(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
+    testAssert.equal(
         statistics.verdict(guard("trend-warning", narrow), 0.02, 0.9),
         "inconclusive",
         "a trending benchmark is inconclusive however narrow its interval looked"
@@ -936,7 +924,7 @@ function M.concentrationCatchesAMedianThatDescribesNoSample()
     for index = 1, 40 do
         tight[index] = 100.0 + (index % 4) * 0.5
     end
-    assertTrue(statistics.concentration(tight, 0.10) > 0.9, "a single-rate workload concentrates around its median")
+    assert(statistics.concentration(tight, 0.10) > 0.9, "a single-rate workload concentrates around its median")
 
     -- Two clusters with a sparse middle, which is the shape a collector cycling on
     -- alternate samples actually produces.
@@ -957,17 +945,17 @@ function M.concentrationCatchesAMedianThatDescribesNoSample()
         split[#split + 1] = 140.0 + (index % 3) * 0.4
     end
     const scattered = statistics.concentration(split, 0.10)
-    assertTrue(scattered < 0.1, "a two-cluster workload concentrates nowhere near its median")
-    assertTrue(scattered < statistics.MIN_CONCENTRATION, "and falls below the threshold the runner reports on")
+    assert(scattered < 0.1, "a two-cluster workload concentrates nowhere near its median")
+    assert(scattered < statistics.MIN_CONCENTRATION, "and falls below the threshold the runner reports on")
 
     -- The threshold sits between two values an order of magnitude apart, so it is not
     -- adjudicating anything borderline.
-    assertTrue(
+    assert(
         statistics.concentration(tight, 0.10) > statistics.MIN_CONCENTRATION,
         "the healthy case is on the other side of the same threshold"
     )
 
-    assertEq(statistics.concentration({}, 0.10), 1.0, "an empty series claims nothing")
+    testAssert.equal(statistics.concentration({}, 0.10), 1.0, "an empty series claims nothing")
 end
 
 -- A scattered benchmark is reported by name with the number behind the judgement, so
@@ -1001,9 +989,9 @@ function M.mergeReportsAScatteredBenchmark()
         forks[index] = fork(samples)
     end
     local merged, notes = runner.mergeForks("x", "a.nupp", forks)
-    assertTrue(table.concat(notes, "\n"):find("scattered") ~= nil, "the benchmark is named as scattered")
-    assertTrue(table.concat(notes, "\n"):find("9%%") ~= nil, "with the concentration behind the judgement")
-    assertTrue(merged.summary.concentration ~= nil, "and the figure is recorded")
+    assert(table.concat(notes, "\n"):find("scattered") ~= nil, "the benchmark is named as scattered")
+    assert(table.concat(notes, "\n"):find("9%%") ~= nil, "with the concentration behind the judgement")
+    assert(merged.summary.concentration ~= nil, "and the figure is recorded")
 end
 
 -- ER-022: any JSON used to decode as a baseline. The schema is checked where a
@@ -1011,13 +999,13 @@ end
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("nupp.bench")
-    assertEq(bench.SCHEMA, 4, "records are written at schema 4")
+    testAssert.equal(bench.SCHEMA, 4, "records are written at schema 4")
     for _, schema in ipairs({2, 3, 4}) do
         local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
-        assertTrue(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
+        assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
     end
     local _, older = bench.decodeBaseline('{"schema":2,"cases":[]}', "b.json", 3)
-    assertTrue(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
+    assert(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
     for text, expected in pairs({
         ['{"schema":5,"cases":[]}'] = "nupp: baseline b.json has schema 5; this bench reads schema 4, and 2 through 3",
         ['{"schema":1.5}'] = "has schema 1.5",
@@ -1026,8 +1014,8 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
         ["not json"] = "is not a bench record",
     }) do
         local document, refused = bench.decodeBaseline(text, "b.json")
-        assertEq(document, nil, text .. " was read as a baseline")
-        assertTrue(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
+        testAssert.equal(document, nil, text .. " was read as a baseline")
+        assert(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
     end
 end
 
