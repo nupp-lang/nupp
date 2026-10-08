@@ -130,7 +130,16 @@ local function waitingready(self: contract.Waiting): boolean
 end
 
 local function waitingonResume(self: contract.Waiting, wake: function(): nil): nil
-    self._state.wake = wake
+    -- Settle-safe, as the native provider is: a wait that has already settled wakes
+    -- its scheduler now rather than storing a waker nothing will fire, so a handler
+    -- may arm once and then yield until ready.
+    const state = self._state
+    if state.ready then
+        wake()
+
+        return
+    end
+    state.wake = wake
 end
 
 type suspension.Handler = contract.Handler

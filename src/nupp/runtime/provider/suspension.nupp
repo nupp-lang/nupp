@@ -551,6 +551,16 @@ function suspension.suspend<T>(
                 return state.resumed or state.cancelled
             end,
             setWaker = function(wake)
+                -- Settle-safe. A wait that has already resumed or been cancelled wakes
+                -- its scheduler now rather than storing a waker nothing will ever fire.
+                -- That is what lets a handler arm once and then yield until ready,
+                -- instead of re-arming inside a recheck loop to cover the window
+                -- between arming and the check that follows it.
+                if state.resumed or state.cancelled then
+                    wake()
+
+                    return
+                end
                 state.waker = wake
             end,
         },

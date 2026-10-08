@@ -90,6 +90,36 @@ function suite.test(provider: any): (boolean, string?)
         assert(produced == 7, "an inherited handler must answer a park made inside the coroutine")
         assert(parkedInside == child, "and must be reached from the coroutine that parked")
 
+        -- `onResume` is settle-safe. A waker armed on a wait that has already settled
+        -- runs before the call returns, which is what lets a handler arm once and then
+        -- yield until ready rather than re-arm inside a recheck loop.
+        local settledResume: any = nil
+        local wokeImmediately = false
+        local arming = provider.install({
+            park = function(_: any, waiting: any): nil
+                settledResume("settled")
+                assert(waiting:ready(), "a resumed wait must report itself ready")
+                waiting:onResume(function(): nil
+                    wokeImmediately = true
+                end)
+            end,
+            canPark = function(): boolean
+                return true
+            end,
+            shutdown = function(): nil
+            end,
+        })
+        local settled = provider.suspend("contract.settled", function(resume: function(string)): function()
+            settledResume = resume
+
+            return function(): nil
+                settledResume = nil
+            end
+        end)
+        arming:close()
+        assert(settled == "settled", "the park must deliver the value it resumed")
+        assert(wokeImmediately, "a waker armed on a settled wait must run before onResume returns")
+
         local resumed: any = nil
         local parkedOutward = false
         local outer = provider.install({

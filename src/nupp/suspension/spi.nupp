@@ -9,8 +9,9 @@ and Installed are the shared types; providers initialize these declarations or
 satisfy their exact signatures without replacing their nominal identities.
 
 A subscription may resume synchronously or later. It must settle a Waiting only
-once and run returned cleanup when the wait ends, including cancellation. Source
-release and Installed close must not suspend. Nested installation restores the
+once and run returned cleanup when the wait ends, including cancellation.
+`Waiting.onResume` is settle-safe: registering a waker on a wait that has already
+settled runs it immediately. Source release and Installed close must not suspend. Nested installation restores the
 captured handler, and transparent handlers preserve delegation to the outer
 scheduler. `create` propagates the suspension context into a new coroutine.
 
@@ -94,6 +95,10 @@ export record Waiting
     ready: function(self: Waiting): boolean
 
     --- Registers a wake callback for the waiting scheduler.
+    ---
+    --- Settle-safe: where the wait has already settled, `wake` is called before this
+    --- returns rather than stored. A handler may therefore arm once and then yield
+    --- until `ready` answers true, without a recheck loop around the arming.
     onResume: function(self: Waiting, wake: function(): nil): nil
 
     --- Diagnostic operation name supplied to suspend.

@@ -387,33 +387,38 @@ inside a host barrier where yielding would violate a runtime invariant.
 `shutdown` drains work queued while the handled extent is ending.
 
 ```nupp:fragment [scheduler.nupp]
-local scheduler = {park = function(_: suspension.Handler, waiting: suspension.Waiting, _: function(): nil): nil
-    local task = assert(coroutine.running())
-    local function wake(): nil
-        enqueue(task)
-    end
-
-    while not waiting:ready() do
-        waiting:onResume(wake)
-        if not waiting:ready() then
+local scheduler = new suspension.Handler(
+    park = function(_: suspension.Handler, waiting: suspension.Waiting, _: function(): nil): nil
+        local task = assert(coroutine.running())
+        waiting:onResume(function(): nil
+            enqueue(task)
+        end)
+        while not waiting:ready() do
             coroutine.yield()
         end
+    end,
+    canPark = function(_: suspension.Handler): boolean
+        return true
+    end,
+    shutdown = function(_: suspension.Handler): nil
+        while #runnable > 0 do
+            runReady()
+        end
     end
-end, canPark = function(_: suspension.Handler): boolean
-    return true
-end, shutdown = function(_: suspension.Handler): nil
-    while #runnable > 0 do
-        runReady()
-    end
-end,} as suspension.Handler
+)
 ```
 
 `waiting:onResume(wake)` is a notification, not value delivery. The readiness
 source supplies the value through `resume`, and the waker makes the coroutine
-runnable after that value exists. The `as suspension.Handler` cast accepts a
-trusted runtime contract: the checker verifies the function bodies and their
-annotations, and only the scheduler author can guarantee that `park` eventually
-resumes or cancels every wait.
+runnable after that value exists. Arming once above the loop is enough because
+`onResume` is settle-safe: a wait that completed during the subscription itself
+runs the waker before `onResume` returns, so there is no window between arming
+and the first `ready` check to guard against. The loop remains because a
+scheduler may resume a coroutine for its own reasons, and a park ends only when
+its wait is ready.
+
+A handler is a record, so `new suspension.Handler(...)` constructs it and the
+checker holds each member to its declared signature. There is nothing to cast.
 
 ```nupp:fragment [scheduler.nupp]
 local function tick(): nil
