@@ -1422,8 +1422,7 @@ local coroutine: {
 -- bit
 ----------------------------------------------------------------------------
 
---- Nupp provides access to LuaJIT's BitOp library. `require("bit")` works with any
---- Nupp compiler target using a polyfill when necessary.
+--- Nupp provides access to LuaJIT's BitOp library, which every target has.
 ---
 --- ```nupp
 --- const bit = require("bit")

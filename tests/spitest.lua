@@ -656,13 +656,6 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             vm = true
         },
         {
-            module = "nupp.runtime.bitops",
-            interface = "nupp.runtime.bitops.spi.Provider",
-            native = "bit",
-            browser = "nupp.runtime.provider.scalarbitops",
-            vm = true
-        },
-        {
             module = "nupp.runtime.representation",
             interface = "nupp.runtime.representation.spi.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
@@ -947,7 +940,6 @@ local SELECTING_FACADES = {
     {"nupp.io.uri.provider", "nupp.io.uri.spi.Provider"},
     {"nupp.mac", "nupp.mac.spi.Provider"},
     {"nupp.random", "nupp.random.spi.Provider"},
-    {"nupp.runtime.bitops", "nupp.runtime.bitops.spi.Provider"},
     {"nupp.runtime.int64", "nupp.runtime.representation.spi.Int64Provider"},
     {"nupp.runtime.representation", "nupp.runtime.representation.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},

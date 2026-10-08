@@ -34,8 +34,6 @@ local pegTyping = require(
 ) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 
--- What `require("bit")` reaches on a target with no BitOp library of its own.
-
 local isA = relations.isA
 local packIsA = relations.packIsA
 

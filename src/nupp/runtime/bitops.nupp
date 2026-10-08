@@ -1,0 +1,18 @@
+@!internal
+
+module nupp.runtime.bitops
+
+--[[
+The bit operations the standard library and the compiler reach by name.
+
+It is LuaJIT's `bit`, which every target has, and this module is the one place
+that says so. It had a provider interface while `--dialect lua51` lowered
+`a & b` to a call on it and a scalar implementation answered where the C library
+was absent; that lowering is gone, the dialect with it, and a seam with one
+implementation on every target is a seam in name only.
+
+Every operand is normalized to a signed 32-bit word first, so a wider integer
+has to be split into limbs by whoever holds it.
+]]
+
+export = require("bit")

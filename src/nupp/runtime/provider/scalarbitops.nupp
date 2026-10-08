@@ -3,7 +3,7 @@
 module nupp.runtime.provider.scalarbitops
 
 --[[
-Portable implementation of the `numeric.bitops` API 1 contract.
+Portable implementation of the 32-bit bit-operation contract.
 
 Arithmetic over Lua numbers implements the signed 32-bit BitOp result convention,
 variadic conjunction/disjunction/exclusive-or, rotates, shifts, byte swapping,
@@ -14,9 +14,10 @@ This module needs no FFI, native bit library, or other service. It is suitable f
 stock Lua 5.1 and supplies portable conformance behavior. Its bit-by-bit loops
 prioritize portability over native instruction throughput.
 
-[](nupp.runtime.bitops) imports it as its default when appropriate and
-retains its function table. Calls perform arithmetic directly without service
-resolution or mutable provider selection.
+Nothing in the tree selects it: [](nupp.runtime.bitops) is LuaJIT's `bit` on
+every target. It stays as the second implementation the shared contract vectors
+in `tests/provider-contracts/bitops.nupp` are run against, and as the source
+`lua51compattest` holds to the stock Lua 5.1 surface.
 ]]
 
 local MODULUS = 4294967296

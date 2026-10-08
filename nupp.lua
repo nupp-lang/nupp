@@ -130,7 +130,6 @@ local TEMPLATE_FILES = {
 -- how they would start to.
 local RESOURCES = {
     {source = "src/nupp/spi/init.nupp", output = "nupp/compiler/nupp/spi/init.nupp"},
-    {source = "src/nupp/runtime/bitops/spi.nupp", output = "nupp/compiler/nupp/runtime/bitops/spi.nupp"},
     {source = "src/nupp/text/spi.nupp", output = "nupp/compiler/nupp/text/spi.nupp"},
     {source = "src/nupp/random/spi.nupp", output = "nupp/compiler/nupp/random/spi.nupp"},
     {
@@ -234,7 +233,7 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativebuffer.nupp"
     },
     {source = "src/nupp/runtime/int64.nupp", output = "nupp/compiler/nupp/runtime/int64.nupp"},
-    {source = "src/nupp/runtime/bitops/init.nupp", output = "nupp/compiler/nupp/runtime/bitops/init.nupp"},
+    {source = "src/nupp/runtime/bitops.nupp", output = "nupp/compiler/nupp/runtime/bitops.nupp"},
     {source = "src/nupp/gpu/api.nupp", output = "nupp/compiler/nupp/gpu/api.nupp"},
     {source = "src/nupp/gpu/types.nupp", output = "nupp/compiler/nupp/gpu/types.nupp"},
     {source = "src/nupp/gpu/operations.nupp", output = "nupp/compiler/nupp/gpu/operations.nupp"},

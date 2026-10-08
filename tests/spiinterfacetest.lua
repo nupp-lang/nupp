@@ -352,14 +352,12 @@ function M.runtimeImplementationInterfacesArePublic()
         [[
 module application
 local spi = require("nupp.spi")
-local bitops = require("nupp.runtime.bitops.spi")
 local {type CstorageProvider, type Int64Provider} = require("nupp.runtime.representation.spi")
 local uuid = require("nupp.runtime.uuid.spi")
-local bits = spi.load(bitops.Provider)
 local storage = spi.load(CstorageProvider)
 local integers = spi.load(Int64Provider)
 local uuids = spi.load(uuid.Provider)
-export = {bits = bits, storage = storage, integers = integers, uuids = uuids}
+export = {storage = storage, integers = integers, uuids = uuids}
 ]]
     )
     assert(found == "", found)
