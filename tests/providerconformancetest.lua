@@ -111,6 +111,10 @@ function M.tableStructsPreserveValueOperations()
     verify("structvalue", "nupp.runtime.provider.tablestruct")
 end
 
+function M.nativeStorageMatchesTheByteContract()
+    verify("cstorage", "nupp.runtime.provider.nativestorage")
+end
+
 function M.suspensionPreservesOwnershipAndHandlerIdentity()
     verify("suspension", "nupp.runtime.provider.suspension")
 end

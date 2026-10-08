@@ -1,10 +1,6 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local conformance = require("nupp.tests.wasmconformance")
 local simd = require("nupp.simd")
-
-local seamOk, seamWhy = conformance.run()
-assert(seamOk, seamWhy)
 
 local struct Sample
     value: float

@@ -25,6 +25,13 @@ export const representation = "native"
 local ffi = require("ffi")
 
 export function allocateBytes(count: integer): uint8[?]
+    -- `ffi.new` rejects a negative or oversized extent itself, but turns a
+    -- nonfinite one into a zero-byte allocation, and nothing bounds-checks cdata
+    -- afterwards: every write through it is simply out of range. A checked caller
+    -- cannot reach that, since the count is an `integer`; the table is also an SPI
+    -- provider that gradual code reads members from. Same floor as `allocateArray`.
+    assert(count >= 0 and count % 1 == 0, "nupp: storage byte extent must be a whole, finite count")
+
     return ffi.new<uint8[?]>(count)
 end
 

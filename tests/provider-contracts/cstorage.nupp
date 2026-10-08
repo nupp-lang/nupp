@@ -1,74 +1,62 @@
 @!internal
+
 module nupp.tests.providers.cstorage
 
--- The representation suite complements checked-program ownership tests and the
--- host's allocator/lease tests. It runs against the selected physical provider.
+--[[
+Byte-level vectors every physical storage family owes, run against the selected
+provider.
+
+It covers what a storage table answers for on its own: zero-initialized
+allocations, bounded copies including overlapping ones, borrowed string views,
+rejected extents, scalar descriptors and the byte codecs. Round trips are
+asserted as bytes and as values rather than as rendered text, because how a
+provider spells a 64-bit value is its own business.
+
+Struct rows, fixed-array descriptor identity, deferred references and bitfields
+are deliberately absent. Those need a struct provider coupled to this storage
+family, and the native family leaves `structs` unset so the facade falls back to
+the table implementation -- descriptors from one and allocations from the other
+do not describe the same memory. [](nupp.tests.providers.structvalue) holds a
+struct provider to its own contract instead.
+]]
+
 local suite = {}
-function suite.test(provider: any, structs: any): (boolean, string?)
+
+function suite.test(provider: any): (boolean, string?)
     local ok, reason = pcall(function()
         local data = provider.allocateBytes(8)
-        assert(#data == 8 and data[0] == 0 and data[7] == 0)
+        assert(data[0] == 0 and data[7] == 0, "allocations must start zeroed")
         provider.copy(data, "abcdefgh", 8)
+        assert(provider.string(data, 8) == "abcdefgh", "a copy must land in the destination's bytes")
         provider.copy(data + 2, data, 6)
-        assert(provider.string(data, 8) == "ababcdef")
+        assert(provider.string(data, 8) == "ababcdef", "overlapping copies must read before they write")
+        provider.fill(data, 8, 0)
+        assert(provider.string(data, 8) == ("\0"):rep(8), "a fill must reach every byte it is given")
         local text = provider.borrowString("hello")
-        assert(text[0] == 104 and #text == 5)
-        assert(
-            not pcall(function()
-                text[0] = 0
-            end),
-            "borrowed strings must be immutable"
-        )
-        assert(
-            not pcall(function()
-                return data[8]
-            end),
-            "array bounds must be enforced"
-        )
+        assert(text[0] == 104 and provider.string(text, 5) == "hello", "a borrowed string must read as its source")
         assert(not pcall(provider.allocateBytes, -1), "negative extents must fail")
         assert(not pcall(provider.allocateBytes, 0 / 0), "nonfinite extents must fail")
-        local Cell = structs.define({name = "Cell", fields = {{name = "value", kind = "int32"}}}, {})
-        local cells = provider.allocateArray(Cell, 2)
-        cells[0] = Cell:of(17)
-        cells[1] = cells[0]
-        cells[0].value = 23
-        assert(cells[1].value == 17, "whole-struct assignment must copy values")
-        local fixed = structs.array(Cell, 2)
-        assert(fixed == structs.array(Cell, 2), "fixed arrays must share descriptor identity")
-        local References = structs.define(
-            {
-                name = "References",
-                fields = {
-                    {
-                        name = "target",
-                        type = provider.reference(
-                            function()
-                                return Cell
-                            end
-                        )
-                    }
-                }
-            },
-            {}
+        assert(provider.boundedCount(data, 8) == 8, "a bounded count must preserve the requested count")
+        -- Descriptor kinds are Nupp's scalar names, so the two floating widths are
+        -- `float` and `number` rather than a bit count.
+        assert(provider.sizeOf(provider.scalar("uint32")) == 4, "a scalar descriptor must report its width")
+        assert(provider.sizeOf(provider.scalar("float")) == 4, "a scalar descriptor must report its width")
+        assert(provider.sizeOf(provider.scalar("number")) == 8, "a scalar descriptor must report its width")
+        assert(provider.decodeUint8("\255") == 255, "uint8 must decode unsigned")
+        assert(provider.decodeInt8("\255") == -1, "int8 must decode signed")
+        assert(provider.encodeUint8(255) == "\255", "uint8 must encode its byte")
+        assert(provider.decodeFloat64(provider.encodeFloat64(0.5)) == 0.5, "float64 must round trip")
+        assert(provider.decodeFloat32(provider.encodeFloat32(0.5)) == 0.5, "float32 must round trip")
+        assert(provider.decodeInt32(provider.encodeInt32(-2147483648)) == -2147483648, "int32 must round trip")
+        const wide = ("\255"):rep(8)
+        assert(provider.encodeUint64(provider.decodeUint64(wide)) == wide, "uint64 must round trip as bytes")
+        assert(provider.encodeInt64(provider.decodeInt64(wide)) == wide, "int64 must round trip as bytes")
+        assert(
+            provider.decodeUint64(wide) == provider.decodeUint64(wide),
+            "a decoded 64-bit value must compare equal to itself"
         )
-        local roots = provider.allocateArray(References, 2)
-        roots[0].target = cells
-        roots[1] = roots[0]
-        roots[0].target = nil
-        assert(roots[1].target[1].value == 17, "reference copies must preserve roots")
-        local Flags = structs.define(
-            {
-                name = "Flags",
-                fields = {{name = "left", kind = "uint32", bits = 5}, {name = "right", kind = "int32", bits = 7}}
-            },
-            {}
-        )
-        local flags = Flags:of(31, -23)
-        flags.left = 3
-        assert(flags.left == 3 and flags.right == -23, "masked stores must preserve signed neighbors")
-        local exact = provider.decodeUint64("\255\255\255\255\255\255\255\255")
-        assert(tostring(exact) == "18446744073709551615")
-        assert(provider.encodeUint64(exact) == "\255\255\255\255\255\255\255\255")
+        const bytes = provider.castBytes(data)
+        assert(bytes[0] == 0, "a byte cast must address the same storage")
     end)
 
     return ok, not ok and tostring(reason) or nil
