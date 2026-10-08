@@ -4,6 +4,7 @@
 -- the resulting straight-line control flow.
 
 local parser = require("nupp.compiler.syntax.parser")
+local assertions = require("helpers.assertions")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local gen = require("nupp.compiler.lua.gen")
@@ -65,9 +66,7 @@ local function firstMessage(diagnostics)
     return diagnostics[1] and diagnostics[1].msg or "no diagnostic"
 end
 
-local function assertClean(diagnostics, label)
-    assert(#diagnostics == 0, (label or "expected a clean check") .. ": " .. firstMessage(diagnostics))
-end
+local assertClean = assertions.clean
 
 local function assertReports(source, code, label)
     local _, diagnostics = checked(source)

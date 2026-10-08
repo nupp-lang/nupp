@@ -1,3 +1,5 @@
+local testAssert = require("nupp.test")
+local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
@@ -6,15 +8,9 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function checked(source, opts)
     local result = parser.parse(source, "ownership-test.g.nupp")
-    assertEq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local diags = check.check(result, "ownership-test.g.nupp", env, opts)
     return result, diags
 end
@@ -29,16 +25,18 @@ local function codes(source)
     return table.concat(out, " ")
 end
 
-local function assertClean(source)
+local function diagnosticsOf(source)
     local _, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    return diags
 end
+
+local assertClean = assertions.check(diagnosticsOf)
 
 local function runGenerated(source, label)
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, generated = gen.generate(result, label)
-    assertEq(#generated, 0, generated[1] and generated[1].msg or "generate")
+    testAssert.equal(#generated, 0, generated[1] and generated[1].msg or "generate")
     local chunk, problem = loadstring(code, "@" .. label)
     assert(chunk, tostring(problem) .. "\n" .. code)
 
@@ -106,7 +104,7 @@ end
 -- The independence is per arm, not a licence to discharge twice: a second move on
 -- the same path, and a use after the statement, both still report.
 function M.branchIndependenceStillCatchesADoubleMove()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -126,7 +124,7 @@ function M.branchIndependenceStillCatchesADoubleMove()
         "a second move on one path still reports"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -167,7 +165,7 @@ function M.scalarGenericPreservationTransfersAnOwner()
 end
 
 function M.scalarGenericPreservationMovesItsInputExactlyOnce()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -243,7 +241,7 @@ function M.genericPreservationMovesCapabilitiesIntoAggregateResults()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -284,7 +282,7 @@ function M.genericPreservationReducesIdentityMappedResults()
 end
 
 function M.callableAssignmentCannotEraseAPreservationRelation()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -300,7 +298,7 @@ function M.callableAssignmentCannotEraseAPreservationRelation()
         "NUPP2001"
     )
     -- A literal that spells the relation has promised it, wherever it is written.
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -385,7 +383,7 @@ function M.expressionSelectionCannotDuplicateAnOwner()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {"", "local value = resource_new()", "local moved = true and value", "nupp.drop(moved)",},
@@ -397,7 +395,7 @@ function M.expressionSelectionCannotDuplicateAnOwner()
 end
 
 function M.ownersCannotBeStoredInPlainConstructorFields()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -417,7 +415,7 @@ function M.ownersCannotBeStoredInPlainConstructorFields()
 end
 
 function M.localFunctionDeclarationsBorrowCapturedOwners()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -438,7 +436,7 @@ function M.localFunctionDeclarationsBorrowCapturedOwners()
 end
 
 function M.backwardGotosAreOwnershipLoopEdges()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {"", "local value = resource_new()", "::again::", "nupp.drop(value)", "goto again",},
@@ -470,7 +468,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     end
 
     -- break out of while, repeat, numeric for, and generic for
-    assertEq(
+    testAssert.equal(
         run({
             "while true do",
             "   if flag then nupp.drop(value) break end",
@@ -480,7 +478,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         }),
         "NUPP2601"
     )
-    assertEq(
+    testAssert.equal(
         run({
             "repeat",
             "   if flag then nupp.drop(value) break end",
@@ -489,7 +487,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         }),
         "NUPP2601"
     )
-    assertEq(
+    testAssert.equal(
         run({
             "for i = 1, 2 do",
             "   if flag then nupp.drop(value) break end",
@@ -498,7 +496,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         }),
         "NUPP2601"
     )
-    assertEq(
+    testAssert.equal(
         run({
             "for _ in ipairs({1, 2}) do",
             "   if flag then nupp.drop(value) break end",
@@ -508,7 +506,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         "NUPP2601"
     )
     -- the exit suffix is the same edge
-    assertEq(
+    testAssert.equal(
         run({
             "for i = 1, 2 do",
             "   if flag then nupp.drop(value) end",
@@ -521,7 +519,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         "NUPP2601"
     )
     -- continue runs the header again
-    assertEq(
+    testAssert.equal(
         run({
             "for i = 1, 2 do",
             "   if i == 1 then nupp.drop(value) continue end",
@@ -531,7 +529,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         "NUPP2609"
     )
     -- a forward goto lands at its label
-    assertEq(
+    testAssert.equal(
         run({
             "do",
             "   if flag then nupp.drop(value) goto done end",
@@ -542,7 +540,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         "NUPP2601"
     )
     -- controls: every edge discharging it, or none of them, stays clean
-    assertEq(
+    testAssert.equal(
         run({
             "while true do",
             "   if flag then nupp.drop(value) break end",
@@ -552,15 +550,24 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
         }),
         ""
     )
-    assertEq(run({"for i = 1, 2 do", "   if flag then break end", "end", "nupp.drop(value)"}), "")
-    assertEq(run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}), "")
-    assertEq(run({"for i = 1, 2 do", "   if flag then continue end", "   print(i)", "end", "nupp.drop(value)"}), "")
+    testAssert.equal(run({"for i = 1, 2 do", "   if flag then break end", "end", "nupp.drop(value)"}), "")
+    testAssert.equal(run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}), "")
+    testAssert.equal(
+        run({
+            "for i = 1, 2 do",
+            "   if flag then continue end",
+            "   print(i)",
+            "end",
+            "nupp.drop(value)"
+        }),
+        ""
+    )
     -- a loop whose body always returns leaves by its own test with the owner intact
-    assertEq(run({"for i = 1, 2 do", "   nupp.drop(value)", "   return", "end", "nupp.drop(value)"}), "")
+    testAssert.equal(run({"for i = 1, 2 do", "   nupp.drop(value)", "   return", "end", "nupp.drop(value)"}), "")
 end
 
 function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
-    assertEq(
+    testAssert.equal(
         exitEdge({
             "local function run(takes value: affine(resource*, resource_free), n: integer): nil",
             "   for i = 1, n do",
@@ -571,7 +578,7 @@ function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
         }),
         "NUPP2603"
     )
-    assertEq(
+    testAssert.equal(
         exitEdge({
             "local function run(takes value: affine(resource*, resource_free), flag: boolean): nil",
             "   while true do",
@@ -585,7 +592,7 @@ function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
 end
 
 function M.sharedAndExclusiveArgumentsCannotAlias()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -603,7 +610,7 @@ function M.sharedAndExclusiveArgumentsCannotAlias()
 end
 
 function M.untypedVarargsCannotEraseOwners()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -727,11 +734,11 @@ function M.assertingANamedOptionalOwnerKeepsItInPlace()
             "\n"
         )
     )
-    assertEq(codes(declaration .. "\nassert(maybe_resource())"), "NUPP2605")
+    testAssert.equal(codes(declaration .. "\nassert(maybe_resource())"), "NUPP2605")
 end
 
 function M.aPreservesBodyMustReturnTheNamedParameter()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local function wrong<T>(takes value: T, other: T): T preserves value", "   return other", "end",},
@@ -743,7 +750,7 @@ function M.aPreservesBodyMustReturnTheNamedParameter()
 end
 
 function M.stringPointerProvenanceRejectsAnUnanchoredExpression()
-    assertEq(codes(table.concat({"local pointer = ffi.cast<cstring>('a' .. 'b')",}, "\n")), "NUPP2501")
+    testAssert.equal(codes(table.concat({"local pointer = ffi.cast<cstring>('a' .. 'b')",}, "\n")), "NUPP2501")
 end
 
 function M.stringPointerProvenanceFollowsBindingsAndPreservation()
@@ -764,7 +771,7 @@ function M.stringPointerProvenanceFollowsBindingsAndPreservation()
 end
 
 function M.ffiGcCannotAttachASecondCleanupToAnOwner()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {RESOURCE, "local value = resource_new()", "ffi.gc(value, resource_free)", "nupp.drop(value)",},
@@ -776,7 +783,7 @@ function M.ffiGcCannotAttachASecondCleanupToAnOwner()
 end
 
 function M.anAliasedCFunctionKeepsItsForeignBoundary()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -823,7 +830,7 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
 end
 
 function M.aBorrowedFieldMustMatchItsDeclaredSiblingRoot()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -868,7 +875,7 @@ function M.aRecordCanOwnTheRootOfItsBorrowedField()
 end
 
 function M.anInternallyBorrowedRootFieldCannotMoveAlone()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -917,7 +924,7 @@ function M.callbackCapturesBorrowOwnersByDefault()
 end
 
 function M.coroutineChildrenCannotCaptureAParentBorrow()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -941,7 +948,7 @@ end
 -- A terminal may suspend: discharging it is a settlement point. Only a region that
 -- forbids suspending refuses one, and it says so where the owner is discharged.
 function M.settlingTerminalsAreAcceptedOutsideRegions()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -964,7 +971,7 @@ function M.settlingTerminalsAreAcceptedOutsideRegions()
 end
 
 function M.settlingTerminalsAreRefusedInsideANosuspendRegion()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -993,7 +1000,7 @@ end
 -- neighbour on its left: `takes` landed on the receiver and the argument arrived
 -- borrowing, so a method that consumed an owner was checked as one that did not.
 function M.anInlineMethodOwnsTheParameterItTakes()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1067,9 +1074,9 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-discarded-intrinsic")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
 end
@@ -1088,9 +1095,9 @@ function M.managedGroupsUseOrdinaryLibraryCalls()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(
         code:find("__nupp%.__manage%(") and code:find(":%s*adopt%s*%("),
         "managed custody must lower through ordinary manage and adopt calls:\n" .. code
@@ -1099,7 +1106,7 @@ function M.managedGroupsUseOrdinaryLibraryCalls()
 end
 
 function M.manageRejectsTransferOnlyOwners()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1148,9 +1155,9 @@ function M.managedCellsCarryExactCleanupPoliciesBehindAliases()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(
         code:find("__nupp%.__manage%([^,]+,__nuppManagedCleanup%d+,"),
         "manage must receive its cleanup program and policy:\n" .. code
@@ -1194,18 +1201,18 @@ function M.managedCellsEnforceCustodyAtRuntime()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-dynamic-runtime")
-    assertEq(#genDiags, 0, (genDiags[1] and genDiags[1].msg or "generate") .. "\n" .. code)
+    testAssert.equal(#genDiags, 0, (genDiags[1] and genDiags[1].msg or "generate") .. "\n" .. code)
     local chunk, loadErr = loadstring(code, "@ownership-dynamic-runtime")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local cleaned, staleCode = chunk()
-    assertEq(cleaned, 3, "take and managed destruction each clean exactly once")
-    assertEq(staleCode, "NUPP2614", "taking a cell tombstones every copied alias")
+    testAssert.equal(cleaned, 3, "take and managed destruction each clean exactly once")
+    testAssert.equal(staleCode, "NUPP2614", "taking a cell tombstones every copied alias")
 end
 
 function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1221,9 +1228,9 @@ function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
 end
 
 function M.dynamicErasureAndBorrowEscapesHaveDedicatedDiagnostics()
-    assertEq(codes(table.concat({RESOURCE, "local value: any = resource_new()",}, "\n")), "NUPP2611")
+    testAssert.equal(codes(table.concat({RESOURCE, "local value: any = resource_new()",}, "\n")), "NUPP2611")
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1255,8 +1262,8 @@ function M.loopBackEdgesCannotConsumeAnOuterCapabilityConditionally()
             "\n"
         )
     )
-    assertEq(diags[1] and diags[1].code, "NUPP2609")
-    assertEq(#(diags[1].related or {}), 1, "loop diagnostic names its back edge")
+    testAssert.equal(diags[1] and diags[1].code, "NUPP2609")
+    testAssert.equal(#(diags[1].related or {}), 1, "loop diagnostic names its back edge")
 end
 
 function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
@@ -1272,7 +1279,7 @@ function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
         "\n"
     )
     assertClean(prelude .. "\ntogether(pair.left, pair.right)")
-    assertEq(codes(prelude .. "\ntogether(pair.left, pair.left)"), "NUPP2607")
+    testAssert.equal(codes(prelude .. "\ntogether(pair.left, pair.left)"), "NUPP2607")
 
     local indexed = table.concat(
         {
@@ -1282,9 +1289,9 @@ function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
         "\n"
     )
     assertClean(indexed .. "\ntogether(values[1], values[2])")
-    assertEq(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[i])"), "NUPP2607")
-    assertEq(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[1])"), "NUPP2607")
-    assertEq(codes(indexed .. "\nlocal value = {}\ntogether(value, value)"), "NUPP2607")
+    testAssert.equal(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[i])"), "NUPP2607")
+    testAssert.equal(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[1])"), "NUPP2607")
+    testAssert.equal(codes(indexed .. "\nlocal value = {}\ntogether(value, value)"), "NUPP2607")
 end
 
 function M.checkedRegionIntervalsProveOnlyActualDisjointness()
@@ -1321,19 +1328,19 @@ function M.checkedRegionIntervalsProveOnlyActualDisjointness()
         )
     )
     assert(result)
-    assertEq(diags[1] and diags[1].code, "NUPP2607")
-    assertEq(#(diags[1].related or {}), 1, "overlap names the earlier checked region")
+    testAssert.equal(diags[1] and diags[1].code, "NUPP2607")
+    testAssert.equal(#(diags[1].related or {}), 1, "overlap names the earlier checked region")
 end
 
 function M.publicContractsAreExplicitOnlyForCapabilityBearingParameters()
     assertClean(
         table.concat({"local m = {}", "function m.length(value: string): integer return #value end", "return m",}, "\n")
     )
-    assertEq(
+    testAssert.equal(
         codes(table.concat({"local m = {}", "function m.forward<T>(value: T): T return value end", "return m",}, "\n")),
         "NUPP2610"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local m = {}", "function m.forward<T>(takes value: T): T return value end", "return m",},
@@ -1373,14 +1380,14 @@ function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-alias-recovery")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-alias-recovery")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local mismatch, mismatchCode = chunk()
-    assertEq(mismatch, nil)
-    assertEq(mismatchCode, "NUPP2613")
+    testAssert.equal(mismatch, nil)
+    testAssert.equal(mismatchCode, "NUPP2613")
 end
 
 function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
@@ -1412,16 +1419,16 @@ function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-managed-borrows")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-managed-borrows")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local conflict, raised, answer, finalProblem = chunk()
-    assertEq(conflict, "NUPP2620")
-    assertEq(raised, false)
-    assertEq(answer, 2)
-    assertEq(finalProblem, nil)
+    testAssert.equal(conflict, "NUPP2620")
+    testAssert.equal(raised, false)
+    testAssert.equal(answer, 2)
+    testAssert.equal(finalProblem, nil)
 end
 
 function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
@@ -1482,7 +1489,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1498,7 +1505,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
         "the span interface does not expose its representation"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local spans = require('nupp.mem.span')", "local made = new spans.Span()", "print(made)",},
@@ -1538,7 +1545,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1554,7 +1561,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
         "the literal count must match the fixed C array"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local spans = require('nupp.mem.span')", "local record Forged is spans.Span<int32>", "end",},
@@ -1599,7 +1606,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1619,7 +1626,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
 end
 
 function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1637,7 +1644,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
         "a live mutable ref blocks consuming its writer"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1684,7 +1691,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1752,7 +1759,7 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1790,7 +1797,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1807,7 +1814,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         "a live array read blocks a writer"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1824,7 +1831,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         "a live array writer blocks a reader"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -1881,19 +1888,19 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-heap-array")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local zero, one, value, negative, overflow, fractional, unwound = chunk()
-    assertEq(zero, 0, "zero-length allocation retains count")
-    assertEq(one, 1, "one-element allocation retains count")
-    assertEq(tonumber(value), 73, "write and read views address the allocation")
-    assertEq(negative, false, "negative allocation is rejected")
-    assertEq(overflow, false, "overflowing allocation is rejected")
-    assertEq(fractional, false, "fractional allocation is rejected")
-    assertEq(unwound, false, "error unwinding discharges writer before array")
+    testAssert.equal(zero, 0, "zero-length allocation retains count")
+    testAssert.equal(one, 1, "one-element allocation retains count")
+    testAssert.equal(tonumber(value), 73, "write and read views address the allocation")
+    testAssert.equal(negative, false, "negative allocation is rejected")
+    testAssert.equal(overflow, false, "overflowing allocation is rejected")
+    testAssert.equal(fractional, false, "fractional allocation is rejected")
+    testAssert.equal(unwound, false, "error unwinding discharges writer before array")
 end
 
 function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
@@ -1912,9 +1919,9 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
     )
 
     assertClean(prelude .. "\npair(split.left, split.right)")
-    assertEq(codes(prelude .. "\npair(split.left, split.left)"), "NUPP2607", "one child is not two regions")
-    assertEq(codes(prelude .. "\nwritable[1] = 1 as int32"), "NUPP2607", "a split blocks its parent")
-    assertEq(
+    testAssert.equal(codes(prelude .. "\npair(split.left, split.left)"), "NUPP2607", "one child is not two regions")
+    testAssert.equal(codes(prelude .. "\nwritable[1] = 1 as int32"), "NUPP2607", "a split blocks its parent")
+    testAssert.equal(
         codes(
             prelude .. table.concat(
                 {"", "local nested = split.left:splitAt(2)", "pair(split.left, nested.right)",},
@@ -2045,17 +2052,17 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-partitions")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-partitions")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local l0, r0, l1, r1, l3, r3, l4, r4, first4, last4, low, high = chunk()
-    assertEq(table.concat({l0, r0, l1, r1, l3, r3, l4, r4}, ","), "0,4,1,3,3,1,4,0")
-    assertEq(tonumber(first4), 0, "an empty right half writes nothing")
-    assertEq(tonumber(last4), 11, "the left boundary write reaches the original last element")
-    assertEq(low, false, "negative split points raise")
-    assertEq(high, false, "split points beyond count raise")
+    testAssert.equal(table.concat({l0, r0, l1, r1, l3, r3, l4, r4}, ","), "0,4,1,3,3,1,4,0")
+    testAssert.equal(tonumber(first4), 0, "an empty right half writes nothing")
+    testAssert.equal(tonumber(last4), 11, "the left boundary write reaches the original last element")
+    testAssert.equal(low, false, "negative split points raise")
+    testAssert.equal(high, false, "split points beyond count raise")
 end
 
 function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
@@ -2094,7 +2101,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
 end
 
 function M.borrowedCArrayIndexingStillNeedsABound()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local text = 'bytes'", "local pointer = ffi.cast<const uint8[?]>(text)", "local byte = pointer[0]",},
@@ -2107,7 +2114,7 @@ end
 
 function M.aFixedCArrayAdmitsOnlyAStaticallyInBoundsIndex()
     assertClean(table.concat({"local bytes = ffi.new<uint8[4]>()", "bytes[3] = 1",}, "\n"))
-    assertEq(codes(table.concat({"local bytes = ffi.new<uint8[4]>()", "bytes[4] = 1",}, "\n")), "NUPP2604")
+    testAssert.equal(codes(table.concat({"local bytes = ffi.new<uint8[4]>()", "bytes[4] = 1",}, "\n")), "NUPP2604")
 end
 
 -- A result declared `borrows p` is tied to the argument passed for p: that
@@ -2159,7 +2166,7 @@ local ITERATOR_BORROWS = table.concat(
 )
 
 function M.genericForBorrowsItsIteratorForEachBody()
-    assertEq(
+    testAssert.equal(
         codes(
             ITERATOR_BORROWS .. table.concat(
                 {
@@ -2197,7 +2204,7 @@ function M.genericForReleasesIterationBorrowsOnEveryExit()
 end
 
 function M.exclusiveIteratorResultsBlockSharedUseOfTheirRoot()
-    assertEq(
+    testAssert.equal(
         codes(
             ITERATOR_BORROWS .. table.concat(
                 {
@@ -2216,7 +2223,7 @@ function M.exclusiveIteratorResultsBlockSharedUseOfTheirRoot()
 end
 
 function M.aBorrowedResultBlocksReleasingItsSource()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {"", "local pool = open_pool()", "local held = peek(pool)", "nupp.drop(pool)", "print(held.items)",},
@@ -2228,7 +2235,7 @@ function M.aBorrowedResultBlocksReleasingItsSource()
 end
 
 function M.aMethodResultCanBorrowTheReceiver()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {"", "local pool = open_pool()", "local item = pool:get(1)", "nupp.drop(pool)", "print(item.name)",},
@@ -2275,7 +2282,7 @@ function M.anElementCanBeBorrowedThroughAnAutomaticOwner()
 end
 
 function M.aBorrowedResultCannotOutliveItsSource()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2295,7 +2302,7 @@ function M.aBorrowedResultCannotOutliveItsSource()
 end
 
 function M.borrowingAConsumedParameterIsRejected()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {"", "local function eat(takes p: Pool): Pool borrows (p)", "   return p", "end",},
@@ -2307,7 +2314,7 @@ function M.borrowingAConsumedParameterIsRejected()
 end
 
 function M.borrowingSomethingThatIsNotAParameterIsRejected()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {"", "local function odd(borrows p: Pool): Pool borrows (q)", "   return p", "end",},
@@ -2319,7 +2326,7 @@ function M.borrowingSomethingThatIsNotAParameterIsRejected()
 end
 
 function M.returningABorrowStillNeedsTheAnnotation()
-    assertEq(
+    testAssert.equal(
         codes(POOL .. table.concat({"", "local function sneak(borrows p: Pool): Pool", "   return p", "end",}, "\n")),
         "NUPP2608"
     )
@@ -2329,7 +2336,7 @@ end
 -- is: a callable that forgets one lets its caller lose the root and read what the
 -- source freed. Callable assignment therefore keeps the relation exactly.
 function M.aCallableSlotCannotForgetABorrowRelation()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2345,7 +2352,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
         ),
         "NUPP2001"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2376,7 +2383,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2435,7 +2442,7 @@ function M.anOwningResultCanRetainAnInputBorrow()
 end
 
 function M.theHeldSourceCannotBeReleasedFirst()
-    assertEq(
+    testAssert.equal(
         codes(
             LAYERED .. table.concat(
                 {"", "local sock = open_socket()", "local tls = open_tls(sock)", "nupp.drop(sock)", "nupp.drop(tls)",},
@@ -2467,7 +2474,7 @@ function M.layeredResourcesHoldTogetherInAScope()
 end
 
 function M.anOwningResultThatBorrowsIsStillOwned()
-    assertEq(
+    testAssert.equal(
         codes(
             LAYERED .. table.concat(
                 {"", "local sock = open_socket()", "local tls = open_tls(sock)", "nupp.drop(sock)",},
@@ -2479,7 +2486,7 @@ function M.anOwningResultThatBorrowsIsStillOwned()
 end
 
 function M.aMethodBorrowedReturnElidesToTheReceiver()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2527,7 +2534,7 @@ end
 
 -- The relation states one position, so it holds that position and no other.
 function M.aBorrowedResultHoldsOnlyItsOwnSlot()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2548,7 +2555,7 @@ end
 -- silently keeping the first. The second clause having been refused, returning that
 -- result's borrow is an unbacked one, which is the NUPP2608 beside it.
 function M.onlyOneResultMayDeclareABorrow()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2568,7 +2575,7 @@ end
 -- A borrow in a later slot is still tied to its owner at the call site, so binding it
 -- and dropping the owner underneath it is caught where a first-slot borrow would be.
 function M.aLaterBorrowedResultStillOutlivesNothing()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2594,7 +2601,7 @@ end
 -- to and handed back the raw one, which reported at the first dereference instead of at
 -- the method.
 function M.anInlineMethodsBorrowedResultKeepsItsSource()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2622,7 +2629,7 @@ end
 -- The same method declared and defined apart, which always carried its source. Both
 -- spellings have to agree, since the difference is where the body is written.
 function M.aDeclaredMethodsBorrowedResultKeepsItsSource()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2667,7 +2674,7 @@ function M.aMethodReturningAPlainValueDoesNotBorrow()
 end
 
 function M.anExplicitSourceStillWinsOverElision()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {"", "function Pool:other(borrows p: Pool): Res borrows (p)", "   return p.items[1]", "end",},
@@ -2679,7 +2686,7 @@ function M.anExplicitSourceStillWinsOverElision()
 end
 
 function M.aChainOfBorrowsStillHoldsTheRoot()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2698,7 +2705,7 @@ function M.aChainOfBorrowsStillHoldsTheRoot()
 end
 
 function M.aDerivedBorrowCannotOutliveItsIntermediate()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2719,7 +2726,7 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
 end
 
 function M.aDerivedBorrowCannotBeStored()
-    assertEq(
+    testAssert.equal(
         codes(
             POOL .. table.concat(
                 {
@@ -2756,8 +2763,8 @@ function M.aBorrowMayBeDerivedThroughAnIntermediate()
 end
 
 function M.liveDroppableOwnersAreDestroyedAutomatically()
-    assertEq(codes(RESOURCE .. "\nlocal value = resource_new()"), "")
-    assertEq(codes(RESOURCE .. "\nresource_new()"), "NUPP2605")
+    testAssert.equal(codes(RESOURCE .. "\nlocal value = resource_new()"), "")
+    testAssert.equal(codes(RESOURCE .. "\nresource_new()"), "NUPP2605")
 end
 
 function M.opaqueOwnersAreTransferOnly()
@@ -2772,7 +2779,7 @@ function M.opaqueOwnersAreTransferOnly()
         "\n"
     )
     assertClean(opaque .. "\nlocal value = resource_new()\nresource_take(value)")
-    assertEq(codes(opaque .. "\nlocal value = resource_new()\nnupp.drop(value)"), "NUPP2602")
+    testAssert.equal(codes(opaque .. "\nlocal value = resource_new()\nnupp.drop(value)"), "NUPP2602")
 end
 
 function M.affineUsesItsExactCleanupFunction()
@@ -2801,12 +2808,12 @@ function M.affineUsesItsExactCleanupFunction()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-default-drop")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), "close", "default drop operation runs")
+    testAssert.equal(chunk(), "close", "default drop operation runs")
 end
 
 function M.anExplicitDropAfterACallIsASeparateStatement()
@@ -2826,12 +2833,12 @@ function M.anExplicitDropAfterACallIsASeparateStatement()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-explicit-drop")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), "stop", "the terminal call runs once after another call statement")
+    testAssert.equal(chunk(), "stop", "the terminal call runs once after another call statement")
 end
 
 function M.aCleanupFunctionCanBeConstrainedByAnInterface()
@@ -2881,7 +2888,7 @@ end
 -- terminal is still reached through the qualifier rather than found on the shape,
 -- which is why the cleanup's own name stays exempt.
 function M.aMisspelledMethodOnAnOwnedShapeIsReported()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -2897,7 +2904,7 @@ function M.aMisspelledMethodOnAnOwnedShapeIsReported()
         "NUPP2004"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -2919,7 +2926,7 @@ end
 -- `borrows` parameter checked clean and answered `any`. A borrow owns nothing and
 -- has no terminal to reach, so it answers only the record's own methods.
 function M.aMisspelledMethodOnABorrowedRecordIsReported()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -2935,7 +2942,7 @@ function M.aMisspelledMethodOnABorrowedRecordIsReported()
         ),
         "NUPP2004"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -2955,7 +2962,7 @@ function M.aMisspelledMethodOnABorrowedRecordIsReported()
 end
 
 function M.affineRejectsMissingAndInexactCleanupFunctions()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -2970,7 +2977,7 @@ function M.affineRejectsMissingAndInexactCleanupFunctions()
         "NUPP2131"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -2992,7 +2999,7 @@ function M.anAffineCleanupBindingMayNotBeReassigned()
     -- function wherever an owner is discharged. Reassigning it anywhere in the file
     -- would hijack every later cleanup, however the name read where the type was
     -- written.
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -3049,7 +3056,7 @@ function M.aCallbackOnlyInvokedIsInferredScoped()
     )
     -- One that lets the callback out keeps the plain reading, and the borrow is
     -- refused as it always was.
-    assertEq(
+    testAssert.equal(
         codes(
             resource .. table.concat(
                 {
@@ -3085,7 +3092,7 @@ function M.aDeclaredScopedCallbackCannotEscapeThroughANestedClosure()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             resource .. table.concat(
                 {
@@ -3103,7 +3110,7 @@ function M.aDeclaredScopedCallbackCannotEscapeThroughANestedClosure()
         "NUPP2602",
         "a nested closure"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             resource .. table.concat(
                 {
@@ -3141,7 +3148,7 @@ function M.aDeclaredScopedCallbackCannotEscapeThroughANestedClosure()
 end
 
 function M.affineTerminalsMustTakeTheirResource()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -3194,7 +3201,7 @@ function M.readOnlyHelpersInferBorrowContracts()
 end
 
 function M.escapingHelpersCannotLaunderBorrows()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3218,7 +3225,7 @@ function M.escapingHelpersCannotLaunderBorrows()
 end
 
 function M.explicitBorrowContractsPinEscapeErrorsToTheBody()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3245,7 +3252,7 @@ function M.sharedBorrowsPermitStableMutation()
 end
 
 function M.exclusiveRequiresCallDurationExclusivity()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3285,7 +3292,7 @@ function M.exclusiveRequiresCallDurationExclusivity()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3314,10 +3321,10 @@ function M.consumeMovesAndRejectsLaterUse()
         {"", "local value = resource_new()", "resource_free(value)", "print(value)",},
         "\n"
     )
-    assertEq(codes(source), "NUPP2601")
+    testAssert.equal(codes(source), "NUPP2601")
     local _, diags = checked(source)
-    assertEq(#(diags[1].related or {}), 1, "move origin is attached")
-    assertEq(diags[1].related[1].message, "owner was moved here")
+    testAssert.equal(#(diags[1].related or {}), 1, "move origin is attached")
+    testAssert.equal(diags[1].related[1].message, "owner was moved here")
     assert(diags[1].help and diags[1].help:find("borrow", 1, true), "move diagnostic explains the alternative")
 end
 
@@ -3332,7 +3339,7 @@ function M.doubleConsumeIsRejected()
 end
 
 function M.movesInsideNarrowedBranchesReachTheOuterOwner()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3374,7 +3381,7 @@ function M.nullableOwnersNarrowWithoutLosingOwnership()
 end
 
 function M.assignmentMovesAndProtectsLiveOwners()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {"", "local first = resource_new()", "local second = first", "print(first)", "resource_free(second)",},
@@ -3383,7 +3390,7 @@ function M.assignmentMovesAndProtectsLiveOwners()
         ),
         "NUPP2601"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3401,7 +3408,7 @@ function M.assignmentMovesAndProtectsLiveOwners()
 end
 
 function M.ownershipCannotDisappearIntoRawAnnotations()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {"", "local ownedValue = resource_new()", "local rawValue: resource* = ownedValue",},
@@ -3413,7 +3420,7 @@ function M.ownershipCannotDisappearIntoRawAnnotations()
 end
 
 function M.ownershipQualifiersSupportManagedValuesButPinsRequirePointers()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local function closeText(takes value: string): nil end", "local value: affine(number, closeText)",},
@@ -3422,13 +3429,13 @@ function M.ownershipQualifiersSupportManagedValuesButPinsRequirePointers()
         ),
         "NUPP2615"
     )
-    assertEq(codes("local value: affine(number)"), "")
-    assertEq(codes("local value: Borrowed<string>"), "NUPP2101")
-    assertEq(codes("local value: pinned(boolean)"), "NUPP2602")
+    testAssert.equal(codes("local value: affine(number)"), "")
+    testAssert.equal(codes("local value: Borrowed<string>"), "NUPP2101")
+    testAssert.equal(codes("local value: pinned(boolean)"), "NUPP2602")
 end
 
 function M.liveBorrowPreventsMoveUntilScopeEnds()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3466,7 +3473,7 @@ function M.borrowedValuesCannotEscape()
         {"", "local function bad(borrows value: resource*): resource*", "   return value", "end",},
         "\n"
     )
-    assertEq(codes(returned), "NUPP2608")
+    testAssert.equal(codes(returned), "NUPP2608")
 
     local stored = RESOURCE .. table.concat(
         {
@@ -3480,7 +3487,7 @@ function M.borrowedValuesCannotEscape()
         },
         "\n"
     )
-    assertEq(codes(stored), "NUPP2603")
+    testAssert.equal(codes(stored), "NUPP2603")
 end
 
 function M.aBorrowingClosureCannotEraseProvenanceOnReturn()
@@ -3497,7 +3504,7 @@ function M.aBorrowingClosureCannotEraseProvenanceOnReturn()
             "\n"
         )
     )
-    assertEq(got, "NUPP2608")
+    testAssert.equal(got, "NUPP2608")
 end
 
 function M.rawReconstructionRequiresUnsafe()
@@ -3526,7 +3533,7 @@ function M.rawReconstructionRequiresUnsafe()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -3557,7 +3564,7 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(RESOURCE .. "\nlocal raw: resource*\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"),
         "NUPP2604"
     )
@@ -3573,7 +3580,7 @@ function M.rawAbandonmentRequiresUnsafe()
 end
 
 function M.unsafeDoesNotSuppressOwnershipObligations()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3590,7 +3597,7 @@ function M.unsafeDoesNotSuppressOwnershipObligations()
         "NUPP2603"
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3609,7 +3616,7 @@ function M.unsafeDoesNotSuppressOwnershipObligations()
 end
 
 function M.bodyfulBorrowContractsNeedProvenanceProof()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3640,7 +3647,7 @@ function M.borrowFromRestoresOpaqueProvenanceExplicitly()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3686,7 +3693,7 @@ function M.borrowedResultsCanNameMultipleSources()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             source .. table.concat(
                 {
@@ -3729,12 +3736,12 @@ function M.affineRecordsDropOwnedFieldsInReverseOrder()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-affine-record")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), "ba", "fields close in reverse declaration order")
+    testAssert.equal(chunk(), "ba", "fields close in reverse declaration order")
 end
 
 function M.affineRecordsTrackPartialFieldMoves()
@@ -3755,7 +3762,7 @@ function M.affineRecordsTrackPartialFieldMoves()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -3804,7 +3811,7 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             prefix .. "\n" .. table.concat(
                 {
@@ -3852,16 +3859,16 @@ function M.contextualCleanupUsesExplicitOwnerFields()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-context")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), "frame:buffer", "the drop operation reads its explicit context")
+    testAssert.equal(chunk(), "frame:buffer", "the drop operation reads its explicit context")
 end
 
 function M.rawCoroutinesCannotSuspendTemporalObligations()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3877,7 +3884,7 @@ function M.rawCoroutinesCannotSuspendTemporalObligations()
         ),
         "NUPP2603"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3898,7 +3905,7 @@ end
 function M.aRawYieldThroughAnAliasIsRefused()
     -- `local co = coroutine` is common enough that leaving it unrecognized would be a
     -- hole anyone falls into by accident.
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3918,7 +3925,7 @@ function M.aRawYieldThroughAnAliasIsRefused()
 end
 
 function M.aRawYieldThroughAChainOfAliasesIsRefused()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -3942,7 +3949,7 @@ function M.aRawYieldThroughAHelperIsRefused()
     -- The helper is where the yield is written; the obligation is live at its
     -- caller. Nobody is responsible for the abandoned continuation either way, so
     -- the helper's summary answers for the call, one hop or several away.
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -4029,7 +4036,7 @@ end
 function M.aRawYieldThroughABoundFunctionIsRefused()
     -- `local y = coroutine.yield` binds the function rather than the table, and a
     -- call through that name, or a name bound to it in turn, is the same raw yield.
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -4046,7 +4053,7 @@ function M.aRawYieldThroughABoundFunctionIsRefused()
         ),
         "NUPP2603"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -4088,7 +4095,7 @@ function M.rebindingTheNameToItselfIsStillTheLibrary()
     -- resolving that name afterwards can answer with the binding being made. The
     -- initializer's own token still points at what it read, which is what tells them
     -- apart.
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -4124,9 +4131,9 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(code:find('__nuppFfi.new("void *[1]")', 1, true), "allocates the logical out slot")
     assert(code:find("const posix_memalign = __nuppFfi.C.posix_memalign", 1, true), code)
     if require("ffi").os == "Windows" then
@@ -4134,7 +4141,7 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
     end
     local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), true, "owned out pointer is returned and dropped")
+    testAssert.equal(chunk(), true, "owned out pointer is returned and dropped")
 end
 
 function M.failedOwnedOutputsAreNil()
@@ -4154,15 +4161,15 @@ function M.failedOwnedOutputsAreNil()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code = gen.generate(result, "ownership-test")
     local chunk, loadErr = loadstring(code, "@ownership-cdef-out-failure")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), true, "failed output is nil")
+    testAssert.equal(chunk(), true, "failed output is nil")
 end
 
 function M.ignoredOwnedOutputsAreRejected()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4194,9 +4201,9 @@ function M.multipleOwnedOutputsPreserveCAndLuaOrder()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     -- The call is made inside the declared sequence, so the C order is read there: the
     -- two cells sit at the positions the declaration gave them, with the seed between
     -- them.
@@ -4221,7 +4228,7 @@ function M.cdefReturnsMayOwnTheirResult()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4238,7 +4245,7 @@ end
 
 -- A status wrapper is about a C call's outputs, so it says nothing anywhere else.
 function M.statusWrappersBelongOnACdefReturn()
-    assertEq(
+    testAssert.equal(
         codes(table.concat({"local function make(): Success<integer, 0>", "   return 0", "end", "return make",}, "\n")),
         "NUPP2602"
     )
@@ -4275,14 +4282,14 @@ function M.attemptAllRunsEveryStepAfterAFailure()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-attempt-all")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local calls, ok = chunk()
-    assertEq(calls, "stop,release", "every step is attempted")
-    assertEq(ok, false, "and the failure still propagates")
+    testAssert.equal(calls, "stop,release", "every step is attempted")
+    testAssert.equal(ok, false, "and the failure still propagates")
 end
 
 -- A step that consumes the value leaves every later one running on something
@@ -4299,7 +4306,7 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
     )
     -- `first` consuming its own parameter is NUPP2603 in its empty body; the
     -- ordering rule is the second diagnostic.
-    assertEq(
+    testAssert.equal(
         codes(declaration .. table.concat({"", "   nupp.attemptAll(value, first, second)", "end",}, "\n")),
         "NUPP2615"
     )
@@ -4345,9 +4352,9 @@ function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
         "\n"
     )
     local result, diags = checked(outParameter)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local loop = assert(code:match("for i = 1(.-)\nend"), "generated loop\n" .. code)
     assert(not loop:find("function", 1, true), "the out-parameter sequence is built in the loop:\n" .. loop)
     assert(
@@ -4372,9 +4379,9 @@ function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
         "\n"
     )
     result, diags = checked(dropped)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(
         not code:find("(function() __nupp", 1, true),
         "the move is marked by a function built round the value:\n" .. code
@@ -4399,7 +4406,7 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             declarations .. "\n" .. table.concat(
                 {"local owner = make_owner()", "local status, view = get_view(owner)", "nupp.drop(owner)",},
@@ -4417,7 +4424,7 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
 end
 
 function M.cdefBorrowedOutputSourcesMustBeSharedInputs()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"cdef function get_view(owner: voidptr,", "   out view: voidptr* borrows (owner)): int32",},
@@ -4429,7 +4436,7 @@ function M.cdefBorrowedOutputSourcesMustBeSharedInputs()
 end
 
 function M.cdefBorrowRelationsBelongOnOutputs()
-    assertEq(
+    testAssert.equal(
         codes(table.concat({"cdef function get_view(borrows owner: voidptr borrows (owner)): int32",}, "\n")),
         "NUPP2602"
     )
@@ -4448,7 +4455,7 @@ function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             declarations .. "\n" .. table.concat(
                 {
@@ -4462,7 +4469,7 @@ function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
         ),
         "NUPP2602"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             declarations .. "\n" .. table.concat(
                 {
@@ -4479,7 +4486,7 @@ function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
 end
 
 function M.borrowedIsNotACompilerAnnotation()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4495,7 +4502,7 @@ function M.borrowedIsNotACompilerAnnotation()
 end
 
 function M.stringDerivedPointersCannotEscape()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat({"local text = 'hello'", "local pointer = ffi.cast<cstring>(text)", "return pointer",}, "\n")
         ),
@@ -4504,7 +4511,7 @@ function M.stringDerivedPointersCannotEscape()
     assertClean(
         table.concat({"cdef function strlen(value: cstring): uint64", "local text = 'hello'", "strlen(text)",}, "\n")
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4521,7 +4528,7 @@ function M.stringDerivedPointersCannotEscape()
 end
 
 function M.callbackPointersRequireUnsafe()
-    assertEq(codes("local cb = ffi.cast<voidptr>(function() end)"), "NUPP2604")
+    testAssert.equal(codes("local cb = ffi.cast<voidptr>(function() end)"), "NUPP2604")
     -- Inside `unsafe` the cast is permitted, and what is left to say is the cost:
     -- the callback stays registered and a trace cannot compile through it. That
     -- is advice, so it is a lint and a project may wave it away.
@@ -4535,7 +4542,7 @@ function M.callbackPointersRequireUnsafe()
         },
         "\n"
     )
-    assertEq(codes(permitted), "NUPP2502")
+    testAssert.equal(codes(permitted), "NUPP2502")
     assertClean('@allow("jit-callback")\n' .. permitted)
 end
 
@@ -4544,7 +4551,7 @@ function M.rawPointerAccessRequiresUnsafe()
         {"cdef struct RawBox", "   value: int32", "end", "local pointer = ffi.cast<RawBox*>(1)",},
         "\n"
     )
-    assertEq(codes(declarations .. "\nprint(pointer.value)"), "NUPP2604")
+    testAssert.equal(codes(declarations .. "\nprint(pointer.value)"), "NUPP2604")
     assertClean(declarations .. table.concat({"", "@unsafe do", "   print(pointer.value)", "end",}, "\n"))
 end
 
@@ -4553,7 +4560,7 @@ function M.rawPointerCallsRequireUnsafeOrAContract()
         {"cdef function opaque_use(value: voidptr)", "local pointer = ffi.cast<voidptr>(1)",},
         "\n"
     )
-    assertEq(codes(source .. "\nopaque_use(pointer)"), "NUPP2604")
+    testAssert.equal(codes(source .. "\nopaque_use(pointer)"), "NUPP2604")
     assertClean(source .. table.concat({"", "@unsafe do", "   opaque_use(pointer)", "end",}, "\n"))
     assertClean(
         table.concat(
@@ -4600,7 +4607,7 @@ function M.pinsProveAndAnchorManagedPointers()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4627,13 +4634,13 @@ function M.retainedPinsMustFollowReleaseContracts()
         },
         "\n"
     )
-    assertEq(codes(prelude .. "\nremember(handle)"), "NUPP2603")
-    assertEq(codes(prelude .. "\nforget(handle)"), "NUPP2602")
+    testAssert.equal(codes(prelude .. "\nremember(handle)"), "NUPP2603")
+    testAssert.equal(codes(prelude .. "\nforget(handle)"), "NUPP2602")
 
     local got = codes(prelude .. table.concat({"", "remember(handle)", "remember(handle)", "forget(handle)",}, "\n"))
-    assertEq(got, "NUPP2602")
+    testAssert.equal(got, "NUPP2602")
 
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4663,9 +4670,9 @@ function M.pinnedArgumentsLowerToTheirCPointers()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(code:find("{pointer=", 1, true) and code:find(",anchor=", 1, true), "pin keeps a strong anchor")
     assert(code:find("remember") and code:find(").pointer", 1, true), "retains passes the C pointer")
     assert(code:find("forget") and code:find(").pointer", 1, true), "releases passes the C pointer")
@@ -4691,14 +4698,14 @@ function M.rawTransferAndDropAreStaticAndDeterministic()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(not code:find(".gc(", 1, true), "ownership emits no ffi.gc calls")
     assert(code:find("return cleanup(value)", 1, true), "drop calls the resolved cleanup")
     local chunk, loadErr = loadstring(code, "@ownership-runtime")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), true, "raw transfer runs without a double free")
+    testAssert.equal(chunk(), true, "raw transfer runs without a double free")
 end
 
 function M.sameSpelledCleanupBindingsKeepDistinctReferences()
@@ -4723,12 +4730,12 @@ function M.sameSpelledCleanupBindingsKeepDistinctReferences()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-cleanup-identity")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), "ab", "each contract kept its resolved binding")
+    testAssert.equal(chunk(), "ab", "each contract kept its resolved binding")
 end
 
 function M.consumingCFunctionsNeedNoRuntimeDetachment()
@@ -4746,13 +4753,13 @@ function M.consumingCFunctionsNeedNoRuntimeDetachment()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(not code:find(".gc(", 1, true), "consuming C call has no finalizer detachment")
     local chunk, loadErr = loadstring(code, "@ownership-takes")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), true, "C consumption runs without a double free")
+    testAssert.equal(chunk(), true, "C consumption runs without a double free")
 end
 
 function M.ownershipLoweringEmitsLoadableTransparentValues()
@@ -4774,7 +4781,7 @@ function M.ownershipLoweringEmitsLoadableTransparentValues()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0)
+    testAssert.equal(#diags, 0)
     local code = gen.generate(result, "ownership-test")
     assert(
         not code:find("__nuppRegisterOwner", 1, true),
@@ -4790,7 +4797,7 @@ end
 -- accepted and then meant nothing. An owning result is how that was noticed: the
 -- obligation simply never existed.
 function M.aQualifiedFunctionCarriesAnAutomaticallyDischargedOwnedContract()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4861,7 +4868,7 @@ end
 -- The same fix without the ownership: a qualified function is a typed function,
 -- so its argument and its result are checked at the call.
 function M.aQualifiedFunctionIsTypedAtItsCallSite()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4958,7 +4965,7 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
 end
 
 function M.disposeIsNotAnAnnotationAliasForDrop()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -4976,7 +4983,7 @@ function M.disposeIsNotAnAnnotationAliasForDrop()
 end
 
 function M.qualifiedDisposeIsNotAnIntrinsicAliasForDrop()
-    assertEq(
+    testAssert.equal(
         codes(table.concat({RESOURCE, "local value = resource_new()", "nupp.dispose(value)",}, "\n")),
         "NUPP2004 NUPP2611"
     )
@@ -5007,12 +5014,12 @@ function M.bothSpellingsOfDropLowerTheSameWay()
             "\n"
         )
         local result, diags = checked(source)
-        assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+        testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
         local code, genDiags = gen.generate(result, "ownership-test")
-        assertEq(#genDiags, 0)
+        testAssert.equal(#genDiags, 0)
         local chunk, loadErr = loadstring(code, "@ownership-qualified-drop")
         assert(chunk, tostring(loadErr) .. "\n" .. code)
-        assertEq(chunk(), "close", "the drop operation runs")
+        testAssert.equal(chunk(), "close", "the drop operation runs")
 
         return code
     end
@@ -5046,7 +5053,7 @@ function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
     -- both spellings have to be recognized by their spelling alone. Without that
     -- the helper below infers a plain parameter and the double release goes
     -- unreported.
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -5095,7 +5102,7 @@ local CLOSURE_RESOURCE = table.concat(
 )
 
 function M.aTakingClosureMovesItsCaptureAndIsSingleShot()
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -5130,14 +5137,14 @@ function M.aCalledTakingClosureCleansItsCapture()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@taking-closure-call")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local answer, calls = chunk()
-    assertEq(answer, 7)
-    assertEq(calls, 1, "a called closure releases its capture once")
+    testAssert.equal(answer, 7)
+    testAssert.equal(calls, 1, "a called closure releases its capture once")
 end
 
 function M.aTakingClosureOverAnOwnedParameterGenerates()
@@ -5158,15 +5165,15 @@ function M.aTakingClosureOverAnOwnedParameterGenerates()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(not code:find("table: 0x", 1, true), "a region table reached the output:\n" .. code)
     local chunk, loadErr = loadstring(code, "@taking-closure-parameter")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local answer, calls = chunk()
-    assertEq(answer, 7)
-    assertEq(calls, 1, "the closure releases the parameter it took once")
+    testAssert.equal(answer, 7)
+    testAssert.equal(calls, 1, "the closure releases the parameter it took once")
 end
 
 function M.anUncalledTakingClosureCleansItsCapture()
@@ -5184,16 +5191,16 @@ function M.anUncalledTakingClosureCleansItsCapture()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@taking-closure-drop")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), 1, "an uncalled closure releases its capture once")
+    testAssert.equal(chunk(), 1, "an uncalled closure releases its capture once")
 end
 
 function M.aBorrowingClosureKeepsItsSourceLive()
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -5285,7 +5292,7 @@ function M.resultAnnotatedClosuresComposeTakingAndBorrowedCaptures()
 end
 
 function M.aTakingClosureReturnNeedsANameableAffineAnnotation()
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -5307,7 +5314,7 @@ function M.aTakingClosureReturnNeedsANameableAffineAnnotation()
 end
 
 function M.aTakesCallbackCannotEraseBorrowedClosureProvenance()
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -5343,15 +5350,15 @@ function M.pcallConsumesATakingClosure()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@taking-closure-pcall")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local ok, answer, calls = chunk()
-    assertEq(ok, true)
-    assertEq(answer, 7)
-    assertEq(calls, 1, "pcall's invoked closure releases its capture")
+    testAssert.equal(ok, true)
+    testAssert.equal(answer, 7)
+    testAssert.equal(calls, 1, "pcall's invoked closure releases its capture")
 end
 
 function M.aRepeatableParameterCannotReceiveATakingClosure()
@@ -5374,12 +5381,12 @@ function M.aRepeatableParameterCannotReceiveATakingClosure()
         "   nupp.drop(resource)",
         "end",
     }
-    assertEq(
+    testAssert.equal(
         codes(declarations .. "\n" .. table.concat(taking, "\n") .. "\ntwice(callback)"),
         "NUPP2602",
         "a named closure passed to scoped"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             declarations .. table.concat(
                 {
@@ -5395,12 +5402,12 @@ function M.aRepeatableParameterCannotReceiveATakingClosure()
         "NUPP2602",
         "a literal closure passed to scoped"
     )
-    assertEq(
+    testAssert.equal(
         codes(declarations .. "\n" .. table.concat(taking, "\n") .. "\nviaBorrow(callback)\nviaBorrow(callback)"),
         "NUPP2602 NUPP2602",
         "a named closure passed to borrows"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             declarations .. table.concat(
                 {
@@ -5433,7 +5440,7 @@ function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             taking .. table.concat(
                 {
@@ -5451,7 +5458,7 @@ function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
         "NUPP2602",
         "an inferred capture"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             taking .. table.concat(
                 {
@@ -5469,7 +5476,7 @@ function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
         "NUPP2602 NUPP2602",
         "a declared borrow capture"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             taking .. table.concat(
                 {"", "   local function wrapper(): nil", "      finish()", "   end", "   wrapper()", "end",},
@@ -5516,16 +5523,16 @@ function M.raceDropsATakingLoserThatWasNeverEntered()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@taking-closure-race")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local answer, winner, entered, calls = chunk()
-    assertEq(answer, 1)
-    assertEq(winner, 1)
-    assertEq(entered, 0, "race did not enter the losing closure")
-    assertEq(calls, 2, "race cleaned both the winner and unentered loser")
+    testAssert.equal(answer, 1)
+    testAssert.equal(winner, 1)
+    testAssert.equal(entered, 0, "race did not enter the losing closure")
+    testAssert.equal(calls, 2, "race cleaned both the winner and unentered loser")
 end
 
 function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
@@ -5573,7 +5580,7 @@ function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
         ),
         "task-scope-close"
     )
-    assertEq(order, "child,after block,early child,after drop", "each scope settled where it was closed")
+    testAssert.equal(order, "child,after block,early child,after drop", "each scope settled where it was closed")
 end
 
 -- A scope's bound is a duration, named with its unit like every other one in the
@@ -5633,15 +5640,15 @@ function M.gatherCallsEveryTakingBranchOnce()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@taking-closure-gather")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local one, two, calls = chunk()
-    assertEq(one, 1)
-    assertEq(two, 2)
-    assertEq(calls, 2, "gather cleaned both taking branches")
+    testAssert.equal(one, 1)
+    testAssert.equal(two, 2)
+    testAssert.equal(calls, 2, "gather cleaned both taking branches")
 end
 
 function M.gatherAcceptsBorrowedClosuresWithoutRetainingThem()
@@ -5741,9 +5748,9 @@ function M.anOwnedResultUsesALaterQualifiedStructuralDropOperation()
     local result = parser.parse(source, path)
     local diags = check.check(result, path, project)
     os.execute("rm -rf '" .. dir .. "'")
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-qualified-order-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-qualified-order")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     assert(chunk())
@@ -5777,13 +5784,13 @@ function M.anOwnedResultCanNameAQualifiedFreeTerminal()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-qualified-free-drop-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-qualified-free-drop")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local module = chunk()
-    assertEq(module.closed, 1, "the qualified terminal is registered and runs")
+    testAssert.equal(module.closed, 1, "the qualified terminal is registered and runs")
 end
 
 function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
@@ -5815,7 +5822,7 @@ function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
 end
 
 function M.anAffineResultNeedsOneCleanupOrExplicitTransferOnlyPolicy()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {"local function allocate(): affine(voidptr, missingCleanup)", "   return nil as any", "end",},
@@ -5853,8 +5860,8 @@ function M.anOwnedResultCannotSilentlyDiscardExtraTerminals()
             "\n"
         )
     )
-    assertEq(#diagnostics, 1, diagnostics[2] and diagnostics[2].msg or "one diagnostic")
-    assertEq(diagnostics[1].code, "NUPP2421")
+    testAssert.equal(#diagnostics, 1, diagnostics[2] and diagnostics[2].msg or "one diagnostic")
+    testAssert.equal(diagnostics[1].code, "NUPP2421")
 end
 
 -- Every result position is resolved, so a function may own its second result and
@@ -5893,9 +5900,9 @@ function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(code:find("__nuppCleanup", 1, true), "the second result is discharged at scope exit: " .. code)
 end
 
@@ -5937,9 +5944,9 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
 
     local function keysOf(source)
         local result, diags = checked(source)
-        assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+        testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
         local code, genDiags = gen.generate(result, "ownership-test")
-        assertEq(#genDiags, 0)
+        testAssert.equal(#genDiags, 0)
         local found = {}
         for key in code:gmatch('"([%w%-%._]+#[%w_#]+)"') do
             found[#found + 1] = key
@@ -5954,7 +5961,7 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
     local shifted = keysOf(
         "-- a comment that shifts every offset below it\n" .. "-- and a second line of it\n" .. RESOURCE .. "\n" .. body
     )
-    assertEq(shifted, plain, "the cleanup key moved with text above the declaration")
+    testAssert.equal(shifted, plain, "the cleanup key moved with text above the declaration")
 end
 
 -- A terminal named only in a type still has to publish the function before a
@@ -5981,9 +5988,9 @@ end
 return run()
 ]]
     )
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, generation = gen.generate(result, "portablecleanup")
-    assertEq(#generation, 0)
+    testAssert.equal(#generation, 0)
     local rawXpcall = xpcall
     local globals = setmetatable(
         {
@@ -5995,7 +6002,7 @@ return run()
     )
     local chunk = assert(loadstring(code))
     setfenv(chunk, globals)
-    assertEq(chunk(), 7)
+    testAssert.equal(chunk(), 7)
     assert(not code:find('require("nupp.suspension")', 1, true), code)
 end
 
@@ -6018,10 +6025,10 @@ nupp.drop(create())
 return closed
 ]]
     )
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, generation = gen.generate(result, "inlinecleanup")
-    assertEq(#generation, 0)
-    assertEq(assert(loadstring(code))(), 1)
+    testAssert.equal(#generation, 0)
+    testAssert.equal(assert(loadstring(code))(), 1)
 end
 
 function M.importedTerminalsRegisterTheirDeclaringModulesLocalName()
@@ -6045,7 +6052,7 @@ export = resource
         declarationPath
     )
     local diagnostics, moduleType, exports = check.check(declaration, declarationPath, environment)
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     environment.loaded.cleanupcontract = {type = moduleType, exports = exports, path = declarationPath}
     local consumer = parser.parse(
         [[
@@ -6059,9 +6066,9 @@ return true
         "cleanupconsumer.nupp"
     )
     diagnostics = check.check(consumer, "cleanupconsumer.nupp", environment)
-    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, generation = gen.generate(declaration, "cleanupcontract")
-    assertEq(#generation, 0)
+    testAssert.equal(#generation, 0)
     assert(not code:find("=imported.release", 1, true), code)
     local registry, loaded = _G.__nuppCleanupRegistry, package.loaded.cleanupcontract
     local ok, problem = pcall(function()
@@ -6069,7 +6076,7 @@ return true
         package.loaded.cleanupcontract = provider
         local caller = gen.generate(consumer, "cleanupconsumer")
         assert(assert(loadstring(caller))())
-        assertEq(provider.closed, 1)
+        testAssert.equal(provider.closed, 1)
     end)
     package.loaded.cleanupcontract = loaded
     _G.__nuppCleanupRegistry = registry
@@ -6090,9 +6097,9 @@ function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     assert(
         code:find('["ownership-test.g.nupp#free"]=free', 1, true),
         "the cleanup declaration did not publish its function: " .. code
@@ -6103,7 +6110,7 @@ function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
     local ok, answer = pcall(assert(loadstring(code)))
     _G.__nuppCleanupRegistry = previous
     assert(ok, tostring(answer) .. "\n" .. code)
-    assertEq(answer, true, "the top-level owner was not discharged")
+    testAssert.equal(answer, true, "the top-level owner was not discharged")
 end
 
 function M.closeableTypesCarryAnInherentCloseObligation()
@@ -6216,16 +6223,16 @@ function M.aggregatesOwnTheAffineMemberActuallyStoredInAUnionField()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-test")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-affine-union-field")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), "r", "only the affine union member is closed")
+    testAssert.equal(chunk(), "r", "only the affine union member is closed")
 end
 
 function M.affineInterfacesRequireOneValidTerminal()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -6257,7 +6264,7 @@ function M.affineInterfacesRequireOneValidTerminal()
 end
 
 function M.taskHandlesRemainRootedInTheirScope()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -6304,7 +6311,7 @@ function M.taskHandleAggregatesCarryTheirScopeProvenance()
 end
 
 function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -6352,7 +6359,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -6370,7 +6377,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
         "NUPP2602",
         "a child of the outer scope may not borrow the inner one, which settles first"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -6438,12 +6445,12 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-field-move")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-field-move")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(table.concat(chunk(), ","), "1,1,1,0,1", "each moved owner is closed once, by the record")
+    testAssert.equal(table.concat(chunk(), ","), "1,1,1,0,1", "each moved owner is closed once, by the record")
 end
 
 -- A one-argument affine(T) reads T's terminal as it resolves. Named above T's own
@@ -6482,12 +6489,12 @@ function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-forward-claim")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-forward-claim")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), 12, "each acquisition is closed once at the end of its with")
+    testAssert.equal(chunk(), 12, "each acquisition is closed once at the end of its with")
 end
 
 -- The same inside one record's body: a nested declaration named above the nested
@@ -6524,12 +6531,12 @@ function M.aNestedClaimDeclaredBelowItsFirstUseStillGivesATerminal()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-nested-forward-claim")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-nested-forward-claim")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), 11, "each acquisition is closed once at the end of its with")
+    testAssert.equal(chunk(), 11, "each acquisition is closed once at the end of its with")
 end
 
 -- Reading claims ahead of the bodies must not instantiate a generic declaration
@@ -6555,7 +6562,7 @@ function M.readingClaimsEarlyLeavesALaterGenericContractIntact()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
 -- An optional owner narrowed by `if p == nil then error() end` is as present as one
@@ -6589,7 +6596,7 @@ function M.aFieldMovesOutOfAnOptionalOwnerOnceItIsNarrowed()
         "\n"
     )
     local _, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
 -- A record whose own `close` closes its fields runs it on whatever it still holds.
@@ -6653,12 +6660,12 @@ function M.anOptionalFieldTakenFromASelfClosingRecordIsClosedOnce()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-field-take")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-field-take")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(table.concat(chunk(), ","), "101,101,101,101,101,100,101", "the taken field is closed once")
+    testAssert.equal(table.concat(chunk(), ","), "101,101,101,101,101,100,101", "the taken field is closed once")
 end
 
 -- A field that cannot hold nil has nothing to leave behind, so it cannot move out
@@ -6684,8 +6691,8 @@ function M.aRequiredFieldCannotLeaveASelfClosingRecord()
         "\n"
     )
     local _, diags = checked(source)
-    assertEq(#diags, 1, diags[2] and diags[2].msg or "one refusal")
-    assertEq(diags[1].code, "NUPP2602")
+    testAssert.equal(#diags, 1, diags[2] and diags[2].msg or "one refusal")
+    testAssert.equal(diags[1].code, "NUPP2602")
     assert(diags[1].msg:find("cannot move out of a record its own cleanup closes", 1, true), diags[1].msg)
     assert(diags[1].help and diags[1].help:find("`w: W?`", 1, true), tostring(diags[1].help))
 end
@@ -6730,14 +6737,14 @@ function M.anOptionalAggregateOwnerClosesItsFields()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-optional-aggregate")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-optional-aggregate")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local ok, counts = pcall(chunk)
     assert(ok, tostring(counts))
-    assertEq(table.concat(counts, ","), "2,1,2,0", "each field is closed once")
+    testAssert.equal(table.concat(counts, ","), "2,1,2,0", "each field is closed once")
 end
 
 -- Reaching through the nil is only for an owner the checker already knows is there:
@@ -6758,8 +6765,8 @@ function M.aFieldCannotMoveOutOfAnOwnerThatMayBeNil()
         "\n"
     )
     local _, diags = checked(source)
-    assertEq(#diags, 1, "only the index is refused")
-    assertEq(diags[1].code, "NUPP2004")
+    testAssert.equal(#diags, 1, "only the index is refused")
+    testAssert.equal(diags[1].code, "NUPP2004")
 end
 
 function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
@@ -6781,12 +6788,12 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "ownership-task-capture")
-    assertEq(#genDiags, 0)
+    testAssert.equal(#genDiags, 0)
     local chunk, loadErr = loadstring(code, "@ownership-task-capture")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
-    assertEq(chunk(), 1, "the cancelled child's uncalled capture was not dropped")
+    testAssert.equal(chunk(), 1, "the cancelled child's uncalled capture was not dropped")
 end
 
 -- A consuming parameter whose type names a terminal is an owner the body has to
@@ -6806,7 +6813,7 @@ local CONSUMABLE = table.concat(
 )
 
 function M.takesParameterLeftLiveAtAReturnIsReported()
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -6824,8 +6831,11 @@ function M.takesParameterLeftLiveAtAReturnIsReported()
 end
 
 function M.takesParameterLeftLiveAtTheBodyEndIsReported()
-    assertEq(codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"), "NUPP2603")
-    assertEq(
+    testAssert.equal(
+        codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"),
+        "NUPP2603"
+    )
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -6839,7 +6849,7 @@ function M.takesParameterLeftLiveAtTheBodyEndIsReported()
         ),
         "NUPP2603"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -6857,7 +6867,7 @@ function M.takesParameterLeftLiveAtTheBodyEndIsReported()
 end
 
 function M.takesParameterDischargedOnOnlySomePathsIsReported()
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -6871,7 +6881,7 @@ function M.takesParameterDischargedOnOnlySomePathsIsReported()
         ),
         "NUPP2603"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -7000,15 +7010,15 @@ function M.statementOwnedTemporariesRunTheirTerminalsAtCompletion()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "statement-owned-temporaries")
-    assertEq(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
+    testAssert.equal(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
     local chunk, loadErr = loadstring(code, "@statement-owned-temporaries")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local answer, ok, calls = chunk()
-    assertEq(answer, "r")
-    assertEq(ok, false)
-    assertEq(calls, "uabbapqmvre")
+    testAssert.equal(answer, "r")
+    testAssert.equal(ok, false)
+    testAssert.equal(calls, "uabbapqmvre")
 end
 
 -- A local declared by a statement that owns a temporary is bound after it: the
@@ -7050,28 +7060,28 @@ function M.aLocalInitializedThroughAStatementOwnedTemporaryIsBound()
         "\n"
     )
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "statement-owned-locals")
-    assertEq(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
+    testAssert.equal(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
     local chunk, loadErr = loadstring(code, "@statement-owned-locals")
     assert(chunk, tostring(loadErr) .. "\n" .. code)
     local top, name, size, loop, nested, calls = chunk()
-    assertEq(top, "t")
-    assertEq(name, "pq")
-    assertEq(size, 2)
-    assertEq(loop, "123")
-    assertEq(nested, "123")
-    assertEq(calls, "vtpqv1v2v3v1v2v3")
+    testAssert.equal(top, "t")
+    testAssert.equal(name, "pq")
+    testAssert.equal(size, 2)
+    testAssert.equal(loop, "123")
+    testAssert.equal(nested, "123")
+    testAssert.equal(calls, "vtpqv1v2v3v1v2v3")
 end
 
 function M.anOwnedTemporaryWithoutANonRetainingLoanIsReported()
     local header = CONSUMABLE .. "\nlocal function use(borrows r: Res): nil print(r.id) end\n"
-    assertEq(codes(header .. "print(open(2).id)"), "NUPP2603")
-    assertEq(codes(header .. "if open(3) then print('made') end"), "NUPP2603")
+    testAssert.equal(codes(header .. "print(open(2).id)"), "NUPP2603")
+    testAssert.equal(codes(header .. "if open(3) then print('made') end"), "NUPP2603")
 end
 
 function M.aBorrowFromAStatementOwnedTemporaryCannotEscapeTheStatement()
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE
             .. "\nlocal function view(borrows value: Res): Res borrows(value) return value end"
@@ -7138,8 +7148,11 @@ local PAIR = table.concat(
 )
 
 function M.aFieldMovedInsideALoopIsReportedAtTheBackEdge()
-    assertEq(codes(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) end"), "NUPP2609")
-    assertEq(codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"), "NUPP2609")
+    testAssert.equal(codes(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) end"), "NUPP2609")
+    testAssert.equal(
+        codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"),
+        "NUPP2609"
+    )
     assertClean(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) break end")
 end
 
@@ -7164,7 +7177,7 @@ function M.aFieldMovedOnSomePathsOfAnAutomaticOwnerIsDroppedConditionally()
     )
     -- The field may still be live on the other path, so it cannot be refilled; the
     -- refused store is then judged as any other store of an owner is.
-    assertEq(
+    testAssert.equal(
         codes(
             PAIR .. "\n" .. table.concat(
                 {
@@ -7183,7 +7196,7 @@ end
 function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
     -- A parameter has no run-time record of which fields it still holds, so the
     -- arms have to agree.
-    assertEq(
+    testAssert.equal(
         codes(
             PAIR .. "\n" .. table.concat(
                 {
@@ -7214,7 +7227,7 @@ function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
 end
 
 function M.anOwnedFieldLeftLiveAtAReturnFromATerminalIsReported()
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -7297,7 +7310,7 @@ function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE
             .. "\nlocal function sink(takes r: Res?, flag: boolean): nil\n   if flag then nupp.drop(r) end\nend\nsink(open(1), true)"
@@ -7332,7 +7345,7 @@ end
 -- overwriting anything. A live owner is still never overwritten.
 function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
     assertClean(CONSUMABLE .. "\nlocal a: Res? = open(1)\nnupp.drop(a)\na = nil")
-    assertEq(codes(CONSUMABLE .. "\nlocal a: Res? = open(1)\na = nil"), "NUPP2602")
+    testAssert.equal(codes(CONSUMABLE .. "\nlocal a: Res? = open(1)\na = nil"), "NUPP2602")
     assertClean(
         CONSUMABLE .. "\n" .. table.concat(
             {
@@ -7347,7 +7360,7 @@ function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE
             .. "\nlocal function twice(flag: boolean): nil\n   local c: Res? = nil\n   if flag then c = open(2) end\n   c = open(3)\nend\ntwice(true)"
@@ -7375,7 +7388,7 @@ function M.aSwitchArmNamingAnOwnerMovesIt()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
                 {
@@ -7404,9 +7417,9 @@ function M.aLeakThroughAnImplicitGlobalIsReportedAtTheAssignment()
     local _, diags = checked(
         CONSUMABLE .. "\nlocal function stash(): nil\n   local a = open(1)\n   kept = a\nend\nstash()"
     )
-    assertEq(#diags, 1, diags[1] and diags[1].msg or "one leak")
-    assertEq(diags[1].code, "NUPP2603")
-    assertEq(diags[1].line, 9, "reported at the assignment")
+    testAssert.equal(#diags, 1, diags[1] and diags[1].msg or "one leak")
+    testAssert.equal(diags[1].code, "NUPP2603")
+    testAssert.equal(diags[1].line, 9, "reported at the assignment")
 end
 
 -- A local function that reads a captured owner borrows it, as a function
@@ -7432,9 +7445,9 @@ function M.aLocalFunctionCapturingAnOwnerCannotEscapeItsScope()
         )
     end
 
-    assertEq(codes(escaping("function(): integer", "peek")), "NUPP2608", "returned")
-    assertEq(codes(escaping("{function(): integer}", "{peek}")), "NUPP2603", "stored in a table")
-    assertEq(
+    testAssert.equal(codes(escaping("function(): integer", "peek")), "NUPP2608", "returned")
+    testAssert.equal(codes(escaping("{function(): integer}", "{peek}")), "NUPP2603", "stored in a table")
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -7475,7 +7488,7 @@ function M.aLocalFunctionStillBorrowsItsCaptureAtEachCall()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -7520,12 +7533,12 @@ function M.aRecordBuiltFromABorrowIsAViewOfItsRoot()
         )
     end
 
-    assertEq(
+    testAssert.equal(
         codes(constructed("peek: function(): integer", "peek = function(): integer return resource.value end")),
         "NUPP2608",
         "a closure over an owner"
     )
-    assertEq(codes(constructed("peek: function(): integer", "peek = peek")), "NUPP2608", "a local function")
+    testAssert.equal(codes(constructed("peek: function(): integer", "peek = peek")), "NUPP2608", "a local function")
     assertClean(
         CLOSURE_RESOURCE .. table.concat(
             {
@@ -7552,7 +7565,7 @@ end
 -- would be closed by something that never owned it: a double close once the root
 -- is dropped too. No declared relation makes that sound, so it is refused outright.
 function M.aBorrowCannotFillAnOwningRecordField()
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -7597,22 +7610,26 @@ function M.aBorrowCannotCrossAnAnyParameter()
         )
     end
 
-    assertEq(
+    testAssert.equal(
         codes(crossing("local function keep(value: any): nil print(value) end", "keep(resource)")),
         "NUPP2611",
         "an any parameter"
     )
-    assertEq(
+    testAssert.equal(
         codes(crossing("local function pack(...: any): {any} return {...} end", "print(pack(resource))")),
         "NUPP2611",
         "an any vararg"
     )
-    assertEq(
+    testAssert.equal(
         codes(crossing("", "coroutine.create(function(): nil print(resource.value) end)")),
         "NUPP2611",
         "a coroutine body"
     )
-    assertEq(codes(crossing("local sink: any", "sink(resource)")), "NUPP2611", "a callable held in an any local")
+    testAssert.equal(
+        codes(crossing("local sink: any", "sink(resource)")),
+        "NUPP2611",
+        "a callable held in an any local"
+    )
 end
 
 -- The way out of the refusal above is a declaration, not an escape hatch. A
@@ -7638,7 +7655,7 @@ function M.aBorrowCrossesACallableSlotThatDeclaresBorrows()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -7663,7 +7680,7 @@ end
 -- exempted from the field check, so an owner constructed into one was held by a
 -- record that would never close it.
 function M.anOwnerCannotBeConstructedIntoAnAnyField()
-    assertEq(
+    testAssert.equal(
         codes(
             CLOSURE_RESOURCE .. table.concat(
                 {
@@ -7703,7 +7720,7 @@ function M.aBorrowingFunctionFitsAPlainCallableSlot()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -7767,7 +7784,7 @@ function M.aSharedArgumentMayReadThroughItsExclusiveView()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -7790,7 +7807,7 @@ end
 -- binding minted one on whatever the initializer was -- a plain table from any --
 -- and the scope exit then ran cleanup on something that was never a resource.
 function M.anAnnotationCannotMintAnOwnerFromAny()
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {"", "local raw: any = {}", "local value: affine(resource*, resource_free) = raw", "nupp.drop(value)",},
@@ -7799,7 +7816,7 @@ function M.anAnnotationCannotMintAnOwnerFromAny()
         ),
         "NUPP2611"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE .. table.concat(
                 {
@@ -7827,7 +7844,7 @@ end
 -- to a binding in an outer scope, or returned, outlived a root that lexical
 -- destruction then closed underneath it.
 function M.aRootedOwnerCannotOutliveItsRoot()
-    assertEq(
+    testAssert.equal(
         codes(
             LAYERED .. table.concat(
                 {
@@ -7845,7 +7862,7 @@ function M.aRootedOwnerCannotOutliveItsRoot()
         "NUPP2608",
         "assigned to an outer binding"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             LAYERED .. table.concat(
                 {
@@ -7862,7 +7879,7 @@ function M.aRootedOwnerCannotOutliveItsRoot()
         "NUPP2608",
         "returned over a local root"
     )
-    assertEq(
+    testAssert.equal(
         codes(
             LAYERED .. table.concat(
                 {
@@ -7898,7 +7915,7 @@ function M.anAssignedRootedOwnerHoldsItsRoot()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         codes(
             LAYERED .. table.concat(
                 {
@@ -7919,7 +7936,7 @@ end
 -- A child span is rooted in the writer it was sliced from, so it cannot be handed
 -- to a binding that outlives that writer either.
 function M.aChildSpanCannotOutliveItsWriter()
-    assertEq(
+    testAssert.equal(
         codes(
             table.concat(
                 {
@@ -7968,9 +7985,9 @@ function M.aPartiallyMovedRecordCannotBeBorrowedWhole()
         },
         "\n"
     )
-    assertEq(codes(PAIR .. "\npeek(pair)\nnupp.drop(pair)"), "NUPP2602", "a borrows parameter")
-    assertEq(codes(PAIR .. "\npoke(pair)\nnupp.drop(pair)"), "NUPP2602", "an exclusive parameter")
-    assertEq(codes(PAIR .. "\npair:peek()\nnupp.drop(pair)"), "NUPP2602", "a method receiver")
+    testAssert.equal(codes(PAIR .. "\npeek(pair)\nnupp.drop(pair)"), "NUPP2602", "a borrows parameter")
+    testAssert.equal(codes(PAIR .. "\npoke(pair)\nnupp.drop(pair)"), "NUPP2602", "an exclusive parameter")
+    testAssert.equal(codes(PAIR .. "\npair:peek()\nnupp.drop(pair)"), "NUPP2602", "a method receiver")
     assertClean(PAIR .. "\nprint(pair.right.value)\nnupp.drop(pair)")
 end
 
@@ -8004,17 +8021,17 @@ function M.anExclusivePathArgumentIsCheckedAgainstLiveBorrowsOfItsRoot()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         codes(ROOTED .. "\nlocal a = view(root)\nexcl(root.one)\nprint(a.one.n)"),
         "NUPP2607",
         "a field under a whole view"
     )
-    assertEq(
+    testAssert.equal(
         codes(ROOTED .. "\nlocal a = view(root)\nexcl(root.items[1])\nprint(a.one.n)"),
         "NUPP2607",
         "an index under a whole view"
     )
-    assertEq(
+    testAssert.equal(
         codes(ROOTED .. "\nlocal w = exclView(root)\nviewSlot(root.one)\nprint(w.one.n)"),
         "NUPP2607",
         "a shared field view under a whole exclusive view"
@@ -8072,13 +8089,13 @@ local restored = @unsafe nupp.adopt<affine(resource*, resource_free)>(released)
 nupp.drop(restored)
 ]]
     assertClean(source)
-    assertEq(codes(source .. "\nlocal again = @unsafe nupp.release(owner)"), "NUPP2601")
-    assertEq(codes("local n = @unsafe nupp.release(1)"), "NUPP2602 NUPP2602")
-    assertEq(codes("local n = @unsafe nupp.adopt<integer>(1)"), "NUPP2602")
-    assertEq(codes([[local p: int32* = nil as any
+    testAssert.equal(codes(source .. "\nlocal again = @unsafe nupp.release(owner)"), "NUPP2601")
+    testAssert.equal(codes("local n = @unsafe nupp.release(1)"), "NUPP2602 NUPP2602")
+    testAssert.equal(codes("local n = @unsafe nupp.adopt<integer>(1)"), "NUPP2602")
+    testAssert.equal(codes([[local p: int32* = nil as any
 @unsafe local n: string = p[0]
 ]]), "NUPP2001")
-    assertEq(
+    testAssert.equal(
         codes(
             RESOURCE
             .. "\n"
@@ -8096,11 +8113,11 @@ resource_free(owner)
         "nupp.adopt<Owner>((first or second))"
     }) do
         local parsed = parser.parse("local v = @unsafe " .. expression)
-        assertEq(#parsed.errors, 0)
+        testAssert.equal(#parsed.errors, 0)
         local node = parsed.root.blocks[1].stats[1].exprs[1]
-        assertEq(node.kind, "call")
+        testAssert.equal(node.kind, "call")
         assert(node.expressionAnnotations)
-        assertEq(node.args.exprs[1].kind, expression == "nupp.release(first + second)" and "binop" or "paren")
+        testAssert.equal(node.args.exprs[1].kind, expression == "nupp.release(first + second)" and "binop" or "paren")
     end
     assertClean([[local unsafe, adopt, release = print, print, print
 unsafe(1) adopt(2) release(3)
@@ -8139,15 +8156,15 @@ return answer, returned, log
 ]]
     for _, level in ipairs({0, 1, 2}) do
         local result, diags = checked(source)
-        assertEq(#diags, 0, diags[1] and diags[1].msg)
+        testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
         require("nupp.compiler.lua.optimize").run(result, {level = level, filename = 'test.g.nupp'})
         local code, errors = gen.generate(result, "test.g.nupp")
-        assertEq(#errors, 0, errors[1] and errors[1].msg)
+        testAssert.equal(#errors, 0, errors[1] and errors[1].msg)
         local chunk = assert(loadstring(code))
         local answer, returned, log = chunk()
-        assertEq(answer, 7)
-        assertEq(returned, 8)
-        assertEq(log, "aybrd", "O" .. level)
+        testAssert.equal(answer, 7)
+        testAssert.equal(returned, 8)
+        testAssert.equal(log, "aybrd", "O" .. level)
     end
 end
 
@@ -8305,12 +8322,12 @@ end
 return table.concat(events, ",")
 ]]
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, generated = gen.generate(result, "ownership-for-header")
-    assertEq(#generated, 0)
+    testAssert.equal(#generated, 0)
     local chunk, problem = loadstring(code, "@ownership-for-header")
     assert(chunk, tostring(problem) .. "\n" .. code)
-    assertEq(chunk(), "1,state,step")
+    testAssert.equal(chunk(), "1,state,step")
 end
 
 function M.genericForBorrowsANamedOwnerAndRejectsOwnedControl()
@@ -8332,12 +8349,12 @@ nupp.drop(step)
 return table.concat(events, ",")
 ]]
     local result, diags = checked(source)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, generated = gen.generate(result, "ownership-for-borrow")
-    assertEq(#generated, 0)
+    testAssert.equal(#generated, 0)
     local chunk, problem = loadstring(code, "@ownership-for-borrow")
     assert(chunk, tostring(problem) .. "\n" .. code)
-    assertEq(chunk(), "after,step")
+    testAssert.equal(chunk(), "after,step")
 
     local bad = codes(
         [[
@@ -8347,7 +8364,7 @@ local function step(_state: nil, _control: integer?): integer? return nil end
 for n in step, nil, acquire() do end
 ]]
     )
-    assertEq(bad, "NUPP2622")
+    testAssert.equal(bad, "NUPP2622")
 end
 
 function M.genericForHeaderOwnersCloseOnEveryExit()
@@ -8428,7 +8445,7 @@ events[#events + 1] = ok and "missed" or "caught"
     }
     for _, case in ipairs(cases) do
         local got = runGenerated(prelude .. case.body .. "return table.concat(events, ',')", "for-header-" .. case.name)
-        assertEq(got, case.want, case.name)
+        testAssert.equal(got, case.want, case.name)
     end
 end
 
@@ -8470,7 +8487,7 @@ return table.concat(events, ",")
 ]],
         "for-header-closeable"
     )
-    assertEq(got, "1,close")
+    testAssert.equal(got, "1,close")
 end
 
 function M.ownershipIntrinsicsCannotBeStoredAsValues()

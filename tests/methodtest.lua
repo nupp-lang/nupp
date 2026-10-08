@@ -1,3 +1,5 @@
+local testAssert = require("nupp.test")
+local assertions = require("helpers.assertions")
 -- Record and struct members, and multi-value return expansion.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -7,16 +9,10 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function diagsOf(src, filename)
     filename = filename or "test.g.nupp"
     local result = parser.parse(src, filename)
-    assertEq(#result.errors, 0, "syntax errors: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.equal(#result.errors, 0, "syntax errors: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(result, filename, env)) do
         out[j] = d.code .. ":" .. d.line
@@ -25,28 +21,28 @@ local function diagsOf(src, filename)
     return table.concat(out, " ")
 end
 
-local function assertClean(src)
-    assertEq(diagsOf(src), "", "expected clean:\n" .. src)
-end
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
 
 local function generate(src)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors")
+    testAssert.equal(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.g.nupp", env)
-    assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
+    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
     local code, genDiags = gen.generate(result, "test")
-    assertEq(#genDiags, 0, "gen diagnostics")
+    testAssert.equal(#genDiags, 0, "gen diagnostics")
 
     return code
 end
 
 local function run(src)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors")
+    testAssert.equal(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.g.nupp", env)
-    assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
+    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
     local code, genDiags = gen.generate(result, "test")
-    assertEq(#genDiags, 0, "gen diagnostics")
+    testAssert.equal(#genDiags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@methodtest")
     if not chunk then
         error("generated code does not load: " .. tostring(err) .. "\n" .. code, 2)
@@ -70,7 +66,7 @@ local TASK = table.concat(
 local M = {}
 
 function M.colonCallsRequireAMethodBearingReceiver()
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({"local value: integer = 1", "local text: string = value:upper()", "return text",}, "\n")),
         "NUPP2004:2"
     )
@@ -78,18 +74,18 @@ end
 
 function M.recordMethodsTypeAtCallSites()
     assertClean(TASK .. "\nlocal t: Task = new Task(title = 'test')\nlocal s: string = t:describe()")
-    assertEq(
+    testAssert.equal(
         diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nlocal n: number = t:describe()"),
         "NUPP2001:8"
     )
-    assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:describe(1)"), "NUPP2007:8")
-    assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:nosuch()"), "NUPP2004:8")
+    testAssert.equal(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:describe(1)"), "NUPP2007:8")
+    testAssert.equal(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:nosuch()"), "NUPP2004:8")
 end
 
 function M.selfIsBoundInsideMethods()
     assertClean(TASK)
     -- self carries the record's fields
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local record R", "    n: number", "end", "function R:bad(): number", "    return self.nope", "end",},
@@ -103,7 +99,7 @@ end
 function M.explicitSelfKeepsTheReceiverType()
     -- The leading `self` spelling is the method receiver, not an untyped
     -- ordinary parameter. In particular, member lookup must still see R.
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -135,9 +131,9 @@ function M.inlineFunctionsNeedSelfToBeMethods()
         },
         "\n"
     )
-    assertEq(diagsOf(declaration, "test.nupp"), "NUPP2105:5")
+    testAssert.equal(diagsOf(declaration, "test.nupp"), "NUPP2105:5")
 
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -153,7 +149,7 @@ function M.inlineFunctionsNeedSelfToBeMethods()
         ),
         42
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -168,7 +164,7 @@ function M.inlineFunctionsNeedSelfToBeMethods()
         ),
         "NUPP2004:5"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local record Numbers", "    function answer(): integer return 42 end", "end", "Numbers:answer()",},
@@ -178,7 +174,7 @@ function M.inlineFunctionsNeedSelfToBeMethods()
         "NUPP2004:4"
     )
 
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -214,7 +210,10 @@ function M.dottedMembersTakeNoReceiver()
 end
 
 function M.recordMethodsRunAtRuntime()
-    assertEq(run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")), "ok")
+    testAssert.equal(
+        run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")),
+        "ok"
+    )
 end
 
 function M.structMethodsDispatchThroughMetatype()
@@ -233,9 +232,9 @@ function M.structMethodsDispatchThroughMetatype()
         "\n"
     )
     assertClean(src)
-    assertEq(run(src), 5)
+    testAssert.equal(run(src), 5)
     -- the constructor still works after metatype
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -258,10 +257,10 @@ end
 function M.multiValueReturnsExpandAcrossTargets()
     local two = table.concat({"local function two(): number, string", "    return 1, 'two'", "end",}, "\n")
     assertClean(two .. "\nlocal a, b = two()\nlocal n: number = a\nlocal s: string = b")
-    assertEq(diagsOf(two .. "\nlocal a, b = two()\nlocal bad: number = b"), "NUPP2001:5")
+    testAssert.equal(diagsOf(two .. "\nlocal a, b = two()\nlocal bad: number = b"), "NUPP2001:5")
     -- only the trailing expression expands
     assertClean(two .. "\nlocal x, y, z = 0, two()\nlocal n: number = y")
-    assertEq(diagsOf(two .. "\nlocal x, y, z = 0, two()\nlocal bad: number = z"), "NUPP2001:5")
+    testAssert.equal(diagsOf(two .. "\nlocal x, y, z = 0, two()\nlocal bad: number = z"), "NUPP2001:5")
 end
 
 -- Only a call expands. Inferring anything else may still have left a call's
@@ -305,7 +304,7 @@ end
 -- `new` is the construction, for both kinds of declaration. It lowers to the
 -- stamp and the ctype call themselves, so what it costs at run time is nothing.
 function M.newConstructsRecordsAndStructs()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -336,7 +335,7 @@ end
 -- The keyword is contextual: `new` is a name everywhere a name can stand, and
 -- only a name following it on the same line makes it a construction.
 function M.newStaysAnOrdinaryNameElsewhere()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -361,21 +360,24 @@ end
 -- type rather than through whatever value stands under the name. An interface
 -- binds no value at all, so going through the value would say `any`.
 function M.newRefusesWhatCannotBeConstructed()
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({"local interface I", "    n: integer", "end", "local iface = new I()",}, "\n")),
         "NUPP2206:4"
     )
-    assertEq(diagsOf("local prim = new string()"), "NUPP2206:1")
+    testAssert.equal(diagsOf("local prim = new string()"), "NUPP2206:1")
     -- a closed set of literals is a union, and a value of it is one of the
     -- literals, written directly
-    assertEq(diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")), "NUPP2206:2")
+    testAssert.equal(
+        diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")),
+        "NUPP2206:2"
+    )
 end
 
 -- A refinement is what `is` compiles to. The values here were never built by
 -- this program, which is the case a stamped metatable cannot answer: a table
 -- off a decoder, or anything an untyped library handed back.
 function M.whereRefinementsDecideIsAtRuntime()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -411,7 +413,7 @@ end
 -- An interface has no runtime table to stamp, so `is` on one was NUPP3001 and
 -- could not be compiled at all. A refinement is the answer it can give.
 function M.whereRefinementsGiveAnInterfaceARuntimeIdentity()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -435,7 +437,7 @@ end
 -- A refinement may read the subject more than once, so a subject that is not a
 -- name is evaluated once and handed to the test.
 function M.aComputedSubjectIsEvaluatedOnce()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -516,7 +518,11 @@ function M.refinementTestsAreSharedAndKeepShortCircuiting()
             "\n"
         )
     )
-    assertEq(select(2, code:gsub("local __nuppIs%d+ = function%(", "")), 1, "one declaration for two identical tests")
+    testAssert.equal(
+        select(2, code:gsub("local __nuppIs%d+ = function%(", "")),
+        1,
+        "one declaration for two identical tests"
+    )
     assert(code:find("always or __nuppIs1(", 1, true), "`or` still decides whether the subject is reached:\n" .. code)
 end
 
@@ -541,7 +547,7 @@ function M.aRefinementReachesThroughFieldsSafely()
         "\n"
     )
     -- present, absent halfway, and not a table at all
-    assertEq(
+    testAssert.equal(
         run(
             decl .. table.concat(
                 {
@@ -564,7 +570,7 @@ end
 -- links back rather than stamping directly, which is how tecs builds its event
 -- instances, produces instances too, and `is` has to say so.
 function M.instancesAreRecognisedThroughTheirPrototype()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -609,7 +615,7 @@ end
 -- says what one is. When the subject's own type already declares the interface,
 -- there is nothing to run: the declaration answered it.
 function M.aProvenInterfaceNeedsNoTest()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -651,7 +657,7 @@ function M.aTaggedInterfaceDerivesItsOwnTest()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         run(
             decl .. table.concat(
                 {
@@ -670,7 +676,7 @@ function M.aTaggedInterfaceDerivesItsOwnTest()
         3
     )
     -- an explicit block still wins over the tags
-    assertEq(
+    testAssert.equal(
         run(
             decl .. table.concat(
                 {
@@ -695,7 +701,7 @@ end
 -- behaviour rather than a copy of it, resolved where it is written rather than
 -- looked up at run time.
 function M.interfacesCarryDefaultBodies()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -717,7 +723,7 @@ function M.interfacesCarryDefaultBodies()
         "hello, Ada"
     )
     -- a struct takes it through the metatype's index table
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -740,7 +746,7 @@ function M.interfacesCarryDefaultBodies()
         12
     )
     -- and a chain of interfaces passes it along
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -780,7 +786,7 @@ function M.overridingADefaultIsOptional()
         "\n"
     )
     -- A method can replace the default without an annotation.
-    assertEq(
+    testAssert.equal(
         run(
             iface .. table.concat(
                 {
@@ -799,7 +805,7 @@ function M.overridingADefaultIsOptional()
         "..."
     )
     -- saying it is fine, and the override runs
-    assertEq(
+    testAssert.equal(
         run(
             iface .. table.concat(
                 {
@@ -819,7 +825,7 @@ function M.overridingADefaultIsOptional()
         "LOUD"
     )
     -- and claiming to override nothing is refused too
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -851,7 +857,7 @@ function M.aDeclaredMemberMustFitTheClaimedContract()
         iface .. table.concat({"", "local record Later is Named", "   n: integer", "end", "return Later",}, "\n")
     )
     -- a field of the wrong type is not
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {"", "local record Bad is Named", "   name: integer", "   describe: function(self): string", "end",},
@@ -861,7 +867,7 @@ function M.aDeclaredMemberMustFitTheClaimedContract()
         "NUPP2118:6"
     )
     -- nor a method with the wrong result, nor a field standing where a method is
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {
@@ -878,7 +884,7 @@ function M.aDeclaredMemberMustFitTheClaimedContract()
         ),
         "NUPP2118:7"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {"", "local record Data is Named", "   name: string", "   describe: integer", "end",},
@@ -937,7 +943,7 @@ function M.subtypeMethodOverridesAreOptionalAndCompatible()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             parent .. table.concat(
                 {
@@ -967,7 +973,7 @@ function M.aTerminalTakesItsReceiverTheWayTheContractSays()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {
@@ -1006,7 +1012,7 @@ end
 -- once the argument is written after `is`.
 function M.aGenericContractIsCheckedAsInstantiated()
     local iface = table.concat({"local interface Sink<T>", "   push: function(self, v: T): nil", "end",}, "\n")
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {
@@ -1042,7 +1048,7 @@ end
 -- field read-only whatever I grants, and the disagreement is reported rather than
 -- I's write entry grafted over the record's own.
 function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1094,7 +1100,7 @@ function M.aFieldCannotStandWhereADefaultIs()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {"", "local record Person is Greeter", "   name: string", "   greet: string", "end",},
@@ -1103,7 +1109,7 @@ function M.aFieldCannotStandWhereADefaultIs()
         ),
         "NUPP2118:9"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             iface .. table.concat(
                 {"", "local record Callable is Greeter", "   name: string", "   greet: function(self): string", "end",},
@@ -1118,7 +1124,7 @@ end
 -- installed later either; the claim is refused where a record's would be trusted.
 function M.aStructCannotClaimAFieldItCannotHold()
     local iface = table.concat({"local interface HasName", "   name: string", "end",}, "\n")
-    assertEq(
+    testAssert.equal(
         diagsOf(iface .. table.concat({"", "local struct S is HasName", "   x: int32", "end",}, "\n")),
         "NUPP2118:4"
     )
@@ -1143,12 +1149,12 @@ function M.aDefaultInheritedTwiceMustBeChosen()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(ifaces .. table.concat({"", "local record Bad is A, B", "   n: integer", "end",}, "\n")),
         "NUPP2118:11"
     )
     -- writing it settles the question
-    assertEq(
+    testAssert.equal(
         run(
             ifaces .. table.concat(
                 {
@@ -1172,7 +1178,7 @@ end
 -- A constructor is the whole reason `new` is worth having over a literal: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1197,7 +1203,7 @@ function M.constructorsRunAndFillEveryField()
         520
     )
     -- the instance is a real one: `is` still answers through the metatable
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1220,7 +1226,7 @@ end
 -- A constructor is a function of the instance, so it takes either spelling a
 -- function takes anywhere else. Both reach the same generated body.
 function M.constructorsTakeEitherFunctionSpelling()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1241,7 +1247,7 @@ function M.constructorsTakeEitherFunctionSpelling()
         8
     )
     -- several parameters, and a body that is more than assignments
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1259,7 +1265,7 @@ function M.constructorsTakeEitherFunctionSpelling()
         -5
     )
     -- the receiver is named in this spelling too
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1277,7 +1283,7 @@ function M.constructorsTakeEitherFunctionSpelling()
     )
     -- and the expression form has nowhere to put its expression: what a
     -- constructor hands back is settled before the body runs
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local record R", "    n: integer", "    constructor |self, at: integer| -> at", "end",},
@@ -1290,7 +1296,7 @@ end
 
 function M.constructorsRefuseWhatTheyCannotGuarantee()
     -- a field that cannot hold nil has to be filled
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1324,7 +1330,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
     )
     -- a field taken from an interface is as much part of the value as one
     -- declared here, so leaving it out is the same nil
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1357,7 +1363,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
         )
     )
     -- an interface builds nothing
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1393,7 +1399,7 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
 end
 
 function M.overloadedConstructorsSelectDistinctBodies()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1415,7 +1421,7 @@ function M.overloadedConstructorsSelectDistinctBodies()
         ),
         "42:ready"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1440,7 +1446,7 @@ end
 -- the binder stands for one fixed type the body does not know, so the cast has to
 -- name the binder rather than escape to `any`.
 function M.genericConstructorsRemainOverloadedAfterInstantiation()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1467,7 +1473,7 @@ function M.genericConstructorsRemainOverloadedAfterInstantiation()
 end
 
 function M.constructorResultsMayIntroduceAnAffinePolicy()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1498,7 +1504,7 @@ function M.constructorResultsMayIntroduceAnAffinePolicy()
 end
 
 function M.constructorOverloadsSelectTheirResultPolicy()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1527,7 +1533,7 @@ function M.constructorOverloadsSelectTheirResultPolicy()
 end
 
 function M.genericConstructorResultsUseTheInferredInstance()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1553,7 +1559,7 @@ function M.genericConstructorResultsUseTheInferredInstance()
 end
 
 function M.constructorResultsKeepTheConstructedRepresentation()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local record Other end", "local record File", "    constructor(self): Other end", "end",},
@@ -1562,7 +1568,7 @@ function M.constructorResultsKeepTheConstructedRepresentation()
         ),
         "NUPP2208:3"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({"local record File", "    constructor(self): File, string end", "end",}, "\n")),
         "NUPP2208:2"
     )
@@ -1582,7 +1588,7 @@ function M.inlineCleanupIdentitiesFollowTheRecordsTypeScope()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1615,7 +1621,7 @@ function M.aConstructorClosesTheLiteralForm()
         },
         "\n"
     )
-    assertEq(diagsOf(decl .. "\nlocal a = new A {n = 1}"), "NUPP2208:7")
+    testAssert.equal(diagsOf(decl .. "\nlocal a = new A {n = 1}"), "NUPP2208:7")
     assertClean(decl .. "\nlocal a = new A(1)")
     -- `constructor` is contextual: a field may still be called one
     assertClean(
@@ -1647,16 +1653,16 @@ function M.fieldDefaultsSeedDirectConstructionAndConstructors()
             "\n"
         )
     )
-    assertEq(result[1], false)
-    assertEq(result[2], 9)
-    assertEq(result[3], 8081)
-    assertEq(result[4], 8082)
-    assertEq(result[5], 0)
-    assertEq(result[6], true)
+    testAssert.equal(result[1], false)
+    testAssert.equal(result[2], 9)
+    testAssert.equal(result[3], 8081)
+    testAssert.equal(result[4], 8082)
+    testAssert.equal(result[5], 0)
+    testAssert.equal(result[6], true)
 end
 
 function M.fieldDefaultsMustBeClosedAndFitTheirFields()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1671,7 +1677,10 @@ function M.fieldDefaultsMustBeClosedAndFitTheirFields()
         ),
         "NUPP2202:3 NUPP2202:4"
     )
-    assertEq(diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")), "NUPP2202:2")
+    testAssert.equal(
+        diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")),
+        "NUPP2202:2"
+    )
 end
 
 -- A metamethod declaration is a contract, and a metatable literal is where the
@@ -1688,7 +1697,7 @@ function M.aContractIsHeldToTheValueThatFulfilsIt()
         },
         "\n"
     )
-    assertEq(diagsOf(i64 .. "\nsetmetatable(x, {__add = 'not a function'})"), "NUPP2123:6")
+    testAssert.equal(diagsOf(i64 .. "\nsetmetatable(x, {__add = 'not a function'})"), "NUPP2123:6")
     assertClean(
         i64 .. table.concat(
             {
@@ -1706,12 +1715,12 @@ end
 -- with the key it reads.
 function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
     local r = "local record R end\nlocal r = new R()\n"
-    assertEq(diagsOf(r .. "setmetatable(r, {__mode = 42})"), "NUPP2123:3")
-    assertEq(diagsOf(r .. "setmetatable(r, {__gc = 'soon'})"), "NUPP2123:3")
-    assertEq(diagsOf(r .. "setmetatable(r, {__index = 42})"), "NUPP2123:3")
+    testAssert.equal(diagsOf(r .. "setmetatable(r, {__mode = 42})"), "NUPP2123:3")
+    testAssert.equal(diagsOf(r .. "setmetatable(r, {__gc = 'soon'})"), "NUPP2123:3")
+    testAssert.equal(diagsOf(r .. "setmetatable(r, {__index = 42})"), "NUPP2123:3")
     assertClean(r .. "setmetatable(r, {__index = r, __mode = 'k'})")
     -- and an unknown key is still a broken contract rather than a field
-    assertEq(diagsOf(r .. "setmetatable(r, {__tostirng = tostring})"), "NUPP2118:3")
+    testAssert.equal(diagsOf(r .. "setmetatable(r, {__tostirng = tostring})"), "NUPP2118:3")
 end
 
 -- The declaration's name holds its runtime table, and `new` builds instances of
@@ -1726,10 +1735,10 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
         )
     )
     -- the table is not an instance
-    assertEq(diagsOf(foo .. "local wrong: Foo = Foo\nreturn wrong"), "NUPP2001:4")
+    testAssert.equal(diagsOf(foo .. "local wrong: Foo = Foo\nreturn wrong"), "NUPP2001:4")
     -- and neither a type witness nor an instance is a metatable value
-    assertEq(diagsOf(foo .. "local wrong: metatable<Foo> = Foo\nreturn wrong"), "NUPP2001:4")
-    assertEq(
+    testAssert.equal(diagsOf(foo .. "local wrong: metatable<Foo> = Foo\nreturn wrong"), "NUPP2001:4")
+    testAssert.equal(
         diagsOf(
             foo .. table.concat(
                 {"local instance = new Foo(v = 1)", "local wrong: metatable<Foo> = instance", "return wrong",},
@@ -1739,7 +1748,7 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
         "NUPP2001:5"
     )
     -- construction, methods and nested reads still go through the table
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -1763,7 +1772,7 @@ end
 -- stamps, and the test would spend a metatable lookup to say so.
 function M.aTableIsNotAnInstanceAndIsSaysSoWithoutAsking()
     local foo = table.concat({"local record Foo", "   v: integer", "end", "local instance = new Foo(v = 1)",}, "\n")
-    assertEq(
+    testAssert.equal(
         run(foo .. table.concat({"", "return (instance is Foo and 1 or 0) + (Foo is Foo and 100 or 0)",}, "\n")),
         1
     )
@@ -1778,7 +1787,7 @@ function M.aMetamethodOnAnInstanceIsRefused()
         {"local record I64", "   v: integer", "   metamethod __tostring: function(self): string", "end",},
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(i64 .. table.concat({"", "local x = new I64(v = 1)", "x.__tostring = tostring",}, "\n")),
         "NUPP2004:6"
     )
@@ -1819,11 +1828,11 @@ function M.aRecordsTableHasItsOwnTypeWitness()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(foo .. table.concat({"", "local witness: Type<Foo> = Foo", "return witness.nosuch",}, "\n")),
         "NUPP2004:8"
     )
-    assertEq(diagsOf(foo .. "\nlocal raw: table = {}\nsetmetatable(raw, Foo)"), "NUPP2006:8")
+    testAssert.equal(diagsOf(foo .. "\nlocal raw: table = {}\nsetmetatable(raw, Foo)"), "NUPP2006:8")
 end
 
 -- A record's runtime table is the metatable its instances carry, so writing a
@@ -1834,7 +1843,7 @@ function M.aContractIsInstalledOnTheRecordsOwnTable()
         {"local record I64", "   v: integer", "   metamethod __tostring: function(self): string", "end",},
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         run(
             i64 .. table.concat(
                 {
@@ -1850,9 +1859,9 @@ function M.aContractIsInstalledOnTheRecordsOwnTable()
         "I64(7)"
     )
     -- the value is held to the contract it fulfils
-    assertEq(diagsOf(i64 .. "\nI64.__tostring = 42"), "NUPP2123:5")
+    testAssert.equal(diagsOf(i64 .. "\nI64.__tostring = 42"), "NUPP2123:5")
     -- and a misspelled one is still absent, now with the spelling to reach for
-    assertEq(diagsOf(i64 .. "\nI64.__totring = tostring"), "NUPP2004:5")
+    testAssert.equal(diagsOf(i64 .. "\nI64.__totring = tostring"), "NUPP2004:5")
 end
 
 -- A generic record's contract is installed on the one table every instance
@@ -1866,6 +1875,7 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
             "\n"
         )
     end
+
     local identity = table.concat(
         {
             "Box.__call = function<T>(self: Box<T>, value: T): T",
@@ -1877,18 +1887,20 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
         },
         "\n"
     )
-    assertEq(run(box("function(self, value: T): T") .. identity), 2)
-    assertEq(run(box("function(self: Box<T>, value: T): T") .. identity), 2)
+    testAssert.equal(run(box("function(self, value: T): T") .. identity), 2)
+    testAssert.equal(run(box("function(self: Box<T>, value: T): T") .. identity), 2)
     -- the contract is the literal's slot, so an unannotated one takes its types
-    assertEq(
+    testAssert.equal(
         run(
-            box("function(self, value: T): T") .. table.concat(
+            box(
+                "function(self, value: T): T"
+            ) .. table.concat(
                 {
                     "Box.__call = function(self, value)",
                     "   return self.default",
                     "end",
                     "local box = new Box(default = 1)",
-            "local made: integer = box(2)",
+                    "local made: integer = box(2)",
                     "return made",
                 },
                 "\n"
@@ -1897,9 +1909,11 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
         1
     )
     -- and it still holds for every instance, not only the ones the literal names
-    assertEq(
+    testAssert.equal(
         diagsOf(
-            box("function(self, value: T): T") .. table.concat(
+            box(
+                "function(self, value: T): T"
+            ) .. table.concat(
                 {"Box.__call = function<T>(self: Box<T>, value: T): string", "   return 'x'", "end",},
                 "\n"
             )
@@ -1916,7 +1930,7 @@ function M.aDeclaredMetamethodIsHeldToItsContract()
         {"local record Box<T>", "   default: T", "   metamethod __call: function(self, value: T): T", "end", ""},
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         run(
             box .. table.concat(
                 {
@@ -1932,7 +1946,7 @@ function M.aDeclaredMetamethodIsHeldToItsContract()
         ),
         2
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(box .. "function Box.__call<T>(self: Box<T>, value: T): string\n   return 'x'\nend"),
         "NUPP2123:5"
     )
@@ -1960,8 +1974,8 @@ function M.aDeclaredMetamethodIsHeldToItsContract()
             "\n"
         )
     )
-    assertEq(diagsOf(v .. "function V:__len(): string\n   return 'x'\nend"), "NUPP2123:6")
-    assertEq(diagsOf(v .. "function V.__add(a: V, b: integer): V\n   return a\nend"), "NUPP2123:6")
+    testAssert.equal(diagsOf(v .. "function V:__len(): string\n   return 'x'\nend"), "NUPP2123:6")
+    testAssert.equal(diagsOf(v .. "function V.__add(a: V, b: integer): V\n   return a\nend"), "NUPP2123:6")
 end
 
 -- A generic record's own parameters are in scope inside its body only, so a method
@@ -1971,13 +1985,13 @@ function M.anOuterMethodIsToldToBindTheRecordsParameters()
     local src = box .. "function Box:get(value: T): T\n   return value\nend\nreturn Box"
     local result = parser.parse(src, "test.g.nupp")
     local diags = check.check(result, "test.g.nupp", env)
-    assertEq(#diags, 2, "both mentions of T are unknown")
+    testAssert.equal(#diags, 2, "both mentions of T are unknown")
     for _, d in ipairs(diags) do
-        assertEq(d.code, "NUPP2101")
+        testAssert.equal(d.code, "NUPP2101")
         assert(d.help and d.help:find("function Box.get<T>(self: Box<T>, ...)", 1, true), tostring(d.help))
     end
     -- the spelling it names, which is a method once the body declares the member
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -2007,7 +2021,7 @@ end
 -- declaration applied to its own binders. It used to receive the bare declaration,
 -- which no instance is, so the method could never be called.
 function M.anOuterMethodOnAGenericRecordReceivesAnInstance()
-    assertEq(
+    testAssert.equal(
         run(
             table.concat(
                 {
@@ -2035,8 +2049,8 @@ function M.anAnnotatedMetatableIsHeldToTheSameRules()
         {"local record I64", "   v: integer", "   metamethod __tostring: function(self): string", "end",},
         "\n"
     )
-    assertEq(diagsOf(i64 .. "\nlocal mt: metatable<I64> = {__tostring = 42}" .. "\nreturn mt"), "NUPP2123:5")
-    assertEq(
+    testAssert.equal(diagsOf(i64 .. "\nlocal mt: metatable<I64> = {__tostring = 42}" .. "\nreturn mt"), "NUPP2123:5")
+    testAssert.equal(
         diagsOf(
             i64 .. table.concat(
                 {"", "local mt: metatable<I64> = {}", "mt = {__tostirng = tostring}", "return mt",},
@@ -2074,7 +2088,7 @@ function M.anIndexTableIsHeldToTheMembersItStandsIn()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             counter .. table.concat(
                 {"", "setmetatable(c, {__index = {label = function(self: Counter): integer", "   return 1", "end}})",},
@@ -2111,7 +2125,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -2127,7 +2141,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
         ),
         "NUPP2001:8"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -2144,7 +2158,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
         "NUPP2001:8"
     )
     -- plain against plain compares every parameter, the first included
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -2230,7 +2244,7 @@ function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             event .. table.concat(
                 {
@@ -2274,7 +2288,7 @@ function M.multiValueReturnsInAssignments()
         "\n"
     )
     assertClean(two .. "\na, b = two()")
-    assertEq(diagsOf(two .. "\nb, a = two()"), "NUPP2001:6 NUPP2001:6")
+    testAssert.equal(diagsOf(two .. "\nb, a = two()"), "NUPP2001:6 NUPP2001:6")
 end
 
 -- A method's own type parameters are not free when `self` is rebound to the
@@ -2295,7 +2309,7 @@ function M.aGenericMethodStillInfers()
         },
         "\n"
     ) .. "\n"
-    assertEq(diagsOf(mistyped), "NUPP2001:7", "a generic method stopped inferring")
+    testAssert.equal(diagsOf(mistyped), "NUPP2001:7", "a generic method stopped inferring")
     assertClean(
         table.concat(
             {
@@ -2333,7 +2347,7 @@ function M.aMethodIsNotAPositionalField()
         ),
         "test.g.nupp"
     )
-    assertEq(#result.errors, 0, "syntax errors")
+    testAssert.equal(#result.errors, 0, "syntax errors")
     local found = nil
     for _, d in ipairs(check.check(result, "test.g.nupp", env)) do
         if d.code == "NUPP2202" then
@@ -2341,13 +2355,13 @@ function M.aMethodIsNotAPositionalField()
         end
     end
     assert(found, "expected NUPP2202")
-    assertEq(found.msg, "too many values (record Pt has 2 fields)", "message")
+    testAssert.equal(found.msg, "too many values (record Pt has 2 fields)", "message")
 end
 
 function M.aConstructorMustFillARecordTypedField()
     -- A field whose type is another declaration is as much a slot as an integer
     -- one; only a nested declaration, which sits beside the fields, is skipped.
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -2404,7 +2418,7 @@ function M.constructorsInitializeFieldsOnEveryReturningPath()
         "goto done; self.x = 1; ::done::",
         "if flag then return end; while true do end",
     }) do
-        assertEq(diagsOf(source(body)), "NUPP2208:3", body)
+        testAssert.equal(diagsOf(source(body)), "NUPP2208:3", body)
     end
     for _, body in ipairs({
         "if flag then self.x = 1 else self.x = 2 end",
@@ -2439,7 +2453,7 @@ end
 end
 
 function M.earlyConstructorReturnsProduceTheInitializedInstance()
-    assertEq(
+    testAssert.equal(
         run(
             [[
 local record R
@@ -2456,7 +2470,7 @@ return (new R(true)).x + (new R(false)).x
         ),
         3
     )
-    assertEq(
+    testAssert.equal(
         run(
             [[
 local record R
@@ -2474,7 +2488,7 @@ return (new R()).x
 end
 
 function M.earlyConstructorReturnsRunTheirCleanups()
-    assertEq(
+    testAssert.equal(
         run(
             [[
 local closed = 0
@@ -2506,7 +2520,7 @@ end
 -- unchecked left the declaration saying one thing and every call site held to the
 -- other, which is a declaration that cannot be read.
 function M.aDefinitionIsHeldToWhatTheDeclarationSaidTheMemberIs()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             [[
 local record R
@@ -2520,7 +2534,7 @@ return R
         ),
         "NUPP2118:4"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             [[
 local record R
@@ -2540,7 +2554,7 @@ end
 -- for the same thing without being the same binder. How many values cross the
 -- boundary is still the declaration's to state.
 function M.aDefinitionMayNotAskForMoreThanTheDeclarationPasses()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             [[
 local record Ledger
@@ -2557,7 +2571,7 @@ return R
         ),
         "NUPP2118:7"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             [[
 local record R
@@ -2597,7 +2611,7 @@ end
 -- construction holds what fills it to that and not to the binder `self` is before it
 -- is bound -- which fits everything and so checked nothing.
 function M.selfTypedFieldsAreCheckedWhereTheValueIsBuilt()
-    assertEq(
+    testAssert.equal(
         diagsOf([[
 local record Plain
     a: integer
@@ -2608,7 +2622,7 @@ return p
 ]]),
         "NUPP2202:5"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             [[
 local record Callback<T>
@@ -2640,7 +2654,7 @@ return head
 end
 
 function M.constructorsCannotReturnAnotherValue()
-    assertEq(diagsOf([[
+    testAssert.equal(diagsOf([[
 local record R
     constructor(self)
         return 1

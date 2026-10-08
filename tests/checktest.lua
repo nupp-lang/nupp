@@ -1,18 +1,18 @@
+local testAssert = require("nupp.test")
+local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 -- Runs the checker; returns the list of "CODE:line" strings.
 local function checkedDiags(src, env)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.equal(
+        #result.errors,
+        0,
+        "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or "")
+    )
     local diags = check.check(result, "test.g.nupp", env)
     local out = {}
     for j, d in ipairs(diags) do
@@ -26,10 +26,9 @@ local function diagsOf(src)
     return checkedDiags(src)
 end
 
-local function assertClean(src)
-    local got, diags = diagsOf(src)
-    assertEq(got, "", "expected clean check for:\n" .. src .. (diags[1] and ("\nfirst: " .. diags[1].msg) or ""))
-end
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean check for:\n" .. src
+end)
 
 local function applyFix(source, fix)
     local edits = {}
@@ -93,10 +92,25 @@ function M.functionInterningDerivesVarargFromItsPack()
     -- Binding `P...` to a fixed list leaves no tail, and what is left is the
     -- function a fixed signature spells, not a variadic twin of it.
     local packVar = T.packvar("P", "checktest:vararg-substitution")
-    local callback = T.func({}, {T.nil_}, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, T.pack({}, {
-        kind = "generic",
-        var = packVar,
-    }))
+    local callback = T.func(
+        {},
+        {T.nil_},
+        true,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        T.pack({}, {
+            kind = "generic",
+            var = packVar,
+        })
+    )
     assert(callback.vararg, "a pack binder tail is variadic")
     local generics = require("nupp.compiler.types.generics")
     local bound = generics.materialize(callback, {[packVar] = T.pack({T.integer, T.string})})
@@ -106,12 +120,12 @@ function M.functionInterningDerivesVarargFromItsPack()
 end
 
 function M.typeTostring()
-    assertEq(T.tostring(T.optional(T.number)), "number?")
-    assertEq(T.tostring(T.map(T.string, T.array(T.integer))), "{[string]: {integer}}")
-    assertEq(T.tostring(T.func({T.number}, {T.boolean}, false)), "function(number): boolean")
+    testAssert.equal(T.tostring(T.optional(T.number)), "number?")
+    testAssert.equal(T.tostring(T.map(T.string, T.array(T.integer))), "{[string]: {integer}}")
+    testAssert.equal(T.tostring(T.func({T.number}, {T.boolean}, false)), "function(number): boolean")
     local packVar = T.packvar("A", "test-pack")
     local pack = T.pack({}, {kind = "generic", var = packVar})
-    assertEq(
+    testAssert.equal(
         T.tostring(
             T.func({}, {}, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, pack, pack, {
                 packVar
@@ -119,11 +133,11 @@ function M.typeTostring()
         ),
         "function<A...>(A...): (A...)"
     )
-    assertEq(
+    testAssert.equal(
         T.tostring(T.indexer(T.string, T.string, T.string, T.number)),
         "{@readonly [string]: string, @writeonly [string]: number}"
     )
-    assertEq(
+    testAssert.equal(
         T.tostring(
             T.shape({
                 {name = "value", read = T.string, write = T.number}
@@ -131,8 +145,8 @@ function M.typeTostring()
         ),
         "{@readonly value: string, @writeonly value: number}"
     )
-    assertEq(T.tostring(T.tuple({T.string})), "{string,}")
-    assertEq(T.tostring(T.array(T.string)), "{string}")
+    testAssert.equal(T.tostring(T.tuple({T.string})), "{string,}")
+    testAssert.equal(T.tostring(T.array(T.string)), "{string}")
 end
 
 function M.functionTypeTostringPreservesMixedGenericBinderOrder()
@@ -143,7 +157,7 @@ function M.functionTypeTostringPreservesMixedGenericBinderOrder()
         constParams = {size},
         paramKinds = {"const", "type"},
     })
-    assertEq(T.tostring(fn), "function<const Size: integer, Element>()")
+    testAssert.equal(T.tostring(fn), "function<const Size: integer, Element>()")
     local reversed = T.funcWith(fn, {paramKinds = {"type", "const"}})
     assert(fn ~= reversed, "binder order participates in function identity")
 end
@@ -160,9 +174,9 @@ function M.reinternedGenericAliasRefreshesDeclarationMetadata()
 end
 
 function M.cNamesOnlyTreatPointerShapedOptionalsAsNullableCValues()
-    assertEq(T.cName(T.optional(T.number)), nil)
-    assertEq(T.cName(T.optional(T.ptr(T.int32))), "int32_t *")
-    assertEq(T.cName(T.optional(T.cstring)), "const char *")
+    testAssert.equal(T.cName(T.optional(T.number)), nil)
+    testAssert.equal(T.cName(T.optional(T.ptr(T.int32))), "int32_t *")
+    testAssert.equal(T.cName(T.optional(T.cstring)), "const char *")
 end
 
 -- A string literal's type is the string it denotes, not the source that spells
@@ -173,13 +187,13 @@ end
 function M.aStringLiteralTypeIsTheBytesItDenotes()
     assertClean([[local a: "\65" = "A"]] .. "\nprint(a)")
     assertClean([[local b: "A" = "\65"]] .. "\nprint(b)")
-    assertEq(
+    testAssert.equal(
         diagsOf([[local c: "\65" = "\\65"]] .. "\nprint(c)"),
         "NUPP2001:1",
         "three characters are not the one byte they spell"
     )
-    assertEq(T.tostring(T.literal("\1\255a\nb", T.string)), '"\\1\\255a\\nb"')
-    assertEq(
+    testAssert.equal(T.tostring(T.literal("\1\255a\nb", T.string)), '"\\1\\255a\\nb"')
+    testAssert.equal(
         T.tostring(T.literal("\0" .. "12", T.string)),
         '"\\00012"',
         "a numeric escape is padded where a digit follows it"
@@ -191,7 +205,7 @@ end
 function M.aLiteralIsInternedByItsBaseNotItsBaseTag()
     local first = T.nominal("First", "record")
     local second = T.nominal("Second", "record")
-    assertEq(T.literal("a", first), T.literal("a", first))
+    testAssert.equal(T.literal("a", first), T.literal("a", first))
     assert(T.literal("a", first) ~= T.literal("a", second), "two nominal bases keep two literals")
     assert(T.literal("a", first) ~= T.literal("a", T.string), "a nominal base is not the string base")
 end
@@ -235,18 +249,21 @@ end
 -- have is reported the way a field it does not have is, rather than checking clean
 -- and calling nil. The terminal is reached through the owner and still resolves.
 function M.anOwnerResolvesMethodsThroughItsUnderlyingType()
-    local owner = table.concat({
-        "local record Buffer",
-        "    n: integer",
-        "    function close(takes self): nil end",
-        "    function size(self): integer return self.n end",
-        "end",
-        "local function open(): affine(Buffer, Buffer.close)",
-        "    return new Buffer(n = 1)",
-        "end",
-        "local owner = open()",
-    }, "\n")
-    assertEq(diagsOf(owner .. "\nowner:frobnicate()\nowner:close()"), "NUPP2004:10")
+    local owner = table.concat(
+        {
+            "local record Buffer",
+            "    n: integer",
+            "    function close(takes self): nil end",
+            "    function size(self): integer return self.n end",
+            "end",
+            "local function open(): affine(Buffer, Buffer.close)",
+            "    return new Buffer(n = 1)",
+            "end",
+            "local owner = open()",
+        },
+        "\n"
+    )
+    testAssert.equal(diagsOf(owner .. "\nowner:frobnicate()\nowner:close()"), "NUPP2004:10")
     assertClean(owner .. "\nprint(owner:size())\nowner:close()")
 end
 
@@ -254,46 +271,66 @@ end
 -- a binding of the same name would overwrite that binding rather than stand beside it:
 -- the local read by the code between them became the function at run time.
 function M.anExportedFunctionMayNotRedeclareAnEarlierName()
-    assertEq(
-        diagsOf(table.concat({
-            "module shadowed",
-            "local fired: integer = 0",
-            "export function bump(): nil",
-            "    fired = fired + 1",
-            "end",
-            "export function fired(): integer",
-            "    return 1",
-            "end",
-        }, "\n")),
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "module shadowed",
+                    "local fired: integer = 0",
+                    "export function bump(): nil",
+                    "    fired = fired + 1",
+                    "end",
+                    "export function fired(): integer",
+                    "    return 1",
+                    "end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2008:6"
     )
-    assertEq(
-        diagsOf(table.concat({
-            "module shadowed",
-            "local record fired",
-            "    n: integer",
-            "end",
-            "export function fired(): integer return 1 end",
-        }, "\n")),
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "module shadowed",
+                    "local record fired",
+                    "    n: integer",
+                    "end",
+                    "export function fired(): integer return 1 end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2008:5"
     )
-    assertEq(
-        diagsOf(table.concat({
-            "module shadowed",
-            "export function fired(): integer return 1 end",
-            "export function fired(): integer return 2 end",
-        }, "\n")),
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "module shadowed",
+                    "export function fired(): integer return 1 end",
+                    "export function fired(): integer return 2 end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2008:3",
         "two exports are reported once"
     )
-    assertClean(table.concat({
-        "module shadowed",
-        "local count: integer = 0",
-        "export function fired(): integer",
-        "    count = count + 1",
-        "    return count",
-        "end",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "module shadowed",
+                "local count: integer = 0",
+                "export function fired(): integer",
+                "    count = count + 1",
+                "    return count",
+                "end",
+            },
+            "\n"
+        )
+    )
 end
 
 -- An absent member satisfies an optional one only when the source is known to lack
@@ -301,71 +338,99 @@ end
 -- open shape may be a widened view of a value holding the member under another type,
 -- so reading it through `{name: string?}` would hand back a number (CHECKER-04).
 function M.absentOptionalMemberNeedsAClosedSource()
-    assertEq(
-        diagsOf(table.concat({
-            "local full = {id = 1, name = 5}",
-            "local narrow: {id: integer} = full",
-            "local view: {@readonly name: string?} = narrow",
-            "return view",
-        }, "\n")),
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "local full = {id = 1, name = 5}",
+                    "local narrow: {id: integer} = full",
+                    "local view: {@readonly name: string?} = narrow",
+                    "return view",
+                },
+                "\n"
+            )
+        ),
         "NUPP2001:3"
     )
-    local record = table.concat({
-        "local record User",
-        "    id: integer",
-        "    name: integer",
-        "end",
-        "local function show(v: {@readonly name: string?}): nil",
-        "    if v.name then print(v.name:upper()) end",
-        "end",
-    }, "\n")
-    assertEq(
-        diagsOf(table.concat({
-            record,
-            "local function forward(h: {@readonly id: integer}): nil show(h) end",
-            "forward(new User(id = 1, name = 5))",
-        }, "\n")),
+    local record = table.concat(
+        {
+            "local record User",
+            "    id: integer",
+            "    name: integer",
+            "end",
+            "local function show(v: {@readonly name: string?}): nil",
+            "    if v.name then print(v.name:upper()) end",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    record,
+                    "local function forward(h: {@readonly id: integer}): nil show(h) end",
+                    "forward(new User(id = 1, name = 5))",
+                },
+                "\n"
+            )
+        ),
         "NUPP2006:8"
     )
     local _, diags = diagsOf(record .. "\nlocal function forward(h: {@readonly id: integer}): nil show(h) end")
     assert(diags[1].msg:find("only a fresh table, a record or a struct may omit", 1, true), diags[1].msg)
-    assertEq(
-        diagsOf(table.concat({
-            "local interface Named",
-            "    id: integer",
-            "end",
-            "local function show(v: {@readonly name: string?}): nil end",
-            "local function forward(h: Named): nil show(h) end",
-            "return forward",
-        }, "\n")),
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Named",
+                    "    id: integer",
+                    "end",
+                    "local function show(v: {@readonly name: string?}): nil end",
+                    "local function forward(h: Named): nil show(h) end",
+                    "return forward",
+                },
+                "\n"
+            )
+        ),
         "NUPP2006:5"
     )
-    assertEq(
-        diagsOf(table.concat({
-            "local function show(v: {@readonly name: string?}): nil end",
-            "local function forward(h: {id: integer} & {[string]: number}): nil show(h) end",
-            "return forward",
-        }, "\n")),
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "local function show(v: {@readonly name: string?}): nil end",
+                    "local function forward(h: {id: integer} & {[string]: number}): nil show(h) end",
+                    "return forward",
+                },
+                "\n"
+            )
+        ),
         "NUPP2006:2"
     )
-    assertClean(table.concat({
-        "local record User",
-        "    id: integer",
-        "end",
-        "local struct Point",
-        "    x: number",
-        "end",
-        "local function show(v: {@readonly name: string?}): nil",
-        "    if v.name then print(v.name:upper()) end",
-        "end",
-        "show({id = 1})",
-        "show(new User(id = 1))",
-        "local u: User = new User(id = 2)",
-        "show(u)",
-        "show(new Point(1))",
-        "local function viaIndexer(h: {id: integer} & {[string]: string}): nil show(h) end",
-        "return viaIndexer",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "local record User",
+                "    id: integer",
+                "end",
+                "local struct Point",
+                "    x: number",
+                "end",
+                "local function show(v: {@readonly name: string?}): nil",
+                "    if v.name then print(v.name:upper()) end",
+                "end",
+                "show({id = 1})",
+                "show(new User(id = 1))",
+                "local u: User = new User(id = 2)",
+                "show(u)",
+                "show(new Point(1))",
+                "local function viaIndexer(h: {id: integer} & {[string]: string}): nil show(h) end",
+                "return viaIndexer",
+            },
+            "\n"
+        )
+    )
 end
 
 -- The extra parameters of a callable stand where the target's extra arguments
@@ -373,20 +438,20 @@ end
 -- parameter position does; an untyped `...` promises nothing about them.
 function M.extraParametersCompareAgainstTheTargetsVararg()
     local takesTwo = "local function takesTwo(x: string, n: integer): string return x .. n end"
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat({takesTwo, "local f: function(x: string, ...: string): string = takesTwo", "return f",}, "\n")
         ),
         "NUPP2001:2"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({takesTwo, "local f: function(x: string, ...): string = takesTwo", "return f",}, "\n")),
         "NUPP2001:2"
     )
     assertClean(
         table.concat({takesTwo, "local f: function(x: string, ...: integer): string = takesTwo", "return f",}, "\n")
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -419,7 +484,7 @@ function M.anExtraParametersModeIsMootAgainstAnAnyTail()
         "\n"
     )
     assertClean(table.concat({consume, "local f: function(a: string, ...: any): string = consume", "return f",}, "\n"))
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({consume, "local f: function(a: string, ...: R): string = consume", "return f",}, "\n")),
         "NUPP2001:5"
     )
@@ -439,7 +504,7 @@ function M.anOmittedTrailingParameterMustAdmitNil()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -484,7 +549,7 @@ function M.aPositionalLiteralIsATupleWhereOneIsExpected()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local function take(t: {number, string}): number", "   return t[1]", "end", "return take({'a', 1})",},
@@ -493,7 +558,7 @@ function M.aPositionalLiteralIsATupleWhereOneIsExpected()
         ),
         "NUPP2006:4"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -507,7 +572,7 @@ function M.aPositionalLiteralIsATupleWhereOneIsExpected()
         ),
         "NUPP2006:4"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({"local xs = {1, 'a'}", "local t: {number, string} = xs", "return t",}, "\n")),
         "NUPP2001:2"
     )
@@ -517,7 +582,7 @@ end
 -- write what the narrower one's readers do not admit. A const view cannot write,
 -- so it reads covariantly. A mutable array must preserve every position's writes.
 function M.tuplesAreInvariantThroughAMutableView()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat({"local t: {integer, string} = {1, 'a'}", "local u: {number, string} = t", "return u",}, "\n")
         ),
@@ -541,20 +606,26 @@ end
 
 function M.mutableArraysPreserveTheirElementType()
     local decl = "local ints: {integer} = {1, 2}\n"
-    assertEq(diagsOf(decl .. "local nums: {number} = ints\nnums[1] = 1.5"), "NUPP2001:2")
-    assertEq(diagsOf(decl .. "local function fill(xs: {number}): nil xs[1] = 1.5 end\nfill(ints)"), "NUPP2006:3")
+    testAssert.equal(diagsOf(decl .. "local nums: {number} = ints\nnums[1] = 1.5"), "NUPP2001:2")
+    testAssert.equal(
+        diagsOf(decl .. "local function fill(xs: {number}): nil xs[1] = 1.5 end\nfill(ints)"),
+        "NUPP2006:3"
+    )
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local env = require("nupp.compiler.project.env").new(here .. "/..")
-    assertEq(checkedDiags(decl .. "table.insert(ints, 1.5)", env), "NUPP2125:2")
-    assertEq(checkedDiags(decl .. "table.insert(ints, 1, 1.5)", env), "NUPP2125:2")
-    assertEq(checkedDiags(decl .. "table.insert(ints, 3)\ntable.insert(ints, 1, 4)", env), "")
-    assertEq(checkedDiags("local xs: {integer} | {string} = {1}\nfor _, x in ipairs(xs) do print(x) end", env), "")
-    assertEq(diagsOf("local nested = {{1}}\nlocal wider: {number} = nested[1]\nreturn wider"), "NUPP2001:2")
-    assertEq(
+    testAssert.equal(checkedDiags(decl .. "table.insert(ints, 1.5)", env), "NUPP2125:2")
+    testAssert.equal(checkedDiags(decl .. "table.insert(ints, 1, 1.5)", env), "NUPP2125:2")
+    testAssert.equal(checkedDiags(decl .. "table.insert(ints, 3)\ntable.insert(ints, 1, 4)", env), "")
+    testAssert.equal(
+        checkedDiags("local xs: {integer} | {string} = {1}\nfor _, x in ipairs(xs) do print(x) end", env),
+        ""
+    )
+    testAssert.equal(diagsOf("local nested = {{1}}\nlocal wider: {number} = nested[1]\nreturn wider"), "NUPP2001:2")
+    testAssert.equal(
         diagsOf("local holder = {const ints = {1}}\nlocal wider: {number} = holder.ints\nreturn wider"),
         "NUPP2001:2"
     )
-    assertEq(
+    testAssert.equal(
         checkedDiags("local record IntList\n{integer}\nend\nlocal ints = new IntList()\ntable.insert(ints, 1.5)", env),
         "NUPP2125:5"
     )
@@ -563,28 +634,31 @@ function M.mutableArraysPreserveTheirElementType()
     assertClean(
         "local function one(): integer return 1 end\nlocal nums: {number} = {one()}\nnums[1] = 1.5\nreturn nums"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf("local pair: {integer, string} = {1, 'a'}\nlocal xs: {integer | string} = pair\nreturn xs"),
         "NUPP2001:2"
     )
-    assertEq(diagsOf("local nested: {{integer}} = {{1}}\nlocal wider: {{number}} = nested\nreturn wider"), "NUPP2001:2")
+    testAssert.equal(
+        diagsOf("local nested: {{integer}} = {{1}}\nlocal wider: {{number}} = nested\nreturn wider"),
+        "NUPP2001:2"
+    )
 end
 
 function M.directRecordConstructionRequiresFields()
     local decl = "local record Item\nname: string\ncount: integer = 0\nnote: string?\nend\n"
-    assertEq(diagsOf(decl .. "local item = new Item()\nreturn item"), "NUPP2208:6")
+    testAssert.equal(diagsOf(decl .. "local item = new Item()\nreturn item"), "NUPP2208:6")
     assertClean(decl .. "local item = new Item(name = 'ready')\nreturn item")
-    assertEq(
+    testAssert.equal(
         diagsOf("local record Box<T>\nvalue: T\nname: string\nend\nlocal box = new Box(value = 1)\nreturn box"),
         "NUPP2208:5"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf("local record Handler\ncall: function(): nil\nend\nlocal handler = new Handler()\nreturn handler"),
         "NUPP2208:4"
     )
-    assertEq(diagsOf("local record Box<T>\nvalue: T\nend\nlocal box = new Box()\nreturn box"), "NUPP2208:4")
-    assertEq(diagsOf("local record Box<T>\nvalue: T?\nend\nlocal box = new Box()\nreturn box"), "NUPP2148:4")
-    assertEq(
+    testAssert.equal(diagsOf("local record Box<T>\nvalue: T\nend\nlocal box = new Box()\nreturn box"), "NUPP2208:4")
+    testAssert.equal(diagsOf("local record Box<T>\nvalue: T?\nend\nlocal box = new Box()\nreturn box"), "NUPP2148:4")
+    testAssert.equal(
         diagsOf(
             "local interface Named\nname: string\nend\nlocal record Item is Named end\nlocal item = new Item()\nreturn item"
         ),
@@ -606,7 +680,7 @@ function M.directRecordConstructionRequiresFields()
             "\n"
         )
     )
-    assertEq(diagsOf("local record Handler\ncall: function(): nil\nconstructor(self) end\nend"), "NUPP2208:3")
+    testAssert.equal(diagsOf("local record Handler\ncall: function(): nil\nconstructor(self) end\nend"), "NUPP2208:3")
     assertClean(
         "local record Item\nname: string\nconstructor(self, name: string) self.name = name end\nend\nlocal item = new Item('ready')\nreturn item"
     )
@@ -616,7 +690,7 @@ end
 -- shape does not let anyone write, or lets them write only a narrower type, keeps
 -- the shape out of the map. A read-only map asks nothing of the writes.
 function M.aShapeFitsAWritableMapOnlyThroughWritableFields()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local h: {@readonly name: string} = {name = 'x'}", "local m: {[string]: string?} = h", "return m",},
@@ -625,7 +699,7 @@ function M.aShapeFitsAWritableMapOnlyThroughWritableFields()
         ),
         "NUPP2001:2"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local h: {name: string} = {name = 'x'}", "local m: {[string]: string?} = h", "return m",},
@@ -666,15 +740,15 @@ function M.anArrayIsAnIntegerKeyedMap()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({"local xs: {integer} = {1, 2}", "local m: {[integer]: number} = xs", "return m",}, "\n")),
         "NUPP2001:2"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(table.concat({"local xs: {integer} = {1, 2}", "local m: {[string]: integer} = xs", "return m",}, "\n")),
         "NUPP2001:2"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local t: {string, integer} = {'a', 1}", "local m: {[integer]: string | integer} = t", "return m",},
@@ -701,7 +775,7 @@ function M.aDottedNameIsALiteralKeyOfAnIndexer()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat({"local type K = 'a' | 'b'", "local m: {[K]: integer} = {}", "m.c = 1", "return m.d",}, "\n")
         ),
@@ -710,7 +784,7 @@ function M.aDottedNameIsALiteralKeyOfAnIndexer()
 end
 
 function M.arrayCovarianceCannotLaunderFunctionEffects()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -726,7 +800,7 @@ function M.arrayCovarianceCannotLaunderFunctionEffects()
 end
 
 function M.unboundGenericParametersAreNotGradual()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -745,7 +819,7 @@ function M.unboundGenericParametersAreNotGradual()
         "NUPP2001:2 NUPP2002:6"
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -761,7 +835,7 @@ function M.unboundGenericParametersAreNotGradual()
 end
 
 function M.logicalOperatorsKeepTheSelectedFalsyValue()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local flag: boolean = nil as any", "local text: string = flag and 'ready'", "return text",},
@@ -781,11 +855,11 @@ function M.assertRemovesFalseFromItsResult()
         "test.g.nupp"
     )
     local diags = check.check(result, "test.g.nupp", envMod.new(here .. "/.."))
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
 function M.callsInvalidateNarrowingThroughMutationAndCapture()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -806,7 +880,7 @@ function M.callsInvalidateNarrowingThroughMutationAndCapture()
         "NUPP2001:8"
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -824,7 +898,7 @@ function M.callsInvalidateNarrowingThroughMutationAndCapture()
         "NUPP2001:5"
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -842,7 +916,7 @@ function M.callsInvalidateNarrowingThroughMutationAndCapture()
         "NUPP2001:5"
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -865,7 +939,7 @@ function M.callsInvalidateNarrowingThroughMutationAndCapture()
 end
 
 function M.aliasWritesInvalidateFieldNarrowing()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -888,7 +962,7 @@ function M.aliasWritesInvalidateFieldNarrowing()
 end
 
 function M.unreifiedInterfaceTestsFailDuringCheck()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -919,14 +993,14 @@ function M.erasedGenericTypeTestsFailDuringCheck()
             "\n"
         )
     )
-    assertEq(codes, "NUPP3001:5")
-    assertEq(diagnostics[1].msg, "a generic type parameter has no runtime identity to test")
+    testAssert.equal(codes, "NUPP3001:5")
+    testAssert.equal(diagnostics[1].msg, "a generic type parameter has no runtime identity to test")
 end
 
 function M.builtinTypeNamesCannotBindGenericParameters()
     local codes, diagnostics = diagsOf(table.concat({"local record Box<string>", "   value: string", "end",}, "\n"))
-    assertEq(codes, "NUPP2145:1")
-    assertEq(diagnostics[1].msg, 'type parameter "string" conflicts with the builtin type of the same name')
+    testAssert.equal(codes, "NUPP2145:1")
+    testAssert.equal(diagnostics[1].msg, 'type parameter "string" conflicts with the builtin type of the same name')
 end
 
 function M.constArraysRemainReadableViews()
@@ -951,7 +1025,10 @@ function M.constArraysRemainReadableViews()
             "\n"
         )
     )
-    assertEq(diagsOf(table.concat({"local values: const {string} = {'a'}", "values[1] = 'b'",}, "\n")), "NUPP2009:2")
+    testAssert.equal(
+        diagsOf(table.concat({"local values: const {string} = {'a'}", "values[1] = 'b'",}, "\n")),
+        "NUPP2009:2"
+    )
 end
 
 function M.propertyCapabilities()
@@ -990,7 +1067,7 @@ function M.propertyCapabilities()
             "\n"
         )
     )
-    assertEq(denied, "NUPP2009:3 NUPP2009:4 NUPP2009:5")
+    testAssert.equal(denied, "NUPP2009:3 NUPP2009:4 NUPP2009:5")
     assert(details[1].help and details[1].help:match("write access"))
 
     local variance = diagsOf(
@@ -1011,7 +1088,7 @@ function M.propertyCapabilities()
             "\n"
         )
     )
-    assertEq(variance, "NUPP2001:9 NUPP2001:10 NUPP2001:11")
+    testAssert.equal(variance, "NUPP2001:9 NUPP2001:10 NUPP2001:11")
 
     assertClean(
         table.concat(
@@ -1027,7 +1104,7 @@ function M.propertyCapabilities()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local record Bad", "   @readonly value: string", "   @readonly value: integer", "end",},
@@ -1036,7 +1113,10 @@ function M.propertyCapabilities()
         ),
         "NUPP2118:3"
     )
-    assertEq(diagsOf(table.concat({"local struct Bad", "   @readonly value: int32", "end",}, "\n")), "NUPP2118:2")
+    testAssert.equal(
+        diagsOf(table.concat({"local struct Bad", "   @readonly value: int32", "end",}, "\n")),
+        "NUPP2118:2"
+    )
 
     assertClean(
         table.concat(
@@ -1044,7 +1124,7 @@ function M.propertyCapabilities()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local out: {@writeonly value: string} | {@writeonly value: string | integer}", "out.value = 42",},
@@ -1063,10 +1143,10 @@ function M.propertyAnnotationsAreStableAcrossRepeatedChecks()
         ),
         "repeated.g.nupp"
     )
-    assertEq(#result.errors, 0, "property annotation syntax")
+    testAssert.equal(#result.errors, 0, "property annotation syntax")
     for pass = 1, 2 do
         local diags = check.check(result, "repeated.g.nupp")
-        assertEq(#diags, 0, ("check %d over the same parsed tree"):format(pass))
+        testAssert.equal(#diags, 0, ("check %d over the same parsed tree"):format(pass))
     end
 end
 
@@ -1085,7 +1165,7 @@ function M.constTableFieldsAreReadOnly()
         )
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1105,7 +1185,7 @@ function M.constTableFieldsAreReadOnly()
         "NUPP2008:6 NUPP2008:7 NUPP2008:8"
     )
 
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1153,7 +1233,7 @@ function M.neverIsTheBottomType()
     -- a gradual source is not nothing either: `any` may be anything
     assert(not isA(T.any, T.never))
     assert(not isA(T.unknown, T.never))
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local function fail(): never", "   local x: any = 1", "   return x", "end", "print(fail)",},
@@ -1180,11 +1260,11 @@ end
 -- unvisited, so anything wrong in one went unreported and anything the generator
 -- needed the checker to resolve was never resolved.
 function M.entriesAfterAComputedKeyAreStillChecked()
-    assertEq((diagsOf("local t = {['a'] = 1, ['b'] = 'no' + 1}")), "NUPP2003:1")
-    assertEq((diagsOf("local t = {['a'] = 1, b = 'no' + 1}")), "NUPP2003:1")
-    assertEq((diagsOf("local t = {['a'] = 1, 'no' + 1}")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local t = {['a'] = 1, ['b'] = 'no' + 1}")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local t = {['a'] = 1, b = 'no' + 1}")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local t = {['a'] = 1, 'no' + 1}")), "NUPP2003:1")
     -- Every entry, not only the one after the first computed key.
-    assertEq((diagsOf("local t = {['a'] = 1, ['b'] = 'no' + 1, ['c'] = 'no' + 1}")), "NUPP2003:1 NUPP2003:1")
+    testAssert.equal((diagsOf("local t = {['a'] = 1, ['b'] = 'no' + 1, ['c'] = 'no' + 1}")), "NUPP2003:1 NUPP2003:1")
     assertClean("local t = {['a'] = 1, ['b'] = 2}")
 end
 
@@ -1228,19 +1308,19 @@ function M.inheritedContractsBoundsAndSelf()
         "\n"
     )
     assertClean(src)
-    assertEq(
+    testAssert.equal(
         (diagsOf(src .. table.concat({"", "local record Plain end", "local bad = construct(Plain)",}, "\n"))),
         "NUPP2116:18"
     )
 end
 
 function M.interfaceInheritanceRejectsCycles()
-    assertEq(diagsOf("local interface Self is Self\nend"), "NUPP2117:1")
-    assertEq(
+    testAssert.equal(diagsOf("local interface Self is Self\nend"), "NUPP2117:1")
+    testAssert.equal(
         diagsOf(table.concat({"local interface A is B", "end", "local interface B is A", "end",}, "\n")),
         "NUPP2117:3"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {"local interface A is B", "end", "local interface B is C", "end", "local interface C is A", "end",},
@@ -1249,7 +1329,7 @@ function M.interfaceInheritanceRejectsCycles()
         ),
         "NUPP2117:5"
     )
-    assertEq(diagsOf("local interface Recursive<T> is Recursive<{T}>\nend"), "NUPP2117:1")
+    testAssert.equal(diagsOf("local interface Recursive<T> is Recursive<{T}>\nend"), "NUPP2117:1")
 end
 
 function M.genericIndexContracts()
@@ -1357,8 +1437,8 @@ function M.operatorContracts()
     -- corresponding operand reversal.
     comparisonContract("__lt", "<=", true)
 
-    assertEq((diagsOf("local n = #true")), "NUPP2003:1")
-    assertEq(
+    testAssert.equal((diagsOf("local n = #true")), "NUPP2003:1")
+    testAssert.equal(
         (diagsOf("local record A end\nlocal record B end\nlocal x: A = new A()\nlocal y: B = new B()\nprint(x < y)")),
         "NUPP2003:5"
     )
@@ -1444,16 +1524,21 @@ end
 -- has not reached that local where the method is written, so the name would read a
 -- global. Deferring the bodies does not change what they can see.
 function M.aLaterLocalRecordStaysOutOfAnEarlierMethodsScope()
-    local got = diagsOf(table.concat({
-        "local record A",
-        "   function make(self): integer return (new B(v = 3)).v end",
-        "end",
-        "local record B",
-        "   v: integer",
-        "   function again(self): B return new B(v = self.v) end",
-        "end",
-        "print((new A()):make())",
-    }, "\n"))
+    local got = diagsOf(
+        table.concat(
+            {
+                "local record A",
+                "   function make(self): integer return (new B(v = 3)).v end",
+                "end",
+                "local record B",
+                "   v: integer",
+                "   function again(self): B return new B(v = self.v) end",
+                "end",
+                "print((new A()):make())",
+            },
+            "\n"
+        )
+    )
     -- An unknown name: NUPP2105 under the strict floor, and in this gradual file a
     -- construction with no known callable.
     assert(got:find("NUPP2105:2", 1, true) or got:find("NUPP2006:2", 1, true), got)
@@ -1473,7 +1558,7 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -1519,7 +1604,7 @@ end
 -- the NUPP2119 fix does not offer `record Loose.Loose`.
 function M.aDeclarationIsNotAttachedToItself()
     local _, found = diagsOf("record Loose\n    x: number\nend\nreturn Loose")
-    assertEq(found[1] and found[1].code, "NUPP2119")
+    testAssert.equal(found[1] and found[1].code, "NUPP2119")
     assert(not found[1].msg:find("Loose.Loose", 1, true), found[1].msg)
     for _, fix in ipairs(found[1].fixes or {}) do
         assert(not fix.title:find("attach", 1, true), fix.title)
@@ -1527,7 +1612,7 @@ function M.aDeclarationIsNotAttachedToItself()
     end
     local module = "local shapes = {}\nrecord Point\n    x: number\nend\nreturn shapes"
     local _, attached = diagsOf(module)
-    assertEq(attached[1].fixes[1].title, "attach it to shapes")
+    testAssert.equal(attached[1].fixes[1].title, "attach it to shapes")
     assertClean(applyFix(module, attached[1].fixes[1]))
 end
 
@@ -1538,8 +1623,8 @@ function M.metamethodTyposCarrySafeFixes()
     )
     local _, literalDiags = diagsOf(literal)
     local literalFixes = literalDiags[1] and literalDiags[1].fixes
-    assertEq(literalFixes and #literalFixes or 0, 1, "one runtime metamethod spelling is uniquely closest")
-    assertEq(literalFixes[1].title, "change to `__call`")
+    testAssert.equal(literalFixes and #literalFixes or 0, 1, "one runtime metamethod spelling is uniquely closest")
+    testAssert.equal(literalFixes[1].title, "change to `__call`")
     assertClean(applyFix(literal, literalFixes[1]))
 
     local contract = table.concat(
@@ -1548,8 +1633,8 @@ function M.metamethodTyposCarrySafeFixes()
     )
     local _, contractDiags = diagsOf(contract)
     local contractFixes = contractDiags[1] and contractDiags[1].fixes
-    assertEq(contractFixes and #contractFixes or 0, 1, "an adjacent transposition has one contract fix")
-    assertEq(contractFixes[1].title, "change to `__index`")
+    testAssert.equal(contractFixes and #contractFixes or 0, 1, "an adjacent transposition has one contract fix")
+    testAssert.equal(contractFixes[1].title, "change to `__index`")
     assertClean(applyFix(contract, contractFixes[1]))
 
     local missingPrefix = table.concat(
@@ -1558,7 +1643,7 @@ function M.metamethodTyposCarrySafeFixes()
     )
     local _, prefixDiags = diagsOf(missingPrefix)
     local prefixFixes = prefixDiags[1] and prefixDiags[1].fixes
-    assertEq(prefixFixes and #prefixFixes or 0, 1, "a known contract missing its prefix has one fix")
+    testAssert.equal(prefixFixes and #prefixFixes or 0, 1, "a known contract missing its prefix has one fix")
     assertClean(applyFix(missingPrefix, prefixFixes[1]))
 
     local runtimeOnly = table.concat({"local record R", "   metamethod __mode: function(self): string", "end",}, "\n")
@@ -1567,7 +1652,7 @@ function M.metamethodTyposCarrySafeFixes()
 end
 
 function M.unsupportedAndDuplicateContractsAreRejected()
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -1578,7 +1663,7 @@ function M.unsupportedAndDuplicateContractsAreRejected()
         ),
         "NUPP2118:2"
     )
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -1592,10 +1677,10 @@ function M.unsupportedAndDuplicateContractsAreRejected()
 end
 
 function M.mismatchDiagnostics()
-    assertEq((diagsOf("local x: number = 'oops'")), "NUPP2001:1")
-    assertEq((diagsOf("local x: string\nx = 42")), "NUPP2001:2")
-    assertEq((diagsOf("local x: integer = 1.5")), "NUPP2001:1")
-    assertEq((diagsOf("local o: number? = 'no'")), "NUPP2001:1")
+    testAssert.equal((diagsOf("local x: number = 'oops'")), "NUPP2001:1")
+    testAssert.equal((diagsOf("local x: string\nx = 42")), "NUPP2001:2")
+    testAssert.equal((diagsOf("local x: integer = 1.5")), "NUPP2001:1")
+    testAssert.equal((diagsOf("local o: number? = 'no'")), "NUPP2001:1")
 end
 
 function M.constBindings()
@@ -1604,15 +1689,15 @@ function M.constBindings()
     assertClean("local x = 1\ndo const x = 2 end")
     assertClean("const function f(n: number): number return n end\nf(1)")
 
-    assertEq((diagsOf("const x = 1\nx = 2")), "NUPP2008:2")
-    assertEq((diagsOf("const x = 1\nx += 2")), "NUPP2008:2")
-    assertEq((diagsOf("const x\nx ??= 2")), "NUPP2008:2")
-    assertEq((diagsOf("const x = 1\nlocal x = 2")), "NUPP2008:2")
-    assertEq((diagsOf("const x = 1\ndo local x = 2 end")), "NUPP2008:2")
-    assertEq((diagsOf("const x = 1\nlocal function f(x) end")), "NUPP2008:2")
-    assertEq((diagsOf("const x = 1\nfor x = 1, 2 do end")), "NUPP2008:2")
-    assertEq((diagsOf("const x = 1\nlocal f = x -> x")), "NUPP2008:2")
-    assertEq((diagsOf("const function f() end\nf = nil")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\nx = 2")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\nx += 2")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x\nx ??= 2")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\nlocal x = 2")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\ndo local x = 2 end")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\nlocal function f(x) end")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\nfor x = 1, 2 do end")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const x = 1\nlocal f = x -> x")), "NUPP2008:2")
+    testAssert.equal((diagsOf("const function f() end\nf = nil")), "NUPP2008:2")
 end
 
 -- A table literal is contextually checked against the type it initializes, so a
@@ -1643,7 +1728,7 @@ function M.aBoundLiteralIsNoLongerFresh()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             animals .. table.concat(
                 {
@@ -1657,7 +1742,7 @@ function M.aBoundLiteralIsNoLongerFresh()
         ),
         "NUPP2001:9"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             animals .. table.concat(
                 {
@@ -1707,7 +1792,7 @@ function M.constReachesTheWholeValue()
         },
         "\n"
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             decls .. table.concat(
                 {
@@ -1744,7 +1829,7 @@ function M.constReachesTheWholeValue()
         )
     )
     -- a const self is read-only inside the method too
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat(
                 {
@@ -1766,33 +1851,33 @@ end
 function M.namedVarargsAreConst()
     assertClean("local function f(...args) return args.n, args[1], ... end")
     assertClean("local f = |...args| -> args.n")
-    assertEq((diagsOf("local function f(...args) args = {} end")), "NUPP2008:1")
-    assertEq((diagsOf("local f = |...args| -> do\nlocal args = {}\nend")), "NUPP2008:2")
+    testAssert.equal((diagsOf("local function f(...args) args = {} end")), "NUPP2008:1")
+    testAssert.equal((diagsOf("local f = |...args| -> do\nlocal args = {}\nend")), "NUPP2008:2")
 end
 
 function M.operatorDiagnostics()
-    assertEq((diagsOf("local x = 'a' + 1")), "NUPP2003:1")
-    assertEq((diagsOf("local x = {} .. 'b'")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local x = 'a' + 1")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local x = {} .. 'b'")), "NUPP2003:1")
     -- Lua would coerce '1' + 1 at runtime; the checker still flags it
-    assertEq((diagsOf("local x = '1' + 1")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local x = '1' + 1")), "NUPP2003:1")
 end
 
 function M.returnChecking()
-    assertEq((diagsOf("local function f(): number return 'no' end")), "NUPP2002:1")
-    assertEq((diagsOf("local function f(): number return 1, 2 end")), "NUPP2002:1")
+    testAssert.equal((diagsOf("local function f(): number return 'no' end")), "NUPP2002:1")
+    testAssert.equal((diagsOf("local function f(): number return 1, 2 end")), "NUPP2002:1")
     assertClean("local function f(): number, string return 1, 'ok' end")
     -- missing return value against an annotation
-    assertEq((diagsOf("local function f(): number return end")), "NUPP2002:1")
+    testAssert.equal((diagsOf("local function f(): number return end")), "NUPP2002:1")
 end
 
 function M.callChecking()
     local callSource = "local f = function(n: number) end\nf('x')"
     local code, callDiags = diagsOf(callSource)
-    assertEq(code, "NUPP2006:2")
-    assertEq(#(callDiags[1].related or {}), 1, "bad argument points back to the callable declaration")
+    testAssert.equal(code, "NUPP2006:2")
+    testAssert.equal(#(callDiags[1].related or {}), 1, "bad argument points back to the callable declaration")
     assert(callDiags[1].help:find("parameter list", 1, true), "bad call says what to compare")
-    assertEq((diagsOf("local f = function(n: number) end\nf(1, 2)")), "NUPP2007:2")
-    assertEq((diagsOf("local n: number = 1\nn(2)")), "NUPP2005:2")
+    testAssert.equal((diagsOf("local f = function(n: number) end\nf(1, 2)")), "NUPP2007:2")
+    testAssert.equal((diagsOf("local n: number = 1\nn(2)")), "NUPP2005:2")
     assertClean("local f = function(...: number): number return 0 end\nf(1, 2, 3)")
 end
 
@@ -1800,10 +1885,10 @@ function M.omittedArgumentMustAcceptNil()
     -- An argument left off a call arrives as nil, so the parameter has to admit
     -- it whether or not the callable has a computed tail.
     local code, diags = diagsOf("local function f(x: string): string return x end\nlocal s: string = f()")
-    assertEq(code, "NUPP2006:2")
+    testAssert.equal(code, "NUPP2006:2")
     assert(diags[1].msg:find("omitted argument 1 supplies nil", 1, true), diags[1].msg)
-    assertEq((diagsOf("local function f(x: string, y: integer): string return x end\nf('a')")), "NUPP2006:2")
-    assertEq((diagsOf("local m = {}\nfunction m.f(x: string): string return x end\nm.f()")), "NUPP2006:3")
+    testAssert.equal((diagsOf("local function f(x: string, y: integer): string return x end\nf('a')")), "NUPP2006:2")
+    testAssert.equal((diagsOf("local m = {}\nfunction m.f(x: string): string return x end\nm.f()")), "NUPP2006:3")
     assertClean("local function f(x: string, y: integer?): string return x end\nf('a')")
     assertClean("local function f(x: string, y: any): string return x end\nf('a')")
     assertClean("local function f(x: string, y: integer | nil) end\nf('a')")
@@ -1819,9 +1904,9 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
             "\n"
         )
     )
-    assertEq(code, "NUPP2002:3")
+    testAssert.equal(code, "NUPP2002:3")
     assert(diags[1].msg:find("end of the function without returning", 1, true), diags[1].msg)
-    assertEq((diagsOf("local function f(): integer, string\n    return 1\nend")), "NUPP2002:2")
+    testAssert.equal((diagsOf("local function f(): integer, string\n    return 1\nend")), "NUPP2002:2")
     assertClean("local function maybe(flag: boolean): string?\n    if flag then return 's' end\nend")
     assertClean("local function f(): string, integer?\n    return 's'\nend")
     assertClean("local function f(flag: boolean): string\n    if flag then return 'a' else return 'b' end\nend")
@@ -1833,8 +1918,11 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
     assertClean("local function f(): string\n    repeat\n        return 'a'\n    until false\nend")
     assertClean("local function f(): string\n    error('never')\nend")
     assertClean("local function f(): string\n    ::again::\n    do return 'a' end\n    goto again\nend")
-    assertEq((diagsOf("local function f(flag: boolean): string\n    while flag do return 'a' end\nend")), "NUPP2002:3")
-    assertEq(
+    testAssert.equal(
+        (diagsOf("local function f(flag: boolean): string\n    while flag do return 'a' end\nend")),
+        "NUPP2002:3"
+    )
+    testAssert.equal(
         (
             diagsOf(
                 "local function f(): string\n    while true do\n        if math.random() > 0.5 then break end\n    end\nend"
@@ -1842,8 +1930,8 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
         ),
         "NUPP2002:5"
     )
-    assertEq((diagsOf("local function f(): string\n    for _ = 1, 3 do return 'a' end\nend")), "NUPP2002:3")
-    assertEq(
+    testAssert.equal((diagsOf("local function f(): string\n    for _ = 1, 3 do return 'a' end\nend")), "NUPP2002:3")
+    testAssert.equal(
         (
             diagsOf(
                 "local function f(flag: boolean): string\n    if flag then return 'a' elseif not flag then return 'b' end\nend"
@@ -1852,7 +1940,7 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
         "NUPP2002:3"
     )
     -- Reaching the end of a body that ends in a label is reaching a target.
-    assertEq((diagsOf("local function f(): string\n    do return 'a' end\n    ::done::\nend")), "NUPP2002:4")
+    testAssert.equal((diagsOf("local function f(): string\n    do return 'a' end\n    ::done::\nend")), "NUPP2002:4")
     -- A chain over every member of a literal union, leaving through each, is complete.
     assertClean(
         table.concat(
@@ -1884,10 +1972,10 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
 end
 
 function M.fieldChecking()
-    assertEq((diagsOf("local p: {x: number} = {x = 1}\nlocal y = p.nope")), "NUPP2004:2")
+    testAssert.equal((diagsOf("local p: {x: number} = {x = 1}\nlocal y = p.nope")), "NUPP2004:2")
     assertClean("local p: {x: number} = {x = 1}\nlocal y: number = p.x")
     assertClean("local m: {[string]: number} = {}\nlocal v: number? = m['k']")
-    assertEq((diagsOf("local a: {number} = {}\nlocal v = a['k']")), "NUPP2004:2")
+    testAssert.equal((diagsOf("local a: {number} = {}\nlocal v = a['k']")), "NUPP2004:2")
 end
 
 function M.identifierTyposCarryUnambiguousFixes()
@@ -1898,10 +1986,10 @@ function M.identifierTyposCarryUnambiguousFixes()
     local _, fieldDiags = diagsOf(fieldSource)
     local fieldFix = fieldDiags[1] and fieldDiags[1].fixes and fieldDiags[1].fixes[1]
     assert(fieldFix, "field typo has a fix")
-    assertEq(fieldFix.title, "change to `horizontal`")
+    testAssert.equal(fieldFix.title, "change to `horizontal`")
     assertClean(applyFix(fieldSource, fieldFix))
-    assertEq(fieldDiags[1].col, 17, "diagnostic points at the member")
-    assertEq(fieldDiags[1].length, #"horizonal", "member span")
+    testAssert.equal(fieldDiags[1].col, 17, "diagnostic points at the member")
+    testAssert.equal(fieldDiags[1].length, #"horizonal", "member span")
 
     local typeSource = "local value: stirng = 'x'"
     local _, typeDiags = diagsOf(typeSource)
@@ -1924,7 +2012,7 @@ function M.recordDeclarationsCheck()
             "\n"
         )
     )
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -1945,7 +2033,7 @@ end
 
 function M.nominalProvenance()
     -- same shape, different declarations: not interchangeable
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -1980,12 +2068,12 @@ function M.typeAliasAndLiteralUnionCheck()
 end
 
 function M.unknownTypeNames()
-    assertEq((diagsOf("local x: Wat = 1")), "NUPP2101:1")
+    testAssert.equal((diagsOf("local x: Wat = 1")), "NUPP2101:1")
 end
 
 function M.shortFunctionsTyped()
     assertClean("local dbl = |x: number| -> x * 2\nlocal n: number = dbl(3)")
-    assertEq((diagsOf("local dbl = |x: number| -> x * 2\ndbl('a')")), "NUPP2006:2")
+    testAssert.equal((diagsOf("local dbl = |x: number| -> x * 2\ndbl('a')")), "NUPP2006:2")
     assertClean("local always = || -> true\nlocal b: boolean = always()")
     assertClean("local blocky = |x: number| -> do return x end\nblocky(1)")
     -- single-parameter sugar; the return type is inferred from the body
@@ -2006,10 +2094,10 @@ function M.shortFunctionsInferCallbackParameters()
         "\n"
     )
     assertClean(src)
-    assertEq((diagsOf(src:gsub("e.name", "e.missing"))), "NUPP2004:6")
+    testAssert.equal((diagsOf(src:gsub("e.name", "e.missing"))), "NUPP2004:6")
     local longSrc = src:gsub("e %-%> do", "function(e)")
     assertClean(longSrc)
-    assertEq((diagsOf(longSrc:gsub("e.name", "e.missing"))), "NUPP2004:6")
+    testAssert.equal((diagsOf(longSrc:gsub("e.name", "e.missing"))), "NUPP2004:6")
 end
 
 function M.shortFunctionReturnsCompleteGenericInference()
@@ -2018,14 +2106,14 @@ function M.shortFunctionReturnsCompleteGenericInference()
         "\n"
     )
     assertClean(prefix .. "\nlocal values: {number} = map({1, 2}, |x| -> x + 1)")
-    assertEq(diagsOf(prefix .. "\nlocal values: {string} = map({1, 2}, |x| -> x + 1)"), "NUPP2001:4")
+    testAssert.equal(diagsOf(prefix .. "\nlocal values: {string} = map({1, 2}, |x| -> x + 1)"), "NUPP2001:4")
 end
 
 function M.interpolatedStringsTyped()
     assertClean("local n = 3\nlocal s: string = `n is ${n}, twice is ${n * 2}`")
-    assertEq((diagsOf("local x: number = `just text ${1}`")), "NUPP2001:1")
+    testAssert.equal((diagsOf("local x: number = `just text ${1}`")), "NUPP2001:1")
     -- errors inside interpolations are still found
-    assertEq((diagsOf("local s = `bad: ${'a' + 1}`")), "NUPP2003:1")
+    testAssert.equal((diagsOf("local s = `bad: ${'a' + 1}`")), "NUPP2003:1")
 end
 
 function M.castsAreTrusted()
@@ -2039,9 +2127,10 @@ end
 function M.tableArgumentIsGradualEvidence()
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local env = require("nupp.compiler.project.env").new(here .. "/..")
+
     local function strictDiags(source)
         local result = parser.parse(source, "walk.nupp")
-        assertEq(#result.errors, 0, "syntax errors")
+        testAssert.equal(#result.errors, 0, "syntax errors")
         local out = {}
         for j, d in ipairs(check.check(result, "walk.nupp", env)) do
             out[j] = d.code .. ":" .. d.line .. " " .. d.msg
@@ -2049,36 +2138,37 @@ function M.tableArgumentIsGradualEvidence()
 
         return table.concat(out, "\n")
     end
-    assertEq(
+
+    testAssert.equal(
         strictDiags(
             "local m = {}\n"
-                .. "function m.walk(source: table): (string, integer)\n"
-                .. "    for key, value in pairs(source) do\n"
-                .. "        local s: string, n: integer = key, value\n"
-                .. "        return s, n\n"
-                .. "    end\n"
-                .. "    for _, value in ipairs(source) do\n"
-                .. "        local s: string = value\n"
-                .. "        return s, 0\n"
-                .. "    end\n"
-                .. "    return '', 0\n"
-                .. "end\n"
-                .. "return m"
+            .. "function m.walk(source: table): (string, integer)\n"
+            .. "    for key, value in pairs(source) do\n"
+            .. "        local s: string, n: integer = key, value\n"
+            .. "        return s, n\n"
+            .. "    end\n"
+            .. "    for _, value in ipairs(source) do\n"
+            .. "        local s: string = value\n"
+            .. "        return s, 0\n"
+            .. "    end\n"
+            .. "    return '', 0\n"
+            .. "end\n"
+            .. "return m"
         ),
         "",
         "pairs and ipairs read a table's entries as any"
     )
-    assertEq(
+    testAssert.equal(
         strictDiags(
             "local m = {}\n"
-                .. "local function firstKey<K, V>(t: {[K]: V}): K?\n    return (next(t))\nend\n"
-                .. "local function pick<T>(t: {value: T}): T\n    return t.value\nend\n"
-                .. "function m.use(source: table): (string?, integer)\n"
-                .. "    local s: string? = firstKey(source)\n"
-                .. "    local n: integer = pick(source)\n"
-                .. "    return s, n\n"
-                .. "end\n"
-                .. "return m"
+            .. "local function firstKey<K, V>(t: {[K]: V}): K?\n    return (next(t))\nend\n"
+            .. "local function pick<T>(t: {value: T}): T\n    return t.value\nend\n"
+            .. "function m.use(source: table): (string?, integer)\n"
+            .. "    local s: string? = firstKey(source)\n"
+            .. "    local n: integer = pick(source)\n"
+            .. "    return s, n\n"
+            .. "end\n"
+            .. "return m"
         ),
         "",
         "a map or shape parameter binds any from a table"
@@ -2092,27 +2182,32 @@ function M.gradualDefaults()
     -- inferred table literals stay open (module-table idiom);
     -- annotated shapes are closed
     assertClean("local M = {a = 1}\nM.b = 2\nlocal x = M.b")
-    assertEq((diagsOf("local M: {a: number} = {a = 1}\nlocal x = M.b")), "NUPP2004:2")
+    testAssert.equal((diagsOf("local M: {a: number} = {a = 1}\nlocal x = M.b")), "NUPP2004:2")
     -- inferred bindings widen; annotated bindings stay exact
     assertClean("local i = 1\ni = i / 2")
     assertClean("local x = nil\nx = {}\nlocal v = x.field")
-    assertEq((diagsOf("local i: integer\ni = 1.5")), "NUPP2001:2")
+    testAssert.equal((diagsOf("local i: integer\ni = 1.5")), "NUPP2001:2")
     -- disabling an inferred local function is legal; an annotated one is not
     assertClean("local function f() end\nf = nil")
-    assertEq((diagsOf("local f: function() = function() end\nf = nil")), "NUPP2001:2")
+    testAssert.equal((diagsOf("local f: function() = function() end\nf = nil")), "NUPP2001:2")
 end
 
 -- A callee that borrows its extra arguments keeps none of them, and nothing owned
 -- reaches a plain `...: any`, so it fits one. A slot that lends its extra
 -- arguments still refuses a callee free to keep them.
 function M.aBorrowingVarargTailFitsAPlainOne()
-    assertClean(table.concat({
-        "local f1: function(...: any) = print",
-        "local f2: function(...: any): nil = print",
-        "local f3: function(s: string): nil = print",
-        "f1('a') f2('b') f3('c')",
-    }, "\n"))
-    assertEq(
+    assertClean(
+        table.concat(
+            {
+                "local f1: function(...: any) = print",
+                "local f2: function(...: any): nil = print",
+                "local f3: function(s: string): nil = print",
+                "f1('a') f2('b') f3('c')",
+            },
+            "\n"
+        )
+    )
+    testAssert.equal(
         (diagsOf("local function keep(...: any): nil end\nlocal f: function(borrows ...: any): nil = keep\nf(1)")),
         "NUPP2001:2"
     )
@@ -2121,8 +2216,8 @@ end
 -- A call whose callee is a dotted path reports what is wrong with the path once.
 function M.aBrokenCalleePathIsReportedOnce()
     local R = "local record R\n    v: integer\nend\nlocal r = new R(v = 1)\n"
-    assertEq((diagsOf(R .. "r.nope.goes()")), "NUPP2004:5")
-    assertEq((diagsOf(R .. "local y = r.nope.goes(1)\nprint(y)")), "NUPP2004:5")
+    testAssert.equal((diagsOf(R .. "r.nope.goes()")), "NUPP2004:5")
+    testAssert.equal((diagsOf(R .. "local y = r.nope.goes(1)\nprint(y)")), "NUPP2004:5")
 end
 
 -- A local bound to a namespace path stands for the path: its exported types
@@ -2131,26 +2226,33 @@ end
 function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local env = require("nupp.compiler.project.env").new(here .. "/..")
-    local spanSource = table.concat({
-        "local span = nupp.mem.span",
-        "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
-        "    for index = 1, #output do output[index] = input[index] end",
-        "end",
-        "return copy",
-    }, "\n")
-    assertEq((checkedDiags(spanSource, env)), "", spanSource)
-    local source = table.concat({
-        "local i32 = nupp.math.i32",
-        "local math32 = nupp.math",
-        "local function mask(a: int32, b: int32): (int32, int32, int32)",
-        "    return i32.andBits(a, b), nupp.math.i32.andBits(a, b), math32.i32.andBits(a, b)",
-        "end",
-        "return mask",
-    }, "\n")
+    local spanSource = table.concat(
+        {
+            "local span = nupp.mem.span",
+            "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
+            "    for index = 1, #output do output[index] = input[index] end",
+            "end",
+            "return copy",
+        },
+        "\n"
+    )
+    testAssert.equal((checkedDiags(spanSource, env)), "", spanSource)
+    local source = table.concat(
+        {
+            "local i32 = nupp.math.i32",
+            "local math32 = nupp.math",
+            "local function mask(a: int32, b: int32): (int32, int32, int32)",
+            "    return i32.andBits(a, b), nupp.math.i32.andBits(a, b), math32.i32.andBits(a, b)",
+            "end",
+            "return mask",
+        },
+        "\n"
+    )
     local result = parser.parse(source, "test.g.nupp")
     local diags = check.check(result, "test.g.nupp", env)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
     local identities = {}
+
     local function walk(node)
         if type(node) ~= "table" or node.kind == nil then
             return
@@ -2162,39 +2264,57 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
             walk(child)
         end
     end
+
     walk(result.root)
-    assertEq(table.concat(identities, " "), "i32.andBits i32.andBits i32.andBits")
+    testAssert.equal(table.concat(identities, " "), "i32.andBits i32.andBits i32.andBits")
 end
 
 -- A union of functions is called member-wise: every member has to accept the
 -- arguments, and the result is what any of them may answer.
 function M.aUnionOfFunctionsIsCallableWhenEveryMemberAccepts()
-    local defs = table.concat({
-        "local function a(): nil print('a') end",
-        "local function b(x: string?): nil print('b', x) end",
-        "local function noop(...: any): nil end",
-        "local function one(): integer return 1 end",
-        "local function name(): string return 'n' end",
-        "local function needs(x: string): nil print(x) end",
-    }, "\n") .. "\n"
-    assertClean(defs .. table.concat({
-        "local function run(flag: boolean): nil",
-        "   local h = flag ? a : b",
-        "   h()",
-        "   local log = flag and print or noop",
-        "   log('x')",
-        "   local pick = flag ? one : name",
-        "   local r: integer | string = pick()",
-        "   print(r)",
-        "end",
-        "return run",
-    }, "\n"))
-    assertEq(
-        (diagsOf(defs .. "local function run(flag: boolean): nil\n   local f = flag ? a : needs\n   f()\nend\nreturn run")),
+    local defs = table.concat(
+        {
+            "local function a(): nil print('a') end",
+            "local function b(x: string?): nil print('b', x) end",
+            "local function noop(...: any): nil end",
+            "local function one(): integer return 1 end",
+            "local function name(): string return 'n' end",
+            "local function needs(x: string): nil print(x) end",
+        },
+        "\n"
+    ) .. "\n"
+    assertClean(
+        defs .. table.concat(
+            {
+                "local function run(flag: boolean): nil",
+                "   local h = flag ? a : b",
+                "   h()",
+                "   local log = flag and print or noop",
+                "   log('x')",
+                "   local pick = flag ? one : name",
+                "   local r: integer | string = pick()",
+                "   print(r)",
+                "end",
+                "return run",
+            },
+            "\n"
+        )
+    )
+    testAssert.equal(
+        (
+            diagsOf(
+                defs .. "local function run(flag: boolean): nil\n   local f = flag ? a : needs\n   f()\nend\nreturn run"
+            )
+        ),
         "NUPP2005:9"
     )
-    assertEq(
-        (diagsOf(defs .. "local function run(flag: boolean): nil\n   local f = flag ? one : name\n   local n: integer = f()\nend\nreturn run")),
+    testAssert.equal(
+        (
+            diagsOf(
+                defs
+                .. "local function run(flag: boolean): nil\n   local f = flag ? one : name\n   local n: integer = f()\nend\nreturn run"
+            )
+        ),
         "NUPP2001:9"
     )
 end
@@ -2205,29 +2325,31 @@ end
 function M.plainLuaRefusesWhatLuaJITDoesNotRun()
     local function plain(source)
         local tree = parser.parse(source, "plain.lua")
-        assertEq(#tree.errors, 0, "syntax: " .. (tree.errors[1] and tree.errors[1].msg or ""))
+        testAssert.equal(#tree.errors, 0, "syntax: " .. (tree.errors[1] and tree.errors[1].msg or ""))
         local out = {}
         for _, diag in ipairs(check.check(tree, "plain.lua", nil, {})) do
             if diag.code == "NUPP1006" then
                 out[#out + 1] = diag.code .. ":" .. diag.line
             end
         end
+
         return table.concat(out, " ")
     end
-    assertEq(plain("local a = true\nlocal x = a ? 1 : 2\nreturn x"), "")
-    assertEq(plain("local y = 7 // 2\nreturn y"), "NUPP1006:1")
-    assertEq(plain("local z = 7\nz //= 2\nreturn z"), "NUPP1006:2")
-    assertEq(plain("local w = nil\nw ??= 1\nreturn w"), "NUPP1006:2")
-    assertEq(plain("local n = 1\nlocal s = `n is ${n}`\nreturn s"), "NUPP1006:2")
+
+    testAssert.equal(plain("local a = true\nlocal x = a ? 1 : 2\nreturn x"), "")
+    testAssert.equal(plain("local y = 7 // 2\nreturn y"), "NUPP1006:1")
+    testAssert.equal(plain("local z = 7\nz //= 2\nreturn z"), "NUPP1006:2")
+    testAssert.equal(plain("local w = nil\nw ??= 1\nreturn w"), "NUPP1006:2")
+    testAssert.equal(plain("local n = 1\nlocal s = `n is ${n}`\nreturn s"), "NUPP1006:2")
 end
 
 -- `never` has no values, so it adds nothing to a union, and `x or error(...)` is
 -- the type of `x`. Keeping it as a member made every field read fail.
 function M.neverAddsNothingToAUnion()
-    assertEq(T.union({T.never, T.string}), T.string)
-    assertEq(T.union({T.never}), T.never)
-    assertEq(T.union({}), T.never)
-    assertEq(T.optional(T.never), T.nil_)
+    testAssert.equal(T.union({T.never, T.string}), T.string)
+    testAssert.equal(T.union({T.never}), T.never)
+    testAssert.equal(T.union({}), T.never)
+    testAssert.equal(T.optional(T.never), T.nil_)
     local shape = "local record Circle\n    kind: 'circle'\n    radius: number\nend\n"
     assertClean(
         shape .. table.concat(
@@ -2268,7 +2390,7 @@ function M.aColonCallNeedsTheMethodOnEveryAlternative()
     }
     for _, case in ipairs(cases) do
         local source = (case[3] or "") .. case[1]
-        assertEq((diagsOf(source)), case[2], source)
+        testAssert.equal((diagsOf(source)), case[2], source)
     end
     -- Narrowed first, or called through the safe form, the method is there.
     assertClean("local function f(s: string?): string? return s?.:upper() end")
@@ -2285,9 +2407,9 @@ end
 function M.unknownNeedsNarrowingOrACast()
     assertClean("local a: unknown = 5")
     assertClean("local b: unknown = 'text'")
-    assertEq((diagsOf("local a: unknown = 5\nlocal s: string = a")), "NUPP2001:2")
-    assertEq((diagsOf("local a: unknown = 5\nprint(a.field)")), "NUPP2004:2")
-    assertEq((diagsOf("local a: unknown = 5\nprint(a + 1)")), "NUPP2003:2")
+    testAssert.equal((diagsOf("local a: unknown = 5\nlocal s: string = a")), "NUPP2001:2")
+    testAssert.equal((diagsOf("local a: unknown = 5\nprint(a.field)")), "NUPP2004:2")
+    testAssert.equal((diagsOf("local a: unknown = 5\nprint(a + 1)")), "NUPP2003:2")
     assertClean("local a: unknown = 5\nlocal s = a as string\nprint(s)")
     assertClean(
         table.concat(
@@ -2308,7 +2430,7 @@ end
 -- return-type mismatch is caught.
 function M.neverAsAReturnType()
     assertClean(table.concat({"local function bail(msg: string): never", "   error(msg)", "end", "print(bail)",}, "\n"))
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2392,9 +2514,9 @@ end
 -- to the access itself: `false` fails it, where `~= nil` would have let it through.
 function M.aBareFieldRefinementIsATruthinessTest()
     local predicate = require("nupp.compiler.types.predicate")
-    assertEq(predicate.render({op = "truthy", path = {"enabled"}}, "v"), "v.enabled")
-    assertEq(predicate.render({op = "truthy", path = {"a", "b"}}, "v"), "v.a?.b")
-    assertEq(predicate.render({op = "not", a = {op = "truthy", path = {"off"}}}, "v"), "not (v.off)")
+    testAssert.equal(predicate.render({op = "truthy", path = {"enabled"}}, "v"), "v.enabled")
+    testAssert.equal(predicate.render({op = "truthy", path = {"a", "b"}}, "v"), "v.a?.b")
+    testAssert.equal(predicate.render({op = "not", a = {op = "truthy", path = {"off"}}}, "v"), "not (v.off)")
 end
 
 -- `#` is the one accessor the refinement subset admits: it reads one value, answers
@@ -2414,21 +2536,21 @@ function M.aLengthRefinementIsAdmittedAndNormalised()
         )
     )
     local node = {op = "len", path = {"name"}, a = {op = "cmp", cmp = "<=", path = {}, literal = "4", constant = 4}}
-    assertEq(predicate.render(node, "v"), '(type(v.name) == "string" and #v.name <= 4)')
-    assertEq(predicate.satisfiedByValue(node, {name = "abcd"}), true)
-    assertEq(predicate.satisfiedByValue(node, {name = "abcde"}), false)
-    assertEq(predicate.satisfiedByValue(node, {name = 7}), nil)
-    assertEq(predicate.satisfiedByValue(node, {name = {1}}), nil)
-    assertEq(predicate.satisfiedByValue(node, 7), nil)
+    testAssert.equal(predicate.render(node, "v"), '(type(v.name) == "string" and #v.name <= 4)')
+    testAssert.equal(predicate.satisfiedByValue(node, {name = "abcd"}), true)
+    testAssert.equal(predicate.satisfiedByValue(node, {name = "abcde"}), false)
+    testAssert.equal(predicate.satisfiedByValue(node, {name = 7}), nil)
+    testAssert.equal(predicate.satisfiedByValue(node, {name = {1}}), nil)
+    testAssert.equal(predicate.satisfiedByValue(node, 7), nil)
     -- the subject itself, which is what a constrained scalar constrains
     local bare = {op = "len", path = {}, a = {op = "cmp", cmp = ">=", path = {}, literal = "2", constant = 2}}
-    assertEq(predicate.render(bare, "v"), '(type(v) == "string" and #v >= 2)')
-    assertEq(predicate.satisfiedByValue(bare, "ab"), true)
-    assertEq(predicate.satisfiedByValue(bare, "a"), false)
+    testAssert.equal(predicate.render(bare, "v"), '(type(v) == "string" and #v >= 2)')
+    testAssert.equal(predicate.satisfiedByValue(bare, "ab"), true)
+    testAssert.equal(predicate.satisfiedByValue(bare, "a"), false)
 end
 
 function M.aRefinementRejectsOrderedBooleanAndNilComparisons()
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2444,7 +2566,7 @@ function M.aRefinementRejectsOrderedBooleanAndNilComparisons()
         ),
         "NUPP2122:3"
     )
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2464,8 +2586,8 @@ function M.refinementsRecognizeConstantLogicalAnswers()
         )
     end
 
-    assertEq(refuses("false and self.enabled"), "NUPP2122:3")
-    assertEq(refuses("true or self.enabled"), "NUPP2122:3")
+    testAssert.equal(refuses("false and self.enabled"), "NUPP2122:3")
+    testAssert.equal(refuses("true or self.enabled"), "NUPP2122:3")
 end
 
 function M.refinementsAcceptOrdinaryNumericLiteralForms()
@@ -2491,13 +2613,13 @@ function M.satisfiedByValueAnswersThreeWays()
         a = {op = "cmp", cmp = ">=", path = {}, literal = "0", constant = 0},
         b = {op = "cmp", cmp = "<=", path = {}, literal = "31", constant = 31},
     }
-    assertEq(predicate.satisfiedByValue(inRange, 7), true)
-    assertEq(predicate.satisfiedByValue(inRange, 32), false)
-    assertEq(predicate.satisfiedByValue(inRange, -1), false)
+    testAssert.equal(predicate.satisfiedByValue(inRange, 7), true)
+    testAssert.equal(predicate.satisfiedByValue(inRange, 32), false)
+    testAssert.equal(predicate.satisfiedByValue(inRange, -1), false)
     -- a string is not ordered against a number, so neither comparison answers
-    assertEq(predicate.satisfiedByValue(inRange, "7"), nil)
-    assertEq(predicate.satisfiedByValue({op = "typeis", path = {}, luaType = "string"}, "x"), true)
-    assertEq(predicate.satisfiedByValue({op = "typeis", path = {}, luaType = "string"}, 1), false)
+    testAssert.equal(predicate.satisfiedByValue(inRange, "7"), nil)
+    testAssert.equal(predicate.satisfiedByValue({op = "typeis", path = {}, luaType = "string"}, "x"), true)
+    testAssert.equal(predicate.satisfiedByValue({op = "typeis", path = {}, luaType = "string"}, 1), false)
 end
 
 -- A declaration is held to the refinements of the interfaces it declares, where
@@ -2509,7 +2631,7 @@ function M.aRefinementIsProvedAgainstDeclaredFields()
         {"local interface Enabled", "   enabled: boolean", "   satisfies |self| -> self.enabled", "end",},
         "\n"
     )
-    assertEq((diagsOf(enabled .. "\nlocal record Off is Enabled\n   enabled: false\nend")), "NUPP2122:5")
+    testAssert.equal((diagsOf(enabled .. "\nlocal record Off is Enabled\n   enabled: false\nend")), "NUPP2122:5")
     assertClean(enabled .. "\nlocal record On is Enabled\n   enabled: true\nend")
     assertClean(enabled .. "\nlocal record Either is Enabled\n   enabled: boolean\nend")
     local numbered = table.concat(
@@ -2521,7 +2643,7 @@ function M.aRefinementIsProvedAgainstDeclaredFields()
         },
         "\n"
     )
-    assertEq((diagsOf(numbered .. "\nlocal record Named is Numbered\n   name: string\nend")), "NUPP2122:5")
+    testAssert.equal((diagsOf(numbered .. "\nlocal record Named is Numbered\n   name: string\nend")), "NUPP2122:5")
     assertClean(numbered .. "\nlocal record Counted is Numbered\n   name: integer\nend")
 end
 
@@ -2542,15 +2664,18 @@ function M.constrainedTypesNarrowTheirBase()
     assertClean(aliases .. "\nlocal ok: Percent = 50\nreturn ok")
     assertClean(aliases .. "\nlocal ok: Short = 'abcd'\nreturn ok")
     -- the wider one is not established as the narrower
-    assertEq((diagsOf(aliases .. "\nlocal function no(p: Percent): Digit\n   return p\nend\nreturn no")), "NUPP2002:5")
+    testAssert.equal(
+        (diagsOf(aliases .. "\nlocal function no(p: Percent): Digit\n   return p\nend\nreturn no")),
+        "NUPP2002:5"
+    )
     -- nor is the bare base
-    assertEq(
+    testAssert.equal(
         (diagsOf(aliases .. "\nlocal function no(n: integer): Percent\n   return n\nend\nreturn no")),
         "NUPP2002:5"
     )
     -- a literal outside the interval is a violation, not a missing admission
-    assertEq((diagsOf(aliases .. "\nlocal no: Percent = 101\nreturn no")), "NUPP2001:4")
-    assertEq((diagsOf(aliases .. "\nlocal no: Short = 'abcde'\nreturn no")), "NUPP2001:4")
+    testAssert.equal((diagsOf(aliases .. "\nlocal no: Percent = 101\nreturn no")), "NUPP2001:4")
+    testAssert.equal((diagsOf(aliases .. "\nlocal no: Short = 'abcde'\nreturn no")), "NUPP2001:4")
 end
 
 -- An alias is not a brand: one constraint over one base is one type however many
@@ -2574,12 +2699,12 @@ end
 -- The bounds are checked where they are written, so a declaration that admits
 -- nothing is reported rather than compiled into a test no value passes.
 function M.constrainedDeclarationsAreValidated()
-    assertEq((diagsOf("local type E = nupp.types.range(integer, 10, 0)\nreturn E")), "NUPP2422:1")
-    assertEq((diagsOf("local type E = nupp.types.length(integer, 0, 4)\nreturn E")), "NUPP2422:1")
-    assertEq((diagsOf("local type E = nupp.types.range(string, 0, 4)\nreturn E")), "NUPP2422:1")
-    assertEq((diagsOf("local type E = nupp.types.range(uint32, -1, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = nupp.types.range(integer, 10, 0)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = nupp.types.length(integer, 0, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = nupp.types.range(string, 0, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = nupp.types.range(uint32, -1, 4)\nreturn E")), "NUPP2422:1")
     -- an intersection that admits nothing
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2601,7 +2726,7 @@ end
 -- question, and which answer `is R` gave would depend on whether a body
 -- happened to carry one.
 function M.onlyAnInterfaceCarriesARefinement()
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2612,12 +2737,12 @@ function M.onlyAnInterfaceCarriesARefinement()
         ),
         "NUPP2122:3"
     )
-    assertEq(
+    testAssert.equal(
         (diagsOf(table.concat({"local struct S", "   n: int32", "   satisfies |self| -> self.n == 1", "end",}, "\n"))),
         "NUPP2122:3"
     )
     -- one per declaration
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2635,7 +2760,7 @@ function M.onlyAnInterfaceCarriesARefinement()
         "NUPP2122:4"
     )
     -- and the clause that used to sit in the head says where it went
-    assertEq(
+    testAssert.equal(
         (diagsOf(table.concat({"local interface I where self.n == 1", "   n: integer", "end",}, "\n"))),
         "NUPP2122:1"
     )
@@ -2648,7 +2773,7 @@ end
 -- what `is Shape` runs. When C's own fields make that test fail, the two
 -- disagree about the same value and nothing at either site shows it.
 function M.aDeclarationIsHeldToTheRefinementsItInherits()
-    assertEq(
+    testAssert.equal(
         (
             diagsOf(
                 table.concat(
@@ -2725,26 +2850,26 @@ function M.refinementsRejectWhatCannotBeEnforced()
     end
 
     -- arithmetic reaches nothing about the value
-    assertEq(refuses("1 + 1 == 3"), "NUPP2122:3")
+    testAssert.equal(refuses("1 + 1 == 3"), "NUPP2122:3")
     -- a constant decides nothing: this one says yes to every value
-    assertEq(refuses("true"), "NUPP2122:3")
+    testAssert.equal(refuses("true"), "NUPP2122:3")
     -- and this one says no to all of them
-    assertEq(refuses("false"), "NUPP2122:3")
+    testAssert.equal(refuses("false"), "NUPP2122:3")
     -- a field the declaration does not have compiles to a test never true
-    assertEq(refuses("self.nope == 'x'"), "NUPP2122:3")
+    testAssert.equal(refuses("self.nope == 'x'"), "NUPP2122:3")
     -- a call cannot be made where `is` is written
-    assertEq(refuses("tostring(self.n) == '1'"), "NUPP2122:3")
+    testAssert.equal(refuses("tostring(self.n) == '1'"), "NUPP2122:3")
     -- nor can anything outside the subject be read
-    assertEq(refuses("other == 1"), "NUPP2122:3")
+    testAssert.equal(refuses("other == 1"), "NUPP2122:3")
 end
 
 -- An untyped function's results are any number of `any`, and print as such: a
 -- written `...unknown` is a different tail whose values fit nowhere unnarrowed.
 function M.anUndeclaredResultTailRendersAsAny()
     local tail = T.pack({}, {kind = "unknown", type = T.any})
-    assertEq(T.tostringPack(tail), "(...any)")
-    assertEq(T.tostringPack(T.pack({}, {kind = "homogeneous", type = T.unknown})), "(...unknown)")
-    assertEq(
+    testAssert.equal(T.tostringPack(tail), "(...any)")
+    testAssert.equal(T.tostringPack(T.pack({}, {kind = "homogeneous", type = T.unknown})), "(...unknown)")
+    testAssert.equal(
         T.tostring(T.func({}, {T.any}, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)),
         "function(): any"
     )
@@ -2756,18 +2881,18 @@ end
 function M.untypedExportsAreTheStrictFloorsRule()
     local source = table.concat({"module models", "", "export function double(n)", "    return n * 2", "end",}, "\n")
     local gradual = parser.parse(source, "models.g.nupp")
-    assertEq(#gradual.errors, 0, "syntax errors")
+    testAssert.equal(#gradual.errors, 0, "syntax errors")
     local codes = {}
     for j, d in ipairs(check.check(gradual, "models.g.nupp")) do
         codes[j] = d.code .. ":" .. d.line
     end
-    assertEq(table.concat(codes, " "), "", "a gradual file holds no floor")
+    testAssert.equal(table.concat(codes, " "), "", "a gradual file holds no floor")
     local strict = parser.parse(source, "models.nupp")
     codes = {}
     for j, d in ipairs(check.check(strict, "models.nupp")) do
         codes[j] = d.code .. ":" .. d.line
     end
-    assertEq(table.concat(codes, " "), "NUPP2106:3 NUPP2106:3", "a strict file reports both")
+    testAssert.equal(table.concat(codes, " "), "NUPP2106:3 NUPP2106:3", "a strict file reports both")
 end
 
 function M.constructionWidensAnInferredLiteral()

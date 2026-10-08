@@ -1,3 +1,5 @@
+local testAssert = require("nupp.test")
+local assertions = require("helpers.assertions")
 -- Literal types, unions of them, and interface conformance.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -6,15 +8,9 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function diagsOf(src)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(result, "test.g.nupp", env)) do
         out[j] = d.code .. ":" .. d.line
@@ -23,9 +19,9 @@ local function diagsOf(src)
     return table.concat(out, " ")
 end
 
-local function assertClean(src)
-    assertEq(diagsOf(src), "", "expected clean:\n" .. src)
-end
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
 
 local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 
@@ -34,7 +30,7 @@ local M = {}
 function M.literalUnionMembersAssignDirectly()
     assertClean(COLOR .. "\nlocal c: Color = 'red'")
     assertClean(COLOR .. "\nlocal c: Color = 'blue'")
-    assertEq(diagsOf(COLOR .. "\nlocal c: Color = 'purple'"), "NUPP2001:2")
+    testAssert.equal(diagsOf(COLOR .. "\nlocal c: Color = 'purple'"), "NUPP2001:2")
     -- the message names the offending value and the members it is not one of
     local result = parser.parse(COLOR .. "\nlocal c: Color = 'purple'", "t")
     local d = check.check(result, "t.g.nupp", env)[1]
@@ -49,7 +45,7 @@ end
 
 function M.literalUnionMembersFlowThroughCalls()
     assertClean(COLOR .. table.concat({"", "local function paint(c: Color): nil end", "paint('green')",}, "\n"))
-    assertEq(
+    testAssert.equal(
         diagsOf(COLOR .. table.concat({"", "local function paint(c: Color): nil end", "paint('mauve')",}, "\n")),
         "NUPP2006:3"
     )
@@ -60,7 +56,7 @@ function M.literalsAreStringsButInferredBindingsWiden()
     -- an inferred binding holds a string, not that one string
     assertClean("local s = 'a'\ns = 'b'")
     -- an annotated literal type keeps its exact value
-    assertEq(diagsOf(COLOR .. "\nlocal c: Color = 'red'\nc = 'purple'"), "NUPP2001:3")
+    testAssert.equal(diagsOf(COLOR .. "\nlocal c: Color = 'red'\nc = 'purple'"), "NUPP2001:3")
 end
 
 function M.literalsStillConvertAtTheCBoundary()
@@ -89,20 +85,20 @@ end
 function M.interfaceConformanceIsChecked()
     local wrongShape = table.concat({"local record Square", "    side: number", "end",}, "\n")
     local d = diagsOf(SHAPE .. "\n" .. wrongShape .. "\nlocal s: Shape = new Square(side = 1)")
-    assertEq(d, "NUPP2001:7")
+    testAssert.equal(d, "NUPP2001:7")
     -- a member with the wrong type is caught too
     local badArea = table.concat(
         {"local record Blob", "    n: number", "end", "function Blob:area(): string", "    return 'nope'", "end",},
         "\n"
     )
-    assertEq(diagsOf(SHAPE .. "\n" .. badArea .. "\nlocal s: Shape = new Blob(n = 1)"), "NUPP2001:10")
+    testAssert.equal(diagsOf(SHAPE .. "\n" .. badArea .. "\nlocal s: Shape = new Blob(n = 1)"), "NUPP2001:10")
 end
 
 function M.interfacesAcceptPlainShapes()
     assertClean(
         table.concat({"local interface Named", "    name: string", "end", "local n: Named = {name = 'x'}",}, "\n")
     )
-    assertEq(
+    testAssert.equal(
         diagsOf(
             table.concat({"local interface Named", "    name: string", "end", "local n: Named = {name = 1}",}, "\n")
         ),
@@ -117,8 +113,8 @@ function M.strictModeReportsUnknownNames()
     -- under --strict they are errors, while known names stay quiet
     local result = parser.parse(src, "test.g.nupp")
     local diags = check.check(result, "test.g.nupp", env, {strict = true})
-    assertEq(#diags, 1, "one unknown name")
-    assertEq(diags[1].code, "NUPP2105")
+    testAssert.equal(#diags, 1, "one unknown name")
+    testAssert.equal(diags[1].code, "NUPP2105")
     assert(diags[1].msg:find("undefinedThing", 1, true), "names the variable: " .. diags[1].msg)
 end
 
@@ -135,7 +131,7 @@ function M.strictModeAcceptsDeclaredAndStdlibNames()
         "test"
     )
     local diags = check.check(result, "test.g.nupp", env, {strict = true})
-    assertEq(#diags, 0, "declared locals and the stdlib are known: " .. (diags[1] and diags[1].msg or ""))
+    testAssert.equal(#diags, 0, "declared locals and the stdlib are known: " .. (diags[1] and diags[1].msg or ""))
 end
 
 local BOX = table.concat({"local record Box<T>", "    @readonly value: T", "end",}, "\n")
@@ -147,12 +143,15 @@ end
 
 function M.typeArgumentsSubstituteIntoFields()
     assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal n: number = b.value")
-    assertEq(diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"), "NUPP2001:5")
+    testAssert.equal(
+        diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"),
+        "NUPP2001:5"
+    )
     assertClean(BOX .. "\nlocal b: Box<string> = new Box(value = 'x')\nlocal s: string = b.value")
 end
 
 function M.differentArgumentsAreDifferentTypes()
-    assertEq(
+    testAssert.equal(
         diagsOf(
             BOX .. table.concat({"", "local n: Box<number> = new Box(value = 0)", "local s: Box<string> = n",}, "\n")
         ),
@@ -167,7 +166,7 @@ end
 function M.constructionInfersTheArgument()
     assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 1)")
     assertClean(BOX .. "\nlocal b: Box<string> = new Box(value = 'x')")
-    assertEq(diagsOf(BOX .. "\nlocal b: Box<string> = new Box(value = 1)"), "NUPP2001:4")
+    testAssert.equal(diagsOf(BOX .. "\nlocal b: Box<string> = new Box(value = 1)"), "NUPP2001:4")
 end
 
 function M.readTypeArgumentsVaryCovariantly()
