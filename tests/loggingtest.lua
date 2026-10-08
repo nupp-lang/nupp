@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
@@ -7,34 +8,22 @@ local stdlib = require("nupp.compiler.stdlib")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
-local function assertTrue(cond, label)
-    if not cond then
-        error(label or "expected true", 2)
-    end
-end
-
 -- Check, then generate under the module name a logged line should carry.
 local function compile(src, moduleName)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.g.nupp", env)
-    assertEq(#diags, 0, diags[1] and diags[1].msg or "check diagnostics")
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check diagnostics")
     result.moduleName = moduleName or "test"
     local code, generated = gen.generate(result, moduleName or "test")
-    assertEq(#generated, 0, "gen diagnostics")
+    testAssert.equal(#generated, 0, "gen diagnostics")
 
     return code
 end
 
 local function codesOf(src)
     local result = parser.parse(src, "test.g.nupp")
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local out = {}
     for _, d in ipairs(check.check(result, "test.g.nupp", env)) do
         out[#out + 1] = d.code
@@ -61,11 +50,15 @@ end
 local M = {}
 
 function M.formatDirectivesAreCheckedAtTheCallSite()
-    assertEq(codesOf("nupp.log.error('id %d', 3)"), "", "a well-formed call is clean")
-    assertEq(codesOf("nupp.log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
-    assertEq(codesOf("nupp.log.info('%s and %d', 'a', 'b')"), "NUPP2006", "an argument of the wrong type is reported")
-    assertEq(codesOf("nupp.log.debug('plain')"), "", "a format with no directives is clean")
-    assertEq(
+    testAssert.equal(codesOf("nupp.log.error('id %d', 3)"), "", "a well-formed call is clean")
+    testAssert.equal(codesOf("nupp.log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
+    testAssert.equal(
+        codesOf("nupp.log.info('%s and %d', 'a', 'b')"),
+        "NUPP2006",
+        "an argument of the wrong type is reported"
+    )
+    testAssert.equal(codesOf("nupp.log.debug('plain')"), "", "a format with no directives is clean")
+    testAssert.equal(
         codesOf(
             table.concat(
                 {"@derive(nupp.derive.Debug)", "local record Value end", "nupp.log.debug('value=%?', new Value())",},
@@ -75,8 +68,12 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
         "",
         "a debug directive accepts nupp.Debug"
     )
-    assertEq(codesOf("nupp.log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires nupp.Debug")
-    assertEq(
+    testAssert.equal(
+        codesOf("nupp.log.debug('value=%?', 'wrong')"),
+        "NUPP2006",
+        "a debug directive requires nupp.Debug"
+    )
+    testAssert.equal(
         codesOf(table.concat({"local logger = nupp.log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
         "NUPP2006",
         "a named logger requires the same contract"
@@ -84,15 +81,15 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
 end
 
 function M.levelNamesAreCheckedAtTheCallSite()
-    assertEq(codesOf("nupp.log.setLevel('debug')"), "", "a known level is clean")
-    assertEq(codesOf("nupp.log.setModuleLevel('game.physics', 'debug')"), "", "a module level is checked")
-    assertEq(codesOf("nupp.log.setModuleLevel('game.physics', 'inherit')"), "", "an override can be removed")
-    assertEq(codesOf("nupp.log.enabled('warn')"), "", "enabled takes the same names")
-    assertTrue(
+    testAssert.equal(codesOf("nupp.log.setLevel('debug')"), "", "a known level is clean")
+    testAssert.equal(codesOf("nupp.log.setModuleLevel('game.physics', 'debug')"), "", "a module level is checked")
+    testAssert.equal(codesOf("nupp.log.setModuleLevel('game.physics', 'inherit')"), "", "an override can be removed")
+    testAssert.equal(codesOf("nupp.log.enabled('warn')"), "", "enabled takes the same names")
+    assert(
         codesOf("nupp.log.setLevel('verbose')"):find("NUPP2006") ~= nil,
         "an unknown level is not one of the level names"
     )
-    assertTrue(
+    assert(
         codesOf("nupp.log.setModuleLevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
         "an unknown module level is refused"
     )
@@ -113,10 +110,10 @@ end
 function M.aStatementCallWithALiteralFormatIsLowered()
     local code = compile("nupp.log.error('id %d', 3)", "amb")
     local severity, line, message = loweredSite(code)
-    assertEq(severity, 1, "the level test stands at the call site")
-    assertEq(line, 1, "the line is a constant")
-    assertTrue(message:find("string.format", 1, true) ~= nil, "the message is built at the site")
-    assertTrue(
+    testAssert.equal(severity, 1, "the level test stands at the call site")
+    testAssert.equal(line, 1, "the line is a constant")
+    assert(message:find("string.format", 1, true) ~= nil, "the message is built at the site")
+    assert(
         code:find('require("nupp.log").forModule("amb")', 1, true) ~= nil,
         "the module name is named once, in the prologue"
     )
@@ -125,9 +122,9 @@ end
 function M.aFormatWithNoArgumentsSkipsStringFormat()
     local code = compile("nupp.log.warn('plain')", "amb")
     local severity, _, message = loweredSite(code)
-    assertEq(severity, 2, "the call was lowered")
-    assertEq(message:find("string.format", 1, true), nil, "nothing to interpolate means nothing to call")
-    assertTrue(message:find("plain", 1, true) ~= nil, "the literal is passed straight through")
+    testAssert.equal(severity, 2, "the call was lowered")
+    testAssert.equal(message:find("string.format", 1, true), nil, "nothing to interpolate means nothing to call")
+    assert(message:find("plain", 1, true) ~= nil, "the literal is passed straight through")
 end
 
 function M.aDebugDirectiveLowersInsideTheLevelGuard()
@@ -140,8 +137,8 @@ function M.aDebugDirectiveLowersInsideTheLevelGuard()
     )
     local guard = assert(code:find("if __nupp", 1, true), "the enabled guard is present")
     local call = assert(code:find("__nuppFormat", guard, true), "formatting happens in the guard")
-    assertTrue(guard < call, "debug formatting is lazy")
-    assertTrue(
+    assert(guard < call, "debug formatting is lazy")
+    assert(
         code:find('string.format("value=%s",__nuppA1:debug())', 1, true) ~= nil,
         "the shared helper rewrites %? to %s and calls debug"
     )
@@ -163,16 +160,16 @@ function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
         "amb"
     )
     local chunk, why = loadstring(code, "@debug-format")
-    assertTrue(chunk ~= nil, why)
+    assert(chunk ~= nil, why)
     local direct, method = chunk()
-    assertEq(direct, 'direct=Value { name = "ready" }')
-    assertEq(method, 'method=Value { name = "ready" }')
+    testAssert.equal(direct, 'direct=Value { name = "ready" }')
+    testAssert.equal(method, 'method=Value { name = "ready" }')
 end
 
 function M.eachSeverityCarriesItsOwnIndex()
     for index, name in ipairs({"error", "warn", "info", "debug"}) do
         local severity = loweredSite(compile(("nupp.log.%s('m')"):format(name), "amb"))
-        assertEq(severity, index, name .. " tests its own level")
+        testAssert.equal(severity, index, name .. " tests its own level")
     end
 end
 
@@ -181,8 +178,8 @@ end
 -- Lua's own module loading.
 function M.theLoggingViewIsBoundThroughRequire()
     local code = compile("nupp.log.warn('m')", "amb")
-    assertTrue(code:find('require("nupp.log").forModule(', 1, true) ~= nil, "the module view is bound through require")
-    assertEq(
+    assert(code:find('require("nupp.log").forModule(', 1, true) ~= nil, "the module view is bound through require")
+    testAssert.equal(
         code:find('rawset(__nupp,"log"', 1, true),
         nil,
         "and nothing installs a logging table into the ambient one"
@@ -197,17 +194,17 @@ local function isLowered(code)
 end
 
 function M.whatIsNotLoweredStaysAnOrdinaryCall()
-    assertTrue(
+    assert(
         not isLowered(compile("local f = 'id %d'\nnupp.log.error(f, 3)", "amb")),
         "a computed format has nothing to fold"
     )
 
-    assertTrue(
+    assert(
         not isLowered(compile("local f = nupp.log.error\nf('id %d', 3)", "amb")),
         "reading the function is not calling it"
     )
 
-    assertTrue(
+    assert(
         not isLowered(compile("local ok = nupp.log.enabled('warn')", "amb")),
         "a call in value position keeps its value"
     )
@@ -223,10 +220,10 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
         ),
         "amb"
     )
-    assertTrue(not isLowered(valueCall), "a severity call in value position keeps its call")
-    assertTrue(valueCall:find(".debug", 1, true) ~= nil, "and is not replaced by a formatting expression")
+    assert(not isLowered(valueCall), "a severity call in value position keeps its call")
+    assert(valueCall:find(".debug", 1, true) ~= nil, "and is not replaced by a formatting expression")
 
-    assertTrue(
+    assert(
         not isLowered(
             compile(
                 table.concat(
@@ -243,7 +240,7 @@ end
 function M.aNamedArgumentKeepsTheOrdinaryCall()
     -- Named arguments are positional only after the adjustment the ordinary call path
     -- performs, and lowering goes around it.
-    assertTrue(not isLowered(compile("nupp.log.error(fmt = 'plain')", "amb")), "a named argument keeps its call")
+    assert(not isLowered(compile("nupp.log.error(fmt = 'plain')", "amb")), "a named argument keeps its call")
 end
 
 function M.aPluckedArgumentKeepsTheOrdinaryCall()
@@ -260,7 +257,7 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
         ),
         "amb"
     )
-    assertTrue(not isLowered(code), "a plucked argument keeps its call")
+    assert(not isLowered(code), "a plucked argument keeps its call")
 end
 
 function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
@@ -280,18 +277,18 @@ function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
     if log.on[4] then
         log.emit(4, "amb", 7, string.format("%d", expensive()))
     end
-    assertEq(calls, 0, "a filtered site evaluates none of its arguments")
-    assertEq(#lines, 0, "and reaches no sink")
+    testAssert.equal(calls, 0, "a filtered site evaluates none of its arguments")
+    testAssert.equal(#lines, 0, "and reaches no sink")
 
     log.setLevel("debug")
     if log.on[4] then
         log.emit(4, "amb", 7, string.format("%d", expensive()))
     end
-    assertEq(calls, 1, "an admitted site evaluates them once")
-    assertEq(#lines, 1, "and reaches the sink once")
-    assertEq(lines[1].module, "amb", "the sink is handed the module")
-    assertEq(lines[1].line, 7, "and the line")
-    assertEq(lines[1].level, 4, "and the severity as a number")
+    testAssert.equal(calls, 1, "an admitted site evaluates them once")
+    testAssert.equal(#lines, 1, "and reaches the sink once")
+    testAssert.equal(lines[1].module, "amb", "the sink is handed the module")
+    testAssert.equal(lines[1].line, 7, "and the line")
+    testAssert.equal(lines[1].level, 4, "and the severity as a number")
 end
 
 function M.aNamedLoggerDefersDebugFormattingUntilTheLevelIsEnabled()
@@ -309,12 +306,12 @@ function M.aNamedLoggerDefersDebugFormattingUntilTheLevelIsEnabled()
     }
     local logger = log.named("named")
     logger:debug("value=%?", value)
-    assertEq(calls, 0, "a disabled named logger does not call debug")
+    testAssert.equal(calls, 0, "a disabled named logger does not call debug")
 
     log.setLevel("debug")
     logger:debug("value=%?", value)
-    assertEq(calls, 1, "an enabled named logger calls debug once")
-    assertEq(lines[1].message, "value=rendered", "the debug value reaches the sink")
+    testAssert.equal(calls, 1, "an enabled named logger calls debug once")
+    testAssert.equal(lines[1].message, "value=rendered", "the debug value reaches the sink")
 end
 
 function M.aLevelAdmitsItselfAndEverythingAboveIt()
@@ -323,30 +320,30 @@ function M.aLevelAdmitsItselfAndEverythingAboveIt()
     log.setSink(sink)
 
     log.setLevel("warn")
-    assertTrue(log.enabled("error"), "warn admits error")
-    assertTrue(log.enabled("warn"), "warn admits itself")
-    assertTrue(not log.enabled("info"), "warn excludes info")
-    assertTrue(not log.enabled("debug"), "warn excludes debug")
+    assert(log.enabled("error"), "warn admits error")
+    assert(log.enabled("warn"), "warn admits itself")
+    assert(not log.enabled("info"), "warn excludes info")
+    assert(not log.enabled("debug"), "warn excludes debug")
 
     log.setLevel("off")
     for _, name in ipairs({"error", "warn", "info", "debug"}) do
-        assertTrue(not log.enabled(name), "off admits nothing: " .. name)
+        assert(not log.enabled(name), "off admits nothing: " .. name)
     end
 
     log.setLevel("debug")
-    assertTrue(log.enabled("debug"), "debug admits everything")
+    assert(log.enabled("debug"), "debug admits everything")
 end
 
 function M.settersAnswerWhatTheyReplaced()
     local log = runtime()
     log.setLevel("warn")
-    assertEq(log.setLevel("info"), "warn", "the level setter answers the previous level")
-    assertEq(log.level(), "info", "and reading does not change it")
+    testAssert.equal(log.setLevel("info"), "warn", "the level setter answers the previous level")
+    testAssert.equal(log.level(), "info", "and reading does not change it")
 
     local _, sink = recorder()
     local previousSink = log.setSink(sink)
-    assertTrue(previousSink ~= nil, "the sink setter answers the previous target")
-    assertEq(log.sink(), sink, "and reading answers the current one")
+    assert(previousSink ~= nil, "the sink setter answers the previous target")
+    testAssert.equal(log.sink(), sink, "and reading answers the current one")
 
     -- The module is one process-wide singleton rather than a table a bootstrap
     -- rebuilds per test, so what a setter replaces is whatever was in force, not nil.
@@ -354,24 +351,28 @@ function M.settersAnswerWhatTheyReplaced()
     local formatter = function()
         return ""
     end
-    assertEq(log.setFormatter(formatter), formatterBefore, "the formatter setter answers the previous formatter")
-    assertEq(log.formatter(), formatter, "and the new one is in force")
+    testAssert.equal(
+        log.setFormatter(formatter),
+        formatterBefore,
+        "the formatter setter answers the previous formatter"
+    )
+    testAssert.equal(log.formatter(), formatter, "and the new one is in force")
 
     local previousFormat = log.setTimestampFormat("%H ")
-    assertTrue(previousFormat ~= nil, "the timestamp format setter answers the previous one")
-    assertEq(log.timestampFormat(), "%H ", "and the new one is in force")
+    assert(previousFormat ~= nil, "the timestamp format setter answers the previous one")
+    testAssert.equal(log.timestampFormat(), "%H ", "and the new one is in force")
 end
 
 function M.anUnknownLevelRaisesWhereItIsNotALiteral()
     local log = runtime()
-    assertTrue(not pcall(log.setLevel, "verbose"), "an unknown level is refused")
-    assertTrue(not pcall(log.setModuleLevel, "test.scoped.invalid", "verbose"), "including for a module")
-    assertTrue(not pcall(log.setModuleLevel, 3, "debug"), "a module name must be a string")
-    assertTrue(not pcall(log.enabled, "verbose"), "including when only asked about")
-    assertTrue(not pcall(log.setSink, 3), "a target that is neither function nor file is refused")
-    assertTrue(not pcall(log.setSink, {}), "a table without a writer is not file-like")
-    assertTrue(not pcall(log.setFormatter, "text"), "a formatter that is not a function is refused")
-    assertTrue(not pcall(log.named, 3), "a name that is not a string is refused")
+    assert(not pcall(log.setLevel, "verbose"), "an unknown level is refused")
+    assert(not pcall(log.setModuleLevel, "test.scoped.invalid", "verbose"), "including for a module")
+    assert(not pcall(log.setModuleLevel, 3, "debug"), "a module name must be a string")
+    assert(not pcall(log.enabled, "verbose"), "including when only asked about")
+    assert(not pcall(log.setSink, 3), "a target that is neither function nor file is refused")
+    assert(not pcall(log.setSink, {}), "a table without a writer is not file-like")
+    assert(not pcall(log.setFormatter, "text"), "a formatter that is not a function is refused")
+    assert(not pcall(log.named, 3), "a name that is not a string is refused")
 end
 
 function M.theTimestampIsCachedToTheSecond()
@@ -386,14 +387,14 @@ function M.theTimestampIsCachedToTheSecond()
     while os.time() == tick do
     end
     local first = log.timestamp()
-    assertEq(log.timestamp(), first, "two reads in one second answer one string")
-    assertTrue(#first > 0, "and it is not empty")
+    testAssert.equal(log.timestamp(), first, "two reads in one second answer one string")
+    assert(#first > 0, "and it is not empty")
 
     log.setTimestampFormat("")
-    assertEq(log.timestamp(), "", "an empty format turns timestamps off")
+    testAssert.equal(log.timestamp(), "", "an empty format turns timestamps off")
 
     log.setTimestampFormat("%H:%M:%S ")
-    assertTrue(log.timestamp() ~= first, "changing the format drops the cached value")
+    assert(log.timestamp() ~= first, "changing the format drops the cached value")
 end
 
 function M.aFileLikeTargetRendersThroughTheFormatter()
@@ -410,15 +411,15 @@ function M.aFileLikeTargetRendersThroughTheFormatter()
     log.setSink(file)
 
     log.emit(1, "amb", 12, "boom")
-    assertTrue(written[1]:find("error", 1, true) ~= nil, "the default rendering names the level")
-    assertTrue(written[1]:find("amb:12", 1, true) ~= nil, "and locates the site")
-    assertTrue(written[1]:find("boom", 1, true) ~= nil, "and carries the message")
+    assert(written[1]:find("error", 1, true) ~= nil, "the default rendering names the level")
+    assert(written[1]:find("amb:12", 1, true) ~= nil, "and locates the site")
+    assert(written[1]:find("boom", 1, true) ~= nil, "and carries the message")
 
     log.setFormatter(function(level, module, line, message, stamp)
         return ("<%d|%s|%d|%s|%s>"):format(level, module, line, message, stamp)
     end)
     log.emit(2, "amb", 13, "again")
-    assertTrue(written[2]:find("<2|amb|13|again|>", 1, true) ~= nil, "an installed formatter owns the line")
+    assert(written[2]:find("<2|amb|13|again|>", 1, true) ~= nil, "an installed formatter owns the line")
 end
 
 function M.aSinkFunctionBypassesFormattingEntirely()
@@ -431,8 +432,8 @@ function M.aSinkFunctionBypassesFormattingEntirely()
     log.setSink(sink)
 
     log.emit(3, "amb", 4, "message")
-    assertEq(#lines, 1, "the sink received the line")
-    assertEq(lines[1].message, "message", "unrendered")
+    testAssert.equal(#lines, 1, "the sink received the line")
+    testAssert.equal(lines[1].message, "message", "unrendered")
 end
 
 function M.aNamedLoggerCarriesItsNameAndNoLine()
@@ -442,13 +443,13 @@ function M.aNamedLoggerCarriesItsNameAndNoLine()
     log.setLevel("debug")
 
     local physics = log.named("physics")
-    assertEq(log.named("physics"), physics, "a repeated name answers the same logger")
+    testAssert.equal(log.named("physics"), physics, "a repeated name answers the same logger")
     physics:warn("step %d", 3)
-    assertEq(#lines, 1, "the named logger emitted")
-    assertEq(lines[1].module, "physics", "under its own name")
-    assertEq(lines[1].line, 0, "with no line to attribute")
-    assertEq(lines[1].message, "step 3", "and its formatted message")
-    assertTrue(physics:enabled("debug"), "and answers about its own levels")
+    testAssert.equal(#lines, 1, "the named logger emitted")
+    testAssert.equal(lines[1].module, "physics", "under its own name")
+    testAssert.equal(lines[1].line, 0, "with no line to attribute")
+    testAssert.equal(lines[1].message, "step 3", "and its formatted message")
+    assert(physics:enabled("debug"), "and answers about its own levels")
 end
 
 function M.changingTheLevelRestampsExistingLoggers()
@@ -459,15 +460,15 @@ function M.changingTheLevelRestampsExistingLoggers()
 
     local physics = log.named("physics")
     physics:debug("first")
-    assertEq(#lines, 1, "debug is admitted")
+    testAssert.equal(#lines, 1, "debug is admitted")
 
     log.setLevel("error")
     physics:debug("second")
-    assertEq(#lines, 1, "a logger made before the change is restamped")
+    testAssert.equal(#lines, 1, "a logger made before the change is restamped")
 
     log.setLevel("debug")
     physics:debug("third")
-    assertEq(#lines, 2, "and restamped back")
+    testAssert.equal(#lines, 2, "and restamped back")
 end
 
 function M.aModuleLevelOverridesOnlyThatExactModule()
@@ -477,24 +478,28 @@ function M.aModuleLevelOverridesOnlyThatExactModule()
     local physics = log.forModule("test.scoped.physics")
     local collision = log.forModule("test.scoped.physics.collision")
     local render = log.forModule("test.scoped.render")
-    assertEq(log.forModule("test.scoped.physics"), physics, "a module view is cached")
+    testAssert.equal(log.forModule("test.scoped.physics"), physics, "a module view is cached")
 
-    assertEq(log.setModuleLevel("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
-    assertTrue(physics.on[4], "the selected module admits debug")
-    assertTrue(not collision.on[4], "a child module does not inherit an exact override")
-    assertTrue(not render.on[4], "an unrelated module keeps the global level")
-    assertEq(log.moduleLevel("test.scoped.physics"), "debug", "the effective override can be read")
+    testAssert.equal(log.setModuleLevel("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
+    assert(physics.on[4], "the selected module admits debug")
+    assert(not collision.on[4], "a child module does not inherit an exact override")
+    assert(not render.on[4], "an unrelated module keeps the global level")
+    testAssert.equal(log.moduleLevel("test.scoped.physics"), "debug", "the effective override can be read")
 
     log.setLevel("error")
-    assertTrue(physics.on[4], "a global change leaves the override in place")
-    assertTrue(collision.on[1] and not collision.on[2], "an inheriting module follows the global change")
+    assert(physics.on[4], "a global change leaves the override in place")
+    assert(collision.on[1] and not collision.on[2], "an inheriting module follows the global change")
 
-    assertEq(log.setModuleLevel("test.scoped.physics", "inherit"), "debug", "inherit answers the replaced override")
-    assertEq(log.moduleLevel("test.scoped.physics"), "error", "inherit restores the effective global level")
-    assertTrue(physics.on[1] and not physics.on[2], "the existing view resumes inheritance")
+    testAssert.equal(
+        log.setModuleLevel("test.scoped.physics", "inherit"),
+        "debug",
+        "inherit answers the replaced override"
+    )
+    testAssert.equal(log.moduleLevel("test.scoped.physics"), "error", "inherit restores the effective global level")
+    assert(physics.on[1] and not physics.on[2], "the existing view resumes inheritance")
 
     log.setModuleLevel("test.scoped.physics", "off")
-    assertTrue(not physics.on[1], "off is retained as a real override")
+    assert(not physics.on[1], "off is retained as a real override")
     log.setModuleLevel("test.scoped.physics", "inherit")
 end
 
@@ -504,8 +509,8 @@ function M.aModuleLevelConfiguredBeforeTheViewIsCreatedIsApplied()
 
     log.setModuleLevel("test.scoped.future", "info")
     local future = log.forModule("test.scoped.future")
-    assertTrue(future.on[3], "a future view receives its override")
-    assertTrue(not future.on[4], "the override still filters lower severities")
+    assert(future.on[3], "a future view receives its override")
+    assert(not future.on[4], "the override still filters lower severities")
 
     log.setModuleLevel("test.scoped.future", "inherit")
 end
@@ -519,30 +524,30 @@ function M.aNamedLoggerUsesTheLevelForItsName()
     local name = "test.scoped.named"
     local logger = log.named(name)
     log.setModuleLevel(name, "debug")
-    assertTrue(logger:enabled("debug"), "the named logger sees its override")
+    assert(logger:enabled("debug"), "the named logger sees its override")
     logger:debug("selected")
-    assertEq(#lines, 1, "the override admits the named logger")
+    testAssert.equal(#lines, 1, "the override admits the named logger")
 
     log.setModuleLevel(name, "inherit")
-    assertTrue(not logger:enabled("debug"), "the named logger resumes inheritance")
+    assert(not logger:enabled("debug"), "the named logger resumes inheritance")
     logger:debug("filtered")
-    assertEq(#lines, 1, "the inherited global level filters it again")
+    testAssert.equal(#lines, 1, "the inherited global level filters it again")
 end
 
 function M.levelNamesRoundTrip()
     local log = runtime()
     for index, name in ipairs({"error", "warn", "info", "debug"}) do
-        assertEq(log.levelName(index), name, "severity " .. index .. " names itself")
+        testAssert.equal(log.levelName(index), name, "severity " .. index .. " names itself")
     end
-    assertEq(log.levelName(0), "off", "and zero is off")
+    testAssert.equal(log.levelName(0), "off", "and zero is off")
 end
 
 function M.theLoggingViewLandsOnlyInModulesThatLog()
     local without = compile("local m = {}\nreturn m", "amb")
-    assertEq(without:find("nupp.log", 1, true), nil, "a module that never logs requires no logging module")
+    testAssert.equal(without:find("nupp.log", 1, true), nil, "a module that never logs requires no logging module")
 
     local with = compile("nupp.log.warn('m')", "amb")
-    assertTrue(with:find('require("nupp.log")', 1, true) ~= nil, "and a module that logs requires it once")
+    assert(with:find('require("nupp.log")', 1, true) ~= nil, "and a module that logs requires it once")
 end
 
 -- Every call written through the `nupp.log` path runs from a generated module rather
@@ -586,7 +591,7 @@ function M.everyPathCallRunsFromAModule()
     )
     local lines, sink = recorder()
     local chunk, why = loadstring(code, "@path-calls")
-    assertTrue(chunk ~= nil, why)
+    assert(chunk ~= nil, why)
     local answers = chunk()(sink)
     log.setSink(saved.sink)
     log.setFormatter(saved.formatter)
@@ -594,11 +599,11 @@ function M.everyPathCallRunsFromAModule()
     log.setLevel("warn")
     local want = {"warn", "debug", "debug", "error", "error", true, saved.stamp, "", "", true, true, "info",}
     for index, value in ipairs(want) do
-        assertEq(answers[index], value, "path call " .. index)
+        testAssert.equal(answers[index], value, "path call " .. index)
     end
-    assertEq(#lines, 2, "the named logger and the lowered site both reached the sink")
-    assertEq(lines[1].module, "amb.named", "the named logger carries its name")
-    assertEq(lines[2].module, "amb", "the lowered site carries the module")
+    testAssert.equal(#lines, 2, "the named logger and the lowered site both reached the sink")
+    testAssert.equal(lines[1].module, "amb.named", "the named logger carries its name")
+    testAssert.equal(lines[2].module, "amb", "the lowered site carries the module")
 end
 
 return M

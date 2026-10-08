@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local check = require("fragment")
@@ -8,16 +9,10 @@ local relations = require("nupp.compiler.types.relations")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function diagnostics(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     return check.check(parsed, "test", env)
 end
 
@@ -31,30 +26,30 @@ local function codes(source)
 end
 
 local function clean(source)
-    assertEq(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local M = {}
 
 function M.parserGivesIntersectionHigherPrecedenceThanUnion()
     local parsed = parser.parse("local value: A | B & C", "test")
-    assertEq(#parsed.errors, 0)
+    testAssert.equal(#parsed.errors, 0)
     local annotation = parsed.root.blocks[1].stats[1].types[1]
-    assertEq(cst.dump(annotation), "(tunion (tname A) | (tintersection (tname B) & (tname C)))")
+    testAssert.equal(cst.dump(annotation), "(tunion (tname A) | (tintersection (tname B) & (tname C)))")
 end
 
 function M.intersectionsCanonicalizeAndRenderWithPrecedence()
     local a = T.intersection({T.string, T.number, T.string})
     local b = T.intersection({T.number, T.string})
-    assertEq(a, b)
-    assertEq(T.tostring(a), "number & string")
-    assertEq(T.tostring(T.optional(a)), "(number & string)?")
-    assertEq(T.tostring(T.intersection({T.union({T.string, T.nil_}), T.boolean})), "boolean & (string?)")
-    assertEq(T.intersection({T.any, T.string}), T.string)
-    assertEq(T.intersection({T.unknown, T.string}), T.string)
-    assertEq(T.intersection({T.never, T.string}), T.never)
+    testAssert.equal(a, b)
+    testAssert.equal(T.tostring(a), "number & string")
+    testAssert.equal(T.tostring(T.optional(a)), "(number & string)?")
+    testAssert.equal(T.tostring(T.intersection({T.union({T.string, T.nil_}), T.boolean})), "boolean & (string?)")
+    testAssert.equal(T.intersection({T.any, T.string}), T.string)
+    testAssert.equal(T.intersection({T.unknown, T.string}), T.string)
+    testAssert.equal(T.intersection({T.never, T.string}), T.never)
     local tv = T.typevar("T", "intersection-test")
-    assertEq(
+    testAssert.equal(
         T.tostring(
             require("nupp.compiler.types.generics").materialize(
                 T.intersection({
@@ -112,9 +107,9 @@ function M.intersectionSurfacesComposeReadsWritesAndIndexers()
 end
 
 function M.provablyEmptyIntersectionsAreRejected()
-    assertEq(codes("local value: string & number"), "NUPP2124")
-    assertEq(codes("local value: {kind: 'a'} & {kind: 'b'}"), "NUPP2124")
-    assertEq(relations.disjoint(T.string, T.number), "different runtime categories")
+    testAssert.equal(codes("local value: string & number"), "NUPP2124")
+    testAssert.equal(codes("local value: {kind: 'a'} & {kind: 'b'}"), "NUPP2124")
+    testAssert.equal(relations.disjoint(T.string, T.number), "different runtime categories")
 end
 
 function M.callsSelectExactlyOneFunctionMember()
@@ -208,12 +203,12 @@ end
 -- part reads as `any` stays `any` rather than collapsing to `unknown`, which nothing
 -- fits.
 function M.aGradualMemberStaysGradualThroughAnIntersection()
-    assertEq(T.intersection({T.any}), T.any)
-    assertEq(T.intersection({T.any, T.unknown}), T.any)
-    assertEq(T.intersection({T.unknown}), T.unknown)
-    assertEq(T.intersection({}), T.unknown)
-    assertEq(T.intersection({T.any, T.string}), T.string)
-    assertEq(T.intersection({T.never, T.any}), T.never)
+    testAssert.equal(T.intersection({T.any}), T.any)
+    testAssert.equal(T.intersection({T.any, T.unknown}), T.any)
+    testAssert.equal(T.intersection({T.unknown}), T.unknown)
+    testAssert.equal(T.intersection({}), T.unknown)
+    testAssert.equal(T.intersection({T.any, T.string}), T.string)
+    testAssert.equal(T.intersection({T.never, T.any}), T.never)
     clean(
         table.concat(
             {
@@ -238,8 +233,8 @@ function M.overloadFailuresAndAmbiguitiesHaveDedicatedDiagnostics()
         },
         "\n"
     )
-    assertEq(codes(prefix .. "\nlocal value = f('no')"), "NUPP2125")
-    assertEq(codes(prefix .. "\nlocal value = f(1)"), "NUPP2126")
+    testAssert.equal(codes(prefix .. "\nlocal value = f('no')"), "NUPP2125")
+    testAssert.equal(codes(prefix .. "\nlocal value = f(1)"), "NUPP2126")
 end
 
 return M

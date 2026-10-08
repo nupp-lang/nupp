@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
@@ -14,16 +15,10 @@ local hotSession = require("nupp.tools.hotsession")
 -- checker suites do.
 local sharedEnv = envMod.new(".")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s: want %s, got %s"):format(label, tostring(want), tostring(got)), 2)
-    end
-end
-
 local function checked(source, filename)
     filename = filename or "hot.g.nupp"
     local result = parser.parse(source, filename)
-    assertEq(#result.errors, 0, "hot source parses")
+    testAssert.equal(#result.errors, 0, "hot source parses")
     local diagnostics = check.check(result, filename, sharedEnv)
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.code:match("^NUPP[123]") then
@@ -41,7 +36,7 @@ local function generate(source, mode, module)
         module = module or "hot",
         baseGeneration = mode == "patch" and hot.generation() or nil,
     })
-    assertEq(#diagnostics, 0, mode .. " generation diagnostics")
+    testAssert.equal(#diagnostics, 0, mode .. " generation diagnostics")
     assert(metadata and metadata.mode == mode, mode .. " metadata")
     local chunk, reason = loadstring(code, "@hot-generated")
     assert(chunk, tostring(reason) .. "\n---\n" .. code)
@@ -98,7 +93,7 @@ function M.normalGenerationRemainsByteIdentical()
     local result = checked("local function f(n: integer): integer return n + 1 end\nreturn f")
     local ordinary = assert(gen.generate(result, "ordinary.g.nupp"))
     local explicit = assert(gen.generate(result, "ordinary.g.nupp", nil, nil))
-    assertEq(explicit, ordinary, "absent watch request changes normal output")
+    testAssert.equal(explicit, ordinary, "absent watch request changes normal output")
     assert(not ordinary:find("__nuppHot", 1, true), "normal output contains hot runtime")
 end
 
@@ -120,7 +115,7 @@ function M.normalOptimizationLevelsContainNoHotReloadMetadata()
         end
         local ordinary = assert(gen.generate(left, "ordinary.nupp"))
         local explicit = assert(gen.generate(right, "ordinary.nupp", nil, nil))
-        assertEq(explicit, ordinary, "absent watch request changes -O" .. level .. " output")
+        testAssert.equal(explicit, ordinary, "absent watch request changes -O" .. level .. " output")
         assert(not ordinary:find("__nuppHot", 1, true), "-O" .. level .. " contains hot runtime")
         assert(not ordinary:find("provider-file", 1, true), "-O" .. level .. " contains provider metadata")
         assert(not ordinary:find("cUses", 1, true), "-O" .. level .. " contains C-use metadata")
@@ -141,7 +136,7 @@ function M.retainedFunctionUsesPatchedBodyAndCapturedCell()
     )
     local api = initial(before, "capture")
     local retained = api.advance
-    assertEq(retained(1), 2, "initial implementation")
+    testAssert.equal(retained(1), 2, "initial implementation")
 
     local after = table.concat(
         {
@@ -157,9 +152,9 @@ function M.retainedFunctionUsesPatchedBodyAndCapturedCell()
     local patch = generate(after, "patch", "capture")
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
-    assertEq(hot.commit(prepared), 2, "committed generation")
-    assertEq(api.advance, retained, "public function identity")
-    assertEq(retained(1), 4, "patched implementation shares old value cell")
+    testAssert.equal(hot.commit(prepared), 2, "committed generation")
+    testAssert.equal(api.advance, retained, "public function identity")
+    testAssert.equal(retained(1), 4, "patched implementation shares old value cell")
 end
 
 -- Lua numbers upvalues by order of first reference, so a patched body that
@@ -188,8 +183,8 @@ function M.secondPatchJoinsCapturesByNameNotStaleIndex()
     end
 
     local api = initial(source(true), "reorder")
-    assertEq(api.read("first"), 10, "initial first cell")
-    assertEq(api.read("second"), 20, "initial second cell")
+    testAssert.equal(api.read("first"), 10, "initial first cell")
+    testAssert.equal(api.read("second"), 20, "initial second cell")
 
     local function commitPatch(body, label)
         local patch = generate(body, "patch", "reorder")
@@ -200,14 +195,14 @@ function M.secondPatchJoinsCapturesByNameNotStaleIndex()
 
     -- References `second` first, reversing the upvalue numbering.
     commitPatch(source(false), "reordered patch commits")
-    assertEq(api.read("first"), 10, "first cell after a reordered patch")
-    assertEq(api.read("second"), 20, "second cell after a reordered patch")
+    testAssert.equal(api.read("first"), 10, "first cell after a reordered patch")
+    testAssert.equal(api.read("second"), 20, "second cell after a reordered patch")
 
     -- Back to the initial order: this join must use the live implementation's
     -- numbering rather than the initial generation's.
     commitPatch(source(true), "restored patch commits")
-    assertEq(api.read("first"), 10, "first cell after the second patch")
-    assertEq(api.read("second"), 20, "second cell after the second patch")
+    testAssert.equal(api.read("first"), 10, "first cell after the second patch")
+    testAssert.equal(api.read("second"), 20, "second cell after the second patch")
 end
 
 function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
@@ -240,9 +235,9 @@ function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
     local patch = generate(source(2), "patch", "dynamic-policy")
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
-    assertEq(hot.commit(prepared), 2, "dynamic policy patch committed")
+    testAssert.equal(hot.commit(prepared), 2, "dynamic policy patch committed")
     group:close()
-    assertEq(api.count(), 6, "live cell resolves cleanup through the patched slot")
+    testAssert.equal(api.count(), 6, "live cell resolves cleanup through the patched slot")
 end
 
 function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
@@ -273,11 +268,11 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
     local group = api.make()
     local patch = generate(source("openB"), "patch", "dynamic-transition")
     local prepared, reason = hot.stage(patch, hot.generation())
-    assertEq(prepared, nil, "a live policy blocks incompatible replacement")
+    testAssert.equal(prepared, nil, "a live policy blocks incompatible replacement")
     assert(reason and reason:find("live managed-cell policy changed", 1, true), tostring(reason))
-    assertEq(hot.generation(), 1, "rejected policy transition leaves the generation unchanged")
+    testAssert.equal(hot.generation(), 1, "rejected policy transition leaves the generation unchanged")
     group:close()
-    assertEq(api.count(), 2, "rejection neither migrates nor cleans the cell")
+    testAssert.equal(api.count(), 2, "rejection neither migrates nor cleans the cell")
 end
 
 function M.commitFlushesJitAfterPublishing()
@@ -294,9 +289,9 @@ function M.commitFlushesJitAfterPublishing()
     local ok, generation, commitError = pcall(hot.commit, prepared)
     jit.flush = original
     assert(ok, generation)
-    assertEq(generation, 2, commitError)
-    assertEq(flushes, 1, "commit flushes stale JIT traces exactly once")
-    assertEq(retained(), 2, "the flushed generation was published")
+    testAssert.equal(generation, 2, commitError)
+    testAssert.equal(flushes, 1, "commit flushes stale JIT traces exactly once")
+    testAssert.equal(retained(), 2, "the flushed generation was published")
 end
 
 function M.rejectedCaptureChangeLeavesOldGenerationRunning()
@@ -319,10 +314,10 @@ function M.rejectedCaptureChangeLeavesOldGenerationRunning()
     )
     local patch = generate(after, "patch", "reject")
     local prepared, reason = hot.stage(patch, hot.generation())
-    assertEq(prepared, nil, "capture-changing patch is rejected")
+    testAssert.equal(prepared, nil, "capture-changing patch is rejected")
     assert(reason and reason:find("captured bindings changed", 1, true), tostring(reason))
-    assertEq(hot.generation(), 1, "rejection does not publish generation")
-    assertEq(retained(), 3, "old implementation remains callable")
+    testAssert.equal(hot.generation(), 1, "rejection does not publish generation")
+    testAssert.equal(retained(), 3, "old implementation remains callable")
 end
 
 function M.selfRecursionUsesNewPrivateImplementation()
@@ -337,7 +332,7 @@ function M.selfRecursionUsesNewPrivateImplementation()
         "\n"
     )
     local retained = initial(before, "recursive")
-    assertEq(retained(3), 6, "initial recursion")
+    testAssert.equal(retained(3), 6, "initial recursion")
 
     local after = table.concat(
         {
@@ -353,7 +348,7 @@ function M.selfRecursionUsesNewPrivateImplementation()
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
     assert(hot.commit(prepared))
-    assertEq(retained(3), 7, "replacement self recursion stays on replacement")
+    testAssert.equal(retained(3), 7, "replacement self recursion stays on replacement")
 end
 
 function M.mutualRecursionUsesTheNewestPartnerSlot()
@@ -378,7 +373,7 @@ function M.mutualRecursionUsesTheNewestPartnerSlot()
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
     assert(hot.commit(prepared))
-    assertEq(api.even(1), true, "unchanged partner dispatches through patched odd slot")
+    testAssert.equal(api.even(1), true, "unchanged partner dispatches through patched odd slot")
 end
 
 function M.inlineRecordMethodKeepsItsPublicIdentity()
@@ -397,14 +392,14 @@ function M.inlineRecordMethodKeepsItsPublicIdentity()
     local Counter = initial(before, "inline")
     local retained = Counter.add
     local instance = setmetatable({value = 3}, Counter)
-    assertEq(retained(instance, 2), 5)
+    testAssert.equal(retained(instance, 2), 5)
     local after = before:gsub("self.value %+ by", "self.value + by * 2")
     local patch = generate(after, "patch", "inline")
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
     assert(hot.commit(prepared))
-    assertEq(Counter.add, retained, "record method identity")
-    assertEq(retained(instance, 2), 7, "record method replacement")
+    testAssert.equal(Counter.add, retained, "record method identity")
+    testAssert.equal(retained(instance, 2), 7, "record method replacement")
 end
 
 function M.structMethodDispatchesThroughAStableSlot()
@@ -423,13 +418,13 @@ function M.structMethodDispatchesThroughAStableSlot()
         "\n"
     )
     local call = initial(before, "struct-method")
-    assertEq(call(), 5)
+    testAssert.equal(call(), 5)
     local after = before:gsub("self.value %+ by", "self.value + by * 2")
     local patch = generate(after, "patch", "struct-method")
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
     assert(hot.commit(prepared))
-    assertEq(call(), 7, "struct metatype method replacement")
+    testAssert.equal(call(), 7, "struct metatype method replacement")
 end
 
 function M.activeCallFinishesOnTheImplementationItEntered()
@@ -454,8 +449,8 @@ function M.activeCallFinishesOnTheImplementationItEntered()
         didCommit = true
     end)
     assert(didCommit)
-    assertEq(oldResult, 1, "active closure remains old")
-    assertEq(
+    testAssert.equal(oldResult, 1, "active closure remains old")
+    testAssert.equal(
         retained(function()
         end),
         2,
@@ -484,10 +479,10 @@ function M.failedMultiFunctionStagePublishesNothing()
     )
     local patch = generate(after, "patch", "atomic")
     local prepared, reason = hot.stage(patch, hot.generation())
-    assertEq(prepared, nil)
+    testAssert.equal(prepared, nil)
     assert(reason and reason:find("captured bindings changed", 1, true), tostring(reason))
-    assertEq(api.first(), 1, "earlier valid candidate was not published")
-    assertEq(api.second(), 2, "failing candidate was not published")
+    testAssert.equal(api.first(), 1, "earlier valid candidate was not published")
+    testAssert.equal(api.second(), 2, "failing candidate was not published")
 end
 
 function M.tailTrampolinePreservesErrorAttribution()
@@ -506,19 +501,19 @@ function M.tailTrampolinePreservesErrorAttribution()
     local normalChunk = assert(loadstring(ordinary, "@stack.g.nupp"))
     local normal = normalChunk()
     local normalOK, normalReason = pcall(normal)
-    assertEq(normalOK, false)
+    testAssert.equal(normalOK, false)
 
     hot.resetForTesting()
     local watchCode, diagnostics, _, _, metadata = gen.generate(result, "stack.g.nupp", nil, {
         mode = "initial",
         module = "stack",
     })
-    assertEq(#diagnostics, 0)
+    testAssert.equal(#diagnostics, 0)
     local watch = assert(loadstring(watchCode, "@stack.g.nupp"))()
     hot.seal(metadata.module)
     local watchOK, watchReason = pcall(watch)
-    assertEq(watchOK, false)
-    assertEq(tostring(watchReason), tostring(normalReason), "error(level) source attribution")
+    testAssert.equal(watchOK, false)
+    testAssert.equal(tostring(watchReason), tostring(normalReason), "error(level) source attribution")
 end
 
 function M.slotArrayMatchesTheNormalLocalBoundary()
@@ -552,7 +547,7 @@ function M.slotArrayMatchesTheNormalLocalBoundary()
         })
         local normalLoads = #normalDiagnostics == 0 and loadstring(normal, "@normal-locals") ~= nil
         local watchLoads = #watchDiagnostics == 0 and loadstring(watch, "@watch-locals") ~= nil
-        assertEq(watchLoads, normalLoads, "watch and normal local ceiling at " .. count)
+        testAssert.equal(watchLoads, normalLoads, "watch and normal local ceiling at " .. count)
     end
 end
 
@@ -574,7 +569,7 @@ function M.sessionAdvancesOnlyAfterCommitAcknowledgement()
     hot.resetForTesting()
     local session = hotSession.new(dir, {cache = false})
     local initialBuild = session:initial({path})
-    assertEq(initialBuild.kind, "initial")
+    testAssert.equal(initialBuild.kind, "initial")
     local entry = assert(loadstring(initialBuild.entryCode, "@" .. path))
     local api = entry()
     hot.seal(initialBuild.entryManifest.module)
@@ -584,15 +579,15 @@ function M.sessionAdvancesOnlyAfterCommitAcknowledgement()
     write(path, after)
     session:diskChanged(path, 2)
     local prepared = session:prepare({path})
-    assertEq(prepared.kind, "prepared")
+    testAssert.equal(prepared.kind, "prepared")
     assert(prepared.patch:find("changed", 1, true), "changed implementation is emitted")
     assert(not prepared.patch:find("untouched", 1, true), "unchanged implementation is omitted")
-    assertEq(session.generation, 1, "prepare does not advance compiler baseline")
+    testAssert.equal(session.generation, 1, "prepare does not advance compiler baseline")
     local staged, reason = hot.stage(prepared.patch, prepared.baseGeneration)
     assert(staged, reason)
-    assertEq(hot.commit(staged), 2)
+    testAssert.equal(hot.commit(staged), 2)
     session:committed(2)
-    assertEq(api.changed(1), 3, "session patch reached retained function")
+    testAssert.equal(api.changed(1), 3, "session patch reached retained function")
 end
 
 function M.sessionSkipsUnloadedChangedModules()
@@ -611,7 +606,7 @@ function M.sessionSkipsUnloadedChangedModules()
     write(laterPath, "local function later(): integer return 2 end\nreturn later")
     session:diskChanged(laterPath, 2)
     local result = session:prepare({laterPath})
-    assertEq(result.kind, "no-change", "unloaded module has no running slots to patch")
+    testAssert.equal(result.kind, "no-change", "unloaded module has no running slots to patch")
 end
 
 function M.sessionReportsStructuralChangesAsRestartRequired()
@@ -627,11 +622,11 @@ function M.sessionReportsStructuralChangesAsRestartRequired()
     write(path, "local added: integer = 2\n" .. before)
     session:diskChanged(path, 2)
     local result = session:prepare({path})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.diagnostics[1].code, "NUPP5001")
-    assertEq(result.reason.kind, "source-structure")
-    assertEq(result.reason.dependency, "main")
-    assertEq(result.reason.path, path)
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.diagnostics[1].code, "NUPP5001")
+    testAssert.equal(result.reason.kind, "source-structure")
+    testAssert.equal(result.reason.dependency, "main")
+    testAssert.equal(result.reason.path, path)
 end
 
 function M.sessionRestartsBeforeAChangedSoALayoutCanReachLiveStorage()
@@ -657,8 +652,8 @@ function M.sessionRestartsBeforeAChangedSoALayoutCanReachLiveStorage()
     write(path, before:gsub("y: float", "y: int32"))
     session:diskChanged(path, 2)
     local result = session:prepare({path})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.diagnostics[1].code, "NUPP5001")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.diagnostics[1].code, "NUPP5001")
 end
 
 function M.sessionRechecksLoadedModulesAfterDeclarationChanges()
@@ -678,7 +673,7 @@ function M.sessionRechecksLoadedModulesAfterDeclarationChanges()
     write(globalsPath, "global type Watched = string\n")
     session:diskChanged(globalsPath, 2)
     local result = session:prepare({globalsPath})
-    assertEq(result.kind, "diagnostics", "dependent is type-checked before patching")
+    testAssert.equal(result.kind, "diagnostics", "dependent is type-checked before patching")
     assert(result.diagnostics[1].code:match("^NUPP[123]"), "expected a fatal type diagnostic")
 end
 
@@ -699,12 +694,12 @@ function M.sessionRejectsSemanticSignatureChangesWithTheSameSpelling()
     write(globalsPath, "global type Watched = int64\n")
     session:diskChanged(globalsPath, 2)
     local result = session:prepare({globalsPath})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.diagnostics[1].code, "NUPP5001")
-    assertEq(result.reason.kind, "project-declaration")
-    assertEq(result.reason.dependency, "Watched")
-    assertEq(result.reason.path, globalsPath)
-    assertEq(result.reason.consumer, "main")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.diagnostics[1].code, "NUPP5001")
+    testAssert.equal(result.reason.kind, "project-declaration")
+    testAssert.equal(result.reason.dependency, "Watched")
+    testAssert.equal(result.reason.path, globalsPath)
+    testAssert.equal(result.reason.consumer, "main")
     assert(result.diagnostics[1].msg:find(globalsPath, 1, true), result.diagnostics[1].msg)
     assert(result.diagnostics[1].msg:find("required by main", 1, true), result.diagnostics[1].msg)
 end
@@ -729,11 +724,11 @@ function M.sessionNamesTheImportedModuleWhoseInterfaceChanged()
     )
     session:diskChanged(dependencyPath, 2)
     local result = session:prepare({dependencyPath})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "module-interface")
-    assertEq(result.reason.dependency, "dependency")
-    assertEq(result.reason.path, dependencyPath)
-    assertEq(result.reason.consumer, "main")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "module-interface")
+    testAssert.equal(result.reason.dependency, "dependency")
+    testAssert.equal(result.reason.path, dependencyPath)
+    testAssert.equal(result.reason.consumer, "main")
     assert(result.diagnostics[1].msg:find("module interface dependency", 1, true), result.diagnostics[1].msg)
     assert(result.diagnostics[1].msg:find(dependencyPath, 1, true), result.diagnostics[1].msg)
 end
@@ -746,7 +741,7 @@ function M.interfaceFingerprintIsTheBuildsOwn()
     local buildModules = require("nupp.tools.build.modules")
     local exports = {typeDefs = {Field = {}}, valueDefs = {}}
     local plain = buildModules.interfaceHash(nil, exports, nil)
-    assertEq(buildModules.interfaceHash(nil, exports, nil), plain, "the digest is a function of its inputs")
+    testAssert.equal(buildModules.interfaceHash(nil, exports, nil), plain, "the digest is a function of its inputs")
     exports.typeDefs.Field.comptimeOnly = true
     local comptimeOnly = buildModules.interfaceHash(nil, exports, nil)
     assert(comptimeOnly ~= plain, "an alias becoming comptime-only changes the interface")
@@ -773,12 +768,12 @@ function M.sessionRejectsChangedCLayoutsBeforePatching()
     )
     session:diskChanged(nativePath, 2)
     local result = session:prepare({nativePath})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.diagnostics[1].code, "NUPP5001")
-    assertEq(result.reason.kind, "c-declaration")
-    assertEq(result.reason.dependency, "hot_point")
-    assertEq(result.reason.path, nativePath)
-    assertEq(result.reason.consumer, "main")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.diagnostics[1].code, "NUPP5001")
+    testAssert.equal(result.reason.kind, "c-declaration")
+    testAssert.equal(result.reason.dependency, "hot_point")
+    testAssert.equal(result.reason.path, nativePath)
+    testAssert.equal(result.reason.consumer, "main")
     assert(result.diagnostics[1].msg:find("C declarations in module hot_point", 1, true), result.diagnostics[1].msg)
     assert(result.diagnostics[1].msg:find(nativePath, 1, true), result.diagnostics[1].msg)
 end
@@ -808,7 +803,13 @@ function M.sessionKeysCDeclarationsIndependentOfOrder()
 
     write(path, after)
     session:diskChanged(path, 2)
-    assertEq(session:prepare({path}).kind, "no-change", "declaration order is not part of keyed C ABI semantics")
+    testAssert.equal(
+        session:prepare({
+            path
+        }).kind,
+        "no-change",
+        "declaration order is not part of keyed C ABI semantics"
+    )
 end
 
 function M.sessionKeysCFunctionsByDecodedLibraryAndSymbol()
@@ -828,14 +829,20 @@ function M.sessionKeysCFunctionsByDecodedLibraryAndSymbol()
 
     write(path, equivalent)
     session:diskChanged(path, 2)
-    assertEq(session:prepare({path}).kind, "no-change", "equivalent library literal spelling changes C identity")
+    testAssert.equal(
+        session:prepare({
+            path
+        }).kind,
+        "no-change",
+        "equivalent library literal spelling changes C identity"
+    )
 
     write(path, changed)
     session:diskChanged(path, 3)
     local result = session:prepare({path})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "c-declaration")
-    assertEq(result.reason.dependency, "hot_library_value")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "c-declaration")
+    testAssert.equal(result.reason.dependency, "hot_library_value")
 end
 
 function M.sessionRejectsNewCUseMissingFromTheRunningModule()
@@ -857,9 +864,9 @@ function M.sessionRejectsNewCUseMissingFromTheRunningModule()
     write(path, after)
     session:diskChanged(path, 2)
     local result = session:prepare({path})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "c-declaration")
-    assertEq(result.reason.dependency, "hot_late")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "c-declaration")
+    testAssert.equal(result.reason.dependency, "hot_late")
 end
 
 function M.sessionKeepsRawFfiDeclarationsOnTheConservativeFallback()
@@ -881,9 +888,9 @@ function M.sessionKeepsRawFfiDeclarationsOnTheConservativeFallback()
     write(path, after)
     session:diskChanged(path, 2)
     local result = session:prepare({path})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "c-declaration")
-    assertEq(result.reason.identity, "<module-wide C fallback>")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "c-declaration")
+    testAssert.equal(result.reason.identity, "<module-wide C fallback>")
 end
 
 function M.sessionTracksDeriveProviderFilesystemInputs()
@@ -923,10 +930,10 @@ function M.sessionTracksDeriveProviderFilesystemInputs()
     write(inputPath, "version two")
     session:diskChanged(inputPath, 2)
     local result = session:prepare({inputPath})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "provider-input")
-    assertEq(result.reason.dependency, "schema.txt")
-    assertEq(result.reason.path, inputPath)
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "provider-input")
+    testAssert.equal(result.reason.dependency, "schema.txt")
+    testAssert.equal(result.reason.path, inputPath)
 end
 
 function M.deriveProviderFilesystemInputsRequireLiteralPaths()
@@ -951,8 +958,8 @@ function M.deriveProviderFilesystemInputsRequireLiteralPaths()
     local dir = temporaryProject({["schema.txt"] = "value", ["main.nupp"] = source})
     local session = hotSession.new(dir, {cache = false})
     local result = session:initial({dir .. "/main.nupp"})
-    assertEq(result.kind, "diagnostics")
-    assertEq(result.diagnostics[1].code, "NUPP2810")
+    testAssert.equal(result.kind, "diagnostics")
+    testAssert.equal(result.diagnostics[1].code, "NUPP2810")
     assert(result.diagnostics[1].msg:find("string literal", 1, true), result.diagnostics[1].msg)
 end
 
@@ -977,7 +984,7 @@ function M.deriveProviderFilesystemInputsStayInsideTheProject()
     local dir = temporaryProject({["main.nupp"] = source})
     local session = hotSession.new(dir, {cache = false})
     local result = session:initial({dir .. "/main.nupp"})
-    assertEq(result.kind, "diagnostics")
+    testAssert.equal(result.kind, "diagnostics")
     local escaped
     for _, diagnostic in ipairs(result.diagnostics) do
         if diagnostic.code == "NUPP2810" and diagnostic.msg:find("escapes the project root", 1, true) then
@@ -1012,9 +1019,9 @@ function M.sessionNamesTheAffineCaptureThatRequiresRestart()
     write(path, before:gsub("return resource.value", "return resource.value + 1"))
     session:diskChanged(path, 2)
     local result = session:prepare({path})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "affine-capture")
-    assertEq(result.reason.capture, "resource")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "affine-capture")
+    testAssert.equal(result.reason.capture, "resource")
     assert(result.diagnostics[1].msg:find("capture resource", 1, true), result.diagnostics[1].msg)
     assert(result.diagnostics[1].msg:find("main/module/local/read", 1, true), result.diagnostics[1].msg)
 end
@@ -1031,7 +1038,7 @@ function M.sessionIgnoresUnrelatedDeclarationChanges()
     write(globalsPath, table.concat({"global type Watched = number", "global type Unused = string",}, "\n"))
     session:diskChanged(globalsPath, 2)
     local result = session:prepare({globalsPath})
-    assertEq(result.kind, "no-change", "unobserved declarations stop at the query boundary")
+    testAssert.equal(result.kind, "no-change", "unobserved declarations stop at the query boundary")
 end
 
 function M.sessionObservesHeaderSemanticsAndIgnoresComments()
@@ -1056,18 +1063,24 @@ function M.sessionObservesHeaderSemanticsAndIgnoresComments()
         watched[input.path] = input.kind
     end
     local absoluteHeader = require("nupp.compiler.fs").canonical(headerPath)
-    assertEq(watched[absoluteHeader], "header", "direct header joins the watch set")
+    testAssert.equal(watched[absoluteHeader], "header", "direct header joins the watch set")
 
     write(headerPath, "/* spelling only */\nint hot_header_value(void);\n")
     session:diskChanged(absoluteHeader, 2)
-    assertEq(session:prepare({absoluteHeader}).kind, "no-change", "comment-only header edit has the same declarations")
+    testAssert.equal(
+        session:prepare({
+            absoluteHeader
+        }).kind,
+        "no-change",
+        "comment-only header edit has the same declarations"
+    )
 
     write(headerPath, "long hot_header_value(void);\n")
     session:diskChanged(absoluteHeader, 2)
     local changed = session:prepare({absoluteHeader})
-    assertEq(changed.kind, "restart-required")
-    assertEq(changed.reason.kind, "header-abi")
-    assertEq(changed.reason.path, absoluteHeader)
+    testAssert.equal(changed.kind, "restart-required")
+    testAssert.equal(changed.reason.kind, "header-abi")
+    testAssert.equal(changed.reason.path, absoluteHeader)
     assert(changed.diagnostics[1].msg:find("api.h", 1, true), changed.diagnostics[1].msg)
 end
 
@@ -1102,8 +1115,8 @@ function M.sessionTracksPreprocessedHeaderClosure()
     write(nestedPath, "typedef long hot_nested_value;\n")
     session:diskChanged(nestedPath, 2)
     local result = session:prepare({nestedPath})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "header-abi")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "header-abi")
 end
 
 function M.sessionPinsAndObservesMappedNativeArtifacts()
@@ -1125,7 +1138,7 @@ function M.sessionPinsAndObservesMappedNativeArtifacts()
     local artifactPath = require("nupp.compiler.fs").absolute(dir .. "/libmini.bin")
     local session = hotSession.new(dir, {cache = false})
     local built = session:initial({sourcePath})
-    assertEq(built.kind, "initial")
+    testAssert.equal(built.kind, "initial")
     session:loaded(built.entryManifest.module, 1, built.entryManifest)
     -- The spelling generation pins, asked of the session rather than written again
     -- here: a project directory reached through a link or a short name resolves to
@@ -1143,14 +1156,14 @@ function M.sessionPinsAndObservesMappedNativeArtifacts()
     write(artifactPath, "generation two")
     session:diskChanged(artifactPath, 2)
     local result = session:prepare({artifactPath})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "native-artifact")
-    assertEq(result.reason.path, artifactPath)
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "native-artifact")
+    testAssert.equal(result.reason.path, artifactPath)
     assert(os.remove(artifactPath))
     session:diskChanged(artifactPath, 3)
     local missing = session:prepare({artifactPath})
-    assertEq(missing.kind, "restart-required")
-    assertEq(missing.reason.kind, "native-artifact")
+    testAssert.equal(missing.kind, "restart-required")
+    testAssert.equal(missing.reason.kind, "native-artifact")
 end
 
 function M.sessionReportsUnmappedNativeIdentityOnce()
@@ -1161,7 +1174,7 @@ function M.sessionReportsUnmappedNativeIdentityOnce()
     local session = hotSession.new(dir, {cache = false})
     local built = session:initial({path})
     local first = session:loaded(built.entryManifest.module, 1, built.entryManifest)
-    assertEq(first.unverifiedLibraries[1], "bare")
+    testAssert.equal(first.unverifiedLibraries[1], "bare")
 end
 
 function M.headerWatchPathsCollapseDuplicateSpellingsButKeepConsumers()
@@ -1187,7 +1200,7 @@ function M.headerWatchPathsCollapseDuplicateSpellingsButKeepConsumers()
             watchedCount = watchedCount + 1
         end
     end
-    assertEq(watchedCount, 1, "canonical header path is polled once")
+    testAssert.equal(watchedCount, 1, "canonical header path is polled once")
     local manifest = session.running.main
     local consumers = 0
     for _, input in pairs(manifest.abi.inputs) do
@@ -1195,7 +1208,7 @@ function M.headerWatchPathsCollapseDuplicateSpellingsButKeepConsumers()
             consumers = consumers + 1
         end
     end
-    assertEq(consumers, 2, "each cheader site retains its consumer record")
+    testAssert.equal(consumers, 2, "each cheader site retains its consumer record")
 end
 
 function M.deletedHeaderRejectsWithoutLosingTheRunningManifest()
@@ -1209,8 +1222,8 @@ function M.deletedHeaderRejectsWithoutLosingTheRunningManifest()
     assert(os.remove(headerPath))
     session:diskChanged(headerPath, 3)
     local result = session:prepare({headerPath})
-    assertEq(result.kind, "diagnostics")
-    assertEq(result.diagnostics[1].code, "NUPP2302")
+    testAssert.equal(result.kind, "diagnostics")
+    testAssert.equal(result.diagnostics[1].code, "NUPP2302")
     local retained = false
     for _, input in ipairs(session:watchedInputs()) do
         if input.path == headerPath then
@@ -1260,19 +1273,19 @@ function M.mappedNativeSymlinkRetargetRequiresRestart()
         ["nupp.lua"] = "return { hotreload = { libraries = { mini = 'current.bin' } } }\n",
         ["main.nupp"] = "cdef function hot_symlink(): int32 from 'mini'\nreturn hot_symlink\n",
     })
-    assertEq(os.execute(("ln -s '%s/one.bin' '%s/current.bin'"):format(dir, dir)), 0)
+    testAssert.equal(os.execute(("ln -s '%s/one.bin' '%s/current.bin'"):format(dir, dir)), 0)
     local session = hotSession.new(dir, {cache = false})
     local built = session:initial({dir .. "/main.nupp"})
     local firstTarget = require("nupp.compiler.fs").absolute(dir .. "/one.bin")
     assert(built.entryCode:find(firstTarget, 1, true), "watch generation pins the resolved target")
     session:loaded(built.entryManifest.module, 1, built.entryManifest)
     assert(os.remove(dir .. "/current.bin"))
-    assertEq(os.execute(("ln -s '%s/two.bin' '%s/current.bin'"):format(dir, dir)), 0)
+    testAssert.equal(os.execute(("ln -s '%s/two.bin' '%s/current.bin'"):format(dir, dir)), 0)
     local link = require("nupp.compiler.fs").absolute(dir .. "/current.bin")
     session:diskChanged(link, 2)
     local result = session:prepare({link})
-    assertEq(result.kind, "restart-required")
-    assertEq(result.reason.kind, "native-artifact")
+    testAssert.equal(result.kind, "restart-required")
+    testAssert.equal(result.reason.kind, "native-artifact")
 end
 
 function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
@@ -1290,6 +1303,7 @@ function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     local apiPath = fs.canonical(dir .. "/api.h")
     local nestedPath = fs.canonical(dir .. "/nested.h")
     local session = loadedCompilerSession(dir, sourcePath)
+
     local function isWatched(path)
         for _, input in ipairs(session:watchedInputs()) do
             if input.path == path then
@@ -1303,11 +1317,11 @@ function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     assert(isWatched(nestedPath), "initial include is watched")
     write(apiPath, "int hot_closure(void);\n")
     session:diskChanged(apiPath, 2)
-    assertEq(session:prepare({apiPath}).kind, "no-change")
+    testAssert.equal(session:prepare({apiPath}).kind, "no-change")
     assert(not isWatched(nestedPath), "removed include leaves the dynamic watch set")
     write(apiPath, withInclude)
     session:diskChanged(apiPath, 2)
-    assertEq(session:prepare({apiPath}).kind, "no-change")
+    testAssert.equal(session:prepare({apiPath}).kind, "no-change")
     assert(isWatched(nestedPath), "new include joins the dynamic watch set")
 end
 
@@ -1326,59 +1340,58 @@ local function hostProject(source)
 end
 
 function M.hostSessionCommitsAnEditThroughARetainedMember()
-    local session, _, path = hostProject(
-        "local function update(): integer return 41 end\nreturn {update = update}\n"
-    )
+    local session, _, path = hostProject("local function update(): integer return 41 end\nreturn {update = update}\n")
     local update = session.member("update")
-    assertEq(update(), 41, "the member answers before the edit")
+    testAssert.equal(update(), 41, "the member answers before the edit")
     write(path, "local function update(): integer return 42 end\nreturn {update = update}\n")
     local verdict, generation, message = session.poll()
     session.close(true)
-    assertEq(verdict, "committed")
-    assertEq(generation, 2)
-    assertEq(message, nil)
-    assertEq(update(), 42, "the retained member reaches the new body")
+    testAssert.equal(verdict, "committed")
+    testAssert.equal(generation, 2)
+    testAssert.equal(message, nil)
+    testAssert.equal(update(), 42, "the retained member reaches the new body")
 end
 
 function M.hostSessionReportsNoChangeWhenNothingMoved()
     local session = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
     local verdict, generation = session.poll()
     session.close(true)
-    assertEq(verdict, "no-change")
-    assertEq(generation, 1)
+    testAssert.equal(verdict, "no-change")
+    testAssert.equal(generation, 1)
 end
 
 function M.hostSessionRejectionKeepsTheRunningGeneration()
-    local session, _, path = hostProject(
-        "local function update(): integer return 1 end\nreturn {update = update}\n"
-    )
+    local session, _, path = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
     local update = session.member("update")
     write(path, "local function update(): integer return \"two\" end\nreturn {update = update}\n")
     local verdict, generation, message = session.poll()
     session.close(true)
-    assertEq(verdict, "rejected")
-    assertEq(generation, 1, "the running generation is what stays running")
+    testAssert.equal(verdict, "rejected")
+    testAssert.equal(generation, 1, "the running generation is what stays running")
     assert(message and message:find("NUPP", 1, true), "the refusal names its diagnostic: " .. tostring(message))
-    assertEq(update(), 1, "the member still answers from the generation that checked")
+    testAssert.equal(update(), 1, "the member still answers from the generation that checked")
 end
 
 function M.hostSessionReportsStructuralChangesAsRestartRequired()
-    local session, _, path = hostProject(
-        "local function update(): integer return 1 end\nreturn {update = update}\n"
+    local session, _, path = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
+    write(
+        path,
+        "local added: integer = 2\nlocal function update(): integer return added end\nreturn {update = update}\n"
     )
-    write(path, "local added: integer = 2\nlocal function update(): integer return added end\nreturn {update = update}\n")
     local verdict, generation, message = session.poll()
     session.close(true)
-    assertEq(verdict, "restart-required")
-    assertEq(generation, 1)
+    testAssert.equal(verdict, "restart-required")
+    testAssert.equal(generation, 1)
     assert(message and message:find("NUPP5001", 1, true), "the restart names its diagnostic: " .. tostring(message))
 end
 
 function M.hostSessionRefusesAnEntryThatDoesNotCheck()
     hot.resetForTesting()
-    local dir = temporaryProject({["main.nupp"] = "local function update(): integer return \"one\" end\nreturn update\n"})
+    local dir = temporaryProject({
+        ["main.nupp"] = "local function update(): integer return \"one\" end\nreturn update\n"
+    })
     local session, failure = hostreloadModule.open("main.nupp", dir)
-    assertEq(session, nil, "an entry that does not check opens nothing")
+    testAssert.equal(session, nil, "an entry that does not check opens nothing")
     assert(failure and failure:find("NUPP", 1, true), "the failure names its diagnostic: " .. tostring(failure))
 end
 
@@ -1386,12 +1399,12 @@ function M.hostSessionRefusesASecondSessionAndReopensAfterClose()
     local session, dir = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
     local update = session.member("update")
     local second, why = hostreloadModule.open("main.nupp", dir)
-    assertEq(second, nil, "one registry means one session")
+    testAssert.equal(second, nil, "one registry means one session")
     assert(why and why:find("already open", 1, true), tostring(why))
     session.close(true)
     local reopened, failure = hostreloadModule.open("main.nupp", dir)
     assert(reopened, tostring(failure))
-    assertEq(update(), 1, "the closed session's values keep working")
+    testAssert.equal(update(), 1, "the closed session's values keep working")
     reopened.close(true)
 end
 
@@ -1399,8 +1412,11 @@ function M.hostSessionNamesAnEntryItCannotRead()
     hot.resetForTesting()
     local dir = temporaryProject({})
     local session, failure = hostreloadModule.open("absent.nupp", dir)
-    assertEq(session, nil)
-    assert(failure and failure:find("NUPP0001", 1, true), "an unreadable entry reports a diagnostic: " .. tostring(failure))
+    testAssert.equal(session, nil)
+    assert(
+        failure and failure:find("NUPP0001", 1, true),
+        "an unreadable entry reports a diagnostic: " .. tostring(failure)
+    )
 end
 
 function M.aPatchDoesNotDisturbTheLoadedModuleTable()
@@ -1418,21 +1434,21 @@ function M.aPatchDoesNotDisturbTheLoadedModuleTable()
     local api = assert(loadstring(built.code, "@" .. path))("patched")
     hot.seal("patched")
     session:loaded("patched", 1, built.manifest)
-    assertEq(package.loaded.patched, api, "the initial load publishes the module")
+    testAssert.equal(package.loaded.patched, api, "the initial load publishes the module")
 
     write(path, (source:gsub("return 1", "return 2")))
     session:diskChanged(path, 2)
     local prepared = session:prepare({path})
-    assertEq(prepared.kind, "prepared")
+    testAssert.equal(prepared.kind, "prepared")
     assert(not prepared.patch:find("package.loaded", 1, true), "a patch leaves the loaded table alone")
     local staged, reason = hot.stage(prepared.patch, prepared.baseGeneration)
     assert(staged, reason)
-    assertEq(package.loaded.patched, api, "staging leaves the running module loaded")
-    assertEq(hot.commit(staged), 2)
+    testAssert.equal(package.loaded.patched, api, "staging leaves the running module loaded")
+    testAssert.equal(hot.commit(staged), 2)
     session:committed(2)
-    assertEq(package.loaded.patched, api, "committing leaves the running module loaded")
-    assertEq(require("patched"), api, "requiring it again is the same table, not a second load")
-    assertEq(api.answer(), 2, "and it answers from the committed generation")
+    testAssert.equal(package.loaded.patched, api, "committing leaves the running module loaded")
+    testAssert.equal(require("patched"), api, "requiring it again is the same table, not a second load")
+    testAssert.equal(api.answer(), 2, "and it answers from the committed generation")
     package.loaded.patched = nil
 end
 

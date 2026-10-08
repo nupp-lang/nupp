@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.types.generics")
 local interfaceimage = require("nupp.compiler.project.interfaceimage")
@@ -6,12 +7,6 @@ local stable = require("nupp.compiler.stable")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local PROJECT_PATHS = {"/project/producer.nupp", "/project/consumer.nupp", "/project/sample.nupp"}
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function semantic(name, exported)
     return {
@@ -93,17 +88,17 @@ function M.roundTripsRecursiveNominalMetadata()
 
     local got = roundTrip(node)
     assert(got ~= node, "the decoder allocated its own nominal declaration")
-    assertEq(got.declarationKey, node.declarationKey, "declaration identity")
-    assertEq(got.byname.next.members[2], got, "recursive edge")
-    assertEq(got.typeParams[1].identity, element.identity, "generic binder identity")
-    assertEq(got.paramDefaults[1], T.string, "nominal generic default")
-    assertEq(got.predicate.path[1], "value", "refinement predicate")
-    assertEq(got.associatedRequirements[1].bound, T.string, "associated bound")
-    assertEq(got.associatedRequirements[1].definition.name, "Item", "associated requirement definition")
-    assertEq(got.associatedAnswers.Item.type, T.string, "associated answer")
-    assertEq(got.associatedAnswers.Item.kind, "default", "associated provenance")
-    assertEq(got.associatedAnswers.Item.definition.name, "Item", "associated answer definition")
-    assertEq(got.fieldDefs.value.annotations[1].name, "wire", "field annotations")
+    testAssert.equal(got.declarationKey, node.declarationKey, "declaration identity")
+    testAssert.equal(got.byname.next.members[2], got, "recursive edge")
+    testAssert.equal(got.typeParams[1].identity, element.identity, "generic binder identity")
+    testAssert.equal(got.paramDefaults[1], T.string, "nominal generic default")
+    testAssert.equal(got.predicate.path[1], "value", "refinement predicate")
+    testAssert.equal(got.associatedRequirements[1].bound, T.string, "associated bound")
+    testAssert.equal(got.associatedRequirements[1].definition.name, "Item", "associated requirement definition")
+    testAssert.equal(got.associatedAnswers.Item.type, T.string, "associated answer")
+    testAssert.equal(got.associatedAnswers.Item.kind, "default", "associated provenance")
+    testAssert.equal(got.associatedAnswers.Item.definition.name, "Item", "associated answer definition")
+    testAssert.equal(got.fieldDefs.value.annotations[1].name, "wire", "field annotations")
 end
 
 function M.roundTripsCallableContractsAndOverloadProvenance()
@@ -173,19 +168,19 @@ function M.roundTripsCallableContractsAndOverloadProvenance()
 
     local got = roundTrip(api)
     local fn = got.byname.read
-    assertEq(fn.paramNames[1], "source", "parameter name")
-    assertEq(fn.paramModes[1], "borrows", "parameter mode")
-    assertEq(fn.predicate.param, 1, "predicate parameter")
-    assertEq(fn.borrowsParam, 1, "borrow source")
-    assertEq(fn.borrowsSelf, true, "receiver borrow")
-    assertEq(fn.noYield, true, "suspension contract")
-    assertEq(fn.foreign, true, "foreign contract")
-    assertEq(fn.sendable, true, "sendability contract")
-    assertEq(fn.ffiOut[1].success, "zero", "foreign output success policy")
-    assertEq(fn.ffiOut[1].cleanups[1].name, "close", "foreign output cleanup")
-    assertEq(got.methodEntries.read[1].member, 3, "overload runtime member")
-    assertEq(got.methodEntries.read[1].definition.name, "read", "overload definition")
-    assertEq(got.overloadedMethods.read, true, "overload marker")
+    testAssert.equal(fn.paramNames[1], "source", "parameter name")
+    testAssert.equal(fn.paramModes[1], "borrows", "parameter mode")
+    testAssert.equal(fn.predicate.param, 1, "predicate parameter")
+    testAssert.equal(fn.borrowsParam, 1, "borrow source")
+    testAssert.equal(fn.borrowsSelf, true, "receiver borrow")
+    testAssert.equal(fn.noYield, true, "suspension contract")
+    testAssert.equal(fn.foreign, true, "foreign contract")
+    testAssert.equal(fn.sendable, true, "sendability contract")
+    testAssert.equal(fn.ffiOut[1].success, "zero", "foreign output success policy")
+    testAssert.equal(fn.ffiOut[1].cleanups[1].name, "close", "foreign output cleanup")
+    testAssert.equal(got.methodEntries.read[1].member, 3, "overload runtime member")
+    testAssert.equal(got.methodEntries.read[1].definition.name, "read", "overload definition")
+    testAssert.equal(got.overloadedMethods.read, true, "overload marker")
 end
 
 function M.referencesPreviouslyLoadedStructuralArenas()
@@ -212,8 +207,18 @@ function M.referencesPreviouslyLoadedStructuralArenas()
         nil,
         {"text"}
     )
-    local producer = assert(encode({producer = semantic("producer", shared)}, {origins = origins, arenas = encodedArenas}))
-    local consumer = assert(encode({consumer = semantic("consumer", shared)}, {origins = origins, arenas = encodedArenas}))
+    local producer = assert(
+        encode({producer = semantic("producer", shared)}, {
+            origins = origins,
+            arenas = encodedArenas
+        })
+    )
+    local consumer = assert(
+        encode({consumer = semantic("consumer", shared)}, {
+            origins = origins,
+            arenas = encodedArenas
+        })
+    )
     assert(producer.fingerprint ~= consumer.fingerprint, "each image names its own arena")
     local external = false
     for _, node in ipairs(consumer.descriptor.types) do
@@ -222,17 +227,50 @@ function M.referencesPreviouslyLoadedStructuralArenas()
     assert(external, "the consumer references the producer arena")
 
     local decodedArenas, decodedOrigins = {}, {}
-    local first = assert(interfaceimage.decode(producer, {nominals = {}, arenas = decodedArenas, origins = decodedOrigins}))
-    local second = assert(interfaceimage.decode(consumer, {nominals = {}, arenas = decodedArenas, origins = decodedOrigins}))
-    assertEq(second.consumer.exports.types.Value, first.producer.exports.types.Value, "mounted arena identity")
+    local first = assert(
+        interfaceimage.decode(producer, {
+            nominals = {},
+            arenas = decodedArenas,
+            origins = decodedOrigins
+        })
+    )
+    local second = assert(
+        interfaceimage.decode(consumer, {
+            nominals = {},
+            arenas = decodedArenas,
+            origins = decodedOrigins
+        })
+    )
+    testAssert.equal(second.consumer.exports.types.Value, first.producer.exports.types.Value, "mounted arena identity")
 
     local decoded, problem = interfaceimage.decode(consumer, {arenas = {}})
-    assertEq(decoded, nil, "missing arena")
+    testAssert.equal(decoded, nil, "missing arena")
     assert(problem:find("unavailable arena", 1, true), problem)
 end
 
 function M.roundTripsDefinitionsComptimeProgramsEffectsAndDiagnostics()
-    local value = T.func({T.string}, {T.integer}, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, {"text"})
+    local value = T.func(
+        {T.string},
+        {T.integer},
+        false,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        {"text"}
+    )
     local sample = semantic("sample", value)
     sample.exports.typeDefs.Value = {
         filename = "/project/sample.nupp",
@@ -271,18 +309,18 @@ function M.roundTripsDefinitionsComptimeProgramsEffectsAndDiagnostics()
     local image = assert(encode({sample = sample}))
     local decoded = assert(interfaceimage.decode(image)).sample
     local exports = decoded.exports
-    assertEq(exports.nominalEffectFingerprint, "effects", "nominal effect fingerprint")
-    assertEq(exports.deriveInterfaceFingerprint, "derives", "derive interface fingerprint")
-    assertEq(exports.comptimeFunctionFingerprint, "comptime", "comptime fingerprint")
-    assertEq(exports.callGuarantees.value.effects[1], "io.read", "call effects")
-    assertEq(exports.typeDefs.Value.deprecated.replacement, "Other", "type definition metadata")
-    assertEq(exports.typeDefs.Value.exactCallExport.identity, "sample.Value", "exact call export")
-    assertEq(exports.valueDefs.value.comptimeOnly, true, "value definition metadata")
-    assertEq(exports.comptimeFunctions.Make.signature.tag, "func", "comptime signature")
-    assertEq(exports.comptimeFunctions.Make.deriveInterface.tag, "shape", "derive interface")
-    assertEq(exports.comptimeFunctions.Make.runtimeHelpers[1], "runtime.helper", "runtime helpers")
-    assertEq(decoded.diags[1].code, "NUPP2001", "diagnostics")
-    assertEq(decoded.source, "return sample", "source")
+    testAssert.equal(exports.nominalEffectFingerprint, "effects", "nominal effect fingerprint")
+    testAssert.equal(exports.deriveInterfaceFingerprint, "derives", "derive interface fingerprint")
+    testAssert.equal(exports.comptimeFunctionFingerprint, "comptime", "comptime fingerprint")
+    testAssert.equal(exports.callGuarantees.value.effects[1], "io.read", "call effects")
+    testAssert.equal(exports.typeDefs.Value.deprecated.replacement, "Other", "type definition metadata")
+    testAssert.equal(exports.typeDefs.Value.exactCallExport.identity, "sample.Value", "exact call export")
+    testAssert.equal(exports.valueDefs.value.comptimeOnly, true, "value definition metadata")
+    testAssert.equal(exports.comptimeFunctions.Make.signature.tag, "func", "comptime signature")
+    testAssert.equal(exports.comptimeFunctions.Make.deriveInterface.tag, "shape", "derive interface")
+    testAssert.equal(exports.comptimeFunctions.Make.runtimeHelpers[1], "runtime.helper", "runtime helpers")
+    testAssert.equal(decoded.diags[1].code, "NUPP2001", "diagnostics")
+    testAssert.equal(decoded.source, "return sample", "source")
 end
 
 function M.rejectsUnknownSchemasAndMalformedGraphs()
@@ -290,13 +328,13 @@ function M.rejectsUnknownSchemasAndMalformedGraphs()
     local schema = image.schema
     image.schema = schema + 1
     local decoded, problem = interfaceimage.decode(image)
-    assertEq(decoded, nil, "unknown schema")
+    testAssert.equal(decoded, nil, "unknown schema")
     assert(problem:find("malformed", 1, true), problem)
     image.schema = schema
 
     image.descriptor.types[#image.descriptor.types + 1] = {kind = "tuple", members = {#image.descriptor.types + 7}}
     decoded, problem = interfaceimage.decode(image)
-    assertEq(decoded, nil, "dangling edge")
+    testAssert.equal(decoded, nil, "dangling edge")
     assert(problem:find("invalid type edge", 1, true), problem)
 end
 
@@ -308,21 +346,21 @@ function M.referencesAnotherFilesIndexedDeclarationByKey()
     for _, node in ipairs(image.descriptor.types) do
         if node.nominal then
             assert(node.external, "an indexed declaration of another file is not described again")
-            assertEq(node.declarationKey, indexKey(producerPath, "Shared"), "declaration key")
-            assertEq(node.fields, nil, "an external declaration carries no members")
+            testAssert.equal(node.declarationKey, indexKey(producerPath, "Shared"), "declaration key")
+            testAssert.equal(node.fields, nil, "an external declaration carries no members")
             external = true
         end
     end
     assert(external, "the image references the declaration")
 
     local decoded, problem = interfaceimage.decode(image, {nominals = {}})
-    assertEq(decoded, nil, "an unindexed reader")
+    testAssert.equal(decoded, nil, "an unindexed reader")
     assert(problem:find("unavailable declaration", 1, true), problem)
 
     local own = indexed("Shared", producerPath)
     own.selfType = T.typevar("self", "interface-image:shared-self")
     local loaded = assert(interfaceimage.decode(image, {nominals = {[indexKey(producerPath, "Shared")] = own}}))
-    assertEq(loaded.consumer.exports.types.Value, own, "the reader's own declaration")
+    testAssert.equal(loaded.consumer.exports.types.Value, own, "the reader's own declaration")
 
     -- The same declaration owned by the image is described in full.
     local owned = assert(encode({producer = semantic("producer", declared)}))
@@ -337,9 +375,9 @@ function M.givesEveryNominalItsOwnIdWhateverItsKey()
     local first = T.nominal("Twin", "record", "/project/sample.nupp\0" .. "1\0record")
     local second = T.nominal("Twin", "record", "/project/sample.nupp\0" .. "1\0record")
     assert(first.id ~= second.id, "two nominals with one key share an id")
-    assertEq(first.declarationKey, second.declarationKey, "declaration key")
-    assertEq(T.nestedDeclarationKey(first, 12), first.declarationKey .. "\0nested\0" .. "12", "nested key")
-    assertEq(T.nestedDeclarationKey(T.nominal("Keyless", "record"), 12), nil, "keyless owner")
+    testAssert.equal(first.declarationKey, second.declarationKey, "declaration key")
+    testAssert.equal(T.nestedDeclarationKey(first, 12), first.declarationKey .. "\0nested\0" .. "12", "nested key")
+    testAssert.equal(T.nestedDeclarationKey(T.nominal("Keyless", "record"), 12), nil, "keyless owner")
 end
 
 function M.decodesApplicationsThroughGenerics()
@@ -361,22 +399,24 @@ function M.decodesApplicationsThroughGenerics()
     local image = assert(encode({sample = sample}))
     for _, node in ipairs(image.descriptor.types) do
         if node.instantiation then
-            assertEq(node.fields, nil, "an application is its declaration and arguments")
-            assertEq(node.declarationKey, nil, "an application has no declaration key")
+            testAssert.equal(node.fields, nil, "an application is its declaration and arguments")
+            testAssert.equal(node.declarationKey, nil, "an application has no declaration key")
         end
     end
     local exports = assert(interfaceimage.decode(image)).sample.exports
     local decodedBox = exports.types.Box
     local decodedApplied = exports.types.Value
     assert(decodedBox ~= box, "the reader allocated its own declaration")
-    assertEq(decodedApplied.origin, decodedBox, "application origin")
-    assertEq(decodedApplied.typeArgs[1], T.integer, "application argument")
-    assertEq(
-        generics.instantiate(decodedBox, {[decodedBox.typeParams[1]] = T.integer}),
+    testAssert.equal(decodedApplied.origin, decodedBox, "application origin")
+    testAssert.equal(decodedApplied.typeArgs[1], T.integer, "application argument")
+    testAssert.equal(
+        generics.instantiate(decodedBox, {
+            [decodedBox.typeParams[1]] = T.integer
+        }),
         decodedApplied,
         "the reader's own application is the decoded one"
     )
-    assertEq(decodedApplied.byname.value, T.integer, "members come from the declaration")
+    testAssert.equal(decodedApplied.byname.value, T.integer, "members come from the declaration")
     local recursive = false
     for _, member in ipairs(decodedApplied.byname.next.members) do
         recursive = recursive or member == decodedApplied
@@ -390,7 +430,7 @@ function M.loadsABinderWhoseBoundMentionsItself()
     local signature = T.func({item}, {item}, false, nil, nil, {item}, {item.bound})
     local got = roundTrip(signature)
     local binder = got.typeParams[1]
-    assertEq(binder.bound.tag, "shape", "self-referential bound")
+    testAssert.equal(binder.bound.tag, "shape", "self-referential bound")
 end
 
 function M.keepsDefaultsAfterAHole()
@@ -401,8 +441,8 @@ function M.keepsDefaultsAfterAHole()
     pair.paramKinds = {"type", "type"}
     pair.paramDefaults = {[2] = T.string}
     local got = roundTrip(pair)
-    assertEq(got.paramDefaults[1], nil, "parameter without a default")
-    assertEq(got.paramDefaults[2], T.string, "default after a hole")
+    testAssert.equal(got.paramDefaults[1], nil, "parameter without a default")
+    testAssert.equal(got.paramDefaults[2], T.string, "default after a hole")
 end
 
 function M.keepsTransportStateOutOfThePublicDescriptor()
@@ -414,9 +454,9 @@ function M.keepsTransportStateOutOfThePublicDescriptor()
 
     local function compile(source)
         local parsed = parser.parse(source, "model.g.nupp")
-        assertEq(#parsed.errors, 0, "syntax errors")
+        testAssert.equal(#parsed.errors, 0, "syntax errors")
         local diagnostics = check.check(parsed, "model.g.nupp", env)
-        assertEq(#diagnostics, 0, "diagnostics")
+        testAssert.equal(#diagnostics, 0, "diagnostics")
         local code = gen.generate(parsed, "model")
         local stat = parsed.root.blocks[1].stats[1]
         while stat and stat.kind == "pragmaStmt" do
@@ -439,7 +479,11 @@ end
         assert(not text:find("declarationKey", 1, true), "transport state reached the public descriptor")
         assert(not text:find("privateFields", 1, true), "transport state reached the public descriptor")
     end
-    assertEq(reflection.describe(moved, "Model").fingerprint, descriptor.fingerprint, "fingerprint after moving")
+    testAssert.equal(
+        reflection.describe(moved, "Model").fingerprint,
+        descriptor.fingerprint,
+        "fingerprint after moving"
+    )
 end
 
 return M

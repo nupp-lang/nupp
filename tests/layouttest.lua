@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- `layoutof(T)`, run rather than read.
 --
 -- Every number it reports is this platform's, so the assertions check against the
@@ -13,15 +14,9 @@ local ffi = require("ffi")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local function runs(src, label)
     local result = parser.parse(src, "test")
-    assertEq(#result.errors, 0, "syntax errors in test source\n" .. src)
+    testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
     local diags = check.check(result, "test", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
@@ -30,7 +25,7 @@ local function runs(src, label)
     end
     optimize.run(result, {level = 1})
     local code, genDiags = gen.generate(result, "test")
-    assertEq(#genDiags, 0, "gen diagnostics")
+    testAssert.equal(#genDiags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@layout_test")
     if not chunk then
         error(("does not load: %s\n---\n%s"):format(tostring(err), code), 2)
@@ -45,7 +40,7 @@ end
 
 local function diagnostics(src)
     local result = parser.parse(src, "test")
-    assertEq(#result.errors, 0, "syntax errors in test source")
+    testAssert.equal(#result.errors, 0, "syntax errors in test source")
     return check.check(result, "test", env)
 end
 
@@ -60,11 +55,11 @@ local struct Vec3
 end
 return layoutof(Vec3)
 ]], "Vec3")
-    assertEq(l.name, "Vec3", "the declaration's name")
-    assertEq(#l.fields, 3, "three fields")
-    assertEq(l.fields[1].name, "x", "in order")
-    assertEq(l.fields[2].name, "y", "in order")
-    assertEq(l.fields[3].name, "z", "in order")
+    testAssert.equal(l.name, "Vec3", "the declaration's name")
+    testAssert.equal(#l.fields, 3, "three fields")
+    testAssert.equal(l.fields[1].name, "x", "in order")
+    testAssert.equal(l.fields[2].name, "y", "in order")
+    testAssert.equal(l.fields[3].name, "z", "in order")
 end
 
 function M.everyNumberAgreesWithTheFfi()
@@ -78,10 +73,10 @@ end
 return layoutof(Vec3)
 ]], "Vec3")
     local ct = ffi.typeof("struct { float x; float y; float z; }")
-    assertEq(l.size, ffi.sizeof(ct), "the struct's size")
+    testAssert.equal(l.size, ffi.sizeof(ct), "the struct's size")
     for _, f in ipairs(l.fields) do
-        assertEq(f.offset, ffi.offsetof(ct, f.name), "offset of " .. f.name)
-        assertEq(f.size, ffi.sizeof("float"), "size of " .. f.name)
+        testAssert.equal(f.offset, ffi.offsetof(ct, f.name), "offset of " .. f.name)
+        testAssert.equal(f.size, ffi.sizeof("float"), "size of " .. f.name)
     end
 end
 
@@ -96,14 +91,14 @@ local struct Mixed
 end
 return layoutof(Mixed)
 ]], "Mixed")
-    assertEq(l.fields[1].size, 1, "an int8 is one byte")
-    assertEq(
+    testAssert.equal(l.fields[1].size, 1, "an int8 is one byte")
+    testAssert.equal(
         l.fields[1].padding,
         ffi.offsetof(ffi.typeof("struct { int8_t tag; double value; int32_t id; }"), "value") - 1,
         "and the rest of the gap is padding"
     )
-    assertEq(l.fields[2].size, 8, "a number is a double")
-    assertEq(l.fields[2].padding, 0, "which needs no padding before an int32")
+    testAssert.equal(l.fields[2].size, 8, "a number is a double")
+    testAssert.equal(l.fields[2].padding, 0, "which needs no padding before an int32")
 end
 
 function M.aNestedStructIsSizedFromItsCtype()
@@ -125,10 +120,10 @@ return layoutof(Outer)
         "Outer"
     )
     local inner = ffi.typeof("struct { float a; float b; }")
-    assertEq(l.fields[1].name, "inner", "the nested field")
-    assertEq(l.fields[1].size, ffi.sizeof(inner), "sized from the ctype")
-    assertEq(l.fields[1].ctype, "Inner", "and reported by its declared name")
-    assertEq(l.size, ffi.sizeof(ffi.typeof("struct { $ inner; float w; }", inner)), "the whole struct")
+    testAssert.equal(l.fields[1].name, "inner", "the nested field")
+    testAssert.equal(l.fields[1].size, ffi.sizeof(inner), "sized from the ctype")
+    testAssert.equal(l.fields[1].ctype, "Inner", "and reported by its declared name")
+    testAssert.equal(l.size, ffi.sizeof(ffi.typeof("struct { $ inner; float w; }", inner)), "the whole struct")
 end
 
 function M.aPointerKeepsItsPointeeInTheSpelling()
@@ -148,8 +143,8 @@ return layoutof(Pointy)
 ]],
         "Pointy"
     )
-    assertEq(l.fields[1].ctype, "Inner *", "the pointee survives")
-    assertEq(l.fields[1].size, ffi.sizeof("void *"), "sized as a pointer")
+    testAssert.equal(l.fields[1].ctype, "Inner *", "the pointee survives")
+    testAssert.equal(l.fields[1].size, ffi.sizeof("void *"), "sized as a pointer")
 end
 
 function M.aNullablePointerIsStillAPointer()
@@ -167,7 +162,7 @@ return layoutof(Maybe)
 ]],
         "Maybe"
     )
-    assertEq(l.fields[1].size, ffi.sizeof("void *"), "NULL is one of its values")
+    testAssert.equal(l.fields[1].size, ffi.sizeof("void *"), "NULL is one of its values")
 end
 
 function M.theFingerprintDistinguishesLayouts()
@@ -181,7 +176,7 @@ return layoutof(S)
     end
 
     local base = fingerprintOf("    x: float\n    y: float")
-    assertEq(
+    testAssert.equal(
         base,
         "x:float,y:float|" .. ffi.sizeof(ffi.typeof("struct { float x; float y; }")),
         "names, types and size"
@@ -199,7 +194,7 @@ local struct Vec2
 end
 return layoutof(Vec2) == layoutof(Vec2)
 ]], "cached")
-    assertEq(same, true, "building it twice is one walk, not two")
+    testAssert.equal(same, true, "building it twice is one walk, not two")
 end
 
 function M.aRecordHasNoLayout()
@@ -226,7 +221,7 @@ function M.aNonStructArgumentIsRefused()
             found = true
         end
     end
-    assertEq(found, true, "a number is not a struct type")
+    testAssert.equal(found, true, "a number is not a struct type")
 end
 
 function M.nothingIsEmittedWhenNothingAsks()
@@ -237,7 +232,7 @@ local struct Vec2
 end
 return Vec2 ~= nil
 ]], "unused")
-    assertEq(code:find("__nuppLayout", 1, true), nil, "a program that never asks carries no helper")
+    testAssert.equal(code:find("__nuppLayout", 1, true), nil, "a program that never asks carries no helper")
 end
 
 function M.aNestedStructIsExpandedInTheFingerprint()
@@ -265,7 +260,7 @@ return layoutof(Outer)
 
     local floats = fingerprintOf("    a: float\n    b: float")
     local ints = fingerprintOf("    a: int32\n    b: int32")
-    assertEq(floats, "inner:{a:float,b:float},w:float|12", "the nested fields expand")
+    testAssert.equal(floats, "inner:{a:float,b:float},w:float|12", "the nested fields expand")
     assert(floats ~= ints, "a same-size change inside the nested struct still changes the fingerprint")
     local renamed = fingerprintOf("    x: float\n    y: float")
     assert(floats ~= renamed, "and so does renaming one of its fields")
@@ -290,7 +285,7 @@ return layoutof(Holder)
 ]],
         "Holder"
     )
-    assertEq(l.fields[1].ctype, "Inner *", "named, not expanded")
+    testAssert.equal(l.fields[1].ctype, "Inner *", "named, not expanded")
     assert(l.fingerprint:find("p:Inner %*"), "and named in the fingerprint too")
     assert(not l.fingerprint:find("{", 1, true), "the pointee is not expanded")
 end
@@ -315,7 +310,7 @@ return layoutof(Node).size
 ]],
         "Node"
     )
-    assertEq(
+    testAssert.equal(
         l,
         ffi.sizeof(ffi.typeof("struct { void *next; int32_t value; }")),
         "the struct is laid out like the pointer-and-int it is"
@@ -341,7 +336,7 @@ return value
 ]],
         "chain"
     )
-    assertEq(value, 2, "the link is a real pointer to a real struct")
+    testAssert.equal(value, 2, "the link is a real pointer to a real struct")
 end
 
 function M.aStructCannotContainItselfByValue()
@@ -412,7 +407,7 @@ return total
 ]],
         "mutual"
     )
-    assertEq(value, 87, "each side reaches the other")
+    testAssert.equal(value, 87, "each side reaches the other")
 end
 
 function M.aBackwardPointerKeepsItsAnonymousCtype()
@@ -433,7 +428,7 @@ return Holder ~= nil
 ]],
         "backward"
     )
-    assertEq(code:find("__nuppS_", 1, true), nil, "no tag was needed")
+    testAssert.equal(code:find("__nuppS_", 1, true), nil, "no tag was needed")
     assert(code:find("$ *p", 1, true), "the substitution spelling is kept")
 end
 
@@ -453,11 +448,11 @@ return layoutof(Vertex)
         "Vertex"
     )
     local ct = ffi.typeof("struct { float pos[3]; float uv[2]; int32_t id; }")
-    assertEq(l.size, ffi.sizeof(ct), "the whole struct")
-    assertEq(l.fields[1].ctype, "float[3]", "spelled as the array it is")
-    assertEq(l.fields[1].size, ffi.sizeof("float[3]"), "three floats wide")
-    assertEq(l.fields[2].offset, ffi.offsetof(ct, "uv"), "and the next one follows it")
-    assertEq(l.fields[3].offset, ffi.offsetof(ct, "id"), "as does the one after")
+    testAssert.equal(l.size, ffi.sizeof(ct), "the whole struct")
+    testAssert.equal(l.fields[1].ctype, "float[3]", "spelled as the array it is")
+    testAssert.equal(l.fields[1].size, ffi.sizeof("float[3]"), "three floats wide")
+    testAssert.equal(l.fields[2].offset, ffi.offsetof(ct, "uv"), "and the next one follows it")
+    testAssert.equal(l.fields[3].offset, ffi.offsetof(ct, "id"), "as does the one after")
 end
 
 function M.aFixedArrayOfStructsIsSizedFromItsElementCtype()
@@ -480,9 +475,9 @@ return layoutof(Grid)
         "Grid"
     )
     local cell = ffi.typeof("struct { float a; float b; }")
-    assertEq(l.fields[1].size, ffi.sizeof(cell) * 4, "four cells wide")
-    assertEq(l.fields[1].ctype, "Cell[4]", "and named as the array it is")
-    assertEq(l.size, ffi.sizeof(ffi.typeof("struct { $ cells[4]; int32_t n; }", cell)), "the whole struct")
+    testAssert.equal(l.fields[1].size, ffi.sizeof(cell) * 4, "four cells wide")
+    testAssert.equal(l.fields[1].ctype, "Cell[4]", "and named as the array it is")
+    testAssert.equal(l.size, ffi.sizeof(ffi.typeof("struct { $ cells[4]; int32_t n; }", cell)), "the whole struct")
 end
 
 function M.aFixedArrayIsUsableAtRuntime()
@@ -501,7 +496,7 @@ return v.pos[0] + v.pos[2] + v.id
 ]],
         "runtime"
     )
-    assertEq(value, 12, "elements read and write where they were put")
+    testAssert.equal(value, 12, "elements read and write where they were put")
 end
 
 function M.aVariableLengthArrayIsStillRefused()
@@ -536,10 +531,10 @@ end
 return layoutof(Vec)
 ]]
     )
-    assertEq(#l.fields, 2, "field count")
-    assertEq(l.fields[1].name, "x", "first field")
-    assertEq(l.fields[2].name, "y", "second field")
-    assertEq(l.size, ffi.sizeof("struct { float x; float y; }"), "size")
+    testAssert.equal(#l.fields, 2, "field count")
+    testAssert.equal(l.fields[1].name, "x", "first field")
+    testAssert.equal(l.fields[2].name, "y", "second field")
+    testAssert.equal(l.size, ffi.sizeof("struct { float x; float y; }"), "size")
 end
 
 return M

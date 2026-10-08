@@ -1,12 +1,7 @@
+local testAssert = require("nupp.test")
 local ir = require("nupp.compiler.comptime.materialize.ir")
 local codec = require("nupp.compiler.comptime.materialize.codec")
 local providers = require("nupp.compiler.comptime.materialize.providers")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local M = {}
 
@@ -15,8 +10,8 @@ function M.rendersADirectValueWithoutSourceFragments()
         tag = "table",
         fields = {{name = "answer", value = {tag = "literal", value = 42}},},
     })
-    assertEq(failure, nil, "valid IR renders")
-    assertEq(rendered, "{answer=42}", "direct value")
+    testAssert.equal(failure, nil, "valid IR renders")
+    testAssert.equal(rendered, "{answer=42}", "direct value")
 end
 
 function M.rendersAHygienicFactoryOnOneLine()
@@ -31,13 +26,13 @@ function M.rendersAHygienicFactoryOnOneLine()
             },
         },
     })
-    assertEq(failure, nil, "factory IR renders")
-    assertEq(
+    testAssert.equal(failure, nil, "factory IR renders")
+    testAssert.equal(
         rendered,
         "function(_nupp_m1) local _nupp_m2=(_nupp_m1).build;return (_nupp_m2)(3) end",
         "locals are renderer-owned"
     )
-    assertEq(rendered:find("\n", 1, true), nil, "the factory occupies one logical line")
+    testAssert.equal(rendered:find("\n", 1, true), nil, "the factory occupies one logical line")
 end
 
 function M.rejectsAnUndeclaredLocal()
@@ -57,22 +52,22 @@ function M.canonicalDataOrdersEncodedEntriesRatherThanAmbiguousKeys()
     local second = {}
     second["2"] = "string"
     second[2] = "number"
-    assertEq(codec.canonical(first), codec.canonical(second), "mixed keys have canonical bytes")
+    testAssert.equal(codec.canonical(first), codec.canonical(second), "mixed keys have canonical bytes")
 end
 
 function M.renderedDataIsClosedAndStaysOnOneLine()
     local rendered, failure = codec.render({line = "first\nsecond"})
-    assertEq(failure, nil, "a newline string renders")
-    assertEq(rendered:find("\n", 1, true), nil, "rendered data occupies one logical line")
+    testAssert.equal(failure, nil, "a newline string renders")
+    testAssert.equal(rendered:find("\n", 1, true), nil, "rendered data occupies one logical line")
     local value = assert(loadstring("return " .. rendered))()
-    assertEq(value.line, "first\nsecond", "one-line quoting preserves the value")
+    testAssert.equal(value.line, "first\nsecond", "one-line quoting preserves the value")
 
     local unsupported, unsupportedFailure = codec.render({[false] = 1})
-    assertEq(unsupported, nil, "unsupported keys are not discarded")
-    assertEq(unsupportedFailure, "invalid", "unsupported key failure")
+    testAssert.equal(unsupported, nil, "unsupported keys are not discarded")
+    testAssert.equal(unsupportedFailure, "invalid", "unsupported key failure")
     local nonfinite, nonfiniteFailure = codec.render(math.huge)
-    assertEq(nonfinite, nil, "nonfinite numbers are not ambient globals")
-    assertEq(nonfiniteFailure, "invalid", "nonfinite failure")
+    testAssert.equal(nonfinite, nil, "nonfinite numbers are not ambient globals")
+    testAssert.equal(nonfiniteFailure, "invalid", "nonfinite failure")
 end
 
 function M.rejectsMalformedCollectionsAndInvalidLuaForms()
@@ -82,16 +77,16 @@ function M.rejectsMalformedCollectionsAndInvalidLuaForms()
         args = "not a list",
     })
     assert(ok, "malformed worker IR must return a failure")
-    assertEq(rendered, nil, "malformed call does not render")
+    testAssert.equal(rendered, nil, "malformed call does not render")
     assert(failure and failure.message:find("not a list", 1, true), failure and failure.message)
 
     local _, keyword = ir.render({tag = "table", fields = {{name = "end", value = {tag = "literal", value = 1}}},})
     assert(keyword and keyword.message:find("invalid", 1, true), keyword and keyword.message)
 
     local newline, newlineFailure = ir.render({tag = "literal", value = "first\nsecond"})
-    assertEq(newlineFailure, nil, "newline literal renders")
-    assertEq(newline:find("\n", 1, true), nil, "IR output occupies one logical line")
-    assertEq(assert(loadstring("return " .. newline))(), "first\nsecond", "IR quoting preserves the value")
+    testAssert.equal(newlineFailure, nil, "newline literal renders")
+    testAssert.equal(newline:find("\n", 1, true), nil, "IR output occupies one logical line")
+    testAssert.equal(assert(loadstring("return " .. newline))(), "first\nsecond", "IR quoting preserves the value")
 
     local _, afterReturn = ir.render({
         tag = "function",
@@ -117,7 +112,7 @@ function M.rejectsAMalformedWorkerEnvelope()
         expected,
         {globalTypes = {["nupp.__MaterializedTest"] = expected}}
     )
-    assertEq(failure.code, "NUPP2415", "worker data is validated before lowering")
+    testAssert.equal(failure.code, "NUPP2415", "worker data is validated before lowering")
 end
 
 return M

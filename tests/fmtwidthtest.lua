@@ -1,14 +1,9 @@
+local testAssert = require("nupp.test")
 -- Width-aware formatting, docblocks, and the safety invariant.
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local lexer = require("nupp.compiler.syntax.lexer")
 local displayWidth = require("nupp.tools.fmt.displaywidth")
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n--- want ---\n%s\n--- got ---\n%s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function fmt1(src)
     local text, errors = formatter:format(src, "test")
@@ -24,8 +19,8 @@ end
 -- the formatter can manage it.
 local function check(src, want, label)
     local got = fmt1(src)
-    assertEq(got, want, label)
-    assertEq(fmt1(got), got, (label or "case") .. " (idempotency)")
+    testAssert.equal(got, want, label)
+    testAssert.equal(fmt1(got), got, (label or "case") .. " (idempotency)")
 
     local function kinds(text)
         local out = {}
@@ -36,14 +31,14 @@ local function check(src, want, label)
         return table.concat(out, " ")
     end
 
-    assertEq(kinds(got), kinds(src), (label or "case") .. " (token stability)")
+    testAssert.equal(kinds(got), kinds(src), (label or "case") .. " (token stability)")
 end
 
 local M = {}
 
 function M.internalInnerAnnotationStaysTightAndAtFileScope()
     local got = fmt1("@!internal\nlocal x=1\n")
-    assertEq(got, "@!internal\nlocal x = 1\n", "internal inner annotation")
+    testAssert.equal(got, "@!internal\nlocal x = 1\n", "internal inner annotation")
 end
 
 function M.indentIsFourSpaces()
@@ -68,7 +63,7 @@ end
 
 function M.fileNofmtTagLeavesSourceUntouched()
     local src = "@!nofmt\nlocal x=1\n"
-    assertEq(fmt1(src), src)
+    testAssert.equal(fmt1(src), src)
 end
 
 function M.callArgumentsBreakOnePerLine()
@@ -118,7 +113,7 @@ function M.customWidthBreaksALineThatFitsTheDefault()
     local narrow = fmt.new({width = 40})
     local got, errors = narrow:format(src, "test")
     assert(#errors == 0, "unexpected format errors: " .. (errors[1] and errors[1].msg or ""))
-    assertEq(
+    testAssert.equal(
         got,
         lines(
             "local function f(",
@@ -204,8 +199,8 @@ function M.multilineShapesCloseAndDropTrailingComma()
         "}"
     )
     local got = fmt1(src)
-    assertEq(got, want)
-    assertEq(fmt1(got), got, "multiline shape idempotency")
+    testAssert.equal(got, want)
+    testAssert.equal(fmt1(got), got, "multiline shape idempotency")
 end
 
 function M.nestedGroupsBreakOutermostFirst()
@@ -213,7 +208,7 @@ function M.nestedGroupsBreakOutermostFirst()
         "local v = outerCall(innerCall(oneArgument, twoArgument, "
         .. "threeArgument), anotherOuterArgument, aThirdOuterEvenLongerArgument)\n"
     )
-    assertEq(
+    testAssert.equal(
         got,
         lines(
             "local v = outerCall(",
@@ -223,7 +218,7 @@ function M.nestedGroupsBreakOutermostFirst()
             ")"
         )
     )
-    assertEq(fmt1(got), got, "nested idempotency")
+    testAssert.equal(fmt1(got), got, "nested idempotency")
 end
 
 function M.operatorFallbackWhenNoGroup()
@@ -428,7 +423,7 @@ function M.docblockRewrapsAtEightyEight()
         end
     end
     assert(got:find("--- This description", 1, true), "prefix preserved")
-    assertEq(fmt1(got), got, "doc idempotency")
+    testAssert.equal(fmt1(got), got, "doc idempotency")
 end
 
 function M.docblockRefillsTheParagraphRatherThanTheLine()
@@ -449,7 +444,7 @@ function M.docblockRefillsTheParagraphRatherThanTheLine()
         end
     end
     assert(got:find("takes `targetName` instead.", 1, true), "the paragraph is intact")
-    assertEq(fmt1(got), got, "refill idempotency")
+    testAssert.equal(fmt1(got), got, "refill idempotency")
 end
 
 function M.docblockKeepsAuthorsBreaksWhenTheParagraphFits()
@@ -480,7 +475,7 @@ function M.docblockDoesNotJoinAListIntoAParagraph()
             assert(#line <= 88, "doc line over 88 columns: " .. line)
         end
     end
-    assertEq(fmt1(got), got, "list idempotency")
+    testAssert.equal(fmt1(got), got, "list idempotency")
 end
 
 function M.docblockAnnotationsHangUnderTheirTag()
@@ -494,14 +489,14 @@ function M.docblockAnnotationsHangUnderTheirTag()
     assert(got:find("--- @param samples the samples", 1, true), "annotation kept on its own line:\n" .. got)
     assert(got:find("\n---     ", 1, true), "continuation hangs under the tag:\n" .. got)
     assert(got:find("--- @return the weighted mean", 1, true), "second annotation intact")
-    assertEq(fmt1(got), got, "annotation idempotency")
+    testAssert.equal(fmt1(got), got, "annotation idempotency")
 end
 
 function M.docblockBlankLineSeparation()
     local got = fmt1(
         lines("local before = 1", "--- Documented.", "local function f()", "    return 1", "end", "local after = 2")
     )
-    assertEq(
+    testAssert.equal(
         got,
         lines(
             "local before = 1",
@@ -514,14 +509,14 @@ function M.docblockBlankLineSeparation()
             "local after = 2"
         )
     )
-    assertEq(fmt1(got), got, "separation idempotency")
+    testAssert.equal(fmt1(got), got, "separation idempotency")
 end
 
 function M.docblockCodeBlocksStayVerbatim()
     local src = lines("--- Example:", "---", "---     local x = compute(1)", "---", "--- Done.", "local x = 1")
     local got = fmt1(src)
     assert(got:find("---     local x = compute(1)", 1, true), "indented code preserved:\n" .. got)
-    assertEq(fmt1(got), got, "verbatim idempotency")
+    testAssert.equal(fmt1(got), got, "verbatim idempotency")
 end
 
 function M.tildeDocFencesKeepTagShapedExamplesVerbatim()
@@ -529,7 +524,7 @@ function M.tildeDocFencesKeepTagShapedExamplesVerbatim()
     local src = lines("--- Example:", "--- ~~~~nupp", "--- " .. example, "--- ~~~", "--- ~~~~", "local x = 1")
     local got = fmt1(src)
     assert(got:find("--- " .. example, 1, true), got)
-    assertEq(fmt1(got), got, "tilde fence idempotency")
+    testAssert.equal(fmt1(got), got, "tilde fence idempotency")
 end
 
 function M.plainCommentLinesArePreserved()
@@ -547,7 +542,7 @@ function M.commentsBreakOnlyWhenSafeAndNeeded()
             assert(#line <= 88, "safe prose line over 88 columns: " .. line)
         end
     end
-    assertEq(fmt1(got), got, "safe comment break idempotency")
+    testAssert.equal(fmt1(got), got, "safe comment break idempotency")
 
     local spaced = "-- " .. ("two  spaces "):rep(8) .. "two  spaces\nlocal x = 1\n"
     check(spaced, spaced, "intentional comment spacing")
@@ -583,17 +578,17 @@ end
 
 function M.joinedEmojiOccupyOneGlyphAndClipTogether()
     local family = "👨‍👩‍👧‍👦"
-    assertEq(displayWidth.displayWidth(family), 2, "joined emoji width")
-    assertEq(displayWidth.clip(family .. "!", 2), family, "joined emoji clipping")
-    assertEq(displayWidth.clip(family, 1), "", "a joined emoji is not split")
-    assertEq(displayWidth.clip("👨‍A", 2), "👨", "clipping drops an unmatched joiner")
+    testAssert.equal(displayWidth.displayWidth(family), 2, "joined emoji width")
+    testAssert.equal(displayWidth.clip(family .. "!", 2), family, "joined emoji clipping")
+    testAssert.equal(displayWidth.clip(family, 1), "", "a joined emoji is not split")
+    testAssert.equal(displayWidth.clip("👨‍A", 2), "👨", "clipping drops an unmatched joiner")
 end
 
 function M.joinersDoNotCollapseOrdinaryCharacters()
     local joined = "A‍B"
-    assertEq(displayWidth.displayWidth(joined), 2, "ordinary joined width")
-    assertEq(displayWidth.clip(joined, 1), "A", "ordinary clipping drops an unmatched joiner")
-    assertEq(displayWidth.clip(joined, 2), joined, "ordinary characters remain separately counted")
+    testAssert.equal(displayWidth.displayWidth(joined), 2, "ordinary joined width")
+    testAssert.equal(displayWidth.clip(joined, 1), "A", "ordinary clipping drops an unmatched joiner")
+    testAssert.equal(displayWidth.clip(joined, 2), joined, "ordinary characters remain separately counted")
 end
 
 function M.longTernariesBreakBeforeQuestionAndColon()
@@ -621,7 +616,7 @@ end
 function M.safetyBailOnSyntaxErrors()
     local src = "if broken(\n"
     local text, errors = formatter:format(src, "test")
-    assertEq(text, src, "unparseable input is returned untouched")
+    testAssert.equal(text, src, "unparseable input is returned untouched")
     assert(#errors > 0, "errors reported")
 end
 

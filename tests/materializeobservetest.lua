@@ -1,12 +1,7 @@
+local testAssert = require("nupp.test")
 local observe = require("nupp.compiler.comptime.materialize.observe")
 
 local M = {}
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s: want %s, got %s"):format(label, tostring(want), tostring(got)), 2)
-    end
-end
 
 function M.collectionsKeepTheirOwnSourceContext()
     local payload = {provider = "test", schema = 1}
@@ -29,11 +24,11 @@ function M.collectionsKeepTheirOwnSourceContext()
     local first = observe.collect(root, "first.nupp")
     local second = observe.collect(root, "second.nupp")
 
-    assertEq(first[1].source, "first.nupp", "first collection source")
-    assertEq(second[1].source, "second.nupp", "second collection source")
-    assertEq(first[1].line, 3, "source line")
-    assertEq(first[1].column, 7, "source column")
-    assertEq(observation.source, nil, "checked observation remains unchanged")
+    testAssert.equal(first[1].source, "first.nupp", "first collection source")
+    testAssert.equal(second[1].source, "second.nupp", "second collection source")
+    testAssert.equal(first[1].line, 3, "source line")
+    testAssert.equal(first[1].column, 7, "source column")
+    testAssert.equal(observation.source, nil, "checked observation remains unchanged")
     assert(first[1] ~= second[1], "each collection owns its record")
     assert(first[1].blueprint == payload, "the stored cache payload remains attached")
 end
@@ -58,10 +53,10 @@ function M.publicRecordsOmitCachePayloads()
         }
     })[1]
 
-    assertEq(public.source, "main.nupp", "public source")
+    testAssert.equal(public.source, "main.nupp", "public source")
     assert(public.runtimeFeatures == runtimeFeatures, "bounded feature facts remain public")
-    assertEq(public.blueprint, nil, "blueprint payload")
-    assertEq(public.generated, nil, "generated payload")
+    testAssert.equal(public.blueprint, nil, "blueprint payload")
+    testAssert.equal(public.generated, nil, "generated payload")
 end
 
 return M

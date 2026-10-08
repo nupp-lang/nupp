@@ -1,15 +1,10 @@
+local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function parseExpr(src)
     local result = parser.parse("return " .. src)
@@ -20,13 +15,13 @@ end
 -- Dumps the expression parse of `src` and asserts it parsed without errors.
 local function exprDump(src)
     local e, errors = parseExpr(src)
-    assertEq(#errors, 0, "unexpected parse errors for " .. src)
+    testAssert.equal(#errors, 0, "unexpected parse errors for " .. src)
     return cst.dump(e)
 end
 
 local function assertRoundtrip(src)
     local result = parser.parse(src)
-    assertEq(cst.textOf(result.root), src, "round-trip failed for " .. ("%q"):format(src))
+    testAssert.equal(cst.textOf(result.root), src, "round-trip failed for " .. ("%q"):format(src))
     return result
 end
 
@@ -66,17 +61,17 @@ function M.switchExpressionsUseDoBoundary()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local first = result.root.blocks[1].stats[1].exprs[1]
-    assertEq(first.kind, "switchExpr")
-    assertEq(first.cases[1].values[1].kind, "number")
-    assertEq(#first.cases[2].values, 2)
-    assertEq(first.elseCase.expr.kind, "string")
+    testAssert.equal(first.kind, "switchExpr")
+    testAssert.equal(first.cases[1].values[1].kind, "number")
+    testAssert.equal(#first.cases[2].values, 2)
+    testAssert.equal(first.elseCase.expr.kind, "string")
     local second = result.root.blocks[1].stats[2].exprs[1]
-    assertEq(second.cases[1].patternKind, "type")
-    assertEq(second.cases[1].binding.text, "circle")
-    assertEq(second.cases[1].fields[2].alias.text, "label")
-    assertEq(second.cases[1].expr.body.stats[2].kind, "yieldStmt")
+    testAssert.equal(second.cases[1].patternKind, "type")
+    testAssert.equal(second.cases[1].binding.text, "circle")
+    testAssert.equal(second.cases[1].fields[2].alias.text, "label")
+    testAssert.equal(second.cases[1].expr.body.stats[2].kind, "yieldStmt")
 end
 
 function M.switchAndYieldRemainContextual()
@@ -101,17 +96,17 @@ function M.switchAndYieldRemainContextual()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local stats = result.root.blocks[1].stats
-    assertEq(stats[3].exprs[1].kind, "call")
-    assertEq(stats[4].exprs[1].kind, "call")
-    assertEq(stats[5].exprs[1].kind, "call")
-    assertEq(stats[6].exprs[1].kind, "switchExpr")
+    testAssert.equal(stats[3].exprs[1].kind, "call")
+    testAssert.equal(stats[4].exprs[1].kind, "call")
+    testAssert.equal(stats[5].exprs[1].kind, "call")
+    testAssert.equal(stats[6].exprs[1].kind, "switchExpr")
     local body = stats[9].exprs[1].elseCase.expr.body.stats
-    assertEq(body[1].kind, "callStmt")
-    assertEq(body[2].kind, "callStmt")
-    assertEq(body[3].kind, "callStmt")
-    assertEq(body[5].kind, "yieldStmt")
+    testAssert.equal(body[1].kind, "callStmt")
+    testAssert.equal(body[2].kind, "callStmt")
+    testAssert.equal(body[3].kind, "callStmt")
+    testAssert.equal(body[5].kind, "yieldStmt")
 end
 
 function M.sealedInterfaceModifier()
@@ -127,18 +122,18 @@ function M.sealedInterfaceModifier()
         "\n"
     )
     local result = assertRoundtrip(source)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local stats = result.root.blocks[1].stats
-    assertEq(stats[1].sealedTok.text, "sealed")
-    assertEq(stats[2].visibility, "local")
-    assertEq(stats[2].sealedTok.text, "sealed")
-    assertEq(stats[3].visibility, "global")
-    assertEq(stats[3].sealedTok.text, "sealed")
-    assertEq(stats[4].entries[1].sealedTok.text, "sealed")
+    testAssert.equal(stats[1].sealedTok.text, "sealed")
+    testAssert.equal(stats[2].visibility, "local")
+    testAssert.equal(stats[2].sealedTok.text, "sealed")
+    testAssert.equal(stats[3].visibility, "global")
+    testAssert.equal(stats[3].sealedTok.text, "sealed")
+    testAssert.equal(stats[4].entries[1].sealedTok.text, "sealed")
 
     local invalid = parser.parse("local sealed record Token end")
-    assertEq(#invalid.errors, 1, "sealed record error")
-    assertEq(invalid.errors[1].code, "NUPP1002")
+    testAssert.equal(#invalid.errors, 1, "sealed record error")
+    testAssert.equal(invalid.errors[1].code, "NUPP1002")
 end
 
 -- `sealed` is contextual, as `record` and `type` are: it modifies a declaration only
@@ -153,8 +148,8 @@ function M.sealedIsAnOrdinaryNameOutsideADeclaration()
     for _, filename in ipairs({"plain.lua", "typed.nupp"}) do
         for _, src in ipairs(sources) do
             local result = parser.parse(src, filename)
-            assertEq(#result.errors, 0, filename .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
-            assertEq(cst.textOf(result.root), src)
+            testAssert.equal(#result.errors, 0, filename .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
+            testAssert.equal(cst.textOf(result.root), src)
         end
     end
 end
@@ -162,10 +157,10 @@ end
 function M.cdefUnionAndBitfieldRoundtrip()
     local source = "cdef union Value\n   flags: uint32 : 3\n   number: number\nend\n"
     local result = assertRoundtrip(source)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local declaration = result.root.blocks[1].stats[1]
-    assertEq(declaration.aggregateKind, "union")
-    assertEq(declaration.entries[1].bitWidth.text, "3")
+    testAssert.equal(declaration.aggregateKind, "union")
+    testAssert.equal(declaration.entries[1].bitWidth.text, "3")
 end
 
 -- Nesting past what any pass can walk is a syntax error rather than a Lua stack
@@ -175,22 +170,22 @@ function M.nestingTooDeepIsASyntaxError()
     local deep = "return " .. ("("):rep(5000) .. "1" .. (")"):rep(5000) .. "\n"
     local ok, result = pcall(parser.parse, deep)
     assert(ok, "the parser does not throw: " .. tostring(result))
-    assertEq(#result.errors, 1, "one error for the whole nesting")
-    assertEq(result.errors[1].code, "NUPP1005")
+    testAssert.equal(#result.errors, 1, "one error for the whole nesting")
+    testAssert.equal(result.errors[1].code, "NUPP1005")
     assert(result.errors[1].msg:find("nested more than 1000 levels deep", 1, true), result.errors[1].msg)
-    assertEq(cst.textOf(result.root), deep, "the refused file round-trips")
+    testAssert.equal(cst.textOf(result.root), deep, "the refused file round-trips")
 
     local shallow = "return " .. ("("):rep(900) .. "1" .. (")"):rep(900) .. "\n"
-    assertEq(#parser.parse(shallow).errors, 0, "nine hundred levels still parse")
+    testAssert.equal(#parser.parse(shallow).errors, 0, "nine hundred levels still parse")
     local blocks = ("if x then\n"):rep(5000) .. ("end\n"):rep(5000)
-    assertEq(parser.parse(blocks).errors[1].code, "NUPP1005", "blocks are bounded too")
+    testAssert.equal(parser.parse(blocks).errors[1].code, "NUPP1005", "blocks are bounded too")
 end
 
 function M.fileInnerAnnotationsAreRecorded()
     local result = parser.parse("@!internal\n@!nofmt\nlocal x=1\n")
-    assertEq(#result.errors, 0, "inner annotations parse")
-    assertEq(result.root.documentationInternal, true, "internal marker")
-    assertEq(result.root.formatDisabled, true, "nofmt marker")
+    testAssert.equal(#result.errors, 0, "inner annotations parse")
+    testAssert.equal(result.root.documentationInternal, true, "internal marker")
+    testAssert.equal(result.root.formatDisabled, true, "nofmt marker")
 end
 
 function M.ownershipWordsStayContextual()
@@ -204,16 +199,16 @@ function M.ownershipWordsStayContextual()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local transfer = result.root.blocks[1].stats[2]
-    assertEq(transfer.body.params[1].modeTok.text, "takes")
-    assertEq(transfer.body.params[2].modeTok.text, "borrows")
-    assertEq(transfer.body.params[3].modeTok.text, "exclusive")
-    assertEq(transfer.body.params[4].modeTok.text, "retains")
-    assertEq(transfer.body.params[5].modeTok.text, "releases")
-    assertEq(result.root.blocks[1].stats[3].kind, "pragmaStmt")
-    assertEq(result.root.blocks[1].stats[3].stat.kind, "doStmt")
-    assertEq(result.root.blocks[1].stats[4].kind, "callStmt")
+    testAssert.equal(transfer.body.params[1].modeTok.text, "takes")
+    testAssert.equal(transfer.body.params[2].modeTok.text, "borrows")
+    testAssert.equal(transfer.body.params[3].modeTok.text, "exclusive")
+    testAssert.equal(transfer.body.params[4].modeTok.text, "retains")
+    testAssert.equal(transfer.body.params[5].modeTok.text, "releases")
+    testAssert.equal(result.root.blocks[1].stats[3].kind, "pragmaStmt")
+    testAssert.equal(result.root.blocks[1].stats[3].stat.kind, "doStmt")
+    testAssert.equal(result.root.blocks[1].stats[4].kind, "callStmt")
 end
 
 -- `new` joins the contextual words: a name follows it on the same line or it is
@@ -232,19 +227,19 @@ function M.newStaysContextual()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local stats = result.root.blocks[1].stats
-    assertEq(stats[3].exprs[1].kind, "newExpr")
-    assertEq(stats[4].exprs[1].kind, "newExpr")
-    assertEq(stats[5].exprs[1].kind, "name")
+    testAssert.equal(stats[3].exprs[1].kind, "newExpr")
+    testAssert.equal(stats[4].exprs[1].kind, "newExpr")
+    testAssert.equal(stats[5].exprs[1].kind, "name")
 end
 
 -- A bare `new T` would be a second spelling of `new T()`, and one spelling per
 -- meaning is the reason the keyword exists at all.
 function M.newNeedsAConstruction()
     local result = parser.parse("local bare = new Point")
-    assertEq(#result.errors, 1, "one error")
-    assertEq(result.errors[1].code, "NUPP1004")
+    testAssert.equal(#result.errors, 1, "one error")
+    testAssert.equal(result.errors[1].code, "NUPP1004")
     assert(result.errors[1].msg:find("needs a construction", 1, true), result.errors[1].msg)
 end
 
@@ -253,11 +248,11 @@ function M.borrowedReturnsAcceptMultipleSources()
         "local function pair(borrows a: any, borrows b: any): any borrows(a, b) return {a, b} end",
         "test"
     )
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local ret = result.root.blocks[1].stats[1].body.rets[1]
-    assertEq(ret.kind, "tborrows")
-    assertEq(ret.params[1].text, "a")
-    assertEq(ret.params[2].text, "b")
+    testAssert.equal(ret.kind, "tborrows")
+    testAssert.equal(ret.params[1].text, "a")
+    testAssert.equal(ret.params[2].text, "b")
 end
 
 -- Sources are a list, and one source is a list of length one, so the parentheses are
@@ -266,11 +261,11 @@ end
 -- pinning.
 function M.borrowedSourcesAreAlwaysParenthesised()
     local result = parser.parse("local ref: function(borrows b: any): (any borrows (b), integer)", "test")
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local pack = result.root.blocks[1].stats[1].types[1].returnPack
-    assertEq(pack.types[1].kind, "tborrows")
-    assertEq(pack.types[1].params[1].text, "b")
-    assertEq(#pack.types, 2, "the source list closes before the result separator")
+    testAssert.equal(pack.types[1].kind, "tborrows")
+    testAssert.equal(pack.types[1].params[1].text, "b")
+    testAssert.equal(#pack.types, 2, "the source list closes before the result separator")
 
     -- A mode written on a parameter modifies that one parameter and stays bare; only
     -- the source list takes parentheses.
@@ -290,11 +285,11 @@ function M.cdefOutputsUseTheOrdinaryBorrowRelation()
         ),
         "test"
     )
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local relation = result.root.blocks[1].stats[1].params[3].type
-    assertEq(relation.kind, "tborrows")
-    assertEq(relation.params[1].text, "left")
-    assertEq(relation.params[2].text, "right")
+    testAssert.equal(relation.kind, "tborrows")
+    testAssert.equal(relation.params[1].text, "left")
+    testAssert.equal(relation.params[2].text, "right")
 end
 
 function M.resultRelationsAttachToTheirFixedPackSlots()
@@ -308,72 +303,75 @@ function M.resultRelationsAttachToTheirFixedPackSlots()
         ),
         "test"
     )
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local stats = result.root.blocks[1].stats
-    assertEq(stats[1].types[1].returnPack.types[2].kind, "tpreserves")
-    assertEq(stats[1].types[1].returnPack.types[2].param.text, "value")
-    assertEq(stats[2].types[1].returnPack.types[2].kind, "tborrows")
-    assertEq(stats[2].types[1].returnPack.types[2].param.text, "source")
+    testAssert.equal(stats[1].types[1].returnPack.types[2].kind, "tpreserves")
+    testAssert.equal(stats[1].types[1].returnPack.types[2].param.text, "value")
+    testAssert.equal(stats[2].types[1].returnPack.types[2].kind, "tborrows")
+    testAssert.equal(stats[2].types[1].returnPack.types[2].param.text, "source")
 end
 
 function M.precedenceArithmetic()
-    assertEq(exprDump("1 + 2 * 3"), "(binop (number 1) + (binop (number 2) * (number 3)))")
-    assertEq(exprDump("-x^2"), "(unop - (binop (name x) ^ (number 2)))")
-    assertEq(exprDump("not a == b"), "(binop (unop not (name a)) == (name b))")
+    testAssert.equal(exprDump("1 + 2 * 3"), "(binop (number 1) + (binop (number 2) * (number 3)))")
+    testAssert.equal(exprDump("-x^2"), "(unop - (binop (name x) ^ (number 2)))")
+    testAssert.equal(exprDump("not a == b"), "(binop (unop not (name a)) == (name b))")
     -- A unary operator binds tighter than every binary one but `^`.
-    assertEq(exprDump("-a + b"), "(binop (unop - (name a)) + (name b))")
-    assertEq(exprDump("-a * b"), "(binop (unop - (name a)) * (name b))")
-    assertEq(exprDump("#t .. s"), "(binop (unop # (name t)) .. (name s))")
+    testAssert.equal(exprDump("-a + b"), "(binop (unop - (name a)) + (name b))")
+    testAssert.equal(exprDump("-a * b"), "(binop (unop - (name a)) * (name b))")
+    testAssert.equal(exprDump("#t .. s"), "(binop (unop # (name t)) .. (name s))")
     -- `??` binds loosest of all, below `or`.
-    assertEq(exprDump("a ?? b and c"), "(binop (name a) ?? (binop (name b) and (name c)))")
-    assertEq(exprDump("a or b ?? c"), "(binop (binop (name a) or (name b)) ?? (name c))")
+    testAssert.equal(exprDump("a ?? b and c"), "(binop (name a) ?? (binop (name b) and (name c)))")
+    testAssert.equal(exprDump("a or b ?? c"), "(binop (binop (name a) or (name b)) ?? (name c))")
 end
 
 function M.precedenceRightAssoc()
-    assertEq(exprDump("a .. b .. c"), "(binop (name a) .. (binop (name b) .. (name c)))")
-    assertEq(exprDump("2 ^ 3 ^ 4"), "(binop (number 2) ^ (binop (number 3) ^ (number 4)))")
+    testAssert.equal(exprDump("a .. b .. c"), "(binop (name a) .. (binop (name b) .. (name c)))")
+    testAssert.equal(exprDump("2 ^ 3 ^ 4"), "(binop (number 2) ^ (binop (number 3) ^ (number 4)))")
 end
 
 function M.customaryOperators()
     -- The customary spellings parse to the classic nodes, at the classic
     -- precedence, so only the token text records which form was written.
-    assertEq(exprDump("a && b || c"), "(binop (binop (name a) && (name b)) || (name c))")
-    assertEq(exprDump("a and b or c"), "(binop (binop (name a) and (name b)) or (name c))")
-    assertEq(exprDump("!a != b"), "(binop (unop ! (name a)) != (name b))")
+    testAssert.equal(exprDump("a && b || c"), "(binop (binop (name a) && (name b)) || (name c))")
+    testAssert.equal(exprDump("a and b or c"), "(binop (binop (name a) and (name b)) or (name c))")
+    testAssert.equal(exprDump("!a != b"), "(binop (unop ! (name a)) != (name b))")
     assertRoundtrip("x = a && !b || c != d")
 end
 
 function M.shortFunctions()
-    assertEq(exprDump("|a, b| -> a + b"), "(shortfn | (param a) , (param b) | -> (binop (name a) + (name b)))")
-    assertEq(exprDump("x -> x * 2"), "(shortfn (param x) -> (binop (name x) * (number 2)))")
+    testAssert.equal(exprDump("|a, b| -> a + b"), "(shortfn | (param a) , (param b) | -> (binop (name a) + (name b)))")
+    testAssert.equal(exprDump("x -> x * 2"), "(shortfn (param x) -> (binop (name x) * (number 2)))")
     -- `||` is one token; operand position is what makes it an empty list
     -- rather than `or`.
-    assertEq(exprDump("|| -> true"), "(shortfn || -> (trueExpr true))")
-    assertEq(exprDump("a || || -> true"), "(binop (name a) || (shortfn || -> (trueExpr true)))")
+    testAssert.equal(exprDump("|| -> true"), "(shortfn || -> (trueExpr true))")
+    testAssert.equal(exprDump("a || || -> true"), "(binop (name a) || (shortfn || -> (trueExpr true)))")
     assertRoundtrip("local f = || -> true")
     assertRoundtrip("f(|| -> 1)")
     assertRoundtrip("local t = {|| -> 1}")
-    assertEq(exprDump("|n: number| -> n"), "(shortfn | (param n : (tname number)) | -> (name n))")
-    assertEq(
+    testAssert.equal(exprDump("|n: number| -> n"), "(shortfn | (param n : (tname number)) | -> (name n))")
+    testAssert.equal(
         exprDump("|a| -> do return a end"),
         "(shortfn | (param a) | -> do (block (returnStmt return (name a))) end)"
     )
     -- as a call argument, the body stops at the argument comma
-    assertEq(exprDump("f(x -> x, 1)"), "(call (name f) (args ( (shortfn (param x) -> (name x)) , (number 1) )))")
+    testAssert.equal(
+        exprDump("f(x -> x, 1)"),
+        "(call (name f) (args ( (shortfn (param x) -> (name x)) , (number 1) )))"
+    )
     -- nested/curried
-    assertEq(exprDump("a -> b -> a"), "(shortfn (param a) -> (shortfn (param b) -> (name a)))")
+    testAssert.equal(exprDump("a -> b -> a"), "(shortfn (param a) -> (shortfn (param b) -> (name a)))")
     -- '|' is still bitwise-or in operator position
-    assertEq(exprDump("a | b"), "(binop (name a) | (name b))")
-    assertEq(exprDump("|...args| -> args.n"), "(shortfn | (param ... args) | -> (dotIndex (name args) . n))")
+    testAssert.equal(exprDump("a | b"), "(binop (name a) | (name b))")
+    testAssert.equal(exprDump("|...args| -> args.n"), "(shortfn | (param ... args) | -> (dotIndex (name args) . n))")
 end
 
 function M.namedVarargs()
     local src = "local function collect(first, ...args: number) " .. "return args.n, ... end"
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, "named vararg should parse")
+    testAssert.equal(#result.errors, 0, "named vararg should parse")
     local body = result.root.blocks[1].stats[1].body
     assert(body.varargParam == body.params[2])
-    assertEq(body.varargParam.name.text, "args")
+    testAssert.equal(body.varargParam.name.text, "args")
 
     local spaced = assertRoundtrip("local function bad(... args) end")
     assert(#spaced.errors > 0, "named vararg must be contiguous")
@@ -392,10 +390,10 @@ function M.continueStatements()
             "\n"
         )
     )
-    assertEq(#result.errors, 0, "valid continue forms should parse")
+    testAssert.equal(#result.errors, 0, "valid continue forms should parse")
 
     local outside = assertRoundtrip("continue")
-    assertEq(outside.errors[1].msg, "no loop to continue")
+    testAssert.equal(outside.errors[1].msg, "no loop to continue")
     assert(
         #assertRoundtrip("while true do continue; end").errors > 0,
         "continue must be the last statement in its block"
@@ -406,8 +404,8 @@ function M.continueStatements()
     )
 
     local skipped = assertRoundtrip("repeat if x then continue end local y = 1 until y > 0")
-    assertEq(skipped.errors[1].msg, "continue skips local 'y', which the until condition reads")
-    assertEq(
+    testAssert.equal(skipped.errors[1].msg, "continue skips local 'y', which the until condition reads")
+    testAssert.equal(
         #assertRoundtrip("repeat local y = 1 if x then continue end local z = 2 until y > 0").errors,
         0,
         "a local declared before the continue is in scope for the condition"
@@ -421,29 +419,29 @@ function M.returnEndsItsBlock()
             "\n"
         )
     )
-    assertEq(#legal.errors, 0, legal.errors[1] and legal.errors[1].msg or "")
+    testAssert.equal(#legal.errors, 0, legal.errors[1] and legal.errors[1].msg or "")
 
     local trailing = assertRoundtrip("return 1\nlocal function f() end")
-    assertEq(#trailing.errors, 1, "the trailing statement is reported")
-    assertEq(trailing.errors[1].code, "NUPP1005", "syntax code")
-    assertEq(trailing.errors[1].msg, "'return' must be the last statement in a block")
-    assertEq(trailing.errors[1].line, 2, "caret is on the trailing statement")
-    assertEq(trailing.errors[1].col, 1, "caret column")
+    testAssert.equal(#trailing.errors, 1, "the trailing statement is reported")
+    testAssert.equal(trailing.errors[1].code, "NUPP1005", "syntax code")
+    testAssert.equal(trailing.errors[1].msg, "'return' must be the last statement in a block")
+    testAssert.equal(trailing.errors[1].line, 2, "caret is on the trailing statement")
+    testAssert.equal(trailing.errors[1].col, 1, "caret column")
     assert(trailing.errors[1].help, "the report says what to do")
     -- Reporting does not discard: what follows still parses into the block.
-    assertEq(#trailing.root.blocks[1].stats, 2, "both statements are kept")
+    testAssert.equal(#trailing.root.blocks[1].stats, 2, "both statements are kept")
 
-    assertEq(
+    testAssert.equal(
         #assertRoundtrip("return 1\nlocal a = 2\nlocal b = 3").errors,
         1,
         "one report for a run of trailing statements, not one each"
     )
-    assertEq(
+    testAssert.equal(
         #assertRoundtrip("return 1\nlocal a = 2\nreturn 3\nlocal b = 4").errors,
         2,
         "a second return that is not last is reported too"
     )
-    assertEq(
+    testAssert.equal(
         #assertRoundtrip("local function f() return 1 local x = 2 end").errors,
         1,
         "the rule holds inside a function body"
@@ -451,71 +449,77 @@ function M.returnEndsItsBlock()
 end
 
 function M.interpolatedStringsParse()
-    assertEq(exprDump("`n is ${n}!`"), "(istring `n is ${ (name n) }!`)")
-    assertEq(
+    testAssert.equal(exprDump("`n is ${n}!`"), "(istring `n is ${ (name n) }!`)")
+    testAssert.equal(
         exprDump("`${a} + ${b} = ${a + b}`"),
         "(istring `${ (name a) } + ${ (name b) } = ${ (binop (name a) + (name b)) }`)"
     )
-    assertEq(exprDump("`t ${ {x = 1} } end`"), "(istring `t ${ (tableExpr { (fieldNamed x = (number 1)) }) } end`)")
+    testAssert.equal(
+        exprDump("`t ${ {x = 1} } end`"),
+        "(istring `t ${ (tableExpr { (fieldNamed x = (number 1)) }) } end`)"
+    )
     -- union in pipe params needs parens
-    assertEq(
+    testAssert.equal(
         exprDump("|v: (number | string)| -> v"),
         "(shortfn | (param v : (tparen ( (tunion (tname number) | (tname string)) ))) | -> (name v))"
     )
     local result = parser.parse("local s = `broken ${x")
     assert(#result.errors > 0, "unterminated istring must error")
-    assertEq(cst.textOf(result.root), "local s = `broken ${x")
+    testAssert.equal(cst.textOf(result.root), "local s = `broken ${x")
     local trailingEscape = parser.parse("`\\")
     assert(#trailingEscape.errors > 0, "a final istring escape must error")
-    assertEq(cst.textOf(trailingEscape.root), "`\\")
+    testAssert.equal(cst.textOf(trailingEscape.root), "`\\")
 end
 
 function M.dedentStringsStayContextualAndLossless()
-    assertEq(exprDump("dedent [[\n   ready\n   ]]"), "(dedentString dedent [[\n   ready\n   ]])")
+    testAssert.equal(exprDump("dedent [[\n   ready\n   ]]"), "(dedentString dedent [[\n   ready\n   ]])")
     local ordinary = exprDump("dedent[1]")
-    assertEq(ordinary, "(bracketIndex (name dedent) [ (number 1) ])")
+    testAssert.equal(ordinary, "(bracketIndex (name dedent) [ (number 1) ])")
     assertRoundtrip("local text = dedent [=[\n   ]] stays raw\n   ]=]\n")
 end
 
 function M.precedenceBitLayers()
     -- | < ~ < & < shift, and .. binds tighter than shift (Lua 5.3 layering)
-    assertEq(
+    testAssert.equal(
         exprDump("1 | 2 ~ 3 & 4 << 5"),
         "(binop (number 1) | (binop (number 2) ~ (binop (number 3) & " .. "(binop (number 4) << (number 5)))))"
     )
-    assertEq(exprDump("a << b .. c"), "(binop (name a) << (binop (name b) .. (name c)))")
-    assertEq(exprDump("a ~>> 2 >> 1"), "(binop (binop (name a) ~>> (number 2)) >> (number 1))")
+    testAssert.equal(exprDump("a << b .. c"), "(binop (name a) << (binop (name b) .. (name c)))")
+    testAssert.equal(exprDump("a ~>> 2 >> 1"), "(binop (binop (name a) ~>> (number 2)) >> (number 1))")
 end
 
 function M.ternary()
-    assertEq(exprDump("a ? b : c"), "(ternary (name a) ? (name b) : (name c))")
+    testAssert.equal(exprDump("a ? b : c"), "(ternary (name a) ? (name b) : (name c))")
     -- right-associative chaining
-    assertEq(exprDump("a ? b : c ? d : e"), "(ternary (name a) ? (name b) : (ternary (name c) ? (name d) : (name e)))")
+    testAssert.equal(
+        exprDump("a ? b : c ? d : e"),
+        "(ternary (name a) ? (name b) : (ternary (name c) ? (name d) : (name e)))"
+    )
     -- condition binds through or/and first
-    assertEq(exprDump("a or b ? c : d"), "(ternary (binop (name a) or (name b)) ? (name c) : (name d))")
+    testAssert.equal(exprDump("a or b ? c : d"), "(ternary (binop (name a) or (name b)) ? (name c) : (name d))")
 end
 
 function M.ternaryMethodCallRestriction()
     -- ':' in the second arm belongs to the ternary, not a method call [CS-2]
-    assertEq(exprDump("x ? f : o:m()"), "(ternary (name x) ? (name f) : (methodCall (name o) : m (args ( ))))")
+    testAssert.equal(exprDump("x ? f : o:m()"), "(ternary (name x) ? (name f) : (methodCall (name o) : m (args ( ))))")
     -- parenthesized method call in the second arm is fine
-    assertEq(
+    testAssert.equal(
         exprDump("x ? (o:m()) : y"),
         "(ternary (name x) ? (paren ( (methodCall (name o) : m (args ( ))) )) : (name y))"
     )
 end
 
 function M.safeNavigation()
-    assertEq(exprDump("t?.a?.b"), "(safeIndex (safeIndex (name t) ?. a) ?. b)")
-    assertEq(exprDump("t?.[k]"), "(safeBracket (name t) ?. [ (name k) ])")
-    assertEq(exprDump("f?.(x)"), "(safeCall (name f) ?. (args ( (name x) )))")
+    testAssert.equal(exprDump("t?.a?.b"), "(safeIndex (safeIndex (name t) ?. a) ?. b)")
+    testAssert.equal(exprDump("t?.[k]"), "(safeBracket (name t) ?. [ (name k) ])")
+    testAssert.equal(exprDump("f?.(x)"), "(safeCall (name f) ?. (args ( (name x) )))")
     -- call sugar takes the operator too
-    assertEq(exprDump('f?."lit"'), '(safeCall (name f) ?. (args "lit"))')
-    assertEq(exprDump("f?.{1}"), "(safeCall (name f) ?. (args (tableExpr { (fieldItem (number 1)) })))")
+    testAssert.equal(exprDump('f?."lit"'), '(safeCall (name f) ?. (args "lit"))')
+    testAssert.equal(exprDump("f?.{1}"), "(safeCall (name f) ?. (args (tableExpr { (fieldItem (number 1)) })))")
     -- a method call carries a check on the receiver, on the method, or both
-    assertEq(exprDump("o?.:m(x)"), "(methodCall (name o) ?. : m (args ( (name x) )))")
-    assertEq(exprDump("o:m?.(x)"), "(methodCall (name o) : m ?. (args ( (name x) )))")
-    assertEq(exprDump("o?.:m?.(x)"), "(methodCall (name o) ?. : m ?. (args ( (name x) )))")
+    testAssert.equal(exprDump("o?.:m(x)"), "(methodCall (name o) ?. : m (args ( (name x) )))")
+    testAssert.equal(exprDump("o:m?.(x)"), "(methodCall (name o) : m ?. (args ( (name x) )))")
+    testAssert.equal(exprDump("o?.:m?.(x)"), "(methodCall (name o) ?. : m ?. (args ( (name x) )))")
     assertRoundtrip("local v = a?.b?.[c]?.d?.:e?.()")
     -- assignment targets and compound assignment accept the operator
     assertRoundtrip("a?.b = 1")
@@ -528,18 +532,18 @@ function M.compoundAssignment()
     for _, op in ipairs(ops) do
         local src = ("x %s 1"):format(op)
         local result = assertRoundtrip(src)
-        assertEq(#result.errors, 0, "compound " .. op .. " must parse")
-        assertEq(result.root.blocks[1].stats[1].kind, "compoundAssign", op)
+        testAssert.equal(#result.errors, 0, "compound " .. op .. " must parse")
+        testAssert.equal(result.root.blocks[1].stats[1].kind, "compoundAssign", op)
     end
     -- `~=` stays inequality in expression position; only a statement reads it
     -- as xor-assign, and Lua has no assignment expression to confuse the two.
-    assertEq(exprDump("a ~= b"), "(binop (name a) ~= (name b))")
+    testAssert.equal(exprDump("a ~= b"), "(binop (name a) ~= (name b))")
     -- `!=` spells inequality and nothing else, so it is not xor-assign even
     -- though it shares a token kind with the operator that is. LuaJIT refuses
     -- `a != b` as a statement; so does this.
     local result = parser.parse("local a = 1\na != 2")
     assert(#result.errors > 0, "!= must not read as a compound assignment")
-    assertEq(result.root.blocks[1].stats[2].kind, "errorStmt")
+    testAssert.equal(result.root.blocks[1].stats[2].kind, "errorStmt")
     -- and the message names what was written rather than the kind it folds to
     assertRoundtrip("local a = 1\na != 2")
 end
@@ -550,17 +554,17 @@ function M.safeMethodCallsAndTheTernary()
     local result = parser.parse("x = c ? o?.:m() : y")
     assert(#result.errors > 0, "?.: must not parse in the second arm")
     assert(result.errors[1].msg:find("ternary", 1, true), result.errors[1].msg)
-    assertEq(#parser.parse("x = c ? (o?.:m()) : y").errors, 0, "parenthesized is fine")
+    testAssert.equal(#parser.parse("x = c ? (o?.:m()) : y").errors, 0, "parenthesized is fine")
     assertRoundtrip("x = c ? o?.:m() : y")
 end
 
 function M.suffixesAndCalls()
-    assertEq(
+    testAssert.equal(
         exprDump("a.b[c]:m(1)"),
         "(methodCall (bracketIndex (dotIndex (name a) . b) [ (name c) ]) " .. ": m (args ( (number 1) )))"
     )
-    assertEq(exprDump('f"lit"'), '(call (name f) (args "lit"))')
-    assertEq(exprDump("f{1}"), "(call (name f) (args (tableExpr { (fieldItem (number 1)) })))")
+    testAssert.equal(exprDump('f"lit"'), '(call (name f) (args "lit"))')
+    testAssert.equal(exprDump("f{1}"), "(call (name f) (args (tableExpr { (fieldItem (number 1)) })))")
 end
 
 function M.statementForms()
@@ -583,12 +587,12 @@ function M.statementForms()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, "statement corpus should parse cleanly")
+    testAssert.equal(#result.errors, 0, "statement corpus should parse cleanly")
     local kinds = {}
     for _, s in ipairs(result.root.blocks[1].stats) do
         kinds[#kinds + 1] = s.kind
     end
-    assertEq(
+    testAssert.equal(
         table.concat(kinds, " "),
         "localStmt assignStmt funcStmt localFuncStmt fornumStmt "
         .. "forinStmt whileStmt repeatStmt ifStmt doStmt gotoStmt "
@@ -606,16 +610,16 @@ function M.constDeclarations()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, "const declarations should parse cleanly")
+    testAssert.equal(#result.errors, 0, "const declarations should parse cleanly")
     local stats = result.root.blocks[1].stats
     assert(stats[1].isConst and stats[1].kind == "localStmt")
     assert(stats[2].isConst and stats[2].kind == "localStmt")
     assert(stats[3].isConst and stats[3].kind == "localFuncStmt")
-    assertEq(stats[1].types[1].kind, "tname")
+    testAssert.equal(stats[1].types[1].kind, "tname")
 
     -- The soft keyword remains an identifier outside declaration shape.
-    assertEq(assertRoundtrip("local const = 1\nconst = const + 1").root.blocks[1].stats[2].kind, "assignStmt")
-    assertEq(#assertRoundtrip("const(1)").errors, 0)
+    testAssert.equal(assertRoundtrip("local const = 1\nconst = const + 1").root.blocks[1].stats[2].kind, "assignStmt")
+    testAssert.equal(#assertRoundtrip("const(1)").errors, 0)
 end
 
 function M.constFieldDeclarations()
@@ -629,7 +633,7 @@ function M.constFieldDeclarations()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, "const field declarations should parse cleanly")
+    testAssert.equal(#result.errors, 0, "const field declarations should parse cleanly")
     local stats = result.root.blocks[1].stats
     assert(stats[2].isConst and not stats[2].deepConst)
     assert(stats[2].exprs[1].fields[1].isConst)
@@ -638,9 +642,9 @@ function M.constFieldDeclarations()
     assert(stats[3].exprs[1].fields[2].value.fields[1].isConst)
 
     local dynamic = parser.parse("local M = {}\nconst M.x[1] = 2", "test")
-    assertEq(dynamic.errors[1].code, "NUPP1005", "const fields require a static dotted path")
+    testAssert.equal(dynamic.errors[1].code, "NUPP1005", "const fields require a static dotted path")
     local positional = parser.parse("local M = {}\nconst... M.x = {1}", "test")
-    assertEq(positional.errors[1].code, "NUPP1005", "deep const fields require stable names")
+    testAssert.equal(positional.errors[1].code, "NUPP1005", "deep const fields require stable names")
 end
 
 function M.comptimeTypeAliasesAreDeclarations()
@@ -654,7 +658,7 @@ function M.comptimeTypeAliasesAreDeclarations()
         "\n"
     )
     local result = assertRoundtrip(source)
-    assertEq(#result.errors, 0, "comptime aliases should parse cleanly")
+    testAssert.equal(#result.errors, 0, "comptime aliases should parse cleanly")
     local stats = result.root.blocks[1].stats
     for i, stat in ipairs(stats) do
         if stat.kind == "pragmaStmt" then
@@ -690,7 +694,7 @@ function M.removedKeywordFormsAreNotMigrationGrammar()
     }) do
         local result = parser.parse(case.source, "removed-keyword-form.nupp")
         if case.ordinary then
-            assertEq(result.root.blocks[1].stats[1].kind, "localStmt", case.source)
+            testAssert.equal(result.root.blocks[1].stats[1].kind, "localStmt", case.source)
         else
             assert(#result.errors > 0, case.source)
         end
@@ -699,7 +703,7 @@ function M.removedKeywordFormsAreNotMigrationGrammar()
         end
     end
     local annotated = assertRoundtrip("local type Surface = {@readonly value: integer, @writeonly [integer]: integer}")
-    assertEq(#annotated.errors, 0)
+    testAssert.equal(#annotated.errors, 0)
 end
 
 function M.recoveryMissingPieces()
@@ -725,30 +729,30 @@ function M.recoveryContinuesParsing()
     assert(#result.errors > 0)
     local stats = result.root.blocks[1].stats
     local last = stats[#stats]
-    assertEq(last.kind, "returnStmt", "return after error should parse")
-    assertEq(cst.dump(last.exprs[1]), "(number 99)")
+    testAssert.equal(last.kind, "returnStmt", "return after error should parse")
+    testAssert.equal(cst.dump(last.exprs[1]), "(number 99)")
 end
 
 function M.strayEndAtTopLevel()
     local result = assertRoundtrip("end return 1")
     assert(#result.errors > 0)
-    assertEq(cst.textOf(result.root), "end return 1")
+    testAssert.equal(cst.textOf(result.root), "end return 1")
 end
 
 function M.syntaxDiagnosticsHaveCodesSpansAndFoundTokens()
     local result = assertRoundtrip("local value =\nlocal next = (1 + )")
     assert(#result.errors >= 2, "both malformed expressions are reported")
-    assertEq(result.errors[1].code, "NUPP1004", "expression code")
-    assertEq(result.errors[1].length, #"local", "whole token span")
+    testAssert.equal(result.errors[1].code, "NUPP1004", "expression code")
+    testAssert.equal(result.errors[1].length, #"local", "whole token span")
     assert(
         result.errors[1].msg:find('found "local"', 1, true),
         "message names the recovery token: " .. result.errors[1].msg
     )
-    assertEq(result.errors[2].code, "NUPP1004", "second expression code")
+    testAssert.equal(result.errors[2].code, "NUPP1004", "second expression code")
 
     local unclosed = assertRoundtrip("if true then")
     local last = unclosed.errors[#unclosed.errors]
-    assertEq(last.code, "NUPP1002", "missing token code")
+    testAssert.equal(last.code, "NUPP1002", "missing token code")
     assert(last.msg:find("found end of file", 1, true), last.msg)
 end
 
@@ -765,14 +769,14 @@ function M.selfParseClean()
         local src = f:read("*a")
         f:close()
         local result = parser.parse(src, rel)
-        assertEq(
+        testAssert.equal(
             #result.errors,
             0,
             "self-parse errors in " .. rel .. (
                 result.errors[1] and (": line " .. result.errors[1].line .. ": " .. result.errors[1].msg) or ""
             )
         )
-        assertEq(cst.textOf(result.root), src, "self round-trip: " .. rel)
+        testAssert.equal(cst.textOf(result.root), src, "self round-trip: " .. rel)
     end
 end
 
@@ -789,7 +793,11 @@ end
 
 function M.nestedGenericsParseWithoutErrors()
     local result = parser.parse("local a: Box<Box<integer>> = x\n")
-    assertEq(#result.errors, 0, "nested generic close reported: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.equal(
+        #result.errors,
+        0,
+        "nested generic close reported: " .. (result.errors[1] and result.errors[1].msg or "")
+    )
 end
 
 -- The second half of a `>>` closes the outer list whatever follows it: a postfix,
@@ -810,30 +818,30 @@ function M.halfClosedGenericsAcceptWhatFollows()
     }
     for _, src in ipairs(sources) do
         local result = assertRoundtrip(src)
-        assertEq(#result.errors, 0, src .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
+        testAssert.equal(#result.errors, 0, src .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
     end
     local optional = parser.parse(sources[1]).root.blocks[1].stats[1]
-    assertEq(optional.types[1].kind, "topt", "the postfix belongs to the outer list")
-    assertEq(optional.types[1].inner.kind, "tname")
+    testAssert.equal(optional.types[1].kind, "topt", "the postfix belongs to the outer list")
+    testAssert.equal(optional.types[1].inner.kind, "tname")
     local union = parser.parse(sources[2]).root.blocks[1].stats[1]
-    assertEq(union.types[1].kind, "tunion")
+    testAssert.equal(union.types[1].kind, "tunion")
 end
 
 -- An assignment to something that is not a place is reported at that target,
 -- not at whatever statement happens to follow the right-hand side.
 function M.unassignableTargetIsReportedAtTheTarget()
     local plain = parser.parse("local t = {}\nf() = 1\nprint(2)\n")
-    assertEq(#plain.errors, 1, "one error for the call target")
-    assertEq(plain.errors[1].msg, "cannot assign to this expression")
-    assertEq(plain.errors[1].line, 2, "assignment target line")
-    assertEq(plain.errors[1].col, 1, "assignment target column")
+    testAssert.equal(#plain.errors, 1, "one error for the call target")
+    testAssert.equal(plain.errors[1].msg, "cannot assign to this expression")
+    testAssert.equal(plain.errors[1].line, 2, "assignment target line")
+    testAssert.equal(plain.errors[1].col, 1, "assignment target column")
     local compound = parser.parse("local t = {}\nt.x, f() += 1\nprint(2)\n")
     assert(compound.errors[1], "a compound assignment to a call went unreported")
-    assertEq(compound.errors[1].line, 2, "compound target line")
+    testAssert.equal(compound.errors[1].line, 2, "compound target line")
     local second = parser.parse("local t = {}\nt.x, f() = 1, 2\nprint(2)\n")
-    assertEq(#second.errors, 1, "one error for the second target")
-    assertEq(second.errors[1].line, 2, "second target line")
-    assertEq(second.errors[1].col, 6, "second target column")
+    testAssert.equal(#second.errors, 1, "one error for the second target")
+    testAssert.equal(second.errors[1].line, 2, "second target line")
+    testAssert.equal(second.errors[1].col, 6, "second target column")
 end
 
 -- A bare return list continues past a comma into anything a type can start with,
@@ -846,17 +854,17 @@ function M.bareReturnListsAcceptLiteralTypes()
     }
     for _, src in ipairs(sources) do
         local result = assertRoundtrip(src)
-        assertEq(#result.errors, 0, src .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
+        testAssert.equal(#result.errors, 0, src .. ": " .. (result.errors[1] and result.errors[1].msg or ""))
         local body = result.root.blocks[1].stats[1].body
-        assertEq(#body.rets, select(2, src:gsub(",", ",")) / 2 + 1, "every result was read")
+        testAssert.equal(#body.rets, select(2, src:gsub(",", ",")) / 2 + 1, "every result was read")
     end
 end
 
 -- An unmatched second half is still reported rather than silently swallowed.
 function M.strayHalfCloseIsReported()
     local result = parser.parse("local w: Box<integer>> = 1\n")
-    assertEq(cst.textOf(result.root), "local w: Box<integer>> = 1\n")
-    assertEq(#result.errors > 0, true, "a stray > went unreported")
+    testAssert.equal(cst.textOf(result.root), "local w: Box<integer>> = 1\n")
+    testAssert.equal(#result.errors > 0, true, "a stray > went unreported")
 end
 
 -- `if NAME = EXPR then` and `elseif NAME = EXPR then` carry the name and the
@@ -879,25 +887,22 @@ function M.ifClausesBindANameFollowedByEquals()
         "\n"
     )
     local result = assertRoundtrip(src)
-    assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
     local clauses = result.root.blocks[1].stats[1].clauses
-    assertEq(clauses[1].binding.text, "a")
-    assertEq(clauses[1].eq.kind, "=")
-    assertEq(clauses[1].cond.kind, "call")
-    assertEq(clauses[2].binding.text, "b")
-    assertEq(clauses[2].cond.kind, "call")
-    assertEq(clauses[3].binding, nil, "a comparison is a condition")
-    assertEq(clauses[3].cond.kind, "binop")
-    assertEq(clauses[4].binding, nil, "a bare name is a condition")
-    assertEq(clauses[4].cond.kind, "name")
+    testAssert.equal(clauses[1].binding.text, "a")
+    testAssert.equal(clauses[1].eq.kind, "=")
+    testAssert.equal(clauses[1].cond.kind, "call")
+    testAssert.equal(clauses[2].binding.text, "b")
+    testAssert.equal(clauses[2].cond.kind, "call")
+    testAssert.equal(clauses[3].binding, nil, "a comparison is a condition")
+    testAssert.equal(clauses[3].cond.kind, "binop")
+    testAssert.equal(clauses[4].binding, nil, "a bare name is a condition")
+    testAssert.equal(clauses[4].cond.kind, "name")
 end
 
 function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
     for _, case in ipairs({
-        {
-            source = "local raw = @unsafe release owner",
-            fixed = "local raw = @unsafe nupp.release(owner)",
-        },
+        {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe nupp.release(owner)",},
         {
             source = "local owner = @unsafe adopt raw as affine(integer, close)",
             fixed = "local owner = @unsafe nupp.adopt<affine(integer, close)>(raw)",
@@ -909,12 +914,12 @@ function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
         },
     }) do
         local parsed = parser.parse(case.source)
-        assertEq(#parsed.errors, 1, case.source)
+        testAssert.equal(#parsed.errors, 1, case.source)
         local fix = parsed.errors[1].fixes and parsed.errors[1].fixes[1]
         assert(fix, "missing fix for " .. case.source)
         local fixed = applyFix(case.source, fix)
-        assertEq(fixed, case.fixed)
-        assertEq(#parser.parse(fixed).errors, 0, fixed)
+        testAssert.equal(fixed, case.fixed)
+        testAssert.equal(#parser.parse(fixed).errors, 0, fixed)
     end
 end
 
@@ -927,7 +932,7 @@ function M.unsafeOwnershipAlwaysNeedsItsExplicitMarker()
     }) do
         assert(#parser.parse(source).errors > 0, source)
     end
-    assertEq(#parser.parse('local unsafe, release, adopt = f, g, h; unsafe() release() adopt()').errors, 0)
+    testAssert.equal(#parser.parse('local unsafe, release, adopt = f, g, h; unsafe() release() adopt()').errors, 0)
 end
 
 -- A call's explicit type arguments are committed to by lookahead, so the arguments
@@ -944,13 +949,13 @@ end
 function M.messagesQuoteNonASCIIBytesInHex()
     local result = parser.parse("local \255 = 2", "latin1.nupp")
     for _, e in ipairs(result.errors) do
-        assertEq(e.msg:find("[\128-\255]"), nil, "ASCII message: " .. e.msg)
+        testAssert.equal(e.msg:find("[\128-\255]"), nil, "ASCII message: " .. e.msg)
     end
     local named = false
     for _, e in ipairs(result.errors) do
         named = named or e.msg:find('found "\\xFF"', 1, true) ~= nil
     end
-    assertEq(named, true, "the byte is named")
+    testAssert.equal(named, true, "the byte is named")
 end
 
 -- A file's leading inner annotations belong to the file, not a statement: they set
@@ -959,16 +964,16 @@ end
 function M.innerAnnotationsSitBesideTheTree()
     local src = "@!internal\n@!nofmt\nlocal x = 1\n"
     local result = parser.parse(src, "inner.nupp")
-    assertEq(#result.errors, 0)
-    assertEq(result.root.documentationInternal, true)
-    assertEq(result.root.formatDisabled, true)
+    testAssert.equal(#result.errors, 0)
+    testAssert.equal(result.root.documentationInternal, true)
+    testAssert.equal(result.root.formatDisabled, true)
     local printed = {}
     for _, token in ipairs(result.root.innerAnnotations) do
         printed[#printed + 1] = lexer.textOf({token})
     end
     local annotations = table.concat(printed)
-    assertEq(annotations, "@!internal\n@!nofmt")
-    assertEq(annotations .. cst.textOf(result.root), src, "annotations and tree together are the file")
+    testAssert.equal(annotations, "@!internal\n@!nofmt")
+    testAssert.equal(annotations .. cst.textOf(result.root), src, "annotations and tree together are the file")
 end
 
 return M

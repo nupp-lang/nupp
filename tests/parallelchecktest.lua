@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 local cache = require("nupp.tools.build.cache")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
@@ -16,12 +17,6 @@ if not HERE:match("^/") then
 end
 local ROOT = assert(HERE:match("^(.*)/[^/]+$"), "tests directory has no parent")
 local NUPP = ROOT .. "/bin/nupp"
-
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
 
 local function write(path, text)
     local directory = path:match("^(.*)/[^/]+$")
@@ -105,9 +100,7 @@ end
 
 return {answer = answer}
 ]],
-        [
-            "src/qualified.nupp"
-        ] = [[
+        ["src/qualified.nupp"] = [[
 module qualified
 
 export function value(): number
@@ -165,7 +158,8 @@ return value
         local dependency = index == 1 and "join" or ("layer%02d"):format(index - 1)
         files[
             "src/" .. name .. ".nupp"
-        ] = ([[
+        ] = (
+            [[
 local dependency = require(%q)
 
 local function value(): number
@@ -173,7 +167,8 @@ local function value(): number
 end
 
 return {value = value}
-]]):format(dependency, index == 1 and "answer" or "value")
+]]
+        ):format(dependency, index == 1 and "answer" or "value")
     end
     if withErrors then
         files["src/broken_a.nupp"] = "local wrong: string = 1\nreturn wrong\n"
@@ -231,10 +226,7 @@ end
 
 local function coldCheck(directory, environment)
     os.remove(directory .. "/build/cache/checks.buf")
-    local code, output = process.capture({NUPP, "check", "--json"}, {
-        cwd = directory,
-        env = environment,
-    })
+    local code, output = process.capture({NUPP, "check", "--json"}, {cwd = directory, env = environment,})
     local decoded, report = pcall(json.decode, output)
     assert(decoded, tostring(report) .. "\n" .. output)
 
@@ -244,9 +236,11 @@ end
 -- Every file a build wrote, by path relative to `build`, caches aside.
 local function buildOutputs(directory)
     local outputs = {}
-    local list = assert(io.popen(("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(
-        directory
-    )))
+    local list = assert(
+        io.popen(
+            ("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(directory)
+        )
+    )
     for path in list:lines() do
         local file = assert(io.open(directory .. "/build/" .. path, "rb"))
         outputs[path] = file:read("*a")
@@ -261,8 +255,10 @@ end
 -- have had: no build state and no artifact.
 local function coldBuild(directory, environment, extra)
     os.execute(
-        ("cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
-        .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"):format(directory)
+        (
+            "cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
+            .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"
+        ):format(directory)
     )
     local argv = {NUPP, "build", "--json"}
     for _, argument in ipairs(extra or {}) do
@@ -288,31 +284,31 @@ end
 local M = {}
 
 function M.workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism()
-    assertEq(parallelcheck.plan(63, 1048576, 8, nil).workers, 1, "module floor")
-    assertEq(parallelcheck.plan(64, 262143, 8, nil).workers, 1, "byte floor")
-    assertEq(parallelcheck.plan(64, 262144, 8, nil).workers, 6, "automatic cap")
-    assertEq(parallelcheck.plan(64, 262144, 2, nil).workers, 2, "available workers")
-    assertEq(parallelcheck.plan(4, 16, 8, 8).workers, 4, "explicit count")
-    assertEq(parallelcheck.plan(64, 262144, 8, 1).workers, 1, "serial escape hatch")
+    testAssert.equal(parallelcheck.plan(63, 1048576, 8, nil).workers, 1, "module floor")
+    testAssert.equal(parallelcheck.plan(64, 262143, 8, nil).workers, 1, "byte floor")
+    testAssert.equal(parallelcheck.plan(64, 262144, 8, nil).workers, 6, "automatic cap")
+    testAssert.equal(parallelcheck.plan(64, 262144, 2, nil).workers, 2, "available workers")
+    testAssert.equal(parallelcheck.plan(4, 16, 8, 8).workers, 4, "explicit count")
+    testAssert.equal(parallelcheck.plan(64, 262144, 8, 1).workers, 1, "serial escape hatch")
 end
 
 function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
     local directory = tempProject(true)
     local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    assertEq(serialCode, 1, "the fixture reports its authored errors")
-    assertEq(serialReport.timing.parallel.mode, "serial", "one requested worker")
+    testAssert.equal(serialCode, 1, "the fixture reports its authored errors")
+    testAssert.equal(serialReport.timing.parallel.mode, "serial", "one requested worker")
 
     for _, run in ipairs({{jobs = "2", seed = "17"}, {jobs = "3", seed = "83"}}) do
         local code, report, state = coldCheck(directory, {
             NUPP_CHECK_JOBS = run.jobs,
             NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED = run.seed,
         })
-        assertEq(code, serialCode, "parallel exit status")
-        assertEq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
-        assertEq(state, serialState, "parallel check records")
-        assertEq(report.timing.parallel.mode, "parallel", "parallel timing mode")
-        assertEq(report.timing.parallel.workers, tonumber(run.jobs), "parallel worker count")
-        assertEq(report.timing.parallel.retries, 0, "healthy workers are not retried")
+        testAssert.equal(code, serialCode, "parallel exit status")
+        testAssert.equal(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
+        testAssert.equal(state, serialState, "parallel check records")
+        testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
+        testAssert.equal(report.timing.parallel.workers, tonumber(run.jobs), "parallel worker count")
+        testAssert.equal(report.timing.parallel.retries, 0, "healthy workers are not retried")
     end
 
     assert(require("nupp.io.files").remove(directory, true))
@@ -346,7 +342,8 @@ return {stamp = stamp}
     for index = 1, 6 do
         write(
             directory .. ("/src/user%d.nupp"):format(index),
-            ([[
+            (
+                [[
 local clock = require("clock")
 local files = require("nupp.io.files")
 local time = require("nupp.time")
@@ -361,17 +358,18 @@ local function described(info: files.Info?): boolean
 end
 
 return {value = value, described = described}
-]]):format(index)
+]]
+            ):format(index)
         )
     end
 
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    assertEq(serialCode, 0, "serial fixture")
+    testAssert.equal(serialCode, 0, "serial fixture")
     local code, report, state = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    assertEq(code, 0, "parallel exit status")
-    assertEq(report.timing.parallel.mode, "parallel", "parallel timing mode")
-    assertEq(report.timing.parallel.rechecked, 0, "worker records survive validation")
-    assertEq(state, serialState, "parallel check records")
+    testAssert.equal(code, 0, "parallel exit status")
+    testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    testAssert.equal(report.timing.parallel.rechecked, 0, "worker records survive validation")
+    testAssert.equal(state, serialState, "parallel check records")
 
     assert(require("nupp.io.files").remove(directory, true))
 end
@@ -416,7 +414,8 @@ return {count = count}
     for index = 1, 4 do
         write(
             directory .. ("/src/user%d.nupp"):format(index),
-            ([[
+            (
+                [[
 local world = require("world")
 local files = require("nupp.io.files")
 
@@ -425,16 +424,17 @@ local function value(path: string): integer
 end
 
 return {value = value}
-]]):format(index)
+]]
+            ):format(index)
         )
     end
 
     local serialCode, serialReport = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    assertEq(stable(serialReport.diagnostics), stable({}), "serial diagnostics")
-    assertEq(serialCode, 0, "serial fixture")
+    testAssert.equal(stable(serialReport.diagnostics), stable({}), "serial diagnostics")
+    testAssert.equal(serialCode, 0, "serial fixture")
     local code, report = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    assertEq(code, 0, "parallel exit status")
-    assertEq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
+    testAssert.equal(code, 0, "parallel exit status")
+    testAssert.equal(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
 
     assert(require("nupp.io.files").remove(directory, true))
 end
@@ -464,7 +464,8 @@ end
     for index = 1, 6 do
         write(
             directory .. ("/src/use%d.nupp"):format(index),
-            ([[
+            (
+                [[
 const ann = require("lib.ann")
 
 @tag(name = "x")
@@ -479,19 +480,20 @@ local function make(): number
 end
 
 return {make = make}
-]]):format(index, index)
+]]
+            ):format(index, index)
         )
     end
 
     local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    assertEq(serialCode, 0, "serial fixture: " .. json.encode(serialReport.diagnostics))
+    testAssert.equal(serialCode, 0, "serial fixture: " .. json.encode(serialReport.diagnostics))
     local code, report, state = coldCheck(directory, {NUPP_CHECK_JOBS = "4"})
-    assertEq(report.timing.parallel.mode, "parallel", "parallel timing mode")
-    assertEq(#report.diagnostics, 0, "parallel diagnostics: " .. json.encode(report.diagnostics))
-    assertEq(code, 0, "parallel exit status")
-    assertEq(state, serialState, "parallel check records")
+    testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    testAssert.equal(#report.diagnostics, 0, "parallel diagnostics: " .. json.encode(report.diagnostics))
+    testAssert.equal(code, 0, "parallel exit status")
+    testAssert.equal(state, serialState, "parallel check records")
     local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
-    assertEq(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
+    testAssert.equal(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
 
     assert(require("nupp.io.files").remove(directory, true))
 end
@@ -501,18 +503,16 @@ end
 function M.parallelBuildsWriteWhatSerialBuildsWrite()
     local directory = tempProject(false)
     for _, level in ipairs({"-O0", "-O2"}) do
-        local serialCode, serialReport, serialOutputs, serialState = coldBuild(
-            directory,
-            {NUPP_CHECK_JOBS = "1"},
-            {level}
-        )
-        assertEq(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
+        local serialCode, serialReport, serialOutputs, serialState = coldBuild(directory, {NUPP_CHECK_JOBS = "1"}, {
+            level
+        })
+        testAssert.equal(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
         local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"}, {level})
-        assertEq(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
-        assertEq(report.timing.parallel.mode, "parallel", level .. " parallel timing mode")
-        assertEq(report.timing.parallel.rechecked, 0, level .. " worker records survive validation")
-        assertEq(outputs, serialOutputs, level .. " build outputs")
-        assertEq(state, serialState, level .. " build state")
+        testAssert.equal(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
+        testAssert.equal(report.timing.parallel.mode, "parallel", level .. " parallel timing mode")
+        testAssert.equal(report.timing.parallel.rechecked, 0, level .. " worker records survive validation")
+        testAssert.equal(outputs, serialOutputs, level .. " build outputs")
+        testAssert.equal(state, serialState, level .. " build state")
     end
 
     assert(require("nupp.io.files").remove(directory, true))
@@ -542,15 +542,15 @@ return {four = four}
 ]]
     )
     local code, report = coldBuild(directory, {NUPP_CHECK_JOBS = "2"}, {"-O2"})
-    assertEq(code, 0, "const-generic build: " .. json.encode(report.diagnostics))
-    assertEq(report.timing.parallel.mode, "serial", "the build stays in one process")
+    testAssert.equal(code, 0, "const-generic build: " .. json.encode(report.diagnostics))
+    testAssert.equal(report.timing.parallel.mode, "serial", "the build stays in one process")
     assert(
         tostring(report.timing.parallel.reason):find("const-generic", 1, true),
         "the build says why: " .. tostring(report.timing.parallel.reason)
     )
     local checkCode, checkReport = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    assertEq(checkCode, 0, "const-generic check")
-    assertEq(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
+    testAssert.equal(checkCode, 0, "const-generic check")
+    testAssert.equal(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
 
     assert(require("nupp.io.files").remove(directory, true))
 end
@@ -558,7 +558,7 @@ end
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     local directory = tempProject(false)
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    assertEq(serialCode, 0, "serial fixture")
+    testAssert.equal(serialCode, 0, "serial fixture")
 
     -- `exit` stops a worker before the scan, `hang` outlives the request deadline,
     -- `interface` damages every interface a worker sends so the consumer's decode
@@ -568,9 +568,9 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
             NUPP_CHECK_JOBS = "2",
             NUPP_TEST_PARALLEL_CHECK_FAILURE = failure,
         })
-        assertEq(code, 0, failure .. " fallback exit status")
-        assertEq(report.timing.parallel.mode, "serial-fallback", failure .. " fell back")
-        assertEq(state, serialState, failure .. " fallback records")
+        testAssert.equal(code, 0, failure .. " fallback exit status")
+        testAssert.equal(report.timing.parallel.mode, "serial-fallback", failure .. " fell back")
+        testAssert.equal(state, serialState, failure .. " fallback records")
         if failure == "crash" then
             assert(report.timing.parallel.retries >= 1, "a crashed worker was restarted before falling back")
         end
@@ -581,10 +581,10 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
         NUPP_CHECK_JOBS = "2",
         NUPP_TEST_PARALLEL_CHECK_FAILURE = "crash-once",
     })
-    assertEq(code, 0, "restarted worker exit status")
-    assertEq(report.timing.parallel.mode, "parallel", "a restarted worker keeps the check parallel")
-    assertEq(report.timing.parallel.retries, 1, "the stopped worker was retried once")
-    assertEq(state, serialState, "restarted worker records")
+    testAssert.equal(code, 0, "restarted worker exit status")
+    testAssert.equal(report.timing.parallel.mode, "parallel", "a restarted worker keeps the check parallel")
+    testAssert.equal(report.timing.parallel.retries, 1, "the stopped worker was retried once")
+    testAssert.equal(state, serialState, "restarted worker records")
 
     assert(require("nupp.io.files").remove(directory, true))
 end
@@ -604,25 +604,30 @@ function M.anInterruptedCheckLeavesNoWorkers()
     local directory = tempProject(false)
     local pidFile = directory .. "/workers.pid"
     local activeFile = directory .. "/active.pid"
-    local child = assert(process.startIsolated({
-        perl,
-        "-MPOSIX=:signal_h",
-        "-e",
-        '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
-            .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
-        NUPP,
-        "check",
-        "--quiet",
-    }, {
-        cwd = directory,
-        env = {
-            NUPP_CHECK_JOBS = "2",
-            NUPP_PARALLEL_CHECK_TRACE = "1",
-            NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
-            NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
-            NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
-        },
-    }))
+    local child = assert(
+        process.startIsolated(
+            {
+                perl,
+                "-MPOSIX=:signal_h",
+                "-e",
+                '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
+                .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
+                NUPP,
+                "check",
+                "--quiet",
+            },
+            {
+                cwd = directory,
+                env = {
+                    NUPP_CHECK_JOBS = "2",
+                    NUPP_PARALLEL_CHECK_TRACE = "1",
+                    NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
+                    NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
+                    NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
+                },
+            }
+        )
+    )
     -- Generous: the waits end as soon as the workers are up, and a loaded host can
     -- take several seconds to start two compilers.
     local deadline = time.now() + 60000
@@ -636,7 +641,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         assert(time.now() < deadline, "parallel workers did not begin a request")
         time.sleep(10)
     end
-    assertEq(ffi.C.kill(-child.pid, 2), 0, "send SIGINT")
+    testAssert.equal(ffi.C.kill(-child.pid, 2), 0, "send SIGINT")
     local exit = child:wait()
     local said = ""
     while true do
@@ -649,13 +654,9 @@ function M.anInterruptedCheckLeavesNoWorkers()
     child:close()
     assert(
         not exit:succeeded(),
-        ("the interrupted check did not stop: code=%s killed=%s timedOut=%s"):format(
-            tostring(exit.exitCode),
-            tostring(exit.killed),
-            tostring(exit.timedOut)
-        )
-            .. " output="
-            .. said
+        (
+            "the interrupted check did not stop: code=%s killed=%s timedOut=%s"
+        ):format(tostring(exit.exitCode), tostring(exit.killed), tostring(exit.timedOut)) .. " output=" .. said
     )
 
     deadline = time.now() + 60000

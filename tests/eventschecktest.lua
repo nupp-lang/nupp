@@ -1,3 +1,4 @@
+local testAssert = require("nupp.test")
 -- The checker rules supporting typed events: closure literals adopting
 -- the modes of the slot they are passed to, pack binders forwarding the contracts
 -- of the arguments that bound them, a declaration's construction contract as a
@@ -13,19 +14,14 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local NUPP = HERE .. "/../bin/nupp"
 local env = envMod.new(HERE .. "/..")
 
-local function assertEq(got, want, label)
-    if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
-    end
-end
-
 local run = 0
+
 local function diagnostics(source)
     run = run + 1
     env.loaded = {}
     local filename = ("eventscheck-%d.g.nupp"):format(run)
     local parsed = parser.parse(source, filename)
-    assertEq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
 
     return check.check(parsed, filename, env)
 end
@@ -41,7 +37,11 @@ end
 
 local function clean(source)
     local found = diagnostics(source)
-    assertEq(#found, 0, "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or ""))
+    testAssert.equal(
+        #found,
+        0,
+        "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or "")
+    )
 end
 
 local function contains(text, needle)
@@ -106,7 +106,7 @@ bus:observe(|event| -> print(event.amount))
 end
 
 function M.anAdoptedBorrowCannotBeStored()
-    assertEq(
+    testAssert.equal(
         codes(OBSERVED .. [[
 local kept: {Damage} = {}
 bus:observe(|event| -> do
@@ -119,7 +119,7 @@ end)
 end
 
 function M.anAdoptedBorrowCannotBeReturnedFromANestedFunction()
-    assertEq(
+    testAssert.equal(
         codes(
             OBSERVED
             .. [[
@@ -145,7 +145,7 @@ bus:observe(function(borrows event: Damage, world: World): nil
     world.frame = 1
 end)
 ]])
-    assertEq(
+    testAssert.equal(
         codes(
             OBSERVED
             .. [[
@@ -160,7 +160,7 @@ end)
 end
 
 function M.takesIsNeverAdopted()
-    assertEq(
+    testAssert.equal(
         codes(
             [[
 local record Token
@@ -195,7 +195,7 @@ bus:observe(f)
 bus:observe(g)
 ]]
     )
-    assertEq(
+    testAssert.equal(
         codes(
             OBSERVED
             .. [[
@@ -263,7 +263,7 @@ end
 print(observe)
 ]]
     )
-    assertEq(
+    testAssert.equal(
         codes(
             [[
 local record Damage
@@ -340,7 +340,7 @@ end
 print(describe(new Down(kind = "down")))
 ]]
     )
-    assertEq(
+    testAssert.equal(
         codes(
             [[
 local record Down
@@ -398,7 +398,7 @@ end
 end
 
 function M.aForwardedViewHoldsTheCalleeToItsMode()
-    assertEq(
+    testAssert.equal(
         codes(
             FORWARDED
             .. [[
@@ -476,7 +476,7 @@ print(count(Diagonal, 4))
 end
 
 function M.aComputedTailRefusesAnUnknownName()
-    assertEq(
+    testAssert.equal(
         codes(CONSTRUCTED .. [[
 print(count(Damage, amount = 1, sauce = 2))
 ]]),
@@ -486,7 +486,7 @@ print(count(Damage, amount = 1, sauce = 2))
 end
 
 function M.aComputedTailRefusesAMissingRequiredSlot()
-    assertEq(codes(CONSTRUCTED .. [[
+    testAssert.equal(codes(CONSTRUCTED .. [[
 print(count(Damage, amount = 1))
 ]]), "NUPP2125", "an omitted required slot")
 end
@@ -529,7 +529,7 @@ function M.theConsumerFixtureChecksStrictlyAndRuns()
     assert(checked == 0, checkOutput)
     local ran, output = process.capture({NUPP, "run", consumer})
     assert(ran == 0, output)
-    assertEq(
+    testAssert.equal(
         output,
         table.concat(
             {
