@@ -2477,11 +2477,16 @@ end
 -- and a run that is slow are different problems with different fixes.
 local predictions = {}
 local sharded = nil
+-- Coverage variables are inherited by commands a case starts. Only the runner
+-- whose loaded modules installed the coverage runtime owns the counter file;
+-- an ordinary nested runner must keep its usual process isolation.
+local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
+local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
 if #shard == 0
     and #suites > 0
     and chosenCaseCount == 0
     and ((workerHost and not processIsolated(only and byName[only])) or (#chosen ~= 1 and #suites > 1 and jobs ~= 1))
-    and not os.getenv("NUPP_COVERAGE_FILE")
+    and not coverage
 then
     do
         local json = testJson
@@ -3502,8 +3507,6 @@ end
 -- the process boundary, so it is the right place to turn that in-memory table into a
 -- shard the parent `nupp test --coverage` command can merge after the test process
 -- exits.
-local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
-local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
 if coverageFile and coverage then
     local json = testJson
     local merged = {}

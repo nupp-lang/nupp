@@ -1577,10 +1577,12 @@ function M.aProcessACaseLeavesRunningEndsWithItsWorker()
     local dir = runnerProject("lingertest", LINGERING .. [[
 return {leavesAProcessRunning = linger}
 ]])
+    -- An outer coverage run leaves its protocol variable in the environment.
+    -- This ordinary nested runner must still isolate the suite.
     local output, invocation = capturedRun(
         (
-            "cd %q && %sNUPP_TEST_BUILD=%q %q lingertest quiettest --lane=isolated --jobs=1 --json 2>/dev/null"
-        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+            "cd %q && %sNUPP_COVERAGE_FILE=%q NUPP_TEST_BUILD=%q %q lingertest quiettest --lane=isolated --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/inherited-coverage.json", dir .. "/build", ROOT .. "/build/nupp-test")
     )
     local pid = lingeringPid(dir)
     local ended = pid ~= nil and awaitExit(pid, 3)
