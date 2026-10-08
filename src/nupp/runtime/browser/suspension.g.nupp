@@ -114,6 +114,8 @@ local function releaseOwned(context: contract.Context): nil
     end
 end
 
+-- Not a context member: whether a park is permitted belongs to the handler in force,
+-- which `canSuspend` answers.
 local function contextcanPark(self: contract.Context): boolean
     if self._handler == nil then
         return effects.canPark()
@@ -493,7 +495,6 @@ function suspension.suspend<T>(
     local context = new contract.Context(
         source = contextsource,
         uses = contextuses,
-        canPark = contextcanPark,
         _handler = current,
         _associated = {}
     )
@@ -510,7 +511,7 @@ function suspension.suspend<T>(
         releaseOwned(context)
         error("nupp: " .. operation .. " did not provide a cancellation", 0)
     end
-    if not context:canPark() then
+    if not contextcanPark(context) then
         pcall(cancel)
         releaseOwned(context)
         error("nupp: " .. operation .. " cannot suspend here", 0)

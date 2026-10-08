@@ -22,8 +22,8 @@ the handler an installation is about to displace, and answer that handler's
 them. The facade refuses an implementation without both.
 
 Sources report readiness in `order`, lowest first. Context.uses identifies sources
-needed by a wait, while canPark distinguishes schedulers that can yield from
-ones that must drive readiness themselves. Cancellation values must come from
+needed by a wait. Whether a park is permitted here is `canSuspend`, which answers
+for the handler in force rather than for one subscription. Cancellation values must come from
 [](nupp.suspension.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
@@ -77,9 +77,6 @@ export record Context
 
     --- Associates an existing source with this wait without changing its identity.
     uses: function(self: Context, source: Source): nil
-
-    --- Reports whether the current handler can park this subscription.
-    canPark: function(self: Context): boolean
 
     --- Provider-owned active handler state.
     _handler: any

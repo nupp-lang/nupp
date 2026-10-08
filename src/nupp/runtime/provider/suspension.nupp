@@ -388,7 +388,10 @@ function ContextMT.uses(self: any, source: any): nil
     self._associated[source] = true
 end
 
-function ContextMT.canPark(self: any): boolean
+-- Not a context member. Whether a park is permitted is a property of the handler in
+-- force, which `canSuspend` answers; a per-subscription spelling of the same question
+-- had no caller outside this file.
+local function contextCanPark(self: any): boolean
     local handler = self._handler
     if handler == nil then
         return true
@@ -487,7 +490,7 @@ function suspension.suspend<T>(
             0
         )
     end
-    if not ContextMT.canPark(context) then
+    if not contextCanPark(context) then
         pcall(cancel)
         releaseOwned(context)
         error(("nupp: %s cannot suspend here"):format(operation), 0)
