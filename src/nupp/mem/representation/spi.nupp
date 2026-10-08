@@ -1,4 +1,4 @@
-module nupp.runtime.representation.spi
+module nupp.mem.representation.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
 Discover with nupp.spi.load; the consumer chooses the unique highest priority.

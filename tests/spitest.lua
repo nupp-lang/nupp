@@ -628,7 +628,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.uuid",
-            interface = "nupp.runtime.uuid.spi.Provider",
+            interface = "nupp.util.spi.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
         },
@@ -656,8 +656,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             vm = true
         },
         {
-            module = "nupp.runtime.representation",
-            interface = "nupp.runtime.representation.spi.CstorageProvider",
+            module = "nupp.mem.representation",
+            interface = "nupp.mem.representation.spi.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
             browser = "fixture.otherstorage",
@@ -940,10 +940,10 @@ local SELECTING_FACADES = {
     {"nupp.io.uri.provider", "nupp.io.uri.spi.Provider"},
     {"nupp.mac", "nupp.mac.spi.Provider"},
     {"nupp.random", "nupp.random.spi.Provider"},
-    {"nupp.runtime.int64", "nupp.runtime.representation.spi.Int64Provider"},
-    {"nupp.runtime.representation", "nupp.runtime.representation.spi.CstorageProvider"},
+    {"nupp.runtime.int64", "nupp.mem.representation.spi.Int64Provider"},
+    {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
-    {"nupp.runtime.uuid", "nupp.runtime.uuid.spi.Provider"},
+    {"nupp.runtime.uuid", "nupp.util.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension", "nupp.suspension.spi.Provider"},
     {"nupp.system", "nupp.system.spi.Provider"},

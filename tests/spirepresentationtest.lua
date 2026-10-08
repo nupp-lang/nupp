@@ -3,14 +3,14 @@ local M = {}
 
 local function runtime(storage, integers)
     local advertised = {
-        ["nupp.runtime.representation.spi.CstorageProvider"] = storage and {"fixture.storage"} or {},
-        ["nupp.runtime.representation.spi.Int64Provider"] = integers and {"fixture.integers"} or {},
+        ["nupp.mem.representation.spi.CstorageProvider"] = storage and {"fixture.storage"} or {},
+        ["nupp.mem.representation.spi.Int64Provider"] = integers and {"fixture.integers"} or {},
     }
 
     return fixtures.instance(
         {
             ["nupp.spi"] = true,
-            ["nupp.runtime.representation"] = true,
+            ["nupp.mem.representation"] = true,
             ["nupp.runtime.int64"] = true,
             ["nupp.runtime.storage"] = true,
             ["nupp.runtime.structvalue"] = true,
@@ -39,12 +39,12 @@ local function integerRuntime(providers)
     replacements[
         "nupp.spi.index"
     ] = {
-        ["nupp.runtime.representation.spi.CstorageProvider"] = {"fixture.storage"},
-        ["nupp.runtime.representation.spi.Int64Provider"] = names,
+        ["nupp.mem.representation.spi.CstorageProvider"] = {"fixture.storage"},
+        ["nupp.mem.representation.spi.Int64Provider"] = names,
     }
 
     return fixtures.instance(
-        {["nupp.spi"] = true, ["nupp.runtime.representation"] = true, ["nupp.runtime.int64"] = true,},
+        {["nupp.spi"] = true, ["nupp.mem.representation"] = true, ["nupp.runtime.int64"] = true,},
         replacements
     )
 end
@@ -107,7 +107,7 @@ function M.storageAndIntegerDiscoveryRetainOneInstance()
     local storage = {representation = "native", integers = integers}
     for _, external in ipairs({false, true}) do
         local load = runtime(storage, external and integers or nil)
-        assert(load("nupp.runtime.representation").storage == storage)
+        assert(load("nupp.mem.representation").storage == storage)
         assert(load("nupp.runtime.int64") == integers)
         assert(load("nupp.runtime.int64").fromNumber(42) == 42)
     end
@@ -122,7 +122,7 @@ end
 
 function M.incompatibleStorageIsRejectedBeforeUse()
     local load = runtime({representation = "linear32"})
-    local ok, problem = pcall(load, "nupp.runtime.representation")
+    local ok, problem = pcall(load, "nupp.mem.representation")
     assert(not ok and tostring(problem):find("target requires native pointer storage", 1, true))
 end
 

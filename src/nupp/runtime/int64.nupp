@@ -2,8 +2,8 @@
 module nupp.runtime.int64
 
 local spi = require("nupp.spi")
-local contracts = require("nupp.runtime.representation.spi")
-local representation = require("nupp.runtime.representation")
+local contracts = require("nupp.mem.representation.spi")
+local representation = require("nupp.mem.representation")
 
 -- The provider remains optional because a module carrying 64-bit integer code
 -- requires this one from its preamble, before any of that code runs.

@@ -9,7 +9,7 @@ and the target ABI. The published representation is `native`; byte codecs use
 native scalar layout and byte order. This implementation cannot serve a target
 compiled for linear-memory offsets.
 
-The [](nupp.runtime.representation) facade validates the representation before
+The [](nupp.mem.representation) facade validates the representation before
 publishing it. Borrowed string pointers and casts retain the source lifetime in
 the canonical signatures; a provider must not turn a borrowed view into an owner.
 Copies and fills operate on the caller's bounded regions and do not allocate a

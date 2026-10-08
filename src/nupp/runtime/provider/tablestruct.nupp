@@ -11,7 +11,7 @@ binary32. `define` combines a compiler-supplied layout with its method table;
 required by generated portable code.
 
 The module reports `referenceValued = true`. It supplies ordinary portable
-struct operations when [](nupp.runtime.representation) has no physical storage
+struct operations when [](nupp.mem.representation) has no physical storage
 implementation. It is not independently selected through SPI and does not
 provide native pointers or a linear-memory ABI.
 

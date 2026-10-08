@@ -1,14 +1,14 @@
-module nupp.runtime.uuid.spi
+module nupp.util.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
 Discover with nupp.spi.load; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
 
---- Canonical lowercase, hyphenated UUID generation.
+--- Canonical lowercase, hyphenated UUID generation for [](nupp.util).
 ---
 --- Version 4 provides random UUIDs and version 7 provides time-ordered UUIDs.
 --- Version and variant bits must be correct; randomness failures must be reported.
-export interface Provider
+export interface UuidProvider
     @readonly priority: integer?
 
     --- Generates a random version 4 UUID.

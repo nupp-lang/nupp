@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.storage
 
-local representation = require("nupp.runtime.representation")
+local representation = require("nupp.mem.representation")
 local provider = assert(representation.storage, "nupp.runtime.storage: no implementation is available for the target")
 
 export const allocateBytes = provider.allocateBytes

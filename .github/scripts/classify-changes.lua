@@ -54,9 +54,11 @@ local rules = {
     {"^src/nupp/mem/array%.nupp$", {"library", "simd"}},
     {"^src/nupp/mem/span%.nupp$", {"library", "simd"}},
     {"^src/nupp/mem/soa%.nupp$", {"library", "simd"}},
+    {"^src/nupp/mem/representation/", {"library", "browser", "native", "simd"}},
     {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native", "simd"}},
-    {"^src/nupp/runtime/representation/", {"library", "browser", "native", "simd"}},
     {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native", "simd"}},
+    -- The browser and native UUID providers both implement this interface.
+    {"^src/nupp/util/spi%.nupp$", {"library", "browser", "native"}},
     {"^src/nupp/text/utf8%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/valuebuilder%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/aot%.nupp$", {"library", "simd"}},

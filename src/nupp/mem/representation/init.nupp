@@ -1,7 +1,7 @@
-module nupp.runtime.representation
+module nupp.mem.representation
 
 local spi = require("nupp.spi")
-local contracts = require("nupp.runtime.representation.spi")
+local contracts = require("nupp.mem.representation.spi")
 
 export const storage: contracts.CstorageProvider? = do
     const chosen = spi.select(spi.load(contracts.CstorageProvider))

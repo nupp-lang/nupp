@@ -89,7 +89,7 @@ its actual operations during module initialization, so calls perform no SPI look
 
 [SPI](../spi.md#standard-library-providers) lists each interface and its owning
 module. Shared storage, struct, memory-host, and integer declarations remain in
-`nupp.runtime.representation.spi`; storage and its integer operations must agree.
+`nupp.mem.representation.spi`; storage and its integer operations must agree.
 
 `nupp.text` owns the portable buffer surface and one shared `Buffer` type.
 Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and

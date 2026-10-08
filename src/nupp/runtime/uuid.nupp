@@ -1,0 +1,24 @@
+@!internal
+
+module nupp.runtime.uuid
+
+--[[UUID operations come from one provider selected when this module loads.
+
+External implementations advertise the interface in [](nupp.util.spi).
+Public utilities use the same retained functions.]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+local contracts = require("nupp.util.spi")
+local provider: contracts.UuidProvider = do
+    const chosen = spi.select(spi.load(contracts.UuidProvider))
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativeuuid") as contracts.UuidProvider
+    end
+    yield _G.require("nupp.runtime.browser.crypto") as contracts.UuidProvider
+end
+
+export = provider

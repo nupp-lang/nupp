@@ -2103,7 +2103,7 @@ return random, time
     testAssert.equal(warm.timing.compiledModules, 0, "the unchanged runtime closure is reused")
     for _, span in ipairs(warm.timing.slowest) do
         assert(
-            span.module ~= "nupp.runtime.representation.spi",
+            span.module ~= "nupp.mem.representation.spi",
             "a warm check must not recheck shared representation declarations"
         )
     end

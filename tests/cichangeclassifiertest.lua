@@ -76,7 +76,7 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/mem/span.nupp",
         "src/nupp/mem/soa.nupp",
         "src/nupp/runtime/storage.nupp",
-        "src/nupp/runtime/representation/init.nupp",
+        "src/nupp/mem/representation/init.nupp",
         "src/nupp/runtime/provider/nativestorage.nupp",
         "src/nupp/text/utf8.nupp",
         "src/nupp/codec/valuebuilder.nupp",

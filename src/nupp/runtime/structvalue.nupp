@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.structvalue
 
-local representation = require("nupp.runtime.representation")
+local representation = require("nupp.mem.representation")
 export = assert(
     representation.structs,
     "nupp.runtime.structvalue: the target memory representation has no structs implementation"
