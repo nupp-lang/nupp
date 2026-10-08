@@ -6,7 +6,7 @@ UUIDs are lowercase, hyphenated strings. Setup selects the canonical UUID servic
 before requiring this module. The built-in default uses the native or browser host.
 Each call checks the retained provider's result before returning it.
 ]]
-local provider = require("nupp.runtime.uuid")
+local provider = require("nupp.runtime.uuidprovider")
 
 local function canonical(value: any, version: string): string
     if type(value) ~= "string" or #value ~= 36 then

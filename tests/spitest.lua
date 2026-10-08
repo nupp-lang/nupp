@@ -627,7 +627,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             member = "capabilities"
         },
         {
-            module = "nupp.runtime.uuid",
+            module = "nupp.runtime.uuidprovider",
             interface = "nupp.util.spi.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
@@ -980,7 +980,7 @@ local SELECTING_FACADES = {
     {"nupp.runtime.int64", "nupp.mem.representation.spi.Int64Provider"},
     {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
-    {"nupp.runtime.uuid", "nupp.util.spi.UuidProvider"},
+    {"nupp.runtime.uuidprovider", "nupp.util.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
     {"nupp.system", "nupp.system.spi.Provider"},

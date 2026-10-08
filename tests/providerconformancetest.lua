@@ -128,7 +128,7 @@ function M.uriOperationsMatchTheContract()
 end
 
 function M.uuidOperationsMatchTheContract()
-    verify("uuid", "nupp.runtime.uuid")
+    verify("uuid", "nupp.runtime.uuidprovider")
 end
 
 function M.systemFactsMatchTheContract()

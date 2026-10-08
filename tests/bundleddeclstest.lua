@@ -69,7 +69,7 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
     local uuid = assert(env.resolveModule(env, "nupp.util"))
-    local provider = assert(env.resolveModule(env, "nupp.runtime.uuid"))
+    local provider = assert(env.resolveModule(env, "nupp.runtime.uuidprovider"))
     testAssert.equal(uuid.byname.uuid4.tag, "func", "uuid4 has a checked function signature")
     testAssert.equal(uuid.byname.uuid4.rets[1].tag, "string", "uuid4 returns a string")
     testAssert.equal(

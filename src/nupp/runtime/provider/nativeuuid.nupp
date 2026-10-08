@@ -10,7 +10,7 @@ version 7 combines time ordering with randomness. Both functions return the
 canonical lowercase, hyphenated UUID spelling and raise if the native operation
 cannot obtain its required resources.
 
-The [](nupp.runtime.uuid) facade retains the selected functions once. Each call
+The [](nupp.runtime.uuidprovider) facade retains the selected functions once. Each call
 uses temporary output storage, copies the result into a Lua string, and leaves
 no owned native handle with the caller. Provider selection is state-local; UUID
 randomness is supplied by the operating system rather than Lua's random seed.

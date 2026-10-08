@@ -155,7 +155,7 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/cli/internal/application.g.nupp"
     },
     {source = "src/nupp/runtime/workersprovider.nupp", output = "nupp/compiler/nupp/runtime/workersprovider.nupp"},
-    {source = "src/nupp/runtime/uuid.nupp", output = "nupp/compiler/nupp/runtime/uuid.nupp"},
+    {source = "src/nupp/runtime/uuidprovider.nupp", output = "nupp/compiler/nupp/runtime/uuidprovider.nupp"},
     {source = "src/nupp/runtime/browser/memory.g.nupp", output = "nupp/compiler/nupp/runtime/browser/memory.g.nupp"},
     {source = "src/nupp/runtime/timeprovider.nupp", output = "nupp/compiler/nupp/runtime/timeprovider.nupp"},
     {source = "src/nupp/runtime/structvalue.nupp", output = "nupp/compiler/nupp/runtime/structvalue.nupp"},

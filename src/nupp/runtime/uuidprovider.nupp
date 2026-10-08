@@ -1,6 +1,6 @@
 @!internal
 
-module nupp.runtime.uuid
+module nupp.runtime.uuidprovider
 
 --[[UUID operations come from one provider selected when this module loads.
 

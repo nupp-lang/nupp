@@ -41,7 +41,7 @@ function M.identifiersRejectMalformedProviderResults()
     }
     for _, value in ipairs(values) do
         local load = providerstate.instance({["nupp.util.internal.uuid"] = true}, {
-            ["nupp.runtime.uuid"] = {
+            ["nupp.runtime.uuidprovider"] = {
                 uuid4 = function()
                     return value
                 end,
@@ -58,7 +58,7 @@ function M.identifiersRejectMalformedProviderResults()
     end
 
     local wrongVersion = providerstate.instance({["nupp.util.internal.uuid"] = true}, {
-        ["nupp.runtime.uuid"] = {
+        ["nupp.runtime.uuidprovider"] = {
             uuid4 = function()
                 return valid7
             end,
@@ -73,7 +73,7 @@ function M.identifiersRejectMalformedProviderResults()
     assert(not ok7 and tostring(problem7):find("invalid version 7 UUID", 1, true), tostring(problem7))
 
     local load = providerstate.instance({["nupp.util.internal.uuid"] = true}, {
-        ["nupp.runtime.uuid"] = {
+        ["nupp.runtime.uuidprovider"] = {
             uuid4 = function()
                 return valid4
             end,
