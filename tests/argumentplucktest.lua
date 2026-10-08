@@ -210,11 +210,7 @@ function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
         )
     )
     testAssert.equal(answer, "HBPSxyWHTU")
-    testAssert.equal(
-        select(2, code:gsub("entity%.body", "")),
-        1,
-        "the common entity.body prefix is bound once:\n" .. code
-    )
+    testAssert.equal(select(2, code:gsub("entity%.body", "")), 1, "the common entity.body prefix is bound once:\n" .. code)
     assert(not code:find("(function()", 1, true), "a statement call should use locals, not a wrapper:\n" .. code)
     assert(not code:match("const __nuppT%d+= update"), "a named callee should remain direct:\n" .. code)
     testAssert.equal(

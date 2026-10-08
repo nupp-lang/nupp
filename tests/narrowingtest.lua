@@ -24,9 +24,7 @@ local function diagsOf(src, opts)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src)
-    return "expected clean:\n" .. src
-end)
+local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
 
 local CFG = table.concat({"local record Cfg", "    port: number?", "    name: string", "end",}, "\n")
 
@@ -38,7 +36,6 @@ function M.aWholeSingleTypeSurvivesSubtraction()
     local function shown(t)
         return T.tostring(t)
     end
-
     testAssert.equal(shown(narrowing.subtract(T.boolean, T.boolean)), "boolean")
     testAssert.equal(shown(narrowing.subtract(T.string, T.string)), "string")
     testAssert.equal(shown(narrowing.subtract(T.nil_, T.nil_)), "nil")
@@ -380,15 +377,9 @@ function M.aTypedLocalHoldsNilUntilEveryPathAssignsIt()
     local strict = {strict = true}
     -- Declared without a value, a strict local is read as nil until it is assigned.
     testAssert.equal(diagsOf("local x: string\nprint(x:upper())", strict), "NUPP2207:2")
-    testAssert.equal(
-        diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())", strict),
-        "NUPP2207:5"
-    )
+    testAssert.equal(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())", strict), "NUPP2207:5")
     testAssert.equal(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)", strict), "NUPP2207:5")
-    testAssert.equal(
-        diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)", strict),
-        "NUPP2207:5"
-    )
+    testAssert.equal(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)", strict), "NUPP2207:5")
     -- Every path assigning it is what makes it hold a value.
     assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)", strict)
     assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)", strict)
@@ -1512,36 +1503,28 @@ end
 -- the narrowing the alias could not name: the call records the entries its callee
 -- writes, and those are what invalidate the fact (the `callMutatedEntries` path).
 function M.aCallThroughAnAliasEndsTheCalleesCapturedFact()
-    local prelude = table.concat(
-        {
-            "local function get(): string? return 'abc' end",
-            "local x: string? = get()",
-            "local function f(): nil x = nil end",
-        },
-        "\n"
-    )
+    local prelude = table.concat({
+        "local function get(): string? return 'abc' end",
+        "local x: string? = get()",
+        "local function f(): nil x = nil end",
+    }, "\n")
     testAssert.equal(
         diagsOf(table.concat({prelude, "local g = f", "if x ~= nil then", "    g()", "    print(#x)", "end",}, "\n")),
         "NUPP2003:7"
     )
     testAssert.equal(
-        diagsOf(
-            table.concat(
-                {
-                    prelude,
-                    "if x ~= nil then",
-                    "    do",
-                    "        local x = 2",
-                    "        local h = f",
-                    "        h()",
-                    "        print(x)",
-                    "    end",
-                    "    print(#x)",
-                    "end",
-                },
-                "\n"
-            )
-        ),
+        diagsOf(table.concat({
+            prelude,
+            "if x ~= nil then",
+            "    do",
+            "        local x = 2",
+            "        local h = f",
+            "        h()",
+            "        print(x)",
+            "    end",
+            "    print(#x)",
+            "end",
+        }, "\n")),
         "NUPP2003:11"
     )
     assertClean(table.concat({prelude, "local g = f", "if x ~= nil then", "    print(#x)", "    g()", "end",}, "\n"))

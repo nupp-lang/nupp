@@ -119,13 +119,11 @@ function M.aRequireChainDeeperThanTheStackIsChecked()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
     local count = 1500
-
     local function write(path, text)
         local f = assert(io.open(path, "wb"))
         f:write(text)
         f:close()
     end
-
     local function module(index, body)
         local lines = {"module m" .. index, ""}
         if index > 0 then
@@ -134,10 +132,8 @@ function M.aRequireChainDeeperThanTheStackIsChecked()
         lines[#lines + 1] = "export function value(): number"
         lines[#lines + 1] = "    return " .. body
         lines[#lines + 1] = "end"
-
         return table.concat(lines, "\n") .. "\n"
     end
-
     for index = 0, count - 1 do
         write(("%s/m%d.nupp"):format(dir, index), module(index, index > 0 and "below.value() + 1" or "0"))
     end
@@ -149,10 +145,7 @@ function M.aRequireChainDeeperThanTheStackIsChecked()
     testAssert.equal(#r.diags, 0, r.diags[1] and r.diags[1].msg or "clean")
 
     -- An interface edit at the bottom rechecks the whole chain above it.
-    inc.changeDocument(
-        dir .. "/m0.nupp",
-        (module(0, "0"):gsub("%(%): number", "(): string"):gsub("return 0", 'return "0"'))
-    )
+    inc.changeDocument(dir .. "/m0.nupp", (module(0, "0"):gsub("%(%): number", "(): string"):gsub("return 0", 'return "0"')))
     ok, r = pcall(inc.checkFile, top)
     assert(ok, "the chain is rechecked rather than overflowing: " .. tostring(r))
     local bottom = inc.checkFile(dir .. "/m1.nupp")
@@ -235,11 +228,7 @@ function M.recursiveDerivedGraphRechecksAcrossThreeModules()
 
     inc.changeDocument(modelPath, model:gsub("   children: {Node}", "   children: {Node}\n   tag: string?"))
     local changed = inc.checkFile(mainPath)
-    testAssert.equal(
-        inc.q.stats.checkModule,
-        coldChecks + 4,
-        "a derived record interface change rechecks all three modules"
-    )
+    testAssert.equal(inc.q.stats.checkModule, coldChecks + 4, "a derived record interface change rechecks all three modules")
     testAssert.equal(#changed.diags, 0, "the recursive derive remains coherent after all three modules recheck")
 
     os.execute("rm -rf '" .. dir .. "'")
@@ -339,19 +328,11 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
 
     inc.changeDocument(depPath, dependency:gsub("bodyOnly = 1", "bodyOnly = 2"))
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "the logical signature survives a dependency body edit")
-    testAssert.equal(
-        inc.q.stats.checkModule,
-        coldChecks + 1,
-        "the unchanged counted-pointer interface cuts off its consumer"
-    )
+    testAssert.equal(inc.q.stats.checkModule, coldChecks + 1, "the unchanged counted-pointer interface cuts off its consumer")
 
     inc.persist()
     local warm = incremental.new(dir)
-    testAssert.equal(
-        #warm.checkFile(mainPath).diags,
-        0,
-        "a fresh graph reconstructs the counted-pointer module interface"
-    )
+    testAssert.equal(#warm.checkFile(mainPath).diags, 0, "a fresh graph reconstructs the counted-pointer module interface")
     assert(warm.headerStore.stats.hits >= 2, "the fresh graph reads both module headers from the persistent cache")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -406,11 +387,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     inc.changeDocument(depPath, dep:gsub("%{%[string%]%: string%}", "{[integer]: string}"))
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "behavior edit stays well typed")
     testAssert.equal(inc.deriveStats().executions, 2, "a reached field-type edit computes a new plan")
-    testAssert.equal(
-        inc.q.stats.checkModule,
-        coldChecks + 3,
-        "changed derive behavior invalidates the requiring module"
-    )
+    testAssert.equal(inc.q.stats.checkModule, coldChecks + 3, "changed derive behavior invalidates the requiring module")
     local changed = inc.checkFile(depPath)
     assert(changed.exports.deriveInterfaceFingerprint, "the module publishes an explicit derive interface")
     assert(
@@ -555,16 +532,8 @@ function M.deprecationMetadataInvalidatesModuleDependents()
         dep:gsub("function M.answer", '@deprecated(replacement = "dep.currentAnswer")\nfunction M.answer')
     )
     local changed = inc.checkFile(mainPath)
-    testAssert.equal(
-        inc.q.stats.checkModule,
-        coldChecks + 2,
-        "deprecation metadata rechecks the dependency and dependent"
-    )
-    testAssert.equal(
-        changed.diags[1] and changed.diags[1].code,
-        "NUPP2513",
-        "the dependent observes new deprecation metadata"
-    )
+    testAssert.equal(inc.q.stats.checkModule, coldChecks + 2, "deprecation metadata rechecks the dependency and dependent")
+    testAssert.equal(changed.diags[1] and changed.diags[1].code, "NUPP2513", "the dependent observes new deprecation metadata")
 
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -591,11 +560,7 @@ function M.deprecationMetadataInvalidatesProjectTypeDependents()
     local coldChecks = inc.q.stats.checkModule
     inc.changeDocument(modelPath, '@deprecated(replacement = "Current")\n' .. model)
     local changed = inc.checkFile(mainPath)
-    testAssert.equal(
-        inc.q.stats.checkModule,
-        coldChecks + 2,
-        "deprecation metadata rechecks the declaration and dependent"
-    )
+    testAssert.equal(inc.q.stats.checkModule, coldChecks + 2, "deprecation metadata rechecks the declaration and dependent")
     testAssert.equal(
         changed.diags[1] and changed.diags[1].code,
         "NUPP2513",
@@ -645,16 +610,8 @@ function M.publicPackChangesInvalidateTypeDependents()
         dep:gsub("%(number, string%)", "(string, number)"):gsub("return 1, 'one'", "return 'one', 1")
     )
     local changed = inc.checkFile(mainPath)
-    testAssert.equal(
-        inc.q.stats.checkModule,
-        coldChecks + 2,
-        "a public result-pack change rechecks dependency and dependent"
-    )
-    testAssert.equal(
-        changed.diags[1] and changed.diags[1].code,
-        "NUPP2001",
-        "the dependent observes the changed result slots"
-    )
+    testAssert.equal(inc.q.stats.checkModule, coldChecks + 2, "a public result-pack change rechecks dependency and dependent")
+    testAssert.equal(changed.diags[1] and changed.diags[1].code, "NUPP2001", "the dependent observes the changed result slots")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -701,22 +658,14 @@ function M.aSessionReadsAFileOnce()
     local first = inc.fileText(path)
     testAssert.equal(first, "return { ok = 1 }\n", "the text the check will see")
     write("return { ok = 2 }\n")
-    testAssert.equal(
-        inc.fileText(path),
-        first,
-        "a file rewritten under a running session still reads as what it checked"
-    )
+    testAssert.equal(inc.fileText(path), first, "a file rewritten under a running session still reads as what it checked")
     testAssert.equal(#inc.checkFile(path).diags, 0)
 
     -- Nothing about that outlives the session, and a session told about the change
     -- reads it now: it is one answer per session, not a stale one.
     inc.diskChanged(path, 2)
     testAssert.equal(inc.fileText(path), "return { ok = 2 }\n", "a watcher event re-reads it")
-    testAssert.equal(
-        incremental.new(dir).fileText(path),
-        "return { ok = 2 }\n",
-        "and the next session starts from disk"
-    )
+    testAssert.equal(incremental.new(dir).fileText(path), "return { ok = 2 }\n", "and the next session starts from disk")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -736,22 +685,14 @@ function M.diskWatcherChangesInvalidateQueriesAndProjectFiles()
     write(mainPath, "local value: Watched = 1\nreturn value\n")
 
     local inc = incremental.new(dir)
-    testAssert.equal(
-        inc.checkFile(mainPath).diags[1].code,
-        "NUPP2101",
-        "missing watched declaration starts as an error"
-    )
+    testAssert.equal(inc.checkFile(mainPath).diags[1].code, "NUPP2101", "missing watched declaration starts as an error")
     write(globalsPath, "global type Watched = number\n")
     inc.diskChanged(globalsPath, 1)
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "created disk file joins the project index")
 
     write(globalsPath, "global type Watched = string\n")
     inc.diskChanged(globalsPath, 2)
-    testAssert.equal(
-        inc.checkFile(mainPath).diags[1].code,
-        "NUPP2001",
-        "changed disk file invalidates dependent checks"
-    )
+    testAssert.equal(inc.checkFile(mainPath).diags[1].code, "NUPP2001", "changed disk file invalidates dependent checks")
 
     os.remove(globalsPath)
     inc.diskChanged(globalsPath, 3)
@@ -778,11 +719,7 @@ function M.diskWatcherPreservesOpenOverlay()
     inc.diskChanged(path, 2)
     testAssert.equal(#inc.checkFile(path).diags, 0, "disk event does not replace an editor overlay")
     inc.closeDocument(path)
-    testAssert.equal(
-        inc.checkFile(path).diags[1].code,
-        "NUPP2001",
-        "closing the overlay observes the changed disk file"
-    )
+    testAssert.equal(inc.checkFile(path).diags[1].code, "NUPP2001", "closing the overlay observes the changed disk file")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1073,11 +1010,7 @@ function M.stagingAGeneratedModuleRechecksNothingElse()
     local rivalPath = dir .. "/rival.nupp"
     inc.openDocument(rivalPath, "module dep\n\nexport const other = 1\n")
     local rival = inc.checkFile(rivalPath)
-    testAssert.equal(
-        rival.diags[1] and rival.diags[1].code,
-        "NUPP1002",
-        "a duplicate module declaration is still reported"
-    )
+    testAssert.equal(rival.diags[1] and rival.diags[1].code, "NUPP1002", "a duplicate module declaration is still reported")
     inc.closeDocument(rivalPath)
     testAssert.equal(#inc.checkFile(depPath).diags, 0, "and stops being reported once the rival is gone")
 
@@ -1152,20 +1085,17 @@ function M.aRecheckSeesOnlyTheMembersItsSourceDeclares()
     local path = dir .. "/pkg/b.nupp"
 
     local function source(withOld)
-        return table.concat(
-            {
-                "local m = {}",
-                "record m.R",
-                "    v: integer",
-                "end",
-                withOld and "function m.R.old(): integer return 1 end" or "",
-                "function m.R.use(): integer",
-                "    return m.R.old()",
-                "end",
-                "return m",
-            },
-            "\n"
-        )
+        return table.concat({
+            "local m = {}",
+            "record m.R",
+            "    v: integer",
+            "end",
+            withOld and "function m.R.old(): integer return 1 end" or "",
+            "function m.R.use(): integer",
+            "    return m.R.old()",
+            "end",
+            "return m",
+        }, "\n")
     end
 
     local file = assert(io.open(path, "wb"))
@@ -1283,25 +1213,23 @@ function M.stagingACarriedModuleChecksNothingAgain()
     os.execute("mkdir -p '" .. staged .. "/nupp/io/files'")
     local mainPath = dir .. "/main.nupp"
     local file = assert(io.open(mainPath, "wb"))
-    file:write(
-        table.concat(
-            {
-                "const {type Observers} = require('nupp.events')",
-                "local events = require('nupp.events')",
-                "local files = require('nupp.io.files')",
-                "local m = {}",
-                "record m.Holder",
-                "   observers: Observers<integer>",
-                "end",
-                "function m.build(path: string): m.Holder",
-                "   print(files.exists(path))",
-                "   return new m.Holder(observers = events.newObservers())",
-                "end",
-                "return m",
-            },
-            "\n"
-        )
-    )
+    file:write(table.concat(
+        {
+            "const {type Observers} = require('nupp.events')",
+            "local events = require('nupp.events')",
+            "local files = require('nupp.io.files')",
+            "local m = {}",
+            "record m.Holder",
+            "   observers: Observers<integer>",
+            "end",
+            "function m.build(path: string): m.Holder",
+            "   print(files.exists(path))",
+            "   return new m.Holder(observers = events.newObservers())",
+            "end",
+            "return m",
+        },
+        "\n"
+    ))
     file:close()
 
     local inc = incremental.new(dir, {cache = false, runtimeSourceRoots = {staged}})

@@ -95,7 +95,10 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
         end
         testAssert.equal(parsed.host, "browser", "the editor honors the named default target")
         testAssert.equal(project.check(dir), 0, "the default browser target checks")
-        for _, target in ipairs({{name = "browser", host = "browser"}, {name = "native", host = "native"},}) do
+        for _, target in ipairs({
+            {name = "browser", host = "browser"},
+            {name = "native", host = "native"},
+        }) do
             local options = target.name == "browser" and {} or {target = target.name}
             testAssert.equal(project.build(dir, options), 0, target.name .. " target builds")
             local output = dir .. "/out/" .. target.name
@@ -103,10 +106,7 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
             testAssert.equal(facts.host, target.host, "generated host")
             testAssert.equal(facts.dialect, "luajit", "every target runs on LuaJIT")
             for _, name in ipairs({"nativebuffer", "nativestorage"}) do
-                assert(
-                    exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"),
-                    target.name .. " carries " .. name
-                )
+                assert(exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"), target.name .. " carries " .. name)
             end
             testAssert.equal(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
@@ -232,13 +232,7 @@ return codec
 ]],
     })
     local produced = {}
-    testAssert.equal(
-        project.build(dir, {
-            produced = produced
-        }),
-        0,
-        "a packaged generator and runtime implementation build"
-    )
+    testAssert.equal(project.build(dir, {produced = produced}), 0, "a packaged generator and runtime implementation build")
     local found = false
     for _, provider in ipairs(produced.spi or {}) do
         if provider.interface == "codec.Provider" then
@@ -253,11 +247,7 @@ return codec
         "the generator publishes beneath its instance module root"
     )
     local state = json.decode(read(dir .. "/out/.nupp-state.json"))
-    testAssert.equal(
-        state.dependencies["tool:provider"].usage,
-        "tool",
-        "generator discovery installs a host-tool record"
-    )
+    testAssert.equal(state.dependencies["tool:provider"].usage, "tool", "generator discovery installs a host-tool record")
     testAssert.equal(state.dependencies.provider.usage, "target", "runtime discovery keeps a distinct target record")
     assert(
         exists(dir .. "/out/nupp/spi/index/g.lua") or exists(dir .. "/out/nupp/spi/index.lua"),

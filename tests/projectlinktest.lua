@@ -146,11 +146,7 @@ return model
             local env = projectEnv(dir)
             testAssert.equal(#checkFile(env, dir .. "/src/model.g.nupp"), 0, "attaching to a file-local table is fine")
             local diags = checkFile(env, dir .. "/src/use.g.nupp")
-            testAssert.equal(
-                diags[1] and diags[1].code,
-                "NUPP2101",
-                "a declaration on another table is not a module member"
-            )
+            testAssert.equal(diags[1] and diags[1].code, "NUPP2101", "a declaration on another table is not a module member")
         end
     )
 end
@@ -175,11 +171,7 @@ return setmetatable(model, {})
             ] = "local model = require(\"model\")\n" .. "local w: model.Wrapped = new model.Wrapped(id = 1)\n",
         },
         function(dir)
-            testAssert.equal(
-                #checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"),
-                0,
-                "setmetatable(M, ...) still returns M"
-            )
+            testAssert.equal(#checkFile(projectEnv(dir), dir .. "/src/use.g.nupp"), 0, "setmetatable(M, ...) still returns M")
         end
     )
 end
@@ -280,11 +272,7 @@ function M.refusesAModuleUsedWithoutRequiringIt()
             local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
             testAssert.equal(#diags, 1, "reported once, not per use")
             testAssert.equal(diags[1].code, "NUPP2120", "a missing require is reported")
-            testAssert.equal(
-                diags[1].severity,
-                "error",
-                "a build refuses it rather than deferring the failure to run time"
-            )
+            testAssert.equal(diags[1].severity, "error", "a build refuses it rather than deferring the failure to run time")
             assert(
                 diags[1].msg:find('require("mathutil")', 1, true),
                 "the message names the require to write: " .. diags[1].msg
@@ -310,11 +298,7 @@ function M.givesNoRequireAdviceWhenThereIsNothingToFix()
         },
         function(dir)
             local env = projectEnv(dir)
-            testAssert.equal(
-                #checkFile(env, dir .. "/src/fixed.g.nupp"),
-                0,
-                "a written require leaves nothing to advise"
-            )
+            testAssert.equal(#checkFile(env, dir .. "/src/fixed.g.nupp"), 0, "a written require leaves nothing to advise")
             testAssert.equal(#checkFile(env, dir .. "/src/selfref.g.nupp"), 0, "a file is not told to require itself")
         end
     )
@@ -975,11 +959,7 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            testAssert.equal(
-                #diags,
-                0,
-                "a task retains every result type and position: " .. (diags[1] and diags[1].msg or "")
-            )
+            testAssert.equal(#diags, 0, "a task retains every result type and position: " .. (diags[1] and diags[1].msg or ""))
         end
     )
 end
@@ -1106,17 +1086,10 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            testAssert.equal(
-                #diags,
-                3,
-                "each submission is refused once: " .. (diags[1] and diags[1].msg or "nothing reported")
-            )
+            testAssert.equal(#diags, 3, "each submission is refused once: " .. (diags[1] and diags[1].msg or "nothing reported"))
             -- The path names the field rather than the argument, since a signature can
             -- bury what cannot cross several levels down.
-            assert(
-                diags[1].msg:find("argument 1.hook is a function", 1, true),
-                "the nested field is named: " .. diags[1].msg
-            )
+            assert(diags[1].msg:find("argument 1.hook is a function", 1, true), "the nested field is named: " .. diags[1].msg)
             assert(diags[2].msg:find("argument 1 is a thread", 1, true), "the thread is named: " .. diags[2].msg)
             assert(diags[3].msg:find("result 1 is a function", 1, true), "the result is named: " .. diags[3].msg)
         end
@@ -1143,11 +1116,7 @@ end
         function(dir, env)
             local path = dir .. "/src/main.nupp"
             local diags = check.check(parser.parse(readFile(path), path), path, env)
-            testAssert.equal(
-                #diags,
-                0,
-                "a task scope is discharged on structured exit: " .. (diags[1] and diags[1].msg or "")
-            )
+            testAssert.equal(#diags, 0, "a task scope is discharged on structured exit: " .. (diags[1] and diags[1].msg or ""))
         end
     )
 end
@@ -1157,13 +1126,13 @@ end
 -- case across test workers would turn the standard-library cold load back into
 -- the dominant work and test process isolation rather than any contract below.
 function M.workerTaskContractsCrossProjectBoundaries()
-    exportedSignatureDoesNotFreezeAnAliasItNames()
-    workerTaskChecksLikeAnOrdinaryFunctionCall()
-    workerTaskReportsArgumentAndResultMistakes()
-    workerTaskPreservesCompleteResultPacks()
-    workerTaskAcceptsWhatACopyCanReproduce()
-    workerTaskRefusesASignatureNoCopyCanCross()
-    taskScopeCarriesAutomaticCleanup()
+   exportedSignatureDoesNotFreezeAnAliasItNames()
+   workerTaskChecksLikeAnOrdinaryFunctionCall()
+   workerTaskReportsArgumentAndResultMistakes()
+   workerTaskPreservesCompleteResultPacks()
+   workerTaskAcceptsWhatACopyCanReproduce()
+   workerTaskRefusesASignatureNoCopyCanCross()
+   taskScopeCarriesAutomaticCleanup()
 end
 
 -- An affine type is only usable by another module if the terminal it names
@@ -1173,13 +1142,10 @@ end
 -- exported type rather than in this file's summaries, and the key both sides
 -- compare under has to be the declaring module's.
 function M.aTerminalIsNamedThroughAModuleAlias()
-    -- A qualified affine annotation, `affine(gate.Ticket, gate.release)`, names the
-    -- same cleanup as the type `gate.issue` exports, through the alias or without.
-    withProject(
-        {
-            [
-                "src/gate.nupp"
-            ] = [[
+   -- A qualified affine annotation, `affine(gate.Ticket, gate.release)`, names the
+   -- same cleanup as the type `gate.issue` exports, through the alias or without.
+   withProject({
+      ["src/gate.nupp"] = [[
 module gate
 
 export record Ticket
@@ -1373,11 +1339,8 @@ end
 -- from the one its binding carried, so `issue(): affine(Ticket, release)` there and
 -- `affine(gate.Ticket, gate.release)` in a consumer never compared equal.
 function M.aConsumerNamesAnotherModulesTerminal()
-    withProject(
-        {
-            [
-                "src/gate.nupp"
-            ] = [[
+    withProject({
+        ["src/gate.nupp"] = [[
 module gate
 
 export record Ticket
@@ -1392,9 +1355,7 @@ export function issue(): affine(Ticket, release)
     return nil as any
 end
 ]],
-            [
-                "src/hall.nupp"
-            ] = [[
+        ["src/hall.nupp"] = [[
 module hall
 
 local gate = require("gate")
@@ -1404,18 +1365,12 @@ export function admit(): nil
     print(ticket.id)
 end
 ]],
-        },
-        function(dir)
-            local path = dir .. "/src/hall.nupp"
-            local parsed = parser.parse(readFile(path), path)
-            local diags = check.check(parsed, path, projectEnv(dir))
-            testAssert.equal(
-                #diags,
-                0,
-                "the consumer's terminal is the declaring module's: " .. (diags[1] and diags[1].msg or "")
-            )
-        end
-    )
+    }, function(dir)
+        local path = dir .. "/src/hall.nupp"
+        local parsed = parser.parse(readFile(path), path)
+        local diags = check.check(parsed, path, projectEnv(dir))
+        testAssert.equal(#diags, 0, "the consumer's terminal is the declaring module's: " .. (diags[1] and diags[1].msg or ""))
+    end)
 end
 
 return M

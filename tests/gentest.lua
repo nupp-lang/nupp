@@ -741,10 +741,7 @@ function M.literalTypeErasure()
     testAssert.equal(run("local t: true = true\nreturn t"), true)
     testAssert.equal(run("local f: false = false\nreturn f"), false)
     testAssert.equal(run("local m: \"read\" = \"read\"\nreturn m"), "read")
-    testAssert.equal(
-        run("local function mode(x: \"read\"): \"read\" return x end" .. "\nreturn mode(\"read\")"),
-        "read"
-    )
+    testAssert.equal(run("local function mode(x: \"read\"): \"read\" return x end" .. "\nreturn mode(\"read\")"), "read")
 end
 
 -- `const T`, the read-only view, is a type node the same way `T?` or `T*` are: erased
@@ -852,16 +849,13 @@ function M.numberSeparatorSemantics()
 end
 
 function M.continueSemantics()
-    testAssert.equal(
-        run([[
+    testAssert.equal(run([[
 local total = 0
 for i = 1, 5 do
    if i % 2 == 0 then continue end
    total += i
 end
-return total]]),
-        9
-    )
+return total]]), 9)
     testAssert.equal(
         run([[
 local n, hits = 0, 0
@@ -876,8 +870,7 @@ return hits]]),
     -- The until condition is in the body's scope, so a continue ahead of a
     -- later local would jump into that local's scope.
     testAssert.equal(
-        run(
-            [[
+        run([[
 local total, i = 0, 0
 repeat
    i += 1
@@ -886,13 +879,11 @@ repeat
    local doubled = i * 2
    total += doubled
 until before >= 10
-return total]]
-        ),
+return total]]),
         50
     )
     testAssert.equal(
-        run(
-            [[
+        run([[
 local total, i = 0, 0
 repeat
    i += 1
@@ -905,8 +896,7 @@ repeat
       total += kept
    end
 until i >= 4
-return total]]
-        ),
+return total]]),
         8
     )
 end
@@ -1037,23 +1027,16 @@ local function printed(src, filename)
     testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
     local chunk = assert(loadstring(code, "@" .. filename))
     local out = {}
-    setfenv(
-        chunk,
-        setmetatable(
-            {
-                print = function(...)
-                    local parts = {}
-                    for i = 1, select("#", ...) do
-                        parts[i] = tostring((select(i, ...)))
-                    end
-                    out[#out + 1] = table.concat(parts, "\t")
-                end,
-            },
-            {__index = _G}
-        )
-    )
+    setfenv(chunk, setmetatable({
+        print = function(...)
+            local parts = {}
+            for i = 1, select("#", ...) do
+                parts[i] = tostring((select(i, ...)))
+            end
+            out[#out + 1] = table.concat(parts, "\t")
+        end,
+    }, {__index = _G}))
     chunk()
-
     return table.concat(out, "\n")
 end
 
@@ -1061,45 +1044,29 @@ end
 -- same name in the program -- `type` in a parser, `math` in a geometry module -- does
 -- not change what `a // 2` or `v is number` means.
 function M.loweringsReachRuntimeGlobalsPastAShadowingLocal()
-    testAssert.equal(
-        printed(
-            "local math = {floor = function(x: number): number return 42 end}\nlocal a: integer = 7\nprint(a // 2)",
-            "printed.nupp"
-        ),
-        "3"
-    )
+    testAssert.equal(printed(
+        "local math = {floor = function(x: number): number return 42 end}\nlocal a: integer = 7\nprint(a // 2)",
+        "printed.nupp"
+    ), "3")
     testAssert.equal(printed("local math = {}\nlocal a = 7\na //= 2\nprint(a)"), "3")
-    testAssert.equal(
-        printed(
-            "local type = function(x: any): string return 'table' end\nlocal v: any = 5\nprint(v is number, v is string)"
-        ),
-        "true\tfalse"
-    )
-    testAssert.equal(
-        printed(
-            "local getmetatable = function(x: any): any return nil end\nlocal record R\n    x: integer\nend\n"
+    testAssert.equal(printed(
+        "local type = function(x: any): string return 'table' end\nlocal v: any = 5\nprint(v is number, v is string)"
+    ), "true\tfalse")
+    testAssert.equal(printed(
+        "local getmetatable = function(x: any): any return nil end\nlocal record R\n    x: integer\nend\n"
             .. "local r: any = new R(x = 1)\nprint(r is R)"
-        ),
-        "true"
-    )
-    testAssert.equal(
-        printed(
-            "local select = function(...: any): integer return 99 end\n"
+    ), "true")
+    testAssert.equal(printed(
+        "local select = function(...: any): integer return 99 end\n"
             .. "local function f(...rest: any): integer\n    return rest.n\nend\nprint(f(1, 2))"
-        ),
-        "2"
-    )
-    testAssert.equal(
-        printed("local tostring = function(x: any): string return 'T' end\nlocal n = 5\nprint(`n=${n}`)"),
-        "n=5"
-    )
-    testAssert.equal(
-        printed(
-            "local setmetatable = function(t: any, m: any): any return 'hijacked' end\n"
+    ), "2")
+    testAssert.equal(printed(
+        "local tostring = function(x: any): string return 'T' end\nlocal n = 5\nprint(`n=${n}`)"
+    ), "n=5")
+    testAssert.equal(printed(
+        "local setmetatable = function(t: any, m: any): any return 'hijacked' end\n"
             .. "local record P\n    x: integer\nend\nlocal p = new P(x = 1)\nprint(p.x)"
-        ),
-        "1"
-    )
+    ), "1")
 end
 
 -- `math.floor` refuses cdata and cdata `/` truncates toward zero, so `//` on 64-bit
@@ -1122,15 +1089,10 @@ function M.emptyStatementsGenerateCodeThatLoads()
     testAssert.equal(printed("local function f() ; return 4 end\nif true then ; print(f()) ; else ; end"), "4")
     testAssert.equal(printed("repeat ; until true\nwhile false do ; end\nfor i = 1, 1 do ; ; print(i) end"), "1")
     -- The stdlib reviewer's one-line body, each statement separated by `;`.
-    testAssert.equal(
-        printed(
-            "local function read(n: string): string local f = assert(io.open(n, 'rb')); "
-            .. "local s = f:read('*a'); f:close(); return s end\nprint(#read('"
-            .. HERE
-            .. "/gentest.lua') > 0)"
-        ),
-        "true"
-    )
+    testAssert.equal(printed(
+        "local function read(n: string): string local f = assert(io.open(n, 'rb')); "
+            .. "local s = f:read('*a'); f:close(); return s end\nprint(#read('" .. HERE .. "/gentest.lua') > 0)"
+    ), "true")
     -- A `;` that keeps a parenthesized statement from reading as a call survives.
     testAssert.equal(printed("local t = {}\nlocal f = print; (f)('call')"), "call")
 end
@@ -1138,31 +1100,22 @@ end
 -- An affine local that ends a `repeat` body leaves the protected region with no
 -- statement of its own before the hoisted `until` test.
 function M.anAffineLocalCanEndARepeatBody()
-    testAssert.equal(
-        printed(
-            table.concat(
-                {
-                    "local record Guard",
-                    "    name: string",
-                    "end",
-                    "local function finish(takes guard: Guard): nil",
-                    "    print('drop ' .. guard.name)",
-                    "end",
-                    "local function acquire(name: string): affine(Guard, finish)",
-                    "    return new Guard(name = name)",
-                    "end",
-                    "local i = 0",
-                    "repeat",
-                    "    i = i + 1",
-                    "    local g = acquire('rp' .. i)",
-                    "until i >= 2",
-                },
-                "\n"
-            ),
-            "printed.nupp"
-        ),
-        "drop rp1\ndrop rp2"
-    )
+    testAssert.equal(printed(table.concat({
+        "local record Guard",
+        "    name: string",
+        "end",
+        "local function finish(takes guard: Guard): nil",
+        "    print('drop ' .. guard.name)",
+        "end",
+        "local function acquire(name: string): affine(Guard, finish)",
+        "    return new Guard(name = name)",
+        "end",
+        "local i = 0",
+        "repeat",
+        "    i = i + 1",
+        "    local g = acquire('rp' .. i)",
+        "until i >= 2",
+    }, "\n"), "printed.nupp"), "drop rp1\ndrop rp2")
 end
 
 -- Generated Lua that does not load is the compiler's fault, and the report says so
@@ -1207,92 +1160,59 @@ end
 -- The same holds for a switch type case, and for the declarations a `cdef` and a
 -- struct lower to, which run in the program's scope too.
 function M.typeCasesAndCdefsReachRuntimeGlobalsPastAShadowingLocal()
-    testAssert.equal(
-        printed(
-            table.concat(
-                {
-                    "local getmetatable = function(x: any): any return nil end",
-                    "local record R",
-                    "    x: integer",
-                    "end",
-                    "local function kind(v: R | integer): string",
-                    "    return switch v do",
-                    "        case is R -> 'record'",
-                    "        else -> 'other'",
-                    "    end",
-                    "end",
-                    "print(kind(new R(x = 1)), kind(1))",
-                },
-                "\n"
-            )
-        ),
-        "record\tother"
-    )
-    testAssert.equal(
-        printed(
-            table.concat(
-                {
-                    "local pcall = function(...: any): any error('shadowed') end",
-                    "cdef function strlen(s: cstring): uint64",
-                    "print(tonumber(strlen('abc')))",
-                },
-                "\n"
-            )
-        ),
-        "3"
-    )
+    testAssert.equal(printed(table.concat({
+        "local getmetatable = function(x: any): any return nil end",
+        "local record R",
+        "    x: integer",
+        "end",
+        "local function kind(v: R | integer): string",
+        "    return switch v do",
+        "        case is R -> 'record'",
+        "        else -> 'other'",
+        "    end",
+        "end",
+        "print(kind(new R(x = 1)), kind(1))",
+    }, "\n")), "record\tother")
+    testAssert.equal(printed(table.concat({
+        "local pcall = function(...: any): any error('shadowed') end",
+        "cdef function strlen(s: cstring): uint64",
+        "print(tonumber(strlen('abc')))",
+    }, "\n")), "3")
 end
 
 -- Explicit type arguments erase with the rest of the type layer: the angle brackets
 -- and the commas between the types are type material, not code.
 function M.explicitTypeArgumentsErase()
-    testAssert.equal(
-        printed(
-            "local function id<T>(x: T): T return x end\n"
+    testAssert.equal(printed(
+        "local function id<T>(x: T): T return x end\n"
             .. "local function pair<A, B>(a: A, b: B): (A, B) return a, b end\n"
             .. "print(id<number>(5), pair<string, integer>('a', 1))",
-            "printed.nupp"
-        ),
-        "5\ta\t1"
-    )
-    testAssert.equal(
-        printed(
-            "local ffi = require('ffi')\nlocal span = nupp.mem.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
+        "printed.nupp"
+    ), "5\ta\t1")
+    testAssert.equal(printed(
+        "local ffi = require('ffi')\nlocal span = nupp.mem.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
             .. "local v = span.fromCarray<uint8>(s, 4)\nprint(#v)"
-        ),
-        "4"
-    )
-    testAssert.equal(
-        printed(
-            "local record Box\n    v: integer\nend\n"
+    ), "4")
+    testAssert.equal(printed(
+        "local record Box\n    v: integer\nend\n"
             .. "function Box:get<T>(fallback: T): integer | T return self.v end\n"
             .. "local b = new Box(v = 3)\nprint(b:get<string>('none'))",
-            "printed.nupp"
-        ),
-        "3"
-    )
+        "printed.nupp"
+    ), "3")
 end
 
 -- A `cdef struct` with no fields is an opaque C type -- `import-c` writes a handle
 -- such as `sqlite3` or `FILE` this way -- and is declared as one, so LuaJIT itself
 -- refuses to allocate the incomplete struct while pointers to it still work.
 function M.aFieldlessCdefStructIsOpaque()
-    testAssert.equal(
-        printed(
-            table.concat(
-                {
-                    "local ffi = require('ffi')",
-                    "cdef struct NuppGenOpaqueHandle end",
-                    "local name: string = 'struct NuppGenOpaqueHandle'",
-                    "local ok = pcall(ffi.new, name)",
-                    "local pointer = ffi.typeof(name .. ' *')",
-                    "print(ok, pointer ~= nil)",
-                },
-                "\n"
-            )
-        ),
-        "false\ttrue"
-    )
+    testAssert.equal(printed(table.concat({
+        "local ffi = require('ffi')",
+        "cdef struct NuppGenOpaqueHandle end",
+        "local name: string = 'struct NuppGenOpaqueHandle'",
+        "local ok = pcall(ffi.new, name)",
+        "local pointer = ffi.typeof(name .. ' *')",
+        "print(ok, pointer ~= nil)",
+    }, "\n")), "false\ttrue")
 end
 
 -- Checks and generates a declared module, runs it, and answers its exports with the
@@ -1306,11 +1226,7 @@ local function moduleExports(src, name)
         assert(d.severity ~= "error", "check error: " .. tostring(d.code) .. " " .. tostring(d.msg))
     end
     local code, generated = gen.generate(result, name)
-    testAssert.equal(
-        #generated,
-        0,
-        generated[1] and (generated[1].code .. " " .. generated[1].msg) or "gen diagnostics"
-    )
+    testAssert.equal(#generated, 0, generated[1] and (generated[1].code .. " " .. generated[1].msg) or "gen diagnostics")
     local chunk = assert(loadstring(code, "@" .. filename))
     package.loaded[name] = nil
     local exports = chunk()

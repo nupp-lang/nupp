@@ -69,24 +69,17 @@ local function scratchHeader(name, text)
     local handle = assert(io.open(path, "wb"))
     handle:write(text)
     handle:close()
-
     return path, dir
 end
 
 function M.onlyAConstCharPointerIsText()
     -- LuaJIT fills a `const char *` from a Lua string and refuses one for a
     -- writable `char *`, so only the first is `cstring`.
-    local path, dir = scratchHeader(
-        "charp.h",
-        table.concat(
-            {
-                "void nupp_charp_fill(char *buf, unsigned long n);",
-                "char *nupp_charp_dup(const char *s);",
-                "void nupp_charp_signed(signed char *bytes);",
-            },
-            "\n"
-        )
-    )
+    local path, dir = scratchHeader("charp.h", table.concat({
+        "void nupp_charp_fill(char *buf, unsigned long n);",
+        "char *nupp_charp_dup(const char *s);",
+        "void nupp_charp_signed(signed char *bytes);",
+    }, "\n"))
     local res = assert(cheaderMod.load(path))
     os.execute("rm -rf '" .. dir .. "'")
     local width = require("ffi").os == "Windows" and "uint32" or "uint64"
@@ -96,10 +89,8 @@ function M.onlyAConstCharPointerIsText()
 end
 
 function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
-    local path, dir = scratchHeader(
-        "flags.h",
-        "struct NuppFlagsBits { _Bool on : 1; int level : 4; };\n" .. "struct NuppFlagsBits *nupp_flags_new(void);\n"
-    )
+    local path, dir = scratchHeader("flags.h", "struct NuppFlagsBits { _Bool on : 1; int level : 4; };\n"
+        .. "struct NuppFlagsBits *nupp_flags_new(void);\n")
     local res = assert(cheaderMod.load(path))
     os.execute("rm -rf '" .. dir .. "'")
     local result = res.exports.nupp_flags_new.rets[1]
@@ -109,20 +100,17 @@ function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
 end
 
 function M.aConditionalNeedsThePreprocessor()
-    local header = table.concat(
-        {
-            "#ifndef NUPP_COND_H",
-            "#define NUPP_COND_H",
-            "#ifdef _WIN32",
-            "typedef unsigned short nupp_cond_wide;",
-            "#else",
-            "typedef unsigned int nupp_cond_wide;",
-            "#endif",
-            "nupp_cond_wide nupp_cond_width(nupp_cond_wide x);",
-            "#endif",
-        },
-        "\n"
-    ) .. "\n"
+    local header = table.concat({
+        "#ifndef NUPP_COND_H",
+        "#define NUPP_COND_H",
+        "#ifdef _WIN32",
+        "typedef unsigned short nupp_cond_wide;",
+        "#else",
+        "typedef unsigned int nupp_cond_wide;",
+        "#endif",
+        "nupp_cond_wide nupp_cond_width(nupp_cond_wide x);",
+        "#endif",
+    }, "\n") .. "\n"
     local path, dir = scratchHeader("cond.h", header)
     local res, err = cheaderMod.load(path)
     testAssert.equal(res, nil, "both branches would reach LuaJIT")
@@ -134,37 +122,28 @@ function M.aConditionalNeedsThePreprocessor()
     end
     os.execute("rm -rf '" .. dir .. "'")
 
-    local disabled, disabledDir = scratchHeader(
-        "off.h",
-        "#if 0\nint nupp_off_hidden(void);\n#endif\nint nupp_off_shown(void);\n"
-    )
+    local disabled, disabledDir = scratchHeader("off.h", "#if 0\nint nupp_off_hidden(void);\n#endif\nint nupp_off_shown(void);\n")
     local _, offErr = cheaderMod.load(disabled)
     os.execute("rm -rf '" .. disabledDir .. "'")
     assert(offErr and offErr:find("off.h:1: #if 0 needs", 1, true), tostring(offErr))
 end
 
 function M.aCplusplusGuardIsSettledWithoutAPreprocessor()
-    local path, dir = scratchHeader(
-        "cpp.h",
-        table.concat(
-            {
-                "/* A project header's usual shape. */",
-                "#ifndef NUPP_CPP_H",
-                "#define NUPP_CPP_H",
-                "#ifdef __cplusplus",
-                "extern \"C\" {",
-                "#endif",
-                "int nupp_cpp_add(int a, int b);",
-                "#if defined(__cplusplus)",
-                "}",
-                "#else",
-                "int nupp_cpp_c_only(void);",
-                "#endif",
-                "#endif",
-            },
-            "\n"
-        ) .. "\n"
-    )
+    local path, dir = scratchHeader("cpp.h", table.concat({
+        "/* A project header's usual shape. */",
+        "#ifndef NUPP_CPP_H",
+        "#define NUPP_CPP_H",
+        "#ifdef __cplusplus",
+        "extern \"C\" {",
+        "#endif",
+        "int nupp_cpp_add(int a, int b);",
+        "#if defined(__cplusplus)",
+        "}",
+        "#else",
+        "int nupp_cpp_c_only(void);",
+        "#endif",
+        "#endif",
+    }, "\n") .. "\n")
     local res, err = cheaderMod.load(path)
     os.execute("rm -rf '" .. dir .. "'")
     assert(res, err)
@@ -173,30 +152,25 @@ function M.aCplusplusGuardIsSettledWithoutAPreprocessor()
 end
 
 function M.aParseErrorNamesTheHeadersOwnLine()
-    local header = table.concat(
-        {
-            "/* A header with a long",
-            "   multi-line comment",
-            "   spanning three lines */",
-            "#ifndef NUPP_BAD_H",
-            "#define NUPP_BAD_H",
-            "#include <stdint.h>",
-            "",
-            "int nupp_bad_good(int a);",
-            "int nupp_bad_broken(int a b);",
-            "#endif",
-        },
-        "\n"
-    ) .. "\n"
+    local header = table.concat({
+        "/* A header with a long",
+        "   multi-line comment",
+        "   spanning three lines */",
+        "#ifndef NUPP_BAD_H",
+        "#define NUPP_BAD_H",
+        "#include <stdint.h>",
+        "",
+        "int nupp_bad_good(int a);",
+        "int nupp_bad_broken(int a b);",
+        "#endif",
+    }, "\n") .. "\n"
     local path, dir = scratchHeader("bad.h", header)
     local _, err = cheaderMod.load(path)
     assert(err and err:find("bad.h:9: ", 1, true), "the broken declaration is on line 9: " .. tostring(err))
     if os.execute("cc --version >/dev/null 2>&1") == 0 then
         local _, preprocessedErr = cheaderMod.load(path, {preprocess = true})
-        assert(
-            preprocessedErr and preprocessedErr:find("bad.h:9: ", 1, true),
-            "linemarkers name the header's line: " .. tostring(preprocessedErr)
-        )
+        assert(preprocessedErr and preprocessedErr:find("bad.h:9: ", 1, true),
+            "linemarkers name the header's line: " .. tostring(preprocessedErr))
     end
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -209,13 +183,8 @@ function M.aNulByteIsRefused()
     local read = require("nupp.compiler.fs").readFile(path)
     local res, err = cheaderMod.load(path)
     os.execute("rm -rf '" .. dir .. "'")
-    testAssert.equal(
-        res,
-        nil,
-        (
-            "nothing past the NUL would be declared (read %s bytes from %s, NUL at %s)"
-        ):format(tostring(read and #read), path, tostring(read and read:find("%z")))
-    )
+    testAssert.equal(res, nil, ("nothing past the NUL would be declared (read %s bytes from %s, NUL at %s)"):format(
+        tostring(read and #read), path, tostring(read and read:find("%z"))))
     assert(err:find("zerobyte.h:2: the header holds a NUL byte", 1, true), err)
 end
 
@@ -302,42 +271,27 @@ end
 function M.aStructHasOneIdentityWhicheverWayItIsReached()
     -- A struct built from a type string is the header's own struct, so it passes
     -- to the header's functions by value and by pointer.
-    local path, dir = scratchHeader(
-        "ident.h",
-        table.concat(
-            {
-                "struct NuppIdentHfa { float a; float b; };",
-                "float nupp_ident_sum(struct NuppIdentHfa v);",
-                "float nupp_ident_first(struct NuppIdentHfa *v);",
-            },
-            "\n"
-        ) .. "\n"
-    )
-    local diags = diagnosticsAt(
-        dir .. "/probe.nupp",
-        table.concat(
-            {
-                "local h = cheader('ident.h')",
-                "local v = ffi.new(\"struct NuppIdentHfa\")",
-                "local total: float = h.nupp_ident_sum(v)",
-                "local p = ffi.new(\"struct NuppIdentHfa *\")",
-                "@unsafe h.nupp_ident_first(p)",
-            },
-            "\n"
-        )
-    )
+    local path, dir = scratchHeader("ident.h", table.concat({
+        "struct NuppIdentHfa { float a; float b; };",
+        "float nupp_ident_sum(struct NuppIdentHfa v);",
+        "float nupp_ident_first(struct NuppIdentHfa *v);",
+    }, "\n") .. "\n")
+    local diags = diagnosticsAt(dir .. "/probe.nupp", table.concat({
+        "local h = cheader('ident.h')",
+        "local v = ffi.new(\"struct NuppIdentHfa\")",
+        "local total: float = h.nupp_ident_sum(v)",
+        "local p = ffi.new(\"struct NuppIdentHfa *\")",
+        "@unsafe h.nupp_ident_first(p)",
+    }, "\n"))
     os.execute("rm -rf '" .. dir .. "'")
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
 end
 
 function M.enumMembersAreExported()
-    local path, dir = scratchHeader(
-        "modes.h",
-        table.concat(
-            {"enum NuppModes { NUPP_MODE_OFF = 0, NUPP_MODE_ON = 2 };", "int nupp_mode_set(enum NuppModes mode);",},
-            "\n"
-        ) .. "\n"
-    )
+    local path, dir = scratchHeader("modes.h", table.concat({
+        "enum NuppModes { NUPP_MODE_OFF = 0, NUPP_MODE_ON = 2 };",
+        "int nupp_mode_set(enum NuppModes mode);",
+    }, "\n") .. "\n")
     local res = assert(cheaderMod.load(path))
     testAssert.equal(T.tostring(res.exports.NUPP_MODE_ON), "int32")
     local file = dir .. "/probe.nupp"
@@ -373,18 +327,13 @@ local function runWithFfi(src, fake)
     local replaced = code:gsub('require%("ffi"%)', "__fakeFfi", 1)
     local chunk = assert(loadstring(replaced, "@p.g.nupp"))
     setfenv(chunk, setmetatable({__fakeFfi = fake}, {__index = _G}))
-
     return code, pcall(chunk)
 end
 
 -- The header is declared on the line of the call: a newline in its text is written as
 -- `\n`, so a runtime error later in the file names the line it happened on.
 function M.headerDeclarationsKeepLineIdentity()
-    local fake = {
-        cdef = function()
-        end,
-        C = {}
-    }
+    local fake = {cdef = function() end, C = {}}
     local code, ok, failure = runWithFfi("local sink = cheader('fixtures/sink.h')\nerror('here')", fake)
     testAssert.equal(ok, false)
     testAssert.equal(tostring(failure):match(":(%d+): here$"), "2", "the error keeps its source line")

@@ -337,7 +337,10 @@ function M.staysAName()
     local refusals, diags = diagnose("local nosuspend = 1\nreturn nosuspend")
     testAssert.equal(#refusals, 0, "no region was opened")
     for _, diag in ipairs(diags) do
-        assert(diag.severity == "warning" or diag.severity == "note", "an ordinary name still checks: " .. diag.code)
+        assert(
+            diag.severity == "warning" or diag.severity == "note",
+            "an ordinary name still checks: " .. diag.code
+        )
     end
 end
 
@@ -806,11 +809,7 @@ function M.anImplementationOfANoSuspendMemberMayNotSuspend()
             "\n"
         )
     )
-    testAssert.equal(
-        #quietDiags,
-        0,
-        "a proved-quiet body is silent" .. (quietDiags[1] and (": " .. quietDiags[1].msg) or "")
-    )
+    testAssert.equal(#quietDiags, 0, "a proved-quiet body is silent" .. (quietDiags[1] and (": " .. quietDiags[1].msg) or ""))
 end
 
 function M.aMetamethodIsNotARegionByItself()

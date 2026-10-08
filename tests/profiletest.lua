@@ -423,11 +423,7 @@ end
 function M.recordedTracePayloadUsesTheStaticReasonIdentity()
     local registry = require("nupp.profile.trace")
     local reason, raw = registry.runtime(FNEW_ERROR_CODE, FNEW_OPCODE)
-    testAssert.equal(
-        reason.id,
-        "jit/loop-function-construction",
-        "recorded VM payload and static bytecode share an identity"
-    )
+    testAssert.equal(reason.id, "jit/loop-function-construction", "recorded VM payload and static bytecode share an identity")
     testAssert.equal(reason.class, "blocker", "the operation-level classification")
     assertMatch(raw, "FNEW", "raw recorder detail remains visible")
 end
@@ -460,11 +456,7 @@ function M.traceRecordsWhereTheCompilerGaveUp()
 
     testAssert.equal(report.totalAborts, 1, "the emitted abort is counted")
     testAssert.equal(#report.sites, 1, "the emitted abort has one site")
-    testAssert.equal(
-        report.sites[1].reasonId,
-        "jit/loop-function-construction",
-        "the unrecordable bytecode is reported"
-    )
+    testAssert.equal(report.sites[1].reasonId, "jit/loop-function-construction", "the unrecordable bytecode is reported")
     testAssert.equal(report.sites[1].reasonClass, "blocker", "the operation-level classification is preserved")
     assertMatch(report.sites[1].rawReason, "FNEW", "the VM's bytecode detail remains visible")
 end
@@ -677,11 +669,7 @@ function M.cliJitAbortsWritesNormalizedJson()
     assert(report.traceProfile.id, "the VM profile is explicit")
     testAssert.equal(report.reasonCatalog.id, "nupp-trace-reasons-v1", "the stable registry is explicit")
     assert(#report.sites > 0, "the workload produced an observed abort")
-    testAssert.equal(
-        report.sites[1].reasonId,
-        "jit/loop-function-construction",
-        "the observed FNEW uses the static identity"
-    )
+    testAssert.equal(report.sites[1].reasonId, "jit/loop-function-construction", "the observed FNEW uses the static identity")
     testAssert.equal(report.sites[1].class, "blocker", "the reason class is preserved")
     assertMatch(report.sites[1].rawReason, "FNEW", "the raw VM detail remains")
     os.execute("rm -rf '" .. dir .. "'")
@@ -742,10 +730,7 @@ end
 
 function M.cliGpuCostsComposeWithSamplingAndRetainProgramFailures()
     local dir = tempProject()
-    local out, ok = run(
-        dir,
-        "run --profile --profile-interval-ms 1 --profile-out samples.txt --gpu-costs costs/empty.jsonl work.nupp 1"
-    )
+    local out, ok = run(dir, "run --profile --profile-interval-ms 1 --profile-out samples.txt --gpu-costs costs/empty.jsonl work.nupp 1")
     assert(ok, "GPU cost output composes with CPU sampling: " .. out)
     local empty = assert(io.open(dir .. "/costs/empty.jsonl", "rb"))
     testAssert.equal(empty:read("*a"), "", "a CPU-only program invents no GPU events")
@@ -856,10 +841,7 @@ for i=1,40 do run(100) end
         assert(not root:find("nupp/compiler/", 1, true), "compiler root leaked: " .. root)
         assert(not at:find("nupp/compiler/", 1, true), "compiler abort leaked: " .. at)
         dependencyAbort = dependencyAbort or at:find("lazy.g.nupp", 1, true)
-        assert(
-            site.class and site.blacklisted ~= nil and site.severity == nil,
-            "the JSON speaks one severity vocabulary"
-        )
+        assert(site.class and site.blacklisted ~= nil and site.severity == nil, "the JSON speaks one severity vocabulary")
     end
     assert(dependencyAbort, "the dependency's program aborts survive lazy compiler filtering")
     os.execute("rm -rf '" .. dir .. "'")
@@ -895,10 +877,7 @@ print(total)
     source = source:gsub("80000000", sampleRepeats(80000000), 1)
     file:write(source)
     file:close()
-    local out, ok = run(
-        dir,
-        "run -O1 --profile --profile-interval-ms 1 --remarks --remarks-out --remarks-for heat.g.nupp heat.g.nupp"
-    )
+    local out, ok = run(dir, "run -O1 --profile --profile-interval-ms 1 --remarks --remarks-out --remarks-for heat.g.nupp heat.g.nupp")
     assert(ok, out)
     local document = require("testjson").decode(readFile(dir .. "/build/remarks.json"))
     assert(document.sampling and document.sampling.totalSamples > 0, "measurement metadata is retained")

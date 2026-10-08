@@ -75,15 +75,9 @@ function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
     local directory, stdout = working .. "/gpu-costs", working .. "/stdout.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
     local command = (
-        "%q bench --timeout-ms "
-        .. TIMEOUT_MS
-        .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
+        "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
     ):format(NUPP, fixture, NUPP, directory, stdout)
-    testAssert.equal(
-        os.execute(inWorkspace(working, command)),
-        0,
-        "cost routing works without requiring a GPU workload"
-    )
+    testAssert.equal(os.execute(inWorkspace(working, command)), 0, "cost routing works without requiring a GPU workload")
     local report = json.decode(read(stdout))
     local seen, count = {}, 0
     for _, side in ipairs({report.benchmarks, report.comparisons[1].baseline.benchmarks}) do
@@ -106,7 +100,6 @@ end
 local function evidence(text)
     local value = json.decode(text)
     value.ok, value.diagnostics = nil, nil
-
     local function canonical(item)
         if type(item) ~= "table" then
             return json.encode(item)
@@ -122,7 +115,6 @@ local function evidence(text)
         for _, key in ipairs(keys) do
             parts[#parts + 1] = tostring(key) .. "=" .. canonical(item[key])
         end
-
         return "{" .. table.concat(parts, ",") .. "}"
     end
 
@@ -138,16 +130,10 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
 
     local function run(extra)
-        local command = (
-            "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"
-        ):format(NUPP, fixture, extra, stdout)
+        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
         testAssert.equal(os.execute(inWorkspace(working, command)), 0, "fixed-record comparison succeeds")
         local output = read(stdout)
-        testAssert.equal(
-            evidence(output),
-            evidence(read(working .. "/build/bench-record.json")),
-            "stdout and saved record agree"
-        )
+        testAssert.equal(evidence(output), evidence(read(working .. "/build/bench-record.json")), "stdout and saved record agree")
         local decoded = json.decode(output)
         testAssert.equal(decoded.ok, true, "the printed document says the run succeeded")
 
@@ -188,11 +174,7 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     testAssert.equal(comparison.source, baseline, "the baseline record is named")
     testAssert.equal(#comparison.baseline.benchmarks[1].forks, 12, "stored baseline measurements survive")
     testAssert.equal(comparison.baseline.comparisons, nil, "accepted baselines do not nest comparison history")
-    testAssert.equal(
-        comparison.verdicts[1].withheld,
-        "below-minimum-forks",
-        "too few forks explain the absent interval"
-    )
+    testAssert.equal(comparison.verdicts[1].withheld, "below-minimum-forks", "too few forks explain the absent interval")
     testAssert.equal(comparison.verdicts[1].verdict, "inconclusive", "too few forks remain inconclusive")
     testAssert.equal(evidence(read(baseline)), evidence(read(stdout)), "accepted baseline retains the full report")
 
@@ -211,13 +193,14 @@ end
 -- as a baseline that matches nothing and passes.
 function M.aBaselineSchemaIsCheckedWhereItIsRead()
     local working = workspace()
-    local stdout, stderr, baseline = working .. "/stdout.json", working .. "/stderr.txt", working .. "/baseline.json"
+    local stdout, stderr, baseline = working
+        .. "/stdout.json", working
+        .. "/stderr.txt", working
+        .. "/baseline.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
 
     local function run(extra)
-        local command = (
-            "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"
-        ):format(NUPP, fixture, extra, stdout, stderr)
+        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"):format(NUPP, fixture, extra, stdout, stderr)
 
         return os.execute(inWorkspace(working, command))
     end
@@ -385,9 +368,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms "
-                .. TIMEOUT_MS
-                .. " --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
+                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
             ):format(NUPP, fixture, "^work$", "^base$", "^size=1$", history, stdout)
         )
     )
@@ -426,9 +407,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms "
-                .. TIMEOUT_MS
-                .. " --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
+                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
             ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
         )
     )
@@ -446,9 +425,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms "
-                .. TIMEOUT_MS
-                .. " --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
+                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
             ):format(NUPP, simpleFixture, "^protocol$", profiles, stdout)
         )
     )
@@ -483,12 +460,7 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
 
     local ran = os.execute(
-        inWorkspace(
-            working,
-            (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"
-            ):format(NUPP, fixture, stdout)
-        )
+        inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
     )
     testAssert.equal(ran, 0, "a replicated run exits successfully")
     local document = json.decode(read(stdout))
@@ -533,12 +505,7 @@ function M.pilotSizesTheRunWithoutReportingAResult()
     local stdout = working .. "/stdout.txt"
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
 
-    local ran = os.execute(
-        inWorkspace(
-            working,
-            ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)
-        )
-    )
+    local ran = os.execute(inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)))
     testAssert.equal(ran, 0, "a pilot exits successfully")
     local report = read(stdout)
     assert(report:find("Between%-fork CV") ~= nil, "the pilot reports the variance it observed")
@@ -567,12 +534,7 @@ function M.eachSelectorNarrowsOnItsOwn()
         local flags = table.concat({...}, " ")
         testAssert.equal(
             os.execute(
-                inWorkspace(
-                    working,
-                    (
-                        "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q %s > %q"
-                    ):format(NUPP, fixture, flags, stdout)
-                )
+                inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q %s > %q"):format(NUPP, fixture, flags, stdout))
             ),
             0,
             "listing with " .. flags .. " exits successfully"
@@ -603,9 +565,7 @@ function M.eachSelectorNarrowsOnItsOwn()
         os.execute(
             inWorkspace(
                 working,
-                (
-                    "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q --case %q > %q 2>&1"
-                ):format(NUPP, fixture, "^nosuchcase$", stdout)
+                ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q --case %q > %q 2>&1"):format(NUPP, fixture, "^nosuchcase$", stdout)
             )
         ) ~= 0,
         "a case pattern matching nothing selects nothing rather than everything"

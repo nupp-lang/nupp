@@ -441,7 +441,6 @@ function M.aChildThatCannotStartIsAnAnswerNotARaise()
     function backend:spawn(_options)
         return nil, nil, nil, nil, 0, "no such program"
     end
-
     local instance = require("providerstate").load("process", backend)
     local ok, child, reason = pcall(instance.spawn, {args = {"missing"}})
     assert(ok, "spawn did not raise: " .. tostring(child))
@@ -915,7 +914,10 @@ function M.aRaiseWithNothingToSayIsStillAFailure()
         child.stdin:close()
     end)
     assert(not ok, "the silent raise was still an error")
-    assert(tostring(reported):find("without saying why", 1, true) ~= nil, "and said so, got: " .. tostring(reported))
+    assert(
+        tostring(reported):find("without saying why", 1, true) ~= nil,
+        "and said so, got: " .. tostring(reported)
+    )
 
     -- And through the teardown, where a nil would have been stored as the first error
     -- and then compared against nil to decide whether anything went wrong at all.
@@ -1400,7 +1402,6 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
         sleeps = sleeps + 1
         return 0
     end
-
     local child = spawnOn(backend, {args = {"quiet"}})
     local scope = tasks.open()
     local waited = scope:spawn(function()
@@ -1437,7 +1438,6 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
         sleeps = sleeps + 1
         return 0
     end
-
     local child = spawnOn(backend, {args = {"slow"}})
     local scope = tasks.open()
     local drained = scope:spawn(function()

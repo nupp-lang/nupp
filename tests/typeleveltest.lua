@@ -1365,10 +1365,7 @@ function M.aParameterWithoutADefaultCannotFollowOneWithIt()
 end
 
 function M.aGenericPackParameterCannotHaveADefault()
-    testAssert.equal(
-        codes(table.concat({"local record Bad<A... = string>", "   value: integer", "end",}, "\n")),
-        "NUPP2121"
-    )
+    testAssert.equal(codes(table.concat({"local record Bad<A... = string>", "   value: integer", "end",}, "\n")), "NUPP2121")
 end
 
 -- A `function` const parameter names a declaration rather than carrying a value.
@@ -1483,8 +1480,7 @@ local AFFINE_TYPES = table.concat(
 -- closeable generic declaration directly or through an alias of it, so one fits
 -- wherever the other is wanted.
 function M.anAliasOfACloseableGenericBorrowsTheSameRepresentation()
-    clean(
-        [[
+    clean([[
 local m = {}
 interface m.Gen<T> is nupp.Closeable
     _w: T?
@@ -1505,8 +1501,7 @@ local function direct(borrows user: m.User, borrows gen: m.Gen<integer>): nil
     viaAlias(user, gen)
 end
 return m, direct
-]]
-    )
+]])
 end
 
 function M.usersCanDeclareGenericAffineTypes()
@@ -2254,8 +2249,7 @@ end
 -- One verb contributes to every reducer, and each one is a `simd.Reducer` of
 -- what it answers.
 function M.everyReducerContributesThroughAddAndIsAReducer()
-    clean(
-        [[
+    clean([[
 local simd = require("nupp.simd")
 local function finish<T>(reducer: simd.Reducer<T>): T
     return reducer:value()
@@ -2274,17 +2268,14 @@ local ordered = simd.reducer.orderedProduct(1.0)
 ordered:add(3.0)
 return finish(product), finish(pairwise), finish(algebraic), finish(ordered), finish(dot), finish(count),
     finish(any), finish(position), finish(least)
-]]
-    )
+]])
     testAssert.equal(
-        codes(
-            [[
+        codes([[
 local simd = require("nupp.simd")
 local product = simd.reducer.orderedProduct(1.0)
 product:multiply(2.0)
 return product:value()
-]]
-        ),
+]]),
         "NUPP2004"
     )
 end
@@ -2292,8 +2283,7 @@ end
 -- An integer reducer is selected by its element's type, which its array witness
 -- names; a written type argument and the witness have to agree.
 function M.integerReducersAreSelectedByTheirElementType()
-    clean(
-        [[
+    clean([[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 local sum: simd.WrappingSum<int32> = simd.reducer.wrappingSum<int32>(array.int32, 0)
@@ -2302,28 +2292,21 @@ local bits: simd.AndBits<uint32> = simd.reducer.andBits(array.uint32, nupp.math.
 local least: simd.IntegerMin<int64> = simd.reducer.integerMin(array.int64, 0LL)
 local position: simd.IntegerArgMax<uint32> = simd.reducer.integerArgMax(array.uint32)
 return sum, product, bits, least, position
-]]
-    )
+]])
     testAssert.equal(
-        codes(
-            [[
+        codes([[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 return simd.reducer.wrappingSum<uint32>(array.int32, 0)
-]]
-        )
-            :match("NUPP%d+"),
+]]):match("NUPP%d+"),
         "NUPP2006"
     )
     testAssert.equal(
-        codes(
-            [[
+        codes([[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 return simd.reducer.xorBits(array.float, 0)
-]]
-        )
-            :match("NUPP%d+"),
+]]):match("NUPP%d+"),
         "NUPP2116"
     )
 end
@@ -2631,18 +2614,12 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
 
     -- a field, an element and a constructor are admission positions too
     local box = alias .. "local record Box\n    n: Small\nend\n"
-    testAssert.equal(
-        codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"),
-        "NUPP2001"
-    )
+    testAssert.equal(codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"), "NUPP2001")
     testAssert.equal(
         codes(box .. "local function make(v: integer): Box\n    return new Box(n = v)\nend\nprint(make)"),
         "NUPP2202"
     )
-    testAssert.equal(
-        codes(alias .. "local function list(v: integer): {Small}\n    return {v}\nend\nprint(list)"),
-        "NUPP2002"
-    )
+    testAssert.equal(codes(alias .. "local function list(v: integer): {Small}\n    return {v}\nend\nprint(list)"), "NUPP2002")
 end
 
 -- A constrained type is a union member like any other, so it has to be seen as

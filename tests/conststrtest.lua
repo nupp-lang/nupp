@@ -10,14 +10,12 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
-    local result = parser.parse(src, "test.g.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
-    local out = {}
-    for j, d in ipairs(check.check(result, "test.g.nupp", env)) do
-        out[j] = d.code
-    end
-
-    return table.concat(out, " ")
+   local result = parser.parse(src, "test.g.nupp")
+   testAssert.equal(#result.errors, 0, "syntax: "
+      .. (result.errors[1] and result.errors[1].msg or ""))
+   local out = {}
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
+   return table.concat(out, " ")
 end
 
 -- distinct tags per case: declarations are global to the compiler's FFI
@@ -32,114 +30,114 @@ struct CstB { struct CstA inner; };
 local M = {}
 
 function M.aConstantTypeStringIsRead()
-    testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal v: number = p.x"), "")
-    testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal s: string = p.x"), "NUPP2001")
-    testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal v = p.nope"), "NUPP2004")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal v: number = p.x"), "")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal s: string = p.x"),
+      "NUPP2001")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal v = p.nope"),
+      "NUPP2004")
 end
 
 function M.fieldTypesComeFromTheDeclaration()
-    testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal n: number = p.n"), "")
-    -- a nested struct keeps its own fields
-    testAssert.equal(diagsOf(DECL .. "local b = ffi.new('struct CstB')\nlocal v: number = b.inner.x"), "")
-    testAssert.equal(diagsOf(DECL .. "local b = ffi.new('struct CstB')\nlocal s: string = b.inner.x"), "NUPP2001")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal n: number = p.n"), "")
+   -- a nested struct keeps its own fields
+   testAssert.equal(diagsOf(DECL .. "local b = ffi.new('struct CstB')\nlocal v: number = b.inner.x"), "")
+   testAssert.equal(diagsOf(DECL .. "local b = ffi.new('struct CstB')\nlocal s: string = b.inner.x"),
+      "NUPP2001")
 end
 
 function M.sizeofAndCastReadStringsToo()
-    testAssert.equal(diagsOf(DECL .. "local n: number = ffi.sizeof('struct CstA')"), "")
-    testAssert.equal(diagsOf(DECL .. "local s: string = ffi.sizeof('struct CstA')"), "NUPP2001")
-    testAssert.equal(
-        diagsOf(DECL .. "local p = ffi.new('struct CstA')\n" .. "local r: voidptr = ffi.cast('void *', p)"),
-        ""
-    )
+   testAssert.equal(diagsOf(DECL .. "local n: number = ffi.sizeof('struct CstA')"), "")
+   testAssert.equal(diagsOf(DECL .. "local s: string = ffi.sizeof('struct CstA')"),
+      "NUPP2001")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstA')\n"
+      .. "local r: voidptr = ffi.cast('void *', p)"), "")
 end
 
 function M.anUnknownTypeStringIsReported()
-    testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstNoSuch')"), "NUPP2304")
-    testAssert.equal(diagsOf(DECL .. "local p = ffi.new('not a type at all')"), "NUPP2304")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('struct CstNoSuch')"), "NUPP2304")
+   testAssert.equal(diagsOf(DECL .. "local p = ffi.new('not a type at all')"), "NUPP2304")
 end
 
 function M.declarationsThatDoNotParseAreReported()
-    testAssert.equal(diagsOf("local ffi = require('ffi')\nffi.cdef[[ this is not C ]]"), "NUPP2303")
+   testAssert.equal(diagsOf("local ffi = require('ffi')\nffi.cdef[[ this is not C ]]"),
+      "NUPP2303")
 end
 
 function M.aRuntimeTypeStringYieldsCdataNotAny()
-    -- leaving the typed path stays visible: cdata, never a silent any
-    testAssert.equal(diagsOf(DECL .. "local name = 'struct CstA'\n" .. "local p: cdata = ffi.new(name)"), "")
-    testAssert.equal(diagsOf(DECL .. "local name = 'struct CstA'\n" .. "local p: number = ffi.new(name)"), "NUPP2001")
-    -- and a cdata does not silently gain fields
-    testAssert.equal(
-        diagsOf(DECL .. "local name = 'struct CstA'\n" .. "local p = ffi.new(name)\nlocal v = p.x"),
-        "NUPP2004"
-    )
+   -- leaving the typed path stays visible: cdata, never a silent any
+   testAssert.equal(diagsOf(DECL .. "local name = 'struct CstA'\n"
+      .. "local p: cdata = ffi.new(name)"), "")
+   testAssert.equal(diagsOf(DECL .. "local name = 'struct CstA'\n"
+      .. "local p: number = ffi.new(name)"), "NUPP2001")
+   -- and a cdata does not silently gain fields
+   testAssert.equal(diagsOf(DECL .. "local name = 'struct CstA'\n"
+      .. "local p = ffi.new(name)\nlocal v = p.x"), "NUPP2004")
 end
 
 function M.declaredStructsKeepTheirIdentityAcrossMentions()
-    -- two mentions of a tag give the same type, so a value from one flows
-    -- where the other is expected
-    testAssert.equal(
-        diagsOf(
-            DECL .. table.concat(
-                {"local a = ffi.new('struct CstA')", "local function take(v: number): nil end", "take(a.x)",},
-                "\n"
-            )
-        ),
-        ""
-    )
+   -- two mentions of a tag give the same type, so a value from one flows
+   -- where the other is expected
+   testAssert.equal(diagsOf(DECL .. table.concat({
+      "local a = ffi.new('struct CstA')",
+      "local function take(v: number): nil end",
+      "take(a.x)",
+   }, "\n")), "")
 end
 
 function M.constIsAModifierOnlyWhenATypeFollows()
-    -- `const` is a statement keyword and may also name a type; in type
-    -- position it modifies only when a type comes next
-    testAssert.equal(diagsOf("local type const = number\nlocal a: const = 1"), "")
-    testAssert.equal(diagsOf("local type const = number\nlocal a: const? = nil"), "")
-    testAssert.equal(diagsOf("local type const = number\nlocal a: const | string = 1"), "")
-    -- and the statement keyword is untouched
-    testAssert.equal(diagsOf("const x = 5\nprint(x)"), "")
-    testAssert.equal(diagsOf("local const = 5\nprint(const)"), "")
+   -- `const` is a statement keyword and may also name a type; in type
+   -- position it modifies only when a type comes next
+   testAssert.equal(diagsOf("local type const = number\nlocal a: const = 1"), "")
+   testAssert.equal(diagsOf("local type const = number\nlocal a: const? = nil"), "")
+   testAssert.equal(diagsOf("local type const = number\nlocal a: const | string = 1"), "")
+   -- and the statement keyword is untouched
+   testAssert.equal(diagsOf("const x = 5\nprint(x)"), "")
+   testAssert.equal(diagsOf("local const = 5\nprint(const)"), "")
 end
 
 function M.constIsAPromiseNotToWrite()
-    local P = "local struct P\n    x: float\nend"
-    -- a mutable value satisfies a const one
-    testAssert.equal(diagsOf(P .. "\nlocal p: P = new P()\nlocal r: const P = p"), "")
-    -- the reverse discards the promise
-    testAssert.equal(diagsOf(P .. "\nlocal r: const P\nlocal p: P = r"), "NUPP2001")
-    testAssert.equal(diagsOf(P .. "\nlocal p: const P* = nil"), "NUPP2001", "still a non-null pointer")
-    testAssert.equal(diagsOf(P .. "\nlocal p: const P*? = nil"), "")
+   local P = "local struct P\n    x: float\nend"
+   -- a mutable value satisfies a const one
+   testAssert.equal(diagsOf(P .. "\nlocal p: P = new P()\nlocal r: const P = p"), "")
+   -- the reverse discards the promise
+   testAssert.equal(diagsOf(P .. "\nlocal r: const P\nlocal p: P = r"), "NUPP2001")
+   testAssert.equal(diagsOf(P .. "\nlocal p: const P* = nil"), "NUPP2001",
+      "still a non-null pointer")
+   testAssert.equal(diagsOf(P .. "\nlocal p: const P*? = nil"), "")
 end
 
 function M.cFunctionPointersDecodeAsCallbackTypes()
-    local cheaderMod = require("nupp.compiler.cinterop.cheader")
-    cheaderMod.declare(
-        "typedef void (*CbSink)(int code, const char *msg);\n" .. "struct CbHolder { CbSink handler; int n; };"
-    )
-    local t = cheaderMod.typeFromString("struct CbHolder")
-    assert(t and t.byname, "struct decoded")
-    local handler = t.byname.handler
-    assert(handler, "the callback field is present")
-    local rendered = require("nupp.compiler.types").tostring(handler)
-    assert(rendered:find("function", 1, true), "a pointer to a function reads as one: " .. rendered)
+   local cheaderMod = require("nupp.compiler.cinterop.cheader")
+   cheaderMod.declare("typedef void (*CbSink)(int code, const char *msg);\n"
+      .. "struct CbHolder { CbSink handler; int n; };")
+   local t = cheaderMod.typeFromString("struct CbHolder")
+   assert(t and t.byname, "struct decoded")
+   local handler = t.byname.handler
+   assert(handler, "the callback field is present")
+   local rendered = require("nupp.compiler.types").tostring(handler)
+   assert(rendered:find("function", 1, true),
+      "a pointer to a function reads as one: " .. rendered)
 end
 
 function M.fixedWidthClaimsRequireEstablishmentInEveryMode()
-    local src = "local x: number = 5\nlocal small: int32 = x"
-    testAssert.equal(diagsOf(src), "NUPP2011")
-    local result = parser.parse(src, "test.g.nupp")
-    local diags = check.check(result, "test.g.nupp", env, {strict = true})
-    testAssert.equal(#diags, 1, "reported under --strict")
-    testAssert.equal(diags[1].code, "NUPP2011")
-    -- A wider target needs no establishment fact.
-    local wide = parser.parse("local x: number = 5\nlocal big: number = x", "test")
-    testAssert.equal(#check.check(wide, "test", env, {strict = true}), 0)
+   local src = "local x: number = 5\nlocal small: int32 = x"
+   testAssert.equal(diagsOf(src), "NUPP2011")
+   local result = parser.parse(src, "test.g.nupp")
+   local diags = check.check(result, "test.g.nupp", env, {strict = true})
+   testAssert.equal(#diags, 1, "reported under --strict")
+   testAssert.equal(diags[1].code, "NUPP2011")
+   -- A wider target needs no establishment fact.
+   local wide = parser.parse("local x: number = 5\nlocal big: number = x", "test")
+   testAssert.equal(#check.check(wide, "test", env, {strict = true}), 0)
 end
 
 function M.theCNamespaceIsTypedFromDeclarations()
-    local D = "local ffi = require('ffi')\nffi.cdef[[ int nsA(const char *s); ]]\n"
-    testAssert.equal(diagsOf(D .. "local n: number = ffi.C.nsA('x')"), "")
-    testAssert.equal(diagsOf(D .. "ffi.C.nsA(42)"), "NUPP2006")
-    testAssert.equal(diagsOf(D .. "ffi.C.nsNoSuch()"), "NUPP2004")
-    -- ffi.load holds the same declarations
-    testAssert.equal(diagsOf(D .. "local lib = ffi.load('m')\nlib.nsA(42)"), "NUPP2006")
+   local D = "local ffi = require('ffi')\nffi.cdef[[ int nsA(const char *s); ]]\n"
+   testAssert.equal(diagsOf(D .. "local n: number = ffi.C.nsA('x')"), "")
+   testAssert.equal(diagsOf(D .. "ffi.C.nsA(42)"), "NUPP2006")
+   testAssert.equal(diagsOf(D .. "ffi.C.nsNoSuch()"), "NUPP2004")
+   -- ffi.load holds the same declarations
+   testAssert.equal(diagsOf(D .. "local lib = ffi.load('m')\nlib.nsA(42)"), "NUPP2006")
 end
 
 return M

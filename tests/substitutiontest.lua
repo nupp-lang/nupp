@@ -424,8 +424,7 @@ function M.aConstructedFieldIsADestination()
     clean(body .. "local s = 'x'\nlocal box = new Box(items = make(), default = s)\nreturn box\n")
     -- one that has to run first does not: it is inferred where it is written
     reports(
-        body
-        .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
+        body .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
         "NUPP2148"
     )
 end

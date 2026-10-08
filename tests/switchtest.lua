@@ -44,11 +44,7 @@ end
 
 local function loweringCodes(source)
     local result, diagnostics = checked(source)
-    testAssert.equal(
-        #diagnostics,
-        0,
-        diagnostics[1] and diagnostics[1].message or "switch source checks before lowering"
-    )
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or "switch source checks before lowering")
     local _, lowering = gen.generate(result, "switch-test.g.nupp")
     local codes = {}
     for _, diagnostic in ipairs(lowering) do
@@ -65,35 +61,23 @@ local M = {}
 function M.aGradualSelectorNeedsItsElse()
     local record = "local record R\n    v: integer\nend\n"
     testAssert.equal(
-        run(
-            record .. table.concat(
-                {
-                    "local function f(x: any): integer",
-                    "    return switch x do",
-                    "        case is R as r -> r.v",
-                    "        else -> 0",
-                    "    end",
-                    "end",
-                    "return f(new R(v = 3)) + f(2)",
-                },
-                "\n"
-            )
-        ),
+        run(record .. table.concat({
+            "local function f(x: any): integer",
+            "    return switch x do",
+            "        case is R as r -> r.v",
+            "        else -> 0",
+            "    end",
+            "end",
+            "return f(new R(v = 3)) + f(2)",
+        }, "\n")),
         3
     )
     testAssert.equal(
-        run(
-            "local function g(x: any): string\n    return switch x do\n        case 1 -> 'one'\n        else -> 'other'\n    end\nend\nreturn g(1) .. g(2)"
-        ),
+        run("local function g(x: any): string\n    return switch x do\n        case 1 -> 'one'\n        else -> 'other'\n    end\nend\nreturn g(1) .. g(2)"),
         "oneother"
     )
     testAssert.equal(
-        (
-            diagnosticCodes(
-                record
-                .. "local function f(x: any): integer\n    return switch x do\n        case is R as r -> r.v\n    end\nend\nreturn f"
-            )
-        ),
+        (diagnosticCodes(record .. "local function f(x: any): integer\n    return switch x do\n        case is R as r -> r.v\n    end\nend\nreturn f")),
         "NUPP2140"
     )
 end
@@ -1141,7 +1125,6 @@ end
 function M.aTaskStatusSwitchNeedsNoElse()
     local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
     local env = require("nupp.compiler.project.env").new(here .. "/..")
-
     local function diagnosticCodes(source)
         local result = parser.parse(source, "switch-test.g.nupp")
         testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
@@ -1152,7 +1135,6 @@ function M.aTaskStatusSwitchNeedsNoElse()
 
         return table.concat(codes, " ")
     end
-
     local head = {
         "local tasks = require('nupp.tasks')",
         "local function label(task: tasks.Task<function(): integer>): string",
@@ -1162,19 +1144,17 @@ function M.aTaskStatusSwitchNeedsNoElse()
         "        case 'done' -> 'finished'",
         "        case 'failed' -> 'broken'",
     }
-    local complete = table.concat(head, "\n") .. "\n        case 'cancelled' -> 'stopped'\n    end\nend\nprint(label)"
+    local complete = table.concat(head, "\n")
+        .. "\n        case 'cancelled' -> 'stopped'\n    end\nend\nprint(label)"
     testAssert.equal(diagnosticCodes(complete), "", "the five states cover the status")
     local missing = table.concat(head, "\n") .. "\n    end\nend\nprint(label)"
     testAssert.equal(diagnosticCodes(missing), "NUPP2140", "a missing state is not exhaustive")
-    local status = table.concat(
-        {
-            "local tasks = require('nupp.tasks')",
-            "local state: tasks.Status = 'queued'",
-            "print(switch state do case 'queued' -> 1 case 'running' -> 2 case 'done' -> 3 "
+    local status = table.concat({
+        "local tasks = require('nupp.tasks')",
+        "local state: tasks.Status = 'queued'",
+        "print(switch state do case 'queued' -> 1 case 'running' -> 2 case 'done' -> 3 "
             .. "case 'failed' -> 4 case 'cancelled' -> 5 end)",
-        },
-        "\n"
-    )
+    }, "\n")
     testAssert.equal(diagnosticCodes(status), "", "tasks.Status names the same union")
 end
 

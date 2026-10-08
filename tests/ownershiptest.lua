@@ -29,7 +29,6 @@ local function diagnosticsOf(source)
     local _, diags = checked(source)
     return diags
 end
-
 local assertClean = assertions.check(diagnosticsOf)
 
 local function runGenerated(source, label)
@@ -552,16 +551,7 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     )
     testAssert.equal(run({"for i = 1, 2 do", "   if flag then break end", "end", "nupp.drop(value)"}), "")
     testAssert.equal(run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}), "")
-    testAssert.equal(
-        run({
-            "for i = 1, 2 do",
-            "   if flag then continue end",
-            "   print(i)",
-            "end",
-            "nupp.drop(value)"
-        }),
-        ""
-    )
+    testAssert.equal(run({"for i = 1, 2 do", "   if flag then continue end", "   print(i)", "end", "nupp.drop(value)"}), "")
     -- a loop whose body always returns leaves by its own test with the owner intact
     testAssert.equal(run({"for i = 1, 2 do", "   nupp.drop(value)", "   return", "end", "nupp.drop(value)"}), "")
 end
@@ -6831,10 +6821,7 @@ function M.takesParameterLeftLiveAtAReturnIsReported()
 end
 
 function M.takesParameterLeftLiveAtTheBodyEndIsReported()
-    testAssert.equal(
-        codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"),
-        "NUPP2603"
-    )
+    testAssert.equal(codes(CONSUMABLE .. "\nlocal function sink(takes r: Res): nil print(r.id) end\nsink(open(1))"), "NUPP2603")
     testAssert.equal(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
@@ -7149,10 +7136,7 @@ local PAIR = table.concat(
 
 function M.aFieldMovedInsideALoopIsReportedAtTheBackEdge()
     testAssert.equal(codes(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) end"), "NUPP2609")
-    testAssert.equal(
-        codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"),
-        "NUPP2609"
-    )
+    testAssert.equal(codes(PAIR .. "\nlocal p = pair()\nlocal n = 0\nwhile n < 2 do n = n + 1 consume(p.left) end"), "NUPP2609")
     assertClean(PAIR .. "\nlocal p = pair()\nfor i = 1, 2 do consume(p.left) break end")
 end
 
@@ -7625,11 +7609,7 @@ function M.aBorrowCannotCrossAnAnyParameter()
         "NUPP2611",
         "a coroutine body"
     )
-    testAssert.equal(
-        codes(crossing("local sink: any", "sink(resource)")),
-        "NUPP2611",
-        "a callable held in an any local"
-    )
+    testAssert.equal(codes(crossing("local sink: any", "sink(resource)")), "NUPP2611", "a callable held in an any local")
 end
 
 -- The way out of the refusal above is a declaration, not an escape hatch. A

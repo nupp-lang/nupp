@@ -207,18 +207,8 @@ function M.referencesPreviouslyLoadedStructuralArenas()
         nil,
         {"text"}
     )
-    local producer = assert(
-        encode({producer = semantic("producer", shared)}, {
-            origins = origins,
-            arenas = encodedArenas
-        })
-    )
-    local consumer = assert(
-        encode({consumer = semantic("consumer", shared)}, {
-            origins = origins,
-            arenas = encodedArenas
-        })
-    )
+    local producer = assert(encode({producer = semantic("producer", shared)}, {origins = origins, arenas = encodedArenas}))
+    local consumer = assert(encode({consumer = semantic("consumer", shared)}, {origins = origins, arenas = encodedArenas}))
     assert(producer.fingerprint ~= consumer.fingerprint, "each image names its own arena")
     local external = false
     for _, node in ipairs(consumer.descriptor.types) do
@@ -227,20 +217,8 @@ function M.referencesPreviouslyLoadedStructuralArenas()
     assert(external, "the consumer references the producer arena")
 
     local decodedArenas, decodedOrigins = {}, {}
-    local first = assert(
-        interfaceimage.decode(producer, {
-            nominals = {},
-            arenas = decodedArenas,
-            origins = decodedOrigins
-        })
-    )
-    local second = assert(
-        interfaceimage.decode(consumer, {
-            nominals = {},
-            arenas = decodedArenas,
-            origins = decodedOrigins
-        })
-    )
+    local first = assert(interfaceimage.decode(producer, {nominals = {}, arenas = decodedArenas, origins = decodedOrigins}))
+    local second = assert(interfaceimage.decode(consumer, {nominals = {}, arenas = decodedArenas, origins = decodedOrigins}))
     testAssert.equal(second.consumer.exports.types.Value, first.producer.exports.types.Value, "mounted arena identity")
 
     local decoded, problem = interfaceimage.decode(consumer, {arenas = {}})
@@ -249,28 +227,7 @@ function M.referencesPreviouslyLoadedStructuralArenas()
 end
 
 function M.roundTripsDefinitionsComptimeProgramsEffectsAndDiagnostics()
-    local value = T.func(
-        {T.string},
-        {T.integer},
-        false,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        nil,
-        {"text"}
-    )
+    local value = T.func({T.string}, {T.integer}, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, {"text"})
     local sample = semantic("sample", value)
     sample.exports.typeDefs.Value = {
         filename = "/project/sample.nupp",
@@ -410,9 +367,7 @@ function M.decodesApplicationsThroughGenerics()
     testAssert.equal(decodedApplied.origin, decodedBox, "application origin")
     testAssert.equal(decodedApplied.typeArgs[1], T.integer, "application argument")
     testAssert.equal(
-        generics.instantiate(decodedBox, {
-            [decodedBox.typeParams[1]] = T.integer
-        }),
+        generics.instantiate(decodedBox, {[decodedBox.typeParams[1]] = T.integer}),
         decodedApplied,
         "the reader's own application is the decoded one"
     )
@@ -479,11 +434,7 @@ end
         assert(not text:find("declarationKey", 1, true), "transport state reached the public descriptor")
         assert(not text:find("privateFields", 1, true), "transport state reached the public descriptor")
     end
-    testAssert.equal(
-        reflection.describe(moved, "Model").fingerprint,
-        descriptor.fingerprint,
-        "fingerprint after moving"
-    )
+    testAssert.equal(reflection.describe(moved, "Model").fingerprint, descriptor.fingerprint, "fingerprint after moving")
 end
 
 return M

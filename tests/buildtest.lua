@@ -972,11 +972,7 @@ function M.remarksOutTakesAnAttachedPath()
     local record = json.decode(read(dir .. "/account.json"))
     testAssert.equal(record.executionProfile.optLevel, 1, "the named file carries the account")
     assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
-    local refused = capture(
-        (
-            "cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""
-        ):format(dir, NUPP)
-    )
+    local refused = capture(("cd %q && %q build --remarks-file src/main.g.nupp src/main.g.nupp 2>&1; echo \"__exit__:$?\""):format(dir, NUPP))
     assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)
     os.execute("rm -rf " .. string.format("%q", dir))
 end

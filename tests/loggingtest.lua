@@ -52,11 +52,7 @@ local M = {}
 function M.formatDirectivesAreCheckedAtTheCallSite()
     testAssert.equal(codesOf("nupp.log.error('id %d', 3)"), "", "a well-formed call is clean")
     testAssert.equal(codesOf("nupp.log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
-    testAssert.equal(
-        codesOf("nupp.log.info('%s and %d', 'a', 'b')"),
-        "NUPP2006",
-        "an argument of the wrong type is reported"
-    )
+    testAssert.equal(codesOf("nupp.log.info('%s and %d', 'a', 'b')"), "NUPP2006", "an argument of the wrong type is reported")
     testAssert.equal(codesOf("nupp.log.debug('plain')"), "", "a format with no directives is clean")
     testAssert.equal(
         codesOf(
@@ -68,11 +64,7 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
         "",
         "a debug directive accepts nupp.Debug"
     )
-    testAssert.equal(
-        codesOf("nupp.log.debug('value=%?', 'wrong')"),
-        "NUPP2006",
-        "a debug directive requires nupp.Debug"
-    )
+    testAssert.equal(codesOf("nupp.log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires nupp.Debug")
     testAssert.equal(
         codesOf(table.concat({"local logger = nupp.log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
         "NUPP2006",
@@ -351,11 +343,7 @@ function M.settersAnswerWhatTheyReplaced()
     local formatter = function()
         return ""
     end
-    testAssert.equal(
-        log.setFormatter(formatter),
-        formatterBefore,
-        "the formatter setter answers the previous formatter"
-    )
+    testAssert.equal(log.setFormatter(formatter), formatterBefore, "the formatter setter answers the previous formatter")
     testAssert.equal(log.formatter(), formatter, "and the new one is in force")
 
     local previousFormat = log.setTimestampFormat("%H ")
@@ -490,11 +478,7 @@ function M.aModuleLevelOverridesOnlyThatExactModule()
     assert(physics.on[4], "a global change leaves the override in place")
     assert(collision.on[1] and not collision.on[2], "an inheriting module follows the global change")
 
-    testAssert.equal(
-        log.setModuleLevel("test.scoped.physics", "inherit"),
-        "debug",
-        "inherit answers the replaced override"
-    )
+    testAssert.equal(log.setModuleLevel("test.scoped.physics", "inherit"), "debug", "inherit answers the replaced override")
     testAssert.equal(log.moduleLevel("test.scoped.physics"), "error", "inherit restores the effective global level")
     assert(physics.on[1] and not physics.on[2], "the existing view resumes inheritance")
 

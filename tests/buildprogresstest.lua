@@ -241,11 +241,7 @@ function M.aFileBuildCountsTheBodiesItEmitted()
         emitted = emitted + 1
     end
     testAssert.equal(emitted, 2, "two closed tuples emit two private bodies")
-    testAssert.equal(
-        decoded.timing.specializedBodies,
-        emitted,
-        "and the reported count is the number of bodies emitted"
-    )
+    testAssert.equal(decoded.timing.specializedBodies, emitted, "and the reported count is the number of bodies emitted")
 end
 
 function M.aFileBuildAtLevelZeroCountsNothing()
@@ -281,11 +277,7 @@ function M.levelZeroDoesNotPlanOrCountProjectConstBodies()
     testAssert.equal(err, "", "the unoptimized build succeeds quietly")
     local decoded = require("testjson").decode(out)
     testAssert.equal(decoded.ok, true, "the unoptimized build worked: " .. out)
-    testAssert.equal(
-        decoded.timing.specializedBodies,
-        0,
-        "timing counts emitted bodies rather than eligible source calls"
-    )
+    testAssert.equal(decoded.timing.specializedBodies, 0, "timing counts emitted bodies rather than eligible source calls")
     local declaration = readAll(dir .. "/out/lib.lua")
     assert(not declaration:find("__nuppConst_accumulate_", 1, true), "-O0 never emits the optional private body")
 end

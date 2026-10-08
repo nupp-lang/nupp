@@ -102,16 +102,10 @@ return User
     testAssert.equal(type(key.id), "number", "the JSON extension key has no typed id")
     local info = User:reflect()
     local codec = info:extension(key)
-    testAssert.equal(
-        codec,
-        _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec,
-        "the key read back the codec"
-    )
-    local ok, problem = pcall(info.extension, info, {
-        build = function()
-            return "untyped"
-        end
-    })
+    testAssert.equal(codec, _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")].codec, "the key read back the codec")
+    local ok, problem = pcall(info.extension, info, {build = function()
+        return "untyped"
+    end})
     testAssert.equal(ok, false, "an untyped extension token was resolved")
     assert(tostring(problem):find("not an extension key", 1, true), tostring(problem))
 end

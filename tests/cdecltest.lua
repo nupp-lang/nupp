@@ -147,15 +147,10 @@ function M.oneBlobIsStillTakenOrLeftWhole()
 end
 
 function M.membersWithoutANameAreCountedNotDropped()
-    local parsed, err = cdecl.inspect(
-        table.concat(
-            {
-                "struct NuppCdeclAnonMember { int tag; union { int i; double d; }; int after; };",
-                "struct NuppCdeclPadding { unsigned a : 3; unsigned : 0; unsigned b : 3; unsigned : 5; };",
-            },
-            "\n"
-        )
-    )
+    local parsed, err = cdecl.inspect(table.concat({
+        "struct NuppCdeclAnonMember { int tag; union { int i; double d; }; int after; };",
+        "struct NuppCdeclPadding { unsigned a : 3; unsigned : 0; unsigned b : 3; unsigned : 5; };",
+    }, "\n"))
     assert(parsed, err)
     local byName = {}
     for _, declaration in ipairs(parsed.structs) do
@@ -170,15 +165,10 @@ function M.membersWithoutANameAreCountedNotDropped()
 end
 
 function M.vectorAndComplexTypesAreNotArrays()
-    local parsed, err = cdecl.inspect(
-        table.concat(
-            {
-                "typedef float nupp_cdecl_v4 __attribute__((vector_size(16)));",
-                "nupp_cdecl_v4 nuppCdeclVector(double _Complex z);",
-            },
-            "\n"
-        )
-    )
+    local parsed, err = cdecl.inspect(table.concat({
+        "typedef float nupp_cdecl_v4 __attribute__((vector_size(16)));",
+        "nupp_cdecl_v4 nuppCdeclVector(double _Complex z);",
+    }, "\n"))
     assert(parsed, err)
     local fn = parsed.functions[1]
     testAssert.equal(fn.returns.kind, "vector")

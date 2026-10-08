@@ -101,11 +101,7 @@ function M.basicKinds()
     testAssert.equal(kindsOf("local x = 1 + 2"), "local name = number + number")
     testAssert.equal(kindsOf('return "s" .. [[l]]'), "return string .. string")
     testAssert.equal(kindsOf("const x = 1"), "name name = number", "const must remain a soft keyword")
-    testAssert.equal(
-        kindsOf("local sealed interface Token end"),
-        "local name name name end",
-        "sealed is a soft keyword"
-    )
+    testAssert.equal(kindsOf("local sealed interface Token end"), "local name name name end", "sealed is a soft keyword")
 end
 
 function M.luajit3Operators()
@@ -188,10 +184,7 @@ function M.interpolatedStrings()
 end
 
 function M.numberLiterals()
-    testAssert.equal(
-        kindsOf("10LL 0xffULL 3i 0x1p4 12.5e-3 .5 1e3i"),
-        "number number number number number number number"
-    )
+    testAssert.equal(kindsOf("10LL 0xffULL 3i 0x1p4 12.5e-3 .5 1e3i"), "number number number number number number number")
     local tokens = lexer.lex("0xffULL")
     testAssert.equal(tokens[1].text, "0xffULL", "suffix text")
     -- '1..2' must lex as number .. number (concat), not a malformed number
@@ -309,7 +302,6 @@ local function errorsOf(src)
     for _, e in ipairs(errors) do
         out[#out + 1] = ("%d:%d %s"):format(e.line, e.col, e.msg)
     end
-
     return table.concat(out, "; ")
 end
 
@@ -324,11 +316,7 @@ function M.stringContinuationsFollowLuaJIT()
         'local s = "a\\\n\rb"\nprint(s)',
         'local s = "a\\\rb"',
     }) do
-        testAssert.equal(
-            kindsOf(src):match("^local name = (%a+)"),
-            "string",
-            "one string token for " .. ("%q"):format(src)
-        )
+        testAssert.equal(kindsOf(src):match("^local name = (%a+)"), "string", "one string token for " .. ("%q"):format(src))
         testAssert.equal(errorsOf(src), "", "no error for " .. ("%q"):format(src))
         assertRoundtrip(src)
     end

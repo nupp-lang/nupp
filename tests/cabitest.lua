@@ -90,10 +90,7 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
         },
         nil
     )
-    testAssert.equal(
-        assert(cabi.prototype(signature, false)),
-        "void integrate(nupp_4_game_8_Position *position, float dt);"
-    )
+    testAssert.equal(assert(cabi.prototype(signature, false)), "void integrate(nupp_4_game_8_Position *position, float dt);")
     testAssert.equal(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
 end
 
@@ -107,10 +104,7 @@ function M.aPointerToAnArrayKeepsItsParentheses()
     testAssert.equal(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
     testAssert.equal(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
     testAssert.equal(ffi.sizeof("struct { " .. cabi.declaration(row, "row", "ffi") .. "; }"), ffi.sizeof("void *"))
-    testAssert.equal(
-        ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"),
-        4 * ffi.sizeof("void *")
-    )
+    testAssert.equal(ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"), 4 * ffi.sizeof("void *"))
 end
 
 function M.aGuardIsAlwaysACIdentifier()
@@ -119,10 +113,7 @@ function M.aGuardIsAlwaysACIdentifier()
     local header = assert(cabi.header({position}, {}, "3d-game.h"))
     assert(header:find("#ifndef NUPP_3D_GAME_H\n", 1, true), header:sub(1, 120))
     local absolute = assert(cabi.header({position}, {}, "/tmp/out/game.h"))
-    assert(
-        absolute:find("#ifndef TMP_OUT_GAME_H\n", 1, true),
-        "no reserved leading underscore: " .. absolute:sub(1, 120)
-    )
+    assert(absolute:find("#ifndef TMP_OUT_GAME_H\n", 1, true), "no reserved leading underscore: " .. absolute:sub(1, 120))
 end
 
 function M.functionRecordsRejectUnmodelledCallingConventions()

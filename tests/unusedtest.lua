@@ -225,13 +225,7 @@ return 1
 end
 
 function M.aProjectMovesItsLevel()
-    testAssert.equal(
-        #lint("local prefix = 1\nreturn 2\n", {
-            lints = {["unused-binding"] = "off"}
-        }),
-        0,
-        "off is not reported"
-    )
+    testAssert.equal(#lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "off"}}), 0, "off is not reported")
     local raised = lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "error"}})
     testAssert.equal(raised[1] and raised[1].severity, "error", "raised by name")
     testAssert.equal(#lint("local prefix = 1\nreturn 2\n", {lints = {suspicious = "off"}}), 0, "and by category")

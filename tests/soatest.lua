@@ -90,11 +90,7 @@ return rows[1].x + rows[2].x + copied.x + rows.x[4]
     )
     testAssert.equal(value, 115, "direct, gathered and projected values")
     assert(code:find(".columns[", 1, true), "direct access did not select a column")
-    testAssert.equal(
-        code:find(":checkedIndex(index)", 1, true),
-        nil,
-        "a count-bounded loop retained a per-row bounds helper"
-    )
+    testAssert.equal(code:find(":checkedIndex(index)", 1, true), nil, "a count-bounded loop retained a per-row bounds helper")
     testAssert.equal(code:find("rows [ index ] . x", 1, true), nil, "a virtual row survived into generated code")
 end
 
@@ -159,11 +155,7 @@ return advance
     testAssert.equal(#generated, 0, "generated nested invariant fixture")
     local compact = code:gsub("%s+", "")
     assert(compact:find("view.columns[1][view.offset+", 1, true), compact)
-    testAssert.equal(
-        compact:find("=view.columns;", 1, true),
-        nil,
-        "a nested inner loop repeats explicit invariant bindings"
-    )
+    testAssert.equal(compact:find("=view.columns;", 1, true), nil, "a nested inner loop repeats explicit invariant bindings")
 end
 
 function M.aCommonRangeRelatesSoAAndContiguousViews()

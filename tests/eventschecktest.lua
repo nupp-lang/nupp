@@ -15,7 +15,6 @@ local NUPP = HERE .. "/../bin/nupp"
 local env = envMod.new(HERE .. "/..")
 
 local run = 0
-
 local function diagnostics(source)
     run = run + 1
     env.loaded = {}
@@ -37,11 +36,7 @@ end
 
 local function clean(source)
     local found = diagnostics(source)
-    testAssert.equal(
-        #found,
-        0,
-        "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or "")
-    )
+    testAssert.equal(#found, 0, "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or ""))
 end
 
 local function contains(text, needle)

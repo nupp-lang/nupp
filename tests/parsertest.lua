@@ -354,10 +354,7 @@ function M.shortFunctions()
         "(shortfn | (param a) | -> do (block (returnStmt return (name a))) end)"
     )
     -- as a call argument, the body stops at the argument comma
-    testAssert.equal(
-        exprDump("f(x -> x, 1)"),
-        "(call (name f) (args ( (shortfn (param x) -> (name x)) , (number 1) )))"
-    )
+    testAssert.equal(exprDump("f(x -> x, 1)"), "(call (name f) (args ( (shortfn (param x) -> (name x)) , (number 1) )))")
     -- nested/curried
     testAssert.equal(exprDump("a -> b -> a"), "(shortfn (param a) -> (shortfn (param b) -> (name a)))")
     -- '|' is still bitwise-or in operator position
@@ -454,10 +451,7 @@ function M.interpolatedStringsParse()
         exprDump("`${a} + ${b} = ${a + b}`"),
         "(istring `${ (name a) } + ${ (name b) } = ${ (binop (name a) + (name b)) }`)"
     )
-    testAssert.equal(
-        exprDump("`t ${ {x = 1} } end`"),
-        "(istring `t ${ (tableExpr { (fieldNamed x = (number 1)) }) } end`)"
-    )
+    testAssert.equal(exprDump("`t ${ {x = 1} } end`"), "(istring `t ${ (tableExpr { (fieldNamed x = (number 1)) }) } end`)")
     -- union in pipe params needs parens
     testAssert.equal(
         exprDump("|v: (number | string)| -> v"),
@@ -491,10 +485,7 @@ end
 function M.ternary()
     testAssert.equal(exprDump("a ? b : c"), "(ternary (name a) ? (name b) : (name c))")
     -- right-associative chaining
-    testAssert.equal(
-        exprDump("a ? b : c ? d : e"),
-        "(ternary (name a) ? (name b) : (ternary (name c) ? (name d) : (name e)))"
-    )
+    testAssert.equal(exprDump("a ? b : c ? d : e"), "(ternary (name a) ? (name b) : (ternary (name c) ? (name d) : (name e)))")
     -- condition binds through or/and first
     testAssert.equal(exprDump("a or b ? c : d"), "(ternary (binop (name a) or (name b)) ? (name c) : (name d))")
 end
@@ -793,11 +784,7 @@ end
 
 function M.nestedGenericsParseWithoutErrors()
     local result = parser.parse("local a: Box<Box<integer>> = x\n")
-    testAssert.equal(
-        #result.errors,
-        0,
-        "nested generic close reported: " .. (result.errors[1] and result.errors[1].msg or "")
-    )
+    testAssert.equal(#result.errors, 0, "nested generic close reported: " .. (result.errors[1] and result.errors[1].msg or ""))
 end
 
 -- The second half of a `>>` closes the outer list whatever follows it: a postfix,
@@ -902,7 +889,10 @@ end
 
 function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
     for _, case in ipairs({
-        {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe nupp.release(owner)",},
+        {
+            source = "local raw = @unsafe release owner",
+            fixed = "local raw = @unsafe nupp.release(owner)",
+        },
         {
             source = "local owner = @unsafe adopt raw as affine(integer, close)",
             fixed = "local owner = @unsafe nupp.adopt<affine(integer, close)>(raw)",

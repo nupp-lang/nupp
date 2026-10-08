@@ -229,16 +229,8 @@ return {hot = hot}
 ]]
 
 function M.jitIsRefusedOnATargetWithNoTraceCompiler()
-    testAssert.equal(
-        codesFor(JIT_SOURCE, "wasm32-unknown-emscripten"),
-        "NUPP2904",
-        "@jit asserts a contract Wasm cannot meet"
-    )
-    testAssert.equal(
-        codesFor(JIT_SOURCE, "x86_64-unknown-linux-gnu"),
-        "",
-        "and is ordinary everywhere a trace compiler exists"
-    )
+    testAssert.equal(codesFor(JIT_SOURCE, "wasm32-unknown-emscripten"), "NUPP2904", "@jit asserts a contract Wasm cannot meet")
+    testAssert.equal(codesFor(JIT_SOURCE, "x86_64-unknown-linux-gnu"), "", "and is ordinary everywhere a trace compiler exists")
     testAssert.equal(codesFor(JIT_SOURCE, nil), "", "a target nothing describes refuses nothing")
 end
 

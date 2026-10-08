@@ -19,9 +19,7 @@ local function diagsOf(src)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src)
-    return "expected clean:\n" .. src
-end)
+local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
 
 local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 
@@ -143,10 +141,7 @@ end
 
 function M.typeArgumentsSubstituteIntoFields()
     assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal n: number = b.value")
-    testAssert.equal(
-        diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"),
-        "NUPP2001:5"
-    )
+    testAssert.equal(diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"), "NUPP2001:5")
     assertClean(BOX .. "\nlocal b: Box<string> = new Box(value = 'x')\nlocal s: string = b.value")
 end
 

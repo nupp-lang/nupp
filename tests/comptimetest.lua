@@ -769,7 +769,10 @@ function M.recoversWhenTheWorkerCrashes()
     local worker = require("nupp.compiler.comptime.worker")
     local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
     os.execute(("rm -rf %q"):format(root))
-    assert(failure and failure.message:find("crashed", 1, true), "the parent converts a worker crash into one failure")
+    assert(
+        failure and failure.message:find("crashed", 1, true),
+        "the parent converts a worker crash into one failure"
+    )
 end
 
 --- The worker protocol carries bytes, because a string is bytes.

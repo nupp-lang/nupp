@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 -- The type-system features the compiler needed in order to describe itself. Each of
--- these came out of typing nupp.compiler.syntax.cst and nupp.compiler.syntax.lexer:
--- what the CST and the token stream actually are could not be said without them.
+-- these came out of typing nupp.compiler.syntax.cst and nupp.compiler.syntax.lexer: what the CST and
+-- the token stream actually are could not be said without them.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")

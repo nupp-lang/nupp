@@ -71,11 +71,7 @@ function M.rebindingTheHeadThenNormalizingReduces()
     local binder = T.typevar("C", "normalize-test:head")
     local open = T.projection(binder, "Item")
     testAssert.equal(T.tostring(open), "C.Item")
-    testAssert.equal(
-        T.tostring(generics.normalize(open).type),
-        "C.Item",
-        "an opaque projection is already a normal form"
-    )
+    testAssert.equal(T.tostring(generics.normalize(open).type), "C.Item", "an opaque projection is already a normal form")
     local bound = generics.rebind(open, {[binder] = lines})
     testAssert.equal(T.tostring(bound), "Lines.Item", "rebinding substitutes the head and does not reduce")
     testAssert.equal(T.tostring(generics.normalize(bound).type), "string")

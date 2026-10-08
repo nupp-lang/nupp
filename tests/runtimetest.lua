@@ -554,11 +554,8 @@ end
 -- ARM64 stack arguments exposed this as a halfword store for a uint32_t.
 function M.tracedFfiPreservesStackArgumentWidths()
     local ffi = require("ffi")
-    withProject(
-        {
-            [
-                "echo.c"
-            ] = [==[
+    withProject({
+        ["echo.c"] = [==[
 #include <stddef.h>
 #include <stdint.h>
 int32_t ffiWidthEcho(uint64_t context, const uint8_t *spirv, size_t spirv_length,
@@ -571,9 +568,7 @@ int32_t ffiWidthEcho(uint64_t context, const uint8_t *spirv, size_t spirv_length
  return 0;
 }
 ]==],
-            [
-                "echo.lua"
-            ] = [==[
+        ["echo.lua"] = [==[
 local ffi=require('ffi')
 ffi.cdef[[int32_t ffiWidthEcho(uint64_t,const uint8_t*,size_t,const char*,size_t,uint32_t,uint32_t,uint64_t,uint32_t,uint32_t,uint32_t,uint64_t*);]]
 local C=ffi.load(arg[2])
@@ -603,27 +598,24 @@ end
 if arg[1] ~= 'off' then assert(traced, 'loop never traced') end
 print('300000 calls passed',total)
 ]==],
-        },
-        function(dir)
-            local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-            local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
-            local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
-            testAssert.equal(
-                os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1"):format(cc, flags, dir, library, dir)),
-                0,
-                "build FFI width oracle"
-            )
-            for _, mode in ipairs({"off", "on"}) do
-                local output = dir .. "/" .. mode .. ".log"
-                local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1"):format(dir, mode, library, output)
-                local status = os.execute(command)
-                local result = readFile(output)
-                testAssert.equal(status, 0, mode .. " FFI calls: " .. result)
-                assert(result:find("300000 calls passed", 1, true), result)
-            end
+    }, function(dir)
+        local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+        local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
+        local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
+        testAssert.equal(os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1")
+            :format(cc, flags, dir, library, dir)), 0, "build FFI width oracle")
+        for _, mode in ipairs({"off", "on"}) do
+            local output = dir .. "/" .. mode .. ".log"
+            local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1")
+                :format(dir, mode, library, output)
+            local status = os.execute(command)
+            local result = readFile(output)
+            testAssert.equal(status, 0, mode .. " FFI calls: " .. result)
+            assert(result:find("300000 calls passed", 1, true), result)
         end
-    )
+    end)
 end
+
 
 -- Once a numeric for loop has a trace, ARM64 enters it through JFORI, whose
 -- floating-point path left PC at the loop body when the loop ran no
@@ -632,11 +624,8 @@ end
 -- build carries the fix. A fresh interpreter, so the loop's trace is this
 -- script's own, and the same answers with the JIT off.
 function M.aTracedNumericForLoopRunsNoIterationsForAnEmptyRange()
-    withProject(
-        {
-            [
-                "loops.lua"
-            ] = [==[
+    withProject({
+        ["loops.lua"] = [==[
 if arg[1] == 'off' then jit.off() end
 local function count(first, last) local n = 0 for _ = first, last do n = n + 1 end return n end
 local answers = {count(0, 1000)}
@@ -647,18 +636,16 @@ answers[#answers + 1] = count(2.5, 5)
 answers[#answers + 1] = count(0, 2.5)
 print(table.concat(answers, ' '))
 ]==],
-        },
-        function(dir)
-            for _, mode in ipairs({"off", "on"}) do
-                local output = dir .. "/" .. mode .. ".log"
-                local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
-                -- Windows writes the interpreter's print with CRLF.
-                local result = readFile(output):gsub("\r\n", "\n")
-                testAssert.equal(status, 0, mode .. ": " .. result)
-                testAssert.equal(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
-            end
+    }, function(dir)
+        for _, mode in ipairs({"off", "on"}) do
+            local output = dir .. "/" .. mode .. ".log"
+            local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
+            -- Windows writes the interpreter's print with CRLF.
+            local result = readFile(output):gsub("\r\n", "\n")
+            testAssert.equal(status, 0, mode .. ": " .. result)
+            testAssert.equal(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
         end
-    )
+    end)
 end
 
 return M

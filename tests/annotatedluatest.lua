@@ -22,11 +22,7 @@ stubs = {}
 function stubs.fromPixels(pixels) end
 ]]
     local parsed = parser.parse(source, "library/stubs.lua")
-    local diagnostics = check.check(parsed, "library/stubs.lua", nil, {
-        declareGlobals = true,
-        declarationFile = true,
-        strict = false
-    })
+    local diagnostics = check.check(parsed, "library/stubs.lua", nil, {declareGlobals = true, declarationFile = true, strict = false})
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.code ~= "NUPP2002", "a stub is refused for not returning: " .. diagnostic.msg)
     end
@@ -268,13 +264,11 @@ function M.aDeclarationTreeMayNameATypeAFileReadLaterDeclares()
     local root = os.tmpname()
     os.remove(root)
     assert(os.execute("mkdir -p '" .. root .. "/types'") == 0)
-
     local function write(name, text)
         local f = assert(io.open(root .. "/types/" .. name, "wb"))
         f:write(text)
         f:close()
     end
-
     write("a.lua", [[
 ---@class game
 game = {}
@@ -292,11 +286,8 @@ local Shape = {}
     local parsed = parser.parse("local n: number = game.area({width = 2})\n", root .. "/main.nupp")
     local diagnostics = check.check(parsed, root .. "/main.nupp", env)
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    testAssert.equal(
-        #(env.ambientTypeProblems or {}),
-        0,
-        env.ambientTypeProblems and env.ambientTypeProblems[1] and env.ambientTypeProblems[1].msg
-    )
+    testAssert.equal(#(env.ambientTypeProblems or {}), 0, env.ambientTypeProblems and env.ambientTypeProblems[1]
+        and env.ambientTypeProblems[1].msg)
     os.execute("rm -rf '" .. root .. "'")
 end
 

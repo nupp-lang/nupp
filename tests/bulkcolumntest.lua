@@ -22,27 +22,26 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function runs(src)
-    local result = parser.parse(src, "test")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
-    local diags = check.check(result, "test", env)
-    for _, diag in ipairs(diags or {}) do
-        if diag.severity == "error" then
-            error(("%s: %s\n%s"):format(diag.code, diag.msg, src), 2)
-        end
-    end
-    optimize.run(result, {level = 1})
-    local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@bulk_column_test")
-    if not chunk then
-        error(("does not load: %s\n---\n%s"):format(tostring(err), code), 2)
-    end
-    local ok, value = pcall(chunk)
-    if not ok then
-        error(("raised: %s\n---\n%s"):format(tostring(value), code), 2)
-    end
-
-    return value
+   local result = parser.parse(src, "test")
+   testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
+   local diags = check.check(result, "test", env)
+   for _, diag in ipairs(diags or {}) do
+      if diag.severity == "error" then
+         error(("%s: %s\n%s"):format(diag.code, diag.msg, src), 2)
+      end
+   end
+   optimize.run(result, {level = 1})
+   local code, genDiags = gen.generate(result, "test")
+   testAssert.equal(#genDiags, 0, "gen diagnostics")
+   local chunk, err = loadstring(code, "@bulk_column_test")
+   if not chunk then
+      error(("does not load: %s\n---\n%s"):format(tostring(err), code), 2)
+   end
+   local ok, value = pcall(chunk)
+   if not ok then
+      error(("raised: %s\n---\n%s"):format(tostring(value), code), 2)
+   end
+   return value
 end
 
 -- One source, reused: a column of particles written as a single copy and read
@@ -83,9 +82,7 @@ end
 local M = {}
 
 function M.aWholeColumnRoundTripsAsOneCopy()
-    local total = runs(
-        COLUMN:format(
-            [[
+   local total = runs(COLUMN:format([[
 const cells = carray(Particle, 8)
 for i = 0, 7 do
     cells[i].x = i
@@ -107,38 +104,30 @@ for i = 0, count - 1 do
     sum = sum + back[i].x + back[i].vy
 end
 return sum
-]]
-        )
-    )
-    -- x is i and vy is 4i, so the sum over 0..7 is 5 * 28.
-    testAssert.equal(total, 140, "every field survives the copy")
+]]))
+   -- x is i and vy is 4i, so the sum over 0..7 is 5 * 28.
+   testAssert.equal(total, 140, "every field survives the copy")
 end
 
 function M.theStrideIsTheOnlyThingTheFastPathNeeds()
-    local size = runs(COLUMN:format("return layoutof(Particle).size"))
-    testAssert.equal(
-        size,
-        ffi.sizeof(ffi.typeof("struct { float x; float y; float vx; float vy; }")),
-        "four floats, and the bulk write is size times count"
-    )
+   local size = runs(COLUMN:format("return layoutof(Particle).size"))
+   testAssert.equal(size, ffi.sizeof(ffi.typeof(
+      "struct { float x; float y; float vx; float vy; }")),
+      "four floats, and the bulk write is size times count")
 end
 
 function M.aColumnFromAnotherLayoutIsRefused()
-    -- The failure a bulk copy cannot notice on its own: the byte count is right
-    -- and the bytes mean something else.
-    local refused = runs(
-        COLUMN:format(
-            [[
+   -- The failure a bulk copy cannot notice on its own: the byte count is right
+   -- and the bytes mean something else.
+   local refused = runs(COLUMN:format([[
 const wrong = sb.new()
 wrong:encode("x:float,y:float|8")
 wrong:encode(2)
 const cells = carray(Particle, 2)
 const ok = pcall(readColumn, wrong, cells)
 return not ok
-]]
-        )
-    )
-    testAssert.equal(refused, true, "the fingerprint is what makes the refusal possible")
+]]))
+   testAssert.equal(refused, true, "the fingerprint is what makes the refusal possible")
 end
 
 return M

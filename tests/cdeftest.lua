@@ -35,9 +35,7 @@ local function diagsOf(src)
     return table.concat(out, " "), diags
 end
 
-local assertClean = assertions.check(diagsOf, function(src)
-    return "expected clean check:\n" .. src
-end)
+local assertClean = assertions.check(diagsOf, function(src) return "expected clean check:\n" .. src end)
 
 local function run(src)
     local code, diags, genDiags = compile(src)
@@ -502,10 +500,7 @@ function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
         ),
         13
     )
-    testAssert.equal(
-        (diagsOf(table.concat({"cdef struct nuppBadBits", "   field: number : 2", "end",}, "\n"))),
-        "NUPP2203:2"
-    )
+    testAssert.equal((diagsOf(table.concat({"cdef struct nuppBadBits", "   field: number : 2", "end",}, "\n"))), "NUPP2203:2")
 end
 
 -- C's `bool` is a bitfield base one bit wide, as it is for a plain struct, so an
@@ -529,10 +524,7 @@ function M.cdefBooleanBitfieldsHoldOneBit()
         ),
         6
     )
-    testAssert.equal(
-        (diagsOf(table.concat({"cdef struct nuppWideFlag", "   ready: boolean : 2", "end",}, "\n"))),
-        "NUPP2203:2"
-    )
+    testAssert.equal((diagsOf(table.concat({"cdef struct nuppWideFlag", "   ready: boolean : 2", "end",}, "\n"))), "NUPP2203:2")
 end
 
 function M.ownIsStaticAndDropIsExplicit()
@@ -571,10 +563,7 @@ function M.fromClauseBindsNamedLibrary()
     if windows then
         assert(run(declaration .. "\nreturn GetCurrentProcessId()") > 0)
     else
-        testAssert.equal(
-            run(table.concat({declaration, "return tonumber(crc32(0, 'hello, world', 12))",}, "\n")),
-            4289425978
-        )
+        testAssert.equal(run(table.concat({declaration, "return tonumber(crc32(0, 'hello, world', 12))",}, "\n")), 4289425978)
     end
 end
 
@@ -597,10 +586,7 @@ function M.luaStringCannotBeStoredInACstringField()
     -- struct field outlives the call and the collector may move on from the
     -- string while the field still points at it
     local HOLDER = "cdef struct holder\n   name: cstring\nend\n"
-    testAssert.equal(
-        (diagsOf(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nh.name = text")),
-        "NUPP2604:6"
-    )
+    testAssert.equal((diagsOf(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nh.name = text")), "NUPP2604:6")
     testAssert.equal((diagsOf(HOLDER .. "local h = new holder('hi')")), "NUPP2604:4")
     -- inside unsafe the author vouches that the string outlives the slot
     assertClean(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\n@unsafe do\n   h.name = text\nend")

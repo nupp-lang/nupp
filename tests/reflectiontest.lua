@@ -249,11 +249,7 @@ function M.ordersNamedMetadataAndExcludesSourceIdentityFromFingerprints()
 
     local first = described(false)
     local second = described(true)
-    testAssert.equal(
-        first.fingerprint,
-        second.fingerprint,
-        "map insertion order does not change the semantic fingerprint"
-    )
+    testAssert.equal(first.fingerprint, second.fingerprint, "map insertion order does not change the semantic fingerprint")
     testAssert.equal(first.fields[1].name, "z", "ordinary fields retain declaration order")
     local root = first.types[first.root]
     testAssert.equal(root.staticFields[1].name, "a", "static fields sort by name")

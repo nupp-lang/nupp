@@ -123,10 +123,7 @@ function M.comparisonChainsStillParse()
 end
 
 function M.intrinsicsRunAtRuntime()
-    testAssert.equal(
-        run(P .. table.concat({"", "local p = ffi.new<P>()", "p.x = 3", "p.y = 4", "return p.x + p.y",}, "\n")),
-        7
-    )
+    testAssert.equal(run(P .. table.concat({"", "local p = ffi.new<P>()", "p.x = 3", "p.y = 4", "return p.x + p.y",}, "\n")), 7)
     -- a struct's size is its layout, not a table's
     testAssert.equal(run(P .. "\nreturn ffi.sizeof<P>()"), 8)
     testAssert.equal(run(P .. "\nlocal p = ffi.new<P>()\nreturn ffi.istype<P>(p)"), true)
@@ -359,10 +356,7 @@ function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
         ""
     )
     testAssert.equal(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\nlocal a = raw[0]"), "NUPP2604")
-    testAssert.equal(
-        diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\n@unsafe do\n   raw[0] = 300\nend"),
-        "NUPP2001"
-    )
+    testAssert.equal(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\n@unsafe do\n   raw[0] = 300\nend"), "NUPP2001")
     -- a plain char pointer is still text
     testAssert.equal(diagsOf(V .. "local text = ffi.cast('const char*', v)\nlocal s: cstring = text"), "")
     testAssert.equal(run(V .. "local raw = ffi.cast('uint8_t*', v)\n@unsafe do return raw[3] + raw[7] end"), 127)

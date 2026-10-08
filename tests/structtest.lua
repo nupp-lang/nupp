@@ -24,9 +24,7 @@ local function diagsOf(src)
     return table.concat(out, " "), diags
 end
 
-local assertClean = assertions.check(diagsOf, function(src)
-    return "expected clean check:\n" .. src
-end)
+local assertClean = assertions.check(diagsOf, function(src) return "expected clean check:\n" .. src end)
 
 -- Compile a clean program and execute it.
 local function run(src)
@@ -86,12 +84,9 @@ return v.x + v.y]]), 8)
     -- positional construction
     testAssert.equal(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
     -- float storage really is float-width (not a Lua table)
-    testAssert.equal(
-        run(VEC .. [[
+    testAssert.equal(run(VEC .. [[
 local v = new Vec2(0.1, 0)
-return v.x == 0.1]]),
-        false
-    ) -- 0.1 is not representable in float32
+return v.x == 0.1]]), false) -- 0.1 is not representable in float32
 end
 
 function M.structConstructionUsesTrailingFieldDefaults()
@@ -272,13 +267,10 @@ return m.missing]]), true)
     testAssert.equal(run(FLAGS .. [[
 local m = new Marks(7, true, false, true)
 return m.typeColon]]), false)
-    testAssert.equal(
-        run(FLAGS .. [[
+    testAssert.equal(run(FLAGS .. [[
 local m = new Marks(7, false, false, false)
 m.breakOp = true
-return m.breakOp]]),
-        true
-    )
+return m.breakOp]]), true)
 end
 
 -- Three flags fit in the padding after a uint32 either way, so packing is only
@@ -308,10 +300,7 @@ end
 
 function M.bitWidthCheckedLikeAnyField()
     assertClean(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal b: boolean = m.missing")
-    testAssert.equal(
-        diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"),
-        "NUPP2001:8"
-    )
+    testAssert.equal(diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"), "NUPP2001:8")
 end
 
 -- A width is the C bitfield the field lowers to, so it needs a layout to sit in and

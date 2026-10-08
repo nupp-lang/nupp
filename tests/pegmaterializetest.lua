@@ -133,11 +133,7 @@ local Word: nupp.peg.Peg<string> = nupp.peg.compile("{ [a-z]+ }")
 local wrong: integer? = match(Word, "hello")
 ]]
     )
-    testAssert.equal(
-        table.concat(codes, " "),
-        "NUPP2001",
-        "the recovered result cannot be assigned as another capture type"
-    )
+    testAssert.equal(table.concat(codes, " "), "NUPP2001", "the recovered result cannot be assigned as another capture type")
 end
 
 function M.returnsMultipleCapturesAsNativeTypedResults()
@@ -267,11 +263,7 @@ return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
     assert(code:find("(__nuppPegCodegen)({", 1, true), code)
     testAssert.equal(code:find("__nuppPegReInstall", 1, true), nil, "ordinary static PEG excludes the runtime frontend")
     assert(code:find("require(\"nupp.compiler.runtime.peg\")", 1, true), code)
-    testAssert.equal(
-        code:find("package.preload.re", 1, true),
-        nil,
-        "ordinary static PEG excludes the textual runtime frontend"
-    )
+    testAssert.equal(code:find("package.preload.re", 1, true), nil, "ordinary static PEG excludes the textual runtime frontend")
 end
 
 function M.searchesForMatchesWithoutBuildingAMatchResult()
@@ -1208,11 +1200,7 @@ local first, second = lpeg.Cc("name", 42):match("")
 local wrong: boolean? = second
 ]==]
     )
-    testAssert.equal(
-        table.concat(codes, " "),
-        "NUPP2001",
-        "heterogeneous captures cannot be assigned as the wrong slot type"
-    )
+    testAssert.equal(table.concat(codes, " "), "NUPP2001", "heterogeneous captures cannot be assigned as the wrong slot type")
 end
 
 function M.matchesLpegConstructionUtfAndRepresentationSemantics()
@@ -1632,11 +1620,7 @@ return FastIdentifier, RefIdentifier, FastList, RefList
     for _, input in ipairs(inputs) do
         testAssert.equal(fastIdentifier(input), refIdentifier(input), "identifier backend parity for " .. input)
         local fast, ref = fastList(input), refList(input)
-        testAssert.equal(
-            fast and table.concat(fast, ":"),
-            ref and table.concat(ref, ":"),
-            "list backend parity for " .. input
-        )
+        testAssert.equal(fast and table.concat(fast, ":"), ref and table.concat(ref, ":"), "list backend parity for " .. input)
     end
 end
 

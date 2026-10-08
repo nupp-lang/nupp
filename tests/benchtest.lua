@@ -123,7 +123,10 @@ local function body()
 end
 ]]
     )
-    assert(code:find("__nuppSink", 1, true) == nil, "a receiver that is not the module is not the intrinsic\n" .. code)
+    assert(
+        code:find("__nuppSink", 1, true) == nil,
+        "a receiver that is not the module is not the intrinsic\n" .. code
+    )
 end
 
 function M.countsTheAllocationsTheTreeStillCarries()
@@ -620,11 +623,7 @@ function M.verdictsSeparateEquivalenceFromIgnorance()
 
     -- Equivalence is demonstrated by a narrow interval inside the margin, not inferred
     -- from a test that failed to reach significance.
-    testAssert.equal(
-        statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4),
-        "unchanged",
-        "inside the margin is unchanged"
-    )
+    testAssert.equal(statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4), "unchanged", "inside the margin is unchanged")
     -- The case the whole rule exists for. A point estimate of zero with an interval
     -- twenty points wide says the run could not tell, and calling that "unchanged"
     -- would be asserting equivalence from an absence of evidence.
@@ -702,11 +701,7 @@ function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
         for index = #values, 1, -1 do
             reversed[#reversed + 1] = -values[index]
         end
-        testAssert.equal(
-            statistics.pairedPValue(reversed),
-            expected,
-            "sign reversal and tie order do not change significance"
-        )
+        testAssert.equal(statistics.pairedPValue(reversed), expected, "sign reversal and tie order do not change significance")
     end
 end
 
@@ -795,7 +790,10 @@ function M.forksMustAgreeOnCompilerOutputAndMayDifferOnAborts()
         fork(stable, {}, 1.0),
     })
     testAssert.equal(#partial.summary.abortSites, 0, "a site one fork missed does not gate")
-    assert(table.concat(partialNotes, "\n"):find("flaky abort site") ~= nil, "but it is reported rather than dropped")
+    assert(
+        table.concat(partialNotes, "\n"):find("flaky abort site") ~= nil,
+        "but it is reported rather than dropped"
+    )
 
     -- Allocation sites are the compiler's account of its own output. Forks of one
     -- binary disagreeing is a defect, not a measurement, and must not be averaged away.
@@ -838,7 +836,14 @@ function M.mergeWithholdsIntervalsItCannotSupport()
             allocationSites = {},
             remarks = {},
             cases = {
-                {name = "x", kind = "suite", medianMs = median, abortSites = {}, samplesMs = {median}, trend = trend,},
+                {
+                    name = "x",
+                    kind = "suite",
+                    medianMs = median,
+                    abortSites = {},
+                    samplesMs = {median},
+                    trend = trend,
+                },
             },
         }
     end
@@ -882,11 +887,7 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
 
     -- The interval on its own would be equivalence, and that is the point: the guard
     -- has to be what stops it, not the width.
-    testAssert.equal(
-        statistics.verdict(narrow, 0.02, 0.9),
-        "unchanged",
-        "a narrow interval inside the margin is equivalence"
-    )
+    testAssert.equal(statistics.verdict(narrow, 0.02, 0.9), "unchanged", "a narrow interval inside the margin is equivalence")
     testAssert.equal(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
 
     -- The shape of the guard itself, so a rewrite that reintroduces the idiom fails

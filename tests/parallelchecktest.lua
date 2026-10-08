@@ -100,7 +100,9 @@ end
 
 return {answer = answer}
 ]],
-        ["src/qualified.nupp"] = [[
+        [
+            "src/qualified.nupp"
+        ] = [[
 module qualified
 
 export function value(): number
@@ -158,8 +160,7 @@ return value
         local dependency = index == 1 and "join" or ("layer%02d"):format(index - 1)
         files[
             "src/" .. name .. ".nupp"
-        ] = (
-            [[
+        ] = ([[
 local dependency = require(%q)
 
 local function value(): number
@@ -167,8 +168,7 @@ local function value(): number
 end
 
 return {value = value}
-]]
-        ):format(dependency, index == 1 and "answer" or "value")
+]]):format(dependency, index == 1 and "answer" or "value")
     end
     if withErrors then
         files["src/broken_a.nupp"] = "local wrong: string = 1\nreturn wrong\n"
@@ -226,7 +226,10 @@ end
 
 local function coldCheck(directory, environment)
     os.remove(directory .. "/build/cache/checks.buf")
-    local code, output = process.capture({NUPP, "check", "--json"}, {cwd = directory, env = environment,})
+    local code, output = process.capture({NUPP, "check", "--json"}, {
+        cwd = directory,
+        env = environment,
+    })
     local decoded, report = pcall(json.decode, output)
     assert(decoded, tostring(report) .. "\n" .. output)
 
@@ -236,11 +239,9 @@ end
 -- Every file a build wrote, by path relative to `build`, caches aside.
 local function buildOutputs(directory)
     local outputs = {}
-    local list = assert(
-        io.popen(
-            ("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(directory)
-        )
-    )
+    local list = assert(io.popen(("cd '%s/build' && find . -type f -not -path './cache/*' -not -path './.bytecode/*'"):format(
+        directory
+    )))
     for path in list:lines() do
         local file = assert(io.open(directory .. "/build/" .. path, "rb"))
         outputs[path] = file:read("*a")
@@ -255,10 +256,8 @@ end
 -- have had: no build state and no artifact.
 local function coldBuild(directory, environment, extra)
     os.execute(
-        (
-            "cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
-            .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"
-        ):format(directory)
+        ("cd '%s' && rm -f build/.nupp-state.json build/.nupp-complete && "
+        .. "find build -name '*.lua' -not -path 'build/cache/*' -delete 2>/dev/null"):format(directory)
     )
     local argv = {NUPP, "build", "--json"}
     for _, argument in ipairs(extra or {}) do
@@ -342,8 +341,7 @@ return {stamp = stamp}
     for index = 1, 6 do
         write(
             directory .. ("/src/user%d.nupp"):format(index),
-            (
-                [[
+            ([[
 local clock = require("clock")
 local files = require("nupp.io.files")
 local time = require("nupp.time")
@@ -358,8 +356,7 @@ local function described(info: files.Info?): boolean
 end
 
 return {value = value, described = described}
-]]
-            ):format(index)
+]]):format(index)
         )
     end
 
@@ -414,8 +411,7 @@ return {count = count}
     for index = 1, 4 do
         write(
             directory .. ("/src/user%d.nupp"):format(index),
-            (
-                [[
+            ([[
 local world = require("world")
 local files = require("nupp.io.files")
 
@@ -424,8 +420,7 @@ local function value(path: string): integer
 end
 
 return {value = value}
-]]
-            ):format(index)
+]]):format(index)
         )
     end
 
@@ -464,8 +459,7 @@ end
     for index = 1, 6 do
         write(
             directory .. ("/src/use%d.nupp"):format(index),
-            (
-                [[
+            ([[
 const ann = require("lib.ann")
 
 @tag(name = "x")
@@ -480,8 +474,7 @@ local function make(): number
 end
 
 return {make = make}
-]]
-            ):format(index, index)
+]]):format(index, index)
         )
     end
 
@@ -503,9 +496,11 @@ end
 function M.parallelBuildsWriteWhatSerialBuildsWrite()
     local directory = tempProject(false)
     for _, level in ipairs({"-O0", "-O2"}) do
-        local serialCode, serialReport, serialOutputs, serialState = coldBuild(directory, {NUPP_CHECK_JOBS = "1"}, {
-            level
-        })
+        local serialCode, serialReport, serialOutputs, serialState = coldBuild(
+            directory,
+            {NUPP_CHECK_JOBS = "1"},
+            {level}
+        )
         testAssert.equal(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
         local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"}, {level})
         testAssert.equal(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
@@ -604,30 +599,25 @@ function M.anInterruptedCheckLeavesNoWorkers()
     local directory = tempProject(false)
     local pidFile = directory .. "/workers.pid"
     local activeFile = directory .. "/active.pid"
-    local child = assert(
-        process.startIsolated(
-            {
-                perl,
-                "-MPOSIX=:signal_h",
-                "-e",
-                '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
-                .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
-                NUPP,
-                "check",
-                "--quiet",
-            },
-            {
-                cwd = directory,
-                env = {
-                    NUPP_CHECK_JOBS = "2",
-                    NUPP_PARALLEL_CHECK_TRACE = "1",
-                    NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
-                    NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
-                    NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
-                },
-            }
-        )
-    )
+    local child = assert(process.startIsolated({
+        perl,
+        "-MPOSIX=:signal_h",
+        "-e",
+        '$SIG{INT}="DEFAULT"; my $s=POSIX::SigSet->new(SIGINT); '
+            .. "sigprocmask(SIG_UNBLOCK,$s); POSIX::setpgid(0,0); exec @ARGV;",
+        NUPP,
+        "check",
+        "--quiet",
+    }, {
+        cwd = directory,
+        env = {
+            NUPP_CHECK_JOBS = "2",
+            NUPP_PARALLEL_CHECK_TRACE = "1",
+            NUPP_TEST_PARALLEL_CHECK_PAUSE_MS = "1000",
+            NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE = activeFile,
+            NUPP_TEST_PARALLEL_CHECK_PID_FILE = pidFile,
+        },
+    }))
     -- Generous: the waits end as soon as the workers are up, and a loaded host can
     -- take several seconds to start two compilers.
     local deadline = time.now() + 60000
@@ -654,9 +644,13 @@ function M.anInterruptedCheckLeavesNoWorkers()
     child:close()
     assert(
         not exit:succeeded(),
-        (
-            "the interrupted check did not stop: code=%s killed=%s timedOut=%s"
-        ):format(tostring(exit.exitCode), tostring(exit.killed), tostring(exit.timedOut)) .. " output=" .. said
+        ("the interrupted check did not stop: code=%s killed=%s timedOut=%s"):format(
+            tostring(exit.exitCode),
+            tostring(exit.killed),
+            tostring(exit.timedOut)
+        )
+            .. " output="
+            .. said
     )
 
     deadline = time.now() + 60000

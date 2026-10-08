@@ -21,9 +21,7 @@ local function diagsOf(src, filename)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src)
-    return "expected clean:\n" .. src
-end)
+local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
 
 local function generate(src)
     local result = parser.parse(src, "test.g.nupp")
@@ -210,10 +208,7 @@ function M.dottedMembersTakeNoReceiver()
 end
 
 function M.recordMethodsRunAtRuntime()
-    testAssert.equal(
-        run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")),
-        "ok"
-    )
+    testAssert.equal(run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")), "ok")
 end
 
 function M.structMethodsDispatchThroughMetatype()
@@ -367,10 +362,7 @@ function M.newRefusesWhatCannotBeConstructed()
     testAssert.equal(diagsOf("local prim = new string()"), "NUPP2206:1")
     -- a closed set of literals is a union, and a value of it is one of the
     -- literals, written directly
-    testAssert.equal(
-        diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")),
-        "NUPP2206:2"
-    )
+    testAssert.equal(diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")), "NUPP2206:2")
 end
 
 -- A refinement is what `is` compiles to. The values here were never built by
@@ -518,11 +510,7 @@ function M.refinementTestsAreSharedAndKeepShortCircuiting()
             "\n"
         )
     )
-    testAssert.equal(
-        select(2, code:gsub("local __nuppIs%d+ = function%(", "")),
-        1,
-        "one declaration for two identical tests"
-    )
+    testAssert.equal(select(2, code:gsub("local __nuppIs%d+ = function%(", "")), 1, "one declaration for two identical tests")
     assert(code:find("always or __nuppIs1(", 1, true), "`or` still decides whether the subject is reached:\n" .. code)
 end
 
@@ -1677,10 +1665,7 @@ function M.fieldDefaultsMustBeClosedAndFitTheirFields()
         ),
         "NUPP2202:3 NUPP2202:4"
     )
-    testAssert.equal(
-        diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")),
-        "NUPP2202:2"
-    )
+    testAssert.equal(diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")), "NUPP2202:2")
 end
 
 -- A metamethod declaration is a contract, and a metatable literal is where the
@@ -1875,7 +1860,6 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
             "\n"
         )
     end
-
     local identity = table.concat(
         {
             "Box.__call = function<T>(self: Box<T>, value: T): T",
@@ -1892,15 +1876,13 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
     -- the contract is the literal's slot, so an unannotated one takes its types
     testAssert.equal(
         run(
-            box(
-                "function(self, value: T): T"
-            ) .. table.concat(
+            box("function(self, value: T): T") .. table.concat(
                 {
                     "Box.__call = function(self, value)",
                     "   return self.default",
                     "end",
                     "local box = new Box(default = 1)",
-                    "local made: integer = box(2)",
+            "local made: integer = box(2)",
                     "return made",
                 },
                 "\n"
@@ -1911,9 +1893,7 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
     -- and it still holds for every instance, not only the ones the literal names
     testAssert.equal(
         diagsOf(
-            box(
-                "function(self, value: T): T"
-            ) .. table.concat(
+            box("function(self, value: T): T") .. table.concat(
                 {"Box.__call = function<T>(self: Box<T>, value: T): string", "   return 'x'", "end",},
                 "\n"
             )

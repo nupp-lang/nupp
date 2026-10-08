@@ -712,10 +712,7 @@ function M.genericPackForwardingKeepsBorrowProvenance()
 end
 
 function M.potentiallyAffineGenericPacksMustTransferExactlyOnce()
-    testAssert.equal(
-        codes(table.concat({"local function drop<A...>(...: A...) end", "return drop",}, "\n")),
-        "NUPP2605"
-    )
+    testAssert.equal(codes(table.concat({"local function drop<A...>(...: A...) end", "return drop",}, "\n")), "NUPP2605")
     testAssert.equal(
         codes(
             table.concat(
